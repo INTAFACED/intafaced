@@ -211,6 +211,9 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       };
       const onMove = (param: { time?: number; point?: { x: number; y: number } }) => {
         mark('crosshair', param.time === undefined ? '' : String(param.time));
+        // The price at the pointer's height, as the library reads it, so a check can compare a placed point with it.
+        const atPointer = param.point ? host.main.coordinateToPrice(param.point.y) : null;
+        mark('crosshairPrice', atPointer === null ? '' : String(atPointer));
         if (syncing || !grid.sync.crosshair) return;
         syncing = true;
         try {

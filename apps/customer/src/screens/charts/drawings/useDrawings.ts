@@ -591,7 +591,13 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     if (!main) return;
     primitive.bind(main);
     main.attachPrimitive(primitive);
-    return () => main.detachPrimitive(primitive);
+    // The pane the drawings are drawn in, read from the library: the main series' pane, the price pane (0).
+    const element = host?.element;
+    if (element) element.dataset.drawingsPane = String(main.getPane().paneIndex());
+    return () => {
+      main.detachPrimitive(primitive);
+      if (element) delete element.dataset.drawingsPane;
+    };
   }, [host?.main, primitive]);
 
   // Paint whenever what is drawn changes.

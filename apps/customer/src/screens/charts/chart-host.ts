@@ -31,6 +31,7 @@ export interface ChartSeries {
   coordinateToPrice(y: number): number | null;
   dataByIndex(index: number, mismatchDirection?: number): unknown;
   seriesType(): string;
+  getPane(): { paneIndex(): number };
   options(): Record<string, unknown>;
   data(): readonly unknown[];
 }

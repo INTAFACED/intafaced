@@ -74,3 +74,27 @@ export const timesOf = (text) => [...text.matchAll(/(\d{4}-\d{2}-\d{2} \d{2}:\d{
 
 /** A row by its name, as the tree names it ("Trend line 1"). */
 export const rowNamed = (page, pattern) => page.locator('[data-drawing-id]').filter({ has: page.getByRole('button', { name: pattern }) });
+
+/** A bar time (epoch seconds) as the object tree writes it: UTC, to the minute. */
+export const barTimeText = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ');
+
+/**
+ * What the chart reads under a pixel: the bar time (epoch seconds) and the price at that height, as the library reports
+ * them on the grid cell (`data-crosshair`, `data-crosshair-price`). The pointer is moved there to read them.
+ */
+export async function pointerAt(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  // Cleared first, so what is read below is what the chart wrote for this position, not for the last one.
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair', '');
+    el.setAttribute('data-crosshair-price', '');
+  });
+  await page.mouse.move(point.x - 1, point.y);
+  await page.mouse.move(point.x, point.y);
+  await expect.poll(async () => Number(await cell.getAttribute('data-crosshair'))).toBeGreaterThan(0);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-price')) ?? '').not.toBe('');
+  return { time: Number(await cell.getAttribute('data-crosshair')), price: Number(await cell.getAttribute('data-crosshair-price')) };
+}
+
+/** A stored price is the pointer's price at the tick (0.01 for BTC-USDT): within half a tick of it. */
+export const atTick = (stored, price, tick = 0.01) => Math.abs(Number(stored) - price) <= tick / 2 + 1e-9;
