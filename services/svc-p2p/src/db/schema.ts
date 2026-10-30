@@ -112,6 +112,8 @@ export const offers = p2p.table(
      */
     makerTier: text('maker_tier'),
     status: offerStatusEnum('status').notNull().default('active'),
+    /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
+    visibility: text('visibility').notNull().default('public'),
     /** P-ads-merchant-06: why it is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
     closeReason: text('close_reason'),
     /** P-ads-merchant-06: when it came into its present status (set by a trigger on every status change). */
@@ -168,6 +170,8 @@ export const p2pTrades = p2p.table(
     settlementWindowSeconds: integer('settlement_window_seconds'),
     /** P-ads-merchant-19: the release window of a cash-in-person method row, copied at take (300 s to 24 h). */
     cashReleaseSeconds: integer('cash_release_seconds'),
+    /** P-ads-merchant-07: taken through a share link; written once at take (a trigger refuses a change). */
+    sharedFrom: boolean('shared_from').notNull().default(false),
     status: tradeStatusEnum('status').notNull().default('created'),
     /**
      * THE DECISION. Written and committed before the ledger post it authorises.
@@ -573,4 +577,21 @@ export const offerEdits = p2p.table(
     editedAt: tstz('edited_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.makerId, t.idempotencyKey] }), index('offer_edits_day_idx').on(t.makerId, t.editDay)],
+);
+
+/** P-ads-merchant-07: one link a maker made to their ad. Only the token's hash is kept. */
+export const offerShareLinks = p2p.table(
+  'offer_share_links',
+  {
+    id: uuid('id').primaryKey(),
+    offerId: uuid('offer_id')
+      .notNull()
+      .references(() => offers.id, { onDelete: 'cascade' }),
+    makerId: text('maker_id').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    expiresAt: tstz('expires_at').notNull(),
+    revokedAt: tstz('revoked_at'),
+  },
+  (t) => [index('offer_share_links_offer_idx').on(t.offerId, t.createdAt)],
 );

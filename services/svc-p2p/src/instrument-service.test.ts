@@ -1424,6 +1424,12 @@ describe('svc-p2p payment instruments', () => {
         // is refused not_a_party); an offer row carries no instrument field.
         'offers.editQuota': undefined,
         'offers.relist': { offerId: crypto.randomUUID() },
+        // P-ads-merchant-07: visibility and share links of the caller's own ad (a stranger's is refused not_a_party); a
+        // link row holds a token hash and times, never an instrument field.
+        'offers.setVisibility': { offerId: crypto.randomUUID(), visibility: 'private' },
+        'offers.shareLinks.create': { linkId: crypto.randomUUID(), offerId: crypto.randomUUID() },
+        'offers.shareLinks.list': { offerId: crypto.randomUUID() },
+        'offers.shareLinks.revoke': { linkId: crypto.randomUUID() },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

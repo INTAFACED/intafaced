@@ -201,6 +201,8 @@ test('J-p2p-05 #2 the person edits price and limits, pauses an ad and relists a 
   // The buyer's passkey from #1 confirms the take; a second one would itself need confirming.
   const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
   const trade = await b.mutate('trades.take', { offerId: newId, tradeId: randomUUID(), amount: '15', method: METHOD });
+  // A passkey's counter only goes up: keep how far it went for the next step.
+  run.write({ buyerPasskey: b.passkey().saved() });
   const refused = await s.raw.mutate('offers.close', { offerId: newId });
   expect(refusalCode(refused)).toBe('p2p.offer_has_open_trades');
   expect(refused.body.error.data.p2pLimit).toMatchObject({ openTrades: '1', openTradeIds: [trade.id] });
@@ -216,12 +218,69 @@ test('J-p2p-05 #2 the person edits price and limits, pauses an ad and relists a 
   expect((await b.query('trades.get', { tradeId: trade.id })).status).toBe('escrowed');
 });
 
-test('J-p2p-05 #3 a private ad is off the board and reachable by its link until the link expires or is revoked', async () => {
-  // P-ads-merchant-07: offers.setVisibility, offers.shareLink.create / revoke, offers.getByShareToken.
+test('J-p2p-05 #3 a private ad is off the board and reachable by its link until the link expires or is revoked', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(240_000);
   const state = journey();
   const s = p2p(await api(state.seller));
-  const res = await s.raw.mutate('offers.setVisibility', { offerId: state.pausedId, visibility: 'private' });
-  expect(res.status, 'offers.setVisibility (P-ads-merchant-07) is not built').toBe(200);
+  const ad = await sellAd(s, state.seller, 'private');
+  const terms = `TEST terms: ${J} private`;
+
+  // The seller makes it private and makes a link, in the app.
+  await signIn(page, state.seller);
+  await page.goto('/uc/ad');
+  await page
+    .locator(`[data-testid="p2p-offer-row"][data-offer-id="${ad.id}"]`)
+    .getByRole('button', { name: 'Inspect current offer' })
+    .click();
+  const sharing = page.getByTestId('offer-sharing');
+  await sharing.getByRole('button', { name: 'Make it private' }).click();
+  await expect(sharing).toHaveAttribute('data-visibility', 'private');
+  await expect(sharing.getByTestId('offer-visibility')).toContainText('It is not on the board.');
+  await sharing.getByRole('button', { name: 'Make a link' }).click();
+  const url = await sharing.getByTestId('share-link-url').textContent();
+  expect(url).toMatch(new RegExp(`/p2p\\?offerId=${ad.id}&share=[A-Za-z0-9_-]{32}$`));
+  await expect(sharing.getByRole('img', { name: 'QR code for this ad’s link' })).toBeVisible();
+  const token = new URL(url).searchParams.get('share');
+
+  // Absent from the board and closed without the link; open through it.
+  const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
+  const boardIds = (await b.query('offers.page', { asset: 'USDT', fiatCurrency: 'EUR', limit: 200 })).offers.map((o) => o.id);
+  expect(boardIds).not.toContain(ad.id);
+  expect(refusalCode(await b.raw.query('offers.get', { offerId: ad.id }))).toBe('p2p.offer_private');
+  expect((await b.query('offers.get', { offerId: ad.id, shareToken: token })).id).toBe(ad.id);
+  const buyerContext = await browser.newContext();
+  const buyerPage = await buyerContext.newPage();
+  await signIn(buyerPage, state.buyer);
+  await buyerPage.goto(new URL(url).pathname + new URL(url).search);
+  await expect(buyerPage.getByText(terms)).toBeVisible();
+
+  // An order taken through the link is marked shared, and the order says so.
+  const trade = await b.mutate('trades.take', { offerId: ad.id, tradeId: randomUUID(), amount: '15', method: METHOD, shareToken: token });
+  run.write({ buyerPasskey: b.passkey().saved() });
+  expect(trade.sharedFrom).toBe(true);
+  await buyerPage.goto(`/p2p/orders/${trade.id}`);
+  await expect(buyerPage.getByTestId('order-shared')).toHaveText('Taken through a link the seller or buyer shared.');
+
+  // A link that ends after a few seconds refuses once it has ended, and the page says so.
+  const short = await s.mutate('offers.shareLinks.create', { linkId: randomUUID(), offerId: ad.id, seconds: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 4_000));
+  expect(refusalCode(await b.raw.query('offers.get', { offerId: ad.id, shareToken: short.token }))).toBe('p2p.share_link_expired');
+  await buyerPage.goto(`/p2p?offerId=${ad.id}&share=${short.token}`);
+  await expect(buyerPage.getByText('This link has expired. Ask the person who shared it for a new one.')).toBeVisible();
+
+  // Withdrawn in the app: refused at once.
+  await page.reload();
+  await page
+    .locator(`[data-testid="p2p-offer-row"][data-offer-id="${ad.id}"]`)
+    .getByRole('button', { name: 'Inspect current offer' })
+    .click();
+  await page.getByTestId('share-links').locator('[data-state="live"]').first().getByRole('button', { name: 'Withdraw' }).click();
+  await expect(page.getByTestId('share-links').locator('[data-state="live"]')).toHaveCount(0);
+  expect(refusalCode(await b.raw.query('offers.get', { offerId: ad.id, shareToken: token }))).toBe('p2p.share_link_revoked');
+  await buyerContext.close();
 });
 
 test('J-p2p-05 #4 operating hours hide ads off hours, and the console to-do list orders trades by deadline', async () => {
