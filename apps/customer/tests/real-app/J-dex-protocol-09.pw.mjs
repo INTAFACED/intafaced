@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
 import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi } from 'viem';
+import { readFileSync } from 'node:fs';
+import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, parseAbi } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { TOKEN_A, fundOnTestChain, testChain } from './dex.mjs';
 
@@ -231,26 +232,71 @@ test(`${J} #3 searches a transaction hash: status, decoded input with named argu
   await expect(main(page).getByTestId('tx-revert-reason')).toHaveText('No reason returned');
 });
 
+/** The TEST token contract the stack seeds, from its committed build: anyone may mint, so a mint is a real Transfer. */
+const TEST_TOKEN = JSON.parse(
+  readFileSync(new URL('../../../../services/svc-protocol/contracts/out/TestToken.json', import.meta.url), 'utf8'),
+);
+
+/** Deploys a TEST token with this symbol from a fresh funded TEST key and mints to that key, so the indexer sees it emit. */
+async function deployedToken(symbol, name) {
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no token can be deployed').toBe('running');
+  const account = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(account.address);
+  const viemChain = {
+    id: chain.chainId,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const wallet = createWalletClient({ account, chain: viemChain, transport: http(chain.gateUrl) });
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const deploy = await wallet.deployContract({ abi: TEST_TOKEN.abi, bytecode: TEST_TOKEN.bytecode, args: [name, symbol, 18] });
+  const { contractAddress, status } = await reader.waitForTransactionReceipt({ hash: deploy });
+  expect(status).toBe('success');
+  const mint = await wallet.writeContract({
+    address: contractAddress,
+    abi: TEST_TOKEN.abi,
+    functionName: 'mint',
+    args: [account.address, 10n ** 18n],
+  });
+  expect((await reader.waitForTransactionReceipt({ hash: mint })).status).toBe('success');
+  return { address: getAddress(contractAddress), mint };
+}
+
 test(`${J} #4 pastes a 40-hex address into search: the address page is the top result, and two tokens sharing a symbol are both listed`, async ({
   page,
 }) => {
+  // Two TEST tokens that share one symbol, unique to this run so no other token on the chain carries it.
+  const symbol = `T${Date.now().toString(36).toUpperCase().slice(-7)}`;
+  const one = await deployedToken(symbol, 'TEST Token One');
+  const two = await deployedToken(symbol, 'TEST Token Two');
+
+  // "a 40-hex address in search: the address page is the top result"
   await page.goto('/chain');
-  await search(page).fill(ADDRESS, UNBUILT);
+  await search(page).fill(one.address);
   const results = page.getByRole('listbox', { name: 'Search results' }).getByRole('option');
-  await expect(results.first()).toContainText(ADDRESS.slice(0, 6));
-  await expect(results.first()).toContainText('Address');
-  await search(page).fill('TEST');
-  const tokens = results.filter({ hasText: 'Token' });
-  // Tokens are told apart by address, never merged by symbol: at least two listed tokens share a symbol, each its own row.
-  await expect.poll(() => tokens.count(), UNBUILT).toBeGreaterThan(1);
-  const listed = await tokens.evaluateAll((items) =>
-    items.map((item) => [item.getAttribute('data-symbol'), item.getAttribute('data-address')]),
-  );
-  const addresses = listed.map(([, address]) => address);
-  expect(addresses.every(Boolean)).toBe(true);
-  expect(new Set(addresses).size).toBe(addresses.length);
-  const symbols = listed.map(([symbol]) => symbol);
-  expect(symbols.some((symbol, i) => symbol && symbols.indexOf(symbol) !== i)).toBe(true);
+  const top = results.first();
+  await expect(top).toHaveAttribute('data-kind', 'address');
+  await expect(top).toHaveAttribute('data-address', one.address.toLowerCase());
+  await expect(top).toContainText(new RegExp(one.address, 'i'));
+  await top.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`/chain/address/${one.address}$`, 'i'));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(new RegExp(`^Address ${one.address}$`, 'i'));
+  // The page is that address's: the indexer lists the mint this run sent to it.
+  await expect(tableIn(page, 'Transactions').locator(`tr[data-tx="${one.mint.toLowerCase()}"]`)).toBeVisible({ timeout: 30_000 });
+
+  // "two tokens sharing a symbol are both listed, never merged": one option per contract, each with its own address.
+  await page.goto('/chain');
+  await search(page).fill(symbol.toLowerCase());
+  const tokens = page.getByRole('listbox', { name: 'Search results' }).locator('[role="option"][data-kind="token"]');
+  await expect
+    .poll(async () => (await tokens.evaluateAll((items) => items.map((item) => item.getAttribute('data-address')))).sort(), {
+      timeout: 30_000,
+      message: 'both tokens listed, once each',
+    })
+    .toEqual([one.address.toLowerCase(), two.address.toLowerCase()].sort());
+  expect(await tokens.evaluateAll((items) => items.map((item) => item.getAttribute('data-symbol')))).toEqual([symbol, symbol]);
 });
 
 test(`${J} #5 opens the address page: summary, transactions, holdings with unpriced ones counted, internal transactions or "trace unavailable", and a past balance or "not indexed before block N"`, async ({

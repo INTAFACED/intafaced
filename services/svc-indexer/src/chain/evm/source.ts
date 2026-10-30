@@ -1,9 +1,11 @@
 import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
-import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource } from '../source.js';
+import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource, type ChainToken } from '../source.js';
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
 import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
+import { TOKEN_READS_PER_BLOCK, TokenMetaReader } from './token-meta.js';
+import { transferOf } from '../../explorer/address.js';
 import { withSpan } from '../../tracing.js';
 
 /**
@@ -189,6 +191,9 @@ export class EvmChainSource implements ChainSource {
    */
   #chainIdVerified = false;
 
+  /** D-explorer-03. Each Transfer emitter's symbol, name and decimals, read once per process. */
+  readonly #tokens: TokenMetaReader;
+
   constructor(config: EvmChainSourceConfig) {
     if (!config.rpcUrl) {
       throw new ChainUnavailableError(
@@ -221,6 +226,7 @@ export class EvmChainSource implements ChainSource {
       // holds the poll interval open while it does.
       transport: http(config.rpcUrl, { timeout: config.requestTimeoutMs ?? 10_000, retryCount: 0 }),
     }) as PublicClient;
+    this.#tokens = new TokenMetaReader(this.client, config.rpcUrl);
   }
 
   /**
@@ -353,6 +359,11 @@ export class EvmChainSource implements ChainSource {
 
     const hashes = transactionHashes(header.transactions, hash, this.rpcUrl);
     const transactions = hashes.length === 0 ? [] : await readBlockTransactions(this.client, hashes, hash, this.rpcUrl);
+    const emitters = [
+      ...new Set(transactions.flatMap((tx) => tx.logs.flatMap((log) => (transferOf(log) ? [log.address.toLowerCase()] : [])))),
+    ];
+    // Past the per-block cap the rest stay unread here; the token sweep reads them (D-explorer-03).
+    const tokens = emitters.length === 0 ? [] : await this.#tokens.read(emitters.slice(0, TOKEN_READS_PER_BLOCK), height);
 
     const block: ChainBlock = {
       chainId: this.chainId,
@@ -370,6 +381,7 @@ export class EvmChainSource implements ChainSource {
         size: Number(header.size),
       },
       transactions,
+      tokens,
     };
 
     // The port's own validation, run on this adapter's output. An adapter is
@@ -392,6 +404,17 @@ export class EvmChainSource implements ChainSource {
    * what the last sync pass saw: the question it answers is "how stale is this
    * projection RIGHT NOW", and a cached answer to that is a contradiction.
    */
+  /** What token contracts say about themselves, read at the chain's head (the D-explorer-03 backfill). */
+  async readTokenMeta(addresses: readonly string[]): Promise<{ height: number; tokens: ChainToken[] }> {
+    let height: number;
+    try {
+      height = Number(await this.client.getBlockNumber());
+    } catch (err) {
+      throw classifyChainError(err, 'tokenMeta(head)', this.rpcUrl);
+    }
+    return { height, tokens: await this.#tokens.read(addresses, height) };
+  }
+
   async probe(): Promise<EvmChainProbe> {
     const base = { kind: 'evm' as const, rpcUrl: this.rpcUrl, venue: this.venue };
     try {

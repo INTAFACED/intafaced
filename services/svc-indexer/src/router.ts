@@ -1,3 +1,4 @@
+import { SYMBOL_MAX_CHARS } from './chain/evm/token-meta.js';
 import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
@@ -25,6 +26,7 @@ import {
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
 import { classifyExplorerTx, listTxPage, type ExplorerTxList, type ExplorerTxSource } from './explorer/tx.js';
+import { directionOf, listAddressTxPage, type ExplorerAddressSource } from './explorer/address.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -192,6 +194,8 @@ export interface IndexerRouterDeps {
   readonly txs?: ExplorerTxSource;
   /** Latest transactions, newest first. Absent => `indexer.explorer_unwired`. */
   readonly txList?: ExplorerTxList;
+  /** D-explorer-03 address transactions and token search. Absent => `indexer.explorer_unwired`. */
+  readonly address?: ExplorerAddressSource;
 }
 
 /**
@@ -298,6 +302,41 @@ const explorerTxListRowSchema = z.object({
   status: z.enum(['success', 'failed']),
   timestamp: z.number().int(),
   orphaned: z.object({ reason: z.string() }).nullable(),
+});
+
+const txCursorSchema = z.object({
+  height: z.number().int().min(0),
+  index: z.number().int().min(0),
+  hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+});
+
+const tokenSchema = z.object({
+  address: z.string(),
+  /** Null when the contract did not answer `symbol()` / `name()` / `decimals()`. */
+  symbol: z.string().nullable(),
+  name: z.string().nullable(),
+  decimals: z.number().int().nullable(),
+});
+
+const addressTxRowSchema = z.object({
+  chainId: z.number().int(),
+  hash: z.string(),
+  blockHeight: z.number().int(),
+  blockHash: z.string(),
+  index: z.number().int(),
+  timestamp: z.number().int(),
+  from: z.string(),
+  to: z.string().nullable(),
+  status: z.enum(['success', 'failed']),
+  revertReason: z.string().nullable(),
+  transfers: z.array(
+    z.object({
+      token: tokenSchema.omit({ name: true }),
+      /** Raw base units, decimal string. */
+      amount: z.string(),
+      direction: z.enum(['in', 'out', 'self']),
+    }),
+  ),
 });
 
 function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
@@ -422,6 +461,117 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               return {
                 rows: page.rows.map(({ valueWei, ...r }) => ({ ...r, chainId: deps.chainId, value: valueWei.toString() })),
                 nextCursor: page.nextCursor,
+                asOf: new Date().toISOString(),
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      address: router({
+        /**
+         * Transactions the address sent, received, or is a party to through an ERC-20 Transfer, newest first, from
+         * canonical blocks. Each row carries the transfers to or from the address. Owner-bounded window.
+         */
+        txs: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              address: addressSchema,
+              cursor: txCursorSchema.optional(),
+              limit: z.number().int().min(1).optional(),
+            }),
+          )
+          .output(
+            z.object({
+              rows: z.array(addressTxRowSchema),
+              nextCursor: z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() }).nullable(),
+              asOf: z.string(),
+              /** The newest canonical block indexed when this answer was read; null before the first block or on another network. */
+              asOfHeight: z.number().int().nullable(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              if (!deps.address) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              const limit = Math.min(input.limit ?? owner.limit, owner.limit);
+              const address = input.address.toLowerCase();
+              const ours = input.chainId === deps.chainId;
+              const head = ours ? await store.head() : null;
+              const page = ours
+                ? await listAddressTxPage(deps.address.txs, {
+                    address,
+                    limit,
+                    ...(input.cursor ? { cursor: { ...input.cursor, hash: input.cursor.hash.toLowerCase() } } : {}),
+                  })
+                : { rows: [], nextCursor: null };
+              return {
+                rows: page.rows.map((row) => ({
+                  chainId: deps.chainId,
+                  hash: row.hash,
+                  blockHeight: row.blockHeight,
+                  blockHash: row.blockHash,
+                  index: row.index,
+                  timestamp: row.timestamp,
+                  from: row.from,
+                  to: row.to,
+                  status: row.status,
+                  revertReason: row.revertReason,
+                  transfers: row.transfers.map((transfer) => ({
+                    token: { address: transfer.token.address, symbol: transfer.token.symbol, decimals: transfer.token.decimals },
+                    amount: transfer.amount.toString(),
+                    direction: directionOf(transfer, address),
+                  })),
+                })),
+                nextCursor: page.nextCursor,
+                asOf: new Date().toISOString(),
+                asOfHeight: head?.height ?? null,
+              };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      tokens: router({
+        /**
+         * Every token contract whose own `symbol()` is this one, ignoring case: one row per contract, never merged,
+         * so two tokens sharing a symbol are both listed. `more` is true when the owner window cut the list.
+         */
+        bySymbol: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              // Counted in characters, as token-meta stores them, so a stored symbol can always be searched.
+              symbol: z
+                .string()
+                .trim()
+                .min(1)
+                .refine((symbol) => Array.from(symbol).length <= SYMBOL_MAX_CHARS),
+            }),
+          )
+          .output(z.object({ rows: z.array(tokenSchema.extend({ chainId: z.number().int() })), more: z.boolean(), asOf: z.string() }))
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              if (!deps.address) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              const fetched =
+                input.chainId === deps.chainId ? await deps.address.tokensBySymbol({ symbol: input.symbol, limit: owner.limit }) : [];
+              return {
+                rows: fetched.slice(0, owner.limit).map((token) => ({ ...token, chainId: deps.chainId })),
+                more: fetched.length > owner.limit,
                 asOf: new Date().toISOString(),
               };
             } catch (err) {
