@@ -69,22 +69,18 @@ export function sessionsForHead(commits, sha) {
   return commitSessions(list.map((c) => c?.commit?.message));
 }
 
+/** A `Reviewer session:` line whose first word is the session, bare or as a link (docs/agents/reviewer-brief.md). */
+const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
+
 /**
- * The sessions a PASS names as its reviewer: the first session id on each `Reviewer session:` line
- * (docs/agents/reviewer-brief.md), or, when those lines name none, the first session id in the comment. Only the first,
- * because the line may go on to name the author ("Reviewer session: session_R (author is session_A)"), and a PASS that
- * mentions the author is not the author's PASS.
+ * The sessions a PASS names as its reviewer: the session written first on each `Reviewer session:` line. The rest of
+ * the line may name the author ("Reviewer session: session_R (author is session_A)") without making it the author's
+ * PASS. A comment with no such line counts every session id in it, so any other phrasing errs towards refusing.
  */
 export function passSessions(body) {
   const lines = String(body ?? '').split('\n');
-  const first = (l) => (l.match(SESSION_ID) ?? [])[0];
-  const named = lines
-    .filter((l) => /^Reviewer session:/i.test(l.trim()))
-    .map(first)
-    .filter(Boolean);
-  if (named.length > 0) return new Set(named);
-  const any = lines.map(first).find(Boolean);
-  return new Set(any ? [any] : []);
+  const named = lines.map((l) => REVIEWER_LINE.exec(l.trim())?.[1]).filter(Boolean);
+  return new Set(named.length > 0 ? named : lines.flatMap((l) => l.match(SESSION_ID) ?? []));
 }
 
 /**
@@ -275,6 +271,27 @@ function selfTest() {
       input(
         [pass('nino', `Independent review: PASS ${sha}\n\nReviewer session: session_R2 (INTAFACED R2 review; author is G, session_A1)`)],
         { authorSessions: new Set(['session_A1']) },
+      ),
+      true,
+    ],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1 (and session_R2)`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      false,
+    ],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: reviewing session_R1's notes, ran in session_A1`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      false,
+    ],
+    [
+      input(
+        [pass('nino', `Independent review: PASS ${sha}\nReviewer session: <https://example.test/code/session_R2> (author session_A1)`)],
+        {
+          authorSessions: new Set(['session_A1']),
+        },
       ),
       true,
     ],
