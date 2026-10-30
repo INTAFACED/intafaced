@@ -1,21 +1,26 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import type { Part } from '@/lib/desk/part';
-import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, type ClaimReply } from '@/lib/support/browser';
-import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
+import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
+import { claimGate, DESK_COMMENTS_READ, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
+import { CustomerCard } from './support-customer-card';
+import { TicketOwner } from './support-ticket-owner';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
 import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
 import { TicketMerge } from './support-ticket-merge';
 import { TicketProperties } from './support-ticket-properties';
+import { QueueFilters } from './support-queue-filters';
+import { EMPTY_QUERY } from '@/lib/support/queue-query';
+import { historyRows, type HistoryRow } from '@/lib/support/history';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 
@@ -71,11 +76,18 @@ export interface DeskViewProps {
   /** A reply, status change or escalation was sent (whatever the answer): read the ticket and its extras again. */
   readonly onActionDone: () => void;
   readonly children?: ReactNode;
+  /** The filter, search and saved views over the queue. Absent when the page offers none. */
+  readonly filters?: ReactNode;
   readonly onRefresh: () => void;
   readonly onOpen: (id: string) => void;
   readonly onClose: () => void;
   readonly onArm: (v: boolean) => void;
   readonly onClaim: () => void;
+  /** Claim whichever request the queue ranks first, and open it at its own address. */
+  readonly onClaimNext: () => void;
+  readonly claimingNext: boolean;
+  /** svc-support's answer to the last "claim the next request"; null before one. */
+  readonly nextReply: ClaimReply | null;
   /** The ticked requests for a bulk change. Absent when the page offers no bulk bar. */
   readonly bulk?: {
     readonly selected: ReadonlySet<string>;
@@ -142,7 +154,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         {p.arming ? (
           <div className="adm-callout" data-tone="warn">
             <strong>Claim this ticket?</strong>
-            <p>It becomes yours. svc-support has no release or reassign, so it stays yours from this console.</p>
+            <p>It becomes yours until you unclaim it or a lead gives it to someone else.</p>
             <div className="dk-row">
               <button type="button" className="adm-btn" data-tone="primary" onClick={p.onClaim} disabled={!gate.ok}>
                 {p.busy ? 'Claiming…' : 'Yes, claim it'}
@@ -165,11 +177,16 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
             className="adm-callout"
             role={p.reply.ok ? 'status' : 'alert'}
             data-testid="claim-reply"
+            data-code={p.reply.ok ? undefined : (p.reply.refusal.code ?? undefined)}
             data-tone={p.reply.ok ? 'ok' : p.reply.refusal.changed === 'unknown' ? 'warn' : 'danger'}
           >
             {p.reply.ok ? (
               <>
-                <strong>svc-support says the ticket is now owned by {p.reply.assigneeId ? shortId(p.reply.assigneeId) : 'nobody'}</strong>
+                <strong>
+                  {p.reply.assigneeId !== null && p.reply.assigneeId.toLowerCase() === p.userId.toLowerCase()
+                    ? 'Claimed. svc-support says the ticket is now owned by you'
+                    : `svc-support says the ticket is now owned by ${p.reply.assigneeId ? shortId(p.reply.assigneeId) : 'nobody'}`}
+                </strong>
                 <p>The ticket above was read again.</p>
               </>
             ) : (
@@ -183,6 +200,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         )}
       </div>
 
+      <TicketOwner key={`owner:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
+      <CustomerCard key={`customer:${t.id}`} ticketId={t.id} />
+
       <h4>Conversation</h4>
       {detail.comments.kind === 'failed' ? (
         <Failed name="Comments" part={detail.comments} />
@@ -191,10 +211,16 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       ) : (
         <ol className="dk-stack" aria-label="Comments">
           {detail.comments.data.map((c) => (
-            <li key={c.id} className="adm-callout">
+            <li key={c.id} className="adm-callout" data-visibility={c.visibility}>
               <strong>
-                {c.authorRole === 'operator' ? 'Staff' : 'Customer'} · {formatWhen(c.createdAt)}
+                {c.visibility === 'internal' ? 'Internal note' : c.authorRole === 'operator' ? 'Staff' : 'Customer'} ·{' '}
+                {formatWhen(c.createdAt)}
               </strong>
+              {c.visibility === 'internal' && (
+                <span className="adm-chip" data-tone="warn">
+                  Staff only · the customer does not see this
+                </span>
+              )}
               <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</p>
             </li>
           ))}
@@ -202,46 +228,64 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <h4>What happened to this ticket</h4>
-      {detail.events.kind === 'failed' ? (
-        <Failed name="History" part={detail.events} />
-      ) : detail.events.data.length === 0 ? (
-        <p className="dk-muted">No events recorded.</p>
-      ) : (
-        <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
-          <table className="adm-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>When</th>
-                <th>What</th>
-                <th>By</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.events.data.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.sequence}</td>
-                  <td>{formatWhen(e.occurredAt)}</td>
-                  <td>{e.kind === 'status_changed' ? `status ${e.fromStatus} → ${e.toStatus}` : e.kind}</td>
-                  <td>
-                    {e.actorRole} {shortId(e.actorId)}
-                  </td>
-                  <td>{e.note ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {detail.events.kind === 'failed' && <Failed name="History" part={detail.events} />}
+      {detail.propertyChanges.kind === 'failed' && <Failed name="Priority, type and label changes" part={detail.propertyChanges} />}
+      <TicketHistory
+        rows={historyRows(
+          detail.events.kind === 'ok' ? detail.events.data : [],
+          detail.propertyChanges.kind === 'ok' ? detail.propertyChanges.data : [],
+        )}
+        anyFailed={detail.events.kind === 'failed' || detail.propertyChanges.kind === 'failed'}
+      />
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
-      <TicketFiles key={t.id} ticketId={t.id} />
-      <TicketLifecycle key={t.id} ticket={t} />
-      <TicketProperties key={t.id} ticket={t} />
-      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
-      <TicketActions ticket={t} onDone={p.onActionDone} />
+      <TicketFiles key={`files:${t.id}`} ticketId={t.id} />
+      <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
+      <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
+      <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
+      <TicketActions
+        key={`actions:${t.id}`}
+        ticket={t}
+        events={detail.events}
+        userId={p.userId}
+        notesRead={detail.comments.kind === 'ok' ? detail.comments.data.filter((c) => c.visibility === 'internal').length : null}
+        notesCapped={detail.comments.kind === 'ok' && detail.comments.data.length >= DESK_COMMENTS_READ}
+        onDone={p.onActionDone}
+      />
     </>
+  );
+}
+
+function TicketHistory({ rows, anyFailed }: { rows: readonly HistoryRow[]; anyFailed: boolean }) {
+  // "No events recorded" only when every part was read; a failed part already says so above.
+  if (rows.length === 0) return anyFailed ? null : <p className="dk-muted">No events recorded.</p>;
+  return (
+    <div className="dk-table-wrap" role="region" aria-label="Ticket history" tabIndex={0}>
+      <table className="adm-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>When</th>
+            <th>What</th>
+            <th>By</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.sequence ?? '—'}</td>
+              <td>{formatWhen(r.at)}</td>
+              <td>{r.what}</td>
+              <td>
+                {r.actorRole} {shortId(r.actorId)}
+              </td>
+              <td>{r.note ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -259,8 +303,25 @@ export function SupportDeskView(p: DeskViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loadingQueue}>
           {p.loadingQueue ? 'Reading…' : 'Refresh'}
         </button>
+        <button type="button" className="adm-btn" data-tone="primary" onClick={p.onClaimNext} disabled={p.claimingNext}>
+          {p.claimingNext ? 'Claiming…' : 'Claim the next request'}
+        </button>
         <span className="dk-asof">{q ? `As of ${formatAsOf(q.asOf)} (when this console read svc-support)` : 'No read yet'}</span>
       </div>
+      {p.nextReply && !p.nextReply.ok && (
+        <div
+          className="adm-callout"
+          role="alert"
+          data-testid="claim-next-reply"
+          data-code={p.nextReply.refusal.code ?? undefined}
+          data-tone={p.nextReply.refusal.changed === 'unknown' ? 'warn' : 'danger'}
+        >
+          <strong>{p.nextReply.refusal.title}</strong>
+          <p>{p.nextReply.refusal.body}</p>
+          <p>{p.nextReply.refusal.next}</p>
+        </div>
+      )}
+      {q && p.filters}
       {!q && <p className="dk-why">svc-support could not be read. Nothing is shown rather than a guess.</p>}
       {q && q.queue.kind === 'failed' && <Failed name="Support queue" part={q.queue} />}
       {q && q.queue.kind === 'ok' && (
@@ -339,7 +400,30 @@ export function SupportDeskView(p: DeskViewProps) {
   );
 }
 
-export function SupportDesk({ initial, userId, children }: { initial: SupportQueueView | null; userId: string; children?: ReactNode }) {
+/** The request id an address names (`/support/<id>`), or null for the desk itself. */
+export function addressTicketId(pathname: string): string | null {
+  const match = /\/support\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  return match ? match[1]! : null;
+}
+
+/** The desk's address with one request open, or with none: `/support/<id>` beside `/support`, keeping the queue's query. */
+function deskAddress(ticketId: string | null): string {
+  const base = window.location.pathname.replace(/\/support(\/[^/]*)?$/, '/support');
+  return `${base}${ticketId ? `/${ticketId}` : ''}${window.location.search}`;
+}
+
+export function SupportDesk({
+  initial,
+  userId,
+  openTicketId,
+  children,
+}: {
+  initial: SupportQueueView | null;
+  userId: string;
+  /** The request named by the address, opened on arrival. */
+  openTicketId?: string;
+  children?: ReactNode;
+}) {
   const [queue, setQueue] = useState<SupportQueueView | null>(initial);
   const [ticket, setTicket] = useState<SupportTicketView | null>(null);
   const [ticketId, setTicketId] = useState<string | null>(null);
@@ -351,6 +435,8 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<ClaimReply | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const [claimingNext, setClaimingNext] = useState(false);
+  const [nextReply, setNextReply] = useState<ClaimReply | null>(null);
   const lock = useRef(false);
   const queueSeq = useRef(0);
   const ticketSeq = useRef(0);
@@ -359,7 +445,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
   const reloadQueue = useCallback(async () => {
     const mine = ++queueSeq.current;
     setLoadingQueue(true);
-    const next = await fetchQueue();
+    const next = await fetchQueue(initial?.query ?? EMPTY_QUERY);
     if (mine === queueSeq.current) {
       setQueue(next);
       setLoadingQueue(false);
@@ -369,7 +455,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
         setTicked((t) => new Set([...t].filter((id) => here.has(id))));
       }
     }
-  }, []);
+  }, [initial?.query]);
 
   const loadOne = useCallback(async (id: string) => {
     const mine = ++ticketSeq.current;
@@ -390,6 +476,63 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
       setLoadingExtras(false);
     }
   }, []);
+
+  const open = useCallback(
+    (id: string) => {
+      setTicketId(id);
+      setTicket(null);
+      setExtras(null);
+      setReply(null);
+      setArming(false);
+      void loadOne(id);
+      void loadExtras(id);
+    },
+    [loadOne, loadExtras],
+  );
+
+  const close = useCallback(() => {
+    ticketSeq.current += 1;
+    extrasSeq.current += 1;
+    setTicketId(null);
+    setTicket(null);
+    setExtras(null);
+    setReply(null);
+    setArming(false);
+  }, []);
+
+  useEffect(() => {
+    if (openTicketId) open(openTicketId);
+  }, [openTicketId, open]);
+
+  // Back and Forward move between requests: the open request is always the one the address names.
+  useEffect(() => {
+    const follow = () => {
+      const id = addressTicketId(window.location.pathname);
+      if (id) open(id);
+      else close();
+    };
+    window.addEventListener('popstate', follow);
+    return () => window.removeEventListener('popstate', follow);
+  }, [open, close]);
+
+  async function claimNext() {
+    if (lock.current) return;
+    lock.current = true;
+    setClaimingNext(true);
+    setNextReply(null);
+    try {
+      const result = await postClaimNext();
+      setNextReply(result);
+      if (result.ok) {
+        window.history.pushState(null, '', deskAddress(result.ticketId));
+        open(result.ticketId);
+      }
+      await reloadQueue();
+    } finally {
+      lock.current = false;
+      setClaimingNext(false);
+    }
+  }
 
   async function claim() {
     if (lock.current || !ticketId) return;
@@ -420,25 +563,18 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
       reply={reply}
       onRefresh={() => void reloadQueue()}
       onOpen={(id) => {
-        setTicketId(id);
-        setTicket(null);
-        setExtras(null);
-        setReply(null);
-        setArming(false);
-        void loadOne(id);
-        void loadExtras(id);
+        window.history.pushState(null, '', deskAddress(id));
+        open(id);
       }}
       onClose={() => {
-        ticketSeq.current += 1;
-        extrasSeq.current += 1;
-        setTicketId(null);
-        setTicket(null);
-        setExtras(null);
-        setReply(null);
-        setArming(false);
+        window.history.pushState(null, '', deskAddress(null));
+        close();
       }}
       onArm={setArming}
       onClaim={() => void claim()}
+      onClaimNext={() => void claimNext()}
+      claimingNext={claimingNext}
+      nextReply={nextReply}
       bulk={{
         selected: ticked,
         onToggle: (id) =>
@@ -450,6 +586,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
         onToggleAll: (ids, on) => setTicked(on ? new Set(ids) : new Set()),
         bar: <SupportBulkBar selected={[...ticked]} onClear={() => setTicked(new Set())} onDone={() => void reloadQueue()} />,
       }}
+      filters={queue ? <QueueFilters query={queue.query ?? EMPTY_QUERY} view={queue.view ?? null} refused={queue.refused ?? null} /> : null}
       extras={extras}
       loadingExtras={loadingExtras}
       onActionDone={() => {

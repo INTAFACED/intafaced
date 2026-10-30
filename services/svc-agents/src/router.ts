@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
-import { formatAmount } from '@intafaced/ledger-client';
+import { executeProcedure } from './procedures.js';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
 import { requireSettleService } from './settle-hmac.js';
@@ -53,6 +54,11 @@ import { draftScreeningSupport } from './risk-compliance/screening-draft.js';
 import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write.js';
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
+import { coachRunRoutes } from './coach/router.js';
+import { runRoutes } from './runs/routes.js';
+import { sessionEventsRoute } from './runs/session-events.js';
+import type { RunStore } from './runs/store.js';
+import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -61,6 +67,8 @@ import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
+import { ownRouter } from './own/routes.js';
+import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -82,7 +90,7 @@ import { spendRouter } from './spend/routes.js';
  * feature's clothes.
  */
 
-const actionOutput = z.object({
+export const actionOutput = z.object({
   id: z.string().guid(),
   sessionId: z.string().guid(),
   agentId: z.string(),
@@ -232,7 +240,7 @@ const sessionOutput = z.object({
   closedAt: z.string().nullable(),
 });
 
-function toActionOutput(action: AuditedAction) {
+export function toActionOutput(action: AuditedAction) {
   return {
     id: action.id,
     sessionId: action.sessionId,
@@ -261,6 +269,8 @@ function toActionOutput(action: AuditedAction) {
  * own words. `intafacedCode` lets a client branch on the machine code.
  */
 function toTRPCError(err: unknown): TRPCError {
+  // Already decided (an ownership check's NOT_FOUND): passed on, never reworded as an engine outage.
+  if (err instanceof TRPCError) return err;
   if (err instanceof AgentError) {
     const code =
       err.code === 'agents.refused' || err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset'
@@ -288,6 +298,8 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 
 export interface AgentsRouterDeps {
   readonly runtime: AgentRuntime;
+  /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
+  readonly opsLog?: OpsLogSettings;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -328,6 +340,10 @@ export interface AgentsRouterDeps {
    * caller fixtures as live truth.
    */
   readonly navigatorIdentitySessionPort?: NavigatorIdentitySessionPort;
+  /** Stored runs (AG-sessions-01). Absent → the Postgres store on `sql`; tests without a database pass one in. */
+  readonly runStore?: RunStore;
+  /** Published tier law of the scanner, navigator and support doors. Absent or blank → every door refuses closed. */
+  readonly tierLaws?: TierLaws;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -335,6 +351,22 @@ export interface AgentsRouterDeps {
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
 }
+
+/**
+ * The person's own choice of which session their history shows: a write to their own state, so a key, a sub-account
+ * or a service forwarding their principal does not make it, even with `agents:read`.
+ */
+function personReadProcedure() {
+  return scopedProcedure('agents:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
+    if (ctx.principal.kid || ctx.principal.sub_account) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.select_person_only' });
+    }
+    return next();
+  });
+}
+
+/** The `agents:execute` builder, for route modules mounted below. */
+export type ExecuteProcedure = typeof executeProcedure;
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
@@ -355,6 +387,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     portfolioPrices,
     meteringEnabled,
   } = deps;
+  // The tier-gated doors read the signed principal's tier and this stored law, never the body (AG-sessions-01).
+  const tierLaws = deps.tierLaws ?? NO_TIER_LAWS;
 
   function routeEngine(route: RouteDef): { engine: RouteEngine; metered: boolean } {
     const provider = typeof gateway.registeredProvider === 'function' ? gateway.registeredProvider(route.providerId) : undefined;
@@ -480,8 +514,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: z.string(),
               maxOutputTokens: z.number().int(),
               capability: z.enum(['complete', 'stream', 'embed']),
-              inputPerMillion: z.string(),
-              outputPerMillion: z.string(),
+              /** Null when this deployment publishes no rate for the task: it refuses every run (agents.price_unset). */
+              inputPerMillion: z.string().nullable(),
+              outputPerMillion: z.string().nullable(),
               assetId: z.string(),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
@@ -495,8 +530,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               task: route.task,
               maxOutputTokens: route.maxOutputTokens,
               capability: route.capability,
-              inputPerMillion: formatAmount(route.price.inputPerMillion),
-              outputPerMillion: formatAmount(route.price.outputPerMillion),
+              inputPerMillion: route.price ? formatAmount(route.price.inputPerMillion) : null,
+              outputPerMillion: route.price ? formatAmount(route.price.outputPerMillion) : null,
               assetId: feeAssetId,
               engine: flagged.engine,
               metered: flagged.metered,
@@ -598,7 +633,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     }),
 
     session: router({
-      open: scopedProcedure('agents:execute', { module: 'agents' })
+      open: executeProcedure()
         .input(z.object({ agentId: z.string().min(1) }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -616,7 +651,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           }),
         ),
 
-      close: scopedProcedure('agents:execute', { module: 'agents' })
+      close: executeProcedure()
         .input(z.object({ sessionId: z.string().guid() }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
@@ -624,8 +659,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             await ownedSession(input.sessionId, ctx.principal.userId);
             // Settle before closing: a session that ends with unbilled windows
             // leaves usage that only a sweep job would ever find.
-            await runtime.settleSession(input.sessionId);
-            const session = await runtime.closeSession(input.sessionId);
+            const session = await runtime.closeSettled(input.sessionId);
             return {
               id: session.id,
               agentId: session.agentId,
@@ -635,6 +669,128 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               openedAt: session.openedAt.toISOString(),
               closedAt: session.closedAt?.toISOString() ?? null,
             };
+          }),
+        ),
+
+      /**
+       * One of the caller's own sessions: its state and every usage window with what it was charged. Open windows have
+       * no amount yet; a sealed window with no ledger transaction is unpaid and is retried on its charge key.
+       */
+      detail: scopedProcedure('agents:read', { module: 'agents' })
+        .input(z.object({ sessionId: z.string().guid() }))
+        .output(
+          z.object({
+            session: sessionOutput,
+            assetId: z.string(),
+            windows: z.array(
+              z.object({
+                windowId: z.string(),
+                openedAt: z.string(),
+                state: z.enum(['open', 'unpaid', 'settled']),
+                amount: z.string().nullable(),
+                chargeKey: z.string().nullable(),
+              }),
+            ),
+            /**
+             * Each run of the session by its request id, oldest first. The run's claim commits before the engine is
+             * called, so a run the engine has not answered reads `running`; one whose usage is recorded reads `completed`.
+             */
+            runs: z.array(
+              z.object({
+                requestId: z.string(),
+                startedAt: z.string(),
+                state: z.enum(['running', 'completed']),
+              }),
+            ),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            if (!sql) throw new Error('agents sql is unset');
+            const rows = await sql<
+              Array<{
+                window_id: string;
+                opened_at: Date;
+                sealed_at: Date | null;
+                charged_amount: string | null;
+                charge_key: string | null;
+                charge_tx_id: string | null;
+              }>
+            >`
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+                FROM agents.usage_windows
+               WHERE session_id = ${session.id}
+               ORDER BY opened_at, window_id
+            `;
+            const runs = await sql<Array<{ request_id: string; claimed_at: Date; recorded: boolean }>>`
+              SELECT c.request_id, c.claimed_at,
+                     EXISTS (SELECT 1 FROM agents.usage_records u
+                              WHERE u.session_id = c.session_id AND u.request_id = c.request_id) AS recorded
+                FROM agents.think_claims c
+               WHERE c.session_id = ${session.id}
+               ORDER BY c.claimed_at, c.request_id
+            `;
+            return {
+              session: {
+                id: session.id,
+                agentId: session.agentId,
+                guardrailVersion: session.guardrailVersion,
+                status: session.status,
+                metered: session.metered,
+                openedAt: session.openedAt.toISOString(),
+                closedAt: session.closedAt?.toISOString() ?? null,
+              },
+              assetId: feeAssetId,
+              windows: rows.map((row) => ({
+                windowId: row.window_id,
+                openedAt: row.opened_at.toISOString(),
+                state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
+                amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
+                chargeKey: row.charge_key,
+              })),
+              runs: runs.map((run) => ({
+                requestId: run.request_id,
+                startedAt: run.claimed_at.toISOString(),
+                state: run.recorded ? ('completed' as const) : ('running' as const),
+              })),
+            };
+          }),
+        ),
+
+      /**
+       * The session the caller last selected in their history, kept by the service so the choice survives a reload and
+       * another device. Null when they have selected none.
+       */
+      selected: scopedProcedure('agents:read', { module: 'agents' })
+        .output(z.object({ sessionId: z.string().guid(), agentId: z.string() }).nullable())
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!sql) throw new Error('agents sql is unset');
+            const [row] = await sql<Array<{ session_id: string; agent_id: string }>>`
+              SELECT s.id AS session_id, s.agent_id
+                FROM agents.selected_sessions sel
+                JOIN agents.agent_sessions s ON s.id = sel.session_id AND s.user_id = sel.user_id
+               WHERE sel.user_id = ${ctx.principal.userId}
+            `;
+            return row ? { sessionId: row.session_id, agentId: row.agent_id } : null;
+          }),
+        ),
+
+      /** Selects one of the caller's own sessions for their history; someone else's session is not found. */
+      select: personReadProcedure()
+        .input(z.object({ sessionId: z.string().guid() }))
+        .output(z.object({ sessionId: z.string().guid(), agentId: z.string() }))
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            if (!sql) throw new Error('agents sql is unset');
+            await sql`
+              INSERT INTO agents.selected_sessions (user_id, session_id)
+              VALUES (${ctx.principal.userId}, ${session.id})
+              ON CONFLICT (user_id) DO UPDATE SET session_id = EXCLUDED.session_id, updated_at = now()
+            `;
+            return { sessionId: session.id, agentId: session.agentId };
           }),
         ),
 
@@ -695,65 +851,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             };
           }),
         ),
+
+      events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
-    run: router({
-      /**
-       * One metered engine call.
-       *
-       * `requestId` is supplied by the CALLER and is the anti-double-bill
-       * handle: a client that retries after a timeout reuses it, and the
-       * usage is counted once no matter how many times the request arrives.
-       */
-      complete: scopedProcedure('agents:execute', { module: 'agents' })
-        .input(
-          z.object({
-            sessionId: z.string().guid(),
-            requestId: z.string().min(8).max(200),
-            task: z.string().min(1),
-            system: z.string().max(20_000).optional(),
-            messages: z
-              .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(200_000) }))
-              .min(1)
-              .max(200),
-            maxOutputTokens: z.number().int().min(1).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            text: z.string(),
-            inputTokens: z.number().int(),
-            outputTokens: z.number().int(),
-            cost: z.string(),
-            assetId: z.string(),
-            metered: z.boolean(),
-            action: actionOutput,
-          }),
-        )
-        .mutation(({ ctx, input }) =>
-          guard(async () => {
-            await ownedSession(input.sessionId, ctx.principal.userId);
-            const result = await runtime.think({
-              sessionId: input.sessionId,
-              requestId: input.requestId,
-              task: input.task,
-              ...(input.system ? { system: input.system } : {}),
-              messages: input.messages,
-              ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
-            });
-
-            return {
-              text: result.text,
-              inputTokens: result.usage.inputTokens,
-              outputTokens: result.usage.outputTokens,
-              cost: formatAmount(result.cost),
-              assetId: feeAssetId,
-              metered: result.metered,
-              action: toActionOutput(result.action),
-            };
-          }),
-        ),
-    }),
+    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
 
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */
@@ -994,29 +1096,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * → refuse-closed. Does not invent free/staked depth.
        */
       tierGate: scopedProcedure('agents:read', { module: 'agents' })
-        .input(
-          z.object({
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z
-                    .record(
-                      z.string(),
-                      z.object({
-                        maxSignals: z.number().int().min(0).max(100),
-                        tools: z.array(z.string().min(1).max(120)).max(100),
-                      }),
-                    )
-                    .default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-          }),
-        )
+        .input(z.object({}).strict())
         .output(
           z.discriminatedUnion('status', [
             z.object({
@@ -1032,8 +1112,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
           ]),
         )
-        .query(({ input }) => {
-          const result = scannerTierGate({ law: input.law ?? null, userTier: input.userTier });
+        .query(({ ctx, input }) => {
+          const result = scannerTierGate({ law: tierLaws.scanner, userTier: ctx.principal.tier });
           if (result.status === 'ok') {
             return {
               status: 'ok' as const,
@@ -1051,62 +1131,45 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        */
       invokeDataTool: scopedProcedure('agents:read', { module: 'agents' })
         .input(
-          z.object({
-            tool: z.string().min(1).max(120),
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64).optional(),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z
-                    .record(
-                      z.string(),
-                      z.object({
-                        maxSignals: z.number().int().min(0).max(100),
-                        tools: z.array(z.string().min(1).max(120)).max(100),
-                      }),
-                    )
-                    .default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            now: z.string().datetime().optional(),
-            ticker: z
-              .object({
-                marketId: z.string().min(1).max(64),
-                last: z.string().nullable(),
-                volume24h: z.string().nullable(),
-                change24hBps: z.number().int().nullable(),
-                asOf: z.string().min(1),
-                maxAgeMs: z.number().int().positive().max(86_400_000),
-              })
-              .nullable()
-              .optional(),
-            markets: z
-              .array(
-                z.object({
+          z
+            .object({
+              tool: z.string().min(1).max(120),
+              plane: z.enum(['live', 'dark']),
+              now: z.string().datetime().optional(),
+              ticker: z
+                .object({
                   marketId: z.string().min(1).max(64),
-                  symbol: z.string().min(1).max(64),
-                  status: z.enum(['open', 'halted', 'closed']),
-                }),
-              )
-              .max(500)
-              .nullable()
-              .optional(),
-            bookTop: z
-              .object({
-                marketId: z.string().min(1).max(64),
-                bid: z.string().nullable(),
-                ask: z.string().nullable(),
-                asOf: z.string().min(1),
-                maxAgeMs: z.number().int().positive().max(86_400_000),
-              })
-              .nullable()
-              .optional(),
-          }),
+                  last: z.string().nullable(),
+                  volume24h: z.string().nullable(),
+                  change24hBps: z.number().int().nullable(),
+                  asOf: z.string().min(1),
+                  maxAgeMs: z.number().int().positive().max(86_400_000),
+                })
+                .nullable()
+                .optional(),
+              markets: z
+                .array(
+                  z.object({
+                    marketId: z.string().min(1).max(64),
+                    symbol: z.string().min(1).max(64),
+                    status: z.enum(['open', 'halted', 'closed']),
+                  }),
+                )
+                .max(500)
+                .nullable()
+                .optional(),
+              bookTop: z
+                .object({
+                  marketId: z.string().min(1).max(64),
+                  bid: z.string().nullable(),
+                  ask: z.string().nullable(),
+                  asOf: z.string().min(1),
+                  maxAgeMs: z.number().int().positive().max(86_400_000),
+                })
+                .nullable()
+                .optional(),
+            })
+            .strict(),
         )
         .output(
           z.union([
@@ -1160,12 +1223,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
           ]),
         )
-        .query(({ input }) => {
+        .query(({ ctx, input }) => {
           const result = invokeScannerDataTool({
             tool: input.tool,
             plane: input.plane,
-            tierLaw: input.law ?? null,
-            userTier: input.userTier ?? '',
+            tierLaw: tierLaws.scanner,
+            userTier: ctx.principal.tier,
             ...(input.now === undefined ? {} : { now: new Date(input.now) }),
             ticker: input.ticker ?? null,
             markets: input.markets ?? null,
@@ -1191,54 +1254,37 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        */
       rankLive: scopedProcedure('agents:read', { module: 'agents' })
         .input(
-          z.object({
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z
-                    .record(
-                      z.string(),
-                      z.object({
-                        maxSignals: z.number().int().min(0).max(100),
-                        tools: z.array(z.string().min(1).max(120)).max(100),
-                      }),
-                    )
-                    .default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            signalInputsLaw: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  p0_11: z.literal('sealed'),
-                  allowedInputs: z.array(z.enum(['last', 'volume24h', 'change24hBps', 'spread', 'funding'])).max(20),
-                  rankingRecipeId: z.literal('abs_change_x_log_volume'),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            tickers: z
-              .array(
-                z.object({
-                  marketId: z.string().min(1).max(64),
-                  last: z.string().nullable(),
-                  volume24h: z.string().nullable(),
-                  change24hBps: z.number().int().nullable(),
-                  asOf: z.string().min(1),
-                  maxAgeMs: z.number().int().positive().max(86_400_000),
-                }),
-              )
-              .max(500),
-            marketAllowlist: z.array(z.string().min(1).max(64)).max(500).optional(),
-            now: z.string().datetime().optional(),
-          }),
+          z
+            .object({
+              plane: z.enum(['live', 'dark']),
+              signalInputsLaw: z
+                .union([
+                  z.object({ published: z.literal(false) }),
+                  z.object({
+                    published: z.literal(true),
+                    p0_11: z.literal('sealed'),
+                    allowedInputs: z.array(z.enum(['last', 'volume24h', 'change24hBps', 'spread', 'funding'])).max(20),
+                    rankingRecipeId: z.literal('abs_change_x_log_volume'),
+                  }),
+                ])
+                .nullable()
+                .optional(),
+              tickers: z
+                .array(
+                  z.object({
+                    marketId: z.string().min(1).max(64),
+                    last: z.string().nullable(),
+                    volume24h: z.string().nullable(),
+                    change24hBps: z.number().int().nullable(),
+                    asOf: z.string().min(1),
+                    maxAgeMs: z.number().int().positive().max(86_400_000),
+                  }),
+                )
+                .max(500),
+              marketAllowlist: z.array(z.string().min(1).max(64)).max(500).optional(),
+              now: z.string().datetime().optional(),
+            })
+            .strict(),
         )
         .output(
           z.discriminatedUnion('status', [
@@ -1293,11 +1339,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
           ]),
         )
-        .query(({ input }) => {
+        .query(({ ctx, input }) => {
           const result = rankLiveFromTickers({
             plane: input.plane,
-            tierLaw: input.law ?? null,
-            userTier: input.userTier,
+            tierLaw: tierLaws.scanner,
+            userTier: ctx.principal.tier,
             tickers: input.tickers,
             signalInputsLaw: resolveScannerSignalInputsLaw(input.signalInputsLaw),
             ...(input.marketAllowlist === undefined ? {} : { marketAllowlist: input.marketAllowlist }),
@@ -1339,64 +1385,47 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
-          z.object({
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z
-                    .record(
-                      z.string(),
-                      z.object({
-                        maxSignals: z.number().int().min(0).max(100),
-                        tools: z.array(z.string().min(1).max(120)).max(100),
-                      }),
-                    )
-                    .default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            signalInputsLaw: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  p0_11: z.literal('sealed'),
-                  allowedInputs: z.array(z.enum(['last', 'volume24h', 'change24hBps', 'spread', 'funding'])).max(20),
-                  rankingRecipeId: z.literal('abs_change_x_log_volume'),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            // Capped well under the guardrail's per-session action budget: one
-            // ticker is one audited tool call.
-            tickers: z
-              .array(
-                z.object({
-                  marketId: z.string().min(1).max(64),
-                  last: z.string().nullable(),
-                  volume24h: z.string().nullable(),
-                  change24hBps: z.number().int().nullable(),
-                  asOf: z.string().min(1),
-                  maxAgeMs: z.number().int().positive().max(86_400_000),
-                }),
-              )
-              .max(50),
-            marketAllowlist: z.array(z.string().min(1).max(64)).max(500).optional(),
-            now: z.string().datetime().optional(),
-            /**
-             * Live tickers page size (`GET /api/v1/tickers?limit=`). Optional so
-             * omit reaches the named refuse instead of Zod "Required". Never
-             * invent 500; owner may pass 500.
-             */
-            tickersLimit: z.number().int().positive().max(500).optional(),
-          }),
+          z
+            .object({
+              plane: z.enum(['live', 'dark']),
+              signalInputsLaw: z
+                .union([
+                  z.object({ published: z.literal(false) }),
+                  z.object({
+                    published: z.literal(true),
+                    p0_11: z.literal('sealed'),
+                    allowedInputs: z.array(z.enum(['last', 'volume24h', 'change24hBps', 'spread', 'funding'])).max(20),
+                    rankingRecipeId: z.literal('abs_change_x_log_volume'),
+                  }),
+                ])
+                .nullable()
+                .optional(),
+              // Capped well under the guardrail's per-session action budget: one
+              // ticker is one audited tool call.
+              tickers: z
+                .array(
+                  z.object({
+                    marketId: z.string().min(1).max(64),
+                    last: z.string().nullable(),
+                    volume24h: z.string().nullable(),
+                    change24hBps: z.number().int().nullable(),
+                    asOf: z.string().min(1),
+                    maxAgeMs: z.number().int().positive().max(86_400_000),
+                  }),
+                )
+                .max(50),
+              marketAllowlist: z.array(z.string().min(1).max(64)).max(500).optional(),
+              now: z.string().datetime().optional(),
+              /**
+               * Live tickers page size (`GET /api/v1/tickers?limit=`). Optional so
+               * omit reaches the named refuse instead of Zod "Required". Never
+               * invent 500; owner may pass 500.
+               */
+              tickersLimit: z.number().int().positive().max(500).optional(),
+            })
+            .strict(),
         )
         .output(
           z.discriminatedUnion('status', [
@@ -1467,9 +1496,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               userId: ctx.principal.userId,
               feeAssetId,
               plane: input.plane,
-              tierLaw: input.law ?? null,
+              tierLaw: tierLaws.scanner,
               signalInputsLaw: resolveScannerSignalInputsLaw(input.signalInputsLaw),
-              userTier: input.userTier,
+              userTier: ctx.principal.tier,
               tickers: input.tickers,
               ...(spotTickersPort === undefined ? {} : { spotTickersPort }),
               ...(input.tickersLimit === undefined ? {} : { tickersLimit: input.tickersLimit }),
@@ -1699,21 +1728,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Does not invent free/staked/premium grants.
        */
       tierGate: scopedProcedure('agents:read', { module: 'agents' })
-        .input(
-          z.object({
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-          }),
-        )
+        .input(z.object({}).strict())
         .output(
           z.discriminatedUnion('status', [
             z.object({
@@ -1728,8 +1743,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
           ]),
         )
-        .query(({ input }) => {
-          const result = navigatorTierGate({ law: input.law ?? null, userTier: input.userTier });
+        .query(({ ctx, input }) => {
+          const result = navigatorTierGate({ law: tierLaws.navigator, userTier: ctx.principal.tier });
           if (result.status === 'ok') {
             return {
               status: 'ok' as const,
@@ -1746,57 +1761,48 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        */
       invokeDataTool: scopedProcedure('agents:read', { module: 'agents' })
         .input(
-          z.object({
-            tool: z.string().min(1).max(120),
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64).optional(),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            now: z.string().datetime().optional(),
-            quote: z
-              .object({
-                marketId: z.string().min(1).max(64),
-                last: z.string().nullable(),
-                asOf: z.string().min(1),
-                maxAgeMs: z.number().int().positive().max(86_400_000),
-              })
-              .nullable()
-              .optional(),
-            markets: z
-              .array(
-                z.object({
+          z
+            .object({
+              tool: z.string().min(1).max(120),
+              plane: z.enum(['live', 'dark']),
+              now: z.string().datetime().optional(),
+              quote: z
+                .object({
                   marketId: z.string().min(1).max(64),
-                  symbol: z.string().min(1).max(64),
-                  status: z.enum(['open', 'halted', 'closed']),
-                }),
-              )
-              .max(500)
-              .nullable()
-              .optional(),
-            session: z
-              .object({
-                sessionId: z.string().min(1).max(120),
-                userId: z.string().min(1).max(120),
-                status: z.enum(['open', 'closed']),
-              })
-              .nullable()
-              .optional(),
-            occurredAt: z.string().datetime().optional(),
-            /**
-             * Live markets page size (`GET /api/v1/markets?limit=`). Optional so
-             * omit reaches the named refuse instead of Zod "Required". Never
-             * invent 50; owner may pass 50.
-             */
-            marketsLimit: z.number().int().positive().max(500).optional(),
-          }),
+                  last: z.string().nullable(),
+                  asOf: z.string().min(1),
+                  maxAgeMs: z.number().int().positive().max(86_400_000),
+                })
+                .nullable()
+                .optional(),
+              markets: z
+                .array(
+                  z.object({
+                    marketId: z.string().min(1).max(64),
+                    symbol: z.string().min(1).max(64),
+                    status: z.enum(['open', 'halted', 'closed']),
+                  }),
+                )
+                .max(500)
+                .nullable()
+                .optional(),
+              session: z
+                .object({
+                  sessionId: z.string().min(1).max(120),
+                  userId: z.string().min(1).max(120),
+                  status: z.enum(['open', 'closed']),
+                })
+                .nullable()
+                .optional(),
+              occurredAt: z.string().datetime().optional(),
+              /**
+               * Live markets page size (`GET /api/v1/markets?limit=`). Optional so
+               * omit reaches the named refuse instead of Zod "Required". Never
+               * invent 50; owner may pass 50.
+               */
+              marketsLimit: z.number().int().positive().max(500).optional(),
+            })
+            .strict(),
         )
         .output(
           z.object({
@@ -1924,8 +1930,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           const result = invokeNavigatorDataTool({
             tool,
             plane,
-            tierLaw: input.law ?? null,
-            userTier: input.userTier ?? '',
+            tierLaw: tierLaws.navigator,
+            userTier: ctx.principal.tier,
             requesterUserId: ctx.principal.userId,
             ...(input.now === undefined ? {} : { now: new Date(input.now) }),
             quote,
@@ -1984,66 +1990,57 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
-          z.object({
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            // Capped well under the guardrail's per-session action budget: one
-            // ask is one audited tool call, refusals included.
-            asks: z
-              .array(
-                z.object({
-                  tool: z.string().min(1).max(120),
-                  quote: z
-                    .object({
-                      marketId: z.string().min(1).max(64),
-                      last: z.string().nullable(),
-                      asOf: z.string().min(1),
-                      maxAgeMs: z.number().int().positive().max(86_400_000),
-                    })
-                    .nullable()
-                    .optional(),
-                  markets: z
-                    .array(
-                      z.object({
+          z
+            .object({
+              plane: z.enum(['live', 'dark']),
+              // Capped well under the guardrail's per-session action budget: one
+              // ask is one audited tool call, refusals included.
+              asks: z
+                .array(
+                  z.object({
+                    tool: z.string().min(1).max(120),
+                    quote: z
+                      .object({
                         marketId: z.string().min(1).max(64),
-                        symbol: z.string().min(1).max(64),
-                        status: z.enum(['open', 'halted', 'closed']),
-                      }),
-                    )
-                    .max(500)
-                    .nullable()
-                    .optional(),
-                  session: z
-                    .object({
-                      sessionId: z.string().min(1).max(120),
-                      userId: z.string().min(1).max(120),
-                      status: z.enum(['open', 'closed']),
-                    })
-                    .nullable()
-                    .optional(),
-                }),
-              )
-              .max(20),
-            now: z.string().datetime().optional(),
-            /**
-             * Live markets page size (`GET /api/v1/markets?limit=`). Optional so
-             * omit reaches the named refuse instead of Zod "Required". Never
-             * invent 50; owner may pass 50.
-             */
-            marketsLimit: z.number().int().positive().max(500).optional(),
-          }),
+                        last: z.string().nullable(),
+                        asOf: z.string().min(1),
+                        maxAgeMs: z.number().int().positive().max(86_400_000),
+                      })
+                      .nullable()
+                      .optional(),
+                    markets: z
+                      .array(
+                        z.object({
+                          marketId: z.string().min(1).max(64),
+                          symbol: z.string().min(1).max(64),
+                          status: z.enum(['open', 'halted', 'closed']),
+                        }),
+                      )
+                      .max(500)
+                      .nullable()
+                      .optional(),
+                    session: z
+                      .object({
+                        sessionId: z.string().min(1).max(120),
+                        userId: z.string().min(1).max(120),
+                        status: z.enum(['open', 'closed']),
+                      })
+                      .nullable()
+                      .optional(),
+                  }),
+                )
+                .max(20),
+              now: z.string().datetime().optional(),
+              /**
+               * Live markets page size (`GET /api/v1/markets?limit=`). Optional so
+               * omit reaches the named refuse instead of Zod "Required". Never
+               * invent 50; owner may pass 50.
+               */
+              marketsLimit: z.number().int().positive().max(500).optional(),
+            })
+            .strict(),
         )
         .output(
           z.discriminatedUnion('status', [
@@ -2089,8 +2086,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               userId: ctx.principal.userId,
               feeAssetId,
               plane: resolveNavigatorPlane(input.plane),
-              tierLaw: input.law ?? null,
-              userTier: input.userTier,
+              tierLaw: tierLaws.navigator,
+              userTier: ctx.principal.tier,
               asks: input.asks.map((ask) => ({
                 tool: ask.tool,
                 quote: ask.quote ?? null,
@@ -2322,21 +2319,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Does not invent which plan may use the assist layer.
        */
       tierGate: scopedProcedure('agents:read', { module: 'agents' })
-        .input(
-          z.object({
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-          }),
-        )
+        .input(z.object({}).strict())
         .output(
           z.discriminatedUnion('status', [
             z.object({
@@ -2351,8 +2334,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             }),
           ]),
         )
-        .query(({ input }) => {
-          const result = supportTierGate({ law: input.law ?? null, userTier: input.userTier });
+        .query(({ ctx, input }) => {
+          const result = supportTierGate({ law: tierLaws.support, userTier: ctx.principal.tier });
           if (result.status === 'ok') {
             return { status: 'ok' as const, userTier: result.userTier, allowedTools: [...result.allowedTools] };
           }
@@ -2368,56 +2351,47 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        */
       invokeDataTool: scopedProcedure('agents:read', { module: 'agents' })
         .input(
-          z.object({
-            tool: z.string().min(1).max(120),
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64).optional(),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            articles: z
-              .array(
-                z.object({
-                  articleKey: z.string().min(1).max(160),
-                  titleKey: z.string().min(1).max(160),
-                  bodyKey: z.string().min(1).max(160),
-                }),
-              )
-              .max(200)
-              .nullable()
-              .optional(),
-            ticket: z
-              .object({
-                ticketId: z.string().min(1).max(120),
-                ownerUserId: z.string().max(120),
-                status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
-                category: z.string().max(64),
-              })
-              .nullable()
-              .optional(),
-            account: z
-              .object({
-                userId: z.string().max(120),
-                status: z.enum(['active', 'frozen', 'closed']),
-                kycTier: z.string().max(64),
-              })
-              .nullable()
-              .optional(),
-            occurredAt: z.string().datetime().optional(),
-            kbPlane: z.enum(['live', 'dark']).optional(),
-            /**
-             * KB search page size. Optional so omit reaches the named refuse
-             * (`agents.kb_search_limit_unset`) instead of Zod "Required".
-             */
-            limit: z.number().int().positive().max(500).optional(),
-          }),
+          z
+            .object({
+              tool: z.string().min(1).max(120),
+              plane: z.enum(['live', 'dark']),
+              articles: z
+                .array(
+                  z.object({
+                    articleKey: z.string().min(1).max(160),
+                    titleKey: z.string().min(1).max(160),
+                    bodyKey: z.string().min(1).max(160),
+                  }),
+                )
+                .max(200)
+                .nullable()
+                .optional(),
+              ticket: z
+                .object({
+                  ticketId: z.string().min(1).max(120),
+                  ownerUserId: z.string().max(120),
+                  status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
+                  category: z.string().max(64),
+                })
+                .nullable()
+                .optional(),
+              account: z
+                .object({
+                  userId: z.string().max(120),
+                  status: z.enum(['active', 'frozen', 'closed']),
+                  kycTier: z.string().max(64),
+                })
+                .nullable()
+                .optional(),
+              occurredAt: z.string().datetime().optional(),
+              kbPlane: z.enum(['live', 'dark']).optional(),
+              /**
+               * KB search page size. Optional so omit reaches the named refuse
+               * (`agents.kb_search_limit_unset`) instead of Zod "Required".
+               */
+              limit: z.number().int().positive().max(500).optional(),
+            })
+            .strict(),
         )
         .output(
           z.object({
@@ -2502,8 +2476,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             plane: input.plane,
             ...(input.kbPlane === undefined ? {} : { kbPlane: input.kbPlane }),
             requesterUserId: ctx.principal.userId,
-            tierLaw: input.law ?? null,
-            userTier: input.userTier ?? '',
+            tierLaw: tierLaws.support,
+            userTier: ctx.principal.tier,
             desk: supportDesk ?? null,
             deskHeaders,
             articles: input.articles ?? null,
@@ -2546,40 +2520,31 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        */
       answerOrEscalate: scopedProcedure('agents:read', { module: 'agents' })
         .input(
-          z.object({
-            tool: z.string().min(1).max(120),
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64).optional(),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            articles: z
-              .array(
-                z.object({
-                  articleKey: z.string().min(1).max(160),
-                  titleKey: z.string().min(1).max(160),
-                  bodyKey: z.string().min(1).max(160),
-                }),
-              )
-              .max(200)
-              .nullable()
-              .optional(),
-            moneyRequest: z.boolean().optional(),
-            /** Omitted → dark. Fixture articles are not a live ops.support KB. */
-            kbPlane: z.enum(['live', 'dark']).optional(),
-            /**
-             * KB search page size. Optional so omit reaches the named refuse
-             * instead of Zod "Required". Never invent 100.
-             */
-            limit: z.number().int().positive().max(500).optional(),
-          }),
+          z
+            .object({
+              tool: z.string().min(1).max(120),
+              plane: z.enum(['live', 'dark']),
+              articles: z
+                .array(
+                  z.object({
+                    articleKey: z.string().min(1).max(160),
+                    titleKey: z.string().min(1).max(160),
+                    bodyKey: z.string().min(1).max(160),
+                  }),
+                )
+                .max(200)
+                .nullable()
+                .optional(),
+              moneyRequest: z.boolean().optional(),
+              /** Omitted → dark. Fixture articles are not a live ops.support KB. */
+              kbPlane: z.enum(['live', 'dark']).optional(),
+              /**
+               * KB search page size. Optional so omit reaches the named refuse
+               * instead of Zod "Required". Never invent 100.
+               */
+              limit: z.number().int().positive().max(500).optional(),
+            })
+            .strict(),
         )
         .output(
           z.discriminatedUnion('status', [
@@ -2600,8 +2565,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             plane: input.plane,
             kbPlane: input.kbPlane ?? 'dark',
             requesterUserId: ctx.principal.userId,
-            tierLaw: input.law ?? null,
-            userTier: input.userTier ?? '',
+            tierLaw: tierLaws.support,
+            userTier: ctx.principal.tier,
             desk: supportDesk ?? null,
             articles: input.articles ?? null,
             kbSearchLimit: input.limit,
@@ -2632,102 +2597,93 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        *
        * A mutation, not a query: it opens a session and writes audit rows.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
-          z.object({
-            plane: z.enum(['live', 'dark']),
-            userTier: z.string().max(64),
-            law: z
-              .union([
-                z.object({ published: z.literal(false) }),
-                z.object({
-                  published: z.literal(true),
-                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
-                }),
-              ])
-              .nullable()
-              .optional(),
-            /** The user is asking for money to move. Escalates to a person, free. */
-            moneyRequest: z.boolean().optional(),
-            /**
-             * Published ops.support KB spine (contract `SupportKbArticle`).
-             * Used when an ask carries `kbQuery` — never invents articles.
-             */
-            kbCatalog: z
-              .array(
-                z.object({
-                  id: z.string().min(1).max(200),
-                  titleKey: z.string().min(1).max(200),
-                  bodyKey: z.string().min(1).max(200),
-                }),
-              )
-              .max(500)
-              .nullable()
-              .optional(),
-            // Capped well under the guardrail's per-session action budget: one
-            // read is one audited tool call, refusals included.
-            asks: z
-              .array(
-                z.object({
-                  tool: z.string().min(1).max(120),
-                  articles: z
-                    .array(
-                      z.object({
-                        articleKey: z.string().min(1).max(160),
-                        titleKey: z.string().min(1).max(160),
-                        bodyKey: z.string().min(1).max(160),
-                      }),
-                    )
-                    .max(200)
-                    .nullable()
-                    .optional(),
-                  /** Search fragment against `kbCatalog` when articles omitted. */
-                  kbQuery: z.string().max(200).nullable().optional(),
-                  /**
-                   * KB search page size. Optional so omit reaches the named
-                   * refuse instead of Zod "Required". Never invent 100.
-                   */
-                  limit: z.number().int().positive().max(500).optional(),
-                  ticket: z
-                    .object({
-                      ticketId: z.string().min(1).max(120),
-                      ownerUserId: z.string().max(120),
-                      status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
-                      category: z.string().max(64),
-                    })
-                    .nullable()
-                    .optional(),
-                  account: z
-                    .object({
-                      userId: z.string().max(120),
-                      status: z.enum(['active', 'frozen', 'closed']),
-                      kycTier: z.string().max(64),
-                    })
-                    .nullable()
-                    .optional(),
-                  /** Contract grounding — unread/plane-dark refuses invent. */
-                  accountGrounding: z
-                    .discriminatedUnion('status', [
-                      z.object({
-                        status: z.literal('read'),
-                        state: z.object({
-                          userId: z.string().guid(),
-                          status: z.enum(['active', 'frozen', 'closed']),
-                          kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
+          z
+            .object({
+              plane: z.enum(['live', 'dark']),
+              /** The user is asking for money to move. Escalates to a person, free. */
+              moneyRequest: z.boolean().optional(),
+              /**
+               * Published ops.support KB spine (contract `SupportKbArticle`).
+               * Used when an ask carries `kbQuery` — never invents articles.
+               */
+              kbCatalog: z
+                .array(
+                  z.object({
+                    id: z.string().min(1).max(200),
+                    titleKey: z.string().min(1).max(200),
+                    bodyKey: z.string().min(1).max(200),
+                  }),
+                )
+                .max(500)
+                .nullable()
+                .optional(),
+              // Capped well under the guardrail's per-session action budget: one
+              // read is one audited tool call, refusals included.
+              asks: z
+                .array(
+                  z.object({
+                    tool: z.string().min(1).max(120),
+                    articles: z
+                      .array(
+                        z.object({
+                          articleKey: z.string().min(1).max(160),
+                          titleKey: z.string().min(1).max(160),
+                          bodyKey: z.string().min(1).max(160),
                         }),
-                        readAt: z.string().datetime(),
-                      }),
-                      z.object({
-                        status: z.literal('unread'),
-                        reason: z.enum(['plane_dark', 'not_attempted']),
-                      }),
-                    ])
-                    .nullable()
-                    .optional(),
-                }),
-              )
-              .max(20),
-          }),
+                      )
+                      .max(200)
+                      .nullable()
+                      .optional(),
+                    /** Search fragment against `kbCatalog` when articles omitted. */
+                    kbQuery: z.string().max(200).nullable().optional(),
+                    /**
+                     * KB search page size. Optional so omit reaches the named
+                     * refuse instead of Zod "Required". Never invent 100.
+                     */
+                    limit: z.number().int().positive().max(500).optional(),
+                    ticket: z
+                      .object({
+                        ticketId: z.string().min(1).max(120),
+                        ownerUserId: z.string().max(120),
+                        status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
+                        category: z.string().max(64),
+                      })
+                      .nullable()
+                      .optional(),
+                    account: z
+                      .object({
+                        userId: z.string().max(120),
+                        status: z.enum(['active', 'frozen', 'closed']),
+                        kycTier: z.string().max(64),
+                      })
+                      .nullable()
+                      .optional(),
+                    /** Contract grounding — unread/plane-dark refuses invent. */
+                    accountGrounding: z
+                      .discriminatedUnion('status', [
+                        z.object({
+                          status: z.literal('read'),
+                          state: z.object({
+                            userId: z.string().guid(),
+                            status: z.enum(['active', 'frozen', 'closed']),
+                            kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
+                          }),
+                          readAt: z.string().datetime(),
+                        }),
+                        z.object({
+                          status: z.literal('unread'),
+                          reason: z.enum(['plane_dark', 'not_attempted']),
+                        }),
+                      ])
+                      .nullable()
+                      .optional(),
+                  }),
+                )
+                .max(20),
+            })
+            .strict(),
         )
         .output(
           z.discriminatedUnion('status', [
@@ -2798,8 +2754,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               userId: ctx.principal.userId,
               feeAssetId,
               plane: input.plane,
-              tierLaw: input.law ?? null,
-              userTier: input.userTier,
+              tierLaw: tierLaws.support,
+              userTier: ctx.principal.tier,
               ...(input.moneyRequest === undefined ? {} : { moneyRequest: input.moneyRequest }),
               ...(signal === undefined ? {} : { signal }),
               kbCatalog: input.kbCatalog ?? null,
@@ -3138,7 +3094,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * refuses before any session opens (unbilled). Never invents fee share.
        * Ok presentation is always a directory — never returns-ranked.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3424,7 +3380,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Dark pay plane refuses before any session opens (unbilled).
        * Live requires PayMetricsPort; request-body points are not live truth.
        */
-      runSession: scopedProcedure('agents:execute', { module: 'agents' })
+      runSession: executeProcedure()
         .input(
           z.object({
             plane: z.enum(['live', 'dark']),
@@ -3754,6 +3710,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      */
     coach: router({
       policy: publicProcedure.query(() => describeCoachPolicy()),
+      ...coachRunRoutes(deps, guard),
 
       session: scopedProcedure('agents:read', { module: 'agents' })
         .input(
@@ -4015,7 +3972,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * withdraw, no withdrawal credential. A later grant is a separate act.
      */
     marketplace: router({
-      install: scopedProcedure('agents:execute', { module: 'agents' })
+      install: executeProcedure()
         .input(
           z.object({
             packageId: z.string().min(1).max(64),
@@ -4047,6 +4004,10 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
 
     /** User spend caps (AG-spend-01). A blank cap refuses. A reservation is not a ledger post. */
     spend: spendRouter(sql),
+
+    /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
+    own: ownRouter(sql, { runtime, feeAssetId }),
+    opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
   });
 }
 

@@ -8,6 +8,7 @@ export const notifyCopy = defineCopy('notifications', {
   'See all': 'See all',
   All: 'All',
   Unread: 'Unread',
+  TEST: 'TEST',
   'Notification filters': 'Notification filters',
   'Notification list': 'Your notifications',
   'Latest notifications': 'Latest notifications',

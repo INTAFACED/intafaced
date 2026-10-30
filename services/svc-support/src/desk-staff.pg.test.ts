@@ -137,10 +137,35 @@ if (!url) {
       expect(set).toMatchObject({ priority: 'high', ticketType: null, labels: ['a-b', 'vip'], updatedAt: at });
       await book.set({ ticketId: ticket.id, priority: 'high', labels: ['vip', 'a-b'], by: LEAD, reason: 'again', at });
       expect(await db.sql`SELECT set_by, reason FROM support.ticket_property_log WHERE ticket_id = ${ticket.id}`).toHaveLength(1);
+      expect(await book.changes(ticket.id, 100)).toEqual([
+        {
+          logId: expect.stringMatching(/^[0-9]+$/),
+          ticketId: ticket.id,
+          setBy: LEAD,
+          reason: 'deadline',
+          setAt: at,
+          field: 'priority',
+          from: null,
+          to: 'high',
+        },
+        {
+          logId: expect.stringMatching(/^[0-9]+$/),
+          ticketId: ticket.id,
+          setBy: LEAD,
+          reason: 'deadline',
+          setAt: at,
+          field: 'labels',
+          from: [],
+          to: ['a-b', 'vip'],
+        },
+      ]);
       expect(await book.ticketsWithLabel('vip')).toEqual(new Set([ticket.id]));
       expect(await book.ticketsWithLabel('absent')).toEqual(new Set());
       const cleared = await book.set({ ticketId: ticket.id, priority: null, by: LEAD, reason: null, at: '2026-10-20T09:31:00.000Z' });
       expect(cleared).toMatchObject({ priority: null, labels: ['a-b', 'vip'] });
+      // The newest save is kept when the limit cuts, and entries still come oldest first.
+      expect((await book.changes(ticket.id, 1)).map((c) => [c.field, c.from, c.to])).toEqual([['priority', 'high', null]]);
+      expect((await book.changes(ticket.id, 100)).map((c) => c.field)).toEqual(['priority', 'labels', 'priority']);
       await expect(db.sql`UPDATE support.ticket_properties SET priority = 'critical' WHERE ticket_id = ${ticket.id}`).rejects.toThrow();
     });
 

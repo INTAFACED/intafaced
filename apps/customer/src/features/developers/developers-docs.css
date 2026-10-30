@@ -1,0 +1,16 @@
+/* Route paths, names and scopes are read whole: in a table that scrolls sideways, they never break mid-word. */
+.pub-table code {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+/* Signing headers and the test vector: text reads from the start, and a long value (a hash, the canonical text) wraps
+   whole inside its cell, keeping its line breaks. */
+.dev-text-table td,
+.dev-text-table th {
+  text-align: start;
+}
+.dev-text-table td code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

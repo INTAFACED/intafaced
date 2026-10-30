@@ -49,8 +49,12 @@ export function useUnreadCount(): number | null {
   return load.status === 'ready' ? load.data : null;
 }
 
-/** Market id -> names, so "bought 0.00015 on <id>" can say "BTC". Empty until the market list answers. */
-export function useMarketNames(): ReadonlyMap<string, NotifyMarket> {
+/**
+ * Market id -> names, so "bought 0.00015 on <id>" can say "BTC". `settled` turns true once the list has answered, ready or not, and stays
+ * true (a later retry does not take a drawn list away); before that the map is empty, and a fill drawn from it would read "Your buy order
+ * was filled." and open Trades unfiltered. `useInboxView` holds such rows until then.
+ */
+export function useMarketNames(): { settled: boolean; markets: ReadonlyMap<string, NotifyMarket> } {
   const env = useDataEnv();
   const source = useMemo(
     () =>
@@ -67,7 +71,11 @@ export function useMarketNames(): ReadonlyMap<string, NotifyMarket> {
     [env],
   );
   const load = useSource(source);
-  return useMemo(() => new Map(load.status === 'ready' ? load.data.map((market) => [market.id, market]) : []), [load]);
+  // Only ever goes from false to true, so setting it while rendering is safe.
+  const settled = useRef(false);
+  if (load.status !== 'loading') settled.current = true;
+  const markets = useMemo(() => new Map(load.status === 'ready' ? load.data.map((market) => [market.id, market]) : []), [load]);
+  return { settled: settled.current, markets };
 }
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
@@ -178,4 +186,23 @@ export function useInbox({ limit, unreadOnly, enabled = true }: { limit: number;
   }, [api, unreadOnly]);
 
   return { state, actionFailed, loadingMore, reload, loadMore, read, readAll };
+}
+
+const LOADING: InboxState = { status: 'loading' };
+
+/**
+ * The inbox as its rows are drawn. A list holding a notice tied to a market (a fill) stays loading until the market names have settled
+ * too, so that row is never shown, or opened, without its coin. A failed market read settles it; the row then names no coin and opens
+ * Trades unfiltered. Any other list, and a failed inbox read, is shown at once.
+ */
+export function useInboxView(options: Parameters<typeof useInbox>[0]): {
+  inbox: Inbox;
+  state: InboxState;
+  markets: ReadonlyMap<string, NotifyMarket>;
+} {
+  const inbox = useInbox(options);
+  const { settled, markets } = useMarketNames();
+  const { state } = inbox;
+  const waiting = !settled && state.status === 'ready' && state.items.some((item) => typeof item.params.marketId === 'string');
+  return { inbox, state: waiting ? LOADING : state, markets };
 }

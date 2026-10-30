@@ -397,18 +397,29 @@ export type PayErrorCode =
   | 'pay.internal_settlement_refused'
   | 'pay.internal_asset_unsupported'
   | 'pay.withdrawal_platform_address'
+  /**
+   * J-wallet-05 #6 (issue #6517): a send out of the platform goes only to an address svc-bank's address book holds for that
+   * asset on that network, approved and past its cooling-off. Each answer that is not `ready` has its own code; nothing is
+   * claimed or held. `_unavailable`: the address book could not be asked.
+   */
+  | 'pay.withdrawal_destination_not_saved'
+  | 'pay.withdrawal_destination_network_mismatch'
+  | 'pay.withdrawal_destination_unapproved'
+  | 'pay.withdrawal_destination_cooling'
+  | 'pay.withdrawal_destination_cooling_unset'
+  | 'pay.withdrawal_destination_locked'
+  | 'pay.withdrawal_destination_blocked'
+  | 'pay.withdrawal_destination_unavailable'
+  /** svc-ledger refused a withdrawal post whose fee is not its hold's (`ledger.withdraw_fee_unbound`): nothing posted, an operator looks. */
+  | 'pay.withdrawal_fee_unbound'
+  /** No custody signer for the network a send out of the platform names (or none named): refused before any claim or hold. */
   | 'pay.wallet_withdraw_unavailable'
-  | 'pay.wallet_withdraw_disabled'
-  | 'pay.wallet_typed_address'
-  | 'pay.wallet_cooling'
+  /** A send names a tag or memo on a network whose rules take none (J-wallet-05 #1): refused before anything is asked or held. */
+  | 'pay.withdrawal_tag_not_taken'
+  /** A send names a tag on a network that takes one: svc-pay keeps no tag for a send, so it is refused, never dropped. */
+  | 'pay.withdrawal_tag_unsupported'
   | 'pay.wallet_fee_unset'
-  | 'pay.wallet_fee_differs'
   | 'pay.wallet_cap_unset'
-  | 'pay.wallet_over_cap'
-  | 'pay.wallet_travel_rule'
-  | 'pay.wallet_allowlist'
-  | 'pay.wallet_destination_rejected'
-  | 'pay.wallet_share_timeout'
   | 'pay.wallet_forbidden'
   | 'pay.wallet_not_found'
   | 'pay.wallet_unconfigured'
@@ -1539,6 +1550,11 @@ export class PayService {
     return paymentReads.listPaymentAttempts(this.internal, paymentId);
   }
 
+  /** J-merchant-05 #4: the newest pending rail result's confirmation count, with when it was recorded. */
+  async paymentConfirmations(paymentId: string): Promise<{ seen: number; required: number; asOf: string } | null> {
+    return paymentReads.paymentConfirmations(this.internal, paymentId);
+  }
+
   async paymentFacts(paymentId: string): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
     return paymentReads.paymentFacts(this.internal, paymentId);
   }
@@ -2385,19 +2401,17 @@ export class PayService {
     const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
     // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
-    const offeredMethod = await checkoutMethodFor(
-      this.sql,
-      this.checkoutMethodRails(categoryRails(categoryRule) ?? undefined),
-      input,
-      this.now(),
-    );
+    const onlyRails = categoryRails(categoryRule) ?? undefined;
+    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(onlyRails), input, this.now(), {
+      categoryLimited: onlyRails !== undefined,
+    });
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,
         method: offeredMethod,
         riskBand: input.riskBand,
       },
-      categoryRails(categoryRule) ?? undefined,
+      onlyRails,
     );
     const adapter = decision.adapter;
     // Blank reserve terms (and any rule the routing hint did not cover) refuse by name before any row.

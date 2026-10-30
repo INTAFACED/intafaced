@@ -38,6 +38,8 @@ import {
   type FreezeState,
 } from './ledger/freeze.js';
 import type { RestoreWatermarkRead } from '@intafaced/contracts';
+import type { LedgerTransactionsExist, ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
+import { transactionsExist } from './ledger/transactions-exist.js';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
@@ -64,7 +66,12 @@ import {
   type AccountMetadataReadInput,
 } from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
-import { runDueReconciliationControls as runDueOperatorControls } from './ledger/reconciliation-controls.js';
+import {
+  listReconciliationEvaluations,
+  type ReconciliationSources,
+  runDueReconciliationControls as runDueOperatorControls,
+  unsetReconciliationSources,
+} from './ledger/reconciliation-controls.js';
 
 /**
  * The service layer: the ledger engine plus the three things wrapping every
@@ -85,6 +92,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly clockSkewBoundMs: number | null;
   private readonly now: () => Date;
   private readonly readDatabaseNow: (sql: Sql) => Promise<Date>;
+  private readonly reconciliationSources: ReconciliationSources;
 
   constructor(
     private readonly sql: Sql,
@@ -96,6 +104,8 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       clockSkewBoundMs?: number | null;
       now?: () => Date;
       readDatabaseNow?: (sql: Sql) => Promise<Date>;
+      /** The outside and parity sides operator controls read; omitted, both are unset. */
+      reconciliationSources?: ReconciliationSources;
     } & IdempotencyConflictOptions = {},
   ) {
     this.bootPostingEnabled = options.postingEnabled ?? true;
@@ -103,6 +113,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
     this.now = options.now ?? (() => new Date());
     this.readDatabaseNow = options.readDatabaseNow ?? readDatabaseNow;
+    this.reconciliationSources = options.reconciliationSources ?? unsetReconciliationSources();
     this.engine = new PostgresLedger(sql, {
       ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
       onIdempotencyMismatch:
@@ -188,6 +199,16 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   /** Fee revenue per asset over one window. A read; same no-span reasoning as `history`. */
   feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
     return this.engine.feeRevenue(range);
+  }
+
+  /** Finished reconciliation evaluations after a cursor, for svc-ops' alert store (OPS-reconciliation-03). A read. */
+  async reconciliationEvaluations(input: unknown): Promise<ReconciliationEvaluationFeed> {
+    return listReconciliationEvaluations(this.sql, input);
+  }
+
+  /** Which asked transaction ids are booked, ids only, for svc-ops resolving an alert (OPS-reconciliation-04). A read. */
+  async transactionsExist(input: unknown): Promise<LedgerTransactionsExist> {
+    return transactionsExist(this.sql, input);
   }
 
   /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */
@@ -540,7 +561,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   /** Due operator controls. Read-only: a failure does not freeze posting. */
   runDueReconciliationControls(): Promise<void> {
-    return runDueOperatorControls(this.sql);
+    return runDueOperatorControls(this.sql, this.reconciliationSources);
   }
 
   private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { signOutBrowser } from './stack.mjs';
+import { api, signOutBrowser } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,
@@ -10,8 +10,10 @@ import { tableIn, bodyRows } from './tables.mjs';
 // - The stack publishes no node and starts no indexer reader for the explorer, so blocks, transactions, addresses,
 //   pools and contracts have no rows: every step from #2 on waits on that (D-explorer-01 to -07).
 // - #1: Chain home has no latest-blocks list and no INTACHAIN "not launched" line (D-explorer-07).
-// - #6: no private watch with a tag and note; #9: no pool fee fields; #11: no token info update with owner proof.
+// - #9: no pool fee fields; #11: no token info update with owner proof.
 // The explorer's TEST network is Base Sepolia; the hashes and addresses below are well-formed but name nothing on it.
+// A step passes only on rows read from a chain: an empty table, an unknown hash or a blocked row fails it (OWNER 114),
+// so #1, #4 and #10 wait on the stack's TEST networks and the indexer like the rest.
 const J = 'J-dex-protocol-09';
 const UNBUILT = { timeout: 5_000 };
 const UNKNOWN_TX = `0x${'ab'.repeat(32)}`;
@@ -36,6 +38,18 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
   await expect(main(page).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(tableIn(page, 'Latest blocks')).toBeVisible(UNBUILT);
   await expect(tableIn(page, 'Latest transactions')).toBeVisible();
+  // Empty tables show no network: both must list what the test network holds, newest block first.
+  // A blocked row is a row too: each block row is headed by its height.
+  await expect(tableIn(page, 'Latest blocks').getByRole('rowheader').first()).toHaveText(/\d/, UNBUILT);
+  const heights = (await tableIn(page, 'Latest blocks').getByRole('rowheader').allInnerTexts()).map((text) =>
+    Number(text.replace(/\D/g, '')),
+  );
+  expect(heights).toEqual([...heights].sort((a, b) => b - a));
+  await expect(
+    tableIn(page, 'Latest transactions')
+      .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
+      .first(),
+  ).toBeVisible(UNBUILT);
   const intachain = main(page).getByTestId('chain-intachain');
   await expect(intachain).toContainText('INTACHAIN');
   await expect(intachain).toContainText('not launched');
@@ -90,9 +104,16 @@ test(`${J} #4 pastes a 40-hex address into search: the address page is the top r
   await expect(results.first()).toContainText('Address');
   await search(page).fill('TEST');
   const tokens = results.filter({ hasText: 'Token' });
-  // Tokens are told apart by address, never merged by symbol.
-  const addresses = await tokens.evaluateAll((items) => items.map((item) => item.getAttribute('data-address')));
+  // Tokens are told apart by address, never merged by symbol: at least two listed tokens share a symbol, each its own row.
+  await expect.poll(() => tokens.count(), UNBUILT).toBeGreaterThan(1);
+  const listed = await tokens.evaluateAll((items) =>
+    items.map((item) => [item.getAttribute('data-symbol'), item.getAttribute('data-address')]),
+  );
+  const addresses = listed.map(([, address]) => address);
+  expect(addresses.every(Boolean)).toBe(true);
   expect(new Set(addresses).size).toBe(addresses.length);
+  const symbols = listed.map(([symbol]) => symbol);
+  expect(symbols.some((symbol, i) => symbol && symbols.indexOf(symbol) !== i)).toBe(true);
 });
 
 test(`${J} #5 opens the address page: summary, transactions, holdings with unpriced ones counted, internal transactions or "trace unavailable", and a past balance or "not indexed before block N"`, async ({
@@ -112,33 +133,73 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   page,
 }) => {
   test.setTimeout(180_000);
+  const watched = { address: ADDRESS.toLowerCase(), tag: 'TEST cold wallet', note: 'TEST note' };
+  /** The account's own stored watches, read through identity's preferences door with that account's own sign-in. */
+  const storedWatches = async (client) => {
+    const input = encodeURIComponent(JSON.stringify({ namespace: 'protocol.address-watches' }));
+    const { status, body } = await client.get(`/api/identity/trpc/preferences.get?input=${input}`);
+    expect(status).toBe(200);
+    return body.result.data;
+  };
+  const watchButton = page.getByRole('button', { name: 'Watch this address' });
+  const add = async () => {
+    await watchButton.click();
+    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
+    await dialog.getByRole('textbox', { name: 'Tag' }).fill(watched.tag);
+    await dialog.getByRole('textbox', { name: 'Private note' }).fill(watched.note);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+  };
+
   const who = await signUp(page, 'cx');
   await signIn(page, who);
+  const whoApi = await api(who);
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).toContainText('This explorer holds no funds', UNBUILT);
-  const add = async () => {
-    await page.getByRole('button', { name: 'Watch this address' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Watch this address' });
-    await dialog.getByRole('textbox', { name: 'Tag' }).fill('TEST cold wallet');
-    await dialog.getByRole('textbox', { name: 'Private note' }).fill('TEST note');
-    await dialog.getByRole('button', { name: 'Save' }).click();
-  };
+  // the page says the explorer holds no funds
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  // The button is enabled only once the account's list is read, so every check below runs on a loaded page.
+  await expect(watchButton).toBeEnabled();
+  expect(await storedWatches(whoApi)).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
+
+  // adds a watch with a tag and a private note
   await add();
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  const first = await storedWatches(whoApi);
+  expect(first).toEqual({ namespace: 'protocol.address-watches', version: 1, value: [watched] });
+
+  // listed for this person
   await page.goto('/chain/watchlist');
   const rows = bodyRows(tableIn(page, 'Your watched addresses'));
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('TEST cold wallet');
+  await expect(rows.first()).toContainText(watched.tag);
+  await expect(rows.first()).toContainText(watched.note);
+
+  // adding again changes nothing: the stored record keeps its version and value, and the list still has one row
   await page.goto(`/chain/address/${ADDRESS}`);
+  await expect(watchButton).toBeEnabled();
+  // The save is sent, and identity answers it stored at the version it already had.
+  const saved = page.waitForResponse((res) => res.url().includes('/api/identity/trpc/preferences.set'));
   await add();
+  expect((await (await saved).json()).result.data).toEqual({ ...first, outcome: 'stored' });
+  await expect(main(page)).toContainText(`You watch this address as “${watched.tag}”.`);
+  await expect(main(page)).toContainText(`Your note: ${watched.note}`);
+  expect(await storedWatches(whoApi)).toEqual(first);
   await page.goto('/chain/watchlist');
   await expect(rows).toHaveCount(1);
 
+  // another account cannot read it, so it is listed for this person only
   await signOutBrowser(page.context());
   const other = await signUp(page, 'cy');
   await signIn(page, other);
+  expect(await storedWatches(await api(other))).toEqual({ namespace: 'protocol.address-watches', version: 0, value: null });
   await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(main(page)).not.toContainText('TEST note');
+  await expect(watchButton).toBeEnabled();
+  await expect(main(page)).toContainText('This explorer holds no funds');
+  await expect(main(page)).not.toContainText(watched.note);
+  await expect(main(page)).not.toContainText(watched.tag);
   await page.goto('/chain/watchlist');
+  await expect(main(page)).toContainText('You are not watching any address.');
   await expect(bodyRows(tableIn(page, 'Your watched addresses'))).toHaveCount(0);
 });
 
@@ -195,12 +256,21 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
 test(`${J} #10 searches a hash that exists on two networks: both are listed, and a network that did not answer reads "not checked" with its reason`, async ({
   page,
 }) => {
+  // An unknown hash reads "Not found" everywhere and proves nothing about two networks: the hash searched is one the
+  // stack's two test networks both hold (the same signed deploy sent to each), read from the first network's list.
   await page.goto('/chain');
-  await search(page).fill(UNKNOWN_TX, UNBUILT);
+  const link = tableIn(page, 'Latest transactions')
+    .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
+    .first();
+  await expect(link).toBeVisible(UNBUILT);
+  const hash = (await link.getAttribute('href'))?.match(/0x[0-9a-fA-F]{64}/)?.[0];
+  expect(hash).toMatch(/^0x[0-9a-fA-F]{64}$/);
+  await search(page).fill(hash);
   await search(page).press('Enter');
   const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
   await expect.poll(() => networks.count()).toBeGreaterThan(1);
   for (const network of await networks.all()) await expect(network).toContainText(/Found|Not found|not checked: .+/);
+  await expect.poll(() => networks.filter({ hasText: /: Found/ }).count()).toBeGreaterThan(1);
 });
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({

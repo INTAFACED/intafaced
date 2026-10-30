@@ -11,18 +11,21 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 const base = { windowId: 'w', assetId: 'IFC', epoch: 7, reward: '10', feeBps: 100, shares: [{ shareId: 'a', minerId: ALICE, weight: 1n }] };
 const migration = (name: string) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8');
 const initial = migration('0000_mining_pool_init.sql');
+// Shares now name their worker (0003) and carry their proof of work and mode (0004), so ingest needs the worker table (0002). 0001 stays out of the base so the tests
+// below still upgrade populated pre-0001 data to it and reverse it.
+const workers = [migration('0002_mining_reads.sql'), migration('0003_share_workers.sql'), migration('0004_pow_solo.sql')];
 
 describe('native mining storage safeguards', () => {
   let db: TestDatabase;
   beforeAll(async () => {
     if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL required for native mining proof');
-    db = await createTestDatabase({ service: 'mining_pool', url: process.env.TEST_DATABASE_URL, migrations: [initial] });
+    db = await createTestDatabase({ service: 'mining_pool', url: process.env.TEST_DATABASE_URL, migrations: [initial, ...workers] });
   });
   afterAll(async () => {
     await db?.drop();
   });
   beforeEach(async () => {
-    await db.sql`TRUNCATE mining_pool.shares, mining_pool.windows CASCADE`;
+    await db.sql`TRUNCATE mining_pool.shares, mining_pool.windows, mining_pool.workers CASCADE`;
   });
   const post = async (body: unknown, sql = db.sql) => {
     const rawBody = Buffer.from(JSON.stringify(body));
@@ -122,7 +125,7 @@ describe('native mining storage safeguards', () => {
     const fresh = await createTestDatabase({
       service: 'mining_pool',
       url: process.env.TEST_DATABASE_URL,
-      migrations: [initial, migration('0001_blank_reward_share.sql')],
+      migrations: [initial, migration('0001_blank_reward_share.sql'), ...workers],
     });
     try {
       const blank = { windowId: 'fresh', assetId: 'IFC', shares: [{ shareId: 'fresh', minerId: ALICE, weight: '2' }] };

@@ -4,6 +4,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
 import type { RoomApi, RfqQuote } from '../rooms/api';
 import { Freshness, Refusal } from '../rooms/RoomNotices';
+import { compareDecimals } from '../rooms/math';
 import { roomWords } from '../rooms/refusals';
 import type { RoomWriter } from '../rooms/write';
 import type { BadgeTone } from '@intafaced/ui';
@@ -64,18 +65,21 @@ interface Props {
   quote: RfqQuote;
   readAt: number;
   now: number;
+  /** The providers this quote asked, or the room's current pick when the room did not see it asked (a reload or a link). */
+  providers: string[];
   /** Re-read the quote from the service (and release a device note if that proves the outcome). */
   onCheck: (id: string) => Promise<void>;
-  /** Show a quote a write just returned. */
-  onQuote: (quote: RfqQuote) => void;
+  /** Show a quote a write just returned; `select` opens it in place of this one (a re-price). */
+  onQuote: (quote: RfqQuote, options?: { select?: boolean; asked?: string[] }) => void;
 }
 
 /** One quote in full: the returned numbers, the all-in cost, the live countdown, and what may be done to it now. */
-export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }: Props) {
+export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck, onQuote }: Props) {
   const { t } = otcCopy.useCopy();
   const { timeZone } = usePreferences();
   const [confirming, setConfirming] = useState<Confirming | null>(null);
   const [checking, setChecking] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
   const life = lifecycleOf(quote);
   const phase = phaseOf(quote, now);
   const chip = chipOf(quote, now, writer.note.state === 'pending' ? writer.note.pending.id : null);
@@ -97,7 +101,6 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
     { label: t('Pair'), value: pair },
     { label: t('Side'), value: quote.side === 'buy' ? t('Buy') : t('Sell') },
     { label: t('Quantity'), value: `${fmtAmount(quote.qty)} ${quote.baseAsset}` },
-    { label: t('Quoted price'), value: `${fmtPrice(quote.quotedPrice, null)} ${quote.quoteAsset}` },
     { label: t('Mid price'), value: `${fmtPrice(quote.midPrice, null)} ${quote.quoteAsset}` },
     { label: t('Spread'), value: `${cost.spreadBps} bps` },
     { label: t('Spread notional'), value: money(cost.spreadReturned) },
@@ -135,6 +138,39 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
       : []),
   ];
 
+  /**
+   * Re-price an expired quote: a new request for the same pair, side and size to the same providers (CB-otc-01): the
+   * maker that quoted in maker mode, else the providers it asked. The old quote stays expired.
+   */
+  async function askAgain() {
+    setMismatch(false);
+    const asked = quote.counterparty === 'maker' ? [quote.counterpartyId] : providers;
+    const result = await writer.run<RfqQuote>({
+      kind: 'rfq',
+      id: `otc-req-${crypto.randomUUID()}`,
+      symbol: noteSymbol('request', pair),
+      call: () =>
+        api.rfqQuote({
+          side: quote.side,
+          baseAsset: quote.baseAsset,
+          quoteAsset: quote.quoteAsset,
+          qty: quote.qty,
+          makerIds: asked,
+          ...(quote.counterparty === 'maker' ? { makerId: quote.counterpartyId } : {}),
+        }),
+    });
+    if (result.kind !== 'done') return;
+    const q = result.data;
+    // Same check as a fresh request: a quote for anything other than what was asked is not shown.
+    const matches =
+      q.baseAsset === quote.baseAsset &&
+      q.quoteAsset === quote.quoteAsset &&
+      q.side === quote.side &&
+      compareDecimals(q.qty, quote.qty) === 0;
+    setMismatch(!matches);
+    if (matches) onQuote(q, { select: true, asked });
+  }
+
   async function send(action: Confirming) {
     const id = quote.quoteId;
     const result = await writer.run<unknown>({
@@ -153,7 +189,11 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
   const confirmBlock = confirming === 'accept' && phase !== 'open' ? t('Phase open-late') : lockedWhy;
 
   return (
-    <section aria-label={t('Quote')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
+    <section
+      aria-label={t('Quote')}
+      data-quote-id={quote.quoteId}
+      className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
+    >
       <header className="flex flex-wrap items-center gap-3">
         <h3 className="m-0 text-md font-medium text-fg">{t('Quote title', { pair })}</h3>
         <LifecycleChip lifecycle={chip} />
@@ -162,7 +202,22 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
       <p className="m-0 text-sm text-fg" role="status" data-testid="phase-line">
         {t(PHASE_LINE[chip === 'unconfirmed' ? 'unconfirmed' : phase])}
       </p>
+      <p className="m-0 text-lg font-medium text-fg tabular-nums">
+        {t('Quoted price')}: <span data-testid="quote-price">{`${fmtPrice(quote.quotedPrice, null)} ${quote.quoteAsset}`}</span>
+      </p>
       {life === 'expired' ? <Refusal words={roomWords({ code: 'trade.otc_quote_expired' })} size="inline" /> : null}
+      {life === 'bound' ? (
+        <p className="m-0 text-sm text-fg">
+          {t('Settle window')}:{' '}
+          <span data-testid="settle-by">
+            {at(quote.settleBy) === null
+              ? t('Settle window unread')
+              : quote.settleWindowMs == null
+                ? t('Settle window not set', { time: at(quote.settleBy) ?? '' })
+                : t('Settle by', { time: at(quote.settleBy) ?? '' })}
+          </span>
+        </p>
+      ) : null}
       <KeyValue density="dense" items={items} now={now} />
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -189,6 +244,11 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
         >
           {t('Expire')}
         </Button>
+        {life === 'expired' ? (
+          <Button variant="primary" size={32} disabled={lockedWhy !== null} onClick={() => void askAgain()}>
+            {t('Ask again')}
+          </Button>
+        ) : null}
         <Button
           variant="secondary"
           size={32}
@@ -201,6 +261,11 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
           {t('Check status')}
         </Button>
       </div>
+      {mismatch ? (
+        <p role="alert" className="m-0 text-sm text-warn">
+          {t('Quote mismatch')}
+        </p>
+      ) : null}
       {lockedWhy ? <p className="m-0 text-xs text-fg-2">{lockedWhy}</p> : null}
       <p className="m-0 text-xs text-fg-2">{t('Buttons note')}</p>
       <ConfirmDialog

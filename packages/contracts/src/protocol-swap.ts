@@ -169,3 +169,31 @@ export const protocolAllowancesOutputSchema = z
   })
   .strict();
 export type ProtocolAllowances = z.infer<typeof protocolAllowancesOutputSchema>;
+
+export const PRICE_SETTINGS_UNSET = 'protocol.price_settings_unset' as const;
+
+/** One token's USD price from the pools, or why it has none. `usd` is a decimal string, never a number. */
+export const protocolTokenPriceSchema = z
+  .object({
+    address,
+    usd: z
+      .string()
+      .regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+      .nullable(),
+    /** reference: an owner reference token (one dollar); pool: from its deepest reference pool; one_hop: through one priced token. */
+    basis: z.enum(['reference', 'pool', 'one_hop']).nullable(),
+    /** thin_reserve: every pool against a priced token is under the owner's minimum reserve; no_route: no pool leads to a dollar. */
+    reason: z.enum(['thin_reserve', 'no_route']).nullable(),
+  })
+  .strict();
+export type ProtocolTokenPrice = z.infer<typeof protocolTokenPriceSchema>;
+
+/** `protocol.amm.prices`: every listed token's USD price, read at one block, with that block's time. */
+export const protocolTokenPricesOutputSchema = z
+  .object({
+    blockNumber: units,
+    asOf: z.string().datetime(),
+    prices: z.array(protocolTokenPriceSchema),
+  })
+  .strict();
+export type ProtocolTokenPrices = z.infer<typeof protocolTokenPricesOutputSchema>;

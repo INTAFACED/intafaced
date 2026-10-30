@@ -9,6 +9,7 @@ import {
   formatAmount,
   hashTx,
   postFingerprint,
+  replayMetaDiffers,
   signedDelta,
   IDEMPOTENCY_CONFLICT_CODE,
   type IdempotencyConflictOptions,
@@ -509,7 +510,7 @@ export class PostgresLedger implements LedgerClient {
                         FROM ledger_entries fe
                         JOIN accounts fa ON fa.id = fe.account_id
                        WHERE t.module = 'trade'
-                         AND t.reason IN ('trade.fill', 'trade.fill.mm_maker')
+                         AND t.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback')
                          AND a.owner_type = 'user'
                          AND a.kind = 'available'
                          AND e.direction = 'debit'
@@ -589,7 +590,7 @@ export class PostgresLedger implements LedgerClient {
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
                  t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
-                 (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker') AND a.owner_type = 'user'
+                 (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback') AND a.owner_type = 'user'
                    AND a.kind = 'available' AND x.direction = 'debit') AS fill_line
             FROM accounts a
             CROSS JOIN LATERAL (
@@ -628,7 +629,7 @@ export class PostgresLedger implements LedgerClient {
              AND (p.kind <> 'hold' OR h.id = p.account_id)
              AND (
                p.reason IN ('order.hold', 'order.hold.amend', 'order.hold.released')
-               OR (p.reason IN ('trade.fill', 'trade.fill.mm_maker') AND (p.kind = 'hold' OR h.asset_id <> p.asset_id))
+               OR (p.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback') AND (p.kind = 'hold' OR h.asset_id <> p.asset_id))
              )
            ORDER BY he.id
            LIMIT 1
@@ -785,7 +786,7 @@ export class PostgresLedger implements LedgerClient {
    * keep the old behaviour (nothing to compare against).
    */
   private replayOf(claimed: { tx: LedgerTx; fingerprint: string | null }, request: PostRequest): LedgerTx {
-    if (claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) {
+    if ((claimed.fingerprint !== null && claimed.fingerprint !== postFingerprint(request)) || replayMetaDiffers(claimed.tx.meta, request)) {
       if ((this.options.idempotencyConflict ?? 'refuse') === 'refuse') {
         throw new LedgerError(
           `Idempotency key ${request.idempotencyKey} already booked a different movement; a retry must carry the same body`,

@@ -24,11 +24,23 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaign.not_active',
   'campaign.outside_window',
   'campaign.archive_active',
+  'campaign.type_locked',
+  'campaigns.rule_depth_unset',
+  'campaigns.rule_size_unset',
+  'campaigns.rule_too_deep',
+  'campaigns.rule_too_large',
+  'campaigns.rule_empty_group',
+  'campaigns.rule_unknown',
+  'campaigns.formula_invalid',
+  'campaigns.trigger_unknown',
+  'campaigns.earning_rule_name_taken',
+  'campaigns.budget_below_drawn',
   'campaigns.budget_unset',
   'campaigns.number_on_wire',
   'campaigns.rules_unset',
   'campaigns.time_frame_unset',
   'campaigns.timezone_unset',
+  'campaigns.timezone_not_platform',
   'campaigns.reward_unset',
   'campaigns.approval_required',
   'campaigns.second_person_required',
@@ -54,6 +66,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.reward_saga_unwired',
   'campaigns.funding_unknown',
   'campaigns.funding_reference_taken',
+  'campaigns.not_voucher',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -113,6 +126,136 @@ const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 /** The end of an hour window is exclusive; 24:00 runs to midnight. */
 const hhmmEnd = z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/);
 
+// ── Rule trees (CM-eligibility-rules-02, ENGINE EL-4) ─────────────────────────────────────────────────────────────
+
+/**
+ * A condition on one field of the account svc-identity describes (the campaign participant read): its type, its region,
+ * its verification tier and its status. A closed list: no outside code runs, and no field is read from anywhere else.
+ */
+export const RULE_FIELDS = ['accountType', 'region', 'kycTier', 'status'] as const;
+export type RuleField = (typeof RULE_FIELDS)[number];
+const RULE_KYC_TIERS = ['none', 'basic', 'full', 'institutional'] as const;
+
+export const ruleConditionSchema = z.discriminatedUnion('field', [
+  z.object({ kind: z.literal('condition'), field: z.literal('accountType'), is: z.enum(['individual', 'business']) }).strict(),
+  z
+    .object({
+      kind: z.literal('condition'),
+      field: z.literal('region'),
+      /** `in`: the account's region is one of these; `not_in`: it is none of them. No region recorded never passes. */
+      test: z.enum(['in', 'not_in']),
+      regions: z
+        .array(z.string().regex(/^[A-Z]{2}$/))
+        .min(1)
+        .max(300),
+    })
+    .strict(),
+  z.object({ kind: z.literal('condition'), field: z.literal('kycTier'), atLeast: z.enum(RULE_KYC_TIERS) }).strict(),
+  z.object({ kind: z.literal('condition'), field: z.literal('status'), is: z.enum(['active', 'frozen', 'closed']) }).strict(),
+]);
+export type RuleCondition = z.infer<typeof ruleConditionSchema>;
+
+/** A group: all of its parts (`and`) or any of them (`or`). Depth and size limits are owner values, checked by the service. */
+export type RuleGroup = { kind: 'group'; op: 'and' | 'or'; parts: RuleNode[] };
+export type RuleNode = RuleGroup | RuleCondition;
+export const ruleNodeSchema: z.ZodType<RuleNode> = z.lazy(() =>
+  z.union([
+    z.object({ kind: z.literal('group'), op: z.enum(['and', 'or']), parts: z.array(ruleNodeSchema).max(50) }).strict(),
+    ruleConditionSchema,
+  ]),
+);
+export const ruleGroupSchema = z
+  .object({ kind: z.literal('group'), op: z.enum(['and', 'or']), parts: z.array(ruleNodeSchema).max(50) })
+  .strict();
+
+/** A rule as a campaign holds it: the library entry's name and revision, and a copy of its tree at that revision. */
+export const campaignRuleSchema = z
+  .object({ name: z.string().trim().min(1).max(120), revision: z.number().int().positive(), tree: ruleGroupSchema })
+  .strict();
+export type CampaignRule = z.infer<typeof campaignRuleSchema>;
+
+/** A library entry: one name, many revisions; a campaign keeps the revision it took (ENGINE EL-4, LC-5). */
+export const ruleLibraryEntrySchema = z.object({
+  name: z.string(),
+  revision: z.number().int().positive(),
+  tree: ruleGroupSchema,
+  createdBy: z.string(),
+  createdAt: iso,
+});
+export type RuleLibraryEntry = z.infer<typeof ruleLibraryEntrySchema>;
+
+export const ruleLibrarySaveInputSchema = z.object({ name: z.string().trim().min(1).max(120), tree: ruleGroupSchema }).strict();
+
+/**
+ * The fixture accounts a rule is tried on (ENGINE EL-4 `test`). Labelled TEST: illustrative accounts, never a customer.
+ * Trying a rule reads no account and stores nothing.
+ */
+export const RULE_FIXTURES = [
+  {
+    id: 'test-business-kp',
+    label: 'TEST business account, region KP, not verified',
+    account: { accountType: 'business', region: 'KP', kycTier: 'none', status: 'active' },
+  },
+  {
+    id: 'test-individual-de',
+    label: 'TEST individual account, region DE, basic verification',
+    account: { accountType: 'individual', region: 'DE', kycTier: 'basic', status: 'active' },
+  },
+  {
+    id: 'test-individual-fr-frozen',
+    label: 'TEST individual account, region FR, full verification, frozen',
+    account: { accountType: 'individual', region: 'FR', kycTier: 'full', status: 'frozen' },
+  },
+  {
+    id: 'test-individual-none',
+    label: 'TEST individual account, no region recorded, full verification',
+    account: { accountType: 'individual', region: null, kycTier: 'full', status: 'active' },
+  },
+] as const;
+export type RuleFixtureId = (typeof RULE_FIXTURES)[number]['id'];
+
+export const ruleTestInputSchema = z
+  .object({ tree: ruleGroupSchema, fixture: z.enum(RULE_FIXTURES.map((f) => f.id) as [RuleFixtureId, ...RuleFixtureId[]]) })
+  .strict();
+
+/** A try of a rule on a fixture: whether it passes, and every condition that fails, by its place in the tree. */
+export const ruleTestResultSchema = z.object({
+  fixture: z.string(),
+  passes: z.boolean(),
+  failing: z.array(z.object({ path: z.string(), condition: ruleConditionSchema })),
+});
+export type RuleTestResult = z.infer<typeof ruleTestResultSchema>;
+
+// ── Earning rules (CM-rewards-hub-05) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The triggers an earning rule may name: events declared in `packages/events`, each with the names its incentive
+ * formula may read. `trade.fill.settled`: `amount` is the fill's quote amount, `fee` its fee, `qty` its quantity.
+ * `pay.deposit_credit.posted`: `amount` is the amount credited. Anything else refuses `campaigns.trigger_unknown`.
+ */
+export const EARNING_TRIGGERS = {
+  'trade.fill.settled': { label: 'A spot fill settles', names: ['amount', 'fee', 'qty'] },
+  'pay.deposit_credit.posted': { label: 'A crypto deposit is credited', names: ['amount'] },
+} as const;
+export type EarningTrigger = keyof typeof EARNING_TRIGGERS;
+
+/**
+ * An earning rule: when its trigger's event arrives for a participant, and its condition holds, it gives the incentive
+ * its formula works out, in the campaign's reward asset. A formula is parsed from a closed grammar (decimal numbers, the
+ * trigger's names, `+ - * /`, brackets, `min(a, b)` and `max(a, b)`); anything else refuses `campaigns.formula_invalid`.
+ * A fixed incentive is a formula that is one number. A rule is part of the campaign revision (ENGINE LC-5).
+ */
+export const earningRuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    trigger: z.string().max(64),
+    /** The condition on the event: its amount is at least this; null: any amount. */
+    minAmount: campaignDecimal.nullable().default(null),
+    formula: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type EarningRule = z.infer<typeof earningRuleSchema>;
+
 /**
  * Who can take part (CM-eligibility-rules-01, ENGINE EL-1 to EL-3). Exclusions read svc-identity: `business` is the
  * account type chosen at sign-up, `institution` the institutional KYC tier. Identity holds no market-maker or staff
@@ -128,6 +271,8 @@ export const participationRulesSchema = z.object({
     .max(300)
     .nullable()
     .default(null),
+  /** A rule from the library (CM-eligibility-rules-02), checked against identity's answer on every join. */
+  rule: campaignRuleSchema.nullish(),
 });
 export type ParticipationRules = z.infer<typeof participationRulesSchema>;
 
@@ -235,19 +380,31 @@ export const campaignSchema = z.object({
   rules: z.string(),
   startsAt: iso.nullable(),
   endsAt: iso.nullable(),
-  /** The platform time zone the windows are read in (an owner value); null while blank. */
+  /** The time zone the windows are read in (the platform zone, an owner value); null while it or the campaign's is blank. */
   timeZone: z.string().nullable(),
+  /** True while the builder has left the campaign's own time zone blank (activation refuses `campaigns.timezone_unset`). */
+  timeZoneBlank: z.boolean().default(false),
   windows: campaignWindowsSchema,
   participation: participationRulesSchema.nullable(),
   budget: campaignBudgetSchema.nullable(),
   reward: campaignRewardSchema.nullable(),
   /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
   tasks: campaignTasksSchema.nullable(),
+  /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
+  earning: z.array(earningRuleSchema).default([]),
   createdBy: z.string(),
   submittedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
   createdAt: iso,
   updatedAt: iso,
+  /**
+   * An edit of a campaign past approval (ENGINE LC-5): revision n+1, waiting beside the live revision until a second
+   * person approves it. Joins and rewards keep the revision they were made under. Null when there is none.
+   */
+  pendingChange: z
+    .lazy(() => campaignChangeSchema)
+    .nullable()
+    .default(null),
 });
 export type Campaign = z.infer<typeof campaignSchema>;
 
@@ -346,9 +503,27 @@ export const campaignDefinitionInputSchema = z
     reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
     /** Only for a `task` campaign: anything else refuses `campaigns.tasks_invalid`. */
     tasks: campaignTasksSchema.nullish(),
+    /**
+     * The time zone the time frame is typed in. Absent: the platform zone. Null: not picked yet, which refuses activation
+     * `campaigns.timezone_unset`. In this version only the platform zone is accepted (`campaigns.timezone_not_platform`).
+     */
+    timeZone: z.string().max(64).nullish(),
+    /** Earning rules (CM-rewards-hub-05); absent or null: none. */
+    earning: z.array(earningRuleSchema).max(20).nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
+
+/** A change of a live campaign: its revision, where it is, who wrote and asked, and the definition it would put live. */
+export const campaignChangeSchema = z.object({
+  revision: z.number().int().positive(),
+  state: z.enum(['draft', 'pending_approval']),
+  createdBy: z.string(),
+  submittedBy: z.string().nullable(),
+  definition: campaignDefinitionInputSchema,
+  updatedAt: iso,
+});
+export type CampaignChange = z.infer<typeof campaignChangeSchema>;
 
 export const campaignUpdateInputSchema = z
   .object({ id, revision: z.number().int().positive(), definition: campaignDefinitionInputSchema })
@@ -358,6 +533,47 @@ export const campaignUpdateInputSchema = z
 export const campaignTransitionInputSchema = z
   .object({ id, action: z.enum(CAMPAIGN_ACTIONS), revision: z.number().int().positive() })
   .strict();
+
+// ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3) ────────────────────────────────────────────────────
+
+/** A voucher instance's states (ENGINE VC-1). Issuing publishes one; claim and use are J-campaigns-08. */
+export const VOUCHER_STATES = [
+  'generated',
+  'published',
+  'active',
+  'claimed',
+  'partially_used',
+  'used',
+  'expired',
+  'forfeited',
+  'deactivated',
+] as const;
+export type VoucherState = (typeof VOUCHER_STATES)[number];
+
+/**
+ * A voucher of a voucher campaign. It keeps the revision it was issued under and that revision's reward as its face value:
+ * a later approved revision changes the vouchers issued after it, never one already published (T-3). The face value is a
+ * counter, not a balance: nothing is held for it.
+ */
+export const campaignVoucherSchema = z.object({
+  id,
+  campaignId: id,
+  code: z.string(),
+  revision: z.number().int().positive(),
+  face: z.object({ asset, amount: campaignDecimal }),
+  state: z.enum(VOUCHER_STATES),
+  issuedBy: z.string(),
+  issuedAt: iso,
+});
+export type CampaignVoucher = z.infer<typeof campaignVoucherSchema>;
+
+/** A voucher code: 4 to 32 letters, digits or hyphens, stored upper case. With the campaign it is the issue's business key. */
+export const voucherCode = z.string().regex(/^[A-Za-z0-9-]{4,32}$/);
+export const voucherIssueInputSchema = z.object({ campaignId: id, code: voucherCode }).strict();
+/** The most vouchers one read lists, newest first; the screen says when a campaign has at least this many. */
+export const VOUCHER_LIST_LIMIT = 500;
+
+export const voucherListInputSchema = z.object({ campaignId: id }).strict();
 
 /** The gate's answer: every blank by name, in order. Empty means the campaign may go live. */
 export const campaignGateSchema = z.object({

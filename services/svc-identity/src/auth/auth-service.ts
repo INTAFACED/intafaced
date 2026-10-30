@@ -24,6 +24,8 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { SelfFreezeState } from '@intafaced/contracts/identity';
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
   CampaignParticipant,
@@ -82,9 +84,11 @@ import {
   type LoginCodeDeps,
   type LoginCodePolicy,
 } from './login-code.js';
+import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-settings.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
+import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
   cancelMfaReset,
   completeDueMfaReset,
@@ -232,8 +236,12 @@ export class AuthError extends Error {
       | 'auth.founder_enrolment_closed'
       | 'auth.request_unsigned'
       | 'auth.request_stale'
+      | 'auth.request_future'
       | 'auth.request_tampered'
       | 'auth.request_replay'
+      | 'auth.request_window_unset'
+      | 'auth.api_key_expired'
+      | 'auth.edge_unauthenticated'
       | 'auth.ip_allowlist_required'
       | 'auth.payee_email_unconfirmed'
       | 'auth.payee_phone_unverified'
@@ -467,7 +475,7 @@ export type PayStepUpGrant = {
 export type ApiKeyActionScope = {
   readonly tx: Sql;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
-  revokeApiKey: (userId: string, keyId: string) => Promise<boolean>;
+  revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
 
 export type PayStepUpFactorProof =
@@ -1205,6 +1213,10 @@ export class AuthService {
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
   private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
+    // a handle change, so the check below sees settled rows.
+    await lockHandleClaim(tx, input.handle);
+    if (await handleRetiredByOther(tx, input.handle, null)) throw new AuthError('That handle is taken', 'auth.handle_taken');
     const clash = await tx<
       Array<{ handle: string; email: string }>
     >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
@@ -2133,20 +2145,32 @@ export class AuthService {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
     await recordSuccess(this.sql, input.userId, 'password');
-    const result = await transaction(this.sql, async (tx) => {
-      await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
-      const open = await tx<Array<{ reason: SelfFreezeReason; since: Date }>>`
-        SELECT reason, since FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
-      if (open[0]) return { reason: open[0].reason, since: open[0].since, changed: false };
-      const made = await tx<Array<{ since: Date }>>`
-        INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
-      await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      return { reason: input.reason, since: made[0]!.since, changed: true };
-    });
+    const result = await transaction(this.sql, (tx) => applySelfFreeze(tx, input.userId, input.reason));
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
-    return { frozen: true, ...result };
+    return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * The freeze link a security notice carried (I-account-lifecycle-08, J-identity-11 #2). No sign-in: the token is the
+   * proof. The first use runs the same freeze as `selfFreeze`; a later use returns the stored result.
+   */
+  async redeemFreezeLink(input: { token: string }): Promise<FreezeLinkResult> {
+    const result = await redeemFreezeLink(this.sql, input);
+    if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    if (result.firstUse) this.log.warn({ userId: result.userId, changed: result.changed, via: 'mailed-link' }, 'auth.self_frozen');
+    return result;
+  }
+
+  /**
+   * The owner's freeze as another service reads it (`selfFreezeStateSchema`, `GET /internal/self-freeze/:userId`), or
+   * null for an unknown user, which the caller refuses on. It reads the same open freeze as `selfFreezeStatus`.
+   */
+  async selfFreezeState(userId: string): Promise<SelfFreezeState | null> {
+    const users = await this.sql`SELECT 1 FROM users WHERE id = ${userId}`;
+    if (users.length === 0) return null;
+    const { frozen, since } = await this.selfFreezeStatus(userId);
+    return { userId, frozen, since: since ? since.toISOString() : null };
   }
 
   async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {
@@ -2542,6 +2566,26 @@ export class AuthService {
     return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
   }
 
+  /**
+   * Why a presented key that opens nothing is refused (DV-errors-02, J-developer-04 #5 and #6). Only a caller holding
+   * the key's full secret reaches a named answer, and the key is dead either way, so naming it tells a guesser
+   * nothing: a key matching no row stays `auth.invalid_credentials`. A frozen account comes first, because a freeze
+   * also revokes the account's keys and the holder needs to know the account, not the key, is the cause.
+   */
+  private async deadApiKeyRefusal(key: string): Promise<AuthError> {
+    const rows = await this.sql<Array<{ revoked: boolean; expires_at: Date | null; status: string | null }>>`
+      SELECT k.revoked, k.expires_at, u.status
+      FROM api_keys k LEFT JOIN users u ON u.id = k.user_id
+      WHERE k.key_hash = ${hashToken(key)}
+    `;
+    const row = rows[0];
+    if (!row) return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (row.status !== null && row.status !== 'active') return new AuthError(`Account is ${row.status}`, 'auth.account_frozen');
+    if (row.revoked) return new AuthError('API key is revoked', 'auth.api_key_revoked');
+    if (row.expires_at && row.expires_at.getTime() < Date.now()) return new AuthError('API key has expired', 'auth.api_key_expired');
+    return new AuthError('Invalid credentials', 'auth.invalid_credentials');
+  }
+
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
@@ -2557,7 +2601,7 @@ export class AuthService {
     ipAllowlist?: string[];
   }> {
     const verified = await this.verifyApiKey(key);
-    if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (!verified) throw await this.deadApiKeyRefusal(key);
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
       throw new AuthError('API key is not allowed from this origin', 'auth.domain_not_allowed');
     }
@@ -2581,9 +2625,14 @@ export class AuthService {
     return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
   }
 
-  async revokeApiKey(userId: string, keyId: string, executor?: Sql): Promise<boolean> {
+  /**
+   * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
+   * `system` when a create or rotation undoes a key it made but never handed over.
+   */
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
     const result = await (executor ??
-      this.sql)`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+      this
+        .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
   }
 
@@ -2755,13 +2804,15 @@ export class AuthService {
    *
    * Only `active` accounts come back. Frozen, closed and missing rows are the
    * same null: the caller must not learn which handles belong to restricted
-   * accounts. Returns the stored handle and nothing else about the account.
+   * accounts. Returns the stored handle and whether its owner lets people find
+   * them by it (PP-send-request-03); the caller hides an undiscoverable one
+   * from everyone but its owner.
    */
-  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string } | null> {
-    const rows = await this.sql<Array<{ id: string; handle: string }>>`
-      SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
+      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
-    return row ? { userId: row.id, handle: row.handle } : null;
+    return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
   }
 
   /**
@@ -3415,7 +3466,7 @@ export class AuthService {
         const scope: ApiKeyActionScope = {
           tx: tx as unknown as Sql,
           createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId) => this.revokeApiKey(userId, keyId, tx as unknown as Sql),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
         };
         const result = await run(scope);
         await tx`
@@ -3469,7 +3520,7 @@ export class AuthService {
       >`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${userId} AND revoked = false RETURNING id`;
       const revokedKeys = await tx<
         Array<{ id: string }>
-      >`UPDATE api_keys SET revoked = true WHERE user_id = ${userId} AND revoked = false RETURNING id`;
+      >`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false RETURNING id`;
       return { userId, status: 'frozen' as const, subAccountsRevoked: revokedRows.length, apiKeysRevoked: revokedKeys.length };
     });
     await syncNavigatorSessionsClosedForUser(this.sql, userId);

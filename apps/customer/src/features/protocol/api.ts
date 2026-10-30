@@ -25,6 +25,7 @@ import {
   protocolSwapFeesOutputSchema,
   protocolSwapPairsOutputSchema,
   protocolSwapSettingsOutputSchema,
+  protocolTokenPricesOutputSchema,
   protocolUnsignedCallSchema,
 } from '@intafaced/contracts/protocol-swap';
 import type { ApiClient } from '../../shared/api';
@@ -92,6 +93,8 @@ export function createProtocolApi(api: ApiClient) {
       api.mutate('protocol', 'representation.accept', input, protocolRepresentationAcceptOutputSchema),
     /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
     ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
+    /** Every listed token's USD price from the pools at one block, or why it has none. */
+    tokenPrices: (signal?: AbortSignal) => api.query('protocol', 'amm.prices', undefined, protocolTokenPricesOutputSchema, { signal }),
     /** The owner's swap settings; blank refuses and the form keeps Swap off. */
     swapSettings: (signal?: AbortSignal) =>
       api.query('protocol', 'amm.swapSettings', undefined, protocolSwapSettingsOutputSchema, { signal }),

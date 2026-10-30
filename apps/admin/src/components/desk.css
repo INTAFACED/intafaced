@@ -50,6 +50,9 @@
 .dk-badge > strong {
   font: 500 18px/26px var(--if-font-body);
 }
+.dk-stack > li[data-visibility='internal'] {
+  border-inline-start: 3px solid var(--if-warn);
+}
 .dk-asof {
   font-family: var(--if-font-mono);
   font-size: 12px;

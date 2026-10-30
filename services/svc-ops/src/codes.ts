@@ -1,4 +1,15 @@
 import {
+  OPS_ALERT_NOT_FOUND,
+  OPS_ALERT_NOTE_REQUIRED,
+  OPS_ALERT_REPEAT_UNSET,
+  OPS_ALERT_SNOOZE_END_INVALID,
+  OPS_ALERT_SOURCE_UNAVAILABLE,
+  OPS_ALERT_STATE_ILLEGAL,
+  OPS_RESOLVE_LEDGER_UNAVAILABLE,
+  OPS_RESOLVE_NOTE_REQUIRED,
+  OPS_RESOLVE_TRANSACTION_NOT_FOUND,
+} from '@intafaced/contracts/ops-reconciliation-alerts';
+import {
   COMPLIANCE_CASE_NOT_FOUND,
   COMPLIANCE_CASES_LIST_LIMIT_UNSET,
   COMPLIANCE_INBOX_FORBIDDEN,
@@ -184,8 +195,18 @@ export const OPS_ALERT_RULE_VERSION_STALE = 'ops.alert_rule_version_stale' as co
 export const OPS_ALERT_RULE_RETIRED = 'ops.alert_rule_retired' as const;
 export const OPS_ALERT_RULE_NOT_RETIRED = 'ops.alert_rule_not_retired' as const;
 export const OPS_ALERT_STORAGE_UNCONFIGURED = 'ops.alert_storage_unconfigured' as const;
-export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
-export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
+/** OPS-reconciliation-03 alert codes; the contract owns the strings. */
+export {
+  OPS_ALERT_NOT_FOUND,
+  OPS_ALERT_STATE_ILLEGAL,
+  OPS_ALERT_REPEAT_UNSET,
+  OPS_ALERT_SOURCE_UNAVAILABLE,
+  OPS_ALERT_NOTE_REQUIRED,
+  OPS_ALERT_SNOOZE_END_INVALID,
+  OPS_RESOLVE_LEDGER_UNAVAILABLE,
+  OPS_RESOLVE_NOTE_REQUIRED,
+  OPS_RESOLVE_TRANSACTION_NOT_FOUND,
+};
 /** Blank actor on an operator write. Nothing is stored. */
 export const OPS_ALERT_ACTOR_UNSET = 'ops.alert_actor_unset' as const;
 /** No owner window for how long a pipeline heartbeat may stay quiet. Overdue is not invented. Spec: alerts-013. */
@@ -272,8 +293,15 @@ export type OpsRefuseCode =
   | typeof OPS_ALERT_RULE_RETIRED
   | typeof OPS_ALERT_RULE_NOT_RETIRED
   | typeof OPS_ALERT_STORAGE_UNCONFIGURED
-  | typeof OPS_ALERT_SOURCE_UNCONFIGURED
-  | typeof OPS_ALERT_PROBE_UNCONFIGURED
+  | typeof OPS_ALERT_NOT_FOUND
+  | typeof OPS_ALERT_STATE_ILLEGAL
+  | typeof OPS_ALERT_REPEAT_UNSET
+  | typeof OPS_ALERT_SOURCE_UNAVAILABLE
+  | typeof OPS_ALERT_NOTE_REQUIRED
+  | typeof OPS_ALERT_SNOOZE_END_INVALID
+  | typeof OPS_RESOLVE_LEDGER_UNAVAILABLE
+  | typeof OPS_RESOLVE_NOTE_REQUIRED
+  | typeof OPS_RESOLVE_TRANSACTION_NOT_FOUND
   | typeof OPS_ALERT_ACTOR_UNSET
   | typeof OPS_HEARTBEAT_WINDOW_UNSET
   | typeof OPS_ALERT_HEARTBEAT_ABSENT

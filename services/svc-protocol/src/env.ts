@@ -12,6 +12,7 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
 import { parseSwapSlippageBps } from './amm/slippage.js';
 import { parseFeeCapWei } from './amm/fee-levels.js';
 
@@ -155,6 +156,27 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`, so no level is offered and Swap stays off.
      */
     PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
+    /**
+     * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
+     * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_USD_TOKENS: z
+      .string()
+      .default('')
+      .refine((raw) => raw.trim() === '' || parseUsdTokens(raw) !== null, 'PROTOCOL_PRICE_USD_TOKENS must be blank or addresses')
+      .transform(parseUsdTokens),
+    /**
+     * The reliability filter: the least a pool must hold on its priced side, in whole US dollars, for its price to be
+     * shown. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_MIN_RESERVE_USD: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || parseMinReserveUsd(raw) !== null,
+        'PROTOCOL_PRICE_MIN_RESERVE_USD must be blank or whole US dollars above 0',
+      )
+      .transform(parseMinReserveUsd),
     /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *

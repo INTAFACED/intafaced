@@ -96,6 +96,15 @@ describe('founder account-control wire boundary', () => {
     expect(identityAccountControlInputSchema.safeParse({ ...command, approvalId: KEY, unknownExtra: true }).success).toBe(false);
   });
 
+  it('accepts an owner reason code shaped as a list code, and only on the identity schema', () => {
+    expect(identityAccountControlInputSchema.parse({ ...command, reasonCode: 'market_conduct_review' }).reasonCode).toBe(
+      'market_conduct_review',
+    );
+    for (const reasonCode of ['', 'a', 'Market_review', '1review', 'review code', 'x'.repeat(65)])
+      expect(identityAccountControlInputSchema.safeParse({ ...command, reasonCode }).success).toBe(false);
+    expect(accountControlInputSchema.safeParse({ ...command, reasonCode: 'market_conduct_review' }).success).toBe(false);
+  });
+
   it('rejects wrong target fields and malformed concurrency inputs', () => {
     for (const candidate of [
       { ...command, target: { area: 'merchant', userId: USER } },
