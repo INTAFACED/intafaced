@@ -617,7 +617,10 @@ export async function subscribeNotificationEvents(
           userId: payload.userId,
           kind: `identity.security.${payload.change}`,
           titleKey: FACTOR_CHANGED_TITLE_KEYS[payload.change],
-          bodyKey: 'notify.identity.security.factor_changed.body',
+          bodyKey:
+            payload.change === 'password_changed'
+              ? 'notify.identity.security.password_changed.body'
+              : 'notify.identity.security.factor_changed.body',
           params: {},
           href: '/uc/safe',
           severity: 'action',

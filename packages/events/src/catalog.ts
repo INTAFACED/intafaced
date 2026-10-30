@@ -175,8 +175,9 @@ export const kycInfoRequested = defineEvent(
 
 /**
  * I-signin-sessions-08 (J-identity-05 #6, J-identity-03 #6). One change to a sign-in factor: the authenticator app turned
- * on, off or replaced, a passkey added or removed, or the password changed or reset. svc-identity publishes it from an outbox row written in the same transaction
- * as the change (at least once). No secret, code, credential id or address rides on it.
+ * on, off or replaced, a passkey added or removed, or the password changed or reset. svc-identity publishes it from an
+ * outbox row written in the same transaction as the change (at least once). No secret, code, credential id or address
+ * rides on it.
  */
 export const SECURITY_FACTOR_CHANGES = [
   'totp_added',

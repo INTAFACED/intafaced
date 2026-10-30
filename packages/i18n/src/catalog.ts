@@ -187,6 +187,8 @@ export const en = {
   'notify.identity.security.passkey_added.title': 'Passkey added',
   'notify.identity.security.passkey_removed.title': 'Passkey removed',
   'notify.identity.security.password_changed.title': 'Password changed',
+  'notify.identity.security.password_changed.body':
+    'The password of your account was changed. If this was not you, reset it now, open Security, sign out everywhere and contact Support.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
