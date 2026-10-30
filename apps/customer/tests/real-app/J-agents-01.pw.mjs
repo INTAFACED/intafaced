@@ -91,7 +91,12 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   // The table is drawn from the two stored guardrails the page reads now; their answers are what each column must show.
   const read = (agentId) =>
     page.waitForResponse(
-      (r) => r.url().includes('/api/agents/trpc/agent.get') && decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+      (r) =>
+        r.ok() &&
+        r.request().method() === 'GET' &&
+        r.url().includes('/api/agents/trpc/agent.get') &&
+        decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+      { timeout: 15_000 },
     );
   const reads = [read('navigator'), read('support')];
   await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
@@ -121,6 +126,8 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
     [support, 'support'],
   ])
     expect(g?.tools?.length, `${who}: ${JSON.stringify(g).slice(0, 300)}`).toBeGreaterThan(0);
+  // The two agents differ in what they may do, so the comparison is not one value twice.
+  expect(stored.Tools(navigator)).not.toBe(stored.Tools(support));
   for (const [row, of] of Object.entries(stored)) {
     await expect(
       compare
@@ -129,8 +136,6 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
         .getByRole('cell'),
     ).toHaveText([row, of(navigator), of(support)]);
   }
-  // The two agents differ in what they may do, so the comparison is not one value twice.
-  expect(stored.Tools(navigator)).not.toBe(stored.Tools(support));
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
