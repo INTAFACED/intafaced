@@ -28,8 +28,9 @@ import {
   readConfirmOperatorId,
   readOperatorId,
   replayHaltedMarkets,
+  replayHaltedSince,
 } from './halt.js';
-import { replayVenueHalted, venueHaltedAmendResult, venueHaltedSubmitResult } from './venue-kill.js';
+import { replayVenueHalted, replayVenueHaltedSince, venueHaltedAmendResult, venueHaltedSubmitResult } from './venue-kill.js';
 import {
   reduceOnlyMarketAmendResult,
   reduceOnlyMarketSubmitResult,
@@ -191,12 +192,16 @@ export class MatchingEngine {
   private enabled: boolean;
   /** One-market operator halt. Not the process kill-switch. No duration. */
   private readonly halted = new Set<MarketId>();
+  /** When each halted market's halt began (the journaled `at` of its first halt since the last resume). */
+  private readonly haltedSince = new Map<MarketId, string>();
   /** One-market maintenance. Not halt. Customer cancels refuse. No duration. */
   private readonly maintenance = new Set<MarketId>();
   /** Books the expiry pass must not read. The resting order stays. */
   private readonly unreadableBooks = new Map<MarketId, string>();
   /** Operator halt of every market. Distinct from one-market halt. No duration. */
   private venueHalted = false;
+  /** When the venue halt began (the journaled `at` of its first halt-all since the last resume-all); null when open. */
+  private venueHaltedAt: string | null = null;
   /** One-market operator reduce-only. Not halt. No duration. */
   private readonly reduceOnlyMarkets = new Set<MarketId>();
   /** One-market operator post-only. Not halt. No duration. */
@@ -253,12 +258,14 @@ export class MatchingEngine {
     const records: readonly JournalRecord[] = this.journal.read();
     this.books.clear();
     this.halted.clear();
+    this.haltedSince.clear();
     this.maintenance.clear();
     this.unreadableBooks.clear();
     this.admissionClosed = null;
     this.holdHalted.clear();
     this.announcing = true;
     this.venueHalted = false;
+    this.venueHaltedAt = null;
     this.reduceOnlyMarkets.clear();
     this.postOnlyMarkets.clear();
     this.prelaunchMarkets.clear();
@@ -276,7 +283,9 @@ export class MatchingEngine {
     const replayed = replayJournal(records);
     for (const [marketId, book] of replayed.books) this.books.set(marketId, book);
     this.venueHalted = replayVenueHalted(records);
+    this.venueHaltedAt = replayVenueHaltedSince(records);
     for (const marketId of replayHaltedMarkets(records)) this.halted.add(marketId);
+    for (const [marketId, at] of replayHaltedSince(records)) this.haltedSince.set(marketId, at);
     for (const marketId of replayMaintenance(records)) this.maintenance.add(marketId);
     for (const marketId of replayReduceOnlyMarkets(records)) this.reduceOnlyMarkets.add(marketId);
     for (const marketId of replayPostOnlyMarkets(records)) this.postOnlyMarkets.add(marketId);
@@ -321,6 +330,16 @@ export class MatchingEngine {
 
   get isVenueHalted(): boolean {
     return this.venueHalted;
+  }
+
+  /** When this market's operator halt began, or null when it is not halted. */
+  haltedSinceOf(marketId: MarketId): string | null {
+    return this.halted.has(marketId) ? (this.haltedSince.get(marketId) ?? null) : null;
+  }
+
+  /** When the venue halt began, or null when the venue is open. */
+  get venueHaltedSince(): string | null {
+    return this.venueHalted ? this.venueHaltedAt : null;
   }
 
   isReduceOnly(marketId: MarketId): boolean {
@@ -1135,6 +1154,7 @@ export class MatchingEngine {
         operatorId: operatorId!,
         ...(confirmOperatorId ? { confirmOperatorId } : {}),
       });
+      if (!this.halted.has(marketId)) this.haltedSince.set(marketId, at);
       this.halted.add(marketId);
       return { accepted: true, marketId, halted: true, operatorId, confirmOperatorId };
     });
@@ -1165,6 +1185,7 @@ export class MatchingEngine {
         ...(confirmOperatorId ? { confirmOperatorId } : {}),
       });
       this.halted.delete(marketId);
+      this.haltedSince.delete(marketId);
       return { accepted: true, marketId, halted: false, operatorId, confirmOperatorId };
     });
   }
@@ -1190,6 +1211,7 @@ export class MatchingEngine {
         operatorId,
         ...(confirmOperatorId ? { confirmOperatorId } : {}),
       });
+      if (!this.venueHalted) this.venueHaltedAt = at;
       this.venueHalted = true;
       return { accepted: true, halted: true, operatorId, confirmOperatorId };
     });
@@ -1217,6 +1239,7 @@ export class MatchingEngine {
         ...(confirmOperatorId ? { confirmOperatorId } : {}),
       });
       this.venueHalted = false;
+      this.venueHaltedAt = null;
       return { accepted: true, halted: false, operatorId, confirmOperatorId };
     });
   }

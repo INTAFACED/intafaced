@@ -45,6 +45,16 @@ export function venueHaltedAmendResult(orderId: string): AmendResult {
   };
 }
 
+/** When a still-standing venue halt began: the first halt-all record's `at` since the last resume-all. */
+export function replayVenueHaltedSince(records: readonly { readonly kind: string; readonly at?: string }[]): string | null {
+  let since: string | null = null;
+  for (const record of records) {
+    if (record.kind === 'halt_all' && since === null) since = record.at ?? null;
+    else if (record.kind === 'resume_all') since = null;
+  }
+  return since;
+}
+
 /** Last halt-all / resume-all wins. Not a book — replay does not invent markets. */
 export function replayVenueHalted(records: readonly { readonly kind: string }[]): boolean {
   let halted = false;
