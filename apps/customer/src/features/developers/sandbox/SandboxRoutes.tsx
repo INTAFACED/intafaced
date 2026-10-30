@@ -48,6 +48,10 @@ function BaseUrl({ baseUrl, t }: { baseUrl: string | null; t: T }) {
   );
 }
 
+/** Revoked, past its end date (the door refuses it as expired), or active. */
+const keyState = (key: SandboxDetail['keys'][number], now = Date.now()) =>
+  key.revoked ? 'stateRevoked' : key.expiresAt !== null && Date.parse(key.expiresAt) <= now ? 'stateExpired' : 'stateActive';
+
 const day = (iso: string) => <time dateTime={iso}>{iso.slice(0, 10)}</time>;
 
 function SignedOut({ t, back }: { t: T; back: string }) {
@@ -174,7 +178,18 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
   const { userId } = useSession();
   const { resource, reload } = useSandbox(id);
   if (!userId) return <SignedOut t={t} back={`/developers/sandbox/${id}`} />;
-  if (resource.status === 'loading') return <Loading label={t('loading')} />;
+  // Loading or refused, the room keeps its heading and its way back.
+  const shell = (body: JSX.Element) => (
+    <Page eyebrow={t('eyebrow')} title={t('title')}>
+      <div className="apps-room">
+        <a className="text-link" href="/developers/sandbox">
+          ← {t('back')}
+        </a>
+        {body}
+      </div>
+    </Page>
+  );
+  if (resource.status === 'loading') return shell(<Loading label={t('loading')} />);
   if (resource.status === 'failed') {
     if (resource.failure.code === 'identity.sandbox_not_found') {
       return (
@@ -192,9 +207,9 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
         </Page>
       );
     }
-    return <Failure result={resource.failure} retry={reload} />;
+    return shell(<Failure result={resource.failure} retry={reload} />);
   }
-  return resource.data ? children(resource.data, reload) : <Loading label={t('loading')} />;
+  return resource.data ? children(resource.data, reload) : shell(<Loading label={t('loading')} />);
 }
 
 /** /developers/sandbox/<id>: one sandbox, its address and its keys. */
@@ -234,7 +249,7 @@ function SandboxPage({ id }: { id: string }) {
                       <td>
                         <code lang="und">{key.scopes.join(' ')}</code>
                       </td>
-                      <td>{t(key.revoked ? 'stateRevoked' : 'stateActive')}</td>
+                      <td>{t(keyState(key))}</td>
                     </tr>
                   ))}
                 </DataTable>

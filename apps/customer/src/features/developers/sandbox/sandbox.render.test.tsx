@@ -123,6 +123,27 @@ describe('sandbox rooms', () => {
     expect(document.querySelector('[data-testid="sandbox-base-url-unset"]')).not.toBeNull();
   });
 
+  it('reads each key as active, revoked or past its end date', async () => {
+    const keys = [
+      { ...keyRecord, id: '5d1f7b7e-1c2a-4f0e-8d5c-2b3c4d5e6f71', name: 'live-one' },
+      { ...keyRecord, id: '5d1f7b7e-1c2a-4f0e-8d5c-2b3c4d5e6f72', name: 'gone', revoked: true },
+      { ...keyRecord, id: '5d1f7b7e-1c2a-4f0e-8d5c-2b3c4d5e6f73', name: 'old', expiresAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    world.get = async () => ({ ok: true, data: { sandbox: record, keys, baseUrl: 'http://sandbox.test' } });
+    await show(`/developers/sandbox/${SANDBOX}`);
+    const state = (id: string) => document.querySelector(`tr[data-key-id="${id}"] td:last-child`)?.textContent;
+    expect(state(keys[0]!.id)).toBe('Active');
+    expect(state(keys[1]!.id)).toBe('Revoked');
+    expect(state(keys[2]!.id)).toBe('Expired');
+  });
+
+  it('keeps the heading and the way back when the sandbox cannot be read', async () => {
+    world.get = async () => ({ ok: false, code: 'edge.upstream_unwired', message: 'refused' });
+    await show(`/developers/sandbox/${SANDBOX}`);
+    expect(document.querySelector('h1')?.textContent).toBe('Sandbox');
+    expect(document.querySelector('a[href="/developers/sandbox"]')?.textContent).toContain('All sandboxes');
+  });
+
   it('sends the trade preset as asked and shows the sandbox refusal by code', async () => {
     world.createKey = vi.fn(async () => ({ ok: false, code: 'env.scope_not_sandboxable', message: 'refused' }));
     await show(`/developers/sandbox/${SANDBOX}/keys/new`);

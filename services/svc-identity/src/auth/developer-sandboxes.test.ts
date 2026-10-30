@@ -33,6 +33,10 @@ describe('parseSandboxBaseUrl', () => {
   it('refuses a URL that is not http(s)', () => {
     expect(() => parseSandboxBaseUrl('ftp://example.test')).toThrow(/IDENTITY_SANDBOX_BASE_URL/);
   });
+
+  it('names the variable when the value is not a URL at all', () => {
+    expect(() => parseSandboxBaseUrl('sandbox.example.test')).toThrow(/IDENTITY_SANDBOX_BASE_URL/);
+  });
 });
 
 describe('assertSandboxable', () => {

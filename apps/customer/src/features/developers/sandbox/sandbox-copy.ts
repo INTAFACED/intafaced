@@ -64,6 +64,7 @@ const en = {
   colState: 'State',
   stateActive: 'Active',
   stateRevoked: 'Revoked',
+  stateExpired: 'Expired',
   noKeys: 'This sandbox has no key yet.',
   newKey: 'Create a sandbox key',
   notFoundTitle: 'No such sandbox',

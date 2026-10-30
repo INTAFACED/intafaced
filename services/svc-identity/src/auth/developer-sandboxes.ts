@@ -76,10 +76,16 @@ export function parseSandboxCapByTier(raw: string | undefined): ReadonlyMap<KycT
   return caps;
 }
 
-/** `IDENTITY_SANDBOX_BASE_URL`: where the door serves sandbox keys. Blank: null, and the room says it is not set. */
+/** `IDENTITY_SANDBOX_BASE_URL`: where the door serves sandbox keys; its origin is shown. Blank: null, and the room says
+ * it is not set. A value that is not an http(s) URL throws, naming the variable, so the service does not start on it. */
 export function parseSandboxBaseUrl(raw: string | undefined): string | null {
   if (raw === undefined || raw.trim() === '') return null;
-  const url = new URL(raw.trim());
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new Error('IDENTITY_SANDBOX_BASE_URL must be an http(s) URL');
+  }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('IDENTITY_SANDBOX_BASE_URL must be an http(s) URL');
   return url.origin;
 }
