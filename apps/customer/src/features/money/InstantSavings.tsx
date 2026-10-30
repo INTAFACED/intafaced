@@ -65,7 +65,8 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
         <Failure result={pools.resource.failure} retry={pools.reload} />
       );
     }
-    const flexible = pools.resource.data.filter((pool) => pool.kind === 'flexible');
+    // Instant access only: a staking-style pool waits through unbonding, so it lives on its own pool page (BK-earn-04).
+    const flexible = pools.resource.data.filter((pool) => pool.kind === 'flexible' && pool.unbondingDays === null);
     if (!flexible.length) return <NoRows title={t('noPools')} />;
     const held = positions.resource.status === 'ready' ? positions.resource.data : null;
     return (
@@ -153,7 +154,11 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
       preflight: () => checkPosition(position),
       verifyOutcome: (data) => {
         const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
-        return returned.positionId === position.id && parseAmount(returned.principal) === parseAmount(position.principal);
+        return (
+          returned.positionId === position.id &&
+          returned.status === 'closed' &&
+          parseAmount(returned.principal) === parseAmount(position.principal)
+        );
       },
       input: () => ({ positionId: position.id }),
       submit: t('withdraw'),

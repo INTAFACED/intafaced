@@ -31,6 +31,7 @@ const SECTIONS = [
   ['/launch/requirements', 'Launch requirements'],
   ['/token/governance', 'Token governance'],
   ['/token/economy', 'Token economy'],
+  ['/token/burn', 'Token burn'],
   ['/mining/workers', 'Mining workers'],
   ['/mining/shares', 'Mining shares'],
   ['/mining/rewards', 'Mining rewards'],

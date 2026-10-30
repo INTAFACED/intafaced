@@ -7,11 +7,13 @@ function testValue(name) {
   return entry.value;
 }
 
-/** The TEST desk law, with its settle window or its minimum left out when the switch says so. */
+/** The TEST desk law, with its settle window, its minimum, its asset list or its level left out when the switch says so. */
 function otcDeskLaw() {
   const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
   if (process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW === 'off') delete law.settleWindowMs;
   if (process.env.LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL === 'off') delete law.minNotional;
+  if (process.env.LOCAL_STACK_TRADE_OTC_ASSETS === 'off') delete law.assets;
+  if (process.env.LOCAL_STACK_TRADE_OTC_MIN_TIER === 'off') delete law.minTier;
   return JSON.stringify(law);
 }
 
@@ -120,6 +122,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7). `LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL=off` leaves the
     // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
     // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
+    // `LOCAL_STACK_TRADE_OTC_ASSETS=off` leaves the desk's asset list blank, so the overview reads "Not set" and a request
+    // refuses `trade.otc_assets_unset` (#1). `LOCAL_STACK_TRADE_OTC_MIN_TIER=off` leaves the desk's verification level
+    // blank, so every request refuses `trade.otc_level_unset` (#3).
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
     TRADE_OTC_MAKER_DIRECTORY: otcMakerDirectory(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),

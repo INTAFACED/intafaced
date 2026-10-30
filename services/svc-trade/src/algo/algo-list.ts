@@ -57,6 +57,8 @@ interface ParentListRow {
   status: AlgoStatus;
   created_at: Date;
   next_due_at: Date | string | null;
+  trigger_price: string | null;
+  triggered_at: Date | string | null;
   children: unknown;
 }
 
@@ -171,7 +173,11 @@ export async function listAlgoParents(
     filledQty: filled.get(row.id) ?? '0',
     status: row.status,
     created: row.created_at.toISOString(),
-    nextSliceAt: nextSliceAtIso(row.status, row.next_due_at == null ? null : new Date(row.next_due_at)),
+    // A schedule waiting for its trigger price has no next slice time until the price is reached.
+    nextSliceAt:
+      row.trigger_price != null && row.triggered_at == null
+        ? null
+        : nextSliceAtIso(row.status, row.next_due_at == null ? null : new Date(row.next_due_at)),
     scheduler,
   }));
   const last = page[page.length - 1];
@@ -191,7 +197,7 @@ async function selectParents(
 ): Promise<ParentListRow[]> {
   if (status && cursorAt && cursorId) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, trigger_price::text AS trigger_price, triggered_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
         AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
@@ -203,7 +209,7 @@ async function selectParents(
   }
   if (status) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, trigger_price::text AS trigger_price, triggered_at, children
       FROM algo_parents
       WHERE user_id = ${userId} AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind}) AND status = ${status}
       ORDER BY created_at DESC, id DESC
@@ -212,7 +218,7 @@ async function selectParents(
   }
   if (cursorAt && cursorId) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, trigger_price::text AS trigger_price, triggered_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
         AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
@@ -222,7 +228,7 @@ async function selectParents(
     `;
   }
   return sql<ParentListRow[]>`
-    SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
+    SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, trigger_price::text AS trigger_price, triggered_at, children
     FROM algo_parents
     WHERE user_id = ${userId} AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
     ORDER BY created_at DESC, id DESC

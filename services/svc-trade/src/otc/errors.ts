@@ -33,6 +33,10 @@ export type OtcErrorCode =
   | 'trade.otc_provider_required'
   | 'trade.otc_provider_cap'
   | 'trade.otc_provider_unknown'
+  | 'trade.otc_assets_unset'
+  | 'trade.otc_asset_unlisted'
+  | 'trade.otc_level_unset'
+  | 'trade.otc_level_insufficient'
   /** NotConnected (allowlisted blocker class): a provider routed to an outside venue the platform has no feed for. */
   | 'feed.market';
 

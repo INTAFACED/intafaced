@@ -11,6 +11,7 @@ import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
   networkIdSchema,
   readWithdrawalNetworkRules,
+  refuseWithdrawalTag,
   WithdrawalNetworkRuleError,
   withdrawalNetworkRulesSchema,
   withdrawalNetworkRuleToTrpcError,
@@ -2157,33 +2158,43 @@ export function createPayRouter(
        */
       create: scopedProcedure('trade:withdraw', { module: 'ledger' })
         .input(
-          z.object({
-            assetId: assetIdSchema,
-            amount: amountSchema,
-            railId: z.string().min(1),
-            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }),
-            /**
-             * REQUIRED, not optional. A timed-out request that is retried
-             * without one opens a second withdrawal, and a second withdrawal is
-             * a second debit. `clientOrderId` is merely recommended on an order
-             * because the worst case there is a duplicate order the user can
-             * cancel; there is no cancelling a payout.
-             */
-            clientRef: z.string().min(1).max(64),
-            /**
-             * J-wallet-05 #6 (issue #6517): a send to a wallet outside the platform names the network it goes on and the fee
-             * quote the person accepted (`withdrawal.quote`). Both are required there: no network has no custody signer
-             * (`pay.wallet_withdraw_unavailable`) and no quote refuses `withdrawal_quote.required`, before anything is claimed.
-             * The quote is accepted under `clientRef` inside the claim and its fee rides the hold. A send inside the platform
-             * (W-withdraw-14) takes neither: it has no network fee.
-             */
-            networkId: sendNetworkIdSchema.optional(),
-            quoteRef: sendQuoteRefSchema.optional(),
-          }),
+          z
+            .object({
+              assetId: assetIdSchema,
+              amount: amountSchema,
+              railId: z.string().min(1),
+              /**
+               * A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. Strict, so a
+               * memo under any other key is refused as a bad request instead of stripped.
+               */
+              destination: z
+                .object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(64).optional() })
+                .strict(),
+              /**
+               * REQUIRED, not optional. A timed-out request that is retried
+               * without one opens a second withdrawal, and a second withdrawal is
+               * a second debit. `clientOrderId` is merely recommended on an order
+               * because the worst case there is a duplicate order the user can
+               * cancel; there is no cancelling a payout.
+               */
+              clientRef: z.string().min(1).max(64),
+              /**
+               * J-wallet-05 #6 (issue #6517): a send to a wallet outside the platform names the network it goes on and the fee
+               * quote the person accepted (`withdrawal.quote`). Both are required there: no network has no custody signer
+               * (`pay.wallet_withdraw_unavailable`) and no quote refuses `withdrawal_quote.required`, before anything is claimed.
+               * The quote is accepted under `clientRef` inside the claim and its fee rides the hold. A send inside the platform
+               * (W-withdraw-14) takes neither: it has no network fee.
+               */
+              networkId: sendNetworkIdSchema.optional(),
+              quoteRef: sendQuoteRefSchema.optional(),
+            })
+            // Strict: a tag or memo beside the destination is refused as a bad request, never stripped and sent without.
+            .strict(),
         )
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            const { tag, ...destination } = input.destination;
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
             // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
             await withdrawalApprovals?.assertDirectAllowed({
@@ -2191,7 +2202,7 @@ export function createPayRouter(
               assetId: input.assetId,
               amount: parseAmount(input.amount),
               clientRef: input.clientRef,
-              destination: input.destination,
+              destination,
             });
             const request = {
               // From the token. There is no `userId` input, so there is no way
@@ -2200,7 +2211,7 @@ export function createPayRouter(
               userId: ctx.principal.userId,
               assetId: input.assetId,
               amount: parseAmount(input.amount),
-              destination: input.destination,
+              destination,
               clientRef: input.clientRef,
               ...sandboxKeyEnv(ctx.principal),
             };
@@ -2209,7 +2220,10 @@ export function createPayRouter(
             // to come straight back. `railId: 'internal'` asks for that branch outright and refuses an outside address.
             const internal =
               input.railId === INTERNAL_RAIL ||
-              (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
+              (await userMoney.platformDestination(ctx.principal.userId, destination)).kind !== 'external';
+            // J-wallet-05 #1: a tag is refused by name before anything is claimed or held. A send inside the platform uses no
+            // network, so no network's rule applies to it.
+            if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, internal ? undefined : input.networkId);
             return toWithdrawalOut(
               internal
                 ? await userMoney.withdrawInternal(request)
@@ -2707,6 +2721,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_outcome_busy':
       case 'pay.price_archived':
       case 'pay.product_archived':
+      /** The request is well-formed; the platform has no way to carry a tag on that network. */
+      case 'pay.withdrawal_tag_unsupported':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

@@ -272,7 +272,25 @@ export class AgentRuntime {
       throw new AgentError(`Agent "${input.agentId}" is disabled`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
     }
 
-    const guardrail = definition.guardrail;
+    return this.insertSession(input.userId, definition.guardrail, input.metered ?? true);
+  }
+
+  /**
+   * Open a session of an agent the person built (AG-builder-01). It has no registered definition: the caller builds
+   * its guardrail from the agent as saved, and it is bound to the session as any other. Its id is `own.<agent id>`,
+   * which no registered agent can take, so `openSession` can never open one and this can open nothing else. Its
+   * spend is held against the caps the person set for that agent (`UserSpendStore.reserve`).
+   */
+  async openOwnSession(input: { userId: string; guardrail: Guardrail }): Promise<SessionRecord> {
+    if (!input.guardrail.agentId.startsWith('own.')) {
+      throw new AgentError(`"${input.guardrail.agentId}" is not an own agent`, 'agents.agent_not_found', 'agents.error.route_not_found', {
+        task: input.guardrail.agentId,
+      });
+    }
+    return this.insertSession(input.userId, input.guardrail, true);
+  }
+
+  private async insertSession(userId: string, guardrail: Guardrail, metered: boolean): Promise<SessionRecord> {
     const snapshot = serialiseGuardrail(guardrail);
 
     return transaction(
@@ -281,8 +299,8 @@ export class AgentRuntime {
         const rows = await tx<SessionRow[]>`
           INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version, metered)
           VALUES (
-            ${input.userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
-            ${guardrail.version}, ${input.metered ?? true}
+            ${userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
+            ${guardrail.version}, ${metered}
           )
           RETURNING *
         `;
@@ -489,7 +507,7 @@ export class AgentRuntime {
           session,
           {
             allowed: false,
-            code: 'agents.funds_insufficient',
+            code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
             userMessageKey: 'agents.refused.funds_insufficient',
             userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
           },
@@ -598,12 +616,24 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && err.code === 'agents.funds_insufficient') {
+        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
           throw await this.appendRefusal(
             session,
             {
               allowed: false,
-              code: 'agents.funds_insufficient',
+              code: err.code,
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        if (err instanceof AgentError && (err.code === 'agents.funds_insufficient' || err.code === 'agents.funds_unread')) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: err.code,
               userMessageKey: err.userMessageKey,
               userMessageParams: err.userMessageParams,
             },

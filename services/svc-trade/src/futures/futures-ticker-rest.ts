@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { FundingRateEntry } from './funding-rate-source.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
 import { MARK_HISTORY_UNAVAILABLE, type FuturesTickerFacts } from './futures-reads.js';
+import { publicRead } from '../route-inventory.js';
 
 interface FuturesTickerMarket {
   readonly id: string;
@@ -20,7 +21,7 @@ export interface FuturesTickerRestDeps {
 
 /** Public futures strip. Missing market facts stay null; this route never synthesises ticks or cadence. */
 export function registerFuturesTickerRest(app: FastifyInstance, deps: FuturesTickerRestDeps): void {
-  app.get<{ Querystring: { symbol?: string } }>('/api/v1/futures/ticker', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/futures/ticker', publicRead, async (req, reply) => {
     const symbol = req.query.symbol?.trim();
     if (!symbol) {
       return reply.code(400).send({ error: 'trade.futures_ticker_symbol_required', message: 'symbol is required' });
