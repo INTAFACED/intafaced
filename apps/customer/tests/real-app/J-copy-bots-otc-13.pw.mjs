@@ -83,9 +83,12 @@ test(`${J} #1 opens the module metrics: counts with their window and as-of time`
 
 test(`${J} #1 a failed source reads "Could not load", never zero`, async ({ page }) => {
   test.setTimeout(300_000);
+  // Signed in before the restart, so the console is asked nothing from this process while svc-trade restarts.
+  await founderSignIn(page, 'a');
   tradeMetricsWindow(false);
   try {
-    await moduleRoom(page);
+    await page.goto(`${ADMIN}/trade-ops/copy-bots-otc`);
+    await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
     const metrics = page.getByRole('region', { name: 'Module metrics' });
     await expect(metrics.getByText('Module metrics could not be read')).toBeVisible();
     await expect(metrics.locator('[data-slot="empty-state-code"]')).toHaveText('trade.ops_metrics_window_not_set');
@@ -239,6 +242,8 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   // A settled quote: asked, accepted and settled now, inside its window.
   const settledId = await ask();
   await acceptQuote(settledId);
+  // The desk is the counterparty and sells from the house inventory: TEST BTC for this one settle, keyed by the quote.
+  expect(fund('house', 'BTC', '0.02', `${J}-house-btc-${settledId}`).tx).toBeTruthy();
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');
