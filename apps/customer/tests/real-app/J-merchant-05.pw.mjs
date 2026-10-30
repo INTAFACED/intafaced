@@ -132,7 +132,7 @@ async function cardPayment(owner, merchantId, { amount, reference, customerRef, 
   return authorized.status === 'captured' ? authorized : owner.mutate('payment.capture', { paymentId: created.id });
 }
 
-test(`${J} #1 opens Payments on an account with none: how the first payment appears, and a link to make a payment link`, async ({
+test(`${J} #1 opens Payments on an account with none: "No payments yet", how the first payment appears, and a link to make a payment link`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -146,23 +146,15 @@ test(`${J} #1 opens Payments on an account with none: how the first payment appe
   await signInOwner(page, journey(), '/pay/payments');
   const refused = refusedPayCalls(page);
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
-  await expect(page.getByText('Create a payment link. Payments will appear here once a customer pays.')).toBeVisible();
+  // The row's own words: "No payments yet", then how the first payment appears.
+  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+  await expect(
+    page.getByText('Your first payment starts here. Create a payment link. Payments will appear here once a customer pays.'),
+  ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create payment link' }).last()).toHaveAttribute('href', '/pay/links/new');
   // The totals read zero for the period, never a made-up figure.
   await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();
   expect(refused).toEqual([]);
-});
-
-// The row's own words for the empty room are "No payments yet". The Payments room titles its empty state "Your first
-// payment starts here" (payments/Payments.tsx, copy key noPayments); "No payments yet" is only the dashboard's
-// insights explanation (dashEmptyTitle). So this clause stays red until the room says the row's words.
-test(`${J} #1 the empty Payments room says "No payments yet"`, async ({ page }) => {
-  test.setTimeout(120_000);
-  await signInOwner(page, journey(), '/pay/payments');
-  await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible({ timeout: 5_000 });
 });
 
 test(`${J} #2 opens the list: totals with their period, filters the service applies, load more, export, a phone layout; a merchant reference finds only its payment`, async ({
