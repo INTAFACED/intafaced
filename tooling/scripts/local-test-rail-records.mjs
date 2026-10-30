@@ -167,7 +167,11 @@ export function readRailRecords(stateDir) {
  * custody leaves the boundary negative, value out leaves it positive. Each business key counts once.
  */
 export function railTotals(stateDir, asOf) {
-  return [...signedTotals(stateDir, asOf).entries()]
+  return totalsOf(signedTotals(readRailRecords(stateDir), asOf));
+}
+
+function totalsOf(sums) {
+  return [...sums.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([slot, value]) => {
       const [rail, assetId] = slot.split('\u0000');
@@ -175,12 +179,12 @@ export function railTotals(stateDir, asOf) {
     });
 }
 
-function signedTotals(stateDir, asOf = new Date().toISOString()) {
+function signedTotals(records, asOf = new Date().toISOString()) {
   const cutoff = Date.parse(asOf);
   if (Number.isNaN(cutoff)) throw new RailRecordError(`asOf "${asOf}" is not a time`);
   const seen = new Map();
   const sums = new Map();
-  for (const record of readRailRecords(stateDir)) {
+  for (const record of records) {
     const id = `${record.rail}\u0000${record.key}`;
     const earlier = seen.get(id);
     if (earlier !== undefined) {
@@ -211,7 +215,8 @@ export function railStatement(stateDir, rail, asOf) {
     source: 'rail',
     rail,
     asOf: new Date(Date.parse(asOf)).toISOString(),
-    balances: railTotals(stateDir, asOf)
+    // Only this rail's own file is read, so a bad line on another rail never takes this statement down.
+    balances: totalsOf(signedTotals(readRail(stateDir, rail), asOf))
       .filter((row) => row.rail === rail)
       .map(({ assetId, amount }) => ({ assetId, amount })),
   };
