@@ -172,6 +172,8 @@ export const deskCopy = defineCopy('support-desk', {
   refuseCommentsOff: 'Replies to a request are switched off in this build, so your reply was not sent. Your words are still in the box.',
   refuseCommentCap:
     'This request already holds as many of your replies as it can take, so this one was not sent. Start a new request instead.',
+  refuseCommentSecret:
+    'That message looks like it holds a card number or a recovery phrase, so it was not sent. Never share those with anyone, including us. Take them out and send again.',
   refuseReplyChanged:
     'The request changed while you were writing, so this reply was not sent. Refresh the page, then send it again. Your words are still in the box.',
   refuseFeedbackRate: 'You have rated many answers in a short time, so this vote was not kept. Try again later.',

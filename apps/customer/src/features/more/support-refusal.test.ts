@@ -30,6 +30,7 @@ describe('which sentence answers a support refusal', () => {
     ['support.kb.not_published', 'refuseArticleGone'],
     ['support.comment_cap_unset', 'refuseCommentsOff'],
     ['support.comment_cap_reached', 'refuseCommentCap'],
+    ['support.comment_secret_refused', 'refuseCommentSecret'],
   ] as const)('%s reads as %s', (code, key) => {
     expect(supportRefusalKey(fail({ message: code, code: 'CONFLICT', status: 409 }))).toBe(key);
   });

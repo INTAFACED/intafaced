@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { runRailAdapterConformance, type RailHarness } from './conformance.js';
-import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './card-sandbox.js';
+import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN, SANDBOX_FUNDS_HELD_TOKEN } from './card-sandbox.js';
 import { CryptoNativeAdapter, RailOutcomeUnknownError } from './crypto-native.js';
 import { MemoryChain } from './chain-port.js';
 import { RailRegistry, UnknownRailError, RailCapabilityError } from './registry.js';
@@ -397,6 +397,26 @@ describe('card-sandbox — a mock acquirer with real decline behaviour', () => {
     const result = await adapter.capture('ch_p-card-1');
     expect(result.ok).toBe(false);
     expect(result.failureCode).toBe('rail.unknown_reference');
+  });
+
+  it('holds the funds of a funds-held instrument at capture, and only an ordinary capture says nothing', async () => {
+    await adapter.authorize(intent({ instrument: { kind: 'card', token: SANDBOX_FUNDS_HELD_TOKEN } }));
+    expect((await adapter.capture('ch_p-card-1')).funds).toEqual({ state: 'pending' });
+    await adapter.authorize(intent({ paymentId: 'p-card-2', instrument: { kind: 'card', token: 'tok_ok' } }));
+    expect((await adapter.capture('ch_p-card-2')).funds).toBeUndefined();
+  });
+
+  it('reads a signed funds delivery, and refuses one whose release day does not parse', () => {
+    const ok = adapter.verifyWebhook(
+      adapter.signWebhook({ id: 'e-1', type: 'funds.pending', ref: 'ch_p-card-1', availableOn: '2026-11-02T00:00:00.000Z' }),
+    );
+    expect(ok).toMatchObject({ type: 'funds.pending', railRef: 'ch_p-card-1', availableOn: new Date('2026-11-02T00:00:00.000Z') });
+    expect(adapter.verifyWebhook(adapter.signWebhook({ id: 'e-2', type: 'funds.available', ref: 'ch_p-card-1' }))).toMatchObject({
+      type: 'funds.available',
+    });
+    expect(
+      adapter.verifyWebhook(adapter.signWebhook({ id: 'e-3', type: 'funds.pending', ref: 'ch_p-card-1', availableOn: 'soon' })),
+    ).toBeNull();
   });
 
   it('reports itself unusable once marked down', () => {
