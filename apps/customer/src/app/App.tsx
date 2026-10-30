@@ -76,6 +76,10 @@ const isLaunchCataloguePath = (path: string) => {
   return hit?.route.room === 'launch' && hit.route.kind === 'detail' && hit.id !== undefined;
 };
 
+// A backtest result shared by link opens signed out (AL-report-03): the service returns only the simulated result,
+// never an account, the strategy's source or the run key.
+const isQuantSharePath = (path: string) => /^\/quant\/share\/[^/]+$/.test(path);
+
 function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
     ? room.area
@@ -155,7 +159,8 @@ export function App() {
     ['home', 'money', 'pay', 'more', 'person'].includes(room.area) &&
     path !== '/pay/checkout' &&
     !isAcademyPath(path) &&
-    !isLaunchCataloguePath(path);
+    !isLaunchCataloguePath(path) &&
+    !isQuantSharePath(path);
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.

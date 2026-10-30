@@ -28,6 +28,8 @@ import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
+import { ReportTab, ShareTab } from './ReportShare';
+import { reportCopy } from './report-copy';
 import { RunHistory } from './RunHistory';
 import './algo.css';
 import { STRATEGY_PAGE } from './StrategyTable';
@@ -419,7 +421,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log', 'report', 'share'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -444,6 +446,8 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
           charts: t('tabCharts'),
           trades: t('tabTrades'),
           log: t('tabLog'),
+          report: reportCopy.t('tabReport'),
+          share: reportCopy.t('tabShare'),
         }}
       />
       {tab === 'summary' && <ResultSummary result={result} />}
@@ -452,6 +456,8 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
       {tab === 'log' && <ResultLog result={result} />}
+      {tab === 'report' && <ReportTab runId={result.runId} />}
+      {tab === 'share' && <ShareTab runId={result.runId} />}
     </section>
   );
 }
@@ -547,7 +553,7 @@ const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_
 const NOT_CHECKED = ['not_split', 'section_undefined', 'not_counted', 'too_few_bars', 'return_undefined', 'not_run'] as const;
 
 /** Every check the service made on the run, with what it measured; nothing is folded away or hidden. */
-function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
+export function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   const { t } = backtestCopy.useCopy();
   const figure = (check: QuantCheck, name: string) => check.evidence[name] ?? t('notSet');
   const detail = (check: QuantCheck): string => {
@@ -612,7 +618,7 @@ function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
  * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
  * could not define shows the reason in words, never a zero.
  */
-function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
+export function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
   const { t } = backtestCopy.useCopy();
   const reasonText = (reason: string) =>
     reason === 'quant.risk_free_unset'
