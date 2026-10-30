@@ -137,7 +137,7 @@ describe('linkFor', () => {
     const lower = new Map([[BTC_ID, { id: BTC_ID, base: 'btc', quote: 'usdt' }]]);
     expect(linkFor({ kind: 'x', href: `/markets/${BTC_ID}` }, lower)).toBe('/trade/spot/BTC-USDT');
   });
-  // Rows stored before svc-notify moved its targets (#5435) are never rewritten: each still opens a live room.
+  // Rows stored before svc-notify moved its targets (PR 5435) are never rewritten: each still opens a live room.
   it('opens a live room for a stored old-style link', () => {
     expect(linkFor({ kind: 'p2p.escrow.locked', href: '/p2p/trades/t1' })).toBe('/p2p/orders/t1');
     expect(linkFor({ kind: 'x', href: '/settings/verification' })).toBe('/verification');

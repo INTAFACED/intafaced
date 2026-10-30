@@ -116,7 +116,7 @@ const KIND_LINK: Readonly<Record<string, string>> = {
 
 /**
  * Stored links with no live room of their own, each to the nearest live room (HM-notifications-01). Rows stored before
- * svc-notify moved its targets (#5435) are never rewritten, the detail rows IA-SPEC gives other modules open their room's
+ * svc-notify moved its targets (PR 5435) are never rewritten, the detail rows IA-SPEC gives other modules open their room's
  * own detail or list, and a market named by its id (a halt, a price alert) opens that market's desk, or Markets when the
  * market is not known. Checked before the link's own address, since `/token/*` answers anything with "no customer route".
  */
