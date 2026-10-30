@@ -610,28 +610,40 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   const held = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
   expect(held.map((p) => [p.id, p.principal])).toEqual([[position.id, '100']]);
 
-  // The saving already in it keeps earning: the bank's daily job, for every pool and with no pool named, pays its
-  // first day, a day that has begun, in the closed pool, into the main balance read back from the bank. Only that
-  // all-pools run pays this day, so a job that skipped closed pools would leave it unpaid and fail here.
+  // The saving already in it keeps earning: only the bank's daily job runs, for every pool with no pool named, and it
+  // selects the closed pool and pays its first day, a day that has begun, once, into the main balance read back from
+  // the bank. A job that skipped closed pools would leave this day unpaid and fail here.
   const firstDay = Date.parse(position.accruesFrom);
   const perDay = fromUnits(daily('100', 100));
   const unpaid = await mainUsdt(api);
-  const everyPool = await job('ops.accrueInterest', { at: new Date(firstDay + 60 * 60 * 1000).toISOString() });
-  expect(everyPool.failures.filter((f) => f.poolId === staking.id)).toEqual([]);
-  const closedPoolDays = everyPool.results.filter((r) => r.poolId === staking.id);
-  expect(closedPoolDays).toHaveLength(1);
-  expect(closedPoolDays[0]).toMatchObject({
-    date: dayOf(firstDay),
-    paid: perDay,
-    recipients: 1,
-    alreadyAccrued: false,
-  });
+  const everyPool = async (at) => {
+    const report = await job('ops.accrueInterest', { at: new Date(at).toISOString() });
+    expect(report.failures.filter((f) => f.poolId === staking.id)).toEqual([]);
+    return report.results.filter((r) => r.poolId === staking.id);
+  };
+  // The saver's paid days are read from the bank's per-day accrual records; this saving is the pool's only one, so a
+  // day listed here is the pool's record for that day.
+  const recordedDays = async () => {
+    const history = await api.query('earn.interestHistory', { poolId: staking.id, limit: 31 });
+    expect(history.ok, JSON.stringify(history.body ?? {}).slice(0, 300)).toBe(true);
+    return history.data.days.filter((d) => d.date === dayOf(firstDay));
+  };
+  const firstRun = await everyPool(firstDay + 60 * 60 * 1000);
+  expect(firstRun).toHaveLength(1);
+  expect(firstRun[0]).toMatchObject({ date: dayOf(firstDay), paid: perDay, recipients: 1, alreadyAccrued: false });
   expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
-  expect(await accrue(staking.id, new Date(firstDay + 2 * 60 * 60 * 1000))).toMatchObject({
-    date: dayOf(firstDay),
-    alreadyAccrued: true,
-  });
+  const recorded = await recordedDays();
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0]).toMatchObject({ date: dayOf(firstDay), ledgerTxId: expect.any(String) });
+  expect(toUnits(recorded[0].amount)).toBe(toUnits(perDay));
+
+  // The same job run again for that day pays nothing new: the day reads as already paid, and the balance and the
+  // day's one record are unchanged.
+  const secondRun = await everyPool(firstDay + 2 * 60 * 60 * 1000);
+  expect(secondRun).toHaveLength(1);
+  expect(secondRun[0]).toMatchObject({ date: dayOf(firstDay), alreadyAccrued: true });
   expect(await mainUsdt(api)).toBe(unpaid + toUnits(perDay));
+  expect(await recordedDays()).toEqual(recorded);
   await page.reload();
   const card = page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`);
   await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'accruing');
