@@ -30,7 +30,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/cannot-sign-in': { template: 'flow' },
   '/recover-account': { template: 'flow' },
   '/freeze/confirm': { template: 'flow' },
-  '/appeal': { template: 'flow' },
+  '/appeal': { template: 'flow', migrated: { file: 'features/public/AppealSignedOut.tsx' } },
   '/help': { template: 'reading' },
   '/helpdetail': { template: 'reading' },
   '/help/category/:id': { template: 'reading' },

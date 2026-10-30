@@ -362,6 +362,7 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
     // A wrong password is the sign-in refusal, and files nothing.
     const wrong = await send(`${who.password}x`, 'TEST: please look again');
     expect(wrong.code).toBe('auth.invalid_credentials');
+    await expect(page.locator('.lt-refusal .lt-ref')).toHaveText('auth.invalid_credentials');
     // With the password, the appeal of this staff freeze is filed and waits for a decision.
     const filed = await send(who.password, 'TEST: please look again');
     expect(filed.status, JSON.stringify(filed)).toBe(200);
@@ -374,7 +375,10 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
     const again = await send(who.password, 'TEST: a second appeal');
     expect(again.status).toBe(409);
     expect(again.code).toBe('identity.appeal_open');
-    await expect(page.getByTestId('appeal-signed-out__refused')).toHaveAttribute('data-code', 'identity.appeal_open');
+    // The refusal is the flow template's, in words with the typed code small under them.
+    const refusal = page.locator('.lt-refusal');
+    await expect(refusal).toContainText('You already have an appeal waiting for this freeze. Only one can be open at a time.');
+    await expect(refusal.locator('.lt-ref')).toHaveText('identity.appeal_open');
 
     // Only staff lift it: the founder who froze it cannot decide the appeal; the other founder lifts it through the
     // unfreeze four-eyes, and the person can sign in again.

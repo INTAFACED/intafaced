@@ -108,24 +108,26 @@ const AREA: Readonly<Record<AppealRestriction, 'trading' | 'identity'>> = { trad
 const REF_PREFIX: Readonly<Record<AppealRestriction, string>> = { trading_restricted: 'trading', staff_freeze: 'staff_freeze' };
 
 /**
- * The restriction as it stands, its row locked: whether it holds, its version, when its row was last written and the
- * database clock. A trading restriction is its own row; a staff freeze is the account's status and control version.
+ * The restriction as it stands: whether it holds, its version and the database clock. A trading restriction is its own
+ * row; a staff freeze is the account's status and control version. `lock` locks the row for an update or shares it (an
+ * uphold only reads it); `none` reads a row the transaction already holds.
  */
 async function heldNow(
   tx: Sql | TransactionSql,
   userId: string,
   restriction: AppealRestriction,
-): Promise<{ restricted: boolean; version: string; since: Date; now: Date }> {
+  lock: 'update' | 'share' | 'none',
+): Promise<{ restricted: boolean; version: string; now: Date }> {
+  const mode = tx.unsafe(lock === 'update' ? 'FOR UPDATE' : lock === 'share' ? 'FOR SHARE' : '');
   const [row] =
     restriction === 'trading_restricted'
-      ? await tx<Array<{ restricted: boolean; version: string; since: Date; now: Date }>>`
-          SELECT restricted, version::text, updated_at AS since, clock_timestamp() AS now
-          FROM trading_restrictions WHERE user_id = ${userId} FOR UPDATE`
-      : await tx<Array<{ restricted: boolean; version: string; since: Date; now: Date }>>`
-          SELECT status = 'frozen' AS restricted, identity_control_version::text AS version, updated_at AS since,
-            clock_timestamp() AS now
-          FROM users WHERE id = ${userId} FOR UPDATE`;
-  return row ?? { restricted: false, version: '0', since: new Date(0), now: new Date() };
+      ? await tx<Array<{ restricted: boolean; version: string; now: Date }>>`
+          SELECT restricted, version::text, clock_timestamp() AS now
+          FROM trading_restrictions WHERE user_id = ${userId} ${mode}`
+      : await tx<Array<{ restricted: boolean; version: string; now: Date }>>`
+          SELECT status = 'frozen' AS restricted, identity_control_version::text AS version, clock_timestamp() AS now
+          FROM users WHERE id = ${userId} ${mode}`;
+  return row ?? { restricted: false, version: '0', now: new Date() };
 }
 
 /** The restriction's version an appeal names, from its `restriction_ref`. */
@@ -208,7 +210,8 @@ export class AccountAppeals {
 
   /**
    * File an appeal. Order: the owner's window must be set; a repeat of the same request returns the appeal it made; the
-   * restriction must hold and have started inside the window; no other appeal may be open for it.
+   * restriction must hold, be one a founder control change set (so its setter is known), and have started inside the
+   * window; no other appeal may be open for it.
    */
   private async file(userId: string, restriction: AppealRestriction, text: string, clientRequestId: string): Promise<Appeal> {
     const windowDays = this.options.windowDays;
@@ -222,12 +225,16 @@ export class AccountAppeals {
         if (again.restriction !== restriction || again.text !== text) throw new AppealError('identity.appeal_request_conflict');
         return this.present(again);
       }
-      const held = await heldNow(tx, userId, restriction);
+      // The users row is locked above; a staff freeze is read from it.
+      const held = await heldNow(tx, userId, restriction, restriction === 'staff_freeze' ? 'none' : 'update');
       if (!held.restricted) throw new AppealError('identity.appeal_no_restriction');
+      // Appealable only when identity knows who set it: the founder control change that set it at this version. A
+      // restriction with no such record (one set before the audit named it, or a freeze no founder made, such as a
+      // confirmed death notice) is refused here, so no appeal is filed that nobody could decide.
       const setBy = await restrictionSetBy(tx, userId, restriction, held.version);
-      // The window runs from when the restriction was set (its audit row); a later no-op write does not restart it.
-      const since = setBy.at ?? held.since;
-      if (held.now.getTime() > since.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
+      if (setBy.actor === null || setBy.at === null) throw new AppealError('identity.appeal_setter_unknown');
+      // The window runs from that change; a later write to the row does not restart it.
+      if (held.now.getTime() > setBy.at.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
       const ref = `${REF_PREFIX[restriction]}:${held.version}`;
       const [open] = await tx<Array<{ id: string }>>`
         SELECT id FROM account_appeals WHERE user_id = ${userId} AND restriction_ref = ${ref} AND status IN ${tx(OPEN)}`;
@@ -281,7 +288,7 @@ export class AccountAppeals {
         }
       } else {
         // An uphold names the restriction it upholds: one lifted or replaced since the appeal was filed is not this one.
-        const held = await heldNow(tx, row.user_id, row.restriction);
+        const held = await heldNow(tx, row.user_id, row.restriction, 'share');
         if (!held.restricted || held.version !== refVersion(row.restriction_ref))
           throw new AppealError('identity.appeal_restriction_changed');
       }
@@ -323,7 +330,8 @@ export class AccountAppeals {
       .filter((id): id is string => id !== null)
       .map((id) => id.toLowerCase());
     if (deciderId === row.user_id || setters.includes(deciderId)) throw new AppealError('identity.appeal_decider_restricted');
-    // Fail closed: with no record of who set the restriction, nobody can be shown not to be its setter.
+    // Fail closed: with no record of who set the restriction, nobody can be shown not to be its setter. Filing refuses
+    // such a restriction; this holds for an appeal filed before it did.
     if (row.restricted_by === null) throw new AppealError('identity.appeal_setter_unknown');
   }
 }
@@ -331,7 +339,7 @@ export class AccountAppeals {
 /**
  * Who set the restriction now in force, and when: the founder control change that set it at this version, its
  * actor and its four-eyes approver. Null fields when identity keeps no such row (a restriction set before the audit named
- * it): the window then runs from the row's last write, and no one can decide the appeal (`identity.appeal_setter_unknown`).
+ * it, or a freeze no founder made): such a restriction cannot be appealed (`identity.appeal_setter_unknown`).
  */
 async function restrictionSetBy(
   tx: Sql | TransactionSql,

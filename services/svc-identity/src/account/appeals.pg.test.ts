@@ -170,14 +170,34 @@ if (!available) {
       expect((await submit(desk(7))).status).toBe('submitted');
     });
 
-    it('refuses once the window has passed (a restriction with no audit row counts from its row)', async () => {
+    it('refuses once the window has passed, counted from the change that set it', async () => {
+      // A restriction set eight days ago: its row and the control change that set it, written as that change would have.
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version, updated_at) VALUES (${target}, true, 1, now() - interval '8 days')`;
+      const result = {
+        outcome: 'changed',
+        target: { area: 'trading', userId: target },
+        after: { restricted: true, version: '1' },
+        approverUserId: maker.principal!.userId,
+      };
+      await db.sql`
+        INSERT INTO founder_control_audit (audit_id, request_id, actor_id, kind, fingerprint, result, created_at)
+        VALUES (${randomUUID()}, ${randomUUID()}, ${restrictor.principal!.userId}, 'identity', 'test', ${db.sql.json(result as never)}, now() - interval '8 days')`;
       expect(await codeOf(submit(desk(7)))).toBe('identity.appeal_window_closed');
-      const appeal = await submit(desk(9));
-      expect(appeal.status).toBe('submitted');
-      // No record of who set it, so no decider can be shown not to be its setter: the decision fails closed.
+      expect((await submit(desk(9))).status).toBe('submitted');
+    });
+
+    it('refuses a restriction with no record of who set it, so no appeal is filed that nobody could decide', async () => {
+      await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version, updated_at) VALUES (${target}, true, 1, now())`;
+      expect(await codeOf(submit(desk()))).toBe('identity.appeal_setter_unknown');
+      expect(await db.sql`SELECT id FROM account_appeals`).toHaveLength(0);
+    });
+
+    it('fails closed when deciding an appeal filed with no recorded setter', async () => {
+      await restrict();
+      const appeal = await submit(desk());
+      await db.sql`UPDATE account_appeals SET restricted_by = NULL, restriction_approved_by = NULL WHERE id = ${appeal.id}`;
       const uphold = { appealId: appeal.id, decision: 'uphold' as const, reasonCode: 'restriction_stands', expectedVersion: '1' };
-      expect(await codeOf(desk(9).decide(decider, uphold))).toBe('identity.appeal_setter_unknown');
+      expect(await codeOf(desk().decide(decider, uphold))).toBe('identity.appeal_setter_unknown');
     });
   });
 

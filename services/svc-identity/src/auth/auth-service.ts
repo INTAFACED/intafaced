@@ -1391,17 +1391,8 @@ export class AuthService {
     identifier: string;
     password: string;
   }): Promise<{ userId: string; status: 'active' | 'frozen' | 'closed' }> {
-    try {
-      const user = await this.passFirstFactor(input);
-      return { userId: user.id, status: 'active' };
-    } catch (err) {
-      if (!(err instanceof AuthError) || err.code !== 'auth.account_frozen' || !err.details?.accountState) throw err;
-      const [user] = await this.sql<
-        Array<{ id: string }>
-      >`SELECT id FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
-      if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-      return { userId: user.id, status: err.details.accountState };
-    }
+    const user = await this.verifyFirstFactor(input);
+    return { userId: user.id, status: user.status === 'active' ? 'active' : accountStateOf(user.status).accountState };
   }
 
   /**
@@ -1409,6 +1400,31 @@ export class AuthService {
    * is checked, the same answer for an unknown name and a wrong password, the account state named only after it verified.
    */
   private async passFirstFactor(input: { identifier: string; password: string }): Promise<{
+    id: string;
+    password_hash: string;
+    status: string;
+    totp_secret: string | null;
+    passkey_second_step: boolean;
+    webauthn_creds: unknown;
+  }> {
+    const user = await this.verifyFirstFactor(input);
+    // Named only to someone who just proved the password, so the state is never a probe. A closed
+    // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
+    // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
+    // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
+    if (await needsRehash(user.password_hash)) {
+      const upgraded = await hashPassword(input.password);
+      await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
+    }
+    return user;
+  }
+
+  /**
+   * The password checked, whatever the account's state: counted on the lockout first, the same answer for an unknown name
+   * and a wrong password, and the counter cleared once it verified. The caller decides what the state allows.
+   */
+  private async verifyFirstFactor(input: { identifier: string; password: string }): Promise<{
     id: string;
     password_hash: string;
     status: string;
@@ -1449,15 +1465,6 @@ export class AuthService {
     // two-step TOTP flow (password first, code second), so a correct password is never
     // left counting against the owner. The mfa counter is separate and stays.
     await recordSuccess(this.sql, user.id, 'password');
-    // Named only to someone who just proved the password, so the state is never a probe. A closed
-    // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
-    // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
-    if (await needsRehash(user.password_hash)) {
-      const upgraded = await hashPassword(input.password);
-      await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
-    }
     return user;
   }
 

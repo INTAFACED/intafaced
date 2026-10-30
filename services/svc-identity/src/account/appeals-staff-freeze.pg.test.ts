@@ -3,19 +3,24 @@
  * account is proved, never for an active or closed account, never decided by the founder who froze it, and lifted only
  * through the founder control's unfreeze four-eyes with the appeal as its reason.
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import { MemoryEventBus } from '@intafaced/events';
+import { TRPCError } from '@intafaced/contracts';
 import { appealLiftReason, type Context } from '@intafaced/contracts';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { FounderControls, parseFounderPair } from '../controls/founder-controls.js';
 import { approvedUnfreeze } from '../controls/unfreeze-approval.testkit.js';
 import type { KycRejectReasons } from '../kyc/cases.js';
+import { AuthService } from '../auth/auth-service.js';
+import { RankService } from '../rank/rank-service.js';
 import { AccountAppeals, AppealError } from './appeals.js';
+import { createAppealsRouter } from './appeals-router.js';
 
 const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -102,6 +107,65 @@ if (!available) {
     await db.drop();
   });
 
+  describe('the signed-out door', () => {
+    const PASSWORD = 'correct horse battery staple';
+    const bus = new MemoryEventBus('svc-identity');
+    const auth = new AuthService(
+      db.sql,
+      bus,
+      new RankService(db.sql, bus),
+      { ...tokens, refreshTtlSeconds: 2_592_000 },
+      { rpID: 'localhost', rpName: 'INTAFACED', origin: 'http://localhost:3000' },
+      randomBytes(32).toString('base64'),
+      undefined,
+      undefined,
+      25,
+    );
+    auth.useLogger({ warn: () => undefined });
+    const anon = () =>
+      createAppealsRouter(desk(), auth).createCaller({ principal: null, service: null, region: 'DE', requestId: randomUUID() } as Context)
+        .accountAppeal;
+    const refused = async (p: Promise<unknown>) => {
+      try {
+        await p;
+      } catch (err) {
+        if (err instanceof TRPCError) return { code: (err.cause as { code?: string } | undefined)?.code, message: err.message };
+        throw err;
+      }
+      return { code: 'no refusal', message: '' };
+    };
+    let handle: string;
+    const send = (identifier: string, password: string, clientRequestId = randomUUID()) =>
+      anon().submitSignedOut({ identifier, password, text: 'TEST: please look again', clientRequestId });
+
+    beforeEach(async () => {
+      handle = `so${randomUUID().replaceAll('-', '').slice(0, 14)}`;
+      target = (await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, region: 'DE' })).userId;
+    });
+
+    it('answers an unknown name and a wrong password the same, and names the state only after the password verified', async () => {
+      await freeze();
+      const unknown = await refused(send(`nobody-${handle}@example.com`, PASSWORD));
+      const wrong = await refused(send(handle, `${PASSWORD}x`));
+      expect(unknown.code).toBe('auth.invalid_credentials');
+      expect(wrong).toEqual(unknown);
+      expect(await db.sql`SELECT id FROM account_appeals`).toHaveLength(0);
+      expect(await send(`${handle}@example.com`, PASSWORD)).toMatchObject({ restriction: 'staff_freeze', status: 'submitted' });
+    });
+
+    it('sends an active account to sign in, refuses a closed one, and counts wrong passwords on the sign-in lockout', async () => {
+      expect((await refused(send(handle, PASSWORD))).code).toBe('identity.appeal_sign_in');
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;
+      expect((await refused(send(handle, PASSWORD))).code).toBe('identity.appeal_not_allowed');
+      let last = '';
+      for (let i = 0; i < 12 && last !== 'auth.too_many_attempts'; i++) last = (await refused(send(handle, `${PASSWORD}x`))).code ?? '';
+      expect(last).toBe('auth.too_many_attempts');
+      // Locked: even the right password files nothing until the lock ends.
+      expect((await refused(send(handle, PASSWORD))).code).toBe('auth.too_many_attempts');
+      expect(await db.sql`SELECT id FROM account_appeals`).toHaveLength(0);
+    });
+  });
+
   describe('a staff freeze appeal', () => {
     it('is filed signed out for a frozen account, names the founder who froze it, and keeps one open', async () => {
       await freeze();
@@ -114,11 +178,15 @@ if (!available) {
       expect(await codeOf(file())).toBe('identity.appeal_open');
     });
 
-    it('is refused for an active account (sign in instead) and for a closed one, and for a frozen account staff never froze', async () => {
+    it('is refused for an active account (sign in instead), a closed one, and a freeze no founder control change set', async () => {
       expect(await codeOf(file('active'))).toBe('identity.appeal_sign_in');
       expect(await codeOf(file('closed'))).toBe('identity.appeal_not_allowed');
       // Told frozen, but the account reads active: there is nothing to appeal.
       expect(await codeOf(file('frozen'))).toBe('identity.appeal_no_restriction');
+      // Frozen, but by no founder control change (a confirmed death notice freezes this way): who set it is unknown, so it
+      // cannot be appealed here.
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${target}`;
+      expect(await codeOf(file('frozen'))).toBe('identity.appeal_setter_unknown');
       expect(await db.sql`SELECT id FROM account_appeals`).toHaveLength(0);
     });
 
