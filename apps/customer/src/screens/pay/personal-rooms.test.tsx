@@ -59,6 +59,14 @@ it('shows a QR code and a payment link for the customer’s handle', () => {
   expect(out).toContain('https://app.test/pay/send?to=maya_test');
 });
 
+it('shows the handle change and the find-me switch, the switch off and disabled until the settings load', () => {
+  const out = renderToString(<ReceiveCard identity={{ status: 'handles', handle: 'maya_test' }} />);
+  expect(out).toContain('data-testid="handle-settings"');
+  expect(out).toContain('Let people find me by my handle');
+  expect(out).toMatch(/role="switch"[^>]*aria-checked="false"|aria-checked="false"[^>]*role="switch"/);
+  expect(out).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Change handle/);
+});
+
 it('uses the Account ID in the link when the server has no handles', () => {
   const out = renderToString(<ReceiveCard identity={{ status: 'accountId' }} />);
   expect(out).toContain(`https://app.test/pay/send?to=${USER}`);
