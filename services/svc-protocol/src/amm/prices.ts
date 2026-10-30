@@ -1,7 +1,11 @@
 import type { ProtocolSwapPairs, ProtocolTokenPrice } from '@intafaced/contracts';
+import { parseUnits } from 'viem';
 
-/** USD prices are carried as 18-decimal fixed point in memory and as decimal strings on the wire. */
-const USD_SCALE = 10n ** 18n;
+/**
+ * USD prices are carried as 18-decimal fixed point in memory and as decimal strings on the wire. Protocol Plane takes no
+ * ledger-client dependency, so the unit comes from viem, as in tokens.ts.
+ */
+const USD_SCALE = parseUnits('1', 18);
 
 export interface PriceSetting {
   /** The owner's reference tokens: each counts as one US dollar. Lower-case addresses. */
