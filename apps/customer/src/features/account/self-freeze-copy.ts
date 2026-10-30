@@ -3,7 +3,7 @@ import { defineCopy } from '../../shared/i18n';
 const messages = {
   title: 'Freeze your account',
   body: 'Use this if you think someone else has access, or you want to stop everything for a while. Freezing signs out every device and revokes every API key right away. Your money stays where it is and is not touched.',
-  consequences: 'While frozen, no API key can be created. Lifting the freeze is a separate step.',
+  consequences: 'While frozen, no API key can be created. You can lift the freeze yourself after a waiting time, with your authenticator code or a passkey.',
   reasonLabel: 'Why are you freezing it?',
   reasonCompromise: 'Someone else may have access',
   reasonTemporary: 'I want to pause for a while',
@@ -18,6 +18,20 @@ const messages = {
   refusedPassword: 'That password is not right.',
   refusedDelegated: 'Sign in on this device. An API key or a sub-account cannot freeze this account.',
   refusedClosed: 'This account is closed and cannot be frozen.',
+  liftTitle: 'Reactivate your account',
+  liftBody: 'Once the waiting time after your freeze has passed, you can lift it yourself. You confirm it with your authenticator code or a passkey.',
+  liftAsk: 'Reactivate my account',
+  liftWhy: 'Enter a fresh code from your authenticator app, or use a passkey, to lift the freeze.',
+  liftCode: 'Authenticator code',
+  liftCodeHint: 'The 6-digit code your app shows now.',
+  liftCodeShort: 'Enter all 6 digits.',
+  liftNoFactor: 'Lifting a freeze needs an authenticator app or a passkey, and this account has neither.',
+  liftSendWithout: 'Ask without one',
+  liftTooSoonSeconds: 'Not yet. You can reactivate in {seconds} seconds.',
+  liftTooSoon: 'Not yet. The waiting time after your freeze has not passed.',
+  liftWaitUnset: 'Reactivation is refused: no waiting time is set for lifting a freeze, so it cannot open.',
+  liftNeedsFactor: 'Turn on an authenticator app or add a passkey first. Lifting a freeze needs one.',
+  liftedNote: 'Your account is active again. Other devices stay signed out until you sign in there.',
 } as const;
 
 export const selfFreezeCopy = defineCopy('account.freeze', messages);

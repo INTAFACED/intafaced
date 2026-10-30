@@ -6,14 +6,26 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { FREEZE_REASONS, FREEZE_REFUSAL_KEYS, REASON_KEYS, freezeDone, freezeStatus, type FreezeReason } from './self-freeze';
+import { StepUpConfirm } from '../money/StepUpConfirm';
+import {
+  FREEZE_REASONS,
+  FREEZE_REFUSAL_KEYS,
+  LIFT_REFUSAL_KEYS,
+  REASON_KEYS,
+  freezeDone,
+  freezeStatus,
+  liftDone,
+  liftRequestId,
+  type FreezeReason,
+} from './self-freeze';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 /**
  * Freeze account in Security (slice I-account-lifecycle-08): the person's own freeze. It needs the current password and a reason,
  * signs out every device and key, and moves no money. The page says so before the button and shows "You froze this account"
- * afterwards. Lifting the freeze is its own slice and is not offered here.
+ * afterwards. The frozen card offers the person's own lift (I-account-lifecycle-09): before the owner's waiting time has passed it
+ * refuses with the seconds left; after it, a fresh authenticator code or passkey confirms the lift. A blank waiting time refuses.
  */
 export function FreezeAccount() {
   const { t, languageFor } = copy.useCopy();
@@ -24,6 +36,9 @@ export function FreezeAccount() {
   const [problem, setProblem] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [lifting, setLifting] = useState(false);
+  const [liftFailure, setLiftFailure] = useState<Failed | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const mounted = useRef(true);
   const form = useRef<HTMLFormElement | null>(null);
   useEffect(() => {
@@ -55,6 +70,32 @@ export function FreezeAccount() {
     }
   }
 
+  async function lift(since: string, stepUpApprovalId: string | null) {
+    if (lifting || !userId) return;
+    setLifting(true);
+    setLiftFailure(null);
+    try {
+      const answer = await api.mutate(
+        'identity',
+        'selfFreezeManage.lift',
+        { clientRequestId: liftRequestId(userId, since), stepUpApprovalId },
+        liftDone,
+      );
+      if (!mounted.current) return;
+      if (!answer.ok) {
+        // The step-up is asked for only once the wait has passed: the service refuses too soon before it spends one.
+        if (answer.code === 'identity.step_up_required') return setConfirming(true);
+        setConfirming(false);
+        return setLiftFailure(answer);
+      }
+      setConfirming(false);
+      setNote(t('liftedNote'));
+      status.reload();
+    } finally {
+      if (mounted.current) setLifting(false);
+    }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const password = String(new FormData(event.currentTarget).get('freeze-password') ?? '');
@@ -70,6 +111,7 @@ export function FreezeAccount() {
   const current = status.resource.data;
 
   if (current.frozen && current.since && current.reason) {
+    const since = current.since;
     return (
       <section
         data-testid="security__card"
@@ -84,6 +126,35 @@ export function FreezeAccount() {
           </p>
         )}
         <p>{t('frozenBody', { date: stamp(current.since, timeZone), reason: t(REASON_KEYS[current.reason] as 'reasonPersonal') })}</p>
+        <h3>{t('liftTitle')}</h3>
+        <p>{t('liftBody')}</p>
+        {liftFailure && <LiftRefusal failure={liftFailure} />}
+        {confirming ? (
+          <StepUpConfirm
+            request={() => ({
+              scope: 'identity.step_up.self_freeze_lift',
+              purpose: 'account.selfFreeze.lift',
+              target: liftRequestId(userId ?? '', since),
+              fields: { clientRequestId: liftRequestId(userId ?? '', since) },
+            })}
+            words={{
+              why: t('liftWhy'),
+              code: t('liftCode'),
+              codeHint: t('liftCodeHint'),
+              codeShort: t('liftCodeShort'),
+              noFactor: t('liftNoFactor'),
+              sendWithout: t('liftSendWithout'),
+            }}
+            disabled={lifting}
+            onApproved={(approval) => void lift(since, approval)}
+          />
+        ) : (
+          <div className="actions">
+            <Button data-testid="freeze__lift" disabled={lifting} onClick={() => void lift(since, null)}>
+              {lifting ? t('working') : t('liftAsk')}
+            </Button>
+          </div>
+        )}
       </section>
     );
   }
@@ -92,6 +163,11 @@ export function FreezeAccount() {
   return (
     <section data-testid="security__card" className="security__freeze security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
+      {note && (
+        <p className="notice" role="status">
+          {note}
+        </p>
+      )}
       <p>{t('body')}</p>
       <p>{t('consequences')}</p>
       {failure &&
@@ -129,5 +205,24 @@ export function FreezeAccount() {
         </div>
       </form>
     </section>
+  );
+}
+
+/** A lift refusal in the card's own words: the seconds left when the service sent them, else the typed reason. */
+function LiftRefusal({ failure }: { failure: Failed }) {
+  const { t } = copy.useCopy();
+  if (failure.code === 'identity.self_freeze_lift_too_soon') {
+    return (
+      <p className="notice" role="alert" data-testid="freeze__lift-refusal">
+        {failure.retryAfterSeconds ? t('liftTooSoonSeconds', { seconds: failure.retryAfterSeconds }) : t('liftTooSoon')}
+      </p>
+    );
+  }
+  const key = failure.code ? LIFT_REFUSAL_KEYS[failure.code] : undefined;
+  if (!key) return <Failure result={failure} />;
+  return (
+    <p className="notice" role="alert" data-testid="freeze__lift-refusal">
+      {t(key as 'liftWaitUnset')}
+    </p>
   );
 }

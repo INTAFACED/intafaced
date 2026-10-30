@@ -61,4 +61,19 @@ describe('selfFreezeManage.lift door', () => {
     expect(require).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('sends the whole seconds left until the wait ends, so the customer app can name them', async () => {
+    vi.useFakeTimers({ now: new Date('2026-10-29T16:00:00.000Z') });
+    try {
+      const lift = new SelfFreezeLift(vi.fn() as never, 3600);
+      const availableAt = new Date('2026-10-29T16:00:29.400Z');
+      vi.spyOn(lift, 'assertDue').mockRejectedValue(new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', availableAt));
+      const caller = createSelfFreezeLiftRouter(lift, { require: vi.fn() } as unknown as SecurityStepUp).createCaller(await ctx());
+      await expect(caller.selfFreezeManage.lift({ clientRequestId: 'c1' })).rejects.toMatchObject({
+        cause: { code: 'identity.self_freeze_lift_too_soon', details: { retryAfterSeconds: 30 } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
