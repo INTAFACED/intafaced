@@ -47,6 +47,12 @@ export interface AlgoChildRef {
   readonly basisQty?: Amount | null;
   /** Chase only: the limit price this child rests at. */
   readonly price?: Amount | null;
+  /**
+   * Chase only: what the engine still held of this child when the chase cancelled it (0 when it had nothing left).
+   * `qty − cancelRemainingQty` is what the engine matched, which its fills reach once the taker's settlement lands.
+   * Null or absent: not cancelled by the chase, or the engine never had it; its fills are then the whole story.
+   */
+  readonly cancelRemainingQty?: Amount | null;
 }
 
 /**

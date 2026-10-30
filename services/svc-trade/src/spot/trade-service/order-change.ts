@@ -54,6 +54,23 @@ import { replacementClientOrderId, replacementRequestHash } from './internal.js'
  * a fill is about to need.
  */
 export async function cancelOrder(svc: TradeServiceInternal, principal: Principal, orderId: string): Promise<OrderRecord> {
+  return (await cancelOrderWithEngineAnswer(svc, principal, orderId)).order;
+}
+
+/**
+ * `cancelOrder`, plus what the engine still held when it cancelled. A fill the engine matched just before the cancel is
+ * written later, by the taker's own settlement, so the order row and its fills can read short for a moment after this
+ * returns; `order.qty − engineRemainingQty` is the matched quantity they will reach.
+ * - `engineRemainingQty` is the engine's own `remainingQty` on a cancel, and 0 when the engine had nothing live (fully
+ *   matched, or verified absent).
+ * - It is null when the engine never had the order (a hold-unknown order claimed here) or the order was already terminal:
+ *   then the fills already written are the whole story.
+ */
+export async function cancelOrderWithEngineAnswer(
+  svc: TradeServiceInternal,
+  principal: Principal,
+  orderId: string,
+): Promise<{ order: OrderRecord; engineRemainingQty: Amount | null }> {
   return withMoneySpan('trade.cancelOrder', { operation: 'cancel_order', userId: principal.userId, orderId }, async () => {
     requireScope(principal, 'trade:write');
 
@@ -106,7 +123,7 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
         }
         const settled = await svc.findOrder(orderId);
         if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-        return settled;
+        return { order: settled, engineRemainingQty: null };
       }
       // Hold is booked and the engine was never given this order. Claim it,
       // then release the full hold. Do not ask matching to cancel.
@@ -121,7 +138,7 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       await svc.finalize(orderId, 'cancelled');
       const settled = await svc.findOrder(orderId);
       if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      return settled;
+      return { order: settled, engineRemainingQty: null };
     } else if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') {
       throw new TradeError(`order ${orderId} is ${order.status} and cannot be cancelled`, 'trade.order_not_open');
     }
@@ -163,7 +180,11 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
     await svc.finalize(orderId, 'cancelled');
 
     const settled = await svc.findOrder(orderId);
-    return settled as OrderRecord;
+    // An engine cancel always names what it took off the book; one that names nothing is read as nothing left, so a
+    // caller that waits for fills never counts that quantity as free to place again.
+    const engineRemainingQty =
+      cancellation.cancelled && cancellation.cancellation ? parseAmount(cancellation.cancellation.remainingQty) : 0n;
+    return { order: settled as OrderRecord, engineRemainingQty };
   });
 }
 

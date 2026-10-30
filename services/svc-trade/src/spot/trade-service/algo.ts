@@ -257,17 +257,21 @@ export async function createTwap(
  */
 export async function chaseChildState(sql: TradeServiceInternal['sql'], orderIds: readonly string[]): Promise<ChaseChildState> {
   const ids = [...orderIds];
-  if (ids.length === 0) return { filledQty: 0n, openOrderIds: new Set() };
+  if (ids.length === 0) return { filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() };
   const [fills, open] = await Promise.all([
-    sql<Array<{ qty: string }>>`
-      SELECT COALESCE(SUM(qty), 0)::text AS qty FROM trade.fills WHERE order_id = ANY(${ids}::uuid[])
+    sql<Array<{ order_id: string; qty: string }>>`
+      SELECT order_id::text AS order_id, SUM(qty)::text AS qty FROM trade.fills
+      WHERE order_id = ANY(${ids}::uuid[]) GROUP BY order_id
     `,
     sql<Array<{ id: string }>>`
       SELECT id::text AS id FROM trade.orders
       WHERE id = ANY(${ids}::uuid[]) AND status IN ('open', 'pending', 'recovery_required', 'hold_unknown')
     `,
   ]);
-  return { filledQty: parseAmount(fills[0]?.qty ?? '0'), openOrderIds: new Set(open.map((r) => r.id)) };
+  const filledByOrderId = new Map(fills.map((r) => [r.order_id, parseAmount(r.qty)] as const));
+  let filledQty = 0n;
+  for (const qty of filledByOrderId.values()) filledQty += qty;
+  return { filledQty, filledByOrderId, openOrderIds: new Set(open.map((r) => r.id)) };
 }
 
 /** Owner recovery restores only the immutable admitted proposal. Each child

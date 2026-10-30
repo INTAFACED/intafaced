@@ -581,8 +581,10 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
         )`;
       const state = await chaseChildState(db.sql, [resting, cancelled]);
       expect(state.filledQty).toBe(amt('0.004'));
+      // Per child: only the cancelled child has fills; the resting one has none, so it is absent.
+      expect(state.filledByOrderId).toEqual(new Map([[cancelled, amt('0.004')]]));
       expect([...state.openOrderIds]).toEqual([resting]);
-      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, openOrderIds: new Set() });
+      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() });
     });
   });
 });
