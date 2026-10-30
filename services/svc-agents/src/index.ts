@@ -6,7 +6,7 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { userAvailable } from '@intafaced/ledger-client';
+import { parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -17,6 +17,7 @@ import { UpstreamModelProvider } from './providers/upstream.js';
 import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
+import { createHttpTeamMembershipPort } from './team/membership.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
@@ -142,6 +143,7 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from
@@ -167,6 +169,10 @@ const spotTickersPort = env.TRADE_URL ? createHttpSpotTickersPort({ tradeUrl: en
 
 const payMetricsPort = env.PAY_URL
   ? createHttpPayMetricsPort({ payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
+  : undefined;
+
+const teamMembership = env.BANK_URL
+  ? createHttpTeamMembershipPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : undefined;
 
 const copyLeaderFixturesPort = env.TRADE_URL
@@ -202,6 +208,7 @@ const appRouter = createAgentsRouter({
   ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
+  ...(teamMembership ? { teamMembership } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),
   ...(env.TRADE_URL ? { navigatorTradeUrl: env.TRADE_URL } : {}),
   ...(navigatorTradeDataPort ? { navigatorTradeDataPort } : {}),
