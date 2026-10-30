@@ -100,6 +100,10 @@ export interface AlgoChildView {
   readonly orderId: string;
   readonly sliceIndex: number;
   readonly time: string;
+  /** The child's placed size. */
+  readonly qty: string;
+  /** POV: the volume or book size its participation was applied to; null for other kinds. */
+  readonly basisQty: string | null;
 }
 
 export interface AlgoMissView {
@@ -128,6 +132,8 @@ export function presentAlgoDesk(
       orderId: child.orderId,
       sliceIndex: child.sliceIndex,
       time: child.placedAt.toISOString(),
+      qty: formatAmount(child.qty),
+      basisQty: child.basisQty == null ? null : formatAmount(child.basisQty),
     })),
     misses: parent.misses.map((miss) => ({
       sliceIndex: miss.sliceIndex,

@@ -18,6 +18,7 @@ import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
@@ -197,6 +198,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         return unset;
       },
       parity: async () => ({ kind: 'unset' }),
+      railStatement: async () => ({ kind: 'unset' }),
     };
     const run = await runReconciliationControl(
       db.sql,
@@ -872,6 +874,107 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     }
   });
 
+  it("reconciles one rail's boundary against that rail's own statement: equal is PASS, a gap is FAIL, a blank URL is UNSET with its code", async () => {
+    const engine = new PostgresLedger(db.sql);
+    // Two rails take deposits; the control over recon-rail must count its boundary alone (-7), never recon-other's.
+    await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-8888-4888-8888-000000000001',
+        assetId: 'USDT',
+        amount: amt('7'),
+        rail: 'recon-rail',
+        railRef: 'recon-rail-1',
+      }),
+    );
+    await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-8888-4888-8888-000000000002',
+        assetId: 'USDT',
+        amount: amt('4'),
+        rail: 'recon-other',
+        railRef: 'recon-other-1',
+      }),
+    );
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', rail: 'recon-rail', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    let amount = '-7';
+    const asked: Array<{ rail?: string; asOf?: string }> = [];
+    const server = Fastify();
+    server.get('/statement', async (req) => {
+      const query = req.query as { rail?: string; asOf?: string };
+      asked.push(query);
+      // The statement lists every asset on the rail; the control is scoped to USDT and judges USDT alone.
+      return {
+        source: 'rail',
+        rail: query.rail,
+        asOf: '2026-01-01T00:00:00.000Z',
+        balances: [
+          { assetId: 'USDT', amount },
+          { assetId: 'BTC', amount: '-3' },
+        ],
+      };
+    });
+    server.get('/book', async () => ({ source: 'rail', asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '-7' }] }));
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    const run = (sources: ReconciliationSources) =>
+      runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        { controlId: defined.id, reason: REASON, approvalId: 'appr-rail', operationId: nextOp() },
+        sources,
+      );
+    try {
+      const railUrls = new Map([['recon-rail', `${base}/statement`]]);
+      const pass = await run(reconciliationSourcesFrom(undefined, railUrls));
+      expect(pass).toMatchObject({ status: 'PASS', outsideSide: 'snapshot', sources: { outside: { asOf: '2026-01-01T00:00:00.000Z' } } });
+      expect(pass.assets).toEqual([{ assetId: 'USDT', observed: '-7', expected: '-7', difference: '0', tolerance: '0' }]);
+      expect(pass.accounts).toHaveLength(1);
+      expect(asked).toEqual([{ rail: 'recon-rail', asOf: pass.readAt }]);
+
+      // The outside side is one cent short of the boundary: FAIL to the cent, never rounded away.
+      amount = '-6.99';
+      const fail = await run(reconciliationSourcesFrom(undefined, railUrls));
+      expect(fail.status).toBe('FAIL');
+      expect(fail.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: '-7', expected: '-6.99' })]);
+      expect(amt(fail.assets[0]!.difference) === 0n).toBe(false);
+
+      // No URL for this rail: UNSET with the typed code, even when the whole-book snapshot URL is set and would match.
+      const unset = await run(reconciliationSourcesFrom(`${base}/book`, new Map([['recon-other', `${base}/statement`]])));
+      expect(unset).toMatchObject({
+        status: 'UNSET',
+        outsideSide: 'unset',
+        errorCode: { status: 'set', value: LEDGER_RECONCILE_RAIL_SOURCE_UNSET },
+      });
+      expect(unset.assets.every((asset) => asset.expected === 'unset')).toBe(true);
+      expect(asked).toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+
+    // A rail names its boundary itself: an owner type, an owner id prefix or a kind other than available beside it is refused.
+    for (const clash of [{ ownerType: 'user' }, { ownerIdPrefix: 'rail:' }, { kind: 'hold' }]) {
+      await expect(
+        defineReconciliationControl(db.sql, actor, {
+          template: 'outside_balance',
+          accountSet: { mode: 'query', rail: 'recon-rail', ...clash },
+          schedule: { cadence: 'daily', hour: 0, minute: 0 },
+          severity: 'critical',
+          tolerance: { default: '0' },
+          reason: REASON,
+          activate: true,
+        } as never),
+      ).rejects.toThrow();
+    }
+  });
+
   it('refuses an operator run in the scheduled operation-id space', async () => {
     await expect(
       runReconciliationControl(db.sql, approvals, actor, {
@@ -1062,6 +1165,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     const sources: ReconciliationSources = {
       outsideBalance: async () => ({ kind: 'snapshot', balances: [{ assetId: 'USDT', amount: '0' }] }),
       parity: async () => ({ kind: 'unset' }),
+      railStatement: async () => ({ kind: 'unset' }),
     };
     const run = await runReconciliationControl(
       db.sql,

@@ -18,6 +18,8 @@ describe('order hold unknown outcome', () => {
     expect(classifyHoldPostError(new InsufficientFundsError('acct', 'USDT', '2', '1'))).toBe('refused');
     expect(classifyHoldPostError(new InvalidEntryError('bad'))).toBe('refused');
     expect(classifyHoldPostError(new LedgerError('book is frozen', 'ledger.frozen'))).toBe('refused');
+    expect(classifyHoldPostError(new LedgerError('key required', 'ledger.caller_unbound'))).toBe('refused');
+    expect(classifyHoldPostError(new LedgerError('not granted', 'ledger.caller_forbidden'))).toBe('refused');
     const lost = Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' });
     expect(classifyHoldPostError(lost)).toBe('unknown');
     expect(classifyHoldPostError(new Error('timeout'))).toBe('unknown');
