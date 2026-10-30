@@ -80,6 +80,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/earn': { template: 'catalogue' },
   '/bank/earn/pool': { template: 'catalogue' },
   '/bank/loans': { template: 'catalogue' },
+  '/bank/loans/apply': { template: 'flow' },
   '/bank/loans/detail': { template: 'settings' },
   '/bank/cards': { template: 'settings' },
   '/bank/ramps': { template: 'settings' },
