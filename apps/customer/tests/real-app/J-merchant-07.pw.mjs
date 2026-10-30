@@ -132,15 +132,17 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   }).toPass({ timeout: 60_000 });
 });
 
-// #2, all three clauses green in the running app (RC-merchant-10). #1's 40.00 TEST payment was captured with its funds
-// held by the TEST acquirer. (1) A settlement run before the acquirer releases them leaves the payment out: the window
-// waits, clearing still reads 40.00 and available 0, from merchantMetrics.snapshot and on Money. (2) A payout of that
-// waiting window is refused `pay.payout_clearing_pending`, by the API and on the payout page, and the balances read
-// again are unchanged. (3) Once the acquirer reports the funds available (a signed `funds.available` delivery from the
-// stack's TEST acquirer, never the client), the same run settles the window once, on its business key
+// #2, the wait and the payout half green in the running app (RC-merchant-10). #1's 40.00 TEST payment was captured
+// with its funds held by the TEST acquirer. (1) A settlement run before the acquirer releases them leaves the payment
+// out: the window waits, clearing still reads 40.00 and available 0, from merchantMetrics.snapshot and on Money.
+// (2) A payout of that waiting window is refused `pay.payout_clearing_pending`, by the API and on the payout page; the
+// balances, the settlement record and the held list read again are unchanged, and Money reloaded still shows clearing
+// 40.00 and available 0. (3) Once the acquirer reports the funds available (a signed `funds.available` delivery from
+// the stack's TEST acquirer, never the client), the same run settles the window once, on its business key
 // (merchant, window, asset): available reads the net read back from the settlement and clearing reads 0, and a third
-// run changes nothing. No clause stays red.
-test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
+// run changes nothing. The spend half of the step has no path in the running app: it is the separate red test below,
+// named for its blocker.
+test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of still-pending clearing is refused without moving it`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -240,6 +242,11 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   expect(await api.query('settlement.get', { settlementId: waiting.id })).toEqual(recordBefore);
   expect((await api.query('settlement.clearing', { merchantId })).held).toEqual(heldBefore);
   expect((await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items).toEqual([]);
+  // And on Money, reloaded: clearing still 40.00 and nothing available.
+  await page.goto('/pay/money');
+  await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT');
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
+  await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
 
   // (3) The TEST acquirer reports the funds available, signed, to the service's own webhook; the same run now settles.
   tool('local-test-stack.mjs', 'card-funds', paymentId, 'available');
@@ -270,6 +277,18 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   // The Still clearing section now lists nothing: its empty line instead of the held list.
   await expect(page.getByTestId('mn-held-none')).toHaveText('Nothing is waiting to clear.');
   await expect(page.getByRole('region', { name: 'Still clearing' })).toHaveCount(0);
+});
+
+// #2's spend half stays red until a merchant can spend a balance in the running app. The only spend of a settlement
+// is conversion (svc-pay conversion.quote/execute), and the TEST stack leaves it off: no PAY_CONVERSION_* is set, so
+// there is no venue and every quote is refused `pay.conversion_slippage_unconfigured` before it reads a settlement, and
+// it converts USD settlements only while this journey's TEST payment is USDT. A refund also draws on clearing, but it
+// returns the buyer's own payment rather than spending the merchant's funds; #2 proves the payout refusal.
+test(`${J} #2 a spend of still-pending clearing is refused (blocked: conversion, the only merchant spend, is off on the TEST stack, PAY_CONVERSION_MODE unset, and takes USD settlements only)`, async () => {
+  expect(
+    'no merchant spend path in the running app',
+    'blocked: conversion is off on the TEST stack (PAY_CONVERSION_MODE unset, no venue, quotes refused pay.conversion_slippage_unconfigured) and converts USD settlements only; no other merchant spend is wired',
+  ).toBe('a spend of still-pending clearing refused by its typed code');
 });
 
 test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the live engine; a blank tier fee reads "Not set" and refuses a total; payout "not charged" when so published`, async ({
