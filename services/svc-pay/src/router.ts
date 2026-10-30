@@ -11,6 +11,7 @@ import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
   networkIdSchema,
   readWithdrawalNetworkRules,
+  refuseWithdrawalTag,
   WithdrawalNetworkRuleError,
   withdrawalNetworkRulesSchema,
   withdrawalNetworkRuleToTrpcError,
@@ -2161,7 +2162,8 @@ export function createPayRouter(
             assetId: assetIdSchema,
             amount: amountSchema,
             railId: z.string().min(1),
-            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }),
+            /** A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. */
+            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(128).optional() }),
             /**
              * REQUIRED, not optional. A timed-out request that is retried
              * without one opens a second withdrawal, and a second withdrawal is
@@ -2184,6 +2186,9 @@ export function createPayRouter(
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            // J-wallet-05 #1: a tag is refused by name before anything else is asked, so nothing is claimed or held.
+            const { tag, ...destination } = input.destination;
+            if (tag !== undefined) await refuseWithdrawalTag(portalSql, input.assetId, input.networkId);
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
             // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
             await withdrawalApprovals?.assertDirectAllowed({
@@ -2191,7 +2196,7 @@ export function createPayRouter(
               assetId: input.assetId,
               amount: parseAmount(input.amount),
               clientRef: input.clientRef,
-              destination: input.destination,
+              destination,
             });
             const request = {
               // From the token. There is no `userId` input, so there is no way
@@ -2200,7 +2205,7 @@ export function createPayRouter(
               userId: ctx.principal.userId,
               assetId: input.assetId,
               amount: parseAmount(input.amount),
-              destination: input.destination,
+              destination,
               clientRef: input.clientRef,
               ...sandboxKeyEnv(ctx.principal),
             };
@@ -2209,7 +2214,7 @@ export function createPayRouter(
             // to come straight back. `railId: 'internal'` asks for that branch outright and refuses an outside address.
             const internal =
               input.railId === INTERNAL_RAIL ||
-              (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
+              (await userMoney.platformDestination(ctx.principal.userId, destination)).kind !== 'external';
             return toWithdrawalOut(
               internal
                 ? await userMoney.withdrawInternal(request)

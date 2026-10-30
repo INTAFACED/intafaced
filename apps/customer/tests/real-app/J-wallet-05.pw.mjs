@@ -265,7 +265,7 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   await signInWithCode(page);
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
@@ -301,6 +301,27 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+  // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
+  // dropped and sent without it. Then nothing is held and nothing is recorded.
+  const api = await customerApi();
+  const quoteRef = `${J}-tag-quote-${Date.now()}`;
+  const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
+  const tagged = await api.create(
+    {
+      assetId: 'USDT',
+      amount: '25',
+      railId: 'crypto-native',
+      networkId: 'ethereum',
+      quoteRef,
+      destination: { kind: 'crypto', ref: ADDRESS, tag: '12345' },
+      clientRef: `${J}-tag-${Date.now()}`,
+    },
+    (await api.stepUp()).accessToken,
+  );
+  expect(tagged.body?.error?.data?.cause?.code, JSON.stringify(tagged.body).slice(0, 400)).toBe('pay.withdrawal_tag_not_taken');
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+  expect(await api.withdrawals()).toEqual([]);
 });
 
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
@@ -539,9 +560,16 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm s
   // An expired step-up is refused too: its token lives five minutes, and once past that it sends nothing.
   const elevated = await api.stepUp();
   expect(Date.parse(elevated.expiresAt) - Date.now()).toBeLessThanOrEqual(300_000);
+  // While it lives, the same token gets past the step-up check: svc-pay stops only at the quote this send names, which
+  // does not exist, so nothing is held.
+  const live = await api.create({ ...send, clientRef: `${J}-live-step-up` }, elevated.accessToken);
+  expect(live.body?.error?.data?.cause?.code, JSON.stringify(live.body).slice(0, 400)).toBe('withdrawal_quote.not_found');
   await page.waitForTimeout(Math.max(0, Date.parse(elevated.expiresAt) - Date.now()) + 2_000);
+  // Once expired, the edge no longer vouches for it, and svc-pay refuses it as signed out: UNAUTHORIZED, not the
+  // FORBIDDEN of a session that never stepped up.
   const expired = await api.create({ ...send, clientRef: `${J}-expired-step-up` }, elevated.accessToken);
   expect(expired.status, JSON.stringify(expired.body)).toBe(401);
+  expect(expired.body?.error?.data?.code).toBe('UNAUTHORIZED');
   expect(await api.withdrawals()).toEqual([]);
   expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
 
@@ -644,8 +672,45 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
 
 test(`${J} #8 watches the status: requested, held, broadcast and settled in plain words, an old sent row reads settled, and a failure reads as a sentence`, async ({
   page,
+  browser,
 }, testInfo) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
+  // The person's own send from #6, through the TEST Ethereum signer, watched on its page until it reads Settled. A state
+  // passed between two looks is fine; a state going backwards is not. On the TEST stack the rail answers inside the send,
+  // so it may already read Settled at the first look.
+  const ownContext = await browser.newContext();
+  try {
+    const own = await ownContext.newPage();
+    await signInWithCode(own);
+    const api = await customerApi();
+    const sends = (await api.withdrawals()).filter((w) => w.destination?.ref === ADDRESS && toUnits(w.amount) === toUnits('25'));
+    const real = sends.at(-1);
+    expect(real?.id, 'the withdrawal #6 sent').toBeTruthy();
+    const order = ['Requested', 'In review', 'Approved', 'Held', 'Sending', 'Broadcast', 'Confirming', 'Settled'];
+    const seen = [];
+    const until = Date.now() + 60_000;
+    while (seen.at(-1) !== 'Settled' && Date.now() < until) {
+      await own.goto(`/uc/withdraw?withdrawalId=${real.id}`);
+      const shown = (await own.getByTestId('withdrawal-status').textContent({ timeout: 30_000 }))?.trim();
+      expect(order, `"${shown}" is a status word`).toContain(shown);
+      if (seen.at(-1) !== shown) seen.push(shown);
+      if (shown !== 'Settled') await own.waitForTimeout(1_000);
+    }
+    expect(seen.at(-1), `seen in order: ${seen.join(' → ')}`).toBe('Settled');
+    const steps = seen.map((word) => order.indexOf(word));
+    expect(steps, `never backwards: ${seen.join(' → ')}`).toEqual([...steps].sort((a, b) => a - b));
+    // The person's list says the same of the same withdrawal.
+    await own.goto('/uc/withdraw');
+    await own.mouse.move(0, 600);
+    const row = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${real.id}"]`);
+    await expect(row.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
+  } finally {
+    await ownContext.close();
+  }
+
+  // The words for each state, read from rows written straight into svc-pay on TEST: the TEST rail answers inside the send,
+  // so a real send never waits in requested, held or broadcast long enough to be seen; an old `sent` row and a rail
+  // refusal can only be fixtures here.
   // A person of its own, so these withdrawals don't count against the limits the steps above use.
   const who = await signUp(page, 'wd8');
   await verify(page, who);
