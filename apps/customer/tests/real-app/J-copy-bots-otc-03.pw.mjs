@@ -527,12 +527,28 @@ test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in 
 });
 
 test(`${J} #6 receives an in-app notice for a skipped or stopped follow: the reason and next step, no raw code`, async ({ page }) => {
-  await signIn(page, state('follower'));
+  const follower = state('follower');
+  const followId = state('followId');
+  // svc-notify holds exactly one stop notice for #2's close-only stop of this follow, however often it was announced.
+  const listed = await (
+    await api(follower)
+  ).get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+  const inbox = listed.body.result.data;
+  const stops = inbox.items.filter((n) => n.kind === 'trade.copy.stopped' && n.params.followId === followId);
+  expect(
+    stops.map((n) => n.bodyKey),
+    'B5 copy notices: no stop notice for this follow in svc-notify',
+  ).toEqual(['notify.trade.copy_stopped.body.follower_close_only']);
+  // The inbox shows it: the reason (the person stopped it, closes still copied) and the next step, in words, no raw code.
+  await signIn(page, follower);
   await page.goto('/notifications');
-  const notice = page.getByRole('article').filter({ hasText: /stopped copying|skipped a copy/i });
-  await expect(notice.first(), 'B5 copy notices: no in-app notice for a skipped or stopped follow').toBeVisible(UNBUILT);
-  await expect(notice.first()).toContainText(/You can /);
-  await expect(notice.first()).not.toContainText(/trade\.[a-z_]+/);
+  const notice = page.getByTestId('nf-row').filter({ hasText: /stopped copying/ });
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toContainText('Your follow stopped copying');
+  await expect(notice).toContainText('You stopped this follow. Only the leader’s closes of what you hold are still copied.');
+  await expect(notice).toContainText(/You can /);
+  await expect(notice).not.toContainText(/trade\.[a-z_]+|notify\.[a-z_]+/);
 });
 
 test(`${J} #7 leaves the leader: the follow is left and the positions stay the person's own; leaving again is refused`, async ({
