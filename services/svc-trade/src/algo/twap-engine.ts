@@ -288,6 +288,14 @@ export class TwapEngine {
 
   pause(userId: string, parentId: string): TwapParent {
     const parent = this.requireOwner(userId, parentId);
+    // A partial cancel already parked the schedule: the person asked to stop and a child may still be live, so the only
+    // way forward is another cancel. Say that, rather than the bare state refusal.
+    if (parent.haltReason === CANCEL_INCOMPLETE_HALT) {
+      throw new TradeError(
+        'cannot pause after a partial cancel — call cancel again until every child is cancelled',
+        'trade.algo_cancel_incomplete',
+      );
+    }
     if (parent.status !== 'active') {
       throw new TradeError(`cannot pause algo in status ${parent.status}`, 'trade.algo_bad_state');
     }
