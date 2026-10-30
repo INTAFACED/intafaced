@@ -10,7 +10,17 @@ import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
 import { usePools } from './usePools';
-import { isNotAPool, type CandleInterval, type Pool, type PoolCursor, type PoolDay, type PoolSwapsPage, type PoolToken } from './pools-api';
+import {
+  isFeePolicyUnset,
+  isNotAPool,
+  isNotFactoryPool,
+  type CandleInterval,
+  type Pool,
+  type PoolCursor,
+  type PoolDay,
+  type PoolSwapsPage,
+  type PoolToken,
+} from './pools-api';
 import type { PoolsTranslate } from './copy';
 import type { ChainRef } from '../NetworkPanels';
 
@@ -73,6 +83,7 @@ export function PoolPage({ address }: { address: string }) {
     body = (
       <>
         <PoolFacts pool={pool} t={t} />
+        <FeesPanel pool={pool.address} t={t} />
         <Panel title={t('chartTitle')}>
           <div role="group" aria-label={t('chartWidthGroup')} className="pool-chart-widths">
             {(['5m', '1h'] as const).map((width) => (
@@ -174,6 +185,66 @@ function PoolFacts({ pool, t }: { pool: Pool; t: PoolsTranslate }) {
           </div>
         ))}
       </dl>
+    </Panel>
+  );
+}
+
+/**
+ * Who gets the pool's fees (D-fees-governance-04): the protocol service reads the pool's own fee fields from the chain and
+ * says whether any share goes past the liquidity providers. A protocol fee request moves nothing; with the owner's fee
+ * policy blank it is refused by name, and the refusal is shown as the service gave it.
+ */
+function FeesPanel({ pool, t }: { pool: string; t: PoolsTranslate }) {
+  const { api } = usePools();
+  const words = useExplorerWords();
+  const fees = useResource((signal) => api.fees(pool, signal), `pools:fees:${pool}`);
+  const [request, setRequest] = useState<{ state: 'idle' | 'sending' } | { state: 'refused'; words: string }>({ state: 'idle' });
+  const ask = async () => {
+    setRequest({ state: 'sending' });
+    const answer = await api.requestProtocolFee(pool);
+    // The service never accepts a request while the policy is blank; an unexpected success still says nothing was set up.
+    if (answer.ok) setRequest({ state: 'refused', words: t('feesRequestPolicyUnset') });
+    else
+      setRequest({
+        state: 'refused',
+        words: isFeePolicyUnset(answer) ? t('feesRequestPolicyUnset') : t('feesRequestRefused', { reason: refusalWords(answer, words) }),
+      });
+  };
+  const { resource } = fees;
+  let read: ReactNode;
+  if (resource.status === 'loading') read = <Loading label={t('feesTitle')} />;
+  else if (resource.status === 'failed')
+    read = (
+      <BlockerNote
+        title={
+          isNotFactoryPool(resource.failure) ? t('feesNotFactoryPool') : t('feesRefused', { reason: refusalWords(resource.failure, words) })
+        }
+        action={
+          <Button variant="secondary" onClick={fees.reload}>
+            {t('retry')}
+          </Button>
+        }
+      />
+    );
+  else {
+    const data = resource.data;
+    read = (
+      <>
+        <p data-testid="pool-fee">{t('feesSwap', { percent: bpsPercent(data.feeBps) })}</p>
+        <p>{data.thirdShare ? t('feesThird') : t('feesShares')}</p>
+        {!data.thirdShare && <p data-testid="pool-fee-third">{t('feesNoThird')}</p>}
+        <p className="muted">{t('feesReadAt', { height: data.blockNumber })}</p>
+      </>
+    );
+  }
+  return (
+    <Panel title={t('feesTitle')} aria-label={t('feesTitle')}>
+      {read}
+      <p className="muted">{t('feesRequestNote')}</p>
+      <Button variant="secondary" disabled={request.state === 'sending'} onClick={() => void ask()}>
+        {t('feesRequest')}
+      </Button>
+      {request.state === 'refused' && <p role="alert">{request.words}</p>}
     </Panel>
   );
 }

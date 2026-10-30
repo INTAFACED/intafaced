@@ -11,7 +11,12 @@ const query = vi.fn((module: string, procedure: string, input: unknown) => {
   const answer = answers.get(procedure);
   return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
 });
-vi.mock('../../session/session', () => ({ useApi: () => ({ query }) }));
+const mutate = vi.fn((module: string, procedure: string, input: unknown) => {
+  calls.push({ procedure, input });
+  const answer = answers.get(procedure);
+  return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
+});
+vi.mock('../../session/session', () => ({ useApi: () => ({ query, mutate }) }));
 import { PoolsList } from './PoolsList';
 import { PoolPage } from './PoolPage';
 import { candleGeometry, compareDecimal } from './PriceChart';
@@ -168,6 +173,71 @@ describe('Pool page', () => {
     await show(<PoolPage address={POOL} />);
     expect(text()).toContain(`${POOL} is not a pool on`);
     expect(host.querySelector('[data-code="indexer.not_a_pool"]')).not.toBeNull();
+  });
+});
+
+describe('Pool fees (D-fees-governance-04)', () => {
+  const fees = {
+    pool: POOL,
+    factory: `0x${'f'.repeat(40)}`,
+    feeBps: 30,
+    shares: [{ to: 'liquidity_providers', bps: 10_000 }],
+    thirdShare: false,
+    contract: 'ConstantProductPool v1',
+    blockNumber: '42',
+  };
+  const day = { pool, window: { since: '', seconds: 86_400 }, volume1: '0', swaps: 0, candles: [], asOf: '2026-10-30T13:00:00.000Z' };
+  const region = () => host.querySelector('section[aria-label="Fees"]');
+  const requestButton = () => Array.from(region()!.querySelectorAll('button')).find((b) => b.textContent === 'Request a protocol fee')!;
+
+  it('reads the pool’s own fee from the protocol service and states no third share', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: true, data: fees });
+    await show(<PoolPage address={POOL} />);
+    expect(region()?.textContent).toContain('Swap fee 0.30% of each swap’s input');
+    expect(region()?.textContent).toContain('All of it stays in the pool for its liquidity providers.');
+    expect(host.querySelector('[data-testid="pool-fee-third"]')?.textContent).toMatch(/^There is no third share/);
+    expect(region()?.textContent).toContain('Read from the pool contract at block 42.');
+    expect(calls.find((call) => call.procedure === 'amm.poolFees')?.input).toEqual({ pool: POOL });
+  });
+
+  it('a protocol fee request with the policy blank shows the refusal by name', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: true, data: fees });
+    answers.set('amm.requestProtocolFee', {
+      ok: false,
+      reason: 'refused',
+      code: 'protocol.fee_policy_unset',
+      message: 'protocol.fee_policy_unset: the protocol fee policy is not set.',
+    });
+    await show(<PoolPage address={POOL} />);
+    await act(async () => requestButton().click());
+    await act(async () => undefined);
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/^Not requested: the protocol fee policy is not set\./);
+    expect(calls.find((call) => call.procedure === 'amm.requestProtocolFee')?.input).toEqual({ pool: POOL });
+  });
+
+  it('any other refusal of the request names its own reason, never the policy', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: true, data: fees });
+    answers.set('amm.requestProtocolFee', { ok: false, reason: 'unreachable', message: 'The service did not answer.' });
+    await show(<PoolPage address={POOL} />);
+    await act(async () => requestButton().click());
+    await act(async () => undefined);
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Not requested: The service did not answer.');
+  });
+
+  it('a pool the protocol service does not recognise gets no fee claim', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', {
+      ok: false,
+      reason: 'not_found',
+      code: 'protocol.not_factory_pool',
+      message: 'protocol.not_factory_pool: x',
+    });
+    await show(<PoolPage address={POOL} />);
+    expect(region()?.textContent).toContain('does not recognise this pool');
+    expect(region()?.textContent).not.toContain('There is no third share');
   });
 });
 

@@ -65,6 +65,21 @@ const en = {
   loading: 'Loading',
   backToPools: 'Back to pools',
   asOf: 'As of {time}',
+  feesTitle: 'Fees',
+  feesSwap: 'Swap fee {percent}% of each swap’s input, fixed in the pool contract when it was created.',
+  feesShares: 'All of it stays in the pool for its liquidity providers.',
+  feesNoThird: 'There is no third share: no creator, platform or governance share. The pool contract has no fee recipient.',
+  feesThird: 'This pool sends part of its swap fee to someone other than its liquidity providers.',
+  feesReadAt: 'Read from the pool contract at block {height}.',
+  feesRefused: 'The pool’s fee fields were not read: {reason}',
+  feesNotFactoryPool:
+    'The protocol service does not recognise this pool as one the published pool factory created, so it says nothing about its fees.',
+  feesRequest: 'Request a protocol fee',
+  feesRequestNote:
+    'A protocol fee would take a share of the swap fee for the platform. It needs a published policy and new contracts; the existing pools stay fee-free.',
+  feesRequestPolicyUnset:
+    'Not requested: the protocol fee policy is not set. The owner has not published the share, the pools it applies to, the collector or the release rules.',
+  feesRequestRefused: 'Not requested: {reason}',
 } as const;
 
 export const poolsCopy = defineCopy('customer.protocol.pools', en);
