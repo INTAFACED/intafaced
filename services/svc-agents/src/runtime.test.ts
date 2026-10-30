@@ -2762,7 +2762,7 @@ if (!available) {
       const stale = { ...read, requestId: 'ops-log:reuse:stale' };
       await sql`
         INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, row_count, read_at)
-        VALUES (${logReadKey('actions', OPERATOR, stale.requestId)}, ${OPERATOR}, ${USER_A}, 'actions', ${REASONS[0]}, 1,
+        VALUES (${logReadKey('actions', OPERATOR, stale.requestId)}, ${OPERATOR}, ${USER_A}, 'actions', ${REASONS[0]!}, 1,
                 now() - interval '6 minutes')
       `;
       await expect(opsLog().actions(stale)).rejects.toMatchObject({ code: 'CONFLICT', message: 'agents.log_read_request_reused' });
@@ -2781,7 +2781,7 @@ if (!available) {
       ]);
     });
 
-    it('purges every kept transcript past its expiry or older than today’s retention, on its own; blank or 0 retention keeps none', async () => {
+    it('purges every kept transcript past its expiry or older than today’s retention, on its own; 0 keeps none and blank deletes nothing', async () => {
       const { ranId } = await history();
       expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
       await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
@@ -2798,12 +2798,18 @@ if (!available) {
       expect(await purgeExpiredTranscripts(sql, 3)).toBe(0);
       expect(await purgeExpiredTranscripts(sql, 1)).toBe(1);
 
-      // Blank or 0 retention keeps none: every kept row goes, however fresh.
-      for (const retention of [0, null]) {
-        await history();
-        expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
-        expect(await purgeExpiredTranscripts(sql, retention)).toBe(1);
-      }
+      // Retention 0 keeps none: every kept row goes, however fresh.
+      await history();
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
+      expect(await purgeExpiredTranscripts(sql, 0)).toBe(1);
+
+      // A blank retention is not a value: it deletes nothing, a fresh row or one past its own expiry.
+      const fresh = (await history()).ranId;
+      const old = (await history()).ranId;
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '9 days', expires_at = now() - interval '1 day' WHERE action_id = ${old}`;
+      expect(await purgeExpiredTranscripts(sql, null)).toBe(0);
+      const left = await sql<{ action_id: string }[]>`SELECT action_id FROM agents.agent_transcripts ORDER BY action_id`;
+      expect(left.map((r) => r.action_id).sort()).toEqual([fresh, old].sort());
     });
 
     it('needs admin:read, and an audit row is never rewritten', async () => {

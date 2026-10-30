@@ -174,6 +174,23 @@ test(`${J} #3 filters by outcome and tool: matching rows; the export applies the
   // The same rows, each once: the export's action ids are the ids shown.
   expect(lines.map((line) => line.split(',').at(-1))).toEqual(shownIds);
   expect(file).not.toContain(PROMPT);
+
+  // The tool filter on its own filters: all outcomes for the run's task drops every refused support.reply row.
+  const { task } = agents.run.read();
+  await main(page).getByRole('combobox', { name: 'Outcome' }).selectOption({ label: 'All outcomes' });
+  await main(page).getByRole('combobox', { name: 'Tool' }).selectOption({ label: task });
+  await expect(rows(page).getByTestId('action-tool').filter({ hasNotText: task })).toHaveCount(0);
+  await expect(rows(page).getByTestId('action-tool').filter({ hasText: task }).first()).toBeVisible();
+  expect(await rows(page).getByTestId('action-tool').count()).toBeLessThan(all);
+  // Executed and support.reply together match nothing: no rows, and an export with its header only.
+  await main(page).getByRole('combobox', { name: 'Outcome' }).selectOption({ label: 'Executed' });
+  await main(page).getByRole('combobox', { name: 'Tool' }).selectOption({ label: REFUSED_TASK });
+  await expect(rows(page).getByTestId('action-outcome')).toHaveCount(0);
+  const none = page.waitForEvent('download');
+  await main(page)
+    .getByRole('button', { name: /^Export/ })
+    .click();
+  expect(readFileSync(await (await none).path(), 'utf8').trim()).toBe('Time,Tool,Outcome,Refusal code,Input digest,Action id');
 });
 
 test(`${J} #4 opens a transcript with retention unset: the typed refusal and no text row`, async ({ page }) => {
@@ -193,14 +210,14 @@ test(`${J} #4 opens a transcript with retention unset: the typed refusal and no 
   } finally {
     await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
   }
-  // With retention back on, that call still has no text, and the text kept before it was unset was purged with it
-  // (unset retention keeps none): both transcripts are refused as not kept.
+  // With retention back on, that call still has no text: refused as not kept. The blank value deleted nothing, so the
+  // text kept before it was unset reads again.
   await search(page, true);
-  for (const actionId of [unkept, ranActionId]) {
-    await actionRow(page, actionId).getByRole('button', { name: 'Open transcript' }).click();
-    await expect(transcriptProblem(page)).toContainText('(agents.transcript_not_kept)');
-    await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
-  }
+  await actionRow(page, unkept).getByRole('button', { name: 'Open transcript' }).click();
+  await expect(transcriptProblem(page)).toContainText('(agents.transcript_not_kept)');
+  await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
+  await actionRow(page, ranActionId).getByRole('button', { name: 'Open transcript' }).click();
+  await expect(main(page).getByRole('region', { name: 'Transcript' })).toContainText(PROMPT);
 });
 
 test(`${J} #5 opens a transcript after the owner sets retention: text whose digest equals the action row's; the read needs a reason and writes one audit row`, async ({

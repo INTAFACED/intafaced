@@ -399,14 +399,15 @@ function assertReasonsSet(settings: OpsLogSettings): readonly string[] {
 }
 
 /**
- * Deletes every kept transcript past its expiry or older than today's retention. Retention 0 or blank keeps none, so
- * every kept transcript goes. Returns how many went.
+ * Deletes every kept transcript past its expiry or older than today's retention; retention 0 keeps none, so every kept
+ * transcript goes. A blank retention is not a value: it deletes nothing (reads refuse `agents.transcript_retention_unset`
+ * and no new text is kept), so the rows wait for the owner's value. Returns how many went.
  */
 export async function purgeExpiredTranscripts(sql: Sql, retentionDays: number | null): Promise<number> {
-  const keep = retentionDays ?? 0;
+  if (retentionDays === null) return 0;
   const gone = await sql`
     DELETE FROM agents.agent_transcripts
-     WHERE ${keep} = 0 OR expires_at <= now() OR stored_at <= now() - make_interval(days => ${keep})
+     WHERE ${retentionDays} = 0 OR expires_at <= now() OR stored_at <= now() - make_interval(days => ${retentionDays})
   `;
   return gone.count;
 }

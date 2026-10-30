@@ -283,7 +283,7 @@ app.log.info(
 );
 
 // Kept transcripts past their expiry, or older than today's retention, go on a timer of their own, off the engine
-// call's transaction. A blank or 0 retention keeps none, so every kept transcript goes.
+// call's transaction. Retention 0 keeps none, so every kept transcript goes; a blank retention deletes nothing.
 const purgeTranscripts = () =>
   purgeExpiredTranscripts(sql, env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null).then(
     (purged) => purged > 0 && app.log.info({ purged }, 'svc-agents purged expired transcripts'),
