@@ -84,12 +84,14 @@ export const barTimeText = (seconds) => new Date(seconds * 1000).toISOString().s
  */
 export async function pointerAt(page, point) {
   const cell = page.locator('[data-crosshair]').first();
-  // Cleared first, so what is read below is what the chart wrote for this position, not for the last one.
+  // A move one pixel away first, waited for, so the move onto the point is a change the chart reports; then the marks
+  // are cleared, so what is read below is what the chart wrote for this position and no other.
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair')) ?? '').not.toBe('');
   await cell.evaluate((el) => {
     el.setAttribute('data-crosshair', '');
     el.setAttribute('data-crosshair-price', '');
   });
-  await page.mouse.move(point.x - 1, point.y);
   await page.mouse.move(point.x, point.y);
   await expect.poll(async () => Number(await cell.getAttribute('data-crosshair'))).toBeGreaterThan(0);
   await expect.poll(async () => (await cell.getAttribute('data-crosshair-price')) ?? '').not.toBe('');

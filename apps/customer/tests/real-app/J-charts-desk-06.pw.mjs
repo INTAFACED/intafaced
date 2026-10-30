@@ -16,6 +16,11 @@ const GANN = ['0.125', '0.25', '0.5', '1', '2', '4', '8'];
 /** The lines a drawing was last painted with, in pixels ([x1, y1, x2, y2]), read from the chart (`readDrawnLines`). */
 async function drawnLines(row) {
   const id = await row.getAttribute('data-drawing-id');
+  // Painted on the chart's next frame: wait for this drawing's plan before reading it.
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  await expect
+    .poll(async () => host.evaluate((el, want) => (el.readDrawnLines?.().find((d) => d.id === want)?.lines.length ?? 0) > 0, id))
+    .toBe(true);
   return page
     .getByTestId('cw')
     .getByTestId('wc-host')

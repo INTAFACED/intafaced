@@ -120,10 +120,10 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   // Every change of the drawn bar count, with its time, recorded in the page as it happens.
   await canvas.evaluate((el) => {
     window.__replaySteps = [];
-    new MutationObserver(() => window.__replaySteps.push([performance.now(), Number(el.getAttribute('data-bars'))])).observe(el, {
-      attributes: true,
-      attributeFilter: ['data-bars'],
-    });
+    // One entry per attribute change, old and new value, so two changes in one batch are two entries.
+    new MutationObserver((records) => {
+      for (const r of records) window.__replaySteps.push([performance.now(), Number(r.oldValue), Number(el.getAttribute('data-bars'))]);
+    }).observe(el, { attributes: true, attributeFilter: ['data-bars'], attributeOldValue: true });
   });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await page.waitForTimeout(3_000);
@@ -131,7 +131,7 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   // At 4x, one bar every 250 ms: each change adds exactly one bar, and the changes come a quarter second apart.
   const steps = await page.evaluate(() => window.__replaySteps);
   expect(steps.length, 'bars replayed in 3 s at 4x').toBeGreaterThanOrEqual(8);
-  for (let i = 1; i < steps.length; i += 1) expect(steps[i][1] - steps[i - 1][1], `step ${i}`).toBe(1);
+  for (const [i, [, from, to]] of steps.entries()) expect(to - from, `change ${i}: ${from} to ${to}`).toBe(1);
   const gaps = steps.slice(1).map((step, i) => step[0] - steps[i][0]);
   const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
   expect(mean, `mean ms between bars at 4x (${gaps.map(Math.round).join(', ')})`).toBeGreaterThan(200);

@@ -24,8 +24,6 @@ const J = 'J-charts-desk-05';
 test.describe.configure({ mode: 'serial' });
 
 let page;
-/** The trend line's two points as step 1 placed them (bar centres, in page pixels). */
-let trendPoints;
 test.beforeAll(async ({ browser }) => {
   // Tall enough for the whole workbench: the page never scrolls, so a pixel read on the chart is the pixel then clicked.
   const context = await browser.newContext({ viewport: { width: 1440, height: 2200 } });
@@ -39,7 +37,7 @@ test.afterAll(async () => {
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
   await pick(page, 'Trend line');
   // What the chart reads under each click: the bar's time and the price at that height.
-  trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
+  const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
   // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
   const at = [];
   for (const point of trendPoints) {
@@ -98,9 +96,33 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   await trend.getByRole('button', { name: /^Trend line \d+$/ }).click();
   const beforeText = await pointText(trend).textContent();
   const before = pricesOf(beforeText);
-  // The line's middle handle, between the two points step 1 placed.
-  const [a, b] = trendPoints;
-  const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  // The line's middle handle where the chart draws it now (the scale may have moved since step 1), in page pixels.
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  const id = await trend.getAttribute('data-drawing-id');
+  const handle = await expect
+    .poll(async () =>
+      host.evaluate(
+        (el, want) =>
+          el
+            .readDrawnLines?.()
+            .find((d) => d.id === want)
+            ?.handles.find((h) => h.index === 'middle') ?? null,
+        id,
+      ),
+    )
+    .not.toBeNull()
+    .then(() =>
+      host.evaluate(
+        (el, want) =>
+          el
+            .readDrawnLines()
+            .find((d) => d.id === want)
+            .handles.find((h) => h.index === 'middle'),
+        id,
+      ),
+    );
+  const box = await host.boundingBox();
+  const middle = { x: box.x + handle.x, y: box.y + handle.y };
   await page.mouse.move(middle.x, middle.y);
   await page.mouse.down();
   await page.mouse.move(middle.x + 40, middle.y - 12, { steps: 8 });
@@ -163,18 +185,15 @@ async function magnetSnapsToClose() {
   // The bar's open, high, low and close: its own candle's, or the previous close four times when the bucket had no trade
   // (a filled bar).
   const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
+  expect(candle, `Edge serves a 15m candle at or before ${barTimeText(bar.time)}`).toBeDefined();
   const ohlc = candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
   const close = ohlc[3];
-  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
-  let best = null;
-  // Up the price pane only (the top 70 %: the Volume pane and the time axis sit below it), reading the price at each height.
-  const cell = page.locator('[data-crosshair]').first();
-  for (let y = box.y + 5; y < box.y + box.height * 0.7; y += 2) {
-    await page.mouse.move(x.x, y);
-    const price = Number((await cell.getAttribute('data-crosshair-price')) || NaN);
-    if (Number.isFinite(price) && (!best || Math.abs(price - close) < Math.abs(best.price - close))) best = { y, price };
-  }
-  expect(best, 'the price pane reads a price at some height').not.toBeNull();
+  // The height the close is drawn at, read from the chart (the price pane is the chart's top pane).
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  const box = await host.boundingBox();
+  const closeY = await host.evaluate((el, price) => el.readPriceY?.(price) ?? null, close);
+  expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
+  const best = { y: box.y + closeY };
   // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
   const off = await pointerAt(page, { x: x.x, y: best.y + 3 });
   expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
