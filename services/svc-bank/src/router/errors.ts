@@ -469,6 +469,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.company_account_unwired': 'PRECONDITION_FAILED',
   'bank.loan_fee_unset': 'PRECONDITION_FAILED',
   'bank.loan_fee_unsupported': 'PRECONDITION_FAILED',
+  'bank.loan_fee_unwired': 'PRECONDITION_FAILED',
   'bank.loan_payoff_window_unset': 'PRECONDITION_FAILED',
   'bank.correction_invalid': 'BAD_REQUEST',
   'bank.correction_exceeds_interest': 'CONFLICT',

@@ -329,6 +329,14 @@ const schema = serviceEnvSchema
       BANK_LOAN_PAYOFF_FEE: z.string().optional(),
 
       /**
+       * Owner-set loan origination fee in whole basis points of the principal (BK-loan-01, J-bank-09 #3), 0 to 10000.
+       *
+       * No default. Blank / unset / not a whole number in range → not set: the application shows no fee line. A published
+       * non-zero fee refuses every new loan (`bank.loan_fee_unwired`) until a ledger leg collects it; `0` opens with no fee.
+       */
+      BANK_LOAN_ORIGINATION_FEE_BPS: z.string().optional(),
+
+      /**
        * Owner-set minutes a loan payoff quote stays valid (BK-loan-06, J-bank-11), a whole number from 1 to 10080.
        *
        * No default. Blank / unset / out of range → no payoff quote is given (`bank.loan_payoff_window_unset`).

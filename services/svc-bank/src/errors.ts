@@ -888,6 +888,8 @@ export type BankErrorCode =
   | 'bank.loan_fee_unset'
   /** A non-zero loan payoff fee is published, but repay has no fee entry to collect it, so no payoff quote is given (BK-loan-06). */
   | 'bank.loan_fee_unsupported'
+  /** A non-zero loan origination fee is published, but no ledger leg collects it yet, so no loan is opened (BK-loan-01). */
+  | 'bank.loan_fee_unwired'
   /** The owner has not published how long a loan payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`) (BK-loan-06). */
   | 'bank.loan_payoff_window_unset'
   /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */

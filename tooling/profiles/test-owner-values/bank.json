@@ -81,6 +81,11 @@
       "value": "0",
       "note": "TEST payoff fee on clearing a loan early: none, so a payoff quote can be given (J-bank-11 #1). The owner's own fee table is not published."
     },
+    "BANK_LOAN_ORIGINATION_FEE_BPS": {
+      "service": "bank",
+      "value": "50",
+      "note": "TEST origination fee in basis points, used only when a journey restarts the stack with LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE=published to see a published fee refuse new loans (J-bank-09 #3). Unset otherwise: the owner's fee table is not published."
+    },
     "BANK_LOAN_PAYOFF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "15",

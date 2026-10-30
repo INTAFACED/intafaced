@@ -3,6 +3,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { loanServicingPreviewProcedures } from '../loans/loan-servicing-preview.js';
 import { loanCustomerReadProcedures } from '../loans/loan-reads.router.js';
+import { loanApplyProcedures } from '../loans/loan-apply.router.js';
 import { assertSelf } from '../assert-self.js';
 import { amountString } from './shared.js';
 import { guard } from './errors.js';
@@ -29,6 +30,7 @@ export function createLoansRouter(c: BankRouterContext) {
    */
   return router({
     ...loanCustomerReadProcedures(bank, guard),
+    ...loanApplyProcedures(bank, guard),
     products: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({

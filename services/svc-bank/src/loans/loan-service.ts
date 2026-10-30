@@ -76,6 +76,7 @@ import {
   type Mark,
   type PortfolioMark,
 } from './risk.js';
+import { liquidationPrice, minimumCollateral, originationFee, type OriginationFee } from './loan-apply.js';
 import { readLoanBook, type LoanBook } from '../ops/loan-book.js';
 
 /**
@@ -367,6 +368,11 @@ export interface LoanServiceOptions {
    */
   readonly payoffFee?: string | null;
   /**
+   * Owner-published origination fee in whole basis points (`BANK_LOAN_ORIGINATION_FEE_BPS`). Blank is not set: no fee
+   * line. A published non-zero fee refuses `open` with `bank.loan_fee_unwired`, as no ledger leg collects it yet.
+   */
+  readonly originationFeeBps?: string | null;
+  /**
    * Owner-published minutes a payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`).
    * Blank, unset, zero or out of range refuses `bank.loan_payoff_window_unset`.
    */
@@ -522,6 +528,93 @@ export class LoanService {
     return toProduct(rows[0]!);
   }
 
+  // ── The application (BK-loan-01, J-bank-09) ───────────────────────────────
+
+  /** Whether the lending policy lets new loans open (`BANK_LOANS_ENABLED`). Off, `open` and `quote` refuse `bank.loans_disabled`. */
+  lendingOpen(): boolean {
+    return this.options.moduleEnabled !== false;
+  }
+
+  /** The owner's origination fee, read from `BANK_LOAN_ORIGINATION_FEE_BPS`. Blank is not set, never zero. */
+  originationFee(): OriginationFee {
+    return originationFee(this.options.originationFeeBps);
+  }
+
+  /**
+   * What opening `principal` on this product needs now, on the marks `open` would accept: the smallest pledge that
+   * opens (debt valued up, collateral down, as `checkOpeningLtv` does), its starting LTV and the collateral price at
+   * which it would reach the product's liquidation LTV. A read: nothing is held, and the figures are good only while
+   * the marks are. An unpriced asset refuses `bank.mark_missing`, never a zero.
+   */
+  async quote(input: { productId: string; principal: Amount; now?: Date }): Promise<{
+    product: LoanProductRecord;
+    principal: Amount;
+    requiredCollateral: Amount;
+    startingLtvBps: number;
+    liquidationPrice: Amount;
+    debtMark: { price: Amount; asOf: Date };
+    collateralMark: { price: Amount; asOf: Date };
+  }> {
+    if (this.options.moduleEnabled === false) {
+      throw new BankError('Loans module is disabled (BANK_LOANS_ENABLED / bank.loans)', 'bank.loans_disabled');
+    }
+    const now = input.now ?? new Date();
+    const product = await this.product(input.productId);
+    if (product.status !== 'open') throw new BankError(`Loan product "${product.name}" is closed`, 'bank.loan_product_closed');
+    if (input.principal <= 0n || input.principal < product.minPrincipal) {
+      throw new BankError(
+        `Minimum draw for "${product.name}" is ${formatAmount(product.minPrincipal)} ${product.debtAssetId}`,
+        'bank.below_minimum',
+      );
+    }
+    const marks = await this.marksFor(product.collateralAssetId, product.debtAssetId, product.quoteAssetId, now);
+    const debtMark = marks.get(product.debtAssetId)!;
+    const collateralMark = marks.get(product.collateralAssetId)!;
+    const debtValue = quoteValue(input.principal, debtMark.price, 'ceil');
+    const requiredCollateral = minimumCollateral(debtValue, collateralMark.price, product.maxLtvBps);
+    return {
+      product,
+      principal: input.principal,
+      requiredCollateral,
+      startingLtvBps: ltvBps(debtValue, quoteValue(requiredCollateral, collateralMark.price, 'floor')),
+      liquidationPrice: liquidationPrice(debtValue, requiredCollateral, product.policy.liquidationLtvBps),
+      debtMark: { price: debtMark.price, asOf: debtMark.asOf },
+      collateralMark: { price: collateralMark.price, asOf: collateralMark.asOf },
+    };
+  }
+
+  /**
+   * The terms this loan was opened on (BK-loan-02, J-bank-09 #5): the rate and the two thresholds written on its row at
+   * open, never the product's current ones. Thresholds read null only on rows opened before they were snapshotted.
+   */
+  async terms(loanId: string): Promise<{
+    loan: LoanRecord;
+    marginCallLtvBps: number | null;
+    liquidationLtvBps: number | null;
+  }> {
+    const rows = await this.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.loans WHERE id = ${loanId}`;
+    if (rows.length === 0) throw new BankError(`No loan ${loanId}`, 'bank.loan_not_found');
+    const row = rows[0]!;
+    const bps = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    return { loan: toLoan(row), marginCallLtvBps: bps(row.margin_call_ltv_bps), liquidationLtvBps: bps(row.liquidation_ltv_bps) };
+  }
+
+  /**
+   * An operator's change to a product's rate (BK-loan-02). New loans open at it; open loans keep the rate written on
+   * their row at open, which is what accrual reads. Thresholds are not edited here: the risk sweep still reads them from
+   * the product, so changing them would move open loans.
+   */
+  async setProductRate(input: { productId: string; aprBps: number }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
+    if (!Number.isInteger(input.aprBps) || input.aprBps < 0 || input.aprBps > 10_000) {
+      throw new BankError('Loan product terms are invalid: aprBps must be within 0..10000', 'bank.loan_params_invalid');
+    }
+    const before = await this.product(input.productId);
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      UPDATE bank.loan_products SET apr_bps = ${input.aprBps} WHERE id = ${input.productId} RETURNING *
+    `;
+    return { product: toProduct(rows[0]!), previousAprBps: before.aprBps };
+  }
+
   // ── Reading a loan ─────────────────────────────────────────────────────────
 
   async loan(id: string): Promise<LoanRecord> {
@@ -647,6 +740,12 @@ export class LoanService {
     }
     if (input.principal <= 0n || input.collateralAmount <= 0n) {
       throw new BankError('A loan needs positive collateral and positive principal', 'bank.ltv_exceeded');
+    }
+    // A published origination fee has no ledger leg to collect it yet, so it refuses before any row or lock. Not set
+    // means no fee line, and a published zero needs no leg.
+    const fee = this.originationFee();
+    if (fee.status === 'published' && fee.bps > 0) {
+      throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
     }
 
     // ── Opening LTV, on marks that must pass the marking guards ──────────────
