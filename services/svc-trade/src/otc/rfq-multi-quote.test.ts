@@ -3,7 +3,8 @@
  * ranked best first with ties going to the provider asked earlier. Provider ids, spreads, the mid and the sizes below
  * are TEST fixtures, not an owner directory or desk law.
  */
-import { OtcDeskService } from '../controls/test-admission.js';
+import { OtcDeskService, readyTestAdmission } from '../controls/test-admission.js';
+import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -248,6 +249,38 @@ describe('a request takes one provider’s price (#5)', () => {
     const other = await store.load(rfq.quotes[1]!.quoteId);
     const secondBound = acceptOtcQuote({ quote: other!.quote, now: now() });
     await expect(store.saveBound(other!.quote, secondBound)).rejects.toMatchObject({ code: 'trade.rfq_other_quote_accepted' });
+  });
+
+  it('a sibling of a bound quote refuses before admission: no admission is recorded for it', async () => {
+    const admitted: string[] = [];
+    const base = readyTestAdmission();
+    const accountAdmission: TradingAdmissionPort = {
+      ...base,
+      admit: async (who, kind, businessId, payload) => {
+        admitted.push(businessId);
+        return base.admit(who, kind, businessId, payload);
+      },
+    };
+    const store = new CountingStore();
+    const svc = new OtcDeskService(
+      new MemoryLedger(),
+      { stakeOf: async () => parseAmount('9999') },
+      {
+        law: LAW,
+        midSource: createObservedOtcMidSource('BTC/USDT:65000', now),
+        makerDirectory: directory([HOUSE, LP1]),
+        store,
+        now,
+        accountAdmission,
+      },
+    );
+    const rfq = await svc.rfqQuote(principal, ask(['house', 'test-lp-1']));
+    const [best, other] = rfq.quotes;
+    await svc.accept(principal, { quoteId: best!.quoteId });
+    expect(admitted).toEqual([`otc:${best!.quoteId}`]);
+    await expect(svc.accept(principal, { quoteId: other!.quoteId })).rejects.toMatchObject({ code: 'trade.rfq_other_quote_accepted' });
+    // The store's unique index would refuse too, but only after admitting the attempt; the service check comes first.
+    expect(admitted).toEqual([`otc:${best!.quoteId}`]);
   });
 });
 
