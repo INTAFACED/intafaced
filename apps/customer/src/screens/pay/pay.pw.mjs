@@ -185,7 +185,7 @@ test('lookup answers: yourself, not found, too many lookups, a failure, and a st
 
   await to(page).fill('nobody_here');
   await to(page).blur();
-  await expect(page.getByTestId('to-status')).toHaveText('We couldn’t find @nobody_here. Check the spelling.');
+  await expect(page.getByTestId('to-status')).toHaveText('No one with this handle. We couldn’t find @nobody_here. Check the spelling.');
 
   await to(page).fill('a b');
   await to(page).blur();
@@ -310,6 +310,31 @@ test('receive: your handle with Copy and the toast "Copied"; the Account ID unti
   await page.getByRole('tab', { name: 'Send' }).click();
   await expect(page).toHaveURL(/\/pay\/send$/);
   await expect(to(page)).toBeVisible();
+});
+
+test('receive: change the handle with the rule named on a refusal and the changes left; turn finding by handle off', async ({ page }) => {
+  await mock(page);
+  await open(page, '/pay/receive');
+  await expect(page.getByText('You can change your handle 3 more times.')).toBeVisible();
+  await page.getByRole('button', { name: 'Change handle' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Change your handle' });
+  await dialog.getByRole('textbox', { name: 'New handle' }).fill('no spaces-allowed!');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('A handle uses only letters, digits and underscore.');
+  await shotBoth(page, 'receive-handle-refused');
+  await dialog.getByRole('textbox', { name: 'New handle' }).fill('harness_new');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId('receive-value')).toHaveText('@harness_new');
+  await expect(page.getByTestId('receive-link-value')).toContainText('to=harness_new');
+  await expect(page.getByText('You can change your handle 2 more times.')).toBeVisible();
+
+  const find = page.getByRole('switch', { name: 'Let people find me by my handle' });
+  await expect(find).toBeChecked();
+  await find.click();
+  await expect(find).not.toBeChecked();
+  await expect(page.getByText(/No one can find you by typing your handle/)).toBeVisible();
+  await shotBoth(page, 'receive-handle-hidden');
 });
 
 test('receive without handles shows the Account ID in mono', async ({ page, context }) => {

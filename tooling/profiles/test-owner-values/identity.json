@@ -31,6 +31,11 @@
       "value": "[{\"code\":\"compliance_hold\",\"reason\":\"TEST: this was switched off after a compliance review.\",\"guidance\":\"TEST: ask Support what the review found.\"}]",
       "note": "TEST: one reason compliance can switch a capability off for, so the switch-off and its refusals can be shown (J-identity-08 #6)."
     },
+    "IDENTITY_TRADING_RESTRICTION_REASONS": {
+      "service": "identity",
+      "value": "[{\"code\": \"market_conduct_review\", \"reason\": \"TEST: your trading is paused while we review recent orders.\", \"guidance\": \"TEST: contact Support to ask about the review.\"}]",
+      "note": "TEST: one reason staff can restrict trading for, so the restriction shows its stored reason and next step in plain words (J-identity-08 #7)."
+    },
     "IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY": {
       "service": "identity",
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
@@ -221,6 +226,11 @@
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
     },
+    "IDENTITY_HANDLE_CHANGE_MAX": {
+      "service": "identity",
+      "value": "3",
+      "note": "TEST: a person may change their handle three times in the life of the account, so the receive card shows the changes left and the cap refusal can be reached (J-pay-03 #2)."
+    },
     "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
       "service": "identity",
       "value": "7776000",
@@ -230,6 +240,11 @@
       "service": "identity",
       "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
       "note": "LOCAL TEST ONLY, not an owner decision: TEST rows so both governed ledger correction types need two operators other than the requester and are applied by svc-ops (OPS-change-control-01 CR-1)."
+    },
+    "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL": {
+      "service": "identity",
+      "value": "true",
+      "note": "TEST: a trade-ops operator can restrict one account's trading with a second person's approval, so J-identity-08 #7 can show a restricted trade refused by name and accepted again after the lift."
     }
   }
 }

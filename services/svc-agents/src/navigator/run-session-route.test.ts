@@ -3,6 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { NO_TIER_LAWS, type TierLaws } from '../tier-laws.js';
 import { NAVIGATOR_DATA_TOOLS } from './data-tools.js';
 
 /**
@@ -24,7 +25,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: ['agents:read', 'agents:execute'],
-    tier: 'none',
+    tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
@@ -49,11 +50,18 @@ function stubDeps(): AgentsRouterDeps {
     gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'IFC',
+    tierLaws: { ...NO_TIER_LAWS, navigator: law },
     navigatorTradeUrl: 'http://svc-trade:4004',
   };
 }
 
-const law = { published: true as const, matrix: { free: [...NAVIGATOR_DATA_TOOLS] } };
+const law = { published: true as const, matrix: { basic: [...NAVIGATOR_DATA_TOOLS] } };
+
+/** The stored, published law the door reads instead of the body (AG-sessions-01). */
+const withLaw = (deps: AgentsRouterDeps, stored: TierLaws['navigator']): AgentsRouterDeps => ({
+  ...deps,
+  tierLaws: { ...NO_TIER_LAWS, navigator: stored },
+});
 
 const ask = {
   tool: 'trade.quote',
@@ -69,7 +77,7 @@ describe('navigator.runSession route', () => {
   it('refuses a dark plane without touching the runtime, and says it billed nothing', async () => {
     const result = await createAgentsRouter(stubDeps())
       .createCaller(signed())
-      .navigator.runSession({ plane: 'dark', userTier: 'free', law, asks: [ask] });
+      .navigator.runSession({ plane: 'dark', asks: [ask] });
 
     expect(result).toMatchObject({
       status: 'refuse',
@@ -86,9 +94,9 @@ describe('navigator.runSession route', () => {
   });
 
   it('refuses a blank tier law refuse-closed', async () => {
-    const result = await createAgentsRouter(stubDeps())
+    const result = await createAgentsRouter(withLaw(stubDeps(), null))
       .createCaller(signed())
-      .navigator.runSession({ plane: 'live', userTier: 'free', law: null, asks: [ask] });
+      .navigator.runSession({ plane: 'live', asks: [ask] });
 
     expect(result).toMatchObject({
       status: 'refuse',
@@ -99,9 +107,7 @@ describe('navigator.runSession route', () => {
   });
 
   it('is empty when nothing was asked', async () => {
-    const result = await createAgentsRouter(stubDeps())
-      .createCaller(signed())
-      .navigator.runSession({ plane: 'live', userTier: 'free', law, asks: [] });
+    const result = await createAgentsRouter(stubDeps()).createCaller(signed()).navigator.runSession({ plane: 'live', asks: [] });
 
     expect(result).toMatchObject({ status: 'empty', userMessageKey: 'agents.navigator.empty' });
     expect(result.metering.billedAmount).toBe('0');
@@ -114,20 +120,18 @@ describe('navigator.runSession route', () => {
         .createCaller(readOnly)
         .navigator.runSession({
           plane: 'dark',
-          userTier: 'free',
-          law,
           asks: [ask],
         }),
     ).rejects.toThrow();
   });
 
   it('refuses off-allowlist asks without touching the runtime, and says it billed nothing', async () => {
-    const result = await createAgentsRouter(stubDeps())
+    const result = await createAgentsRouter(
+      withLaw(stubDeps(), { published: true, matrix: { basic: ['trade.fills.history', 'ledger.post'] } }),
+    )
       .createCaller(signed())
       .navigator.runSession({
         plane: 'live',
-        userTier: 'free',
-        law: { published: true, matrix: { free: ['trade.fills.history', 'ledger.post'] } },
         asks: [{ tool: 'trade.fills.history' }, { tool: 'ledger.post' }],
       });
 
@@ -145,10 +149,37 @@ describe('navigator.runSession route', () => {
     });
   });
 
+  it('AG-sessions-01: a signed tier the stored law does not grant refuses tier_not_granted and bills 0', async () => {
+    const result = await createAgentsRouter(stubDeps())
+      .createCaller(signed(principal({ tier: 'none' })))
+      .navigator.runSession({ plane: 'live', asks: [ask] });
+
+    expect(result).toMatchObject({
+      status: 'refuse',
+      reason: 'tier_not_granted',
+      userMessageKey: 'agents.navigator.tier_closed',
+    });
+    expect(result.metering).toEqual({
+      sessionId: null,
+      billedAmount: '0',
+      assetId: 'IFC',
+      sessionClosed: false,
+      settlements: [],
+    });
+  });
+
+  it('AG-sessions-01: a body naming its own tier or law is rejected before the gate', async () => {
+    const none = createAgentsRouter(stubDeps()).createCaller(signed(principal({ tier: 'none' })));
+    await expect(none.navigator.runSession({ plane: 'live', asks: [ask], userTier: 'basic' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(none.navigator.runSession({ plane: 'live', asks: [ask], law } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
   it('caps the ask list rather than letting a caller burn a session budget', async () => {
     const asks = Array.from({ length: 21 }, () => ask);
-    await expect(
-      createAgentsRouter(stubDeps()).createCaller(signed()).navigator.runSession({ plane: 'dark', userTier: 'free', law, asks }),
-    ).rejects.toThrow();
+    await expect(createAgentsRouter(stubDeps()).createCaller(signed()).navigator.runSession({ plane: 'dark', asks })).rejects.toThrow();
   });
 });

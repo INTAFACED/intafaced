@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import os from 'node:os';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
@@ -37,6 +38,7 @@ import {
   earnFundingId,
   earnPoolName,
   fundEarnPool,
+  defaultStateDir,
   guardSeed,
   houseSeedId,
   main,
@@ -885,6 +887,15 @@ test('home takes a notice window in whole minutes, for home only, up to the 30-d
   }
   assert.throws(() => parseArgs(['home', '--notice-minutes']), /--notice-minutes needs a whole number/);
   assert.throws(() => parseArgs(['apply', '--notice-minutes', '6']), /--notice-minutes is for home only/);
+});
+
+test('without --state the seed reads the stack state rule: LOCAL_STACK_STATE, as the compose seed service sets it', () => {
+  assert.equal(defaultStateDir({ LOCAL_STACK_STATE: '/var/lib/intafaced/x' }), '/var/lib/intafaced/x');
+  assert.equal(defaultStateDir({}), path.join(os.homedir(), '.intafaced', 'local-test-stack'));
+  assert.throws(() => defaultStateDir({ LOCAL_STACK_STATE: 'relative' }), {
+    name: 'GuardError',
+    message: /LOCAL_STACK_STATE must be an absolute folder path/,
+  });
 });
 
 test('money tables are decimal strings and the seed does not touch service trees', () => {

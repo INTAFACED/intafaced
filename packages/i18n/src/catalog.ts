@@ -309,7 +309,7 @@ export const en = {
   'agents.refused.step_limit': 'Refused: this session has reached its limit of {limit} action(s).',
   'agents.refused.spend_limit': 'Refused: this session has reached its spend limit of {limit} {asset}.',
   'agents.refused.spend_limit_unset': 'Refused: set a spend limit before this run. No limit was given, and none was assumed.',
-  'agents.refused.price_unset': 'Refused: no rate is published for this task, so it does not run. No price was assumed.',
+  'agents.refused.price_unset': 'Refused: no rate is published for “{task}”, so it does not run. No price was assumed.',
   'agents.refused.funds_insufficient': 'Refused: your available balance is below this run’s worst case, so it did not start.',
   'agents.refused.funds_unread': 'Refused: your available balance could not be read, so this run did not start. Nothing was charged.',
   'agents.refused.spend_limit_invalid': 'Refused: that spend limit is blank or not a valid amount, so it was not saved.',

@@ -16,6 +16,7 @@ import {
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
+import type { KycRejectReasons } from '../kyc/cases.js';
 import { blankTierTerms } from './account-tiers.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
 import {
@@ -233,6 +234,8 @@ export function tradingRestrictPayloadHash(input: {
   readonly action: 'restrict' | 'restore';
   readonly reason: string;
   readonly expectedVersion: string;
+  /** The owner-listed reason code, when staff gave one; bound only when present, so a change without one hashes as before. */
+  readonly reasonCode?: string;
 }): string {
   return founderChangeHash(
     {
@@ -240,6 +243,7 @@ export function tradingRestrictPayloadHash(input: {
       userId: input.userId.toLowerCase(),
       action: input.action,
       reason: input.reason.trim(),
+      ...(input.reasonCode !== undefined ? { reasonCode: input.reasonCode } : {}),
     },
     input.expectedVersion,
   );
@@ -323,7 +327,11 @@ export class FounderControls {
   constructor(
     private readonly sql: Sql,
     private readonly pair: readonly [string, string] | null,
-    private readonly options: { readonly tradingRestrictRequiresApproval?: boolean } = {},
+    private readonly options: {
+      readonly tradingRestrictRequiresApproval?: boolean;
+      /** The owner's trading restriction reason list (`IDENTITY_TRADING_RESTRICTION_REASONS`); empty when unset. */
+      readonly tradingRestrictionReasons?: KycRejectReasons;
+    } = {},
   ) {}
 
   readiness() {
@@ -518,6 +526,7 @@ export class FounderControls {
       return this.changeTrading(context, input);
     }
     if (input.target.area !== 'identity') throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
+    if (input.reasonCode !== undefined) throw new FounderControlError('operator.denied', 'A reason code is only for a trading restriction');
     const targetId = input.target.userId;
     const actorId = context.principal?.userId ?? null;
     const hash = fingerprint(actorId, input);
@@ -666,7 +675,9 @@ export class FounderControls {
               | 'request.conflict'
               | 'restriction_no_four_eyes'
               | 'restriction_approval_mismatch'
-              | 'restriction_approval_consumed',
+              | 'restriction_approval_consumed'
+              | 'restriction.reason_unlisted'
+              | 'restriction.reason_in_force',
             current: AccountControlState | null,
           ) =>
             accountControlResultSchema.parse({
@@ -695,8 +706,8 @@ export class FounderControls {
           if (previous && !previous.conflict) return accountControlResultSchema.parse(previous.result);
           const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${targetId} FOR UPDATE`;
           const [stateRow] = await tx<
-            Array<{ restricted: boolean; version: string }>
-          >`SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${targetId} FOR UPDATE`;
+            Array<{ restricted: boolean; version: string; reason_code: string | null }>
+          >`SELECT restricted, version::text, reason_code FROM trading_restrictions WHERE user_id = ${targetId} FOR UPDATE`;
           const before: AccountControlState = {
             target: { area: 'trading', userId: targetId },
             version: stateRow?.version ?? '0',
@@ -714,6 +725,15 @@ export class FounderControls {
               code: 'restriction.version_conflict',
               current: before,
             });
+          else if (
+            input.reasonCode !== undefined &&
+            (input.action !== 'restrict' || !(this.options.tradingRestrictionReasons ?? new Map()).has(input.reasonCode))
+          )
+            result = refuse('restriction.reason_unlisted', before);
+          // A restriction keeps the reason it was set with: another code on one already in force would spend the approval
+          // and change nothing, so it refuses first (restore, then restrict with the new code).
+          else if (input.reasonCode !== undefined && before.restricted && (stateRow?.reason_code ?? null) !== input.reasonCode)
+            result = refuse('restriction.reason_in_force', before);
           else if (!input.approvalId) result = refuse('restriction_no_four_eyes', before);
           else {
             const approval = await sqlGetApprovalForUpdate(tx, input.approvalId);
@@ -722,6 +742,7 @@ export class FounderControls {
               action: input.action,
               reason: input.reason,
               expectedVersion: input.expectedVersion,
+              ...(input.reasonCode !== undefined ? { reasonCode: input.reasonCode } : {}),
             });
             const bound = approval !== null && this.tradingApprovalBound(approval, targetId, payloadHash, input.expectedVersion, clock!.at);
             if (approval?.status === 'CONSUMED') result = refuse('restriction_approval_consumed', before);
@@ -748,8 +769,14 @@ export class FounderControls {
                   restricted,
                   version: changed ? (BigInt(before.version) + 1n).toString() : before.version,
                 };
-                await tx`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${targetId}, ${restricted}, ${after.version}::bigint)
-                  ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version, updated_at = now()`;
+                // The code belongs to the restriction it came with: a restore clears it, and a no-op repeat keeps the
+                // restriction's own code, so the customer's reason never changes without a change.
+                const reasonCode = restricted ? (input.reasonCode ?? null) : null;
+                await tx`INSERT INTO trading_restrictions (user_id, restricted, version, reason_code)
+                  VALUES (${targetId}, ${restricted}, ${after.version}::bigint, ${reasonCode})
+                  ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version,
+                    reason_code = CASE WHEN ${changed} THEN EXCLUDED.reason_code ELSE trading_restrictions.reason_code END,
+                    updated_at = now()`;
                 const approverUserId = approval.approverId!.toLowerCase();
                 result = changed
                   ? accountControlResultSchema.parse({
@@ -770,6 +797,7 @@ export class FounderControls {
             fourEyes,
             area: 'trading',
             ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            ...(input.reasonCode !== undefined ? { reasonCode: input.reasonCode } : {}),
           });
           if (!previous)
             await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;

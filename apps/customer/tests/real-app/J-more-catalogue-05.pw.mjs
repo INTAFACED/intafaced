@@ -10,8 +10,8 @@ import { bodyRows, tableIn } from './tables.mjs';
 // J-more-catalogue-05, in the running app (docs/roadmap/journeys.json): point a miner at the pool. One test per step,
 // titled "J-more-catalogue-05 #<n>". The person is a verified TEST account on the local stack (the pool serves the
 // basic tier and up); no money moves. The miner is the
-// stack's TEST share submitter, which speaks to the pool's own share door as a rig would, with a nonce found by the
-// pool's own reference proof-of-work check against the TEST testnet parameters (never the token's live proof of work).
+// stack's TEST rig, which dials the pool's miner door at the address the room shows and submits a nonce found for the
+// pool's own job with the TEST testnet parameters (the pool's reference check, never the token's live proof of work).
 const J = 'J-more-catalogue-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 // The values the stack's pool is started with: the labelled LOCAL TEST owner values, read from their own file.
@@ -259,22 +259,105 @@ test(`${J} #4 opens /mining/status: the pool status and reachability`, async ({ 
   await expect(reach.getByTestId('mining-reachability')).toHaveText('No test run');
 });
 
+/** This account's workers as the pool itself answers `workers.mine`, never the page's own text: [name, weight] pairs. */
+async function poolRoster(who) {
+  const client = await api(who);
+  const res = await client.get(`/api/mining/trpc/workers.mine?input=${encodeURIComponent(JSON.stringify({ windowMinutes: 60 }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.workers.map((worker) => [worker.name, worker.hashrate]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** The pool's own `workers.mine` answer for this account, filtered to one worker name when given. */
+async function poolWorkers(who, name) {
+  const client = await api(who);
+  const input = { windowMinutes: 60, ...(name ? { name } : {}) };
+  const res = await client.get(`/api/mining/trpc/workers.mine?input=${encodeURIComponent(JSON.stringify(input))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one worker Rig-A; a share with no name goes to the default worker; the same share twice makes one worker`, async ({
   page,
+  context,
 }) => {
   const { who, tag } = run.read();
+  // Before any share the account has no worker, in the room and in the pool's own read.
   await openMining(page, '/mining/workers');
-  expect(tool('local-test-stack.mjs', 'mining-share', who.email, '--worker', 'Rig-A', '--share', `jmc05-${tag}-first`)).toContain(
-    'accepted TEST share',
-  );
-  // The same share delivered again is refused by name and keeps nothing new.
-  expect(tool('local-test-stack.mjs', 'mining-share', who.email, '--worker', 'Rig-A', '--share', `jmc05-${tag}-first`)).toContain(
-    'refused mining.share_duplicate',
-  );
-  expect(tool('local-test-stack.mjs', 'mining-share', who.email, '--share', `jmc05-${tag}-unnamed`)).toContain('worker default');
+  await expect(page.getByText('You have no workers yet', { exact: true })).toBeVisible();
+  await expect(tableIn(page, 'Your workers')).toHaveCount(0);
+  expect(await poolRoster(who)).toEqual([]);
+
+  // The rig is set up from what the room copies: the pool address, the account id and the worker name for Rig-A.
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/mining');
+  const connect = page.getByRole('region', { name: 'Connect your miner' });
+  await connect.getByLabel('Your rig name').fill('Rig-A');
+  const copy = async (field) => {
+    await connect.getByRole('button', { name: `Copy ${field}` }).click();
+    return page.evaluate(() => navigator.clipboard.readText());
+  };
+  const pool = await copy('pool address');
+  const login = `${await copy('account id')}.${await copy('worker name')}`;
+  const account = login.slice(0, login.indexOf('.'));
+
+  // The room issues the account's miner secret and shows it once, to copy; a reload only says when it was issued.
+  const secretPanel = page.getByRole('region', { name: 'Miner secret' });
+  await expect(secretPanel.getByTestId('mining-miner-secret-issued')).toHaveAttribute('data-state', 'none');
+  await secretPanel.getByRole('button', { name: 'Issue a miner secret' }).click();
+  await expect(secretPanel.getByText('Copy it now: it is shown only this once.')).toBeVisible();
+  await secretPanel.getByRole('button', { name: 'Copy miner secret' }).click();
+  const secret = await page.evaluate(() => navigator.clipboard.readText());
+  expect(secret).toMatch(/^msk_[A-Za-z0-9_-]{43}$/);
+  await expect(secretPanel.getByTestId('mining-miner-secret')).toHaveText(secret);
   await page.reload();
+  await expect(page.getByRole('region', { name: 'Miner secret' }).getByTestId('mining-miner-secret-issued')).toHaveAttribute(
+    'data-state',
+    'issued',
+  );
+  await expect(page.getByTestId('mining-miner-secret')).toHaveCount(0);
+  await expect(page.getByText(secret)).toHaveCount(0);
+  run.write({ secret });
+
+  // A stranger who has only the account id (no secret, or a wrong one) is refused by the door's code before it touches
+  // the account: no worker, no share, and the owner's mode change for that rig still goes through.
+  const stranger = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--login', login, ...args);
+  expect(stranger('--share', `jmc05-${tag}-stranger`)).toMatch(/^refused mining\.stratum_secret_invalid: /);
+  expect(stranger('--share', `jmc05-${tag}-stranger`, '--secret', `msk_${'A'.repeat(43)}`)).toMatch(
+    /^refused mining\.stratum_secret_invalid: /,
+  );
+  expect(await poolRoster(who)).toEqual([]);
+  await page.goto('/mining/workers');
+  for (const mode of ['Solo', 'Pooled']) {
+    await page.getByRole('textbox', { name: 'Rig name', exact: true }).fill('Rig-A');
+    await page.getByRole('group', { name: 'Mode for this rig' }).getByRole('radio', { name: mode, exact: true }).check();
+    await page.getByRole('button', { name: 'Save mode' }).click();
+    await expect(page.getByTestId('mining-mode-status')).toHaveText(`${mode} saved for Rig-A`);
+  }
+  const rig = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--secret', secret, ...args);
+
+  // The rig connects to that address and its first share is accepted: exactly one worker, Rig-A, at weight 1.
+  expect(rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(
+    new RegExp(
+      `^accepted TEST share LOCAL-TEST-jmc05-${tag}-first for miner \\S+, login ${login.replaceAll('.', '\\.')}, .* through the miner door at ${pool.replaceAll('.', '\\.')} `,
+    ),
+  );
+  expect(await poolRoster(who)).toEqual([['Rig-A', '1']]);
+  await page.goto('/mining/workers');
   const workers = tableIn(page, 'Your workers');
-  // Two workers, each named exactly once; the refused repeat added no weight to Rig-A (one share of weight 1).
+  await expect(bodyRows(workers)).toHaveCount(1);
+  await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(2)).toHaveText('1');
+
+  // The same share sent again is refused by name and keeps nothing: still one worker, weight unchanged.
+  expect(rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(/^refused mining\.share_duplicate: /);
+  expect(await poolRoster(who)).toEqual([['Rig-A', '1']]);
+
+  // A share sent with the account id alone, no worker name, goes to the worker named default.
+  expect(rig('--login', account, '--share', `jmc05-${tag}-unnamed`)).toMatch(/^accepted TEST share /);
+  expect(await poolRoster(who)).toEqual([
+    ['Rig-A', '1'],
+    ['default', '1'],
+  ]);
+  await page.reload();
   await expect(bodyRows(workers)).toHaveCount(2);
   await expect(workerRow(workers, 'Rig-A')).toHaveCount(1);
   await expect(workerRow(workers, 'default')).toHaveCount(1);
@@ -286,13 +369,13 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   page,
 }) => {
   test.setTimeout(180_000);
-  const { who, tag } = run.read();
+  const { who, tag, secret } = run.read();
   // Twenty more rigs, so the roster runs past one page of twenty.
   for (let n = 1; n <= 20; n += 1) {
     const rig = `Rig-${String(n).padStart(2, '0')}`;
-    expect(tool('local-test-stack.mjs', 'mining-share', who.email, '--worker', rig, '--share', `jmc05-${tag}-${rig}`)).toContain(
-      'accepted TEST share',
-    );
+    expect(
+      tool('local-test-stack.mjs', 'mining-share', who.email, '--secret', secret, '--worker', rig, '--share', `jmc05-${tag}-${rig}`),
+    ).toContain('accepted TEST share');
   }
   await openMining(page, '/mining/workers');
   await expect(page.getByRole('heading', { name: 'Mining workers', level: 1 })).toBeVisible();
@@ -313,7 +396,13 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await expect(bodyRows(workers)).toHaveCount(1);
   const rigA = cellsOf(workerRow(workers, 'Rig-A'));
   await expect(rigA.nth(3)).toHaveText('Automatic');
-  // The stack publishes no default difficulty, and the room says so instead of showing a number.
+  // The stack publishes no default difficulty (its TEST owner values leave it out), the pool answers blank by its code,
+  // and the room says so instead of showing a number.
+  expect(PUBLISHED.MINING_DEFAULT_DIFFICULTY ?? '').toBe('');
+  expect(await poolWorkers(who, 'Rig-A')).toMatchObject({
+    defaultDifficulty: null,
+    defaultDifficultyReason: 'mining.default_difficulty_unset',
+  });
   await expect(page.getByTestId('mining-default-difficulty')).toHaveText('The pool has no published default difficulty.');
 
   await page.getByRole('combobox', { name: 'Worker', exact: true }).selectOption({ label: 'Rig-A' });
@@ -326,20 +415,32 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(rigA.nth(3)).toHaveText('1024');
+  expect((await poolWorkers(who, 'Rig-A')).workers.map((worker) => [worker.name, worker.minDifficulty])).toEqual([['Rig-A', '1024']]);
   await page.getByRole('button', { name: 'Use automatic' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Rig-A' })).toHaveText('Automatic difficulty saved for Rig-A');
+  // Read back from the pool after a fresh load: the minimum is cleared, in the room and in the pool's own read.
+  await page.reload();
+  await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
+  await expect(bodyRows(workers)).toHaveCount(1);
   await expect(rigA.nth(3)).toHaveText('Automatic');
+  expect((await poolWorkers(who, 'Rig-A')).workers.map((worker) => [worker.name, worker.minDifficulty])).toEqual([['Rig-A', null]]);
 });
 
-/** This account's pooled weight in the stack's one open window, as the rewards room shows it ("Your weight"). */
+/**
+ * This account's pooled weight across the open windows, as the rewards room shows it ("Your weight" summed). The rig's
+ * shares fall in the miner door's current window, so this is one window's weight unless a run crosses a window's end;
+ * rows of windows that hold only other accounts' work weigh 0 here.
+ */
 async function pooledWeight(page) {
   await page.goto('/mining/rewards');
   const open = tableIn(page, 'Open windows');
-  await expect(bodyRows(open)).toHaveCount(1);
-  return (await cellsOf(bodyRows(open).first()).nth(1).textContent()).trim();
+  await expect(bodyRows(open).first()).toBeVisible();
+  const weights = await bodyRows(open).evaluateAll((rows) => rows.map((row) => row.querySelectorAll('td')[1].textContent.trim()));
+  for (const weight of weights) expect(weight).toMatch(/^\d+$/);
+  return String(weights.reduce((sum, weight) => sum + BigInt(weight), 0n));
 }
 
-const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, ...args);
+const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, '--secret', run.read().secret, ...args);
 
 test(`${J} #7 starts solo mining, or submits a share that fails validation: solo alongside pooled; an invalid share is refused by the proof-of-work check and a testnet flag is labelled`, async ({
   page,
@@ -386,6 +487,12 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
   const rigAWeight = (await cellsOf(workerRow(workers, 'Rig-A')).nth(2).textContent()).trim();
+  // The pool's own read agrees: Rig-S solo, Rig-A pooled.
+  const modes = async () => {
+    const one = async (name) => (await poolWorkers(run.read().who, name)).workers.map((w) => [w.name, w.mode]);
+    return Object.fromEntries([...(await one('Rig-A')), ...(await one('Rig-S'))]);
+  };
+  expect(await modes()).toEqual({ 'Rig-A': 'pooled', 'Rig-S': 'solo' });
 
   // Rig-A has a share in the open window, so a mode change is refused by its code and the stored mode stays pooled.
   await setMode('Rig-A', 'Solo');
@@ -396,6 +503,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-a');
   await expect(bodyRows(workers)).toHaveCount(1);
   await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(1)).toHaveText('Pooled');
+  expect(await modes()).toEqual({ 'Rig-A': 'pooled', 'Rig-S': 'solo' });
 
   // A solo share is stored on Rig-S and stays out of the pooled split: this account's pooled weight does not move.
   expect(share('--worker', 'Rig-S', '--share', `jmc05-${tag}-solo`)).toContain('accepted TEST share');

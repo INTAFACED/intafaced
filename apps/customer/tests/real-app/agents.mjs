@@ -61,12 +61,12 @@ export const OWN_AGENT = 'TEST helper';
  * Creates the person's own agent from the template picker on /agents/new (the builder, J-agents-03) with a per-session
  * cap, so a journey that starts from "an agent of the person's own" has one. Fails at the builder while it is unbuilt.
  */
-export async function createOwnAgent(page, { cap = '1' } = {}) {
+export async function createOwnAgent(page, { cap = '1', name = OWN_AGENT } = {}) {
   await page.goto('/agents/new');
   const picker = page.getByRole('region', { name: 'Templates' });
   await picker.getByRole('button', { name: 'Use the service starter' }).click(UNBUILT);
   const builder = page.getByRole('form', { name: 'Agent builder' });
-  await builder.getByRole('textbox', { name: /^Name/ }).fill(OWN_AGENT);
+  await builder.getByRole('textbox', { name: /^Name/ }).fill(name);
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
   await builder.getByRole('button', { name: 'Save draft' }).click();
   await expect(builder.getByRole('status')).toHaveText('Draft saved.');

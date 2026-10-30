@@ -84,9 +84,11 @@ import {
   type LoginCodeDeps,
   type LoginCodePolicy,
 } from './login-code.js';
+import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-settings.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
+import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
   cancelMfaReset,
   completeDueMfaReset,
@@ -1211,6 +1213,10 @@ export class AuthService {
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
   private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
+    // a handle change, so the check below sees settled rows.
+    await lockHandleClaim(tx, input.handle);
+    if (await handleRetiredByOther(tx, input.handle, null)) throw new AuthError('That handle is taken', 'auth.handle_taken');
     const clash = await tx<
       Array<{ handle: string; email: string }>
     >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
@@ -2139,20 +2145,21 @@ export class AuthService {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     }
     await recordSuccess(this.sql, input.userId, 'password');
-    const result = await transaction(this.sql, async (tx) => {
-      await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
-      const open = await tx<Array<{ reason: SelfFreezeReason; since: Date }>>`
-        SELECT reason, since FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
-      if (open[0]) return { reason: open[0].reason, since: open[0].since, changed: false };
-      const made = await tx<Array<{ since: Date }>>`
-        INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
-      await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
-      await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${input.userId} AND revoked = false`;
-      return { reason: input.reason, since: made[0]!.since, changed: true };
-    });
+    const result = await transaction(this.sql, (tx) => applySelfFreeze(tx, input.userId, input.reason));
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
-    return { frozen: true, ...result };
+    return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * The freeze link a security notice carried (I-account-lifecycle-08, J-identity-11 #2). No sign-in: the token is the
+   * proof. The first use runs the same freeze as `selfFreeze`; a later use returns the stored result.
+   */
+  async redeemFreezeLink(input: { token: string }): Promise<FreezeLinkResult> {
+    const result = await redeemFreezeLink(this.sql, input);
+    if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    if (result.firstUse) this.log.warn({ userId: result.userId, changed: result.changed, via: 'mailed-link' }, 'auth.self_frozen');
+    return result;
   }
 
   /**
@@ -2797,13 +2804,15 @@ export class AuthService {
    *
    * Only `active` accounts come back. Frozen, closed and missing rows are the
    * same null: the caller must not learn which handles belong to restricted
-   * accounts. Returns the stored handle and nothing else about the account.
+   * accounts. Returns the stored handle and whether its owner lets people find
+   * them by it (PP-send-request-03); the caller hides an undiscoverable one
+   * from everyone but its owner.
    */
-  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string } | null> {
-    const rows = await this.sql<Array<{ id: string; handle: string }>>`
-      SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
+      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
-    return row ? { userId: row.id, handle: row.handle } : null;
+    return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
   }
 
   /**

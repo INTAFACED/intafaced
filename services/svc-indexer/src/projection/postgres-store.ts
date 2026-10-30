@@ -23,7 +23,7 @@ import {
   type UnwindOutcome,
 } from './store.js';
 import type { ExplorerBlockFact } from '../explorer/blocks.js';
-import type { IndexedExplorerTx } from '../explorer/tx.js';
+import type { ExplorerTxCursor, ExplorerTxListFact, IndexedExplorerTx } from '../explorer/tx.js';
 
 interface ExplorerFactRow {
   height: string;
@@ -127,6 +127,38 @@ export class PostgresProjectionStore implements ProjectionStore {
       LIMIT 1
     `;
     return row ? this.#fact(row) : null;
+  }
+
+  /** Newest transactions first, optionally of one block. Orphaned blocks' rows stay, flagged. */
+  async explorerTxList(q: { cursor?: ExplorerTxCursor; blockHash?: string; limit: number }): Promise<ExplorerTxListFact[]> {
+    const rows = await this.sql<ExplorerTxListRow[]>`
+      SELECT t.hash, b.height, b.hash AS block_hash, t.tx_index, t.from_address, t.to_address,
+             t.value_wei::text AS value_wei, t.receipt_status, b.block_time, b.status AS block_status
+      FROM explorer_txs t
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash
+      WHERE t.chain_id = ${this.chainId}
+        ${q.blockHash === undefined ? this.sql`` : this.sql`AND b.hash = ${q.blockHash.toLowerCase()}`}
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, t.hash) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.hash})`}
+      ORDER BY b.height DESC, t.tx_index DESC, t.hash DESC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => {
+      if (r.receipt_status !== 'success' && r.receipt_status !== 'failed') {
+        throw new Error(`indexer.tx_status_unreadable: ${r.hash}`);
+      }
+      return {
+        hash: r.hash,
+        blockHeight: Number(r.height),
+        blockHash: r.block_hash,
+        index: r.tx_index,
+        from: r.from_address,
+        to: r.to_address,
+        valueWei: BigInt(r.value_wei),
+        status: r.receipt_status,
+        timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+        orphaned: r.block_status === 'orphaned' ? { reason: 'reorg' } : null,
+      };
+    });
   }
 
   /** D-explorer-02. Null when this hash was never indexed. Orphans stay visible. */
@@ -446,12 +478,8 @@ export class PostgresProjectionStore implements ProjectionStore {
           )
       `;
 
-      const orphans = await tx`
-        DELETE FROM blocks
-        WHERE chain_id = ${this.chainId} AND status = 'orphaned' AND height <= ${throughHeight}
-      `;
-
-      return levels.count + positions.count + orphans.count;
+      // Orphaned block rows stay (see `ProjectionStore.prune`).
+      return levels.count + positions.count;
     }) as Promise<number>;
   }
 
@@ -718,6 +746,19 @@ interface ExplorerTxRow {
   revert_reason: string | null;
   input_data: string;
   created_contract: string | null;
+  block_status: string;
+}
+
+interface ExplorerTxListRow {
+  hash: string;
+  height: string;
+  block_hash: string;
+  tx_index: number;
+  from_address: string;
+  to_address: string | null;
+  value_wei: string;
+  receipt_status: string;
+  block_time: Date;
   block_status: string;
 }
 
