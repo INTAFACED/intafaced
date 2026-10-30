@@ -18,8 +18,11 @@
  * Staff see attempts under per-quiz aliases, never the account. No money moves.
  */
 import type { Sql, TransactionSql } from 'postgres';
+import { createHash } from 'node:crypto';
 import type {
   AcademyCourseQuizAnswer,
+  AcademyCurveCourseQuizInput,
+  AcademyCurveCourseQuizResult,
   AcademyCourseQuizAttempts,
   AcademyCourseQuizQuestion,
   AcademyFixCourseQuizKeyInput,
@@ -30,6 +33,7 @@ import type {
 import { AcademyError } from '../errors.js';
 import { scoreQuestion } from './course-quiz-score.js';
 import { canonical, questionsOf, recordQuizEvent } from './course-quizzes.js';
+import { ALIAS, csvRecords } from './bulk-grade-file.js';
 
 type Db = Sql | TransactionSql;
 
@@ -51,7 +55,7 @@ type TrailAttempt = {
 type EventRow = {
   attempt_id: string;
   n: number;
-  kind: 'override' | 'rescore';
+  kind: 'override' | 'rescore' | 'curve';
   question_id: string | null;
   revision: number | null;
   points: Record<string, number>;
@@ -179,8 +183,130 @@ const ATTEMPT = (sql: Db) => sql`
   t.id, t.item_id, t.user_id, t.number, t.finished_at, t.state, t.quiz, t.answers, t.essay_points, t.score, t.max_score, t.passed
 `;
 
+/** The points entry a curve keeps its difference from the questions' points under. */
+export const CURVE_ENTRY = '~curve';
+
+type CurveRow = { line: number; alias: number; score: number };
+type BadRow = { line: number; alias: number | null; code: string; message: string };
+
+/** A curve file read whole: header `learner,score`, a whole score per row. A bad header or no rows refuses. Pure. */
+export function readCurveFile(text: string): { rows: CurveRow[]; bad: BadRow[] } {
+  const all = csvRecords(text.startsWith('\uFEFF') ? text.slice(1) : text);
+  const header = all.shift()?.fields.map((f) => f.trim().toLowerCase()) ?? [];
+  if (header.length !== 2 || header[0] !== 'learner' || header[1] !== 'score')
+    throw new AcademyError('the first line must be the header learner,score', 'academy.bulk_file_invalid');
+  if (all.length === 0) throw new AcademyError('the file has a header and no rows', 'academy.bulk_file_invalid');
+  const rows: CurveRow[] = [];
+  const bad: BadRow[] = [];
+  const seen = new Set<number>();
+  for (const { line, fields } of all) {
+    const match = ALIAS.exec((fields[0] ?? '').trim());
+    const alias = match ? Number(match[1]) : null;
+    const score = (fields[1] ?? '').trim();
+    const refuse = (code: string, message: string) => bad.push({ line, alias, code, message });
+    if (fields.length !== 2) refuse('academy.bulk_row_invalid', `line ${line} has ${fields.length} fields, not 2`);
+    else if (alias === null) refuse('academy.bulk_row_invalid', `"${fields[0]!.trim().slice(0, 40)}" is not a learner such as "Learner 3"`);
+    else if (!/^(0|[1-9]\d{0,5})$/.test(score)) refuse('academy.assessment_invalid', `"${score.slice(0, 40)}" is not a whole score from 0`);
+    else if (seen.has(alias)) refuse('academy.bulk_row_invalid', `Learner ${alias} is named on an earlier line of this file`);
+    else {
+      seen.add(alias);
+      rows.push({ line, alias, score: Number(score) });
+    }
+  }
+  return { rows, bad };
+}
+
 export class CourseQuizTrail {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    /** `ACADEMY_BULK_FILE_MAX_BYTES`; null is not set, and a curve upload refuses. */
+    private readonly bulkFileMaxBytes: number | null = null,
+  ) {}
+
+  /**
+   * A curve file: each row sets a learner's newest graded attempt to a new total. A dry run lists what it would change
+   * and what it refuses, and writes nothing; applying refuses the whole file while any row is refused, then writes every
+   * row in one transaction as a 'curve' event keyed by the file's sha256 and line. The same file again answers with what
+   * it applied and writes nothing.
+   */
+  async curve(input: AcademyCurveCourseQuizInput & { operatorId: string; now: Date }): Promise<AcademyCurveCourseQuizResult> {
+    if (this.bulkFileMaxBytes === null)
+      throw new AcademyError('the owner has not set how large a curve file may be', 'academy.bulk_limit_unset');
+    const bytes = Buffer.byteLength(input.csv, 'utf8');
+    if (bytes > this.bulkFileMaxBytes)
+      throw new AcademyError(`the file is ${bytes} bytes; the limit is ${this.bulkFileMaxBytes}`, 'academy.bulk_file_too_large');
+    const sha256 = createHash('sha256').update(input.csv, 'utf8').digest('hex');
+    const file = readCurveFile(input.csv);
+    return this.sql.begin(async (tx) => {
+      // The quiz row is the lock: two curves on one quiz wait for each other.
+      const [quiz] = await tx<Array<{ kind: string }>>`
+        SELECT kind FROM academy.course_quizzes WHERE item_id = ${input.itemId} FOR UPDATE
+      `;
+      if (!quiz || quiz.kind !== 'quiz') throw new AcademyError('no graded quiz with that id', 'academy.quiz_not_found');
+      const base = { sha256, fileName: input.fileName, dryRun: input.dryRun };
+      const prior = await tx<Array<{ line: number; alias: number; number: number; from: number; to: number }>>`
+        SELECT e.file_line AS line, a.alias, t.number, e.previous_score AS from, e.score AS to
+        FROM academy.course_quiz_score_events e
+        JOIN academy.course_quiz_attempts t ON t.id = e.attempt_id
+        JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
+              FROM academy.course_quiz_attempts WHERE item_id = ${input.itemId} GROUP BY user_id) a ON a.user_id = t.user_id
+        WHERE t.item_id = ${input.itemId} AND e.kind = 'curve' AND e.file_sha256 = ${sha256}
+        ORDER BY e.file_line
+      `;
+      if (prior.length > 0) return { ...base, repeated: true, applied: false, rows: prior, rejected: [] };
+      // Each learner's newest finished attempt, under its alias.
+      const newestAttempts = await tx<Array<TrailAttempt & { alias: number }>>`
+        SELECT DISTINCT ON (t.user_id) ${ATTEMPT(tx)}, a.alias FROM academy.course_quiz_attempts t
+        JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
+              FROM academy.course_quiz_attempts WHERE item_id = ${input.itemId} GROUP BY user_id) a USING (user_id)
+        WHERE t.item_id = ${input.itemId} AND t.state <> 'open'
+        ORDER BY t.user_id, t.number DESC
+      `;
+      const byAlias = new Map(newestAttempts.map((a) => [a.alias, a]));
+      const events = await newestEvents(
+        tx,
+        newestAttempts.map((a) => a.id),
+      );
+      const rejected: BadRow[] = [...file.bad];
+      const planned: Array<{ row: CurveRow; attempt: TrailAttempt & { alias: number }; from: number }> = [];
+      for (const row of file.rows) {
+        const attempt = byAlias.get(row.alias);
+        const refuse = (code: string, message: string) => rejected.push({ line: row.line, alias: row.alias, code, message });
+        if (!attempt) refuse('academy.attempt_not_found', `no Learner ${row.alias} took this quiz`);
+        else if (attempt.state !== 'graded')
+          refuse('academy.attempt_closed', `Learner ${row.alias}'s newest attempt waits for an essay score`);
+        else if (row.score > (attempt.max_score ?? 0))
+          refuse('academy.assessment_invalid', `a score of ${row.score} is above the ${attempt.max_score} the attempt is out of`);
+        else planned.push({ row, attempt, from: events.get(attempt.id)?.score ?? attempt.score ?? 0 });
+      }
+      rejected.sort((a, b) => a.line - b.line);
+      const rows = planned
+        .map((p) => ({ line: p.row.line, alias: p.row.alias, number: p.attempt.number, from: p.from, to: p.row.score }))
+        .sort((a, b) => a.line - b.line);
+      if (input.dryRun) return { ...base, repeated: false, applied: false, rows, rejected };
+      if (rejected.length > 0)
+        throw new AcademyError(
+          `${rejected.length} row(s) of this file are refused; a curve applies whole, so run the dry run and correct them`,
+          'academy.bulk_file_invalid',
+        );
+      for (const p of [...planned].sort((a, b) => a.attempt.id.localeCompare(b.attempt.id))) {
+        await tx`SELECT 1 FROM academy.course_quiz_attempts WHERE id = ${p.attempt.id} FOR UPDATE`;
+        const last = events.get(p.attempt.id);
+        const before = last?.points ?? finishedPoints(p.attempt);
+        const { [CURVE_ENTRY]: _old, ...questions } = before;
+        const points = { ...questions, [CURVE_ENTRY]: p.row.score - total(questions) };
+        await tx`
+          INSERT INTO academy.course_quiz_score_events
+            (attempt_id, n, kind, points, keys, previous_score, score, passed, reason, actor, at, file_sha256, file_line)
+          VALUES (${p.attempt.id}, ${(last?.n ?? 0) + 1}, 'curve', ${tx.json(points)},
+                  ${tx.json((last?.keys ?? finishedKeys(p.attempt)) as never)}, ${p.from}, ${p.row.score},
+                  ${p.row.score >= p.attempt.quiz.passMark}, ${input.reason}, ${input.operatorId}, ${input.now}, ${sha256},
+                  ${p.row.line})
+        `;
+      }
+      return { ...base, repeated: false, applied: true, rows, rejected: [] };
+    });
+  }
 
   /** A key fix: the quiz's next revision with only keys changed, still published. Attempts keep their score. */
   async fixKey(input: AcademyFixCourseQuizKeyInput & { operatorId: string; now: Date }): Promise<void> {

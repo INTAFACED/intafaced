@@ -15,6 +15,7 @@ import { CourseLearners } from './course-learners.js';
 import { CourseQuizzes } from './course-quizzes.js';
 import { CourseQuizTrail } from './course-quiz-trail.js';
 import { CourseGradebook } from './course-gradebook.js';
+import { CourseQuizAnalytics } from './course-quiz-analytics.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -268,5 +269,89 @@ describe('score changes after grading (AC-quizzes-04)', () => {
     l = again.attempts.attempts.find((a) => a.attemptId === ids[L])!;
     expect(l.questions.map((q) => q.earned)).toEqual([2, 0]);
     expect(l.events.map((e) => e.kind)).toEqual(['override', 'rescore']);
+  });
+});
+
+describe('a curve file and quiz analytics (AC-quizzes-04)', () => {
+  const curve = (itemId: string, csv: string, dryRun: boolean, limit: number | null = 4096) =>
+    new CourseQuizTrail(db.sql, limit).curve({
+      itemId,
+      fileName: 'TEST-curve.csv',
+      csv,
+      dryRun,
+      reason: 'TEST curve',
+      operatorId: A,
+      now: later(1),
+    });
+
+  it('a dry run lists an unknown learner and applies nothing; applying refuses while a row is refused; a good file applies once', async () => {
+    const { itemId, ids } = await taken();
+    const bad = 'learner,score\nLearner 1,4\nLearner 9,5\n';
+    const dry = await curve(itemId, bad, true);
+    expect(dry).toMatchObject({ dryRun: true, applied: false, repeated: false, rows: [{ line: 2, alias: 1, number: 1, from: 3, to: 4 }] });
+    expect(dry.rejected).toEqual([{ line: 3, alias: 9, code: 'academy.attempt_not_found', message: 'no Learner 9 took this quiz' }]);
+    await expect(curve(itemId, bad, false)).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    expect((await trail().attempts(itemId)).attempts.every((a) => a.events.length === 0)).toBe(true);
+
+    const good = 'learner,score\nLearner 1,4\nLearner 2,3\n';
+    const applied = await curve(itemId, good, false);
+    expect(applied).toMatchObject({ applied: true, repeated: false });
+    expect(applied.rows.map((r) => [r.alias, r.from, r.to])).toEqual([
+      [1, 3, 4],
+      [2, 2, 3],
+    ]);
+    expect(await curve(itemId, good, false)).toMatchObject({ applied: false, repeated: true, rows: applied.rows });
+    const l = (await trail().attempts(itemId)).attempts.find((a) => a.attemptId === ids[L])!;
+    expect(l).toMatchObject({
+      score: 4,
+      originalScore: 3,
+      events: [expect.objectContaining({ kind: 'curve', previousScore: 3, score: 4 })],
+    });
+    // An override after a curve keeps the curve's difference: q1 0 → 2 adds 2.
+    const after = await trail().override({
+      itemId,
+      attemptId: ids[L]!,
+      questionId: 'q1',
+      points: 2,
+      n: 2,
+      comment: null,
+      reason: 'TEST',
+      operatorId: A,
+      now: later(2),
+    });
+    expect(after.attempts.find((a) => a.attemptId === ids[L])!.score).toBe(6);
+  });
+
+  it('a blank size limit, a file over it, a bad header and a score above the maximum refuse', async () => {
+    const { itemId } = await taken();
+    await expect(curve(itemId, 'learner,score\n1,4\n', true, null)).rejects.toMatchObject({ code: 'academy.bulk_limit_unset' });
+    await expect(curve(itemId, 'learner,score\n1,4\n', true, 10)).rejects.toMatchObject({ code: 'academy.bulk_file_too_large' });
+    await expect(curve(itemId, 'alias,score\n1,4\n', true)).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    expect((await curve(itemId, 'learner,score\n1,6\n', true)).rejected[0]).toMatchObject({ code: 'academy.assessment_invalid' });
+  });
+
+  it('analytics: an empty state with no graded attempt, then item analysis and the distribution from real attempts', async () => {
+    const { quiz } = await course();
+    await quizzes().save({ itemId: quiz.id, revision: 0, ...draft({ questions: TWO, passMark: 3 }), operatorId: A, now: NOW });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const empty = await new CourseQuizAnalytics(db.sql).analytics(quiz.id);
+    expect(empty).toMatchObject({ graded: 0, learners: 0, scoreDistribution: [] });
+    expect(empty.items.map((i) => [i.attempts, i.fullMarksShare, i.meanPoints])).toEqual([
+      [0, null, null],
+      [0, null, null],
+    ]);
+    await db.truncateAll();
+    const { itemId } = await taken();
+    const stats = await new CourseQuizAnalytics(db.sql).analytics(itemId);
+    // L: q1 0, n1 3 (score 3); M: q1 2, n1 0 (score 2).
+    expect(stats).toMatchObject({ graded: 2, learners: 2 });
+    expect(stats.scoreDistribution).toEqual([0, 1, 2, 3, 4, 5].map((score) => ({ score, count: score === 2 || score === 3 ? 1 : 0 })));
+    expect(stats.items.map((i) => [i.questionId, i.attempts, i.fullMarksShare, i.meanPoints, i.firstAttemptFullMarksShare])).toEqual([
+      ['q1', 2, '50.0', '1.00', '50.0'],
+      ['n1', 2, '50.0', '1.50', '50.0'],
+    ]);
+    await expect(new CourseQuizAnalytics(db.sql).answers({ itemId, operatorId: A })).rejects.toMatchObject({
+      code: 'academy.permission_denied',
+    });
   });
 });

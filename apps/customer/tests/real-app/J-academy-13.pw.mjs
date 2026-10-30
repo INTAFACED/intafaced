@@ -7,7 +7,7 @@ import { signIn, signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
 // J-academy-13, in the running app (docs/roadmap/journeys.json): a founder grades work, fixes a quiz and downloads the
-// gradebook. One test per step, titled "J-academy-13 #<n>". Steps 5-6 (AC-quizzes-04) join this file with their slice. The founder is the stack's LOCAL TEST founder A, on the founder console's gradebook page; the course
+// gradebook. One test per step, titled "J-academy-13 #<n>". The founder is the stack's LOCAL TEST founder A, on the founder console's gradebook page; the course
 // is made through Academy's own admin door first. Learners act through their own API, signed up in the browser.
 const J = 'J-academy-13';
 const RUN = Date.now().toString(36);
@@ -268,23 +268,16 @@ test(`${J} #3 graders see aliases, never names; a bulk file applies its good row
   await page.context().close();
 });
 
-/** The score a learner reads on their own attempt, through their own API (the customer app has no authored-quiz room). */
-async function myQuizScore(who, itemId) {
-  const res = await (await api(who)).get(trpc('courseQuizAttempt', { itemId }));
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.result.data.result;
-}
-
-test(`${J} #4 an override and a rescore after a key fix are new events with the new total, the old kept; learners see the new score`, async ({
-  browser,
-}) => {
-  test.setTimeout(300_000);
-  // A published quiz: Q1 single choice (2 points, key "A stop"), Q2 numeric (3 points, key 10 exactly); pass mark 3.
-  const slug = `test-j13q-${RUN}`;
+/**
+ * A published course with one published quiz: Q1 single choice (2 points, key "A stop"), Q2 numeric (3 points, key 10
+ * exactly); pass mark 3, one attempt each.
+ */
+async function publishedQuiz(tag) {
+  const slug = `test-j13${tag}-${RUN}`;
   const course = await staff('mutate', 'admin.createCourse', {
     slug,
-    title: `TEST J-academy-13 quiz ${RUN}`,
-    summary: 'TEST A quiz whose key a founder fixes.',
+    title: `TEST J-academy-13 quiz ${tag} ${RUN}`,
+    summary: 'TEST A quiz a founder regrades.',
     thumbnailUrl: null,
     pricing: 'free',
     price: null,
@@ -331,30 +324,45 @@ test(`${J} #4 an override and a rescore after a key fix are new events with the 
     revision: current.course.revision,
     reason: `TEST ${J}: open the course`,
   });
+  return { courseId: course.id, quizId, slug };
+}
+
+/** A new learner enrols and takes the quiz once: `choice` for Q1 and `size` for Q2. */
+async function takeQuiz(browser, { quizId, slug }, prefix, choice, size) {
+  const who = await learnerOn(browser, prefix, slug);
+  const started = await learnerWrite(who, 'startCourseQuiz', { itemId: quizId, accessCode: null });
+  expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+  const attemptId = started.body.result.data.attemptId;
+  for (const [questionId, answer] of [
+    ['q1', choice],
+    ['n1', size],
+  ])
+    expect((await learnerWrite(who, 'answerCourseQuiz', { attemptId, questionId, answer })).status).toBe(200);
+  expect((await learnerWrite(who, 'finishCourseQuiz', { attemptId })).status).toBe(200);
+  return who;
+}
+
+/** The score a learner reads on their own attempt, through their own API (the customer app has no authored-quiz room). */
+async function myQuizScore(who, itemId) {
+  const res = await (await api(who)).get(trpc('courseQuizAttempt', { itemId }));
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.result;
+}
+
+test(`${J} #4 an override and a rescore after a key fix are new events with the new total, the old kept; learners see the new score`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const quiz = await publishedQuiz('q');
+  const { courseId, quizId } = quiz;
   // Learner 1 answers "Hope" and 10 (3 of 5); Learner 2 answers "A stop" and 12 (2 of 5).
-  const takers = [];
-  for (const [prefix, choice, size] of [
-    ['ja13qa', 'c2', '10'],
-    ['ja13qb', 'c1', '12'],
-  ]) {
-    const who = await learnerOn(browser, prefix, slug);
-    const started = await learnerWrite(who, 'startCourseQuiz', { itemId: quizId, accessCode: null });
-    expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
-    const attemptId = started.body.result.data.attemptId;
-    for (const [questionId, answer] of [
-      ['q1', choice],
-      ['n1', size],
-    ])
-      expect((await learnerWrite(who, 'answerCourseQuiz', { attemptId, questionId, answer })).status).toBe(200);
-    expect((await learnerWrite(who, 'finishCourseQuiz', { attemptId })).status).toBe(200);
-    takers.push(who);
-  }
+  const takers = [await takeQuiz(browser, quiz, 'ja13qa', 'c2', '10'), await takeQuiz(browser, quiz, 'ja13qb', 'c1', '12')];
   const [first, second] = takers;
   expect(await myQuizScore(first, quizId)).toMatchObject({ state: 'graded', score: 3, pass: true });
   expect(await myQuizScore(second, quizId)).toMatchObject({ state: 'graded', score: 2, pass: false });
 
   const desk = await console_(browser);
-  await desk.goto(`/academy-ops/catalogue/courses/${course.id}/items/${quizId}`);
+  await desk.goto(`/academy-ops/catalogue/courses/${courseId}/items/${quizId}`);
   await desk.getByRole('link', { name: 'Attempts and score changes' }).click();
   const attempts = desk.getByTestId('quiz-attempts');
   const one = attempts.locator('li[data-alias="1"]');
@@ -409,6 +417,84 @@ test(`${J} #4 an override and a rescore after a key fix are new events with the 
   await rescore.getByRole('button', { name: 'Rescore attempts' }).click();
   await expect(desk.getByTestId('course-desk-outcome')).toHaveText('Done: rescore run: no attempt changed');
   await expect(one.getByTestId('score-trail').locator('li')).toHaveCount(2);
+  await desk.context().close();
+});
+
+test(`${J} #5 a curve file naming an unknown learner: the dry run lists it and nothing applies`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const quiz = await publishedQuiz('c');
+  const learner = await takeQuiz(browser, quiz, 'ja13ca', 'c2', '10');
+  const desk = await console_(browser);
+  await desk.goto(`/academy-ops/catalogue/quizzes/${quiz.quizId}`);
+  const one = desk.getByTestId('quiz-attempts').locator('li[data-alias="1"]');
+  await expect(one.getByTestId('attempt-score')).toHaveText('Score 3 of 5, passed');
+
+  const csv = ['learner,score', 'Learner 1,4', 'Learner 9,5', ''].join('\r\n');
+  const curve = desk.getByTestId('curve');
+  await curve.getByLabel('Curve file (CSV)').setInputFiles({ name: 'TEST-curve.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await curve.getByLabel('Reason for the curve').fill('TEST lift the curve');
+  await curve.getByRole('button', { name: 'Dry run' }).click();
+  await expect(desk.getByTestId('course-desk-outcome')).toHaveText('Done: dry run: 1 would change, 1 refused; nothing applied');
+  const result = desk.getByTestId('curve-result');
+  await expect(result).toHaveAttribute('data-dry-run', 'true');
+  await expect(result.locator('tr[data-line="2"]')).toHaveAttribute('data-outcome', 'would-change');
+  await expect(result.locator('tr[data-line="2"]')).toContainText('3 → 4');
+  await expect(result.locator('tr[data-line="3"]')).toHaveAttribute('data-outcome', 'rejected');
+  await expect(result.locator('tr[data-line="3"]')).toContainText('Refused: no Learner 9 took this quiz');
+  await expect(one.getByTestId('attempt-score')).toHaveText('Score 3 of 5, passed');
+  await expect(one.getByTestId('score-trail')).toHaveCount(0);
+
+  // Applying the same file refuses whole while a row is refused: nothing applies.
+  await curve.getByRole('button', { name: 'Apply curve' }).click();
+  await expect(desk.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.bulk_file_invalid');
+  await expect(one.getByTestId('attempt-score')).toHaveText('Score 3 of 5, passed');
+  await expect(one.getByTestId('score-trail')).toHaveCount(0);
+  const stored = await staff('query', 'admin.courseQuizAttempts', { itemId: quiz.quizId });
+  expect(stored.attempts.map((a) => [a.score, a.events.length])).toEqual([[3, 0]]);
+  expect(await myQuizScore(learner, quiz.quizId)).toMatchObject({ score: 3 });
+  await desk.context().close();
+});
+
+test(`${J} #6 quiz analytics from real attempts, an empty state with none, and answer-level tables refused without the researcher role`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const quiz = await publishedQuiz('a');
+  const desk = await console_(browser);
+  await desk.goto(`/academy-ops/catalogue/quizzes/${quiz.quizId}`);
+  const analytics = desk.getByTestId('quiz-analytics');
+  await expect(analytics.getByTestId('analytics-empty')).toHaveText(
+    'No graded attempt, so there is nothing to analyse and no score distribution is drawn.',
+  );
+  await expect(analytics.getByTestId('score-distribution')).toHaveCount(0);
+  await expect(analytics.getByTestId('item-analysis')).toHaveCount(0);
+
+  // Two learners: "Hope" and 10 (3 of 5), "A stop" and 12 (2 of 5).
+  await takeQuiz(browser, quiz, 'ja13aa', 'c2', '10');
+  await takeQuiz(browser, quiz, 'ja13ab', 'c1', '12');
+  await desk.reload();
+  await expect(analytics).toContainText('From 2 graded attempts by 2 learners');
+  const items = analytics.getByTestId('item-analysis');
+  await expect(items.locator('tr[data-question="q1"]')).toContainText('50.0%');
+  await expect(items.locator('tr[data-question="q1"]')).toContainText('1.00 of 2');
+  await expect(items.locator('tr[data-question="n1"]')).toContainText('1.50 of 3');
+  const spread = analytics.getByTestId('score-distribution');
+  await expect(spread.locator('tr')).toHaveCount(7);
+  for (const [score, count] of [
+    [0, 0],
+    [1, 0],
+    [2, 1],
+    [3, 1],
+    [4, 0],
+    [5, 0],
+  ])
+    await expect(spread.locator(`tr[data-score="${score}"] td`).nth(1)).toHaveText(String(count));
+
+  // Answers learner by learner need the data researcher role: refused by name.
+  await analytics.getByRole('button', { name: 'Show answers by learner' }).click();
+  const outcome = desk.getByTestId('course-desk-outcome');
+  await expect(outcome).toHaveAttribute('data-code', 'academy.permission_denied');
+  await expect(outcome).toContainText('This needs a role you do not hold');
   await desk.context().close();
 });
 
