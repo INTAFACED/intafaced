@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { throwBankProcedure } from '../bank-procedure.js';
+import { STATEMENT_REPORTS } from './statement-service.js';
 
 /**
  * `bank.statements.export` — a signed CSV or a one-month PDF of the caller's
@@ -42,6 +43,8 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements'>) {
             /** One of the caller's own named spaces: only its lines (BK-pots-02). */
             spaceId: z.string().guid().optional(),
             format: z.enum(['csv', 'pdf']),
+            /** What the file holds (PF-statements-01); the account statement when left out. */
+            report: z.enum(STATEMENT_REPORTS).optional(),
           })
           .strict(),
       )

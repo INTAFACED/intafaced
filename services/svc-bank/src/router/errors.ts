@@ -534,6 +534,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.value_range_too_long': 'BAD_REQUEST',
   'bank.value_history_too_large': 'BAD_REQUEST',
   'bank.statement_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.statement_balances_unavailable': 'PRECONDITION_FAILED',
   'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.account_details_unavailable': 'SERVICE_UNAVAILABLE',
   // The pause read failed; the new borrow or deposit was refused rather than assumed open.

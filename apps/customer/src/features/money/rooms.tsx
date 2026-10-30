@@ -86,6 +86,8 @@ import { transferDepthCopy } from './transfer-depth-copy';
 import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
+import { StatementCentre } from './StatementCentre';
+import { statementCentreCopy } from './statement-centre-copy';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -1615,6 +1617,27 @@ function CalendarRoom() {
     </BankPage>
   );
 }
+/** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
+function StatementsRoom() {
+  const { t } = statementCentreCopy.useCopy();
+  return (
+    <BankPage room="Analytics" title={t('title')} description={t('description')}>
+      <StatementCentre />
+    </BankPage>
+  );
+}
+/** The way into the statement and export centre from Analytics. */
+function StatementsLink() {
+  const { t } = statementCentreCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/statements">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
 /** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
 function LinkedAccountsRoom() {
   const { t } = linkedAccountsCopy.useCopy();
@@ -1656,6 +1679,7 @@ function Analytics() {
     depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (
     <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
+      <StatementsLink />
       <Section title={copyText('rooms.movement.window')}>
         <div className="money-analytics-form">
           <label className="field">
@@ -2086,6 +2110,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <CashOutRoom />;
     case '/bank/analytics':
       return <Analytics />;
+    case '/bank/statements':
+      return <StatementsRoom />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

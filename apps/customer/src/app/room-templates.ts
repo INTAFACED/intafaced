@@ -77,6 +77,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/direct-debits': { template: 'settings' },
   '/bank/recovery': { template: 'flow' },
   '/bank/calendar': { template: 'monitor' },
+  '/bank/statements': { template: 'flow' },
   '/bank/rules': { template: 'settings' },
   '/bank/earn': { template: 'catalogue' },
   '/bank/earn/pool': { template: 'catalogue' },
