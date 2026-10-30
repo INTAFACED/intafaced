@@ -212,12 +212,17 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   // The seller's bank shows 9.19 EUR of the 9.2 agreed.
   const within = await s.raw.mutate('trades.reportMismatch', { tradeId, kind: 'under', amountReceived: '9.19' });
   expect(within.status, 'svc-p2p has no amount-mismatch report yet (P-trade-orders-20)').toBe(200);
-  expect(within.body.result.data).toMatchObject({ classification: expect.any(String) });
+  // 9.19 of 9.2 is 11 basis points short, inside the TEST tolerance of 50: the order goes on, and the page says so.
+  expect(within.body.result.data).toMatchObject({ classification: 'within_tolerance' });
   expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  const inside = page.getByTestId('order-mismatch-result');
+  await expect(inside).toContainText('You reported 9.19 EUR received of 9.2 EUR.');
+  await expect(inside).toContainText('That is within this service’s tolerance, so the order goes on.');
 
   // Another order: only 5 EUR arrived. The seller says so on the order page.
   const other = await paidOrder(state);
-  await signIn(page, state.seller);
   await page.goto(`/uc/order?tradeId=${other}`);
   const report = page.getByTestId('order-mismatch');
   await report.getByText('The amount in my bank is different').click();
@@ -228,8 +233,13 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   await expect(result).toContainText('You reported 5 EUR received of 9.2 EUR.');
   await expect(result).toContainText('You do not have to release.');
   const order = await s.query('trades.get', { tradeId: other });
-  expect(order.mismatch?.classification).not.toBe('within_tolerance');
+  expect(order.mismatch?.classification).toBe('outside_tolerance');
   expect(order.status).toBe('fiat_sent');
+  // No one can force the release: the buyer has no door to release the seller's coins, and the escrow stays held.
+  const buyer = p2p(await api(state.buyer));
+  const forced = await buyer.raw.mutate('trades.confirmReceived', { tradeId: other });
+  expect(forced.status).not.toBe(200);
+  expect((await s.query('trades.get', { tradeId: other })).status).toBe('fiat_sent');
   // The way on is a dispute, on the same page.
   await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
 });
