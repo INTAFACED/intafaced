@@ -230,7 +230,8 @@ test(`${J} #2 verifies and deposits TEST funds: the matching tasks tick once, an
   const { me } = state('me', 'fullId');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
-  await verify(page, me, 'Basic');
+  // Crypto deposits open at full verification; the verify task ticks on the first tier granted.
+  await verify(page, me, 'Full');
   await waitForTask(me, 'identity.verified', 'done');
   await signIn(page, me);
   const address = await depositAddress(page);
@@ -295,6 +296,16 @@ test(`${J} #4 claims after all tasks are done: one reward per task, each once`, 
   });
   expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBeLessThan(300);
   await waitForTask(me, 'trade.fill', 'done');
+  // Sold back: the pot is funded from trade fees the platform earned in USDT, and a sell pays its fee in USDT.
+  const back = await client.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'market',
+    side: 'sell',
+    // The buy's fee was taken in BTC, so a little less than it bought.
+    amount: '0.0009',
+    clientOrderId: `${J}-sell-${Date.now()}`,
+  });
+  expect(back.status, JSON.stringify(back.body).slice(0, 300)).toBeLessThan(300);
   await fundPot(`TEST-${J}-${tag}`, '0.06');
 
   const page = await (await browser.newContext()).newPage();
