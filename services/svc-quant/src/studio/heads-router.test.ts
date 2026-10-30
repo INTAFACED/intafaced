@@ -85,6 +85,9 @@ describe('strategy heads and the recycle bin (AL-editor-01)', () => {
     await expect(a.studio.organise({ id: saved.id, name: 'x', folder: 'a/b', description: '', idempotencyKey: 'k2' })).rejects.toThrow(
       /folder — one level only/,
     );
+    await expect(a.studio.organise({ id: saved.id, name: 'x', folder: 42, description: '', idempotencyKey: 'k5' })).rejects.toThrow(
+      /folder — must be text/,
+    );
     await expect(b.studio.organise({ id: saved.id, name: 'x', folder: '', description: '', idempotencyKey: 'k3' })).rejects.toThrow(
       /strategy not found/,
     );

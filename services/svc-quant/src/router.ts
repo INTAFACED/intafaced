@@ -166,14 +166,18 @@ const runOutput = z
 
 /** The head an organise sets: a name, one level of folder (blank is the root) and a description, each checked by name. */
 function organisationOf(input: { name?: unknown; folder?: unknown; description?: unknown }): StrategyOrganisation {
-  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-  const name = text(input.name);
+  const text = (field: 'name' | 'folder' | 'description', value: unknown): string => {
+    if (value === undefined || value === null) return '';
+    if (typeof value !== 'string') throw new QuantError('quant.params_invalid', `${field} — must be text`);
+    return value.trim();
+  };
+  const name = text('name', input.name);
   if (!name) throw new QuantError('quant.params_invalid', 'name — the strategy name is unset');
   if (name.length > 128) throw new QuantError('quant.params_invalid', 'name — longer than 128 characters');
-  const folder = text(input.folder);
+  const folder = text('folder', input.folder);
   if (folder.length > 40) throw new QuantError('quant.params_invalid', 'folder — longer than 40 characters');
   if (folder.includes('/')) throw new QuantError('quant.params_invalid', 'folder — one level only, without a slash');
-  const description = text(input.description);
+  const description = text('description', input.description);
   if (description.length > 500) throw new QuantError('quant.params_invalid', 'description — longer than 500 characters');
   return { name, folder, description };
 }
@@ -269,10 +273,11 @@ const strategyHead = strategyVersionRecord.extend({
   accountId: z.string().guid(),
   clientStrategyId: z.string(),
   deletedAt: z.string().nullable(),
-  folder: z.string(),
-  description: z.string(),
-  organised: z.number().int().nonnegative(),
-  restores: z.number().int().nonnegative(),
+  // Defaults, because a write receipt stored before the head fields existed is replayed as it was stored.
+  folder: z.string().default(''),
+  description: z.string().default(''),
+  organised: z.number().int().nonnegative().default(0),
+  restores: z.number().int().nonnegative().default(0),
 });
 
 const strategyDetail = strategyHead.extend({

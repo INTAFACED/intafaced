@@ -5,9 +5,10 @@ import { algoCopy } from './algo-copy';
 export type QuantRoomId = 'home' | 'strategies' | 'studio' | 'backtest' | 'sandbox' | 'execution';
 
 /** Every Algo dev room, always listed: the same room switch Trade uses, so moving between rooms behaves the same everywhere. */
-export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string }[] = [
+/** Each room's link; `label` is its copy key, which is the id unless the id already names other copy. */
+export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string; label?: 'strategiesRoom' }[] = [
   { id: 'home', href: '/quant' },
-  { id: 'strategies', href: '/quant/strategies' },
+  { id: 'strategies', href: '/quant/strategies', label: 'strategiesRoom' },
   { id: 'studio', href: '/quant/studio' },
   { id: 'backtest', href: '/quant/backtest' },
   { id: 'sandbox', href: '/quant/sandbox' },
@@ -23,7 +24,7 @@ export function QuantRooms({ active, paper = false }: { active: QuantRoomId; pap
       className="px-0"
       items={QUANT_ROOMS.map((room) => ({
         id: room.id,
-        label: t(room.id === 'strategies' ? 'strategiesRoom' : room.id),
+        label: t(room.label ?? room.id),
         href: preservePaperHref(room.href, paper),
       }))}
     />

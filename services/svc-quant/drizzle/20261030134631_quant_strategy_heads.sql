@@ -32,8 +32,3 @@ $$;
 ALTER TABLE "quant"."write_receipts" DROP CONSTRAINT IF EXISTS "write_receipts_operation_ck";
 ALTER TABLE "quant"."write_receipts" ADD CONSTRAINT "write_receipts_operation_ck"
   CHECK ("operation" IN ('create', 'revise', 'delete', 'backtest', 'organise', 'restore'));
-
--- The recycle bin lists an account's deleted strategies, newest delete first.
-CREATE INDEX IF NOT EXISTS "strategies_account_deleted_idx"
-  ON "quant"."strategies" ("account_id", "deleted_at", "id")
-  WHERE "deleted_at" IS NOT NULL;

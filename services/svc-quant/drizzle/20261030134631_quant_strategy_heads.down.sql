@@ -4,7 +4,6 @@ DELETE FROM "quant"."write_receipts" WHERE "operation" IN ('organise', 'restore'
 ALTER TABLE "quant"."write_receipts" DROP CONSTRAINT IF EXISTS "write_receipts_operation_ck";
 ALTER TABLE "quant"."write_receipts" ADD CONSTRAINT "write_receipts_operation_ck"
   CHECK ("operation" IN ('create', 'revise', 'delete', 'backtest'));
-DROP INDEX IF EXISTS "quant"."strategies_account_deleted_idx";
 ALTER TABLE "quant"."strategies" DROP CONSTRAINT IF EXISTS "strategies_head_ck";
 ALTER TABLE "quant"."strategies" DROP COLUMN IF EXISTS "restores";
 ALTER TABLE "quant"."strategies" DROP COLUMN IF EXISTS "organised";

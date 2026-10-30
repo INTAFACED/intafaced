@@ -150,7 +150,9 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await rowOf(page, strategyId)
     .getByRole('button', { name: `Delete ${RENAMED}` })
     .click();
-  await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} moved to the recycle bin with its 1 versions.`);
+  await expect(page.getByTestId('quant-strategies-note')).toHaveText(
+    `${RENAMED} moved to the recycle bin with every version, up to version 1.`,
+  );
   await expect(rowOf(page, strategyId)).toHaveCount(0);
   await expect(room.getByText('No strategy is saved on this account.')).toBeVisible();
 
@@ -165,7 +167,7 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
 
   // Restored, it is back in the list with the same version, name and folder, and the bin is empty.
   await binned.getByRole('button', { name: `Restore ${RENAMED}` }).click();
-  await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} is back with its 1 versions.`);
+  await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} is back with every version, up to version 1.`);
   await expect(room.getByText('The recycle bin is empty.')).toBeVisible();
   await room.getByRole('button', { name: 'Saved' }).click();
   const back = rowOf(page, strategyId);

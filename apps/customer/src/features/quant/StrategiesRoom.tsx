@@ -5,16 +5,16 @@ import {
   quantStrategyCardSchema,
   type QuantStrategyCard,
 } from '@intafaced/contracts/quant-algo';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { Read, Select } from '../more/common';
+import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
-import { STRATEGY_PAGE } from './StrategyTable';
+import { MorePages, useStrategyPages } from './strategy-pages';
 import './algo.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -67,7 +67,7 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
             </p>
           )}
           {tab === 'saved' ? (
-            <SavedList key={`saved:${revision}`} onChanged={changed} />
+            <SavedList key={`saved:${revision}`} paper={paper} onChanged={changed} />
           ) : (
             <RecycleBin key={`bin:${revision}`} onChanged={changed} />
           )}
@@ -77,51 +77,10 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
   );
 }
 
-/** One list's pages: the first read, then Show more reads the next page with the cursor the service gave. */
-function usePages(procedure: 'studio.list' | 'studio.listDeleted') {
-  const api = useApi();
-  const first = useResource(
-    (signal) => api.query('quant', procedure, { limit: STRATEGY_PAGE }, quantStrategyCardPageSchema, { signal }),
-    `quant-${procedure}`,
-  );
-  const [later, setLater] = useState<{ rows: QuantStrategyCard[]; cursor: string | null } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Failed | null>(null);
-  useEffect(() => {
-    setLater(null);
-    setFailure(null);
-  }, [first.resource]);
-  async function more(cursor: string) {
-    setBusy(true);
-    setFailure(null);
-    const res = await api.query('quant', procedure, { limit: STRATEGY_PAGE, cursor }, quantStrategyCardPageSchema);
-    setBusy(false);
-    if (res.ok) setLater((prev) => ({ rows: [...(prev?.rows ?? []), ...res.data.strategies], cursor: res.data.nextCursor }));
-    else setFailure(res);
-  }
-  return { first, later, busy, failure, more };
-}
-
-function MorePages(props: { cursor: string | null; busy: boolean; failure: Failed | null; more: (cursor: string) => void }) {
-  const { t } = strategiesCopy.useCopy();
-  const { cursor } = props;
-  return (
-    <>
-      {props.busy && <Loading />}
-      {props.failure && <Failure result={props.failure} retry={() => cursor && props.more(cursor)} />}
-      {cursor && !props.busy && (
-        <Button variant="secondary" onClick={() => props.more(cursor)}>
-          {t('showMore')}
-        </Button>
-      )}
-    </>
-  );
-}
-
-function SavedList({ onChanged }: { onChanged: (note: string) => void }) {
+function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: string) => void }) {
   const api = useApi();
   const { t } = strategiesCopy.useCopy();
-  const pages = usePages('studio.list');
+  const pages = useStrategyPages('studio.list', quantStrategyCardPageSchema, '');
   const [folder, setFolder] = useState(ALL);
   const [editing, setEditing] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -139,21 +98,20 @@ function SavedList({ onChanged }: { onChanged: (note: string) => void }) {
       deletedOk,
     );
     setBusyId(null);
-    if (res.ok) onChanged(t('deletedNote', { name: strategy.name, count: strategy.version }));
+    if (res.ok) onChanged(t('deletedNote', { name: strategy.name, version: strategy.version }));
     else setFailure(res);
   }
 
   return (
     <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
-        const rows = [...data.strategies, ...(pages.later?.rows ?? [])];
-        const cursor = pages.later ? pages.later.cursor : data.nextCursor;
+        const { rows, cursor } = pages.rowsOf(data);
         if (!rows.length) {
           return (
             <EmptyState
               title={t('none')}
               action={
-                <a className="button" href="/quant/studio">
+                <a className="button" href={preservePaperHref('/quant/studio', paper)}>
                   {t('openStudio')}
                 </a>
               }
@@ -172,6 +130,11 @@ function SavedList({ onChanged }: { onChanged: (note: string) => void }) {
               onChange={setFolder}
               options={[{ value: ALL, label: t('folderAll') }, ...folders.map((name) => ({ value: name, label: name || t('folderRoot') }))]}
             />
+            {cursor && folder !== ALL && (
+              <p className="muted" role="note">
+                {t('folderPartial')}
+              </p>
+            )}
             {failure && <Failure result={failure} />}
             {shown.length === 0 ? (
               <EmptyState title={t('noneInFolder')} />
@@ -194,9 +157,9 @@ function SavedList({ onChanged }: { onChanged: (note: string) => void }) {
                         <OrganiseForm
                           strategy={row}
                           onCancel={() => setEditing(null)}
-                          onSaved={() => {
+                          onSaved={(applied) => {
                             setEditing(null);
-                            onChanged(t('organised'));
+                            onChanged(applied ? t('organised') : t('organisedElsewhere'));
                           }}
                         />
                       ) : (
@@ -224,7 +187,7 @@ function SavedList({ onChanged }: { onChanged: (note: string) => void }) {
 }
 
 /** Rename, move and describe one strategy. The head changes; no version is added. */
-function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void; onSaved: () => void }) {
+function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void; onSaved: (applied: boolean) => void }) {
   const api = useApi();
   const { t } = strategiesCopy.useCopy();
   const { strategy } = props;
@@ -245,8 +208,15 @@ function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void
       quantStrategyCardSchema,
     );
     setBusy(false);
-    if (res.ok) props.onSaved();
-    else setFailure(res);
+    if (!res.ok) {
+      setFailure(res);
+      return;
+    }
+    // The same key answers with the write it first stored. If that is not what was sent here, another tab or device
+    // organised this strategy from the same read: say so and read the list again rather than claim this change.
+    const head = res.data;
+    const sent = { name: name.trim(), folder: folder.trim(), description: description.trim() };
+    props.onSaved(head.name === sent.name && head.folder === sent.folder && head.description === sent.description);
   }
   return (
     <form
@@ -286,7 +256,7 @@ function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void
 function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
   const api = useApi();
   const { t } = strategiesCopy.useCopy();
-  const pages = usePages('studio.listDeleted');
+  const pages = useStrategyPages('studio.listDeleted', quantStrategyCardPageSchema, '');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   async function restore(strategy: QuantStrategyCard) {
@@ -301,14 +271,13 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
       quantStrategyCardSchema,
     );
     setBusyId(null);
-    if (res.ok) onChanged(t('restoredNote', { name: res.data.name, count: res.data.version }));
+    if (res.ok) onChanged(t('restoredNote', { name: res.data.name, version: res.data.version }));
     else setFailure(res);
   }
   return (
     <Read resource={pages.first.resource} retry={pages.first.reload}>
       {(data) => {
-        const rows = [...data.strategies, ...(pages.later?.rows ?? [])];
-        const cursor = pages.later ? pages.later.cursor : data.nextCursor;
+        const { rows, cursor } = pages.rowsOf(data);
         if (!rows.length) return <EmptyState title={t('binNone')}>{t('binNoneBody')}</EmptyState>;
         return (
           <>

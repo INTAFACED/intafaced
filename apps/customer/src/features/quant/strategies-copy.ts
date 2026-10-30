@@ -23,6 +23,7 @@ const en = {
   none: 'No strategy is saved on this account.',
   noneBody: 'Strategies you save in Studio are listed here, with their version and folder.',
   noneInFolder: 'No saved strategy is in this folder.',
+  folderPartial: 'The folder filter covers the strategies read so far. Show more reads the next ones.',
   openStudio: 'Open Studio',
   binNone: 'The recycle bin is empty.',
   binNoneBody: 'A strategy you delete moves here with all its versions, and Restore brings it back.',
@@ -36,14 +37,15 @@ const en = {
   saving: 'Saving',
   cancel: 'Cancel',
   organised: 'Saved. The name and folder changed; no new version was added.',
+  organisedElsewhere:
+    'This strategy was changed from another tab or device before this save. The list now shows what is stored; nothing from this form was applied.',
   delete: 'Delete {name}',
   deleting: 'Moving it to the recycle bin',
-  deletedNote: '{name} moved to the recycle bin with its {count} versions.',
+  deletedNote: '{name} moved to the recycle bin with every version, up to version {version}.',
   restore: 'Restore {name}',
   restoring: 'Restoring',
-  restoredNote: '{name} is back with its {count} versions.',
+  restoredNote: '{name} is back with every version, up to version {version}.',
   showMore: 'Show more',
-  loading: 'Reading your strategies',
 } as const;
 
 export const strategiesCopy = defineCopy('quant.strategies', en);
