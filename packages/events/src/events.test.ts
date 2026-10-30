@@ -1087,6 +1087,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     payWithdrawalStatusUpdated: {
       withdrawalId: uid(),
       userId: uid(),
+      seq: 3,
       attempt: 0,
       from: 'held',
       to: 'broadcast',

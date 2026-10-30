@@ -1764,15 +1764,19 @@ export type WithdrawalStatusValue = z.infer<typeof withdrawalStatusSchema>;
 
 /**
  * One move of a customer withdrawal, published by svc-pay after the move committed (the row and, for a hold, settle or
- * reverse, the ledger post are the record; this only says it happened). `from` is null for the first status of a new
- * withdrawal. `attempt` is the withdrawal's rail attempt, so a retried send after a proved refusal is a new move, not a
- * repeat. Business key `pay:withdrawal-status:<withdrawalId>:<attempt>:<to>`: the same move published twice is one fact,
- * and a consumer keys on (withdrawalId, attempt, to). No amount is carried: the ledger is the record of value.
+ * reverse, the ledger post are the record; this only says it happened). `seq` counts the withdrawal's moves from 1, in
+ * the order svc-pay committed them, so a withdrawal that goes back into review or is retried after a proved refusal is
+ * a new move, never a repeat of an earlier one. A new withdrawal's first move has `from` null and is `requested`.
+ * `attempt` is the rail attempt the move belongs to. `failureCode` is the stored cause when there is one: required on
+ * `failed` and `rejected`, and carried on any other status that has one (a `needs_review` after an unknown send). Business
+ * key `pay:withdrawal-status:<withdrawalId>:<seq>`: the same move published twice is one fact, and a consumer keys on
+ * (withdrawalId, seq). No amount is carried: the ledger is the record of value.
  */
 export const payWithdrawalStatusUpdatedPayloadSchema = z
   .object({
     withdrawalId: z.string().guid(),
     userId: userIdSchema,
+    seq: z.number().int().min(1),
     attempt: z.number().int().min(0),
     from: withdrawalStatusSchema.nullable(),
     to: withdrawalStatusSchema,
@@ -1784,8 +1788,12 @@ export const payWithdrawalStatusUpdatedPayloadSchema = z
   })
   .strict()
   .refine((e) => e.from !== e.to, { message: 'a move changes the status', path: ['to'] })
-  .refine((e) => (e.to === 'failed' || e.to === 'rejected') === (e.failureCode !== null), {
-    message: 'a failed or rejected withdrawal names its failure code, and no other status carries one',
+  .refine((e) => (e.from === null) === (e.seq === 1) && (e.from !== null || e.to === 'requested'), {
+    message: 'only the first move (seq 1) has no previous status, and it is requested',
+    path: ['from'],
+  })
+  .refine((e) => !(e.to === 'failed' || e.to === 'rejected') || e.failureCode !== null, {
+    message: 'a failed or rejected withdrawal names its failure code',
     path: ['failureCode'],
   });
 export type PayWithdrawalStatusUpdatedPayload = z.infer<typeof payWithdrawalStatusUpdatedPayloadSchema>;
@@ -1796,7 +1804,7 @@ export const payWithdrawalStatusUpdated = defineEvent(
   'updated',
   1,
   payWithdrawalStatusUpdatedPayloadSchema,
-  'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, attempt, to).',
+  'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
 );
 
 // ── The registry ─────────────────────────────────────────────────────────────
@@ -2665,7 +2673,7 @@ export const WIRING_SOCKETS = [
     missing: 'subscriber',
     class: 'A',
     reason:
-      'The customer notice of a withdrawal move subscribes in a later svc-notify change, idempotent on (withdrawalId, attempt, to). The customer reads the status from svc-pay meanwhile, so nobody is promised a notice.',
+      'The customer notice of a withdrawal move subscribes in a later svc-notify change, idempotent on (withdrawalId, seq). The customer reads the status from svc-pay meanwhile, so nobody is promised a notice.',
   },
 ] satisfies readonly WiringSocket[];
 
