@@ -433,11 +433,14 @@ export function FillsTable({
   precision,
   layout = 'desk',
   orders,
+  current = null,
 }: {
   rows: Trade[];
   precision: Precision;
   layout?: 'desk' | 'activity';
   orders?: ReadonlyMap<string, Order>;
+  /** The fill a link opened on: marked current and scrolled into view. */
+  current?: string | null;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -450,7 +453,14 @@ export function FillsTable({
     const rate = fillFeeRate(fill);
     const rebate = fillRebate(fill);
     return (
-      <tr key={fill.id} data-fill={fill.id} data-of={of ?? undefined} className={of ? 'dk-fill-part' : undefined}>
+      <tr
+        key={fill.id}
+        data-fill={fill.id}
+        data-of={of ?? undefined}
+        className={of ? 'dk-fill-part' : undefined}
+        aria-current={current !== null && fill.id === current ? 'true' : undefined}
+        ref={current !== null && fill.id === current ? (row) => row?.scrollIntoView({ block: 'nearest' }) : undefined}
+      >
         <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>

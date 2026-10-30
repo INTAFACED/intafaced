@@ -407,13 +407,16 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   // The badge is cacheable, by embedders and caches, for exactly that time: svc-notify sends it (badge.ts
   // statusBadgeCacheControl), but at the public address it never arrives. Edge forwards no Cache-Control and the origin
   // adds no-store to every /api/ reply (the local stack's proxy; apps/customer/nginx.conf in production), so this clause
-  // stays red by name. Soft, so the rest of the step is still proven; the step still fails.
+  // stays red by name. Soft, so the rest of the step is still proven; the step still fails. The image was fetched a moment
+  // before the JSON, so its max-age may be one second more than the JSON's, never less.
+  const cacheControl = fresh.headers.get('cache-control');
+  const sent = /^public, max-age=(\d+)$/.exec(cacheControl ?? '');
   expect
     .soft(
-      fresh.headers.get('cache-control'),
-      'BLOCKED (badge_cache_dropped): Edge drops Cache-Control and the origin adds no-store to /api/, so the badge cannot be cached',
+      [0, 1],
+      `BLOCKED (badge_cache_dropped): Edge drops Cache-Control and the origin adds no-store to /api/, so the badge cannot be cached (sent: ${cacheControl})`,
     )
-    .toBe(`public, max-age=${json.result.data.maxAgeSeconds}`);
+    .toContain(sent ? Number(sent[1]) - json.result.data.maxAgeSeconds : null);
 
   // A component with no reading says no data.
   expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=wallets`)).text()).toContain(
@@ -426,5 +429,60 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   // The refusal names Edge's request id, the same one as its header (DV-errors-01, svc-edge `reply-envelope.ts`).
   expect(unknown.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
   expect(await unknown.json()).toEqual({ code: 'status.component_unknown', requestId: unknown.headers.get('x-request-id') });
+  // The JSON read the snippet uses refuses it by the same code, with no badge in it.
+  const unknownJson = await (await fetch(badgeJson('no-such-component'))).json();
+  expect(unknownJson.result).toBeUndefined();
+  expect(JSON.stringify(unknownJson.error)).toContain('status.component_unknown');
+  // A refusal changes nothing: the badge still reads the same.
+  expect(await (await fetch(image)).text()).toContain('<title>Trading: operational</title>');
+
+  // The page offers the image link and the plain link only: no frame of any kind.
+  await expect(share.getByTestId('status-share-url')).toHaveValue(image);
+  await expect(page.locator('iframe, frame, object, embed')).toHaveCount(0);
+  // The badge carries no personal data: no address, no person, only the component and its state.
+  expect(svg).not.toContain('@');
+
+  // No reading, or one older than the staleness window, is no data, cached no longer than the window.
+  const noData = await (await fetch(badgeJson('wallets'))).json();
+  expect(noData.result.data).toMatchObject({ state: 'no_data', label: 'no data' });
+  expect(noData.result.data.maxAgeSeconds).toBeLessThanOrEqual(Math.min(300, TEST_VALUES.stalenessSeconds));
+  await recordReading({
+    componentId: 'card-network',
+    state: 'operational',
+    observedAt: new Date(Date.now() - (TEST_VALUES.stalenessSeconds + 60) * 1000).toISOString(),
+    source: 'TEST card scheme status page',
+  });
+  expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=card-network`)).text()).toContain(
+    '<title>Card network: no data</title>',
+  );
+  const stale = await (await fetch(badgeJson('card-network'))).json();
+  expect(stale.result.data).toMatchObject({ state: 'no_data', label: 'no data' });
+  expect(stale.result.data.maxAgeSeconds).toBeLessThanOrEqual(Math.min(300, TEST_VALUES.stalenessSeconds));
+
+  // The top-level badge says the page's overall state, cached no longer than its freshest-expiring component.
+  const top = await fetch(`${ORIGIN}/api/notify/status/badge.svg`);
+  expect(top.status).toBe(200);
+  expect(top.headers.get('content-type')).toContain('image/svg+xml');
+  const topJson = (await (await fetch(badgeJson(null))).json()).result.data;
+  expect(await top.text()).toContain(`<title>Platform status: ${topJson.label}</title>`);
+  const tradingNow = (await (await fetch(badgeJson('trading'))).json()).result.data;
+  expect(topJson.maxAgeSeconds).toBeLessThanOrEqual(tradingNow.maxAgeSeconds + 1);
+
+  // A blank staleness window shows every reading as stale: the badge says no data and is not cached at all.
+  await configureStatusPage({ stalenessSeconds: null }, 'TEST journey J-support-public-07: blank staleness window');
+  try {
+    // The image route serves a read a few seconds old (svc-notify index.ts badgeRead); the next read re-derives.
+    await expect
+      .poll(async () => (await (await fetch(image)).text()).match(/<title>[^<]*<\/title>/)?.[0], { timeout: 20_000 })
+      .toBe('<title>Trading: no data</title>');
+    const blank = await fetch(image);
+    expect(blank.headers.get('cache-control') ?? '').not.toMatch(/public|max-age=[1-9]/);
+    expect((await (await fetch(badgeJson('trading'))).json()).result.data).toMatchObject({ state: 'no_data', maxAgeSeconds: 0 });
+  } finally {
+    await configureStatusPage({ stalenessSeconds: TEST_VALUES.stalenessSeconds });
+  }
   await context.close();
 });
+
+const badgeJson = (componentId) =>
+  `${ORIGIN}/api/notify/trpc/statusPage.badge?input=${encodeURIComponent(JSON.stringify({ componentId }))}`;

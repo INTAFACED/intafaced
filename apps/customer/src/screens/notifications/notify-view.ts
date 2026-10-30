@@ -5,7 +5,7 @@
  * (fills, ended orders, verification, rank) the text is written here from the structured `params`, because the service's
  * body names a market by its internal id ("buy 0.00015 on 0f7bf12e-... at 64733.35"), which a person can't read.
  */
-import { customerRoomHref } from '../../app/navigation';
+import { customerRoomHref, normalizePair } from '../../app/navigation';
 import { isHiddenPath } from '../../app/feature-registry';
 import { dec } from '../../data/decimal';
 import { fmtAmount, fmtPrice } from '../../data/format';
@@ -115,35 +115,46 @@ const KIND_LINK: Readonly<Record<string, string>> = {
 };
 
 /**
- * Stored links with no room of their own, each to the nearest live room (HM-notifications-01). Rows stored before svc-notify
- * moved its targets (#5435) are never rewritten, the detail rows IA-SPEC gives other modules fall back to their list, and a
- * market named by its id (a halt, a price alert) opens that market's desk, or Markets when the market is not known.
+ * Stored links with no live room of their own, each to the nearest live room (HM-notifications-01). Rows stored before
+ * svc-notify moved its targets (#5435) are never rewritten, the detail rows IA-SPEC gives other modules open their room's
+ * own detail or list, and a market named by its id (a halt, a price alert) opens that market's desk, or Markets when the
+ * market is not known. Checked before the link's own address, since `/token/*` answers anything with "no customer route".
  */
+/** One path segment, never `.` or `..`, which the URL would fold into the parent. */
+const ID = '(?!\\.\\.?$)([^/?#\\\\]+)';
 const STORED_LINK: readonly (readonly [RegExp, (id: string, markets?: ReadonlyMap<string, NotifyMarket>) => string])[] = [
-  [/^\/p2p\/trades\/([^/?#\\]+)$/, (id) => `/p2p/orders/${id}`],
+  [new RegExp(`^/p2p/trades/${ID}$`), (id) => `/p2p/orders/${encodeURIComponent(decoded(id))}`],
   [/^\/settings\/verification$/, () => '/verification'],
   [/^\/profile\/rank$/, () => '/uc/account'],
-  [/^\/token\/stakes\/([^/?#\\]+)$/, () => '/token'],
-  [/^\/trade\/futures\/positions\/([^/?#\\]+)$/, () => '/trade/futures'],
-  [/^\/bank\/loans\/([^/?#\\]+)$/, () => '/bank/loans'],
-  [/^\/trade\/orders\/([^/?#\\]+)$/, () => '/money/activity?tab=orders'],
-  [/^\/pay\/request\/([^/?#\\]+)$/, () => '/pay/request'],
-  [/^\/agents\/sessions\/([^/?#\\]+)$/, () => '/agents'],
-  [/^\/(?:trade|markets)\/([^/?#\\]+)$/, (id, markets) => marketDesk(markets?.get(id))],
+  [new RegExp(`^/token/stakes/${ID}$`), () => '/token'],
+  [new RegExp(`^/trade/futures/positions/${ID}$`), () => '/trade/futures'],
+  [new RegExp(`^/bank/loans/${ID}$`), (id) => `/bank/loans/detail?loan=${encodeURIComponent(decoded(id))}`],
+  [new RegExp(`^/agents/sessions/${ID}$`), () => '/agents'],
+  [new RegExp(`^/(?:trade|markets)/(${UUID.source})$`, 'i'), (id, markets) => marketDesk(markets?.get(id))],
 ];
 
-const marketDesk = (market: NotifyMarket | undefined) =>
-  market ? `/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}` : '/trade';
+function decoded(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
 
-/** The stored link's own room when it has one, else its fallback; checked as a customer room either way. */
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:[/?#]|$)/i;
+
+const marketDesk = (market: NotifyMarket | undefined) =>
+  market ? `/trade/spot/${normalizePair(`${market.base}-${market.quote}`)}` : '/trade';
+
+/** The stored link's fallback room when it has one, else its own address if that is a customer room. */
 function storedLink(href: string | null | undefined, markets?: ReadonlyMap<string, NotifyMarket>): string | undefined {
-  const own = customerRoomHref(href);
-  if (own || !href) return own;
+  // A `.` or `..` segment, plain or escaped, would fold into another room: no link at all.
+  if (!href || DOT_SEGMENT.test(href)) return undefined;
   for (const [pattern, to] of STORED_LINK) {
     const match = pattern.exec(href);
     if (match) return customerRoomHref(to(match[1] ?? '', markets));
   }
-  return undefined;
+  return customerRoomHref(href);
 }
 
 /** A live customer screen for this notification, or null (the row then just marks itself read). Never a hidden feature. */
@@ -153,10 +164,12 @@ export function linkFor(
 ): string | null {
   let target = KIND_LINK[item.kind] ?? storedLink(item.href, markets);
   if (!target) return null;
-  // A fill opens Trades already filtered to the coin, so the row you clicked is easy to find. Orders has no coin filter, so an ended order gets none.
+  // A fill opens Trades filtered to the coin and on its own trade (`fill`), which Trades marks. Orders has no coin filter, so an ended order gets none.
   if (item.kind === 'trade.fill') {
     const market = markets?.get(text(item.params?.marketId) ?? '');
     if (market) target += `&asset=${encodeURIComponent(market.base)}`;
+    const fill = text(item.params?.fillId);
+    if (fill) target += `&fill=${encodeURIComponent(fill)}`;
   }
   return isHiddenPath(target.split('?')[0] ?? target) ? null : target;
 }

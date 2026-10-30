@@ -84,11 +84,12 @@ describe('describe', () => {
 
 describe('linkFor', () => {
   it('opens a fill in Activity Trades and an ended order in Activity Orders', () => {
-    expect(linkFor(base)).toBe('/money/activity?tab=trades');
+    expect(linkFor(base)).toBe('/money/activity?tab=trades&fill=f');
     expect(linkFor({ kind: 'trade.order.terminal', href: '/trade/orders/o' })).toBe('/money/activity?tab=orders');
   });
-  it('filters a fill to its coin when the market is known; an ended order gets no coin filter (Orders has none)', () => {
-    expect(linkFor(base, markets)).toBe('/money/activity?tab=trades&asset=BTC');
+  it('opens a fill on its own trade, filtered to its coin when the market is known; an ended order gets no coin filter (Orders has none)', () => {
+    expect(linkFor(base, markets)).toBe('/money/activity?tab=trades&asset=BTC&fill=f');
+    expect(linkFor({ ...base, params: { ...base.params, fillId: 'a b' } })).toBe('/money/activity?tab=trades&fill=a%20b');
     expect(linkFor({ ...base, kind: 'trade.order.terminal', params: { marketId: BTC_ID } }, markets)).toBe('/money/activity?tab=orders');
     expect(linkFor({ ...base, params: { marketId: 'unknown' } }, markets)).toBe('/money/activity?tab=trades');
   });
@@ -96,7 +97,8 @@ describe('linkFor', () => {
     expect(linkFor({ kind: 'identity.kyc.approved', href: '/settings/verification' })).toBe('/verification');
     expect(linkFor({ kind: 'identity.rank.updated', href: '/profile/rank' })).toBe('/uc/account');
   });
-  // Every target svc-notify emits today (services/svc-notify/src/events.ts, market-halt-notice.ts, alerts/service.ts).
+  // Every target svc-notify emits today (services/svc-notify/src/events.ts, market-halt-notice.ts, alerts/service.ts,
+  // merchant-email/merchant-email.ts).
   it('opens a live room for every target svc-notify emits', () => {
     const emitted: Array<[string, string]> = [
       ['/trade/orders/o1', '/trade/orders/o1'],
@@ -112,23 +114,33 @@ describe('linkFor', () => {
       ['/uc/recharge?asset=BTC&network=btc', '/uc/recharge?asset=BTC&network=btc'],
       ['/bank/transfers', '/bank/transfers'],
       ['/support', '/support'],
-      // The detail rows IA-SPEC gives other modules, with no room yet: their list room.
-      ['/bank/loans/l1', '/bank/loans'],
+      // A merchant's portal notices (merchant-email.ts portalPath).
+      ['/pay/payments/p1', '/pay/payments/p1'],
+      ['/pay/payouts/s1', '/pay/payouts/s1'],
+      ['/pay/disputes/d1', '/pay/disputes/d1'],
+      ['/pay/team', '/pay/team'],
+      // The detail rows IA-SPEC gives other modules: the room's own detail, or its list when it has none.
+      ['/bank/loans/l1', '/bank/loans/detail?loan=l1'],
       ['/agents/sessions/s1', '/agents'],
       // A market by its id: its desk when the market is known, else Markets.
       [`/trade/${BTC_ID}`, '/trade/spot/BTC-USDT'],
       [`/markets/${BTC_ID}`, '/trade/spot/BTC-USDT'],
     ];
     for (const [href, room] of emitted) expect(linkFor({ kind: 'x', href }, markets), href).toBe(room);
-    expect(linkFor({ kind: 'x', href: '/markets/unknown' }, markets)).toBe('/trade');
+    expect(linkFor({ kind: 'x', href: '/markets/00000000-0000-4000-8000-000000000000' }, markets)).toBe('/trade');
     expect(linkFor({ kind: 'x', href: `/trade/${BTC_ID}` })).toBe('/trade');
+    // A desk link names its pair the way every other desk link does.
+    const lower = new Map([[BTC_ID, { id: BTC_ID, base: 'btc', quote: 'usdt' }]]);
+    expect(linkFor({ kind: 'x', href: `/markets/${BTC_ID}` }, lower)).toBe('/trade/spot/BTC-USDT');
   });
   // Rows stored before svc-notify moved its targets (#5435) are never rewritten: each still opens a live room.
   it('opens a live room for a stored old-style link', () => {
     expect(linkFor({ kind: 'p2p.escrow.locked', href: '/p2p/trades/t1' })).toBe('/p2p/orders/t1');
     expect(linkFor({ kind: 'x', href: '/settings/verification' })).toBe('/verification');
     expect(linkFor({ kind: 'x', href: '/profile/rank' })).toBe('/uc/account');
-    expect(linkFor({ kind: 'x', href: '/token/stakes/s1' })).toBe('/token/stakes/s1');
+    // `/token/*` answers any deeper address with "no customer route", so a stake opens Token itself.
+    expect(linkFor({ kind: 'x', href: '/token/stakes/s1' })).toBe('/token');
+    expect(linkFor({ kind: 'x', href: '/p2p/trades/a%20b' })).toBe('/p2p/orders/a%20b');
     expect(linkFor({ kind: 'x', href: '/trade/futures/positions/p1' })).toBe('/trade/futures');
   });
   it('gives no link to an unknown or outside address', () => {
@@ -136,6 +148,11 @@ describe('linkFor', () => {
     expect(linkFor({ kind: 'x', href: '//evil.example/path' })).toBeNull();
     expect(linkFor({ kind: 'x', href: '/p2p/trades/a\\b' })).toBeNull();
     expect(linkFor({ kind: 'x', href: '/nowhere/at/all' })).toBeNull();
+    // Only a market id is a market: any other one-segment address under Trade or Markets is not rewritten to Markets.
+    expect(linkFor({ kind: 'x', href: '/markets/not-a-market' }, markets)).toBeNull();
+    expect(linkFor({ kind: 'x', href: '/p2p/trades/..' })).toBeNull();
+    expect(linkFor({ kind: 'x', href: '/p2p/orders/%2E%2E' })).toBeNull();
+    expect(linkFor({ kind: 'x', href: '/uc/./safe' })).toBeNull();
   });
 });
 
