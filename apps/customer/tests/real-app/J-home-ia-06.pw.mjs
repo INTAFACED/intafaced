@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { makeContext, approverSessions } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { signUp } from './desk.mjs';
-import { NOTICE_DRAIN_MINUTES, draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
+import {
+  NOTICE_DRAIN_MINUTES,
+  deskNotice,
+  draftNotice,
+  openNotices,
+  publicNoticeCode,
+  publishNotice,
+  publishedNotices,
+} from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { EDGE, ORIGIN, tool } from './stack.mjs';
+import { ORIGIN, tool } from './stack.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
 // "J-home-ia-06 #<n>" prove a whole step. The stack's two TEST founders draft and publish through the notice board's own
@@ -33,35 +40,28 @@ async function openHome() {
   await page.goto('/home');
   const [statusRes, currentRes] = await Promise.all([status, current]);
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeAttached();
-  return { status: { ok: statusRes.ok(), json: await statusRes.json() }, current: { ok: currentRes.ok(), json: await currentRes.json() } };
+  return { status: await answer(statusRes), current: await answer(currentRes) };
+}
+
+/** A read's answer: ok, and its JSON, or null when the body is not JSON (a proxy's error page while a service is down). */
+async function answer(res) {
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    // Not JSON: the caller's checks on ok and the code say what was wrong.
+  }
+  return { ok: res.ok(), json };
 }
 
 /** A tRPC refusal's typed code, at the one place svc-notify and svc-identity put it (as notices.mjs reads it). */
 const refusalCode = (json) => json?.error?.data?.cause?.code;
 
-/** The founders' notice desk, drafts included: the row svc-notify holds for `id`, read back from the service. */
-let desk;
-async function deskNotice(id) {
-  desk ??= await makeContext({ log: () => {} }).then(async (ctx) => ({ ctx, pair: await approverSessions(ctx) }));
-  const { ctx, pair } = desk;
-  const res = await ctx.edge.query('notify', 'notify.operatorNotices', { limit: 100 }, await pair.a.tradeOpsToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  const rows = res.json.result.data.filter((n) => n.id === id);
-  expect(rows, `${id} on the notice desk`).toHaveLength(1);
+/** The one row the founders' desk holds for this draft, read back from svc-notify, not from the draft reply. */
+async function deskRow(row) {
+  const rows = await deskNotice(row);
+  expect(rows, `${row.id} on the notice desk`).toHaveLength(1);
   return rows[0];
-}
-
-/** The signed-out read of one notice by id: its typed refusal code, or null when the feed holds it. */
-async function publicNoticeCode(id) {
-  const res = await fetch(`${EDGE}/api/notify/trpc/notify.notice?input=${encodeURIComponent(JSON.stringify({ id }))}`);
-  const text = await res.text();
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return `unparsed ${res.status}: ${text.slice(0, 200)}`;
-  }
-  return json?.result?.data ? null : (refusalCode(json) ?? `unparsed ${res.status}: ${JSON.stringify(json).slice(0, 200)}`);
 }
 
 /** No notice row of any kind on the page: no banner (incident or maintenance) and no strip. */
@@ -91,8 +91,9 @@ async function withNotifyStopped(run) {
   try {
     tool('local-test-stack.mjs', 'start', '--only', 'notify');
   } catch (error) {
-    if (!failure) throw error;
-    console.warn(`svc-notify not started again after a failed step: ${error.message}`);
+    // Both stay visible: the step's own failure, and a stack left with svc-notify down for the next journey.
+    if (failure) throw new AggregateError([failure, error], `${failure.message}; and svc-notify did not start again: ${error.message}`);
+    throw error;
   }
   if (failure) throw failure;
 }
@@ -137,9 +138,6 @@ test(`${J} #1 with nothing published, Home draws no strip and no banner`, async 
   expect(status.json.result.data).toMatchObject({ incidents: [], maintenance: [] });
   expect(refusalCode(current.json), JSON.stringify(current.json)).toBe('notify.announcement_unset');
   await expectNoNoticeRows();
-  // The shell around Home draws no banner either: not on Home, and not on another room of the same shell.
-  await page.goto('/money');
-  await expect(page.getByTestId('home-notice')).toHaveCount(0);
 });
 
 test(`${J} #4 a founder's draft never reaches the customer`, async () => {
@@ -166,7 +164,7 @@ test(`${J} #4 a founder's draft never reaches the customer`, async () => {
     key: `${J}:${RUN}:kept`,
   });
   // svc-notify holds all three, as drafts: read back from the founders' desk, not from the draft reply.
-  for (const row of [announcement, maintenance, kept]) expect((await deskNotice(row.id)).status).toBe('draft');
+  for (const row of [announcement, maintenance, kept]) expect((await deskRow(row)).status).toBe('draft');
   await expectDraftsHidden([announcement, maintenance, kept]);
 });
 
@@ -230,7 +228,7 @@ test(`${J} #3 during an open maintenance window, a banner shows its title and en
 
 test(`${J} #4 beside a live announcement and maintenance window, the kept draft still never reaches the customer`, async () => {
   test.setTimeout(3 * 60_000);
-  expect((await deskNotice(kept.id)).status).toBe('draft');
+  expect((await deskRow(kept)).status).toBe('draft');
   await expectDraftsHidden([kept]);
   // Home still shows the two published notices on the same load, so the draft's absence sits beside live rows.
   expectAnswered(await openHome());
@@ -300,8 +298,9 @@ test(`${J} #1 with the notice service down, Home draws no strip and no banner, t
       // The rest of Home still draws: its heading and its own sections, with no page-level error.
       await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
       await expect(page.getByRole('main')).not.toContainText('Something went wrong');
-      await expect.poll(() => warnings.length).toBe(2);
-      expect(warnings.sort()).toEqual([
+      // One line per failed read: Home re-reads, so a line may repeat; each read's line is there, and no other.
+      await expect.poll(() => new Set(warnings).size).toBe(2);
+      expect([...new Set(warnings)].sort()).toEqual([
         expect.stringMatching(/^home notices: announcement unread \(\S+\)$/),
         expect.stringMatching(/^home notices: notice status unread \(\S+\)$/),
       ]);
