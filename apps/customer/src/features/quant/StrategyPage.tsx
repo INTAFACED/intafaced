@@ -70,6 +70,7 @@ function StrategyVersions({ strategy }: { strategy: QuantStrategyDetail }) {
               <td>
                 <input
                   type="checkbox"
+                  className="quant-run-check"
                   aria-label={t('pick', { version: row.version })}
                   checked={picked.includes(row.version)}
                   onChange={() => toggle(row.version)}

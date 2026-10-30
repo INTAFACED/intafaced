@@ -119,7 +119,13 @@ test(`${J} #2 renames a strategy and moves it to a folder: the head changes and 
 /** Opens the strategy in Studio, sets its slow average, writes a release note and saves the next version. */
 async function saveVersion(page, name, slow, note, version) {
   await page.goto('/quant/studio');
-  await page.getByRole('button', { name: `Open ${name}` }).click();
+  // Studio keeps the strategy it last saved open on this device; otherwise open it from the library.
+  const open = page.getByRole('button', { name: `Open ${name}` });
+  await expect(open.or(page.getByText('Open in the form'))).toBeVisible();
+  if (await open.isVisible()) await open.click();
+  await expect(page.getByLabel('How the strategy trades')).toHaveValue('signal');
+  // The form may hold the name it was saved under; keep the strategy's current name.
+  await page.getByLabel('Strategy name').fill(name);
   const builder = page.getByTestId('quant-signal-builder');
   await builder.getByLabel('Slow average (bars)').fill(slow);
   await page.getByLabel('Release note for this version (optional)').fill(note);
@@ -137,15 +143,11 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
 
   // Version 2 with its note, then a backtest of it on the TEST tape, then version 3 with its note.
   await saveVersion(page, RENAMED, '3', 'TEST slower exit', 2);
-  const window = await tapeWindow(30);
+  const window = await tapeWindow(60);
   await page.goto('/quant/backtest');
   const room = page.getByTestId('quant-bar-backtest');
   await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: RENAMED });
   await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 2: BTC/USDT, 1m bars.');
-  await room
-    .getByLabel('Simulated starting cash')
-    .fill('1000')
-    .catch(() => undefined);
   await room.getByLabel('From (UTC)').fill(window.from);
   await room.getByLabel('To (UTC)').fill(window.to);
   await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
@@ -207,11 +209,14 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await signIn(page, developer());
   await page.goto('/quant/strategies');
   const room = page.getByTestId('quant-strategies');
+  // The versions it has now (#3 adds two), so the restore is checked against them.
+  const version = await rowOf(page, strategyId).getAttribute('data-version');
+  expect(version).toMatch(/^[1-9]\d*$/);
   await rowOf(page, strategyId)
     .getByRole('button', { name: `Delete ${RENAMED}` })
     .click();
   await expect(page.getByTestId('quant-strategies-note')).toHaveText(
-    `${RENAMED} moved to the recycle bin with every version, up to version 1.`,
+    `${RENAMED} moved to the recycle bin with every version, up to version ${version}.`,
   );
   await expect(rowOf(page, strategyId)).toHaveCount(0);
   await expect(room.getByText('No strategy is saved on this account.')).toBeVisible();
@@ -221,18 +226,18 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await expect(page).toHaveURL(/[?&]tab=bin\b/);
   await page.reload();
   const binned = room.locator(`[data-testid="quant-bin-row"][data-id="${strategyId}"]`);
-  await expect(binned).toHaveAttribute('data-version', '1');
+  await expect(binned).toHaveAttribute('data-version', version ?? '');
   await expect(binned).toContainText(RENAMED);
   await expect(binned).toContainText(FOLDER);
 
   // Restored, it is back in the list with the same version, name and folder, and the bin is empty.
   await binned.getByRole('button', { name: `Restore ${RENAMED}` }).click();
-  await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} is back with every version, up to version 1.`);
+  await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} is back with every version, up to version ${version}.`);
   await expect(room.getByText('The recycle bin is empty.')).toBeVisible();
   await room.getByRole('button', { name: 'Saved' }).click();
   const back = rowOf(page, strategyId);
   await expect(back.getByTestId('quant-strategy-name')).toHaveText(RENAMED);
-  await expect(back).toHaveAttribute('data-version', '1');
+  await expect(back).toHaveAttribute('data-version', version ?? '');
   await expect(back).toHaveAttribute('data-folder', FOLDER);
 });
 
