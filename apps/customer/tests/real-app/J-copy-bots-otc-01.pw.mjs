@@ -190,9 +190,14 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   near(await cell(1, 'Entry price'), closedIn.price, 'closed row entry');
   expect(amountOf(await cell(1, 'Margin')), 'closed row margin is the quote paid').toBe(closedIn.quote);
   near(await cell(1, 'Close price'), out.price, 'closed row close');
-  const roi = Number(((out.price - closedIn.price) * 10_000n) / closedIn.price) / 100;
-  const shownRoi = Number((await cell(1, 'Return before fees')).replace('−', '-').replace('%', ''));
-  expect(Math.abs(shownRoi - roi), `return shown ${shownRoi}%, from the fills ${roi}%`).toBeLessThanOrEqual(0.01);
+  // The return as the service computes it (18 places, half up), then shown to the cent, half up, as the room does.
+  const diff = (out.price - closedIn.price) * 100n * 10n ** 18n;
+  const half = closedIn.price / 2n;
+  const roi18 = diff >= 0n ? (diff + half) / closedIn.price : -((-diff + half) / closedIn.price);
+  const roiAbs = roi18 < 0n ? -roi18 : roi18;
+  const roiCents = roiAbs / 10n ** 16n + ((roiAbs / 10n ** 15n) % 10n >= 5n ? 1n : 0n);
+  const roiShown = `${roi18 < 0n && roiCents > 0n ? '−' : ''}${roiCents / 100n}.${String(roiCents % 100n).padStart(2, '0')}%`;
+  expect(await cell(1, 'Return before fees'), 'the return, from the fills').toBe(roiShown);
 
   // An unknown leader page is a typed not-found, never an empty profile.
   await page.goto('/trade/copy/no-such-leader');
@@ -262,8 +267,8 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   const follower = state('follower');
   const me = await api(follower);
   const followsBefore = await myFollows(me);
-  await copyCountries('blank');
   try {
+    await copyCountries('blank');
     const refused = await (
       await api(follower)
     ).post('/api/trade/trpc/copy.follow', {
@@ -284,6 +289,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     await signIn(page, follower);
     await page.goto('/trade/copy');
     await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
+    await expect(page.getByText('Copy desk closed')).toBeVisible();
     await expect(page.getByText('Copy desk open')).toHaveCount(0);
   } finally {
     await copyCountries('set');
