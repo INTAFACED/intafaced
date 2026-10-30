@@ -13,7 +13,7 @@
  * produces them today.
  */
 
-import { CANCEL_INCOMPLETE_HALT, CHASE_EXPIRED_HALT, CHASE_MAX_DISTANCE_HALT } from './twap-engine.js';
+import { CANCEL_INCOMPLETE_HALT, CHASE_CHILD_UNACCOUNTED_HALT, CHASE_EXPIRED_HALT, CHASE_MAX_DISTANCE_HALT } from './twap-engine.js';
 import type { AlgoMissCode, TwapParent } from './types.js';
 
 export const ALGO_STOP_REASONS = {
@@ -28,6 +28,7 @@ export const ALGO_STOP_REASONS = {
   order_refused: 'Order refused',
   chase_max_distance: 'Maximum chase distance reached',
   chase_expired: 'Chase time ended',
+  chase_child_unaccounted: 'Stopped: a fill is still settling',
   liquidation: 'Liquidation',
   delisting: 'Delisting',
   position_limit: 'Position limit',
@@ -68,6 +69,7 @@ export function algoStopReason(parent: Pick<TwapParent, 'status' | 'haltReason' 
   if (parent.status !== 'halted') return null;
   if (parent.haltReason === CHASE_MAX_DISTANCE_HALT) return reason('chase_max_distance');
   if (parent.haltReason === CHASE_EXPIRED_HALT) return reason('chase_expired');
+  if (parent.haltReason === CHASE_CHILD_UNACCOUNTED_HALT) return reason('chase_child_unaccounted');
   const last = parent.misses.length > 0 ? parent.misses[parent.misses.length - 1] : undefined;
   if (!last) return reason('unrecorded');
   return reason(BY_MISS_CODE[last.code] ?? 'unrecorded');

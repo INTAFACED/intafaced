@@ -41,10 +41,22 @@ export const CHASE_MAX_DISTANCE_HALT = 'chase_max_distance';
 /** haltReason when a chase's time ran out with quantity unfilled: the resting child was cancelled. */
 export const CHASE_EXPIRED_HALT = 'chase_expired';
 
+/**
+ * haltReason when a chase's time ran out while a child that left the book on a cancel the engine could not answer was
+ * still short of fills: the engine may have matched it in full, so the chase placed nothing over it, and what it
+ * bought is what its fills show.
+ */
+export const CHASE_CHILD_UNACCOUNTED_HALT = 'chase_child_unaccounted';
+
 /** What the chase reads of its children: the summed fills of all of them and which are still resting. */
 export interface ChaseChildState {
   readonly filledQty: Amount;
   readonly openOrderIds: ReadonlySet<string>;
+  /**
+   * Children closed on a cancel the engine had no live order for, with fills short of their size: the engine may have
+   * matched them in full, and the taker's settlement not have written the fills yet. Nothing is placed over them.
+   */
+  readonly unaccountedOrderIds: ReadonlySet<string>;
 }
 
 /** Whether `price` lies past `maxBps` of `start`, on the side a chase on `side` follows (up for a buy). */
@@ -149,7 +161,8 @@ export type SliceTickResult =
         | 'no_book_move'
         | 'superseded'
         | 'adopted'
-        | 'child_open';
+        | 'child_open'
+        | 'awaiting_fills';
     }
   | { readonly kind: 'completed' };
 
@@ -719,7 +732,8 @@ export class TwapEngine {
       reason: this.parents.get(parent.id)?.status === 'paused' ? 'paused' : 'superseded',
     });
     const ids = parent.children.map((c) => c.orderId);
-    let state = ids.length > 0 ? await readChildren(ids) : { filledQty: 0n, openOrderIds: new Set<string>() };
+    let state: ChaseChildState =
+      ids.length > 0 ? await readChildren(ids) : { filledQty: 0n, openOrderIds: new Set<string>(), unaccountedOrderIds: new Set<string>() };
     if (this.parents.get(parent.id) !== parent) return superseded();
     if (parent.totalQty - state.filledQty <= 0n) {
       this.replace(parent.id, { ...parent, status: 'completed' });
@@ -730,7 +744,7 @@ export class TwapEngine {
     const lastOpen = last !== null && state.openOrderIds.has(last.orderId);
 
     if (now.getTime() - parent.startedAt.getTime() >= parent.durationMs) {
-      return this.stopChase(parent, open, CHASE_EXPIRED_HALT);
+      return this.stopChase(parent, open, state.unaccountedOrderIds.size > 0 ? CHASE_CHILD_UNACCOUNTED_HALT : CHASE_EXPIRED_HALT);
     }
 
     // The best price on the chase's own side is the best opposing price of the other side.
@@ -779,6 +793,9 @@ export class TwapEngine {
       // Never two working orders: a child that still reads open after its cancel is waited out, not placed over.
       if (state.openOrderIds.size > 0) return { kind: 'idle', reason: 'child_open' };
     }
+    // A child the engine may have matched in full is not placed over until its fills land (or the chase's time ends).
+    // A child whose match is known stays open until then (the cancel waits for its fill), and is waited out above.
+    if (state.unaccountedOrderIds.size > 0) return { kind: 'idle', reason: 'awaiting_fills' };
     const rest = parent.totalQty - state.filledQty;
     const qty = rest - (rest % lot);
     if (qty <= 0n) {

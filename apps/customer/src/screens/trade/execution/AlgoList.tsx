@@ -68,6 +68,7 @@ function useReasonWords() {
         cancel_incomplete: t('Halt reason cancel_incomplete'),
         chase_max_distance: t('Halt reason chase_max_distance'),
         chase_expired: t('Halt reason chase_expired'),
+        chase_child_unaccounted: t('Halt reason chase_child_unaccounted'),
       },
       stretch: { user_pause: t('Stretch reason user_pause'), tick_outage: t('Stretch reason tick_outage') },
     };

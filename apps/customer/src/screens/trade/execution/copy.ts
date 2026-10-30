@@ -139,6 +139,7 @@ const messages = {
   'A chase has one order': 'A chase has one order',
   'Halt reason chase_max_distance': 'Maximum chase distance reached',
   'Halt reason chase_expired': 'Chase time ended',
+  'Halt reason chase_child_unaccounted': 'Stopped: a fill is still settling',
 
   // Algo list and detail
   'Open by id': 'Open by id',
