@@ -147,7 +147,8 @@ test(`${J} starts: a business owner with team members`, async ({ page }) => {
     await confirmDialog(page, 'Add teammate');
     await businessTeam(page);
     await expect(card.getByText(`@${made[key].handle}`, { exact: true })).toBeVisible();
-    await card.getByRole('button', { name: 'Change', exact: true }).click();
+    // The card reloads after the add, so its finder is empty again for the next teammate.
+    await expect(card.getByRole('textbox', { name: 'Who are you paying?' })).toHaveValue('');
   }
   agents.run.reset({ owner: keep(owner), one: keep(made.one), two: keep(made.two), three: keep(made.three) });
 });

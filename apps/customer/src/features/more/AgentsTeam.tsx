@@ -18,6 +18,7 @@ import {
 import { ownAgentSchema } from '@intafaced/contracts/agents-own';
 import type { ApiResult } from '../../shared/api';
 import { businessListSchema } from '../money/business-schema';
+import { Checkbox } from '@intafaced/ui';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
@@ -313,22 +314,20 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                 return (
                   <td key={g.role}>
                     <label>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={allow}
                         disabled={locked}
                         aria-label={t('allowRole', { role: roleName(g.role) })}
-                        onChange={(e) => toggle('allow', e.target.checked)}
+                        onCheckedChange={(on) => toggle('allow', on)}
                       />{' '}
                       <Copy k="allowed" />
                     </label>
                     <label>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={deny}
                         disabled={locked}
                         aria-label={t('denyRole', { role: roleName(g.role) })}
-                        onChange={(e) => toggle('deny', e.target.checked)}
+                        onCheckedChange={(on) => toggle('deny', on)}
                       />{' '}
                       <Copy k="denied" />
                     </label>
@@ -434,13 +433,10 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
             </legend>
             {team.members.map((m) => (
               <label key={m.userId}>
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={projectMembers.includes(m.userId)}
                   disabled={locked}
-                  onChange={(e) =>
-                    setProjectMembers((list) => (e.target.checked ? [...list, m.userId] : list.filter((id) => id !== m.userId)))
-                  }
+                  onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
                 />{' '}
                 {name(m.userId)}
               </label>
