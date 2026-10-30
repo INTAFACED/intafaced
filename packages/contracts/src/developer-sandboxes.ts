@@ -146,6 +146,18 @@ export const sandboxResetInputSchema = sandboxFundInputSchema;
 export type SandboxResetInput = z.infer<typeof sandboxResetInputSchema>;
 export const sandboxResetOutputSchema = sandboxChangeOutputSchema;
 
+/**
+ * The sandbox's card test values (`/developers/sandbox/test-values`, J-developer-02 #8): instrument tokens that steer
+ * the sandbox card rail the way a real sandbox uses test card numbers. svc-pay's card-sandbox rail answers each one
+ * (services/svc-pay/src/rails/card-sandbox.ts; a svc-pay test holds the two lists equal). Any other token approves.
+ */
+export const SANDBOX_CARD_TEST_VALUES = [
+  { id: 'decline', token: 'tok_decline', status: 'failed', failureCode: 'card.declined' },
+  { id: 'acquirer_outage', token: 'tok_rail_error', status: 'failed', failureCode: 'acquirer.unavailable' },
+  { id: 'funds_held', token: 'tok_funds_held', status: 'captured', failureCode: null },
+] as const;
+export type SandboxCardTestValue = (typeof SANDBOX_CARD_TEST_VALUES)[number];
+
 /** FNV-1a, 64 bits, as in `api-keys.ts`: a short stable digest. */
 function digest(text: string): string {
   let hash = 0xcbf29ce484222325n;
