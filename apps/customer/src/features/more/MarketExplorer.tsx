@@ -63,7 +63,7 @@ export function MarketFilters({
         />
       </div>
       <div data-testid="more-toolbar" className="more-toolbar">
-        <span className="muted" aria-live="polite">
+        <span className="muted" role="status">
           {t('showing', { shown, total: rows.length })}
           {filter.vendorId ? ` · ${t('sellerFilter')}` : ''}
         </span>

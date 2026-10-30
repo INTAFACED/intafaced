@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useResource, type Resource } from '../../shared/resource';
@@ -95,6 +95,9 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
     new Set(parsed.data.map((row) => row.id)).size === parsed.data.length;
   const rows = valid && parsed?.success ? parsed.data : null;
   const current = rows?.find((row) => row.id === selected);
+  useEffect(() => {
+    if (selected) document.getElementById(`market-receipt-${selected}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected]);
   return (
     <section className="market-purchases" aria-label={t('title')} lang={languageFor('title')}>
       <p className="market-purchases-description">
@@ -152,7 +155,11 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
                                 className="text-link"
                                 href={`#market-receipt-${row.id}`}
                                 aria-current={selected === row.id ? 'true' : undefined}
-                                onClick={() => setSelected(row.id)}
+                                onClick={(event) => {
+                                  // The room keeps its own address: a fragment change would retire the Market action in flight.
+                                  event.preventDefault();
+                                  setSelected(row.id);
+                                }}
                               >
                                 <Copy k="receipt" />
                               </a>

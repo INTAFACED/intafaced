@@ -109,6 +109,19 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
     { userId } = useSession(),
     action = useAction('market', {
       recover: async (reference) => {
+        // A refund: the service's refund is keyed on the purchase, so asking again returns the stored outcome
+        // (the whole price returns once); a purchase that is no longer held is a known outcome, not a pending one.
+        if (reference.startsWith('refund:')) {
+          const id = reference.slice('refund:'.length);
+          const again = await api.mutate(
+            'market',
+            'refund',
+            { purchaseId: id },
+            purchaseSchema.refine((p) => p.id === id && p.status === 'refunded', copyText('market.refund.response.does.not.match')),
+          );
+          return !again.ok && again.code === 'market.refund_not_held' ? { ok: true, data: null } : again;
+        }
+        const requested = reference.startsWith('refund-request:') ? reference.slice('refund-request:'.length) : null;
         const rows = await api.query(
           'market',
           'myPurchases',
@@ -118,6 +131,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             .refine((rows) => rows.every((r) => r.buyerId === userId), copyText('market.purchase.list.belongs.to.another.account')),
         );
         if (!rows.ok) return rows;
+        if (requested) {
+          const held = rows.data.find((r) => r.id === requested);
+          if (!held) return marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
+          if (held.refundRequestedAt || held.status !== 'held') return { ok: true, data: held };
+          // The request never landed: it is still the buyer's to send, so the original is known to have failed.
+          return { ok: true, data: null };
+        }
         const row = rows.data.find((r) => r.id === reference);
         return row ? originalPurchaseOutcome(row) : marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
       },
@@ -184,7 +204,18 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
   const refundRequests = useResource(
     (signal) =>
       mine || strategy
-        ? api.query('market', 'refundRequests', { limit: 50 }, z.array(purchaseSchema), { signal })
+        ? api.query(
+            'market',
+            'refundRequests',
+            { limit: 50 },
+            z
+              .array(purchaseSchema)
+              .refine(
+                (rows) => rows.every((r) => r.vendorUserId === userId),
+                copyText('market.seller.ownership.does.not.match.this.account'),
+              ),
+            { signal },
+          )
         : Promise.resolve({ ok: true as const, data: [] }),
     `refund-requests:${userId}:${mine}:${strategy}`,
   );
@@ -301,7 +332,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               [copyText('market.price'), <MarketPrice price={row.price} assetId={row.assetId} />],
             ]}
           />
-          <p>{copyText('market.refund.request.body', { value1: row.refundWindowEndsAt ? when(row.refundWindowEndsAt) : '—' })}</p>
+          {row.refundWindowEndsAt && <p>{copyText('market.refund.request.body', { value1: when(row.refundWindowEndsAt) })}</p>}
         </>
       ),
       run: () =>
@@ -827,7 +858,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           limit={limit}
           titleOf={titleOf}
           renderRefund={(row) => (
-            <Button variant="secondary" disabled={action.disabled || Boolean(row.refundRequestedAt)} onClick={() => requestRefund(row)}>
+            <Button
+              variant="secondary"
+              disabled={
+                action.disabled ||
+                Boolean(row.refundRequestedAt) ||
+                !row.refundWindowEndsAt ||
+                Date.parse(row.refundWindowEndsAt) <= Date.now()
+              }
+              onClick={() => requestRefund(row)}
+            >
               <Text k="market.ask.for.a.refund" />
             </Button>
           )}
