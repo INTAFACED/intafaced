@@ -103,6 +103,23 @@ describe('wallet provider', () => {
     expect(await api.sign({ kind: 'message', message: 'x' })).toMatchObject({ status: 'failed', reason: 'not_connected' });
   });
 
+  it('a provider inside another keeps the outer connection when the inner one is replaced (a move between rooms)', async () => {
+    const found = wallet();
+    const page = (room: string) => (
+      <WalletProvider discovery={false}>
+        <WalletProvider key={room} discovery={false}>
+          <Probe />
+        </WalletProvider>
+      </WalletProvider>
+    );
+    await act(async () => root.render(page('/wallet')));
+    await act(async () => api.connect(found));
+    expect(api).toMatchObject({ status: 'connected', address: ADDR });
+    // The page boundary is keyed by path: the inner provider and everything under it mount afresh.
+    await act(async () => root.render(page('/dex')));
+    expect(api).toMatchObject({ status: 'connected', address: ADDR });
+  });
+
   it('connects, reads the address and chain, and disconnects', async () => {
     await connected();
     expect(api).toMatchObject({ status: 'connected', address: ADDR, chainId: 84532, guard: { ok: true } });

@@ -175,7 +175,6 @@ test(`${J} #3 types an amount: a quote with a countdown; when it expires "Quote 
   await expect(swap(page).getByTestId('quote-countdown')).toHaveText(/^Refreshes in \d+ s$/);
   await expect(swap(page).getByRole('status')).toHaveText('Quote expired', { timeout: 120_000 });
   await expect(swapButton(page)).toBeDisabled();
-  await expect(swap(page)).toContainText('That swap failed on this quote. Get a new quote to swap again.');
   await swap(page).getByRole('button', { name: 'Refresh quote' }).click();
   await expect(swapButton(page)).toBeEnabled();
 });

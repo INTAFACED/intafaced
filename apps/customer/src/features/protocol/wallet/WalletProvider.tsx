@@ -168,7 +168,17 @@ interface Pending {
   started?: boolean;
 }
 
-export function WalletProvider({ children, discovery = true }: { children: ReactNode; discovery?: boolean }) {
+/**
+ * One wallet connection per page. A provider inside another (the Web3 frame inside the app's page-wide one) uses the
+ * outer connection, so moving between Web3 rooms never drops it, even where the browser blocks storage and nothing can
+ * be remembered across the move.
+ */
+export function WalletProvider(props: { children: ReactNode; discovery?: boolean }) {
+  const outer = useContext(Context);
+  return outer !== empty ? <>{props.children}</> : <WalletScope {...props} />;
+}
+
+function WalletScope({ children, discovery = true }: { children: ReactNode; discovery?: boolean }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
