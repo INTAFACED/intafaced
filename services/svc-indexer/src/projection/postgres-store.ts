@@ -34,6 +34,17 @@ import {
   type TokenFact,
   type TraceGapsFact,
 } from '../explorer/address.js';
+import {
+  poolCreatedOf,
+  swapOf,
+  syncOf,
+  type CandleFact,
+  type PoolCursor,
+  type PoolFact,
+  type PoolSwapFact,
+  type PoolVolumeFact,
+  type SwapCursor,
+} from '../explorer/pools.js';
 
 interface ExplorerFactRow {
   height: string;
@@ -288,6 +299,138 @@ export class PostgresProjectionStore implements ProjectionStore {
       LIMIT ${q.limit + 1}
     `;
     return rows.map((r) => ({ address: r.address, symbol: r.symbol, name: r.name, decimals: r.decimals }));
+  }
+
+  /**
+   * D-explorer-05. Pools the factory created, newest first, each with its tokens and its latest reserves. Canonical
+   * blocks only: a pool whose creation was reorged away is not listed, and neither is a Sync in an orphaned block.
+   */
+  async explorerPools(q: { factory: string; cursor?: PoolCursor; limit: number }): Promise<PoolFact[]> {
+    const rows = await this.sql<PoolRow[]>`
+      ${this.poolSelect()}
+      WHERE p.chain_id = ${this.chainId} AND p.factory = ${q.factory.toLowerCase()}
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, p.log_index) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.logIndex})`}
+      ORDER BY b.height DESC, t.tx_index DESC, p.log_index DESC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map(poolFact);
+  }
+
+  /** The pool this factory created at this address, or null (no such pool, another factory's, or reorged away). */
+  async explorerPool(q: { factory: string; pool: string }): Promise<PoolFact | null> {
+    const rows = await this.sql<PoolRow[]>`
+      ${this.poolSelect()}
+      WHERE p.chain_id = ${this.chainId} AND p.factory = ${q.factory.toLowerCase()} AND p.pool = ${q.pool.toLowerCase()}
+      ORDER BY b.height ASC, t.tx_index ASC, p.log_index ASC
+      LIMIT 1
+    `;
+    return rows[0] ? poolFact(rows[0]) : null;
+  }
+
+  private poolSelect() {
+    return this.sql`
+      SELECT p.pool, p.factory, p.token0, p.token1, p.fee_bps, p.tx_hash, p.log_index, b.height, t.tx_index,
+             t0.symbol AS symbol0, t0.name AS name0, t0.decimals AS decimals0,
+             t1.symbol AS symbol1, t1.name AS name1, t1.decimals AS decimals1,
+             r.reserve0::text AS reserve0, r.reserve1::text AS reserve1, r.height AS reserves_height
+      FROM explorer_pools p
+      JOIN explorer_txs t ON t.chain_id = p.chain_id AND t.hash = p.tx_hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      LEFT JOIN explorer_tokens t0 ON t0.chain_id = p.chain_id AND t0.address = p.token0
+      LEFT JOIN explorer_tokens t1 ON t1.chain_id = p.chain_id AND t1.address = p.token1
+      LEFT JOIN LATERAL (
+        SELECT s.reserve0, s.reserve1, sb.height
+        FROM explorer_syncs s
+        JOIN explorer_txs st ON st.chain_id = s.chain_id AND st.hash = s.tx_hash
+        JOIN blocks sb ON sb.chain_id = st.chain_id AND sb.hash = st.block_hash AND sb.status = 'canonical'
+        WHERE s.chain_id = p.chain_id AND s.pool = p.pool
+        ORDER BY sb.height DESC, st.tx_index DESC, s.log_index DESC
+        LIMIT 1
+      ) r ON TRUE
+    `;
+  }
+
+  /** The pool's swaps in canonical blocks, newest first, keyset-paged. */
+  async explorerPoolSwaps(q: { pool: string; cursor?: SwapCursor; limit: number }): Promise<PoolSwapFact[]> {
+    const rows = await this.sql<PoolSwapRow[]>`
+      SELECT s.tx_hash, b.height, t.tx_index, s.log_index, b.block_time, s.sender, s.recipient,
+             s.amount0_in::text AS amount0_in, s.amount1_in::text AS amount1_in,
+             s.amount0_out::text AS amount0_out, s.amount1_out::text AS amount1_out
+      FROM explorer_swaps s
+      JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()}
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, s.log_index) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.logIndex})`}
+      ORDER BY b.height DESC, t.tx_index DESC, s.log_index DESC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => ({
+      hash: r.tx_hash,
+      blockHeight: Number(r.height),
+      index: r.tx_index,
+      logIndex: r.log_index,
+      timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+      sender: r.sender,
+      recipient: r.recipient,
+      amount0In: BigInt(r.amount0_in),
+      amount1In: BigInt(r.amount1_in),
+      amount0Out: BigInt(r.amount0_out),
+      amount1Out: BigInt(r.amount1_out),
+    }));
+  }
+
+  /** The token1 side of the pool's swaps in canonical blocks timed at or after `since`. */
+  async explorerPoolVolume(q: { pool: string; since: Date }): Promise<PoolVolumeFact> {
+    const [row] = await this.sql<Array<{ volume1: string | null; swaps: string }>>`
+      SELECT sum(s.amount1_in + s.amount1_out)::text AS volume1, count(*)::text AS swaps
+      FROM explorer_swaps s
+      JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since}
+    `;
+    return { volume1: BigInt(row?.volume1 ?? '0'), swaps: Number(row?.swaps ?? '0') };
+  }
+
+  /**
+   * Price candles from the pool's swaps, oldest first. A swap's price is its token1 side over its token0 side in raw
+   * units, times `scale` (10^(decimals0 − decimals1)), rounded to 18 places in numeric. A swap with no token0 side has
+   * no price and is left out of the prices, but its token1 side still counts in the volume.
+   */
+  async explorerPoolCandles(q: { pool: string; since: Date; seconds: number; scale: string }): Promise<CandleFact[]> {
+    const rows = await this.sql<CandleRow[]>`
+      WITH priced AS (
+        SELECT b.block_time, b.height, t.tx_index, s.log_index,
+               s.amount1_in + s.amount1_out AS side1,
+               CASE WHEN s.amount0_in + s.amount0_out > 0
+                 THEN round((s.amount1_in + s.amount1_out) / (s.amount0_in + s.amount0_out) * ${q.scale}::numeric, 18)
+               END AS price,
+               date_bin(make_interval(secs => ${q.seconds}), b.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket
+        FROM explorer_swaps s
+        JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
+        JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+        WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since}
+      )
+      SELECT bucket,
+             (array_agg(price ORDER BY height, tx_index, log_index) FILTER (WHERE price IS NOT NULL))[1]::text AS open,
+             max(price)::text AS high,
+             min(price)::text AS low,
+             (array_agg(price ORDER BY height DESC, tx_index DESC, log_index DESC) FILTER (WHERE price IS NOT NULL))[1]::text AS close,
+             sum(side1)::text AS volume1,
+             count(*)::text AS swaps
+      FROM priced
+      GROUP BY bucket
+      HAVING count(price) > 0
+      ORDER BY bucket ASC
+    `;
+    return rows.map((r) => ({
+      start: Math.floor(new Date(r.bucket).getTime() / 1000),
+      open: trimDecimal(r.open),
+      high: trimDecimal(r.high),
+      low: trimDecimal(r.low),
+      close: trimDecimal(r.close),
+      volume1: BigInt(r.volume1),
+      swaps: Number(r.swaps),
+    }));
   }
 
   /**
@@ -932,6 +1075,73 @@ function toPosition(row: PositionRow): PositionRecord {
   };
 }
 
+interface PoolRow {
+  pool: string;
+  factory: string;
+  token0: string;
+  token1: string;
+  fee_bps: number;
+  tx_hash: string;
+  log_index: number;
+  height: string;
+  tx_index: number;
+  symbol0: string | null;
+  name0: string | null;
+  decimals0: number | null;
+  symbol1: string | null;
+  name1: string | null;
+  decimals1: number | null;
+  reserve0: string | null;
+  reserve1: string | null;
+  reserves_height: string | null;
+}
+
+function poolFact(r: PoolRow): PoolFact {
+  return {
+    pool: r.pool,
+    factory: r.factory,
+    token0: { address: r.token0, symbol: r.symbol0, name: r.name0, decimals: r.decimals0 },
+    token1: { address: r.token1, symbol: r.symbol1, name: r.name1, decimals: r.decimals1 },
+    feeBps: r.fee_bps,
+    createdHeight: Number(r.height),
+    createdTx: r.tx_hash,
+    cursor: { height: Number(r.height), index: r.tx_index, logIndex: r.log_index },
+    reserves:
+      r.reserve0 !== null && r.reserve1 !== null && r.reserves_height !== null
+        ? { reserve0: BigInt(r.reserve0), reserve1: BigInt(r.reserve1), height: Number(r.reserves_height) }
+        : null,
+  };
+}
+
+interface PoolSwapRow {
+  tx_hash: string;
+  height: string;
+  tx_index: number;
+  log_index: number;
+  block_time: Date;
+  sender: string;
+  recipient: string;
+  amount0_in: string;
+  amount1_in: string;
+  amount0_out: string;
+  amount1_out: string;
+}
+
+interface CandleRow {
+  bucket: Date;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume1: string;
+  swaps: string;
+}
+
+/** A numeric's text without trailing fractional zeros ("1.500000" → "1.5", "2.000" → "2"). */
+function trimDecimal(value: string): string {
+  return value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
+}
+
 interface ExplorerTxRow {
   hash: string;
   tx_index: number;
@@ -1090,6 +1300,38 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
           VALUES (
             ${chainId}, ${row.hash.toLowerCase()}, ${transfer.logIndex}, ${transfer.token}, ${transfer.from},
             ${transfer.to}, ${transfer.amount.toString()}
+          )
+        `;
+      }
+      // D-explorer-05: a pool's creation, swaps and reserves, each copied out of its own log the same way.
+      const created = poolCreatedOf(log);
+      if (created) {
+        await sql`
+          INSERT INTO explorer_pools (chain_id, tx_hash, log_index, factory, pool, token0, token1, fee_bps)
+          VALUES (
+            ${chainId}, ${row.hash.toLowerCase()}, ${created.logIndex}, ${created.factory}, ${created.pool},
+            ${created.token0}, ${created.token1}, ${created.feeBps}
+          )
+        `;
+      }
+      const swap = swapOf(log);
+      if (swap) {
+        await sql`
+          INSERT INTO explorer_swaps (
+            chain_id, tx_hash, log_index, pool, sender, recipient, amount0_in, amount1_in, amount0_out, amount1_out
+          ) VALUES (
+            ${chainId}, ${row.hash.toLowerCase()}, ${swap.logIndex}, ${swap.pool}, ${swap.sender}, ${swap.recipient},
+            ${swap.amount0In.toString()}, ${swap.amount1In.toString()}, ${swap.amount0Out.toString()}, ${swap.amount1Out.toString()}
+          )
+        `;
+      }
+      const synced = syncOf(log);
+      if (synced) {
+        await sql`
+          INSERT INTO explorer_syncs (chain_id, tx_hash, log_index, pool, reserve0, reserve1)
+          VALUES (
+            ${chainId}, ${row.hash.toLowerCase()}, ${synced.logIndex}, ${synced.pool}, ${synced.reserve0.toString()},
+            ${synced.reserve1.toString()}
           )
         `;
       }
