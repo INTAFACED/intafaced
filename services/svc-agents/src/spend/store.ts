@@ -406,21 +406,23 @@ export class UserSpendStore implements SpendGate {
           if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
         }
         if (own && ownAgentId) {
-          // The month's hard limit refuses a new run once the agent's runs reached it, held ones counted at their worst
-          // case; a run already held is not checked again at commit, so it finishes.
-          await assertBelowHardLimit(tx, {
-            userId: input.userId,
-            agentId: ownAgentId.slice(OWN_PREFIX.length),
-            assetId,
-            used: await ownAgentUsed(tx, input.userId, ownAgentId, periodStart('month', now)),
-            now,
-          });
           // Every hold of the session and of the month counts, held ones included, so two runs at once whose worst
           // cases together pass a cap cannot both be admitted.
           if (amount > own.perCall) throw ownCapExceeded(own.perCall, assetId, 'call');
           if (sessionUsed + amount > own.perSession) throw ownCapExceeded(own.perSession, assetId, 'session');
           const monthUsed = await ownAgentUsed(tx, input.userId, ownAgentId, periodStart(own.period, now));
           if (monthUsed + amount > own.perPeriod) throw ownCapExceeded(own.perPeriod, assetId, 'month');
+          // After the caps, so a run over one of them is refused for that cap: the month's hard limit admits a run only
+          // when its worst case fits beside the agent's runs, held ones at their worst case. A run already held is not
+          // checked again at commit, so one held before the limit was lowered finishes.
+          await assertBelowHardLimit(tx, {
+            userId: input.userId,
+            agentId: ownAgentId.slice(OWN_PREFIX.length),
+            assetId,
+            used: await ownAgentUsed(tx, input.userId, ownAgentId, periodStart('month', now)),
+            amount,
+            now,
+          });
         }
         // A team session is also held against the business's allocation, project limits and pool (team/hold.ts).
         await holdAgainstTeam(tx, {

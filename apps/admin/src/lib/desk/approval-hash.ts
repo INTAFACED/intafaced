@@ -16,6 +16,9 @@ import type { DeskRequest } from './approval-packet';
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
 /** svc-pay's action type for lifting a deposit address freeze (`DEPOSIT_ADDRESS_UNFREEZE_ACTION`). */
 export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
+/** svc-token governance founder doors (`services/svc-token/src/router.ts`, MC-token-02). */
+export const GOVERNANCE_SETTINGS_SET = 'token.governance.settings.set';
+export const GOVERNANCE_ROLE_SET = 'token.governance.role.set';
 /** svc-token launch founder doors (`services/svc-token/src/launch/router.ts`). */
 export const LAUNCH_ISSUER_SET = 'token.launch.issuer.set';
 export const LAUNCH_EVENT_CREATE = 'token.launch.event.create';
@@ -108,6 +111,15 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-token `governanceSettingsPayload` and `governanceRolePayload`, in their order.
+    case 'token.governance.settings.set':
+      return sha(GOVERNANCE_SETTINGS_SET, {
+        votingDelayMs: request.votingDelayMs,
+        votingPeriodMs: request.votingPeriodMs,
+        expectedRevision: request.revision,
+      });
+    case 'token.governance.role.set':
+      return sha(GOVERNANCE_ROLE_SET, { userId: request.userId, role: request.role, expectedRevision: request.revision });
     // svc-token `tokenActionPayloadHash(actionType, fields)`, with the fields its launch router binds, in its order.
     case 'token.launch.issuer.set':
       return sha(LAUNCH_ISSUER_SET, {
@@ -414,6 +426,19 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-token consumes against its own verb as the target id, at the revision read.
+    case 'token.governance.settings.set':
+    case 'token.governance.role.set': {
+      const actionType = request.kind === 'token.governance.settings.set' ? GOVERNANCE_SETTINGS_SET : GOVERNANCE_ROLE_SET;
+      return {
+        actionType,
+        targetService: 'svc-token',
+        targetId: actionType,
+        expectedVersion: request.revision,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    }
     // svc-token consumes against its own verb as the target id, at the revision read; a new issuer or launch is at 0.
     case 'token.launch.issuer.set':
     case 'token.launch.event.move':
