@@ -94,7 +94,9 @@ test(`${J} #3 the business verification queue lists submitted businesses and ope
 test(`${J} #5 the jurisdiction setting history lists every change with actor, reason, before and after`, async ({ page }) => {
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/jurisdiction`, { waitUntil: 'load' });
-  await expect(page.getByRole('table', { name: /setting history/i }), 'the jurisdiction board has no setting history read yet').toBeVisible({
-    timeout: 5_000,
-  });
+  await expect(page.getByRole('table', { name: /setting history/i }), 'the jurisdiction board has no setting history read yet').toBeVisible(
+    {
+      timeout: 5_000,
+    },
+  );
 });
