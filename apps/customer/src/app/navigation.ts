@@ -97,6 +97,20 @@ export const rooms: readonly Room[] = [
     area: 'public',
   },
   {
+    path: '/developers/sandbox/:sandboxId',
+    title: 'Sandbox',
+    description: 'One named sandbox and its keys',
+    area: 'public',
+    hidden: true,
+  },
+  {
+    path: '/developers/sandbox/:sandboxId/keys/new',
+    title: 'Create a sandbox key',
+    description: 'A key that works only in this sandbox',
+    area: 'public',
+    hidden: true,
+  },
+  {
     path: '/developers/:section',
     title: 'Developer section',
     description: 'One section of the developer portal',
@@ -871,8 +885,10 @@ export const rooms: readonly Room[] = [
     [
       ['academy', 'Academy', 'Rooms, learning and certifications'],
       ['agents', 'Agents', 'Your agent fleet'],
+      ['agents/team', 'Agents team', 'Roles, a shared pool and project limits for your business'],
       ['quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
+      ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['launch', 'Launch', 'Issue and list an asset'],

@@ -46,6 +46,8 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
     req.on('end', () => {
       res.setHeader('content-type', 'application/json');
       res.setHeader('set-cookie', 'session=opaque; HttpOnly; SameSite=Lax; Path=/');
+      // The edge's own cache life on every answer but a bare one, so the test sees which ones the origin keeps.
+      if (!req.url.includes('bare=1')) res.setHeader('cache-control', 'public, max-age=120');
       res.end(
         JSON.stringify({
           path: req.url,
@@ -171,6 +173,15 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
       body: '{"reference":"public-contract-test"}',
     });
     assert.equal(edge.headers.get('cache-control'), 'no-store');
+    // The status badge alone keeps the edge's cache life, once; with none from the edge it is no-store.
+    const badge = await fetch(origin + '/api/notify/status/badge.svg?component=trading');
+    assert.equal(badge.headers.get('cache-control'), 'public, max-age=120');
+    assert.equal(badge.headers.get('strict-transport-security'), 'max-age=86400');
+    const bareBadge = await fetch(origin + '/api/notify/status/badge.svg?component=trading&bare=1');
+    assert.equal(bareBadge.headers.get('cache-control'), 'no-store');
+    for (const path of ['/api/notify/trpc/statusPage.badge', '/api/notify/status/badge.svgx', '/api/notify/status/badge.svg/']) {
+      assert.equal((await fetch(origin + path)).headers.get('cache-control'), 'no-store', path);
+    }
     // /api/ answers belong to svc-edge (its own documents set their framing headers), so nginx adds only HSTS there.
     assert.equal(edge.headers.get('strict-transport-security'), 'max-age=86400');
     assert.equal(edge.headers.get('x-frame-options'), null);

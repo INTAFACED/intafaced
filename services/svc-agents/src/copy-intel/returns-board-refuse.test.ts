@@ -12,6 +12,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { AgentError } from '../errors.js';
 import { createAgentsRouter } from '../router.js';
 import type { AgentsRouterDeps } from '../router.js';
+import { COPY_INTEL_AGENT_ID } from './session-run.js';
 import { buildLeaderStats, type LeaderPerformanceFixture, type LeaderStat } from './stats.js';
 import {
   auditedStatsPreserveInputOrder,
@@ -24,6 +25,8 @@ import {
   refuseReturnsRankedMarketingBoard,
   RETURNS_RANKED_BOARD_REFUSE_REASON,
   returnsRankedBoard,
+  asksForReturnsRanking,
+  COPY_INTEL_SESSION_AGENT_ID,
 } from './returns-board-refuse.js';
 
 const NOW = new Date('2026-08-12T08:00:00.000Z');
@@ -256,5 +259,46 @@ describe('D26-P1-A5 production pin — a returns sort must not ship', () => {
       if (RETURNS_SORT_SHIP.test(src)) hits.push(name);
     }
     expect(hits, `returns-ranked .sort still ships in: ${hits.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('asksForReturnsRanking — a request for a returns board', () => {
+  it('guards the same agent id the Copy-Intel session opens', () => {
+    expect(COPY_INTEL_SESSION_AGENT_ID).toBe(COPY_INTEL_AGENT_ID);
+  });
+
+  it.each([
+    'TEST: rank the leaders by returns',
+    'sort leaders by PnL',
+    'who are the top 10 leaders by ROI?',
+    'show me the best performance leaderboard',
+    'order leaders by win rate',
+    'which traders have the highest returns?',
+    'leaders sorted by profit please',
+    'give me a ranking of the leaders by returns',
+    'rank the copy leaders by PnL',
+    'rank each leader by ROI',
+    'which trader is most profitable?',
+    'ordered list of leaders by PnL',
+    'leaders: highest ROI',
+    'clasifica a los líderes por rentabilidad',
+    'classe les traders par rendement',
+  ])('names %s a ranking', (text) => {
+    expect(asksForReturnsRanking(text)).toBe(true);
+  });
+
+  it.each([
+    'show leader L1 stats',
+    'what is the drawdown of leader L2?',
+    'rank my watchlist alphabetically',
+    'returns for leader L3',
+    'what is the PnL of my order?',
+    'best performance month for leader L1',
+    'sort out my returns report',
+    'list the leaders I follow',
+    'I lost money on my top leaders, what were my returns?',
+    'Which leaders have the most followers, and how is performance computed?',
+  ])('does not name %s a ranking', (text) => {
+    expect(asksForReturnsRanking(text)).toBe(false);
   });
 });

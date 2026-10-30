@@ -32,6 +32,7 @@ import {
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { presentCopyOpsStatus, presentCustomerCopyDesk, type CopyDeskFacts } from './desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, CopyError } from './errors.js';
+import { NO_COPY_NOTICES, type CopyNotices } from './copy-notices.js';
 import {
   requirePublishedCopyFeeShareLaw,
   UNPUBLISHED_COPY_FEE_SHARE_LAW,
@@ -189,6 +190,8 @@ const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent
 
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
+  /** Tells the follower about a skip or a stop (`trade.copy.skipped` / `.stopped`, J-copy-bots-otc-03 #6). Omitted → nobody is told. */
+  notices?: CopyNotices;
   /**
    * Identity's step-up check for a close-all (`trade.step_up.copy.flatten`, J-copy-bots-otc-03 #4). Omitted → every
    * copy.flatten refuses `identity.step_up_unavailable`: a close-all is never sent unconfirmed.
@@ -356,6 +359,7 @@ export class CopyService {
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
+  private readonly notices: CopyNotices;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -381,6 +385,7 @@ export class CopyService {
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
+    this.notices = options.notices ?? NO_COPY_NOTICES;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
     this.minTier = options.minTier ?? null;
@@ -874,12 +879,16 @@ export class CopyService {
           totals.refused += 1;
           // The skip row is written before the cursor moves, so a crash between them re-reads the fill and the row's
           // once-per-fill index keeps it to one row.
-          await recordCopySkip(this.mirrorEvents, {
+          const skip = {
             followId: follow.followId,
             leaderFillId: canonicalizeCopyFillId(fill.fillId),
             reason: copySkipReasonFor(err),
             at: this.now(),
-          });
+          };
+          await recordCopySkip(this.mirrorEvents, skip);
+          // Told after the row is written and before the cursor moves: a crash between re-reads the fill, finds the row,
+          // and tells again under the same key, which the bus and svc-notify keep to one notice.
+          await this.notices.skipped({ ...skip, followerId: follow.followerId, leaderId: follow.leaderId });
         }
       }
       await this.store.setCopyCursor(follow.followId, { at: fill.at, fillId: fill.fillId }, 'forward');
@@ -1195,14 +1204,25 @@ export class CopyService {
    * Does not call flatten or cancel-open.
    */
   async stop(principal: Principal, input: FollowRef & { closeOnly?: boolean }) {
-    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
+    const closeOnly = input.closeOnly === true;
+    const next = await this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
       // STOP_CLOSE_ONLY (CB-copy-09): no new opens, the grant stays so the leader's closes still close.
-      const next = input.closeOnly === true ? applyCopyStopCloseOnly(follow) : applyCopyStop(follow);
+      const stopped = closeOnly ? applyCopyStopCloseOnly(follow) : applyCopyStop(follow);
       await this.flushPausedSkips(store, follow);
-      await store.saveFollow(next);
-      return presentCopyControlAck(next, input.closeOnly === true ? 'STOP_CLOSE_ONLY' : 'STOP_NEW');
+      await store.saveFollow(stopped);
+      return stopped;
     });
+    // Told once the stop is saved, never before: a stop that did not commit tells nobody.
+    await this.notices.stopped({
+      followId: next.followId,
+      followerId: next.followerId,
+      leaderId: next.leaderId,
+      reason: 'follower',
+      closeOnly,
+      at: this.now(),
+    });
+    return presentCopyControlAck(next, closeOnly ? 'STOP_CLOSE_ONLY' : 'STOP_NEW');
   }
 
   /**

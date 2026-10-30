@@ -46,6 +46,8 @@ export interface SpendGate {
     funds?: () => Promise<Amount | null>;
     /** The owner's overage grace: unpaid usage in sealed windows up to this much does not count against the balance. */
     overageGrace?: Amount | null;
+    /** True only from the team run route, after membership and role were read (`ThinkInput.teamRun`). */
+    teamRun?: boolean;
   }): Promise<SpendReservationView>;
   commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
   release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView>;
