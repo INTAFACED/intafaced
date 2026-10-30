@@ -20,6 +20,8 @@ export type StatusMail = {
   readonly text: string;
   /** Business key: `<event>:<subscriber>:email`. A transport that honours it sends once. */
   readonly key: string;
+  /** What the mail is for, as the local outbox labels it. Status mail when absent; `guest-verify` for the guest door. */
+  readonly purpose?: 'status' | 'guest-verify';
 };
 
 export type MailOutcome =
@@ -51,7 +53,14 @@ export class LocalOutboxMailer implements StatusMailer {
   constructor(private readonly file: string) {}
   async send(mail: StatusMail): Promise<MailOutcome> {
     await mkdir(path.dirname(this.file), { recursive: true });
-    const line = { purpose: 'status', key: mail.key, to: mail.to, subject: mail.subject, text: mail.text, at: new Date().toISOString() };
+    const line = {
+      purpose: mail.purpose ?? 'status',
+      key: mail.key,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      at: new Date().toISOString(),
+    };
     await appendFile(this.file, `LOCAL-TEST ${JSON.stringify(line)}\n`, { mode: 0o600 });
     return { status: 'accepted' };
   }
@@ -65,15 +74,16 @@ export class GatewayMailer implements StatusMailer {
     readonly origin: string,
   ) {}
   async send(mail: StatusMail): Promise<MailOutcome> {
+    const guest = mail.purpose === 'guest-verify';
     try {
       await this.channel.deliver({
         notificationId: mail.key,
-        userId: 'status-subscriber',
+        userId: guest ? 'support-guest' : 'status-subscriber',
         channel: 'email',
-        kind: 'status.subscription',
+        kind: guest ? 'support.guest_verify' : 'status.subscription',
         severity: 'info',
-        titleKey: 'status.subscription.title',
-        bodyKey: 'status.subscription.body',
+        titleKey: guest ? 'notify.support.guest_verify.title' : 'status.subscription.title',
+        bodyKey: guest ? 'notify.support.guest_verify.body' : 'status.subscription.body',
         title: mail.subject,
         body: mail.text,
         href: null,
