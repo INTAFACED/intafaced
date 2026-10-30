@@ -145,6 +145,21 @@ describe('Pool page', () => {
     expect(text()).toContain('The price was not read: a token in this pool did not say its decimals.');
   });
 
+  it('places candles at their own time, so a quiet stretch is a gap', () => {
+    const day = { start: 0, seconds: 86_400, width: 3600 };
+    const candle = (start: number) => ({ start, open: '1', high: '2', low: '1', close: '2', volume1: '0', swaps: 1 });
+    const placed = candleGeometry([candle(0), candle(3600), candle(82_800)], day)!;
+    expect(placed[1]!.x - placed[0]!.x).toBeCloseTo(600 / 24);
+    expect(placed[2]!.x - placed[1]!.x).toBeCloseTo((600 / 24) * 22);
+  });
+
+  it('another not-found is a refusal, never a claim that the address is not a pool', async () => {
+    answers.set('explorer.pools.get', { ok: false, code: 'NOT_FOUND', message: 'No procedure found on path "explorer.pools.get"' });
+    await show(<PoolPage address={POOL} />);
+    expect(text()).not.toContain('is not a pool');
+    expect(text()).toContain('This pool was not read');
+  });
+
   it('an address the factory did not create reads not a pool', async () => {
     answers.set('explorer.pools.get', { ok: false, code: 'NOT_FOUND', message: 'indexer.not_a_pool' });
     await show(<PoolPage address={POOL} />);
@@ -162,8 +177,12 @@ describe('pool figures', () => {
     expect(bpsPercent(1000)).toBe('10.00');
   });
   it('draws nothing for no candles, and a flat day without dividing by zero', () => {
-    expect(candleGeometry([])).toBeNull();
-    const flat = candleGeometry([{ start: 0, open: '1', high: '1', low: '1', close: '1', volume1: '0', swaps: 1 }]);
+    expect(candleGeometry([], { start: 0, seconds: 86_400, width: 3600 })).toBeNull();
+    const flat = candleGeometry([{ start: 0, open: '1', high: '1', low: '1', close: '1', volume1: '0', swaps: 1 }], {
+      start: 0,
+      seconds: 86_400,
+      width: 3600,
+    });
     expect(flat?.[0]?.wick.y1).toBeTypeOf('number');
     expect(Number.isFinite(flat?.[0]?.wick.y1)).toBe(true);
   });

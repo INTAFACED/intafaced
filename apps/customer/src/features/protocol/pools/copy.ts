@@ -8,7 +8,7 @@ import { defineCopy } from '../../../shared/i18n';
 const en = {
   poolsTitle: 'Pools',
   poolsNote: 'Every pool the published pool factory created on {network}, newest first, read from the chain by the indexer.',
-  poolsEmpty: 'The published pool factory has created no pool on {network}.',
+  poolsEmpty: 'The indexer holds no pool from the published pool factory on {network}.',
   poolsRefused: 'The pool list was not read: {reason}',
   poolsMore: 'Older pools',
   hdrPool: 'Pool',
@@ -29,7 +29,7 @@ const en = {
   tokenLink: '{name} ({symbol})',
   tokenUnnamed: 'Token {address}',
   notAPoolTitle: 'Not a pool',
-  notAPool: '{address} is not a pool on {network}: the published pool factory did not create it.',
+  notAPool: '{address} is not a pool on {network}: the indexer holds no pool the published pool factory created there.',
   poolRefused: 'This pool was not read: {reason}',
   volumeTitle: 'Volume',
   volumeDay: '{amount} {symbol} in the last 24 hours, {swaps} swaps',

@@ -74,8 +74,12 @@ export type PoolSwapsPage = z.infer<typeof swapsPageSchema>;
 export type PoolCursor = z.infer<typeof cursorSchema>;
 export type CandleInterval = '5m' | '1h';
 
-/** An address the owner's factory did not create, as the indexer answers it. */
-export const isNotAPool = (code: string | undefined) => code === 'NOT_FOUND' || code === 'indexer.not_a_pool';
+/**
+ * An address the owner's factory did not create, as the indexer names it. Only the indexer's own code counts: any other
+ * not-found (a gateway or a build without this read) is a refusal to show, never a claim about the address.
+ */
+export const isNotAPool = (failure: { code?: string; message?: string }) =>
+  failure.code === 'indexer.not_a_pool' || failure.message === 'indexer.not_a_pool';
 
 export function createPoolsApi(api: ApiClient) {
   return {

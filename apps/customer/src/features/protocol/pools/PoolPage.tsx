@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
@@ -10,7 +10,7 @@ import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
 import { usePools } from './usePools';
-import { isNotAPool, type CandleInterval, type Pool, type PoolCursor, type PoolSwapsPage, type PoolToken } from './pools-api';
+import { isNotAPool, type CandleInterval, type Pool, type PoolCursor, type PoolDay, type PoolSwapsPage, type PoolToken } from './pools-api';
 import type { PoolsTranslate } from './copy';
 import type { ChainRef } from '../NetworkPanels';
 
@@ -31,12 +31,22 @@ export function PoolPage({ address }: { address: string }) {
   );
   const network = networkLabel(chainId).name;
   const { resource } = day;
+  // While another candle width loads, the page keeps what it last read (facts, volume, trades and their place), and only
+  // the chart says it is loading.
+  const lastRead = useRef<PoolDay | null>(null);
+  if (resource.status === 'ready' && resource.data) lastRead.current = resource.data;
+  const shown =
+    resource.status === 'ready'
+      ? resource.data
+      : resource.status === 'loading' && lastRead.current?.pool.address === address
+        ? lastRead.current
+        : null;
   let title = t('poolTitle', { pair: short(address) });
   let body: ReactNode;
   if (chain.status === 'failed') body = <BlockerNote title={t('poolRefused', { reason: refusalWords(chain.failure, words) })} />;
-  else if (chain.status === 'loading' || resource.status === 'loading') body = <Loading label={title} />;
+  else if (chain.status === 'loading' || (resource.status === 'loading' && !shown)) body = <Loading label={title} />;
   else if (resource.status === 'failed')
-    body = isNotAPool(resource.failure.code) ? (
+    body = isNotAPool(resource.failure) ? (
       <Panel title={t('notAPoolTitle')}>
         <div role="status" data-code="indexer.not_a_pool">
           <EmptyState title={t('notAPoolTitle')}>{t('notAPool', { address, network })}</EmptyState>
@@ -54,8 +64,9 @@ export function PoolPage({ address }: { address: string }) {
         />
       </Panel>
     );
-  else if (resource.data) {
-    const { pool } = resource.data;
+  else if (shown) {
+    const { pool } = shown;
+    const charting = resource.status === 'loading';
     title = t('poolTitle', { pair: pairName(pool.token0, pool.token1, t) });
     const base = tokenSymbol(pool.token0);
     const quote = tokenSymbol(pool.token1);
@@ -75,11 +86,18 @@ export function PoolPage({ address }: { address: string }) {
               </Button>
             ))}
           </div>
-          {resource.data.candles === null ? (
+          {charting ? (
+            <Loading label={t('chartTitle')} />
+          ) : shown.candles === null ? (
             <p role="status">{t('chartUnread')}</p>
           ) : (
             <PriceChart
-              candles={resource.data.candles}
+              candles={shown.candles}
+              window={{
+                start: Math.floor(Date.parse(shown.window.since) / 1000),
+                seconds: shown.window.seconds,
+                width: interval === '5m' ? 300 : 3600,
+              }}
               base={base}
               quote={quote}
               width={t(interval === '5m' ? 'chartWidth5m' : 'chartWidth1h')}
@@ -91,10 +109,10 @@ export function PoolPage({ address }: { address: string }) {
         <Panel title={t('volumeTitle')}>
           <p data-testid="pool-volume">
             {pool.token1.decimals === null
-              ? t('volumeRaw', { amount: resource.data.volume1, symbol: quote, swaps: resource.data.swaps })
-              : t('volumeDay', { amount: tokenAmount(resource.data.volume1, pool.token1, t), symbol: quote, swaps: resource.data.swaps })}
+              ? t('volumeRaw', { amount: shown.volume1, symbol: quote, swaps: shown.swaps })
+              : t('volumeDay', { amount: tokenAmount(shown.volume1, pool.token1, t), symbol: quote, swaps: shown.swaps })}
           </p>
-          <p className="muted">{t('asOf', { time: when(new Date(resource.data.asOf)) })}</p>
+          <p className="muted">{t('asOf', { time: when(new Date(shown.asOf)) })}</p>
         </Panel>
         <Panel title={t('tradesTitle')}>
           <Trades chain={chain} pool={pool} t={t} />

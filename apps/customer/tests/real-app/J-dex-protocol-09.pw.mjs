@@ -487,7 +487,8 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
 }) => {
   test.setTimeout(180_000);
   await page.goto('/dex/pools');
-  const listed = tableIn(page, 'Pools').getByRole('link').first();
+  // A TEST Token A / TEST Token B pool: the funding below hands out those two tokens.
+  const listed = tableIn(page, 'Pools').getByRole('link', { name: 'TESTA / TESTB', exact: true }).first();
   await expect(listed).toBeVisible(UNBUILT);
   const poolAddress = getAddress((await listed.getAttribute('href')).split('/').pop());
 

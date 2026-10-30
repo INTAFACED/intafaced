@@ -386,48 +386,60 @@ export class PostgresProjectionStore implements ProjectionStore {
       FROM explorer_swaps s
       JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
       JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
-      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since}
+      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since.toISOString()}::timestamptz
     `;
     return { volume1: BigInt(row?.volume1 ?? '0'), swaps: Number(row?.swaps ?? '0') };
   }
 
   /**
-   * Price candles from the pool's swaps, oldest first. A swap's price is its token1 side over its token0 side in raw
-   * units, times `scale` (10^(decimals0 − decimals1)), rounded to 18 places in numeric. A swap with no token0 side has
-   * no price and is left out of the prices, but its token1 side still counts in the volume.
+   * Price candles, oldest first. The price is the pool's own: token1 reserve over token0 reserve after each Sync, times
+   * `scale` (10^(decimals0 − decimals1)), so a swap's fee never shows as a move and every reserve change counts. Numeric
+   * division keeps at least 16 significant digits however small the price; only trailing zeros are trimmed. Each candle
+   * also carries the token1 side and the count of the swaps timed inside it.
    */
   async explorerPoolCandles(q: { pool: string; since: Date; seconds: number; scale: string }): Promise<CandleFact[]> {
+    const pool = q.pool.toLowerCase();
     const rows = await this.sql<CandleRow[]>`
       WITH priced AS (
-        SELECT b.block_time, b.height, t.tx_index, s.log_index,
-               s.amount1_in + s.amount1_out AS side1,
-               CASE WHEN s.amount0_in + s.amount0_out > 0
-                 THEN round((s.amount1_in + s.amount1_out) / (s.amount0_in + s.amount0_out) * ${q.scale}::numeric, 18)
-               END AS price,
+        SELECT b.height, t.tx_index, s.log_index,
+               s.reserve1::numeric * ${q.scale}::numeric / s.reserve0 AS price,
                date_bin(make_interval(secs => ${q.seconds}), b.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket
+        FROM explorer_syncs s
+        JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
+        JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
+        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND b.block_time >= ${q.since.toISOString()}::timestamptz AND s.reserve0 > 0
+      ),
+      prices AS (
+        SELECT bucket,
+               (array_agg(price ORDER BY height, tx_index, log_index))[1] AS open,
+               max(price) AS high,
+               min(price) AS low,
+               (array_agg(price ORDER BY height DESC, tx_index DESC, log_index DESC))[1] AS close
+        FROM priced
+        GROUP BY bucket
+      ),
+      traded AS (
+        SELECT date_bin(make_interval(secs => ${q.seconds}), b.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket,
+               sum(s.amount1_in + s.amount1_out) AS volume1,
+               count(*) AS swaps
         FROM explorer_swaps s
         JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
         JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
-        WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since}
+        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND b.block_time >= ${q.since.toISOString()}::timestamptz
+        GROUP BY 1
       )
-      SELECT bucket,
-             (array_agg(price ORDER BY height, tx_index, log_index) FILTER (WHERE price IS NOT NULL))[1]::text AS open,
-             max(price)::text AS high,
-             min(price)::text AS low,
-             (array_agg(price ORDER BY height DESC, tx_index DESC, log_index DESC) FILTER (WHERE price IS NOT NULL))[1]::text AS close,
-             sum(side1)::text AS volume1,
-             count(*)::text AS swaps
-      FROM priced
-      GROUP BY bucket
-      HAVING count(price) > 0
-      ORDER BY bucket ASC
+      SELECT p.bucket, trim_scale(p.open)::text AS open, trim_scale(p.high)::text AS high, trim_scale(p.low)::text AS low,
+             trim_scale(p.close)::text AS close, coalesce(tr.volume1, 0)::text AS volume1, coalesce(tr.swaps, 0)::text AS swaps
+      FROM prices p
+      LEFT JOIN traded tr ON tr.bucket = p.bucket
+      ORDER BY p.bucket ASC
     `;
     return rows.map((r) => ({
       start: Math.floor(new Date(r.bucket).getTime() / 1000),
-      open: trimDecimal(r.open),
-      high: trimDecimal(r.high),
-      low: trimDecimal(r.low),
-      close: trimDecimal(r.close),
+      open: r.open,
+      high: r.high,
+      low: r.low,
+      close: r.close,
       volume1: BigInt(r.volume1),
       swaps: Number(r.swaps),
     }));
@@ -1137,10 +1149,6 @@ interface CandleRow {
   swaps: string;
 }
 
-/** A numeric's text without trailing fractional zeros ("1.500000" → "1.5", "2.000" → "2"). */
-function trimDecimal(value: string): string {
-  return value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
-}
 
 interface ExplorerTxRow {
   hash: string;

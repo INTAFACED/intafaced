@@ -8,7 +8,7 @@ const H = 200;
  * Candle geometry in SVG units. Numbers here only place shapes on the drawing; every figure a person reads comes from
  * the indexer's decimal strings, in the title of each candle and in the range line under the chart.
  */
-export function candleGeometry(candles: readonly PoolCandle[]) {
+export function candleGeometry(candles: readonly PoolCandle[], window: { start: number; seconds: number; width: number }) {
   if (candles.length === 0) return null;
   const highs = candles.map((c) => Number(c.high));
   const lows = candles.map((c) => Number(c.low));
@@ -16,10 +16,11 @@ export function candleGeometry(candles: readonly PoolCandle[]) {
   const bottom = Math.min(...lows);
   const span = top - bottom || Math.abs(top) || 1;
   const y = (price: string) => H - ((Number(price) - bottom) / span) * H;
-  const step = W / candles.length;
+  // Each candle sits at its own time across the day, so a quiet stretch shows as a gap and not as steady movement.
+  const step = (W * window.width) / window.seconds;
   const body = Math.max(step * 0.6, 1);
-  return candles.map((c, i) => {
-    const x = step * i + step / 2;
+  return candles.map((c) => {
+    const x = ((c.start - window.start) / window.seconds) * W + step / 2;
     const open = y(c.open);
     const close = y(c.close);
     return {
@@ -52,6 +53,7 @@ export function compareDecimal(a: string, b: string): number {
 
 export function PriceChart({
   candles,
+  window,
   base,
   quote,
   width,
@@ -59,13 +61,15 @@ export function PriceChart({
   t,
 }: {
   candles: readonly PoolCandle[];
+  /** The day the chart covers: its start in Unix seconds, its length, and one candle's width, both in seconds. */
+  window: { start: number; seconds: number; width: number };
   base: string;
   quote: string;
   width: string;
   when: (date: Date) => string;
   t: PoolsTranslate;
 }) {
-  const geometry = candleGeometry(candles);
+  const geometry = candleGeometry(candles, window);
   const label = t('chartLabel', { base, quote, width });
   if (!geometry) return <p role="status">{t('chartEmpty')}</p>;
   return (

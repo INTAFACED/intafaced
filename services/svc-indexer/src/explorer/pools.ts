@@ -6,7 +6,8 @@ import type { TokenFact } from './address.js';
  *
  * Any contract can emit these events, so a decoded row proves nothing on its own: a pool is listed only when the owner's
  * factory created it (`INDEXER_POOL_FACTORY_ADDRESS`), and a swap or reserve counts only for such a pool. Amounts stay
- * raw base units; a price is worked out in Postgres numeric from those units and the tokens' own decimals, never a float.
+ * raw base units; a price is the pool's reserve ratio, worked out in Postgres numeric with the tokens' own decimals, never
+ * a float.
  */
 
 /** keccak256("PoolCreated(address,address,uint16,address,uint256)"), `PoolFactory.sol:17`. */
@@ -165,8 +166,8 @@ export interface SwapCursor {
 }
 
 /**
- * One price candle: token0's price in token1, from the swaps inside it, in order. Volume is the token1 side of those
- * swaps (what went in plus what came out), in raw base units.
+ * One price candle: token0's price in token1, from the pool's reserves after each Sync inside it, in order. Volume is the
+ * token1 side of the swaps inside it (what went in plus what came out), in raw base units.
  */
 export interface CandleFact {
   readonly start: number;

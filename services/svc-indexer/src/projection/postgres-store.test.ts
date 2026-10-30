@@ -742,8 +742,15 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       const since = new Date(0);
       expect(await store.explorerPoolVolume({ pool, since })).toEqual({ volume1: 3_000_000n, swaps: 2 });
       expect(await store.explorerPoolVolume({ pool, since: new Date(1_700_000_003_000) })).toEqual({ volume1: 0n, swaps: 0 });
+      // Prices are the pool's reserve ratio after each canonical Sync (20/10, 22/9, then 21/10), never a swap's fee-laden
+      // ratio, and the orphaned block's Sync is not one of them.
       const candles = await store.explorerPoolCandles({ pool, since, seconds: 3600, scale: '1000000000000' });
-      expect(candles).toEqual([{ start: 1_699_999_200, open: '2', high: '2', low: '1', close: '1', volume1: 3_000_000n, swaps: 2 }]);
+      expect(candles).toHaveLength(1);
+      expect(candles[0]).toMatchObject({ start: 1_699_999_200, open: '2', low: '2', close: '2.1', volume1: 3_000_000n, swaps: 2 });
+      expect(candles[0]?.high).toMatch(/^2\.4444444444444444\d*$/);
+      // A tiny price keeps its significant digits instead of rounding to zero.
+      const tiny = await store.explorerPoolCandles({ pool, since, seconds: 3600, scale: '0.000000000000000000000001' });
+      expect(tiny[0]?.close).toBe('0.0000000000000000000000000000000000021');
 
       // The migration copies pools, swaps and reserves already stored before it, from their logs.
       await db.sql`DELETE FROM explorer_pools`;
