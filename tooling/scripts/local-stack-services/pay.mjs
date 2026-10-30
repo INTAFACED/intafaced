@@ -21,6 +21,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',
     PAY_MIN_CONFIRMATIONS: '6',
+    // LOCAL-TEST settle depth for a send out (tooling/profiles/test-owner-values/pay.json; W-withdraw-06).
+    // `LOCAL_STACK_PAY_WITHDRAW_DEPTH=off` on a restart leaves it blank, so the refusal can be seen too (J-wallet-05 #8).
+    ...(process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH === 'off' ? {} : { PAY_WITHDRAW_MIN_CONFIRMATIONS: '6' }),
     PAY_WEBHOOK_TOLERANCE_SECONDS: '300',
     PAY_CHECKOUT_SESSION_TTL_SECONDS: '900',
     PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',

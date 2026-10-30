@@ -72,6 +72,19 @@ function payScreener(on) {
   }
 }
 
+/** svc-pay restarted with no settle depth for a send out (blank), or back on the stack's TEST depth (local-stack-services/pay.mjs). */
+function payWithdrawDepth(published) {
+  const before = process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
+  if (published) delete process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
+  else process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'pay');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
+    else process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH = before;
+  }
+}
+
 /** Answers the "Confirm it's you" dialog with the next authenticator code. */
 async function confirmItsMe(page) {
   const dialog = page.getByRole('dialog', { name: 'Confirm it’s you' });
@@ -244,14 +257,6 @@ async function sendOut(page, amount) {
   await readyToConfirm(page, amount);
   await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
   await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
-}
-
-/** A withdrawal written straight into svc-pay in `state` by the stack (as J-wallet-06 does); returns its id. */
-function seedWithdrawal(who, state, amount, label, ...extra) {
-  const out = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, 'USDT', amount, '--state', state, '--ref', label, ...extra);
-  const id = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(out)?.[1];
-  expect(id, out).toMatch(/^[0-9a-f-]{36}$/);
-  return id;
 }
 
 test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet approved and past its cooling-off`, async ({
@@ -700,7 +705,7 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
   }
 });
 
-test(`${J} #8 watches the status: requested, held, broadcast and settled in plain words, an old sent row reads settled, and a failure reads as a sentence`, async ({
+test(`${J} #8 watches the status: requested, held, broadcast, confirming and settled in plain words, settled only at the owner's depth, and a failure reads as a sentence`, async ({
   page,
   browser,
 }, testInfo) => {
@@ -859,27 +864,33 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
       'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
     );
     await expect(own.getByTestId('withdrawal-facts')).not.toContainText('rail.refused');
+
+    // Settled comes only from the owner's settle depth. With it blank, svc-pay invents none: a send out refuses with its one
+    // typed code before anything is held, and the room says so in a sentence. svc-pay is restarted on the TEST depth after.
+    const freeBeforeBlank = toUnits(await api.available('USDT'));
+    const reservedBeforeBlank = toUnits(await api.reserved('USDT'));
+    const countBeforeBlank = (await api.withdrawals(200)).length;
+    try {
+      payWithdrawDepth(false);
+      await signInWithCode(page);
+      await readyToConfirm(page, '11');
+      const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
+      await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
+      const blank = await (await answered).json();
+      expect(blank?.error?.data?.cause?.code, JSON.stringify(blank).slice(0, 400)).toBe('pay.withdraw_confirmations_unset');
+      const outcome = page.getByTestId('withdraw-outcome');
+      await expect(outcome).toContainText('Not sent');
+      await expect(outcome).toContainText(
+        'No confirmation depth is published for sending to a wallet outside INTAFACED, so this withdrawal was refused before anything was held.',
+      );
+      await expect(outcome).not.toContainText('pay.withdraw_confirmations_unset');
+      expect(toUnits(await api.available('USDT')), 'nothing left the available balance').toBe(freeBeforeBlank);
+      expect(toUnits(await api.reserved('USDT')), 'and nothing is held').toBe(reservedBeforeBlank);
+      expect(await api.withdrawals(200), 'svc-pay recorded no withdrawal').toHaveLength(countBeforeBlank);
+    } finally {
+      payWithdrawDepth(true);
+    }
   } finally {
     await ownContext.close();
   }
-
-  // An old `sent` row: written straight into svc-pay on TEST in the shape `withdraw` stored before sends settled at a
-  // depth (status `sent` with its reference, the attempt journalled `accepted`, no depth read), and it reads Settled.
-  // A person of its own, so this withdrawal doesn't count against the limits the steps above use.
-  const who = await signUp(page, 'wd8');
-  await verify(page, who);
-  await signIn(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  const tag = `jw05-${who.handle}-r${testInfo.retry}`;
-  const old = seedWithdrawal(who, 'sent', '1', `${tag}-sent`);
-  const theirs = await customerApi(who);
-  expect((await theirs.withdrawal(old)).customerStatus, 'svc-pay reads the old sent row').toBe('settled');
-  await page.goto(`/uc/withdraw?withdrawalId=${old}`);
-  const status = page.getByTestId('withdrawal-status');
-  await expect(status).toHaveAttribute('data-status', 'settled', { timeout: 15_000 });
-  await expect(status).toHaveText(word.settled);
-  await page.goto('/uc/withdraw');
-  await page.mouse.move(0, 600);
-  const row = page.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${old}"]`);
-  await expect(row.locator('[data-withdrawal-status]')).toHaveText(word.settled, { timeout: 30_000 });
 });

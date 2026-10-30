@@ -213,6 +213,8 @@ const en = {
   sBalance: 'Your available balance is {amount} {asset}.',
   sNoSigner:
     'Sending to a wallet outside INTAFACED isn’t connected: no custody signer is set up, so this withdrawal was refused before anything was held.',
+  sDepthUnset:
+    'No confirmation depth is published for sending to a wallet outside INTAFACED, so this withdrawal was refused before anything was held.',
   sDisabled: 'Withdrawals are turned off for this account.',
   sNotSaved: 'Money is sent only to a saved address.',
   sCooling: 'This address is still in its cooling-off period.',
@@ -623,6 +625,8 @@ const es = {
   sBalance: 'Tu saldo disponible es {amount} {asset}.',
   sNoSigner:
     'El envío a una cartera fuera de INTAFACED no está conectado: no hay un firmante de custodia, así que este retiro se rechazó antes de retener nada.',
+  sDepthUnset:
+    'No hay una profundidad de confirmación publicada para enviar a una cartera fuera de INTAFACED, así que este retiro se rechazó antes de retener nada.',
   sDisabled: 'Los retiros están desactivados para esta cuenta.',
   sNotSaved: 'El dinero solo se envía a una dirección guardada.',
   sCooling: 'Esta dirección sigue en su periodo de espera.',
@@ -1038,6 +1042,8 @@ const fr = {
   sBalance: 'Ton solde disponible est de {amount} {asset}.',
   sNoSigner:
     'L’envoi vers un portefeuille hors d’INTAFACED n’est pas connecté : aucun signataire de garde n’est en place, donc ce retrait a été refusé avant que rien ne soit bloqué.',
+  sDepthUnset:
+    'Aucune profondeur de confirmation n’est publiée pour l’envoi vers un portefeuille hors d’INTAFACED, donc ce retrait a été refusé avant que rien ne soit bloqué.',
   sDisabled: 'Les retraits sont désactivés pour ce compte.',
   sNotSaved: 'L’argent n’est envoyé qu’à une adresse enregistrée.',
   sCooling: 'Cette adresse est encore dans sa période d’attente.',

@@ -414,6 +414,8 @@ export type PayErrorCode =
   | 'pay.withdrawal_fee_unbound'
   /** No custody signer for the network a send out of the platform names (or none named): refused before any claim or hold. */
   | 'pay.wallet_withdraw_unavailable'
+  /** W-withdraw-06: no owner-set depth for a send out of the platform to settle at (`PAY_WITHDRAW_MIN_CONFIRMATIONS` blank): refused before any claim or hold. */
+  | 'pay.withdraw_confirmations_unset'
   /** A send names a tag or memo on a network whose rules take none (J-wallet-05 #1): refused before anything is asked or held. */
   | 'pay.withdrawal_tag_not_taken'
   /** A send names a tag on a network that takes one: svc-pay keeps no tag for a send, so it is refused, never dropped. */

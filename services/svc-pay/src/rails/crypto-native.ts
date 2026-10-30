@@ -583,11 +583,10 @@ export class CryptoNativeAdapter implements RailAdapter {
     }
   }
 
-  /** The send's depth against the owner's `minConfirmations` (blank refused at construction). The chain cannot say: `null`. */
-  async payoutDepth(s: SettlementInstruction): Promise<{ confirmations: number; required: number } | null> {
+  /** The send's depth on the chain; the caller compares it with the owner's settle depth. The chain cannot say: `null`. */
+  async payoutDepth(s: SettlementInstruction): Promise<number | null> {
     try {
-      const confirmations = await this.chain.sendDepth(this.payoutIdempotencyKey(s));
-      return confirmations === null ? null : { confirmations, required: this.minConfirmations };
+      return await this.chain.sendDepth(this.payoutIdempotencyKey(s));
     } catch {
       return null;
     }

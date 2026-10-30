@@ -562,6 +562,7 @@ const walletPay = new WalletPay({
 const withdrawSigners = assertWithdrawSignerPosture(process.env);
 const sendOut = new SendOutDoor({
   signer: withdrawSigners,
+  settleDepth: env.PAY_WITHDRAW_MIN_CONFIRMATIONS ?? null,
   destinations: createBankSendDestinationClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
 });
 

@@ -131,12 +131,14 @@ describe('a send out of the platform confirms later (W-withdraw-06, real Postgre
     await memory.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('300'), rail: RAIL, railRef: 'seed-user' }));
   }, 30_000);
 
-  function money(options: { confirmLater?: boolean; on?: MemoryChain } = {}): UserMoneyService {
+  function money(options: { confirmLater?: boolean; on?: MemoryChain; settleDepth?: number | null } = {}): UserMoneyService {
     const rails = new RailRegistry([
       new CryptoNativeAdapter({ chain: options.on ?? chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
     ]);
     const sendOut = new SendOutDoor({
       signer: assertWithdrawSignerPosture({ APP_ENV: 'test', PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum' }),
+      // The owner's settle depth (TEST 6 here); `null` is blank.
+      settleDepth: options.settleDepth === undefined ? 6 : options.settleDepth,
       destinations: { check: async () => ({ state: 'ready', destinationId: null, coolingOffEndsAt: null }) },
     });
     return new UserMoneyService(sql, flaky.ledger, rails, { operatorCreditRails: [], sendOut, confirmLater: options.confirmLater ?? true });
@@ -296,6 +298,27 @@ describe('a send out of the platform confirms later (W-withdraw-06, real Postgre
     expect(await held(done)).toBe(0n);
     expect(await railOut()).toBe(amt('25'));
     await invariant(done);
+  });
+
+  it('with no settle depth published, a send out refuses with its one typed code and nothing is claimed or held', async () => {
+    const service = money({ settleDepth: null });
+    expect(await codeOf(send(service, 'w-1'))).toBe('pay.withdraw_confirmations_unset');
+    expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(0);
+    expect(await available()).toBe(amt('300'));
+    expect(chain.outboundTransfers()).toEqual([]);
+    expect(await feePot()).toBe(0n);
+  });
+
+  it('a send whose settle depth went blank after its create stays held at any depth and is never settled or given back', async () => {
+    const made = await send(money(), 'w-1');
+    chain.setSendDepth(key(made), 0);
+    await money().advanceWithdrawal(made.id);
+    chain.setSendDepth(key(made), 60);
+    expect(await money({ settleDepth: null }).advanceWithdrawal(made.id)).toMatchObject({ status: 'held', journal: 'confirming' });
+    expect(await held(made)).toBe(amt('26.5'));
+    expect(await railOut()).toBe(0n);
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    await invariant(made);
   });
 
   describe('the worker pass', () => {

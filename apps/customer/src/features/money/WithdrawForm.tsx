@@ -941,9 +941,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               <>
                 <strong>{t('xDoneTitle')}</strong>
                 <p>{t('xDone', { id: outcome.record.id })}</p>
-                <p data-testid="withdraw-outcome-status">
-                  {t(outcome.record.customerStatus ? `s_${outcome.record.customerStatus}` : outcome.record.status)}
-                </p>
+                {outcome.record.customerStatus && <p data-testid="withdraw-outcome-status">{t(`s_${outcome.record.customerStatus}`)}</p>}
                 <a className="text-link" href={`/uc/withdraw?withdrawalId=${encodeURIComponent(outcome.record.id)}`}>
                   {t('sOpen')}
                 </a>

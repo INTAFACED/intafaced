@@ -987,11 +987,13 @@ export class UserMoneyService {
           // the rail accepted may be on the chain, so its hold is never released from this state (ENGINE W-3).
           // Only with the advance worker on: without it nothing would ask again, so the send settles in the request as before.
           if (this.confirmLater && confirmsAtDepth && claimed.networkId !== null) {
+            // The owner's settle depth; blank here (unset since the create) never settles: the hold waits for it.
+            const required = this.sendOut?.settleDepth ?? null;
             const depth = await adapter.payoutDepth!(instruction);
-            if (depth === null || depth.confirmations < depth.required) {
+            if (depth === null || required === null || depth < required) {
               if (depth !== null) {
                 await connection`
-              UPDATE pay.withdrawal_rail_attempts SET confirmations = ${depth.confirmations}
+              UPDATE pay.withdrawal_rail_attempts SET confirmations = ${depth}
                WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'accepted'
             `;
               }
@@ -1000,7 +1002,7 @@ export class UserMoneyService {
               return {
                 ...claimed,
                 status: 'held' as const,
-                journal: depth !== null && depth.confirmations > 0 ? ('confirming' as const) : ('accepted' as const),
+                journal: depth !== null && depth > 0 ? ('confirming' as const) : ('accepted' as const),
                 dispatchJournaled: true,
               };
             }
