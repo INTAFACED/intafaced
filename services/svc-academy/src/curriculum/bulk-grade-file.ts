@@ -14,6 +14,7 @@ import { AcademyError } from '../errors.js';
 export const BULK_GRADE_HEADER = ['learner', 'score', 'comment', 'reason'] as const;
 
 export type BulkGradeRow = { line: number; alias: number; score: string; comment: string | null; reason: string | null };
+/** A bad row's code: a refusal code, or `academy.bulk_row_invalid` for a row that does not read as one (never thrown). */
 export type BulkGradeBadRow = { line: number; alias: number | null; code: string; message: string };
 
 /** Records of a CSV text, each with the line it starts on. Throws on a quote left open. */
@@ -45,7 +46,9 @@ function records(text: string): Array<{ line: number; fields: string[] }> {
       }
       continue;
     }
-    if (ch === '"' && field === '') {
+    // A quote after spaces only still opens a quoted field (`Learner 1, 7, "Good, clear",`).
+    if (ch === '"' && field.trim() === '') {
+      field = '';
       quoted = true;
       touched = true;
     } else if (ch === ',') {

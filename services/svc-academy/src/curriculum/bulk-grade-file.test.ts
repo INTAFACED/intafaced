@@ -5,7 +5,7 @@ const H = 'learner,score,comment,reason';
 
 describe('the bulk grade file (AC-assignments-02)', () => {
   it('reads quoted fields with commas, doubled quotes and line breaks, CRLF or LF, and a byte-order mark', () => {
-    const text = `﻿${H}\r\nLearner 1,7.5,"Good, ""clear"" work",\r\n3,10,"Two\nlines",\r\n`;
+    const text = `﻿${H}\r\nLearner 1,7.5,"Good, ""clear"" work",\r\n3, 10, "Two\nlines",\r\n`;
     expect(readBulkGradeFile(text)).toEqual({
       rows: [
         { line: 2, alias: 1, score: '7.5', comment: 'Good, "clear" work', reason: null },

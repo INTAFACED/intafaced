@@ -13,6 +13,7 @@ import type {
   GradingView,
 } from '@/lib/academy/grading-model';
 import { Failed, Outcome } from '@/components/academy-courses-desk';
+import { ACADEMY_BULK_GRADE_FILE_MAX_CHARS } from '@intafaced/contracts/academy-courses';
 
 /**
  * GRADING QUEUE (AC-assignments-02).
@@ -26,11 +27,13 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
  * with its line and why, and the same file again changes nothing.
  */
 
-const BULK_MAX_CHARS = 262_144;
+/** The route takes a JSON body to 1,000,000 bytes; the file's escaped text must fit in it with the rest of the request. */
+const BULK_MAX_BODY_BYTES = 990_000;
 
 function BulkGrade({ busy, onUpload }: { busy: boolean; onUpload: (fileName: string, csv: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [why, setWhy] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
   return (
     <form
       className="dk-stack"
@@ -38,11 +41,22 @@ function BulkGrade({ busy, onUpload }: { busy: boolean; onUpload: (fileName: str
       onSubmit={(e) => {
         e.preventDefault();
         if (!file) return setWhy('Choose a grade file first.');
-        void file.text().then((csv) => {
-          if (csv.length > BULK_MAX_CHARS) return setWhy(`A grade file runs to ${BULK_MAX_CHARS} characters. Nothing was sent.`);
-          setWhy(null);
-          onUpload(file.name, csv);
-        });
+        if (reading || busy) return;
+        // Held from the click until the upload is sent, so a double click sends the file once.
+        setReading(true);
+        void file
+          .text()
+          .then((csv) => {
+            if (
+              csv.length > ACADEMY_BULK_GRADE_FILE_MAX_CHARS ||
+              new TextEncoder().encode(JSON.stringify(csv)).length > BULK_MAX_BODY_BYTES
+            )
+              return setWhy(`A grade file runs to ${ACADEMY_BULK_GRADE_FILE_MAX_CHARS} characters and about 1 MB. Nothing was sent.`);
+            setWhy(null);
+            onUpload(file.name, csv);
+          })
+          .catch(() => setWhy('The file could not be read. Nothing was sent.'))
+          .finally(() => setReading(false));
       }}
     >
       <h2>Bulk grade</h2>
@@ -55,7 +69,7 @@ function BulkGrade({ busy, onUpload }: { busy: boolean; onUpload: (fileName: str
         <input id="bulk-grade-file" type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </div>
       {why && <p className="dk-why">{why}</p>}
-      <button type="submit" className="adm-btn" disabled={busy}>
+      <button type="submit" className="adm-btn" disabled={busy || reading}>
         Upload grades
       </button>
     </form>
@@ -69,8 +83,9 @@ function BulkResult({ result }: { result: AcademyBulkGradeResult }) {
         {result.fileName}: {result.applied.length} graded, {result.rejected.length} not applied
       </h3>
       <span className="dk-muted">
-        {result.repeated ? 'Uploaded before, at ' : 'Read at '}
-        {formatWhen(result.at)} · sha256 {result.sha256}
+        Read at {formatWhen(result.at)} · sha256 {result.sha256}
+        {result.repeated &&
+          ` · uploaded before: ${result.changed === 0 ? 'nothing changed this time' : `${result.changed} refused before applied now`}`}
       </span>
       <div className="dk-table-wrap" role="region" aria-label="Grade file rows" tabIndex={0}>
         <table className="adm-table">
@@ -214,8 +229,9 @@ export function AcademyGradingQueue({ itemId, initial }: { itemId: string; initi
     setReply(answer);
     setBusy(false);
     // Whatever the answer, the queue shows the hand-ins as svc-academy holds them now.
+    // A bulk upload's table shows that file's rows; any other answer clears it, so an old file's rows never read as new.
+    setBulk(answer.ok && answer.bulk ? answer.bulk : null);
     if (answer.ok) setView({ queue: { kind: 'ok', data: answer.queue }, asOf: new Date().toISOString() });
-    if (answer.ok && answer.bulk) setBulk(answer.bulk);
     else await reload();
     return answer;
   };

@@ -300,7 +300,7 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     ].join('\r\n');
     const bulk = (text = csv, now = NOW) => grading().bulkGrade({ itemId: item.id, fileName: 'grades.csv', csv: text, operatorId: A, now });
     const first = await bulk();
-    expect(first.repeated).toBe(false);
+    expect(first).toMatchObject({ repeated: false, changed: 1 });
     expect(first.applied).toEqual([{ line: 2, alias: 1, score: '7.5' }]);
     expect(first.rejected.map((r) => [r.line, r.alias, r.code])).toEqual([
       [3, 2, 'academy.reason_required'],
@@ -314,13 +314,24 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     const view = await assignments().learnerView({ itemId: item.id, userId: L });
     expect(view.grade).toMatchObject({ score: '7.5', comment: 'Good, clear sizing.' });
 
+    // The same file again grades nothing twice and changes nothing while B still holds Learner 3.
     const again = await bulk(csv, later(5));
-    expect(again).toMatchObject({ repeated: true, sha256: first.sha256, at: first.at, applied: first.applied, rejected: first.rejected });
-    const events = await db.sql<Array<{ n: number }>>`
+    expect(again).toMatchObject({ repeated: true, changed: 0, sha256: first.sha256, applied: first.applied, rejected: first.rejected });
+    const events = () => db.sql<Array<{ n: number }>>`
       SELECT g.n FROM academy.assignment_grade_events g JOIN academy.assignment_submissions s ON s.id = g.submission_id
       WHERE s.item_id = ${item.id}
     `;
-    expect(events).toHaveLength(2);
+    expect(await events()).toHaveLength(2);
+    // Once B's hold has run out, the same file applies the row refused for it, and only that row.
+    const cleared = await bulk(csv, later(16));
+    expect(cleared).toMatchObject({ repeated: true, changed: 1 });
+    expect(cleared.applied).toEqual([
+      { line: 2, alias: 1, score: '7.5' },
+      { line: 4, alias: 3, score: '6' },
+    ]);
+    expect(cleared.rejected.map((r) => r.line)).toEqual([3, 5, 6, 7]);
+    expect(await events()).toHaveLength(3);
+    expect((await bulk(csv, later(20))).changed).toBe(0);
 
     // A fixed file with a reason is a new file: Learner 2's grade changes and keeps its first event.
     const fixed = await bulk('learner,score,comment,reason\n2,9,,Re-marked after review\n');

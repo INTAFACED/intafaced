@@ -958,7 +958,8 @@ export type AcademyGradeSubmissionInput = z.infer<typeof academyGradeSubmissionI
  * `admin.bulkGrade`: a CSV file of grades for one assignment, a header `learner,score,comment,reason` and one row per
  * learner by the alias graders see ("Learner 3" or "3"), never an account. Good rows apply as grade events keyed
  * `grade:<submission>:<file hash>`; each bad row is listed with its line and refusal code. The file is stored by the
- * sha256 of its text, so the same file again answers with the stored result and changes nothing. A header that is not
+ * sha256 of its text: the same file again is `repeated`, grades no row twice, and applies only a row refused before whose
+ * cause has cleared (another grader's hold ran out), so with nothing cleared it changes nothing. A header that is not
  * the one above, or a file with no rows, refuses `academy.bulk_file_invalid` before anything applies.
  */
 export const ACADEMY_BULK_GRADE_FILE_MAX_CHARS = 262_144;
@@ -974,8 +975,11 @@ export const academyBulkGradeResultSchema = z.object({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   fileName: z.string().min(1),
   at: isoInstant,
-  /** True when this file was uploaded before: the stored result, and nothing changed now. */
+  /** True when this file was uploaded before on this assignment. */
   repeated: z.boolean(),
+  /** Rows this upload graded now; on a repeat, the rows it already graded count in `applied` but not here. */
+  changed: z.number().int().nonnegative(),
+  /** Every row this file has graded, now or on an earlier upload of it. */
   applied: z.array(z.object({ line: z.number().int().positive(), alias: z.number().int().positive(), score: z.string() })),
   rejected: z.array(
     z.object({

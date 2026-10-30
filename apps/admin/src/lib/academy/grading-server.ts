@@ -1,5 +1,6 @@
 import 'server-only';
 import {
+  ACADEMY_BULK_GRADE_FILE_MAX_CHARS,
   academyBulkGradeInputSchema,
   academyBulkGradeResultSchema,
   academyGradeSubmissionInputSchema,
@@ -47,7 +48,11 @@ function reply(
             status: 200,
             reply: {
               ok: true,
-              what: result.data.repeated ? `${what}: this file was uploaded before, so nothing changed` : what,
+              what: !result.data.repeated
+                ? what
+                : result.data.changed === 0
+                  ? `${what}: this file was uploaded before, so nothing changed`
+                  : `${what}: this file was uploaded before; ${result.data.changed} row(s) refused then applied now`,
               queue: result.data.queue,
               bulk: result.data,
             },
@@ -84,7 +89,7 @@ const OPS = {
     schema: academyBulkGradeInputSchema,
     procedure: 'admin.bulkGrade',
     what: 'grade file read',
-    why: 'Choose a CSV grade file of up to 262,144 characters.',
+    why: `Choose a CSV grade file of up to ${ACADEMY_BULK_GRADE_FILE_MAX_CHARS} characters.`,
   },
 } as const;
 

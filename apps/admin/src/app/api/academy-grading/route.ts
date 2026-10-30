@@ -50,8 +50,8 @@ export async function POST(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   try {
-    // A grade file runs to 262,144 characters (up to four bytes each in UTF-8, capped by the edge's 1 MB body), so this
-    // route takes up to 1 MB rather than the console's 16 KiB.
+    // A grade file runs to 262,144 characters, so this route takes a body to 1,000,000 bytes (under the edge's 1 MiB)
+    // rather than the console's 16 KiB; the console checks the encoded size before it sends a file.
     const body = await readAdminJson(request, BODY_BYTES);
     if (!isGradingOp(body.op)) return incomplete('Unknown action.');
     const answer = await changeGrading(session, body.op, body);

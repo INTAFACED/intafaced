@@ -1066,7 +1066,6 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.reason_required':
     case 'academy.grade_invalid':
     case 'academy.bulk_file_invalid':
-    case 'academy.bulk_row_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
