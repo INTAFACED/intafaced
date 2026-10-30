@@ -70,14 +70,21 @@ export function sessionsForHead(commits, sha) {
 }
 
 /**
- * The sessions a PASS names: the ids on its `Reviewer session:` lines (docs/agents/reviewer-brief.md), or, when those
- * lines name none, every session id in the comment.
+ * The sessions a PASS names as its reviewer: the first session id on each `Reviewer session:` line
+ * (docs/agents/reviewer-brief.md), or, when those lines name none, the first session id in the comment. Only the first,
+ * because the line may go on to name the author ("Reviewer session: session_R (author is session_A)"), and a PASS that
+ * mentions the author is not the author's PASS.
  */
 export function passSessions(body) {
   const lines = String(body ?? '').split('\n');
-  const ids = (ls) => ls.flatMap((l) => l.match(SESSION_ID) ?? []);
-  const named = ids(lines.filter((l) => /^Reviewer session:/i.test(l.trim())));
-  return new Set(named.length > 0 ? named : ids(lines));
+  const first = (l) => (l.match(SESSION_ID) ?? [])[0];
+  const named = lines
+    .filter((l) => /^Reviewer session:/i.test(l.trim()))
+    .map(first)
+    .filter(Boolean);
+  if (named.length > 0) return new Set(named);
+  const any = lines.map(first).find(Boolean);
+  return new Set(any ? [any] : []);
 }
 
 /**
@@ -263,6 +270,14 @@ function selfTest() {
       false,
     ],
     [input([pass('nino', `Independent review: PASS ${sha}`)], { authorSessions: undefined }), false],
+    // #6849, 30 Oct: the reviewer's line also named the author; it is the reviewer's PASS.
+    [
+      input(
+        [pass('nino', `Independent review: PASS ${sha}\n\nReviewer session: session_R2 (INTAFACED R2 review; author is G, session_A1)`)],
+        { authorSessions: new Set(['session_A1']) },
+      ),
+      true,
+    ],
   ];
   for (const [args, want] of commentCases) {
     if (hasCommentSignoff(args) !== want) {
