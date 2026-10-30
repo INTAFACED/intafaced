@@ -200,6 +200,7 @@ const en = {
   lUnset: 'No withdrawal limit is set for your account level and this asset, so nothing can be sent.',
   lOff: 'Withdrawal limits are not switched on, so nothing can be sent.',
   lTier: 'Your account level could not be read, so nothing can be sent.',
+  xRequested: 'We have your request and are recording it. Wait for the answer here; do not confirm it again.',
   xDoneTitle: 'Withdrawal recorded',
   xDone: 'Withdrawal {id} is recorded. Follow its status below.',
   xUnknownTitle: 'Answer not received',
@@ -212,6 +213,8 @@ const en = {
   sBalance: 'Your available balance is {amount} {asset}.',
   sNoSigner:
     'Sending to a wallet outside INTAFACED isn’t connected: no custody signer is set up, so this withdrawal was refused before anything was held.',
+  sDepthUnset:
+    'No confirmation depth is published for sending to a wallet outside INTAFACED, so this withdrawal was refused before anything was held.',
   sDisabled: 'Withdrawals are turned off for this account.',
   sNotSaved: 'Money is sent only to a saved address.',
   sCooling: 'This address is still in its cooling-off period.',
@@ -609,6 +612,7 @@ const es = {
   lUnset: 'No hay límite de retiro fijado para tu nivel de cuenta y este activo, así que no se puede enviar nada.',
   lOff: 'Los límites de retiro no están activados, así que no se puede enviar nada.',
   lTier: 'No se pudo leer tu nivel de cuenta, así que no se puede enviar nada.',
+  xRequested: 'Recibimos tu solicitud y la estamos registrando. Espera la respuesta aquí; no la confirmes de nuevo.',
   xDoneTitle: 'Retiro registrado',
   xDone: 'El retiro {id} está registrado. Sigue su estado abajo.',
   xUnknownTitle: 'No llegó la respuesta',
@@ -621,6 +625,8 @@ const es = {
   sBalance: 'Tu saldo disponible es {amount} {asset}.',
   sNoSigner:
     'El envío a una cartera fuera de INTAFACED no está conectado: no hay un firmante de custodia, así que este retiro se rechazó antes de retener nada.',
+  sDepthUnset:
+    'No hay una profundidad de confirmación publicada para enviar a una cartera fuera de INTAFACED, así que este retiro se rechazó antes de retener nada.',
   sDisabled: 'Los retiros están desactivados para esta cuenta.',
   sNotSaved: 'El dinero solo se envía a una dirección guardada.',
   sCooling: 'Esta dirección sigue en su periodo de espera.',
@@ -1023,6 +1029,7 @@ const fr = {
   lUnset: 'Aucune limite de retrait n’est fixée pour ton niveau de compte et cet actif : rien ne peut être envoyé.',
   lOff: 'Les limites de retrait ne sont pas activées : rien ne peut être envoyé.',
   lTier: 'Ton niveau de compte n’a pas pu être lu : rien ne peut être envoyé.',
+  xRequested: 'Nous avons reçu ta demande et l’enregistrons. Attends la réponse ici ; ne la confirme pas à nouveau.',
   xDoneTitle: 'Retrait enregistré',
   xDone: 'Le retrait {id} est enregistré. Suis son statut ci-dessous.',
   xUnknownTitle: 'Réponse non reçue',
@@ -1035,6 +1042,8 @@ const fr = {
   sBalance: 'Ton solde disponible est de {amount} {asset}.',
   sNoSigner:
     'L’envoi vers un portefeuille hors d’INTAFACED n’est pas connecté : aucun signataire de garde n’est en place, donc ce retrait a été refusé avant que rien ne soit bloqué.',
+  sDepthUnset:
+    'Aucune profondeur de confirmation n’est publiée pour l’envoi vers un portefeuille hors d’INTAFACED, donc ce retrait a été refusé avant que rien ne soit bloqué.',
   sDisabled: 'Les retraits sont désactivés pour ce compte.',
   sNotSaved: 'L’argent n’est envoyé qu’à une adresse enregistrée.',
   sCooling: 'Cette adresse est encore dans sa période d’attente.',

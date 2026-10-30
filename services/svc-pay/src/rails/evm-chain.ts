@@ -224,6 +224,22 @@ export class EvmLiveChain implements CryptoChainPort {
     return { state: 'not_sent' };
   }
 
+  /**
+   * The depth of the send journalled under this key: the block that mined it and every block since. No hash journalled, no
+   * receipt yet, or a node that does not answer is `null` or 0, never a guess; a reverted receipt is `null` (it never
+   * counts as confirmed).
+   */
+  async sendDepth(idempotencyKey: string): Promise<number | null> {
+    const hash = await this.broadcasts.get(idempotencyKey);
+    if (!hash) return null;
+    const receipt = await this.receiptFor(hash as Hex);
+    if (!receipt) return 0;
+    if (receipt.status !== 'success') return null;
+    const tip = await this.public.getBlockNumber();
+    const depth = tip - receipt.blockNumber + 1n;
+    return depth < 0n ? 0 : Number(depth);
+  }
+
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
     // Class M / DIRECTION §3.1: shape-check BEFORE claim → sign → putSigned →
     // sendRaw → put hash → wait. isAddress after claim left a permanent
