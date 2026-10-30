@@ -145,7 +145,13 @@ export function AgentsCatalogue({
                     <a className="button button--secondary" href={agent.href}>
                       <Copy k="openRoom" />
                     </a>
-                  ) : null}
+                  ) : (
+                    // An agent no customer can open yet stays in the catalogue with its open button off; its card's
+                    // details name the blocker.
+                    <Button disabled>
+                      <Copy k="openSession" />
+                    </Button>
+                  )}
                 </div>
               </article>
             );
