@@ -3,11 +3,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import type { Principal } from '@intafaced/auth';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, rewardsEngine } from '@intafaced/ledger-client';
 import { epochReward, type EmissionParams } from './economics/emission.js';
 import { STAKE_TIERS, stakeWeight, unlockDate } from './economics/staking.js';
+import { createTokenRouter } from './router.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { TokenService, previewStakeTerms, type TokenError } from './token-service.js';
 
@@ -29,6 +32,29 @@ const migrations = readdirSync(drizzle)
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
+const EDGE_SECRET = 'a-token-owner-reads-test-edge-secret-long';
+const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-token' });
+
+/** A signed edge context for `userId` holding token:read, so a read goes through the router and its output check. */
+function signedReader(userId: string) {
+  const raw = encodePrincipal({
+    sub: userId,
+    userId,
+    sid: '33333333-3333-4333-8333-333333333333',
+    scopes: ['token:read'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as Principal);
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+    id: 'req-token-owner-reads',
+  });
+}
 
 describe('published terms', () => {
   it('imports the stake-path tier constants and does not publish a minimum', () => {
@@ -315,6 +341,56 @@ describe('token owner reads', () => {
     const other = await token.myVotes(USER_B, 10);
     expect(other.items.map((vote) => vote.proposalId)).toEqual([hidden]);
     expect(other.items[0]!.weight).toBe('99');
+  });
+
+  it('lists an approval, a weighted and a ranked ballot through the router, each with its stored ballot and no basic choice', async () => {
+    const ballots = [
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1',
+        type: 'approval',
+        ballot: { kind: 'pick', choices: [0, 2] },
+        at: '2026-06-01T00:00:00.000001Z',
+      },
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',
+        type: 'weighted',
+        ballot: {
+          kind: 'split',
+          parts: [
+            { choice: 0, bps: 6_000 },
+            { choice: 1, bps: 4_000 },
+          ],
+        },
+        at: '2026-06-02T00:00:00.000001Z',
+      },
+      {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3',
+        type: 'ranked_choice',
+        ballot: { kind: 'pick', choices: [2, 0, 1] },
+        at: '2026-06-03T00:00:00.000001Z',
+      },
+    ] as const;
+    for (const vote of ballots) {
+      await sql`
+        INSERT INTO token.proposals (id, kind, body, status, opens_at, closes_at, voting_type, choices)
+        VALUES (
+          ${vote.id}, 'fee_param', ${sql.json({ title: `TEST ${vote.type}` })}, 'open',
+          '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z', ${vote.type}, ${sql.json(['A', 'B', 'C'])}
+        )
+      `;
+      await sql`
+        INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, ballot, cast_at)
+        VALUES (${crypto.randomUUID()}, ${vote.id}, ${USER_A}, '3'::numeric, NULL, ${sql.json(vote.ballot)}, ${vote.at}::timestamptz)
+      `;
+    }
+
+    const page = await createTokenRouter(token).createCaller(signedReader(USER_A)).myVotes({ limit: 10 });
+    expect(page.nextCursor).toBeNull();
+    expect(page.items.map((vote) => [vote.proposalId, vote.title, vote.choice, vote.ballot, vote.weight])).toEqual([
+      [ballots[2].id, 'TEST ranked_choice', null, ballots[2].ballot, '3'],
+      [ballots[1].id, 'TEST weighted', null, ballots[1].ballot, '3'],
+      [ballots[0].id, 'TEST approval', null, ballots[0].ballot, '3'],
+    ]);
   });
 
   it('returns blank emission parameters as null and projects epochs with epochReward without writing a row', async () => {

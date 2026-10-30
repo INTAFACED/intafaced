@@ -438,7 +438,10 @@ export interface VoteHistoryItem {
   readonly proposalId: string;
   readonly title: string | null;
   readonly titleReason: 'proposal_title_unset' | null;
-  readonly choice: 'for' | 'against' | 'abstain';
+  /** For/against/abstain on a basic proposal. Null when `ballot` holds the vote. */
+  readonly choice: 'for' | 'against' | 'abstain' | null;
+  /** A non-basic ballot as stored (approval, weighted, ranked and the rest). Exactly one of choice or ballot is set. */
+  readonly ballot: Ballot | null;
   /** Weight stored on the ballot. Never recomputed from a later stake. */
   readonly weight: string;
   readonly castAt: string;
@@ -1334,14 +1337,15 @@ export class TokenService {
       Array<{
         proposal_id: string;
         body: unknown;
-        choice: 'for' | 'against' | 'abstain';
+        choice: 'for' | 'against' | 'abstain' | null;
+        ballot: unknown;
         weight: string;
         cast_at: Date;
         cast_cursor: string;
         id: string;
       }>
     >`
-      SELECT v.proposal_id, p.body, v.choice, v.weight::text AS weight, v.cast_at, v.id,
+      SELECT v.proposal_id, p.body, v.choice, v.ballot, v.weight::text AS weight, v.cast_at, v.id,
              to_char(v.cast_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_cursor
         FROM token.governance_votes v
         JOIN token.proposals p ON p.id = v.proposal_id
@@ -1360,6 +1364,7 @@ export class TokenService {
           title: title.title,
           titleReason: title.reason,
           choice: row.choice,
+          ballot: asBallotError(() => parseStoredBallot(row.ballot)),
           weight: formatAmount(parseAmount(row.weight)),
           castAt: row.cast_at.toISOString(),
         };
