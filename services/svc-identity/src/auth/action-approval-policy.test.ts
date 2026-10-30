@@ -344,7 +344,9 @@ describe('governed approve and consume', () => {
       {
         ttlSeconds: 600,
         founders: { isFounder: async (id) => founders.has(id) },
-        policies: approvalPolicySource(() => setting({ 'ops.ledger.adjust': row({ approverAudience: 'founder', requiredApprovals: '1' }) })),
+        policies: approvalPolicySource(() =>
+          setting({ 'ops.ledger.adjust': row({ approverAudience: 'founder', requiredApprovals: '1' }) }),
+        ),
       },
       () => NOW,
     );
