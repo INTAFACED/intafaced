@@ -120,7 +120,7 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   const session = await api(who);
   const STATUS = '/api/identity/trpc/accountStatus.mine';
   expect((await session.get(STATUS)).status).toBe(200);
-  expect((await withKey(key, { path: '/api/identity/trpc/developerKeys.list' })).status).toBe(200);
+  expect((await withKey(key, { path: STATUS })).status).toBe(200);
   // Before the freeze the withdrawal guard lets this person go on to the address form.
   const open = await withdrawalCheck(session);
   expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
@@ -140,7 +140,7 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
 
   // No session and no key remain: the sign-in made before the freeze, the key, and the browser's own session all refuse.
   expect((await session.get(STATUS)).status).toBe(401);
-  expect((await withKey(key, { path: '/api/identity/trpc/developerKeys.list' })).status).toBe(401);
+  expect((await withKey(key, { path: STATUS })).status).toBe(401);
   await page.goto('/uc/safe');
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
 
