@@ -12,7 +12,7 @@ import {
   TRPCError,
   type ProtocolPoolFees,
 } from '@intafaced/contracts';
-import { classifyChainError, isZeroAddress } from '../chain/availability.js';
+import { chainRefusal, classifyChainError, isZeroAddress } from '../chain/availability.js';
 import { factoryAbi, poolAbi } from './abi.js';
 
 /** The reads `readPoolFees` needs, all at one block. `ChainClient` provides them through `poolFeesChain`. */
@@ -46,8 +46,22 @@ export function poolFeesChain(client: () => PublicClient, rpcUrl: () => string, 
         ]);
         return { token0, token1, feeBps: Number(feeBps) };
       } catch (err) {
-        if (notAnAnswer(err)) return null;
-        throw classifyChainError(err, 'poolFields', rpcUrl());
+        if (!notAnAnswer(err)) throw classifyChainError(err, 'poolFields', rpcUrl());
+        // No code at this block is not "not a pool": a node behind the head has not seen a new pool. Only code that
+        // answered, but not as a pool, is a claim about the address.
+        const code = await client()
+          .getCode({ address: pool, blockNumber })
+          .catch((codeErr: unknown) => {
+            throw classifyChainError(codeErr, 'poolFields', rpcUrl());
+          });
+        if (!code || code === '0x')
+          throw chainRefusal(
+            'protocol.contract_not_deployed',
+            rpcUrl(),
+            err,
+            `poolFields: ${pool} holds no contract code at block ${blockNumber}, so nothing is said about its fees.`,
+          );
+        return null;
       }
     },
     async factoryPool(factory, token0, token1, feeBps, blockNumber) {

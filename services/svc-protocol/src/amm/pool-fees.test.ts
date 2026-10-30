@@ -98,15 +98,24 @@ describe('poolFeesChain', () => {
       functionName: 'feeBps',
       contractAddress: POOL,
     });
-  const viaClient = (readContract: () => Promise<unknown>) =>
+  const viaClient = (readContract: () => Promise<unknown>, getCode: () => Promise<unknown> = async () => '0x6080') =>
     poolFeesChain(
-      () => ({ readContract }) as unknown as PublicClient,
+      () => ({ readContract, getCode }) as unknown as PublicClient,
       () => 'http://127.0.0.1:1',
       async () => 1n,
     );
 
   it('a call that reverts is "not a pool", never "the chain is unreachable"', async () => {
     await expect(viaClient(() => Promise.reject(revert())).poolFields(POOL, 1n)).resolves.toBeNull();
+  });
+
+  it('an address with no code at the block is "not deployed there", never a claim that it is not a pool', async () => {
+    await expect(
+      viaClient(
+        () => Promise.reject(revert()),
+        async () => undefined,
+      ).poolFields(POOL, 1n),
+    ).rejects.toMatchObject({ code: 'protocol.contract_not_deployed' });
   });
 
   it('a node that does not answer is the shared typed chain refusal', async () => {
