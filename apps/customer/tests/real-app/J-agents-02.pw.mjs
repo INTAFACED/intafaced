@@ -173,9 +173,28 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   await expect(refusedRow.locator('code')).toHaveText('agents.spend_limit');
   await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
   expect(await ledgerBalances(agents.account())).toEqual(before);
-  // Raised back to 1, the person's 0.02 is the lower again.
+  // Raised back to 1, the person's 0.02 is the lower again, and a run whose worst case is within it is admitted.
   await setAgentCap(page, '1');
   await expect(limits(page).getByTestId('effective-per-session')).toHaveText('0.02 USDT applies');
+  const [agent] = (await ownRead(agents.account(), 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
+  const executed = async () =>
+    (await ownRead(agents.account(), 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === 'executed');
+  const executedBefore = await executed();
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await expect(session(page).getByRole('alert')).toHaveCount(0);
+  const replyCost = (await session(page).getByTestId('reply-cost').innerText()).replace(/ USDT$/, '');
+  const executedAfter = await executed();
+  expect(executedAfter).toHaveLength(executedBefore.length + 1);
+  const ran = executedAfter.find((row) => !executedBefore.some((old) => old.sessionId === row.sessionId && old.sequence === row.sequence));
+  expect(ran).toMatchObject({ refusalCode: null, cost: replyCost, assetId: 'USDT' });
+  expect(toUnits(ran.cost)).toBeGreaterThan(0n);
+  expect(toUnits(ran.cost)).toBeLessThanOrEqual(toUnits('0.02'));
 });
 
 test(`${J} #3 starts two runs together whose worst cases are each more than half the cap: exactly one is admitted, the other refused before the engine and bills 0`, async ({
@@ -192,31 +211,35 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   const [agent] = (await ownRead(agents.account(), 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
   const ownRuns = async (status) =>
     (await ownRead(agents.account(), 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === status);
+  const executed = () => ownRuns('executed');
   const refusedBefore = await ownRuns('refused');
-  const executedBefore = await ownRuns('executed');
+  const executedBefore = await executed();
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length);
+  await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length);
   const before = await ledgerBalances(agents.account());
   await session(page).getByRole('button', { name: 'Run twice at once' }).click();
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_exceeded');
-  const admitted = runs.getByRole('row').filter({ hasText: 'Admitted' });
-  await expect(admitted).toHaveCount(1);
-  // One more refused row than before (#2 left one of its own), and it is this cap's.
+  // One more admitted and one more refused row than before (#2 left one of each), and the refused one is this cap's.
+  await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length + 1);
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length + 1);
-  // svc-agents holds exactly one new refused run, this cap's, and exactly one new executed run.
+  // svc-agents holds exactly one new refused run, this cap's.
   const refusedAfter = await ownRuns('refused');
   expect(refusedAfter).toHaveLength(refusedBefore.length + 1);
   expect(refusedAfter.filter((row) => row.refusalCode === 'agents.spend.cap_exceeded')).toHaveLength(1);
-  expect(await ownRuns('executed')).toHaveLength(executedBefore.length + 1);
   const refused = runs.getByRole('row').filter({ hasText: 'agents.spend.cap_exceeded' });
   await expect(refused).toHaveCount(1);
   await expect(refused).toContainText('Refused');
   await expect(refused.getByTestId('run-cost')).toHaveText('0 USDT');
-  // The admitted run's exact cost is the one its reply showed, above 0 and within the per-call cap.
-  const cost = (await admitted.getByTestId('run-cost').innerText()).replace(/ USDT$/, '');
-  await expect(session(page).getByTestId('reply-cost')).toHaveText(`${cost} USDT`);
-  expect(toUnits(cost)).toBeGreaterThan(0n);
-  expect(toUnits(cost)).toBeLessThanOrEqual(toUnits('0.012'));
+  // The admitted run, read back from svc-agents, is the one new executed run; its exact cost is the one its reply
+  // showed, above 0 and within the per-call cap.
+  const executedAfter = await executed();
+  expect(executedAfter).toHaveLength(executedBefore.length + 1);
+  const ran = executedAfter.find((row) => !executedBefore.some((old) => old.sessionId === row.sessionId && old.sequence === row.sequence));
+  await expect(session(page).getByTestId('reply-cost')).toHaveText(`${ran.cost} USDT`);
+  expect(ran).toMatchObject({ refusalCode: null, assetId: 'USDT' });
+  expect(toUnits(ran.cost)).toBeGreaterThan(0n);
+  expect(toUnits(ran.cost)).toBeLessThanOrEqual(toUnits('0.012'));
   // Nothing is billed and nothing is held in the ledger: every balance, free and used, is as it was before the two
   // runs (the admitted run is charged only when its window seals).
   expect(await ledgerBalances(agents.account())).toEqual(before);
