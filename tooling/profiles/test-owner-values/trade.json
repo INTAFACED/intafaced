@@ -78,18 +78,38 @@
     },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"]}",
-      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused), and BTC as the one asset the desk quotes, the base of the stack's one TEST mid (J-copy-bots-otc-24 #1 reads it back, and blank it refuses)."
+      "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"], \"minTier\": \"full\"}",
+      "note": "TEST quote desk law: 20 bps disclosed spread, a 100 IFC stake floor (J-copy-bots-otc-24 stakes it; one below it is refused), the platform as counterparty, a 60 s firm quote so a journey sees one expire, a reference price trusted for one day (the stack's boot-stamped TEST mid), a 60 s window to settle an accepted quote so a journey sees one close, and a 1000 USDT desk minimum per request (J-copy-bots-otc-24 #4 asks below it and is refused), and BTC as the one asset the desk quotes, the base of the stack's one TEST mid (J-copy-bots-otc-24 #1 reads it back, and blank it refuses), and full verification as the lowest level the desk prices for, the level the stack's verify step grants (J-copy-bots-otc-24 #3 asks at basic and is refused, and blank it refuses)."
     },
     "TRADE_OTC_MAKER_DIRECTORY": {
       "service": "trade",
       "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\"}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\"}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\"}]}",
       "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, which refuse by name until outside routing exists, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused). Not real providers."
     },
+    "TRADE_OTC_CONVERT_BOUNDS": {
+      "service": "trade",
+      "value": "{\"convert\": {\"minQty\": \"0.1\", \"maxQty\": \"5\"}}",
+      "note": "TEST size range for a conversion at the desk price: 0.1 to 5 BTC, so J-copy-bots-otc-24 #9 converts 0.2 inside it, and blank it refuses trade.convert_bounds_not_set. One-click buy is left out, so it reads not set."
+    },
     "TRADE_OTC_MIDS": {
       "service": "trade",
       "value": "BTC/USDT:65000",
       "note": "TEST reference price for the quote desk: the TEST BTC/USDT book's start price on the local stack, stamped at boot. Not a market price."
+    },
+    "TRADE_GRID_COUNT_MIN": {
+      "service": "trade",
+      "value": "2",
+      "note": "TEST lowest grid count a spot grid bot may use: 2, the structural floor (two levels to trade between), so a count of 1 is refused (trade.bots_grid_count_out_of_range)."
+    },
+    "TRADE_GRID_COUNT_MAX": {
+      "service": "trade",
+      "value": "100",
+      "note": "TEST highest grid count a spot grid bot may use: 100, so the journeys' 20 grids plan inside the range."
+    },
+    "TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS": {
+      "service": "trade",
+      "value": "1000",
+      "note": "TEST distance each grid bound may sit from the market price when a bot is created: 1000 bps (10%), so the journeys' ranges about 5% from the TEST mid are accepted and a bound beyond 10% is refused (trade.bots_grid_bounds_out_of_band)."
     },
     "TRADE_DEVELOPER_HOSTS": {
       "service": "trade",

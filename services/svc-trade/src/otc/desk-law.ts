@@ -5,10 +5,14 @@
  * never defaulted. Blank / unpublished → refuse-closed.
  */
 
+import { TIER_ORDER, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
 import { normalizeOtcAsset } from './mid-source.js';
+
+/** A verification tier the owner may require of desk callers: never 'none', which would be no gate at all. */
+export type OtcMinTier = Exclude<Principal['tier'], 'none'>;
 
 export type OtcCounterpartyMode = 'platform' | 'maker';
 
@@ -44,6 +48,11 @@ export type OtcDeskLaw =
        * overview reads "Not set" and every desk request refuses `trade.otc_assets_unset`.
        */
       readonly assets?: readonly string[] | null;
+      /**
+       * The lowest verification tier that may ask the desk for a price (CB-otc-08). Owner-published only. Null is blank:
+       * every quote refuses `trade.otc_level_unset`, never a default level.
+       */
+      readonly minTier?: OtcMinTier | null;
     };
 
 /** Production default — no invent. */
@@ -137,8 +146,22 @@ export function parseOtcDeskLawJson(raw: string | null | undefined): OtcDeskLaw 
 
   // Optional: absent or null is blank, and a blank asset list refuses every desk request, never a default list.
   const assets = parseAssets(obj.assets ?? null);
+  // Optional: absent or null is blank, and a blank level refuses every quote.
+  const minTier = parseMinTier(obj.minTier ?? null);
 
-  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs, minNotional, assets };
+  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs, minNotional, assets, minTier };
+}
+
+/** `"full"`: the lowest verification tier the desk prices for. */
+function parseMinTier(raw: unknown): OtcMinTier | null {
+  if (raw === null) return null;
+  if (typeof raw === 'string' && raw !== 'none' && Object.hasOwn(TIER_ORDER, raw)) return raw as OtcMinTier;
+  const tiers = Object.keys(TIER_ORDER).filter((tier) => tier !== 'none');
+  throw new OtcError(
+    `TRADE_OTC_DESK_LAW.minTier must be one of ${tiers.join(', ')}, or left out (got ${JSON.stringify(raw)})`,
+    'trade.otc_desk_law_blank',
+    OTC_DESK_LAW_RESIDUAL,
+  );
 }
 
 /** `["BTC", "ETH"]`: the base assets the desk quotes, each named once. */
@@ -205,7 +228,7 @@ export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
     logRefusalSpec('trade.otc_desk_law_blank');
     return 'published=0 residual=otc_desk_law_unset';
   }
-  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)} minNotional=${minNotionalLabel(law.minNotional ?? null)} assets=${law.assets?.join(',') || 'unset'}`;
+  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)} minNotional=${minNotionalLabel(law.minNotional ?? null)} assets=${law.assets?.join(',') || 'unset'} minTier=${law.minTier ?? 'unset'}`;
 }
 
 function minNotionalLabel(table: Readonly<Record<string, Amount>> | null): string {

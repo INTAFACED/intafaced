@@ -7,7 +7,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, orderHoldAccount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
+import { holdAccountOf } from '../spot/buyback-order.js';
 import type { ListMarketInput } from '../spot/trade-service.js';
 import type { Market, ReconcileResult } from '../spot/types.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../spot/hold-outcome.js';
@@ -237,7 +238,7 @@ export class TradeOpsAdmin {
     const fills = await this.deps.sql<Array<{ id: string; price: string; qty: string; quote_amount: string; fee_amount: string }>>`
       SELECT id, price::text, qty::text, quote_amount::text, fee_amount::text
         FROM trade.fills WHERE order_id = ${orderId} ORDER BY ts ASC, id ASC`;
-    const hold = orderHoldAccount(order.user_id, order.hold_asset, order.id);
+    const hold = holdAccountOf({ id: order.id, userId: order.user_id, holdAsset: order.hold_asset });
     await writeOperatorAudit(this.deps.sql, {
       kind: 'orders.get',
       operatorId: principal.userId,

@@ -25,6 +25,8 @@ import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballo
 import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
+import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
+import type { LaunchService } from './launch/launch-service.js';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -224,6 +226,8 @@ export interface TokenRouterOptions {
    * IDENTITY_URL must refuse, never invent a second person.
    */
   approvals?: ActionApprovalConsumer;
+  /** `token.launch.*` (J-more-catalogue-11). Omitted in tests that do not touch launches. */
+  launch?: { service: LaunchService } & Omit<LaunchRouterOptions, 'approvals'>;
 }
 
 function toTrpcError(err: unknown): TRPCError {
@@ -284,6 +288,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.governance_execute_unwired':
       case 'token.delegation_unavailable':
       case 'token.treasury_figure_unreadable':
+      case 'token.vote_history_unreadable':
       case 'token.proposal_list_limit_unset':
       case 'token.proposer_rule_unset':
       case 'token.proposal_limit_unset':
@@ -692,14 +697,17 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(
         z.object({
           items: z.array(
-            z.object({
-              proposalId: proposalIdWire,
-              title: z.string().nullable(),
-              titleReason: z.literal('proposal_title_unset').nullable(),
-              choice: voteChoice,
-              weight: amountString,
-              castAt: z.string(),
-            }),
+            z
+              .object({
+                proposalId: proposalIdWire,
+                title: z.string().nullable(),
+                titleReason: z.literal('proposal_title_unset').nullable(),
+                votingType,
+                weight: amountString,
+                castAt: z.string(),
+              })
+              // Exactly one of a basic choice or a stored ballot, as the table holds it.
+              .and(z.union([z.object({ choice: voteChoice, ballot: z.null() }), z.object({ choice: z.null(), ballot: ballotWire })])),
           ),
           nextCursor: z.string().nullable(),
         }),
@@ -1418,6 +1426,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           return token.governanceHome(userId, asAdmin);
         }),
       ),
+    ...(options.launch ? { launch: createLaunchRouter(options.launch.service, { ...options.launch, approvals }) } : {}),
   });
 }
 

@@ -137,7 +137,12 @@ function firstSliceQty(input: CreateTwapInput, lotSize: Amount, povVolume: Amoun
     return planVwapSlices({ totalQty: input.totalQty, volumes: input.volumeProfile!, lotSize }).slices[0]!;
   }
   if (povVolume == null || povVolume <= 0n) {
-    immature(input.symbol, 'POV lookback has no recent traded volume — refuse rather than invent a tape');
+    immature(
+      input.symbol,
+      input.povBasis === 'opposite_liquidity'
+        ? 'POV opposite-side book is empty — refuse rather than apply participation to an invented book'
+        : 'POV lookback has no recent traded volume — refuse rather than invent a tape',
+    );
   }
   const qty = planPovSliceQty({
     intervalVolume: povVolume,
@@ -148,7 +153,9 @@ function firstSliceQty(input: CreateTwapInput, lotSize: Amount, povVolume: Amoun
   if (qty <= 0n) {
     immature(
       input.symbol,
-      'POV lookback volume does not cover one lot at the participation rate — refuse rather than start a slice that cannot place',
+      input.povBasis === 'opposite_liquidity'
+        ? 'POV opposite-side book does not cover one lot at the participation rate — refuse rather than start a slice that cannot place'
+        : 'POV lookback volume does not cover one lot at the participation rate — refuse rather than start a slice that cannot place',
     );
   }
   return qty;
@@ -236,7 +243,9 @@ export async function gateAlgoCreate(ctx: AlgoCreateGateInput): Promise<void> {
   if ((ctx.input.kind ?? 'twap') === 'twap' && ctx.input.randomSeed != null) assertRandomSlicesTradable(ctx.input, ctx.market);
 
   let povVolume: Amount | null = null;
-  if ((ctx.input.kind ?? 'twap') === 'pov') {
+  if ((ctx.input.kind ?? 'twap') === 'pov' && ctx.input.povBasis === 'opposite_liquidity') {
+    povVolume = ctx.input.oppositeBookQty ?? null;
+  } else if ((ctx.input.kind ?? 'twap') === 'pov') {
     const to = ctx.now;
     const from = new Date(to.getTime() - ctx.input.sliceIntervalMs);
     povVolume = await queryTakerVolumeFromFills(ctx.sql, { marketId: ctx.market.id, from, to });

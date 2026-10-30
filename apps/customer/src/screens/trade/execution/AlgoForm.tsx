@@ -7,7 +7,7 @@ import { Badge, Button, Checkbox, Field, Input, KeyValue, SegmentedControl, fmtA
 import { useNow, useRoomApi } from '../rooms/read';
 import { rememberId } from '../rooms/store';
 import type { RoomWriter } from '../rooms/write';
-import type { AlgoParent, AlgoPolicy } from '../rooms/api';
+import type { AlgoParent, AlgoPolicy, PovBasis } from '../rooms/api';
 import { execCopy } from './copy';
 import { useLast, type ExecMarket } from './data';
 import {
@@ -36,6 +36,8 @@ export interface AlgoFormValues {
   total: string;
   limit: string;
   pov: string;
+  /** POV only: what the participation rate is applied to. */
+  basis: PovBasis;
   /** TWAP only: random slice sizes fixed by `seed`. */
   random: boolean;
   seed: string;
@@ -53,6 +55,7 @@ export const FORM_DEFAULTS: AlgoFormValues = {
   total: '',
   limit: '',
   pov: '1000',
+  basis: 'traded_volume',
   random: false,
   seed: '',
   trigger: '',
@@ -71,6 +74,7 @@ export function valuesFrom(parent: AlgoParent): AlgoFormValues {
     total: parent.totalQty,
     limit: parent.limitPrice ?? '',
     pov: String(parent.participationBps ?? 1000),
+    basis: parent.povBasis ?? 'traded_volume',
     random: parent.randomSeed != null,
     seed: parent.randomSeed != null ? String(parent.randomSeed) : '',
     trigger: parent.triggerPrice ?? '',
@@ -202,7 +206,7 @@ export function AlgoForm({
           kind: form.kind,
           clientAlgoId,
           ...(form.limit.trim() ? { limitPrice: form.limit.trim() } : {}),
-          ...(form.kind === 'pov' ? { participationBps: povBps! } : {}),
+          ...(form.kind === 'pov' ? { participationBps: povBps!, povBasis: form.basis } : {}),
           ...(seed !== null ? { randomSeed: seed } : {}),
           ...(trigger !== null ? { triggerPrice: trigger } : {}),
         });
@@ -343,6 +347,19 @@ export function AlgoForm({
           density="dense"
         />
       </Field>
+      {form.kind === 'pov' ? (
+        <Field label={t('Participation basis')} hint={t(`Participation basis hint ${form.basis}`)}>
+          <Pick
+            label={t('Participation basis')}
+            value={form.basis}
+            options={[
+              { value: 'traded_volume', label: t('Traded volume') },
+              { value: 'opposite_liquidity', label: t('Opposite-side liquidity') },
+            ]}
+            onChange={(v) => set('basis', v)}
+          />
+        </Field>
+      ) : null}
       {form.kind === 'pov' ? (
         <Field
           label={t('Participation, basis points')}

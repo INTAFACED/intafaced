@@ -360,6 +360,9 @@ export function createMoneyMock(ctx) {
               : [],
             readAt: iso(Date.now()),
           });
+        case 'merchantControl.topUp.options':
+          // No top-up rail is wired, as on the real service.
+          return refuse(route, 412, 'pay.topup_unconfigured');
         case 'merchantControl.usage':
           return ok(route, usageNow());
         case 'merchantControl.pricing.preview': {

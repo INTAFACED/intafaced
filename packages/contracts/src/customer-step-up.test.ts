@@ -35,6 +35,24 @@ describe('customer step-up binding', () => {
     );
   });
 
+  it('binds a grid bot profit withdrawal to its bot, request, asset and amount (CB-bots-05)', () => {
+    const fields = { botId: '5a5a5a5a-0000-5000-8000-000000000001', requestId: 'req-1', asset: 'USDT', amount: '1.25' };
+    const scope = 'trade.step_up.bots.grid.withdrawProfit';
+    const bound = bindCustomerStepUp(ACTOR, { scope, purpose: 'bots.grid.withdrawProfit', amount: '1.25', target: fields.botId, fields });
+    expect(bound).toMatchObject({ ok: true, scope, amount: '1.25', target: fields.botId });
+    expect(bound.ok && bound.payloadHash).toBe(customerStepUpPayloadHash(scope, { ...fields, actor: ACTOR }));
+    for (const over of [{ amount: '' }, { amount: '1,25' }, { botId: '' }]) {
+      const sent = { ...fields, ...over };
+      expect(
+        bindCustomerStepUp(ACTOR, { scope, purpose: 'bots.grid.withdrawProfit', amount: sent.amount, target: sent.botId, fields: sent }).ok,
+      ).toBe(false);
+    }
+    expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'bots.grid.withdrawProfit', amount: '9', target: fields.botId, fields })).toEqual({
+      ok: false,
+      code: 'step_up.amount',
+    });
+  });
+
   it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
     const fields = {
       offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',

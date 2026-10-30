@@ -6,7 +6,9 @@ import {
   ownAgentRunResultSchema,
   ownAgentRunRowSchema,
   ownAgentSchema,
+  ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentUsageWindowSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -100,7 +102,24 @@ function runDepsOf(deps: OwnRunDeps | undefined): OwnRunDeps {
   return deps;
 }
 
+/** The owner's values a limits view carries: the fee asset, and the overage grace (null when blank). */
+function owner(run: OwnRunDeps | undefined): { overageGrace: string | null; assetId: string } {
+  const { runtime, feeAssetId } = runDepsOf(run);
+  const grace = runtime.overageGraceAmount;
+  return { overageGrace: grace === null ? null : formatAmount(grace), assetId: feeAssetId };
+}
+
 const idInput = z.object({ id: z.string().min(1).max(64) });
+
+/** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
+async function ownedOwnSession(sql: Sql | undefined, runtime: AgentRuntime, userId: string, agentId: string, sessionId: string) {
+  const agent = await guard(() => storeOf(sql).get(userId, agentId));
+  const session = await runtime.session(sessionId);
+  if (!session || session.userId !== userId || session.agentId !== ownSessionAgentId(agent.id)) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'agents.session_not_found' });
+  }
+  return { agent, session };
+}
 
 /**
  * Agents a person builds for themselves (AG-builder-01). The owner is always the
@@ -171,10 +190,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
         .output(ownAgentLimitsSchema)
         .query(({ ctx, input }) => {
           assertPersonSetsLimits(ctx.principal);
-          return guard(async () => ({
-            ...(await new OwnLimitsStore(sqlOf(sql)).get(ctx.principal.userId, input.id)),
-            assetId: runDepsOf(run).feeAssetId,
-          }));
+          return guard(async () => ({ ...(await new OwnLimitsStore(sqlOf(sql)).get(ctx.principal.userId, input.id)), ...owner(run) }));
         }),
 
       /** All three caps or none. Blank refuses `agents.spend.cap_unset`; above the agent's own cap is refused, not lowered. */
@@ -190,10 +206,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
         .mutation(({ ctx, input }) => {
           assertPersonSetsLimits(ctx.principal);
           const { id, ...caps } = input;
-          return guard(async () => ({
-            ...(await new OwnLimitsStore(sqlOf(sql)).set(ctx.principal.userId, id, caps)),
-            assetId: runDepsOf(run).feeAssetId,
-          }));
+          return guard(async () => ({ ...(await new OwnLimitsStore(sqlOf(sql)).set(ctx.principal.userId, id, caps)), ...owner(run) }));
         }),
     }),
 
@@ -214,6 +227,24 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             return { sessionId: session.id, agentId: session.agentId };
           }),
         ),
+
+      /**
+       * Closes a session of the person's own agent once its windows are paid, each on its own charge key. A window the
+       * ledger refuses for funds stays unpaid and the session stays open: refused `agents.window_unpaid`.
+       */
+      close: executeProcedure()
+        .input(idInput.extend({ sessionId: z.string().uuid() }))
+        .output(ownAgentSessionClosedSchema)
+        .mutation(async ({ ctx, input }) => {
+          const { runtime } = runDepsOf(run);
+          const { session } = await ownedOwnSession(sql, runtime, ctx.principal.userId, input.id, input.sessionId);
+          try {
+            const closed = await runtime.closeSettled(session.id);
+            return { sessionId: closed.id, status: 'closed' as const, closedAt: (closed.closedAt ?? new Date()).toISOString() };
+          } catch (err) {
+            return runError(err);
+          }
+        }),
     }),
 
     /**
@@ -231,12 +262,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
       .output(ownAgentRunResultSchema)
       .mutation(async ({ ctx, input }) => {
         const deps = runDepsOf(run);
-        const agent = await guard(() => storeOf(sql).get(ctx.principal.userId, input.id));
-        const session = await deps.runtime.session(input.sessionId);
-        // Not yours, or not this agent's: one answer, so the route is no oracle for other people's sessions.
-        if (!session || session.userId !== ctx.principal.userId || session.agentId !== ownSessionAgentId(agent.id)) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'agents.session_not_found' });
-        }
+        const { agent, session } = await ownedOwnSession(sql, deps.runtime, ctx.principal.userId, input.id, input.sessionId);
         try {
           const result = await deps.runtime.think({
             sessionId: session.id,
@@ -292,6 +318,23 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
+          }));
+        });
+      }),
+
+    /** The usage windows of this agent's sessions, newest first: open, unpaid (retried on its charge key) or settled. */
+    usage: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentUsageWindowSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          const windows = await runDepsOf(run).runtime.usageWindowsOf(ctx.principal.userId, ownSessionAgentId(agent.id), input.limit);
+          return windows.map((w) => ({
+            ...w,
+            amount: w.amount === null ? null : formatAmount(w.amount),
+            openedAt: w.openedAt.toISOString(),
           }));
         });
       }),

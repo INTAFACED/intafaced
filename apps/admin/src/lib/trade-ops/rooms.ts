@@ -45,6 +45,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'VIP applications',
     job: 'Decide applications for a VIP fee tier with a second founder; grant the trial the owner publishes.',
   },
+  {
+    id: 'copy',
+    href: '/trade-ops/copy',
+    label: 'Copy trading',
+    job: 'Vet who may lead copy trading with a second founder; set the lead criteria; suspend a lead.',
+  },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {

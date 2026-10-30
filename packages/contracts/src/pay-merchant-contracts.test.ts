@@ -336,6 +336,12 @@ describe('founder merchant names', () => {
     expect(merchantTierSummarySchema.safeParse({ ...tier, payoutFee: { kind: 'charged', amount: '1' } }).success).toBe(false);
     expect(merchantTierSummarySchema.safeParse({ ...tier, payoutFee: { kind: 'not_charged', amount: '0' } }).success).toBe(false);
     expect(payPayoutFeeSchema.safeParse({ kind: 'free' }).success).toBe(false);
+    // A fee-only role's fee row has no spreadBps key; a full-pricing row keeps null as "no spread configured".
+    const { spreadBps: _spread, ...feeOnlyRow } = tier.fees[0]!;
+    const feeOnly = merchantTierSummarySchema.parse({ ...tier, fees: [feeOnlyRow] });
+    expect(feeOnly.fees[0]).not.toHaveProperty('spreadBps');
+    expect(merchantTierSummarySchema.parse({ ...tier, fees: [{ ...feeOnlyRow, spreadBps: 35 }] }).fees[0]?.spreadBps).toBe(35);
+    expect(merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...feeOnlyRow, spreadBps: '35' }] }).success).toBe(false);
     // A fee row carries a decimal string, never a number.
     expect(merchantTierSummarySchema.safeParse({ ...tier, fees: [{ ...tier.fees[0], minFee: 1 }] }).success).toBe(false);
   });

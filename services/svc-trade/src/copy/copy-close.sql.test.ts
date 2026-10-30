@@ -279,6 +279,28 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
     });
   });
 
+  it('refuses by its typed code when the close key is recorded by a close this follow cannot read back; nothing is placed', async () => {
+    const box = harness();
+    const followId = await follow(box.copy);
+    const bought = await filledOrder({ followId, side: 'buy', qty: '0.5', at: '2026-10-24T08:00:01Z' });
+    const key = `copy.close:${followId}:${bought.leaderFillId}`;
+    // The follow's own row under this key, whose copied buy no longer joins: the follow's read of its closes skips it.
+    await db!.sql`
+      INSERT INTO trade.copy_close_orders (close_key, follow_id, leader_fill_id, follower_order_id, client_order_id, qty, price)
+      VALUES (${key}, ${followId}, 'fill-without-a-copied-buy', ${randomUUID()}, 'recorded-before', '0.4', '99')
+    `;
+
+    await expect(box.copy.closePosition(principal, { followId, positionId: bought.orderId })).rejects.toMatchObject({
+      code: 'trade.copy_close_conflict',
+    });
+    expect(box.calls).toEqual([]);
+    expect(await db!.sql`SELECT 1 FROM trade.orders WHERE side = 'sell'`).toHaveLength(0);
+    expect(await db!.sql`SELECT close_key, follow_id, client_order_id FROM trade.copy_close_orders`).toEqual([
+      { close_key: key, follow_id: followId, client_order_id: 'recorded-before' },
+    ]);
+    expect((await box.copy.copiedPositions(principal, { followId })).positions[0]).toMatchObject({ open: '0.5' });
+  });
+
   it('after the close is cancelled unfilled, closing again places the next attempt, once', async () => {
     const box = harness();
     const followId = await follow(box.copy);
