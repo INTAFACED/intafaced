@@ -16,6 +16,8 @@ export interface StrategyDraft {
   readonly claimLabel: SavedStrategy['claimLabel'];
   readonly live: false;
   readonly simulated: true;
+  /** What the person wrote about this version when saving it; blank is no note. */
+  readonly releaseNote: string;
 }
 
 export interface StrategyVersionRecord extends StrategyDraft {
@@ -106,5 +108,6 @@ export function draftOf(saved: SavedStrategy): StrategyDraft {
     claimLabel: saved.claimLabel,
     live: false,
     simulated: true,
+    releaseNote: '',
   };
 }

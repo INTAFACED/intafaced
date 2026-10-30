@@ -86,6 +86,8 @@ import {
   QUANT_SHARE_SEQ_STALE,
   QUANT_SHARE_SEQ_UNSET,
   QUANT_SHARE_TOKEN_UNSET,
+  QUANT_RELEASE_NOTE_LIMIT_UNSET,
+  QUANT_VERSION_NOT_FOUND,
   QUANT_SHARE_WINDOW_UNSET,
   QUANT_RUN_RESULT_CAP_UNSET,
   QUANT_RUN_RESULT_TOO_LARGE,
@@ -115,6 +117,7 @@ import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
 import { compileSignalRules } from './studio/modules.js';
+import { versionDiff } from './studio/diff.js';
 import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
@@ -188,6 +191,7 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_STUDIO_NOT_FOUND ||
       err.code === QUANT_RUN_NOT_FOUND ||
       err.code === QUANT_SHARE_NOT_FOUND ||
+      err.code === QUANT_VERSION_NOT_FOUND ||
       err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
@@ -205,6 +209,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_DISCLOSURE_UNSET ||
             err.code === QUANT_EMBED_ORIGINS_UNSET ||
             err.code === QUANT_SHARE_RATE_UNSET ||
+            err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
             err.code === QUANT_SHARE_WINDOW_UNSET ||
             err.code === QUANT_SHARE_RATE_LIMITED ||
             err.code === QUANT_SIGNAL_RULES_SANDBOX ||
@@ -265,8 +270,12 @@ const strategyVersionRecord = z
       maxNotional: z.string(),
       kill: z.string(),
     }),
+    // A default, because a version stored before release notes existed was replayed without one.
+    releaseNote: z.string().default(''),
   })
   .merge(simulatedStamp);
+
+const diffLine = z.object({ op: z.enum(['same', 'removed', 'added']), text: z.string() });
 
 const strategyHead = strategyVersionRecord.extend({
   id: z.string(),
@@ -378,6 +387,11 @@ export interface QuantRouterDeps extends SandboxDeps {
    * Share links (AL-report-03). Omitted, the rate and the window are blank and every share call refuses by name.
    * A repository is still required once the rate is set; production passes Postgres.
    */
+  /**
+   * The owner's cap on a version's release note, in characters (AL-editor-01). Omitted or null, a save with a note
+   * refuses `quant.release_note_limit_unset`; a save without one still saves.
+   */
+  readonly releaseNoteMax?: number | null;
   readonly share?: {
     readonly repository: ShareRepository;
     readonly rate: number | null;
@@ -414,6 +428,21 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const shares = deps.share?.repository;
+  const releaseNoteMax = deps.releaseNoteMax ?? null;
+  /** A version's release note: blank is no note; a note needs the owner's cap, and is refused over it. */
+  function releaseNoteOf(raw: unknown): string {
+    if (raw === undefined || raw === null) return '';
+    if (typeof raw !== 'string') throw new QuantError('quant.params_invalid', 'releaseNote — must be text');
+    const note = raw.trim();
+    if (!note) return '';
+    if (releaseNoteMax === null) {
+      throw new QuantError(QUANT_RELEASE_NOTE_LIMIT_UNSET, 'releaseNote — the length limit for a release note is not set');
+    }
+    if (note.length > releaseNoteMax) {
+      throw new QuantError('quant.params_invalid', `releaseNote — longer than ${releaseNoteMax} characters`);
+    }
+    return note;
+  }
   const shareRate = deps.share?.rate ?? null;
   const shareWindowSec = deps.share?.windowSec ?? null;
   const embedOrigins = deps.share?.embedOrigins ?? null;
@@ -510,6 +539,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               ...accountField,
               ...writeKeyField,
               ...clientIdField,
+              releaseNote: z.unknown().optional(),
             })
             .merge(environmentInput),
         )
@@ -522,11 +552,12 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (prior?.operation === 'create') return prior.response;
               if (prior) idempotencyConflict(prior.operation);
               const built = buildSavedStrategy(input, 'studio_pending');
+              const releaseNote = releaseNoteOf(input.releaseNote);
               return strategies.create({
                 accountId,
                 clientStrategyId: requireClientStrategyId(input.clientStrategyId),
                 idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
-                draft: draftOf(built),
+                draft: { ...draftOf(built), releaseNote },
               });
             } catch (err) {
               toTrpc(err);
@@ -605,6 +636,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               cash: decimal.optional().nullable(),
               ...accountField,
               ...writeKeyField,
+              releaseNote: z.unknown().optional(),
             })
             .merge(environmentInput),
         )
@@ -618,11 +650,12 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             const existing = await strategies.get({ accountId, id: input.id });
             if (!existing) missingStrategy();
             const built = buildSavedStrategy(input, input.id);
+            const releaseNote = releaseNoteOf(input.releaseNote);
             return strategies.revise({
               accountId,
               id: input.id,
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
-              draft: draftOf(built),
+              draft: { ...draftOf(built), releaseNote },
             });
           } catch (err) {
             toTrpc(err);
@@ -645,6 +678,37 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               id: input.id,
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
             });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * The line difference between two stored versions of one of the caller's strategies (AL-editor-01): the source,
+       * the order blocks and the signal rules. Derived on read. A version the strategy does not have is not found.
+       */
+      diff: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ id: z.string().min(1), from: z.number().int().positive(), to: z.number().int().positive(), ...accountField }))
+        .output(
+          z.object({
+            from: z.number().int().positive(),
+            to: z.number().int().positive(),
+            source: z.array(diffLine),
+            blocks: z.array(diffLine),
+            rules: z.array(diffLine),
+            changed: z.boolean(),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          try {
+            const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
+            if (!found) missingStrategy();
+            const from = found.versions.find((row) => row.version === input.from);
+            const to = found.versions.find((row) => row.version === input.to);
+            if (!from || !to) {
+              throw new QuantError(QUANT_VERSION_NOT_FOUND, `version — ${!from ? input.from : input.to} is not a version of this strategy`);
+            }
+            return versionDiff(from, to);
           } catch (err) {
             toTrpc(err);
           }
