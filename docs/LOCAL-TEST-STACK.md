@@ -235,6 +235,15 @@ When the stack has an enrolled founder pair (`founders.json` in the state folder
 
 `docker-compose.apps.yml` has a `seed` service under the `tester` profile (`docker compose --profile tester up seed`). It is off by default, runs once and exits. Its entrypoint, `tooling/scripts/local-tester-seed.mjs`, exits 2 and seeds nothing unless `APP_ENV` is exactly `dev` or `test` and `NODE_ENV` is not `production`. It then runs the founder seed (`init`, `enrol`) and this seed (`apply`, `home`, `status`), in that order, and stops at the first step that fails. Each script keeps its own guards, so on a plain compose stack, which writes no local test stack marker, the content step refuses by name; the real-app journey run seeds the `pnpm local:stack` stack with the same scripts.
 
+**Its values (`compose-env`).** `.env.example` leaves deployment values blank on purpose, and compose refuses a blank `${VAR:?}` for every service, started or not. So a fresh tester profile starts from a generated file:
+
+```
+LOCAL_STACK_STATE=/path/to/state node tooling/scripts/local-test-compose-env.mjs
+docker compose --env-file .env.example --env-file .env.tester.local -f docker-compose.yml -f docker-compose.apps.yml --profile tester up seed
+```
+
+`local-test-compose-env.mjs` fills, for each service `up seed` starts that this stack also runs, every variable compose would leave blank with the value that service runs with under `pnpm local:stack` (its `local-stack-services/<name>.mjs` settings, the state folder's generated keys in `secrets.json`, and the screening fixture when `screening.local.json` holds one), plus two parse-only placeholders for the AI gateway's `ai` profile, which never starts here. It refuses by name a variable two started services run differently, or a required one the stack does not set. `.env.tester.local` holds this stack's keys: it is written mode 600, is git-ignored, and is never committed. `.env.example` stays blank, so a real deployment still refuses to start without its own values. J-home-ia-11 #1 runs it before `compose up`.
+
 Earn pools (funding id `local-test-seed-<slug>`):
 
 | Name                                                              | Asset | Kind     | Term    | APR     | Reserve   |

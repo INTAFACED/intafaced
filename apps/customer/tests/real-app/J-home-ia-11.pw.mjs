@@ -547,8 +547,9 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
 });
 
 /**
- * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. `.env.tester`
- * layers the tester profile's LOCAL TEST values over the documented example env, which keeps them blank for a real deployment.
+ * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }.
+ * `.env.tester.local` (local-test-compose-env.mjs, git-ignored) layers what `pnpm local:stack` runs with, and this stack's
+ * generated keys, over the documented example env, which keeps them blank for a real deployment.
  */
 function compose(args, env, { timeout = 120_000 } = {}) {
   const files = COMPOSE.flatMap((name) => ['-f', name]);
@@ -561,7 +562,7 @@ function compose(args, env, { timeout = 120_000 } = {}) {
       '--env-file',
       '.env.example',
       '--env-file',
-      '.env.tester',
+      '.env.tester.local',
       ...files,
       '--profile',
       'tester',
@@ -573,8 +574,9 @@ function compose(args, env, { timeout = 120_000 } = {}) {
   return { status: res.status ?? 1, out };
 }
 
-// The step's own start: a fresh compose up with the tester profile, from the documented example env and .env.tester's LOCAL
-// TEST values as a test build, on a state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
+// The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
+// `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
+// else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
 // stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
 test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
   test.setTimeout(30 * 60_000);
@@ -583,6 +585,8 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   try {
+    const generated = run('tooling/scripts/local-test-compose-env.mjs', [], env);
+    expect(generated.status, `BLOCKED compose_seed: compose-env could not write the tester profile's values:\n${generated.out}`).toBe(0);
     const config = compose(['config', '--quiet'], env);
     // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
     if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);

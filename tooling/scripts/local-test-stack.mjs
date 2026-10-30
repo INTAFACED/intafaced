@@ -326,7 +326,8 @@ const SECRET_NAMES = [
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
-function loadOrCreateSecrets() {
+/** This stack's generated secrets (STATE/secrets.json, mode 600), created on first use; never in the repo. */
+export function loadOrCreateSecrets() {
   // As root, the folders the stack creates above STATE stay traversable for the database's OS user (preparePgPaths).
   if (PG_OS_USER) fs.mkdirSync(path.dirname(STATE), { recursive: true, mode: 0o711 });
   fs.mkdirSync(STATE, { recursive: true, mode: 0o700 });
