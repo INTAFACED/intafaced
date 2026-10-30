@@ -791,6 +791,63 @@ describe('grid profit withdrawal (CB-bots-05, #7)', () => {
     expect(await store.getReserve(bot.botId)).toEqual(before);
   });
 
+  it('more than the free ledger balance refuses exceeds_balance and changes nothing; the view offers at most that', async () => {
+    let free = '1000';
+    const { bot, store, service } = await earned({ policy: policy('{"USDT":"1000"}'), free: () => free });
+    free = formatAmount(div(A(bot.gridProfit), A('2'), 'floor'));
+    const view = await service.get(verified(), bot.botId);
+    expect(view.withdrawableProfit).toBe(free);
+    const before = await store.getReserve(bot.botId);
+    const r = await refusal(service.withdrawProfit(verified(), ask(bot.botId, formatAmount(A(free) + A('0.000001')))));
+    expect(r.code).toBe('trade.bots_withdraw_exceeds_balance');
+    expect(r.data).toEqual({ available: free });
+    expect(await store.getReserve(bot.botId)).toEqual(before);
+    expect(await store.findWithdrawal(`bots.grid.withdraw:${bot.botId}:withdraw-0001`)).toBeNull();
+  });
+
+  it('invariant: after any mix of closes and withdrawals, investment <= reserve = investment + closed profit - withdrawn', async () => {
+    for (const seed of [1, 7, 42, 99, 2026]) {
+      let x = seed;
+      const rand = (n: number) => ((x = (x * 1103515245 + 12345) % 2147483648), x % n);
+      const ctx = setup({ policy: policy('{"USDT":"1000"}') });
+      const view = await ctx.service.create(verified(), BODY);
+      const investment = A(view.investment);
+      let cycle = 0;
+      let withdrawn = 0n;
+      let requests = 0;
+      for (let step = 0; step < 12; step++) {
+        const current = await ctx.service.get(verified(), view.botId);
+        if (rand(2) === 0 || A(current.withdrawableProfit) === 0n) {
+          // One more pair closes on level 8: its buy fills, the sell above it fills.
+          ctx.trade.fill(oid(`grid:${view.botId}:8:b${cycle}`), 'BTC', A('0.00000001'));
+          await ctx.service.tick((await ctx.store.findBot(view.botId))!);
+          ctx.trade.fill(oid(`grid:${view.botId}:8:s${cycle}`), 'USDT', A('0.01'));
+          await ctx.service.tick((await ctx.store.findBot(view.botId))!);
+          cycle += 1;
+        } else {
+          const orders = ctx.trade.orders.size;
+          const room = A(current.withdrawableProfit);
+          // Within it, or (one time in three) just over it, which is refused and changes nothing.
+          const over = rand(3) === 0;
+          const amount = over ? room + 1n : (room * BigInt(1 + rand(100))) / 100n;
+          if (amount === 0n) continue;
+          const asked = ctx.service.withdrawProfit(verified(), ask(view.botId, formatAmount(amount), `withdraw-${seed}-${requests++}`));
+          if (over) expect((await refusal(asked)).code).toBe('trade.bots_withdraw_exceeds_profit');
+          else withdrawn += A((await asked).amount);
+          // A withdrawal places, cancels and posts nothing: the trade port saw no new order.
+          expect(ctx.trade.orders.size).toBe(orders);
+        }
+        const after = await ctx.service.get(verified(), view.botId);
+        const reserve = (await ctx.store.getReserve(view.botId))!.amount;
+        expect(after.closedPairs).toBe(cycle);
+        expect(reserve >= investment).toBe(true);
+        expect(reserve).toBe(investment + A(after.gridProfit) - withdrawn);
+        expect(A(after.withdrawableProfit)).toBe(reserve - investment);
+      }
+      expect(cycle).toBeGreaterThan(0);
+    }
+  });
+
   it('no step-up sent refuses identity.step_up_required unchanged, and nothing is read or written', async () => {
     const id = identity();
     const { bot, store, service } = await earned({ approvals: id.approvals });

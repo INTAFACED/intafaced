@@ -33,6 +33,7 @@ export type GridErrorCode =
   | 'trade.bots_withdraw_cap_unset'
   | 'trade.bots_withdraw_cap_exceeded'
   | 'trade.bots_withdraw_exceeds_profit'
+  | 'trade.bots_withdraw_exceeds_balance'
   | 'trade.bots_withdraw_reserve_released'
   | 'trade.bots_withdraw_conflict';
 

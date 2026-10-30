@@ -80,6 +80,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
                 items={[
                   { label: t('Withdrawal ID'), value: receipt.withdrawalId },
                   { label: t('Bot ID'), value: receipt.botId },
+                  { label: t('Asset'), value: receipt.asset },
                   { label: t('Amount'), value: `${displayAmount(receipt.amount)} ${receipt.asset}` },
                   { label: t('Profit before'), value: `${displayAmount(receipt.profitBefore)} ${receipt.asset}` },
                   { label: t('Profit after'), value: `${displayAmount(receipt.profitAfter)} ${receipt.asset}` },

@@ -535,8 +535,9 @@ export class GridService {
    * 3. the bot is the caller's, its quote asset is the asset, and a withdrawal already stored under
    *    `bots.grid.withdraw:<botId>:<requestId>` is answered as stored (a different body conflicts);
    * 4. under the owner's reserve lock: over what is left of today's cap refuses `trade.bots_withdraw_cap_exceeded`;
-   *    over the profit the reserve holds above the investment refuses `trade.bots_withdraw_exceeds_profit`; otherwise
-   *    the reserve row is lowered by the amount and the receipt row is written, together.
+   *    over the profit the reserve holds above the investment refuses `trade.bots_withdraw_exceeds_profit`; over the
+   *    owner's free ledger balance of the asset refuses `trade.bots_withdraw_exceeds_balance`; otherwise the reserve row
+   *    is lowered by the amount and the receipt row is written, together.
    * No ledger row is posted: the profit is already in the owner's balance, and the reserve is a limit row.
    */
   async withdrawProfit(principal: Principal, input: GridWithdrawInput): Promise<GridWithdrawalView> {
@@ -577,6 +578,8 @@ export class GridService {
     const stored = await this.ports.store.findWithdrawal(withdrawalId);
     if (stored) return same(stored);
 
+    // The profit can be withdrawn only while the ledger still has it free: the bot's base or open holds are not.
+    const free = await this.ports.freeBalance(principal.userId, asset);
     const at = this.now();
     const result = await this.ports.store.withdraw({ withdrawalId, botId: bot.botId, userId: principal.userId, asset, at }, (state) => {
       const reserve = state.reserve;
@@ -603,6 +606,13 @@ export class GridService {
         throw new GridError(`That is more than the bot's profit: ${formatAmount(profit)} ${asset}`, 'trade.bots_withdraw_exceeds_profit', {
           available: formatAmount(profit),
         });
+      }
+      if (amount > free) {
+        throw new GridError(
+          `That is more than your free ${asset}: ${formatAmount(free > 0n ? free : 0n)} ${asset}`,
+          'trade.bots_withdraw_exceeds_balance',
+          { available: formatAmount(free > 0n ? free : 0n) },
+        );
       }
       return {
         withdrawalId,
@@ -845,6 +855,14 @@ export class GridService {
     return quote(sellFills) - fee(sellFills, bot.quoteAsset) - cost;
   }
 
+  /** What a withdrawal may take now: the profit the reserve holds above the investment, at most the free ledger balance. */
+  private async withdrawable(bot: GridBot, reserve: GridReserve | null): Promise<Amount> {
+    if (!reserve || reserve.releasedAt !== null || reserve.amount <= bot.investment) return 0n;
+    const profit = reserve.amount - bot.investment;
+    const free = await this.ports.freeBalance(bot.userId, bot.quoteAsset);
+    return free <= 0n ? 0n : free < profit ? free : profit;
+  }
+
   private async view(bot: GridBot): Promise<GridBotView> {
     const botId = bot.botId;
     const orders = await this.ports.store.listOrders(botId);
@@ -895,9 +913,7 @@ export class GridService {
         pairProfit: o.pairProfit === null ? null : formatAmount(o.pairProfit),
       })),
       gridProfit: formatAmount(gridProfit),
-      withdrawableProfit: formatAmount(
-        reserve && reserve.releasedAt === null && reserve.amount > bot.investment ? reserve.amount - bot.investment : 0n,
-      ),
+      withdrawableProfit: formatAmount(await this.withdrawable(bot, reserve)),
       closedPairs: closed.length,
       gridApr: gridApr(gridProfit, bot.investment, this.now().getTime() - bot.createdAt.getTime()),
       createdAt: bot.createdAt.toISOString(),

@@ -494,6 +494,13 @@ function shiftPercent(from, to) {
   return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
 }
 
+/** A `move` percent ("-1.25%") back as signed whole basis points. */
+function percentBps(percent) {
+  const [, sign, whole, cents] = /^([+-])(\d+)\.(\d\d)%$/.exec(percent);
+  const bps = BigInt(whole) * 100n + BigInt(cents);
+  return sign === '-' ? -bps : bps;
+}
+
 /** Wait until the BTC/USDT book's mid is past `limit` (`above` or `below`). */
 async function untilMid(side, limit, waitMs = 60_000) {
   const until = Date.now() + waitMs;
@@ -560,17 +567,20 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   const { bid, ask } = await bestPrices();
   const mid = (toUnits(bid) + toUnits(ask)) / 2n;
   const target = (buys[1] + buys[2]) / 2n;
+  const down = shiftPercent(mid, target);
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
     await untilMid('below', buys[1]);
     const bought = await untilBot(who, botId, (b) => b.orders.filter((o) => o.side === 'sell' && o.status === 'open').length === 2);
     const filledBuys = bought.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => toUnits(o.price));
     expect(filledBuys.sort()).toEqual([buys[1], buys[0]].sort());
     const sells = bought.orders.filter((o) => o.side === 'sell' && o.status === 'open').map((o) => toUnits(o.price));
-    // The top sell sits one level above where the price started, so the price rises half a level past it. A move
-    // shifts the TEST price from its base, which is where the mid stood before the first move.
+    // The top sell sits one level above where the price started, so the price rises a whole level past it. A move
+    // shifts the TEST walk, which keeps wandering: its base now is today's mid with the first shift taken back out.
     const top = sells.reduce((a, b) => (a > b ? a : b));
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, top + (buys[0] - buys[1]) / 2n));
+    const now = await bestPrices();
+    const walk = (((toUnits(now.bid) + toUnits(now.ask)) / 2n) * 10_000n) / (10_000n + percentBps(down));
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, top + (buys[0] - buys[1])));
     await untilMid('above', top);
     await untilBot(who, botId, (b) => b.closedPairs >= 2);
   } finally {
@@ -624,118 +634,179 @@ const CAP = toUnits('0.50');
 test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const { who, botId } = run.read();
-  // One API session, signed in before the authenticator is added: every read below is this person's own.
-  const me = await api(who);
+  // An API session of this person's own, signed in again after each trade restart (a restart closes Edge's socket).
+  let me = await api(who);
   const bot = async () => {
     const { status, body } = await me.get(read(`${GRID}.get`, { botId }));
     expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
     return body.result.data;
   };
   const held = (b) => ({ reserve: b.reserve, withdrawable: b.withdrawableProfit, gridProfit: b.gridProfit });
-  const withdraw = (input) => me.post(`${GRID}.withdrawProfit`, { botId, asset: 'USDT', ...input });
+  const ledger = async () => (await me.balances()).USDT;
   const before = await bot();
+  const ledgerBefore = await ledger();
   expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
-  // Two closed pairs (#6) raised the reserve by their profit; that profit, and no more, is withdrawable.
-  expect(toUnits(before.withdrawableProfit)).toBe(toUnits(before.reserve.amount) - toUnits(before.investment));
+  // Two closed pairs (#6) raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
+  const profit = toUnits(before.reserve.amount) - toUnits(before.investment);
+  const free = toUnits(ledgerBefore.free);
+  expect(toUnits(before.withdrawableProfit)).toBe(profit < free ? profit : free);
   expect(toUnits(before.withdrawableProfit), 'profit to withdraw after #6').toBeGreaterThan(0n);
 
-  // The owner's cap left blank: refused by its code before identity is asked, and nothing changed.
-  try {
-    withdrawCap('blank');
-    const blank = await withdraw({ requestId: `${J}-blank-${Date.now().toString(36)}`, amount: '0.01' });
-    expect(codeOf(blank.body), JSON.stringify(blank.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
-    expect(held(await bot())).toEqual(held(before));
-  } finally {
-    withdrawCap('set');
-  }
+  // Identity's step-up is asked before any row is read: no step-up for a bot that does not exist is refused by
+  // identity's code, not as an unknown bot.
+  const unknown = await me.post(`${GRID}.withdrawProfit`, {
+    botId: `${botId}-none`,
+    requestId: `${J}-none-${Date.now().toString(36)}`,
+    asset: 'USDT',
+    amount: '0.01',
+  });
+  expect(codeOf(unknown.body), JSON.stringify(unknown.body).slice(0, 300)).toBe('identity.step_up_required');
+  // The cap is per quote asset: an asset the owner set no cap for is refused as unset.
+  const btc = await me.post(`${GRID}.withdrawProfit`, {
+    botId,
+    requestId: `${J}-btc-${Date.now().toString(36)}`,
+    asset: 'BTC',
+    amount: '0.01',
+  });
+  expect(codeOf(btc.body), JSON.stringify(btc.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
 
-  // Within the cap and the profit, but with no step-up: refused by identity's code, and nothing changed.
-  const bare = await withdraw({ requestId: `${J}-bare-${Date.now().toString(36)}`, amount: '0.01' });
-  expect(bare.status, JSON.stringify(bare.body).slice(0, 300)).toBe(403);
-  expect(codeOf(bare.body)).toBe('identity.step_up_required');
-  expect(held(await bot())).toEqual(held(before));
-
-  // The room, with an authenticator to confirm each withdrawal for its exact amount.
   await signIn(page, who);
-  const { totp } = await totpLib();
-  let { secret, step } = await addAuthenticator(page, totp);
-  await page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
-  await page.getByRole('tab', { name: 'Metrics' }).click();
+  const room = () => page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
   const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
-  await expect(metrics).toContainText(`Withdrawable profit${fromUnits(toUnits(before.withdrawableProfit))} USDT`);
-
-  /** Opens the withdrawal, names the amount, confirms it with the next code; returns the service's answer. */
-  async function withdrawInRoom(amount) {
+  const openMetrics = async () => {
+    await room();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
+    await expect(metrics).toContainText(`Withdrawable profit${fromUnits(toUnits((await bot()).withdrawableProfit))} USDT`);
+  };
+  const dialog = page.getByRole('dialog', { name: 'Withdraw profit' });
+  /** Opens the withdrawal and names the amount; `confirm` sends it and returns the service's answer and what was sent. */
+  async function ask(amount, confirm) {
     await metrics.getByRole('button', { name: 'Withdraw profit' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Withdraw profit' });
     await dialog.getByRole('textbox', { name: 'Amount, USDT' }).fill(amount);
     await dialog.getByRole('button', { name: 'Continue' }).click();
-    const confirm = dialog.getByRole('region', { name: 'Confirm it’s you' });
+    const answer = page.waitForResponse((r) => r.url().includes('bots.grid.withdrawProfit') && r.request().method() === 'POST');
+    await confirm(dialog.getByRole('region', { name: 'Confirm it’s you' }));
+    const res = await answer;
+    return { status: res.status(), body: await res.json(), sent: res.request().postDataJSON() };
+  }
+  const close = async () => {
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+  };
+  /** The refusal the room shows: its words and the service's code as the reference. */
+  const refusedAs = async (title, code) => {
+    const alert = dialog.getByRole('alert');
+    await expect(alert).toContainText(title);
+    await expect(alert).toContainText(`Reference ${code}`);
+  };
+  // No passkey or authenticator yet: the room can only send without a step-up.
+  const withoutStepUp = (confirm) => confirm.getByRole('button', { name: 'Send without confirming' }).click();
+
+  // The owner's cap left blank: refused by its code in the room, and nothing changed.
+  try {
+    withdrawCap('blank');
+    me = await api(who);
+    await openMetrics();
+    const blank = await ask('0.01', withoutStepUp);
+    expect(codeOf(blank.body), JSON.stringify(blank.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
+    expect(blank.status).toBe(400);
+    await refusedAs('Withdrawals are closed: no daily limit is set', 'trade.bots_withdraw_cap_unset');
+    expect(held(await bot())).toEqual(held(before));
+    await close();
+  } finally {
+    withdrawCap('set');
+    me = await api(who);
+  }
+
+  // Within the cap and the profit, but with no step-up: refused by identity's code in the room, and nothing changed.
+  await openMetrics();
+  const bare = await ask('0.01', withoutStepUp);
+  expect(bare.sent.stepUpApprovalId).toBeNull();
+  expect(bare.status, JSON.stringify(bare.body).slice(0, 300)).toBe(403);
+  expect(codeOf(bare.body)).toBe('identity.step_up_required');
+  await refusedAs('Confirm it’s you first', 'identity.step_up_required');
+  expect(held(await bot())).toEqual(held(before));
+  await close();
+
+  // An authenticator from Security, to confirm each withdrawal for its exact amount.
+  const { totp } = await totpLib();
+  let { secret, step } = await addAuthenticator(page, totp);
+  const withCode = async (confirm) => {
     const next = await nextCode(totp, secret, step);
     step = next.step;
     await confirm.getByRole('textbox', { name: 'Authenticator code' }).fill(next.code);
-    const answer = page.waitForResponse((r) => r.url().includes('bots.grid.withdrawProfit') && r.request().method() === 'POST');
     await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
-    const res = await answer;
-    return { dialog, status: res.status(), body: await res.json() };
-  }
+  };
 
-  // Over the cap, with a step-up: refused by the cap's code with the cap's numbers, in words, and nothing changed.
-  const over = await withdrawInRoom('1.00');
+  // Over the cap, with a step-up: refused by the cap's code in words, and nothing changed.
+  await openMetrics();
+  const over = await ask('1.00', withCode);
+  expect(over.sent.stepUpApprovalId?.length).toBeGreaterThan(0);
   expect(codeOf(over.body), JSON.stringify(over.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_exceeded');
-  const alert = over.dialog.getByRole('alert');
-  await expect(alert).toContainText('Over your daily withdrawal limit');
-  await expect(alert).toContainText('Reference trade.bots_withdraw_cap_exceeded');
+  await refusedAs('Over your daily withdrawal limit', 'trade.bots_withdraw_cap_exceeded');
   expect(held(await bot())).toEqual(held(before));
-  await page.keyboard.press('Escape');
-  await expect(over.dialog).toBeHidden();
+  await close();
 
-  // Within both: half of what is withdrawable or the cap, whichever is less, to the 8 decimals the field takes.
-  const room = toUnits(before.withdrawableProfit) < CAP ? toUnits(before.withdrawableProfit) : CAP;
-  const amount = (room / 2n / 10n ** 10n) * 10n ** 10n;
+  // Within both, twice: each a third of what is withdrawable or the cap, whichever is less, to the field's 8 decimals.
+  // The second's cap use counts the first, so the refused 1.00 added nothing to the day's use.
+  const limit = toUnits(before.withdrawableProfit) < CAP ? toUnits(before.withdrawableProfit) : CAP;
+  const amount = (limit / 3n / 10n ** 10n) * 10n ** 10n;
   expect(amount, 'an amount above zero within both').toBeGreaterThan(0n);
-  const ok = await withdrawInRoom(fromUnits(amount));
-  expect(ok.status, JSON.stringify(ok.body).slice(0, 300)).toBe(200);
-  const receipt = ok.body.result.data;
-  const after = await bot();
-  // Every receipt field, from the service's own answer, against the bot re-read before and after.
-  expect(receipt.withdrawalId).toMatch(new RegExp(`^bots\\.grid\\.withdraw:${botId}:`));
-  expect(receipt.botId).toBe(botId);
-  expect(receipt.asset).toBe('USDT');
-  expect(toUnits(receipt.amount)).toBe(amount);
-  expect(toUnits(receipt.profitBefore)).toBe(toUnits(before.withdrawableProfit));
-  expect(toUnits(receipt.profitAfter)).toBe(toUnits(before.withdrawableProfit) - amount);
-  expect(toUnits(receipt.profitAfter)).toBe(toUnits(after.withdrawableProfit));
-  expect(toUnits(receipt.reserveBefore)).toBe(toUnits(before.reserve.amount));
-  expect(toUnits(receipt.reserveAfter)).toBe(toUnits(before.reserve.amount) - amount);
-  expect(toUnits(receipt.reserveAfter)).toBe(toUnits(after.reserve.amount));
-  expect(toUnits(receipt.dailyCap)).toBe(CAP);
-  expect(toUnits(receipt.capUsed)).toBe(amount);
-  expect(toUnits(receipt.capRemaining)).toBe(CAP - amount);
-  expect(receipt.stepUpEventId.length).toBeGreaterThan(0);
-  expect(Math.abs(Date.now() - Date.parse(receipt.appliedAt))).toBeLessThan(120_000);
-  // The investment stays; grid profit (what the pairs earned) is not rewritten by a withdrawal.
-  expect(after.investment).toBe(before.investment);
-  expect(after.gridProfit).toBe(before.gridProfit);
-  // The receipt in the room shows each of those values, labelled TEST.
-  const shown = ok.dialog.getByRole('region', { name: 'Withdrawal receipt' });
-  await expect(shown).toContainText('TEST account');
-  const usd = (v) => `${fromUnits(toUnits(v))} USDT`;
-  for (const [label, value] of [
-    ['Withdrawal ID', receipt.withdrawalId],
-    ['Bot ID', receipt.botId],
-    ['Amount', usd(receipt.amount)],
-    ['Profit before', usd(receipt.profitBefore)],
-    ['Profit after', usd(receipt.profitAfter)],
-    ['Set aside before', usd(receipt.reserveBefore)],
-    ['Set aside after', usd(receipt.reserveAfter)],
-    ['Daily cap', usd(receipt.dailyCap)],
-    ['Used today', usd(receipt.capUsed)],
-    ['Left today', usd(receipt.capRemaining)],
-    ['Confirmation ID', receipt.stepUpEventId],
-    ['Time', receipt.appliedAt],
-  ])
-    await expect(shown, label).toContainText(`${label}${value}`);
+  let reserve = toUnits(before.reserve.amount);
+  let used = 0n;
+  for (const n of [1, 2]) {
+    const was = await bot();
+    await openMetrics();
+    const ok = await ask(fromUnits(amount), withCode);
+    expect(ok.status, JSON.stringify(ok.body).slice(0, 300)).toBe(200);
+    const receipt = ok.body.result.data;
+    const after = await bot();
+    used += amount;
+    // Every receipt field, against what the room sent and the bot re-read before and after.
+    expect(receipt.withdrawalId).toBe(`bots.grid.withdraw:${botId}:${ok.sent.requestId}`);
+    expect(receipt.botId).toBe(botId);
+    expect(receipt.asset).toBe('USDT');
+    expect(toUnits(receipt.amount)).toBe(amount);
+    expect(toUnits(receipt.profitBefore)).toBe(reserve - toUnits(before.investment));
+    expect(toUnits(receipt.profitAfter)).toBe(reserve - amount - toUnits(before.investment));
+    expect(toUnits(receipt.reserveBefore)).toBe(toUnits(was.reserve.amount));
+    expect(toUnits(receipt.reserveBefore)).toBe(reserve);
+    expect(toUnits(receipt.reserveAfter)).toBe(reserve - amount);
+    expect(toUnits(receipt.reserveAfter)).toBe(toUnits(after.reserve.amount));
+    expect(toUnits(receipt.dailyCap)).toBe(CAP);
+    expect(toUnits(receipt.capUsed), `withdrawal ${n}: today's use`).toBe(used);
+    expect(toUnits(receipt.capRemaining)).toBe(CAP - used);
+    expect(receipt.stepUpEventId).toBe(ok.sent.stepUpApprovalId);
+    expect(receipt.appliedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    expect(Math.abs(Date.now() - Date.parse(receipt.appliedAt))).toBeLessThan(120_000);
+    reserve -= amount;
+    // The investment stays; grid profit (what the pairs earned) is not rewritten by a withdrawal.
+    expect(after.investment).toBe(before.investment);
+    expect(after.gridProfit).toBe(before.gridProfit);
+    // The receipt in the room shows each of those values, labelled TEST.
+    const shown = dialog.getByRole('region', { name: 'Withdrawal receipt' });
+    await expect(shown).toContainText('TEST account');
+    const usd = (v) => `${fromUnits(toUnits(v))} USDT`;
+    for (const [label, value] of [
+      ['Withdrawal ID', receipt.withdrawalId],
+      ['Bot ID', receipt.botId],
+      ['Asset', receipt.asset],
+      ['Amount', usd(receipt.amount)],
+      ['Profit before', usd(receipt.profitBefore)],
+      ['Profit after', usd(receipt.profitAfter)],
+      ['Set aside before', usd(receipt.reserveBefore)],
+      ['Set aside after', usd(receipt.reserveAfter)],
+      ['Daily cap', usd(receipt.dailyCap)],
+      ['Used today', usd(receipt.capUsed)],
+      ['Left today', usd(receipt.capRemaining)],
+      ['Confirmation ID', receipt.stepUpEventId],
+      ['Time', receipt.appliedAt],
+    ])
+      await expect(shown, label).toContainText(`${label}${value}`);
+    await close();
+  }
+  // The withdrawals moved no money: the ledger's USDT total is what it was before them (only the limit row moved).
+  expect((await ledger()).total).toBe(ledgerBefore.total);
 });

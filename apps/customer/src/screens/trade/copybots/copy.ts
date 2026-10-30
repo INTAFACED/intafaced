@@ -31,6 +31,7 @@ const messages = {
   'Amount, {asset}': 'Amount, {asset}',
   'An amount, a schedule, and a recurring-order service': 'An amount, a schedule, and a recurring-order service',
   'An earlier request has no confirmed result': 'An earlier request has no confirmed result',
+  Asset: 'Asset',
   'At the last price {price}': 'At the last price {price}',
   'At your price limit': 'At your price limit',
   'Authenticator code': 'Authenticator code',

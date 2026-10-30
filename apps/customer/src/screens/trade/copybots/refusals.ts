@@ -382,6 +382,10 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'More than the bot’s profit',
     body: 'You can withdraw only the profit the bot has made, not its investment. Lower the amount. Nothing was withdrawn.',
   },
+  'trade.bots_withdraw_exceeds_balance': {
+    title: 'More than you have free',
+    body: 'Part of this profit is in open orders or the coin the bot bought. Lower the amount. Nothing was withdrawn.',
+  },
   'trade.bots_withdraw_reserve_released': {
     title: 'This bot has stopped',
     body: 'Its funds were already returned to your balance, so there is nothing to withdraw here.',
