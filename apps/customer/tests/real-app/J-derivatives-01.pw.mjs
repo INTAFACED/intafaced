@@ -30,12 +30,6 @@ async function desk(page) {
 
 const access = (page) => page.getByTestId('futures-access');
 
-async function gateFor(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/account/gated-list');
-  expect(status).toBe(200);
-  return body.contracts.find((c) => c.symbol === SYMBOL);
-}
-
 async function positionsOf(who) {
   const { status, body } = await (await api(who)).get('/api/v1/positions');
   expect(status).toBe(200);
@@ -101,9 +95,19 @@ test(`${J} #2 reads the gated list: each contract open or blocked as the service
   const { status, body } = await (await api(who)).get('/api/v1/account/gated-list');
   expect(status).toBe(200);
   expect(body.contracts.length, 'the gated list names the contracts').toBeGreaterThan(0);
-  for (const contract of body.contracts) {
-    await page.getByRole('combobox', { name: 'Choose a contract' }).click();
+  // The desk offers the live listings (never a paper one): every contract it offers is in the gated list.
+  const picker = page.getByRole('combobox', { name: 'Choose a contract' });
+  await picker.click();
+  const offered = (await page.getByRole('option').allInnerTexts()).map((o) => o.trim());
+  await page.keyboard.press('Escape');
+  expect(offered).toContain(SYMBOL);
+  const listed = body.contracts.map((c) => c.symbol);
+  for (const symbol of offered) expect(listed, `${symbol} is offered but not in the gated list`).toContain(symbol);
+  for (const contract of body.contracts.filter((c) => offered.includes(c.symbol))) {
+    await picker.click();
     await page.getByRole('option', { name: contract.symbol, exact: true }).click();
+    // The desk has switched to this contract before its gate is read.
+    await expect(picker).toContainText(contract.symbol);
     const gate = panel.getByTestId('futures-gate');
     await expect(gate, contract.symbol).toContainText(contract.open ? 'Open for your account' : 'Blocked for your account');
     for (const blocker of contract.blockers) await expect(gate.locator(`[data-code="${blocker.code}"]`), contract.symbol).toBeVisible();
@@ -114,7 +118,7 @@ test(`${J} #2 reads the gated list: each contract open or blocked as the service
     }
   }
   // This verified account may trade the stack's TEST perpetual.
-  expect(await gateFor(who)).toMatchObject({ open: true, blockers: [] });
+  expect(body.contracts.find((c) => c.symbol === SYMBOL)).toMatchObject({ open: true, blockers: [] });
 });
 
 // Step 3 was "reads and accepts the risk agreement and margin terms". Deferred until launch prep (owner decision
@@ -327,7 +331,7 @@ test(`${J} #11 opens History and sees the closed position with its realised resu
   expect(at, headers.join(' | ')).toBeGreaterThanOrEqual(0);
   const figure = row.getByRole('cell').nth(at).locator('[data-slot=change-text]');
   await expect(figure).toHaveAttribute('data-direction', pnl > 0n ? 'up' : pnl < 0n ? 'down' : 'flat');
-  const shown = (await figure.innerText()).replace(/[^\d.+−-]/g, '').replace('−', '-');
+  const shown = (/[+−-]?[\d,]+(\.\d+)?/.exec(await figure.innerText())?.[0] ?? '').replace(/,/g, '').replace('−', '-');
   expect(shown, 'the sign is drawn').toMatch(pnl > 0n ? /^\+/ : pnl < 0n ? /^-/ : /^\d/);
   const drawn = toUnits(shown.replace(/^\+/, ''));
   const halfStep = toUnits('0.00005');

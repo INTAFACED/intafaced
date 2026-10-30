@@ -330,7 +330,8 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   await expect(dialog.getByRole('button', { name: 'Arm stop' })).toBeDisabled();
 
   // Through the API, each kind refuses a field it does not take, with a 400 and the code: a stop market a limit price
-  // or a trailing distance, a stop limit a trailing distance, a trailing stop a trigger or a limit price.
+  // or a trailing distance, a stop limit a trailing distance, a trailing stop a trigger or a limit price, a take profit a
+  // limit price or a trailing distance. One armed by mistake is cancelled before the step fails, so it guards nothing.
   const base = { market: SYMBOL, side: 'sell', quantity: PART };
   const extras = [
     ['stop_market', { triggerPrice: below, limitPrice: limitAt }],
@@ -338,6 +339,8 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
     ['stop_limit', { triggerPrice: below, limitPrice: limitAt, trailingDistance: distance }],
     ['trailing_stop', { trailingDistance: distance, triggerPrice: below }],
     ['trailing_stop', { trailingDistance: distance, limitPrice: limitAt }],
+    ['take_profit', { triggerPrice: away(mark, 300), limitPrice: away(mark, 250) }],
+    ['take_profit', { triggerPrice: away(mark, 300), trailingDistance: distance }],
   ];
   for (const [i, [kind, fields]] of extras.entries()) {
     const extra = await me.post('/api/v1/futures/conditional-orders', {
@@ -346,6 +349,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
       ...fields,
       clientOrderId: `${J}-extra-${i}-${Date.now()}`,
     });
+    if (extra.status < 300 && extra.body?.id) await me.delete(`/api/v1/futures/conditional-orders/${extra.body.id}`);
     expect(extra.status, `${kind} ${Object.keys(fields).join('+')}: ${JSON.stringify(extra.body)}`).toBe(400);
     expect(extra.body).toMatchObject({ error: 'trade.conditional_field_unsupported' });
   }
