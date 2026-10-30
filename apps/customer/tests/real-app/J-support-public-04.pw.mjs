@@ -93,6 +93,12 @@ async function answered(browser) {
   return { ticket: shared.ticket, page };
 }
 
+/** TEST attachment limits (LOCAL TEST values, not owner decisions), set by the lead when any is blank. */
+const TEST_LIMITS = { maxBytes: 1_048_576, allowedTypes: ['image/png', 'text/plain'], maxCount: 5 };
+async function testLimits(expectedRevision, reason) {
+  return lead('mutation', 'setAttachmentSettings', { ...TEST_LIMITS, expectedRevision, reason });
+}
+
 /** The team marks the request solved, unless it already is. */
 async function solved(ticket, step) {
   const now = await lead('query', 'get', { ticketId: ticket.id });
@@ -173,13 +179,7 @@ test(`${J} #3 attaching a screenshot: the control states the service's limits, a
   const main = page.locator('main');
   await expect(main.getByTestId('attach-limits')).toContainText('Attaching files is switched off.');
   // The lead sets TEST limits (LOCAL TEST values, not owner decisions); the control states what the service answers.
-  set = await lead('mutation', 'setAttachmentSettings', {
-    maxBytes: 1_048_576,
-    allowedTypes: ['image/png', 'text/plain'],
-    maxCount: 5,
-    expectedRevision: set.revision,
-    reason,
-  });
+  set = await testLimits(set.revision, reason);
   expect(set.missing).toBeNull();
   await page.reload();
   await expect(main.getByTestId('attach-limits')).toContainText(
@@ -203,6 +203,9 @@ test(`${J} #4 a file the scanner blocks shows as not accepted and is never offer
   browser,
 }) => {
   const { ticket, page } = await answered(browser);
+  // The TEST limits step 3 sets, in case a restart ran this step without it.
+  const limits = (await (await api(shared.who)).get('/api/support/trpc/attachmentLimits')).body.result.data;
+  if (limits.missing) await testLimits(limits.revision, `TEST ${J} #4`);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await main.getByLabel('File to attach').setInputFiles({ name: 'blocked.txt', mimeType: 'text/plain', buffer: Buffer.from(EICAR) });
@@ -352,6 +355,9 @@ test(`${J} #9 writing on a closed request is refused with a typed reason and not
   await expect(main.getByLabel('Write a reply')).toHaveCount(0);
   await main.getByRole('button', { name: 'Ask a follow-up' }).click();
   await expect(page).toHaveURL(/\/support\/new/);
+  await expect(main.getByText(/This new request follows/)).toBeVisible();
+  // The link is in the address, so a fresh load of the form still follows the closed request.
+  await page.reload();
   await expect(main.getByText(/This new request follows/)).toBeVisible();
   const subject = `TEST ${J} ${RUN} follow-up`;
   await main.getByLabel('Subject', { exact: true }).fill(subject);

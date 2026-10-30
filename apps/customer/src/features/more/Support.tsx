@@ -15,6 +15,7 @@ import { deskCopy } from './support-desk-copy';
 import {
   STATUS_FILTERS,
   filterTickets,
+  canFollowUp,
   followUpDraft,
   showRatePrompt,
   SUPPORT_TICKETS_HREF,
@@ -126,7 +127,21 @@ export function Support({ path }: { path: string }) {
         : Promise.resolve({ ok: true as const, data: null }),
     `support-follows:${userId}:${followsId ?? ''}`,
   );
-  const followUp = followsId && followed.resource.status === 'ready' ? followed.resource.data : null;
+  // One form for a new request. Its key leaves out what it follows, so dropping the follow-up keeps what was typed.
+  const newRequest = (follows: Ticket | null) =>
+    route.view === 'new' ? (
+      <NewRequest
+        key={`${userId}:${route.subject}`}
+        action={createAction}
+        subject={route.subject}
+        follows={follows}
+        onClearFollows={() => navigate(route.subject ? `${VIEW_HREF.new}?subject=${encodeURIComponent(route.subject)}` : VIEW_HREF.new)}
+        onSent={(ticket) => {
+          reloadRequests();
+          navigate(supportRequestHref(ticket.id));
+        }}
+      />
+    ) : null;
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -177,20 +192,24 @@ export function Support({ path }: { path: string }) {
           )}
         </Read>
       )}
-      {/* While the followed request is read, the form waits, so nothing typed is lost when the draft arrives. */}
-      {route.view === 'new' && !(followsId && followed.resource.status === 'loading') && (
-        <NewRequest
-          key={`${userId}:${route.subject}:${followUp?.id ?? ''}`}
-          action={createAction}
-          subject={route.subject}
-          follows={followUp}
-          onClearFollows={() => navigate(VIEW_HREF.new)}
-          onSent={(ticket) => {
-            reloadRequests();
-            navigate(supportRequestHref(ticket.id));
-          }}
-        />
-      )}
+      {route.view === 'new' &&
+        (followsId && followed.resource.status !== 'ready' ? (
+          // The form waits for the followed request, so its draft is there before anything is typed; a failed read says
+          // so with a retry. One slot for the form either way, so dropping the follow-up keeps what was typed.
+          <Read resource={followed.resource} retry={followed.reload}>
+            {() => null}
+          </Read>
+        ) : followed.resource.status === 'ready' && followed.resource.data && !canFollowUp(followed.resource.data.status) ? (
+          // A request that is still open takes the reply itself; it is not followed.
+          <p className="notice" role="note">
+            {copy.t('followUpNotClosed')}{' '}
+            <Button variant="secondary" onClick={() => navigate(supportRequestHref(followsId!))}>
+              {copy.t('followUpOpenIt')}
+            </Button>
+          </p>
+        ) : (
+          newRequest(followsId && followed.resource.status === 'ready' ? followed.resource.data : null)
+        ))}
       {notReached === path && (
         <p className="notice" role="status" data-testid="support-create-not-reached">
           {copy.t('createNotReached')}
