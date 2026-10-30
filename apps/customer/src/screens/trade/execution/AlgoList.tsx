@@ -191,7 +191,12 @@ export function AlgoList({
       id: 'slices',
       header: t('Slices'),
       width: 70,
-      cell: (r) => (r.ok ? `${r.progress?.childrenEmitted ?? r.parent.childrenEmitted} / ${r.parent.slicesPlanned}` : null),
+      cell: (r) => {
+        if (!r.ok) return null;
+        const emitted = r.progress?.childrenEmitted ?? r.parent.childrenEmitted;
+        // A chase has no slice plan: it re-prices one child, so the count is the children placed so far.
+        return r.parent.kind === 'chase' ? `${emitted}` : `${emitted} / ${r.parent.slicesPlanned}`;
+      },
     },
     {
       id: 'misses',
