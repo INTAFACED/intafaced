@@ -19,7 +19,7 @@ describe('S03 flatten hold', () => {
     expect(closeHoldFailureAction({ code: 'ledger.insufficient_funds' })).toBe('keep_recovery');
   });
 
-  it('a caller-binding refusal is definite here too, as in the order hold', () => {
+  it("a caller-binding refusal is definite, from the order hold's refused set; an unsent post stays in recovery", () => {
     expect(closeHoldFailureAction(new LedgerError('unbound', 'ledger.caller_unbound'))).toBe('delete_intent');
     expect(closeHoldFailureAction(new LedgerError('forbidden', 'ledger.caller_forbidden'))).toBe('delete_intent');
     expect(closeHoldFailureAction(new LedgerError('lost reply', 'ledger.timeout'))).toBe('keep_recovery');

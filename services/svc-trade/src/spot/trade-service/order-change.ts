@@ -218,6 +218,10 @@ export async function amendOrder(
     if (!order || order.userId !== principal.userId) {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
     }
+    // A buyback order is IOC and its hold lives in the buyback account: refuse before the engine is asked to change it.
+    if (isBuybackUser(order.userId)) {
+      return svc.amendOutcome(order, 'NOT_AMENDABLE', BUYBACK_INVALID, false, false, null);
+    }
     if (order.status === 'recovery_required') {
       return svc.amendOutcome(order, 'AMEND_UNKNOWN', order.recoveryReason ?? 'AMEND_UNKNOWN', true, false, null);
     }
