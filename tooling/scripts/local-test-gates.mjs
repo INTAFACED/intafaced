@@ -26,6 +26,7 @@
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
+ *   node tooling/scripts/local-test-gates.mjs sandbox-funds set|unset   the TEST developer sandbox fund amount and resets per day in svc-pay (restarts pay)
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *   node tooling/scripts/local-test-gates.mjs scoped-session --without <scope>   a founder console cookie whose scopes leave one out (JSON)
  *
@@ -86,6 +87,8 @@ import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-te
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
+/** Written by `sandbox-funds set`, read by local-stack-services/pay.mjs. */
+const SANDBOX_FUNDS_FILE = 'sandbox-funds.json';
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
 const PSQL = path.join(localPgBin(), 'psql');
@@ -355,6 +358,24 @@ async function libs() {
   } catch (err) {
     throw new Error(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
   }
+}
+
+/**
+ * The owner who sets the developer sandbox's TEST fund amount and resets per day (J-developer-02 #5, #8). They are
+ * svc-pay settings with no door, so this writes the stack's marker file that `local-stack-services/pay.mjs` reads and
+ * restarts pay; `unset` removes it and pay comes back with both blank, refusing Fund and Reset by name. The sandbox
+ * store holds TEST figures only and never reaches the ledger.
+ */
+function sandboxFunds(ctx, on) {
+  const file = path.join(ctx.paths.stateDir, SANDBOX_FUNDS_FILE);
+  if (on) fs.writeFileSync(file, `${JSON.stringify({ label: MARKERS.label, setAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+  else fs.rmSync(file, { force: true });
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-stack.mjs'), 'restart', 'pay'], {
+    encoding: 'utf8',
+    env: process.env,
+  });
+  if (r.status !== 0) throw new Error(`restarting pay failed: ${(r.stderr || r.stdout).trim().slice(-300)}`);
+  return on ? 'TEST fund amount and resets per day set; pay restarted' : 'fund amount and resets per day blank; pay restarted';
 }
 
 function psqlRead(secrets, role, sql) {
@@ -3058,6 +3079,8 @@ async function main() {
   // Usage first: a typo never signs anyone in or touches the stack.
   if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
     die('usage: local-test-gates.mjs posting-freeze on|off', 2);
+  if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
+    die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
@@ -3073,6 +3096,8 @@ async function main() {
       if (!without) die('usage: local-test-gates.mjs scoped-session --without <scope>', 2);
       const { cookies } = await scopedConsoleSession(ctx, without);
       process.stdout.write(`${JSON.stringify({ cookies })}\n`);
+    } else if (cmd === 'sandbox-funds') {
+      say(`  sandbox   ${sandboxFunds(ctx, process.argv[3] === 'set')}`);
     } else if (cmd === 'operators') {
       const ops = await ensureOperators(ctx);
       say(`operators ready: ${ops.a.handle}, ${ops.b.handle} (credentials in ${ctx.paths.operators}, mode 600)`);
