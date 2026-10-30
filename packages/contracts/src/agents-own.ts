@@ -67,11 +67,15 @@ export const ownAgentRunResultSchema = z.object({
 });
 export type OwnAgentRunResult = z.infer<typeof ownAgentRunResultSchema>;
 
-/** `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. */
+/**
+ * `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. `task` is
+ * the routing task the call was priced as (a blank rate refuses under it); null only on a row logged without one.
+ */
 export const ownAgentRunRowSchema = z.object({
   sessionId: z.string().uuid(),
   sequence: z.number().int(),
   status: z.enum(['executed', 'refused', 'failed']),
+  task: z.string().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
   assetId: z.string(),

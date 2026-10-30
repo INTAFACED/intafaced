@@ -46,7 +46,7 @@ const CODE_WORDS = {
   'agents.spend.cap_exceeded': 'code_spend_cap_exceeded',
   'agents.funds_insufficient': 'code_funds_insufficient',
   'agents.funds_unread': 'code_funds_unread',
-  'agents.price_unset': 'code_price_unset',
+  'agents.price_unset': 'code_price_unset_unread',
   'agents.spend_limit': 'code_spend_limit',
   'agents.request_id_replay': 'code_request_id_replay',
   'agents.session_closed': 'code_session_closed',
@@ -73,12 +73,15 @@ function Refusal({
   name = '',
   cap = '',
   asset = '',
+  task = '',
   inline = false,
 }: {
   code: string;
   name?: string;
   cap?: string;
   asset?: string;
+  /** The routing task svc-agents logged the refused run under: a blank rate is named by it, never by the copy. */
+  task?: string;
   /** In a table row: the words without announcing them, since the row is a record, not a fresh refusal. */
   inline?: boolean;
 }) {
@@ -89,9 +92,13 @@ function Refusal({
       ? t('code_own_reserved_name', { name })
       : code === 'agents.spend.above_agent_cap'
         ? t('code_spend_above_agent_cap', { cap, asset })
-        : key
-          ? t(key)
-          : t('code_other');
+        : code === 'agents.price_unset'
+          ? task
+            ? t('code_price_unset', { task })
+            : t('code_price_unset_unread')
+          : key
+            ? t(key)
+            : t('code_other');
   return inline ? (
     <span>
       {words} <code lang="zxx">{code}</code>
@@ -103,7 +110,7 @@ function Refusal({
   );
 }
 /** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
-function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string }) {
+function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string; task?: string }) {
   const code = refusalCode(failed);
   return code ? <Refusal code={code} {...params} /> : <Failure result={failed} />;
 }
@@ -508,6 +515,7 @@ function Sessions({
   const [ask, setAsk] = useState('');
   const [ran, setRan] = useState<Ran | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
+  const [refusedTask, setRefusedTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
   // Each press is its own request: a business key from this visit, the session and a count, so a retried request
@@ -534,6 +542,12 @@ function Sessions({
       ownAgentRunResultSchema,
     );
   };
+  /** The task svc-agents logged this session's newest blank-rate refusal under, or '' when it cannot be read. */
+  async function unpricedTask(session: string): Promise<string> {
+    const res = await api.query('agents', 'own.runs', { id: agent.id, limit: 10 }, z.array(ownAgentRunRowSchema));
+    if (!res.ok) return '';
+    return res.data.find((row) => row.sessionId === session && row.refusalCode === 'agents.price_unset')?.task ?? '';
+  }
   /** Closes the session once its usage is paid; a window the ledger refused for funds keeps it open, and says so. */
   async function close(session: string) {
     setBusy(true);
@@ -558,7 +572,10 @@ function Sessions({
       const admitted = results.find((res) => res.ok);
       const failed = results.find((res) => !res.ok);
       if (admitted?.ok) setRan(admitted.data);
-      if (failed && !failed.ok) setRefused(failed);
+      if (failed && !failed.ok) {
+        setRefusedTask(refusalCode(failed) === 'agents.price_unset' ? await unpricedTask(session) : '');
+        setRefused(failed);
+      }
     }
     setBusy(false);
     setRunsVersion((v) => v + 1);
@@ -609,7 +626,7 @@ function Sessions({
             </p>
           </div>
         ) : null}
-        {refused ? <Answer failed={refused} /> : null}
+        {refused ? <Answer failed={refused} task={refusedTask} /> : null}
       </Panel>
       <Runs agent={agent} version={runsVersion} />
     </>
@@ -643,7 +660,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                   <tr key={`${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
                     <td>{t(`run_${row.status}`)}</td>
-                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} inline /> : null}</td>
+                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} task={row.task ?? ''} inline /> : null}</td>
                     <td data-testid="run-cost">{money(row.cost, row.assetId)}</td>
                   </tr>
                 ))}

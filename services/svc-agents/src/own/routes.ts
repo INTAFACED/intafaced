@@ -298,12 +298,13 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
               session_id: string;
               sequence: number;
               status: 'executed' | 'refused' | 'failed';
+              task: string | null;
               refusal_code: string | null;
               cost: string;
               occurred_at: Date;
             }>
           >`
-            SELECT a.session_id::text, a.sequence, a.status, a.refusal_code, a.cost::text, a.occurred_at
+            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at
               FROM agents.agent_actions a
              WHERE a.user_id = ${ctx.principal.userId}
                AND a.agent_id = ${ownSessionAgentId(agent.id)}
@@ -315,6 +316,7 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
             sessionId: row.session_id,
             sequence: row.sequence,
             status: row.status,
+            task: row.task,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,

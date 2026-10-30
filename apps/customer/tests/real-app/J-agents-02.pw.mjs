@@ -472,19 +472,21 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
-// Set while svc-agents runs with its rates blank, so a test that times out before its finally still restores them.
+// Set from the moment svc-agents may run with its rates blank until a restore has succeeded, so a test that times out
+// before its finally, or a restore that throws, is restored again after the test.
 let ratesBlank = false;
 test.afterEach(() => {
   if (ratesBlank) blankRates(false);
 });
 
 function blankRates(blank) {
-  ratesBlank = blank;
+  if (blank) ratesBlank = true;
   const before = process.env.LOCAL_STACK_AGENTS_RATES;
   if (blank) process.env.LOCAL_STACK_AGENTS_RATES = 'off';
   else delete process.env.LOCAL_STACK_AGENTS_RATES;
   try {
     tool('local-test-stack.mjs', 'restart', 'agents');
+    if (!blank) ratesBlank = false;
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_AGENTS_RATES;
     else process.env.LOCAL_STACK_AGENTS_RATES = before;
@@ -566,7 +568,6 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
 
   // A blank rate: svc-agents restarted with no rates published. The service lists the agents' task with no rate, the
   // run refuses with that rate named and its exact code before any reply, and nothing runs free.
-  test.setTimeout(420_000);
   try {
     blankRates(true);
     const routes = await (await api(user)).get('/api/agents/trpc/routes.list');
@@ -583,14 +584,16 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
       .fill('TEST question');
     await session(page).getByRole('button', { name: 'Run', exact: true }).click();
     const refusal = session(page).getByRole('alert');
-    await expect(refusal).toContainText(
-      'No rate is published for own.run, the rate this run is billed at, so it does not run. Nothing runs free.',
-    );
     await expect(refusal.locator('code')).toHaveText('agents.price_unset');
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
-    // Read back after the refusal: one refused run at 0 under that code; the usage view and the balance unchanged.
+    // Read back after the refusal: one refused run at 0 under that code, logged under the task whose rate is blank;
+    // the page names the rate as svc-agents logged it, in the alert and in the run's row.
     const refused = await secondRuns('refused');
     expect(refused).toHaveLength(1);
+    expect(refused[0].task).toBe('own.run');
+    const named = `No rate is published for ${refused[0].task}, the rate this run is billed at, so it does not run. Nothing runs free.`;
+    await expect(refusal).toHaveText(`${named} agents.price_unset`);
+    await expect(tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.price_unset' })).toContainText(named);
     // Nothing ran free: no new executed run, and no failed one either.
     expect(await secondRuns('executed')).toEqual(executedBefore);
     expect(await secondRuns('failed')).toEqual([]);

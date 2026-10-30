@@ -512,13 +512,14 @@ export class UsageMeter {
   /**
    * The sealed usage of these agents' sessions, one row per agent, UTC day and task: the exact sum of the windows'
    * sealed amounts, so an agent's rows add up to its sealed windows. A window lies in one day (its id starts with it);
-   * its task is every task its usage ran as. Open windows have no amount yet and are left out.
+   * its task is every task its usage ran as. Open windows have no amount yet and are left out (a sealed one always has
+   * its amount, by the table's CHECK; the coalesce only keeps a NULL from ever reaching `parseAmount`).
    */
   async usageByDay(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
     if (agentIds.length === 0) return [];
     const rows = await this.sql<Array<{ agent_id: string; day: string; task: string; amount: string; windows: number; asset: string }>>`
       SELECT s.agent_id, left(w.window_id, 10) AS day, coalesce(t.tasks, '') AS task,
-             sum(w.charged_amount)::text AS amount, count(*)::int AS windows, coalesce(w.charged_asset, ${this.assetId}) AS asset
+             coalesce(sum(w.charged_amount), 0)::text AS amount, count(*)::int AS windows, coalesce(w.charged_asset, ${this.assetId}) AS asset
         FROM agents.usage_windows w
         JOIN agents.agent_sessions s ON s.id = w.session_id
         LEFT JOIN LATERAL (

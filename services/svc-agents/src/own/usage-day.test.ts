@@ -258,14 +258,13 @@ if (!available) {
       const err = await person.own.run({ id, sessionId, requestId: 'blank-rate-1', ask: ASK }).catch((e: unknown) => e);
       expect(err).toMatchObject({ code: 'FORBIDDEN', message: 'agents.price_unset' });
       const refusal = ((err as { cause?: unknown }).cause as RefusedError).refusal;
-      // The customer room's refusal copy names this task as `own.run` (agent-builder-copy.ts); it stays that name.
-      expect(OWN_RUN_TASK).toBe('own.run');
       expect(refusal.userMessageParams).toEqual({ task: OWN_RUN_TASK });
       expect(render(refusal.userMessageKey as Parameters<typeof render>[0], refusal.userMessageParams)).toContain(`“${OWN_RUN_TASK}”`);
       expect(calls).toBe(0);
 
       expect(await person.own.runs({ id, limit: 10 })).toEqual([
-        expect.objectContaining({ status: 'refused', refusalCode: 'agents.price_unset', cost: '0' }),
+        // The run's row carries the task it was refused under: the customer room names the blank rate from it.
+        expect.objectContaining({ status: 'refused', task: OWN_RUN_TASK, refusalCode: 'agents.price_unset', cost: '0' }),
       ]);
       await person.own.session.close({ id, sessionId });
       expect(await person.own.usageByDay()).toEqual([]);
