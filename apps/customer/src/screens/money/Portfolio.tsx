@@ -597,7 +597,14 @@ export default function Portfolio() {
 
   const spaces = useMemo(() => spacesFor(accounts, view?.source ?? 'server'), [accounts, view?.source]);
   const heldAccounts = useMemo(
-    () => (accounts.status === 'ready' ? accounts.data.filter((account) => (dec(account.balance) ?? 0n) > 0n) : []),
+    () =>
+      accounts.status === 'ready'
+        ? accounts.data.filter((account) => {
+            // A balance that cannot be read stays listed (it shows as unknown); only a known zero is left out.
+            const held = dec(account.balance);
+            return held === null || held > 0n;
+          })
+        : [],
     [accounts],
   );
   // Available / In orders / In spaces next to Amount, for every row; one note for the whole table pair.

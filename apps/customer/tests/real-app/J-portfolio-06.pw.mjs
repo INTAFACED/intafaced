@@ -13,7 +13,7 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const SPACE = 'Travel TEST';
 const SAVED = '50';
 const MOVED = '100';
-// A second named space that never holds anything: #5's account picker leaves it out.
+// A second named space that never holds anything: #5's Your accounts list leaves it out; the picker still offers it.
 const EMPTY_SPACE = 'Empty TEST';
 
 test.describe.configure({ mode: 'default' });
@@ -143,7 +143,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const usdt = await (await api(who)).balances();
   const usdtTotal = toUnits(usdt.USDT.total) + toUnits(MOVED);
   expect(toUnits(byClass.stablecoin.assets.find((a) => a.asset === 'USDT').valueUsd)).toBe(usdtTotal - toUnits(SAVED));
-  // Locked is exactly the savings: the ledger holds them as USDT in use (no order is open and no BTC is held), at par.
+  // Locked is exactly the savings: the ledger holds them as USDT in use, at par. No order is open, so no BTC is in use.
   // Spendable is the rest, so the two add up to the total.
   const locked = allocation.types.find((row) => row.type === 'locked');
   const spendable = allocation.types.find((row) => row.type === 'available');
@@ -164,15 +164,17 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   const place = await grouped(page, 'Place');
   await expect(place.locator('li[data-group="available"]')).toContainText('Spendable');
   await expect(place.locator('li[data-group="locked"]')).toContainText('Locked');
-  // Each place's percent on screen is the bank's share of the total, as shown (to its last printed place).
-  for (const row of [spendable, locked]) {
-    const shown = await place.locator(`li[data-group="${row.type}"] .money-alloc__pct`).innerText();
+  // Each place's percent on screen is the bank's share of the total, as shown (to its last printed place). Prices move,
+  // so the screen and a fresh read of the bank are compared until one price book serves both.
+  const agrees = async (type) => {
+    const shown = (await place.locator(`li[data-group="${type}"] .money-alloc__pct`).innerText()).trim();
+    const share = Number((await me.query('portfolio.allocation')).types.find((row) => row.type === type).share) * 100;
+    if (shown.startsWith('<')) return share < Number(shown.replace(/[^\d.]/g, '')) ? 'agree' : `${shown} vs ${share}`;
     const digits = shown.replace(/[^\d.]/g, '');
     const places = (digits.split('.')[1] ?? '').length;
-    expect(Math.abs(Number(digits) - Number(row.share) * 100), `${row.type} ${shown} vs ${row.share}`).toBeLessThanOrEqual(
-      0.5 * 10 ** -places,
-    );
-  }
+    return Math.abs(Number(digits) - share) <= 0.5 * 10 ** -places + 1e-9 ? 'agree' : `${shown} vs ${share}`;
+  };
+  for (const type of ['available', 'locked']) await expect.poll(() => agrees(type), { timeout: 30_000 }).toBe('agree');
 });
 
 test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and still adds to the total`, async ({ page }) => {
