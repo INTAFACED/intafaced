@@ -26,6 +26,16 @@
       "value": "1",
       "note": "TEST confirmations before a swap reads filled, on the local TEST chain. Blank in production refuses protocol.swap_settings_unset."
     },
+    "PROTOCOL_PRICE_USD_TOKENS": {
+      "service": "protocol",
+      "value": "0x000000000000000000000000000000000000d011",
+      "note": "TEST USD on the local TEST chain, counted as one dollar for the swap form's prices. Blank in production refuses protocol.price_settings_unset."
+    },
+    "PROTOCOL_PRICE_MIN_RESERVE_USD": {
+      "service": "protocol",
+      "value": "1000",
+      "note": "TEST reliability filter: a pool must hold 1,000 TEST USD worth on its priced side for its price to show. Blank in production refuses protocol.price_settings_unset."
+    },
     "PROTOCOL_TOKENS_QUOTE_TOKEN": {
       "service": "protocol",
       "value": "0x00000000000000000000000000000000000b0b00",

@@ -300,6 +300,14 @@ export class ProtocolChain {
     );
   }
 
+  /** When `blockNumber` was made, from the block itself. */
+  async blockTimestamp(blockNumber: bigint): Promise<Date> {
+    return this.#read('blockTimestamp', 'chain.getBlock', async () => {
+      const block = await this.client.getBlock({ blockNumber });
+      return new Date(Number(block.timestamp) * 1000);
+    });
+  }
+
   /** The block the node is at now. */
   async headBlock(): Promise<bigint> {
     return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
