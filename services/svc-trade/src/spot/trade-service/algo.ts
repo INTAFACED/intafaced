@@ -253,31 +253,26 @@ export async function createTwap(
 
 /**
  * What a chase reads of its children: the sum of their fills (the fills are the evidence, never the order row's
- * counter), which of them still rest in the book or may still, and what the engine matched on them that their fills do
- * not show yet (`qty − engine_left_qty` above the fills, for a child the engine has said it took off the book).
+ * counter) and which of them still rest in the book or may still.
  */
 export async function chaseChildState(sql: TradeServiceInternal['sql'], orderIds: readonly string[]): Promise<ChaseChildState> {
   const ids = [...orderIds];
-  if (ids.length === 0) return { filledQty: 0n, openOrderIds: new Set(), unsettledQty: 0n };
-  const rows = await sql<Array<{ id: string; status: string; qty: string; engine_left_qty: string | null; filled: string }>>`
-    SELECT o.id::text AS id, o.status, o.qty::text AS qty, o.engine_left_qty::text AS engine_left_qty,
-           COALESCE((SELECT SUM(f.qty) FROM trade.fills f WHERE f.order_id = o.id), 0)::text AS filled
-      FROM trade.orders o
-     WHERE o.id = ANY(${ids}::uuid[])
-  `;
+  if (ids.length === 0) return { filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() };
+  const [fills, open] = await Promise.all([
+    sql<Array<{ order_id: string; qty: string }>>`
+      SELECT order_id::text AS order_id, SUM(qty)::text AS qty FROM trade.fills
+       WHERE order_id = ANY(${ids}::uuid[]) GROUP BY order_id
+    `,
+    sql<Array<{ id: string }>>`
+      SELECT id::text AS id FROM trade.orders
+      WHERE id = ANY(${ids}::uuid[]) AND status IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+    `,
+  ]);
+  // One read gives both the per-child fills and their sum, so the two never disagree.
+  const filledByOrderId = new Map(fills.map((r) => [r.order_id, parseAmount(r.qty)] as const));
   let filledQty = 0n;
-  let unsettledQty = 0n;
-  const openOrderIds = new Set<string>();
-  for (const row of rows) {
-    const filled = parseAmount(row.filled);
-    filledQty += filled;
-    if (['open', 'pending', 'recovery_required', 'hold_unknown'].includes(row.status)) openOrderIds.add(row.id);
-    if (row.engine_left_qty !== null) {
-      const matched = parseAmount(row.qty) - parseAmount(row.engine_left_qty);
-      if (matched > filled) unsettledQty += matched - filled;
-    }
-  }
-  return { filledQty, openOrderIds, unsettledQty };
+  for (const qty of filledByOrderId.values()) filledQty += qty;
+  return { filledQty, filledByOrderId, openOrderIds: new Set(open.map((r) => r.id)) };
 }
 
 /** Owner recovery restores only the immutable admitted proposal. Each child

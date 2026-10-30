@@ -5,6 +5,7 @@ import { algoStopReason } from './stop-reason.js';
 import { presentChase } from './present.js';
 import {
   CANCEL_INCOMPLETE_HALT,
+  CHASE_CHILD_UNACCOUNTED_HALT,
   CHASE_EXPIRED_HALT,
   CHASE_MAX_DISTANCE_HALT,
   TwapEngine,
@@ -25,10 +26,6 @@ interface SimOrder {
   filled: Amount;
   /** Matched by the engine, its fill rows not written yet (the taker's settlement is still on its way). */
   matched: Amount;
-  /** The order row's engine_left_qty: what the engine said it still held when it took the order off the book. */
-  engineLeft: Amount | null;
-  /** Pending: the engine never acknowledged it, so a cancel miss is no answer. */
-  pending?: boolean;
   open: boolean;
 }
 
@@ -43,6 +40,7 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
   let cancelNoop = false;
   let onPlace: (() => Promise<unknown>) | null = null;
   let onCancel: (() => Promise<unknown>) | null = null;
+  let noAnswer = false;
   const byClientId = new Map<string, string>();
   const ownOpen = () => [...orders.values()].filter((o) => o.open);
   const ports: TwapEnginePorts = {
@@ -51,7 +49,7 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
     placeChild: async (req) => {
       const orderId = `order-${placed.length}`;
       placed.push({ price: req.limitPrice, qty: req.qty, clientOrderId: req.clientOrderId });
-      orders.set(orderId, { price: req.limitPrice!, qty: req.qty, filled: 0n, matched: 0n, engineLeft: null, open: true });
+      orders.set(orderId, { price: req.limitPrice!, qty: req.qty, filled: 0n, matched: 0n, open: true });
       byClientId.set(req.clientOrderId, orderId);
       const hook = onPlace;
       onPlace = null;
@@ -64,14 +62,13 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
       const o = orders.get(orderId);
       if (!o || cancelNoop) return;
       o.open = false;
-      // The cancel writes the engine's answer on the order row; a pending order the engine never had gets none.
-      if (!o.pending && o.engineLeft === null) {
-        const remaining = o.qty - o.filled - o.matched;
-        o.engineLeft = remaining > 0n ? remaining : 0n;
-      }
       const hook = onCancel;
       onCancel = null;
       if (hook) await hook();
+      if (noAnswer) return;
+      // The engine still held what neither filled nor matched; 0 when the match took it all.
+      const left = o.qty - o.filled - o.matched;
+      return { engineLeftQty: left > 0n ? left : 0n };
     },
     chaseChildByClientOrderId: async (_parent, clientOrderId) => {
       const orderId = byClientId.get(clientOrderId);
@@ -103,16 +100,16 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
       : {
           chaseChildState: async (ids: readonly string[]) => {
             let filledQty = 0n;
-            let unsettledQty = 0n;
+            const filledByOrderId = new Map<string, Amount>();
             const openOrderIds = new Set<string>();
             for (const id of ids) {
               const o = orders.get(id);
               if (!o) continue;
               filledQty += o.filled;
+              if (o.filled > 0n) filledByOrderId.set(id, o.filled);
               if (o.open) openOrderIds.add(id);
-              if (o.engineLeft !== null && o.qty - o.engineLeft > o.filled) unsettledQty += o.qty - o.engineLeft - o.filled;
             }
-            return { filledQty, openOrderIds, unsettledQty };
+            return { filledQty, filledByOrderId, openOrderIds };
           },
         }),
   };
@@ -144,22 +141,8 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
     setCancelNoop: (v: boolean) => (cancelNoop = v),
     /** Run `fn` inside the next child cancel, after the engine took the order off the book. */
     duringNextCancel: (fn: () => Promise<unknown>) => (onCancel = fn),
-    /** Run `fn` while the next child is being placed (after the order exists, before the engine hears back). */
-    duringNextPlace: (fn: () => Promise<unknown>) => (onPlace = fn),
-    /** An order the engine never heard of, under `clientOrderId`: what a crash between place and save leaves. */
-    stray: (clientOrderId: string, price: string, qty: string) => {
-      const orderId = `stray-${clientOrderId}`;
-      orders.set(orderId, { price: p(price), qty: p(qty), filled: 0n, matched: 0n, engineLeft: null, open: true });
-      byClientId.set(clientOrderId, orderId);
-      return orderId;
-    },
-    ownOpen: () => [...orders.entries()].filter(([, o]) => o.open).map(([id]) => id),
-    advance: (ms: number) => (t += ms),
-    fill: (orderId: string, qty: string, close = false) => {
-      const o = orders.get(orderId)!;
-      o.filled += p(qty);
-      if (close) o.open = false;
-    },
+    /** The cancel port answers nothing (the engine was not asked). */
+    setNoAnswer: (v: boolean) => (noAnswer = v),
     /** A seller's sweep matched `qty` of this child in the engine; its fill rows land only at `settle`. */
     engineMatch: (orderId: string, qty: string) => {
       orders.get(orderId)!.matched += p(qty);
@@ -169,6 +152,22 @@ function makeChase(side: OrderSide = 'buy', opts: { cancelFails?: boolean; noChi
       const o = orders.get(orderId)!;
       o.filled += o.matched;
       o.matched = 0n;
+    },
+    /** Run `fn` while the next child is being placed (after the order exists, before the engine hears back). */
+    duringNextPlace: (fn: () => Promise<unknown>) => (onPlace = fn),
+    /** An order the engine never heard of, under `clientOrderId`: what a crash between place and save leaves. */
+    stray: (clientOrderId: string, price: string, qty: string) => {
+      const orderId = `stray-${clientOrderId}`;
+      orders.set(orderId, { price: p(price), qty: p(qty), filled: 0n, matched: 0n, open: true });
+      byClientId.set(clientOrderId, orderId);
+      return orderId;
+    },
+    ownOpen: () => [...orders.entries()].filter(([, o]) => o.open).map(([id]) => id),
+    advance: (ms: number) => (t += ms),
+    fill: (orderId: string, qty: string, close = false) => {
+      const o = orders.get(orderId)!;
+      o.filled += p(qty);
+      if (close) o.open = false;
     },
   };
 }
@@ -430,90 +429,93 @@ describe('chase limit order with a maximum distance', () => {
     expect(c.ownOpen()).toEqual(['order-1']);
   });
 
-  it('a child fully matched in the engine just before a re-price is not bought again while its fills are on the way', async () => {
+  it('a child fully matched just before a re-price is never bought again: the chase stops, naming why', async () => {
     const c = makeChase();
     const parent = c.engine.create(USER, c.input(), LOT);
     await c.engine.tick(parent.id);
     // A seller sweeps the bids: the engine matches the whole child, and the taker's settlement has not written fills.
     c.engineMatch('order-0', '1');
     c.book.otherBid = p('1.00');
-    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_fills' });
+    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'halted' });
     expect(c.cancels).toEqual(['order-0']);
     expect(c.placed).toHaveLength(1);
-    expect(c.orders.get('order-0')!.engineLeft).toBe(0n);
-    // Later ticks keep waiting: the matched quantity is never placed again.
+    const live = c.engine.get(parent.id)!;
+    expect(live.status).toBe('halted');
+    expect(live.haltReason).toBe(CHASE_CHILD_UNACCOUNTED_HALT);
+    expect(algoStopReason(live)).toEqual({ code: 'chase_child_unaccounted', label: 'Stopped: a fill is still settling' });
+    // Later ticks place nothing, and the fills land on the stopped parent.
     c.advance(5_000);
-    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_fills' });
-    expect(c.placed).toHaveLength(1);
-    // The fills land: the whole quantity is bought once and the chase completes with no second child.
+    await c.engine.tick(parent.id);
     c.settle('order-0');
-    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'completed' });
+    await c.engine.tick(parent.id);
     expect(c.placed).toHaveLength(1);
-    expect(c.engine.get(parent.id)!.status).toBe('completed');
   });
 
-  it('a partial engine match before a re-price waits for its fills, then rests only the engine remainder', async () => {
+  it('a partial match still settling at a re-price stops the chase rather than resting the rest', async () => {
     const c = makeChase();
     const parent = c.engine.create(USER, c.input(), LOT);
     await c.engine.tick(parent.id);
     c.engineMatch('order-0', '0.4');
     c.book.otherBid = p('1.00');
-    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_fills' });
-    expect(c.orders.get('order-0')!.engineLeft).toBe(p('0.6'));
+    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'halted' });
+    expect(c.engine.get(parent.id)!.haltReason).toBe(CHASE_CHILD_UNACCOUNTED_HALT);
     expect(c.placed).toHaveLength(1);
+  });
+
+  it('a partial fill already settled at the re-price rests only the engine remainder, as before', async () => {
+    const c = makeChase();
+    const parent = c.engine.create(USER, c.input(), LOT);
+    await c.engine.tick(parent.id);
+    c.engineMatch('order-0', '0.4');
     c.settle('order-0');
+    c.book.otherBid = p('1.00');
     expect((await c.engine.tick(parent.id)).kind).toBe('placed');
     expect(c.placed.map((o) => [o.price, o.qty])).toEqual([
       [p('0.99'), p('1')],
       [p('1.00'), p('0.6')],
     ]);
-    // Bought 0.4 + working 0.6: never more than the parent's quantity.
-    expect(c.ownOpen()).toEqual(['order-1']);
   });
 
-  it('a pause that lands mid-cancel loses nothing: after resume the chase still waits for the matched fills', async () => {
+  it('a full match whose fills already landed completes the chase with no stop and no new child', async () => {
+    const c = makeChase();
+    const parent = c.engine.create(USER, c.input(), LOT);
+    await c.engine.tick(parent.id);
+    c.duringNextCancel(async () => {
+      // The match and its settlement both land while the cancel is on its way.
+      c.engineMatch('order-0', '1');
+      c.settle('order-0');
+    });
+    c.book.otherBid = p('1.00');
+    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'completed' });
+    expect(c.placed).toHaveLength(1);
+  });
+
+  it('a pause that lands during the cancel does not let a resume re-place the matched quantity', async () => {
     const c = makeChase();
     const parent = c.engine.create(USER, c.input(), LOT);
     await c.engine.tick(parent.id);
     c.engineMatch('order-0', '1');
     c.book.otherBid = p('1.00');
     c.duringNextCancel(async () => c.engine.pause(USER, parent.id));
-    expect((await c.engine.tick(parent.id)).kind).toBe('idle');
-    expect(c.engine.get(parent.id)!.status).toBe('paused');
-    c.engine.resume(USER, parent.id);
-    c.advance(5_000);
-    expect(await c.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_fills' });
+    await c.engine.tick(parent.id);
+    expect(c.engine.get(parent.id)!.status).toBe('halted');
+    expect(c.engine.get(parent.id)!.haltReason).toBe(CHASE_CHILD_UNACCOUNTED_HALT);
+    expect(() => c.engine.resume(USER, parent.id)).toThrow();
+    await c.engine.tick(parent.id);
     expect(c.placed).toHaveLength(1);
   });
 
-  it('a cancel with no engine answer (a pending child the engine never had) does not wait: its fills are the whole story', async () => {
+  it('a cancel with no engine answer takes the fills as the whole story and re-prices', async () => {
     const c = makeChase();
     const parent = c.engine.create(USER, c.input(), LOT);
     await c.engine.tick(parent.id);
-    c.orders.get('order-0')!.pending = true;
+    c.setNoAnswer(true);
     c.book.otherBid = p('1.00');
     expect((await c.engine.tick(parent.id)).kind).toBe('placed');
-    expect(c.orders.get('order-0')!.engineLeft).toBeNull();
     expect(c.placed.map((o) => [o.price, o.qty])).toEqual([
       [p('0.99'), p('1')],
       [p('1.00'), p('1')],
     ]);
-  });
-
-  it('the engine remainder survives a restart: a hydrated parent still waits for the matched fills', async () => {
-    const c = makeChase();
-    const parent = c.engine.create(USER, c.input(), LOT);
-    await c.engine.tick(parent.id);
-    c.engineMatch('order-0', '1');
-    c.book.otherBid = p('1.00');
-    await c.engine.tick(parent.id);
-    const saved = c.engine.get(parent.id)!;
-    const fresh = makeChase();
-    for (const [id, o] of c.orders) fresh.orders.set(id, o);
-    fresh.book.otherBid = p('1.00');
-    fresh.engine.hydrate(saved, []);
-    expect(await fresh.engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_fills' });
-    expect(fresh.placed).toHaveLength(0);
   });
 
   it('a paused chase still ends at its expiry, cancelling its resting child once', async () => {

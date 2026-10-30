@@ -581,25 +581,10 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
         )`;
       const state = await chaseChildState(db.sql, [resting, cancelled]);
       expect(state.filledQty).toBe(amt('0.004'));
+      // Per child: only the cancelled child has fills; the resting one has none, so it is absent.
+      expect(state.filledByOrderId).toEqual(new Map([[cancelled, amt('0.004')]]));
       expect([...state.openOrderIds]).toEqual([resting]);
-      // No engine answer on either row yet: nothing counts as matched but unsettled.
-      expect(state.unsettledQty).toBe(0n);
-      // The engine said it held 0.002 of the cancelled 0.01 child: 0.008 matched, 0.004 of it settled, 0.004 on the way.
-      await db.sql`UPDATE trade.orders SET engine_left_qty = ${'0.002'}::numeric WHERE id = ${cancelled}`;
-      expect((await chaseChildState(db.sql, [resting, cancelled])).unsettledQty).toBe(amt('0.004'));
-      // Once the rest of the match settles, nothing is owed.
-      await db.sql`
-        INSERT INTO trade.fills (
-          id, order_id, counter_order_id, market_id, user_id, side, liquidity,
-          price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence, ts
-        ) VALUES (
-          ${randomUUID()}, ${cancelled}, ${counter}, ${marketId}, ${ALICE}, 'buy', 'maker',
-          ${'60000'}::numeric, ${'0.004'}::numeric, ${'240'}::numeric, 'BTC', ${'0'}::numeric, 0, 2, ${NOW}
-        )`;
-      const settled = await chaseChildState(db.sql, [resting, cancelled]);
-      expect(settled.unsettledQty).toBe(0n);
-      expect(settled.filledQty).toBe(amt('0.008'));
-      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, openOrderIds: new Set(), unsettledQty: 0n });
+      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set() });
     });
   });
 });
