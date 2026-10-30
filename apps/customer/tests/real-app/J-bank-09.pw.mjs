@@ -501,8 +501,8 @@ test(`${J} #5 reads the loan page: the terms written at open; the product's rate
   const res = await treasury(
     'bank.ops.setLoanProductRate',
     'ops.setLoanProductRate',
-    { productId: dryProductId, aprBps: 1200, reason },
-    { productId: dryProductId, aprBps: '1200', reason },
+    { productId: dryProductId, fromAprBps: 1000, aprBps: 1200, reason },
+    { productId: dryProductId, fromAprBps: '1000', aprBps: '1200', reason },
   );
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   expect(res.json.result.data).toMatchObject({ productId: dryProductId, aprBps: 1200, previousAprBps: 1000 });

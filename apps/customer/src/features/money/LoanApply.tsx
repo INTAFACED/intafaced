@@ -26,6 +26,7 @@ export function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>)
     'bank.below_minimum': t('belowMinimum'),
     'bank.loan_product_closed': t('productClosed'),
     'bank.loan_fee_unwired': t('feeUnwired'),
+    'bank.loan_rate_changed': t('rateChanged'),
     'bank.asset_paused': t('borrowPaused'),
     'bank.loan_product_not_found': t('notFound'),
   };
@@ -273,6 +274,8 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
                   productId: product.id,
                   principal: values.principal,
                   collateralAmount: values.collateralAmount,
+                  // The rate on the review: a rate changed since then refuses rather than opening at one not shown.
+                  expectedAprBps: product.aprBps,
                 }),
                 submit: t('open'),
               })

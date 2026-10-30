@@ -147,6 +147,8 @@ describe('LoanApply', () => {
       productId: PRODUCT,
       principal: '1000',
       collateralAmount: '0.033333333333333334',
+      // The rate on the review: open refuses bank.loan_rate_changed if the product's rate moved since.
+      expectedAprBps: 1000,
     });
   });
 

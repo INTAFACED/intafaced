@@ -109,38 +109,97 @@ describe('the loan application on a real database', () => {
     expect(ledger.journal().length).toBe(posted);
   });
 
-  it('records each rate change with its reason and approver, reads the previous rate under lock, and refuses a repeat', async () => {
+  it('records each rate change with its reason, approval and approver, bound to the rate it replaces, and replays by approval', async () => {
     const bank = services();
     const made = await product(bank);
-    const changes = await Promise.allSettled([
-      bank.loans.setProductRate({ productId: made.id, aprBps: 600, reason: 'first change', approvedBy: 'founder-b' }),
-      bank.loans.setProductRate({ productId: made.id, aprBps: 700, reason: 'second change', approvedBy: 'founder-c' }),
+    // Two changes both read 500: the row lock lets one replace it, and the other finds the rate moved.
+    const raced = await Promise.allSettled([
+      bank.loans.setProductRate({
+        productId: made.id,
+        fromAprBps: 500,
+        aprBps: 600,
+        reason: 'first change',
+        approvalId: 'appr-1',
+        approvedBy: 'founder-b',
+      }),
+      bank.loans.setProductRate({
+        productId: made.id,
+        fromAprBps: 500,
+        aprBps: 700,
+        reason: 'second change',
+        approvalId: 'appr-2',
+        approvedBy: 'founder-c',
+      }),
     ]);
-    const done = changes.flatMap((c) => (c.status === 'fulfilled' ? [c.value] : []));
-    expect(done).toHaveLength(2);
-    const rows = await sql<Array<{ apr_bps: number; previous_apr_bps: number; reason: string; approved_by: string }>>`
-      SELECT apr_bps, previous_apr_bps, reason, approved_by FROM bank.loan_product_rate_changes WHERE product_id = ${made.id} ORDER BY id
+    const done = raced.flatMap((c) => (c.status === 'fulfilled' ? [c.value] : []));
+    const lost = raced.flatMap((c) => (c.status === 'rejected' ? [c.reason] : []));
+    expect(done).toHaveLength(1);
+    expect(done[0]!.previousAprBps).toBe(500);
+    expect(lost).toEqual([expect.objectContaining({ code: 'bank.loan_rate_moved' })]);
+    const rows = await sql<Array<{ apr_bps: number; previous_apr_bps: number; reason: string; approval_id: string; approved_by: string }>>`
+      SELECT apr_bps, previous_apr_bps, reason, approval_id, approved_by FROM bank.loan_product_rate_changes WHERE product_id = ${made.id}
     `;
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.previous_apr_bps).toBe(500);
-    expect(rows[1]!.previous_apr_bps).toBe(rows[0]!.apr_bps);
-    // Each answer reports the rate its own change replaced: one replaced 500, the other the first's rate, never both 500.
-    expect(done.map((d) => d.previousAprBps).sort((x, y) => x - y)).toEqual([500, rows[0]!.apr_bps].sort((x, y) => x - y));
-    expect(rows.map((r) => r.reason).sort()).toEqual(['first change', 'second change']);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ previous_apr_bps: 500, apr_bps: done[0]!.product.aprBps });
     const current = (await bank.loans.product(made.id)).aprBps;
-    expect(current).toBe(rows[1]!.apr_bps);
+    expect(current).toBe(rows[0]!.apr_bps);
 
-    await expect(
-      bank.loans.setProductRate({ productId: made.id, aprBps: current, reason: 'same again', approvedBy: 'founder-b' }),
-    ).rejects.toMatchObject({ code: 'bank.loan_params_invalid' });
-    await expect(
-      bank.loans.setProductRate({ productId: made.id, aprBps: 800, reason: ' ', approvedBy: 'founder-b' }),
-    ).rejects.toMatchObject({
+    // A retry with the approval that made it reads the same change back; the same approval for other terms refuses.
+    const terms = { productId: made.id, fromAprBps: 500, aprBps: current, reason: rows[0]!.reason };
+    expect(await bank.loans.rateChangeByApproval(rows[0]!.approval_id, terms)).toEqual({
+      productId: made.id,
+      aprBps: current,
+      previousAprBps: 500,
+      approvedBy: rows[0]!.approved_by,
+    });
+    await expect(bank.loans.rateChangeByApproval(rows[0]!.approval_id, { ...terms, aprBps: 900 })).rejects.toMatchObject({
+      code: 'bank.loan_rate_approval_reused',
+    });
+    expect(await bank.loans.rateChangeByApproval('appr-unused', terms)).toBeNull();
+
+    // Checked before the approval is spent: a stale "from", no real change, a blank reason.
+    await expect(bank.loans.checkRateChange({ ...terms, fromAprBps: 500, aprBps: 800 })).rejects.toMatchObject({
+      code: 'bank.loan_rate_moved',
+    });
+    await expect(bank.loans.checkRateChange({ ...terms, fromAprBps: current, aprBps: current })).rejects.toMatchObject({
+      code: 'bank.loan_params_invalid',
+    });
+    await expect(bank.loans.checkRateChange({ ...terms, fromAprBps: current, aprBps: 800, reason: ' ' })).rejects.toMatchObject({
       code: 'bank.loan_params_invalid',
     });
     const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loan_product_rate_changes`;
-    expect(n, 'a refused change records nothing').toBe(2);
+    expect(n, 'a refused change records nothing').toBe(1);
     await expect(sql`UPDATE bank.loan_product_rate_changes SET reason = 'edited'`).rejects.toThrow(/append-only/);
     await expect(sql`DELETE FROM bank.loan_product_rate_changes`).rejects.toThrow(/append-only/);
+  });
+
+  it('opens a new loan only at the rate the borrower was shown; a retry of an opened loan replays', async () => {
+    const bank = services();
+    const made = await product(bank);
+    const loanId = randomUUID();
+    const terms = { loanId, productId: made.id, userId: BORROWER, collateralAmount: amt('1'), principal: amt('100'), now: NOW };
+    const first = await bank.loans.open({ ...terms, expectedAprBps: 500 });
+    await bank.loans.setProductRate({
+      productId: made.id,
+      fromAprBps: 500,
+      aprBps: 900,
+      reason: 'rate up',
+      approvalId: 'appr-up',
+      approvedBy: 'founder-b',
+    });
+    const posted = ledger.journal().length;
+    // The retry carries the rate it was shown; the loan it opened keeps 500 and replays.
+    const replay = await bank.loans.open({ ...terms, expectedAprBps: 500 });
+    expect(replay.drawLedgerTxId).toBe(first.drawLedgerTxId);
+    expect(replay.loan.aprBps).toBe(500);
+    // A new loan shown 500 while the product now charges 900 refuses, with nothing written or moved.
+    await expect(
+      bank.loans.open({ ...terms, loanId: randomUUID(), collateralAmount: amt('0.5'), expectedAprBps: 500 }),
+    ).rejects.toMatchObject({
+      code: 'bank.loan_rate_changed',
+    });
+    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loans`;
+    expect(n).toBe(1);
+    expect(ledger.journal().length).toBe(posted);
   });
 });

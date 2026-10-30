@@ -9,9 +9,16 @@ import { ltvBps } from './risk.js';
 const ONE = parseAmount('1');
 const BPS = 10_000n;
 
+/** `quantity` at `price` in the quote asset: debt rounded up, collateral down. The one rounding `open` and the quote share. */
+export function quoteValue(quantity: Amount, price: Amount, rounding: 'floor' | 'ceil'): Amount {
+  const raw = quantity * price;
+  if (rounding === 'floor') return raw / ONE;
+  return (raw + ONE - 1n) / ONE;
+}
+
 /** Collateral `quantity` at `price` in the quote asset, rounded down: the value `open` gives a pledge. */
 function collateralValue(quantity: Amount, price: Amount): Amount {
-  return (quantity * price) / ONE;
+  return quoteValue(quantity, price, 'floor');
 }
 
 /**

@@ -97,7 +97,7 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
               ? { key: 'product_open', state: 'met', code: null }
               : { key: 'product_open', state: 'unmet', code: 'bank.loan_product_closed' },
             paused === null ? { key: 'assets_open', state: 'met', code: null } : { key: 'assets_open', state: 'unmet', code: paused },
-            fee.status === 'published' && fee.bps > 0
+            bank.loans.originationFeeBlocksOpen()
               ? { key: 'origination_fee', state: 'unmet', code: 'bank.loan_fee_unwired' }
               : { key: 'origination_fee', state: 'met', code: null },
             // No owner table of per-jurisdiction rules exists, so none is applied and the page says so.
@@ -146,7 +146,7 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
                     status: 'published' as const,
                     bps: fee.bps,
                     amount: input.principal ? formatAmount(originationFeeOn(parseAmount(input.principal), fee.bps)) : null,
-                    collectable: fee.bps === 0,
+                    collectable: !bank.loans.originationFeeBlocksOpen(),
                   },
           };
         }),

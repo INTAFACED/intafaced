@@ -76,7 +76,7 @@ import {
   type Mark,
   type PortfolioMark,
 } from './risk.js';
-import { liquidationPrice, minimumCollateral, originationFee, type OriginationFee } from './loan-apply.js';
+import { liquidationPrice, minimumCollateral, originationFee, quoteValue, type OriginationFee } from './loan-apply.js';
 import { readLoanBook, type LoanBook } from '../ops/loan-book.js';
 
 /**
@@ -384,11 +384,6 @@ export interface LoanServiceOptions {
 const ONE = parseAmount('1');
 
 /** price × quantity, both scaled. Rounding is the caller's decision to state. */
-function quoteValue(quantity: Amount, price: Amount, rounding: 'floor' | 'ceil'): Amount {
-  const raw = quantity * price;
-  if (rounding === 'floor') return raw / ONE;
-  return (raw + ONE - 1n) / ONE;
-}
 
 /** A re-drive found its row no longer pending (settled or refused since it was listed). */
 class NoLongerPending extends Error {
@@ -540,6 +535,12 @@ export class LoanService {
     return originationFee(this.options.originationFeeBps);
   }
 
+  /** Whether the fee refuses a new loan: published above zero, with no ledger leg to collect it yet. The one rule open, eligibility and fees read. */
+  originationFeeBlocksOpen(): boolean {
+    const fee = this.originationFee();
+    return fee.status === 'published' && fee.bps > 0;
+  }
+
   /**
    * What opening `principal` on this product needs now, on the marks `open` would accept: the smallest pledge that
    * opens (debt valued up, collateral down, as `checkOpeningLtv` does), its starting LTV and the collateral price at
@@ -600,18 +601,11 @@ export class LoanService {
   }
 
   /**
-   * An operator's change to a product's rate (BK-loan-02). New loans open at it; open loans keep the rate written on
-   * their row at open, which is what accrual reads. Thresholds are not edited here: the risk sweep still reads them from
-   * the product, so changing them would move open loans. The previous rate is read under the row's lock in the same
-   * statement as the update, and the change is recorded with its reason and approver in that statement too, so two
-   * changes never both report one previous rate and none goes unrecorded. Setting the rate the product already has refuses.
+   * Whether a rate change can be made now, before the second person's approval is spent: the new rate in range, a reason of
+   * 3 to 300 characters, the product's rate still the one the change replaces (`bank.loan_rate_moved` otherwise) and a real
+   * change (`bank.loan_params_invalid`). `setProductRate` checks the rate again under the row's lock.
    */
-  async setProductRate(input: {
-    productId: string;
-    aprBps: number;
-    reason: string;
-    approvedBy: string;
-  }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
+  async checkRateChange(input: { productId: string; fromAprBps: number; aprBps: number; reason: string }): Promise<void> {
     if (!Number.isInteger(input.aprBps) || input.aprBps < 0 || input.aprBps > 10_000) {
       throw new BankError('Loan product terms are invalid: aprBps must be within 0..10000', 'bank.loan_params_invalid');
     }
@@ -619,24 +613,76 @@ export class LoanService {
     if (reason.length < 3 || reason.length > 300) {
       throw new BankError('A rate change needs a reason of 3 to 300 characters', 'bank.loan_params_invalid');
     }
-    await this.product(input.productId);
+    if (input.aprBps === input.fromAprBps) {
+      throw new BankError(`The change keeps the rate at ${input.aprBps} bps`, 'bank.loan_params_invalid');
+    }
+    const product = await this.product(input.productId);
+    if (product.aprBps !== input.fromAprBps) {
+      throw new BankError(
+        `The product charges ${product.aprBps} bps, not the ${input.fromAprBps} bps this change replaces: read it again`,
+        'bank.loan_rate_moved',
+      );
+    }
+  }
+
+  /**
+   * The change one approval already made, read back for a retry: null when that approval made none. A recorded change
+   * with other terms refuses (`bank.loan_rate_approval_reused`), so an approval never stands for two changes.
+   */
+  async rateChangeByApproval(
+    approvalId: string,
+    input: { productId: string; fromAprBps: number; aprBps: number; reason: string },
+  ): Promise<{ productId: string; aprBps: number; previousAprBps: number; approvedBy: string } | null> {
+    const rows = await this.sql<
+      Array<{ product_id: string; apr_bps: number; previous_apr_bps: number; reason: string; approved_by: string }>
+    >`SELECT product_id, apr_bps, previous_apr_bps, reason, approved_by FROM bank.loan_product_rate_changes WHERE approval_id = ${approvalId}`;
+    const row = rows[0];
+    if (!row) return null;
+    if (
+      row.product_id !== input.productId ||
+      row.apr_bps !== input.aprBps ||
+      row.previous_apr_bps !== input.fromAprBps ||
+      row.reason !== input.reason.trim()
+    ) {
+      throw new BankError(`Approval ${approvalId} already made another rate change`, 'bank.loan_rate_approval_reused');
+    }
+    return { productId: row.product_id, aprBps: row.apr_bps, previousAprBps: row.previous_apr_bps, approvedBy: row.approved_by };
+  }
+
+  /**
+   * An operator's change to a product's rate (BK-loan-02). New loans open at it; open loans keep the rate written on
+   * their row at open, which is what accrual reads. Thresholds are not edited here: the risk sweep still reads them from
+   * the product, so changing them would move open loans. The rate it replaces is checked under the row's lock in the same
+   * statement as the update, and the change is recorded with its reason, approval and approver in that statement too, so
+   * two changes never both replace one rate and none goes unrecorded.
+   */
+  async setProductRate(input: {
+    productId: string;
+    fromAprBps: number;
+    aprBps: number;
+    reason: string;
+    approvalId: string;
+    approvedBy: string;
+  }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
+    await this.checkRateChange(input);
+    if (input.approvalId.trim() === '') throw new BankError('A rate change needs its approval id', 'bank.loan_params_invalid');
     const rows = await this.sql<Array<Record<string, unknown>>>`
       WITH prev AS (
         SELECT id, apr_bps FROM bank.loan_products WHERE id = ${input.productId} FOR UPDATE
       ), changed AS (
         UPDATE bank.loan_products p SET apr_bps = ${input.aprBps}
-          FROM prev WHERE p.id = prev.id AND prev.apr_bps <> ${input.aprBps}
+          FROM prev WHERE p.id = prev.id AND prev.apr_bps = ${input.fromAprBps}
         RETURNING p.*, prev.apr_bps AS previous_apr_bps
       ), recorded AS (
-        INSERT INTO bank.loan_product_rate_changes (product_id, apr_bps, previous_apr_bps, reason, approved_by)
-        SELECT id, apr_bps, previous_apr_bps, ${reason}, ${input.approvedBy} FROM changed
+        INSERT INTO bank.loan_product_rate_changes (product_id, apr_bps, previous_apr_bps, reason, approval_id, approved_by)
+        SELECT id, apr_bps, previous_apr_bps, ${input.reason.trim()}, ${input.approvalId}, ${input.approvedBy} FROM changed
         RETURNING id
       )
       SELECT changed.*, (SELECT count(*) FROM recorded)::int AS recorded FROM changed
     `;
     const row = rows[0];
     if (!row || row.recorded !== 1) {
-      throw new BankError(`The product already charges ${input.aprBps} bps`, 'bank.loan_params_invalid');
+      throw new BankError(`The product's rate moved before this change was made: read it again`, 'bank.loan_rate_moved');
     }
     return { product: toProduct(row), previousAprBps: Number(row.previous_apr_bps) };
   }
@@ -749,6 +795,8 @@ export class LoanService {
     userId: string;
     collateralAmount: Amount;
     principal: Amount;
+    /** The rate the borrower was shown. Given, a new loan refuses `bank.loan_rate_changed` when the product's rate differs. */
+    expectedAprBps?: number;
     now?: Date;
   }): Promise<{ loan: LoanRecord; ltvBps: number; collateralLedgerTxId: string; drawLedgerTxId: string }> {
     if (this.options.moduleEnabled === false) {
@@ -789,12 +837,17 @@ export class LoanService {
     // A published origination fee has no ledger leg to collect it yet, so a new loan refuses before any row or lock. Not
     // set means no fee line, and a published zero needs no leg. A retry of a loan whose row exists is not a new loan: it
     // replays or finishes below on the terms it opened under, so a fee published since never strands it half-open.
-    const fee = this.originationFee();
-    if (fee.status === 'published' && fee.bps > 0) {
-      const known = input.loanId ? await this.sql`SELECT 1 FROM bank.loans WHERE id = ${loanId}` : [];
-      if (known.length === 0) {
-        throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
-      }
+    // The rate the borrower was shown is the one a new loan opens at: a rate changed since then refuses, never opens at a
+    // rate they did not see. A retry of an existing loan is held to the terms on its row below.
+    const known = input.loanId ? (await this.sql`SELECT 1 FROM bank.loans WHERE id = ${loanId}`).length > 0 : false;
+    if (!known && this.originationFeeBlocksOpen()) {
+      throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
+    }
+    if (!known && input.expectedAprBps !== undefined && input.expectedAprBps !== product.aprBps) {
+      throw new BankError(
+        `The rate changed to ${product.aprBps} bps since it was shown as ${input.expectedAprBps} bps: read the terms again`,
+        'bank.loan_rate_changed',
+      );
     }
 
     const inserted = await this.sql<Array<Record<string, unknown>>>`

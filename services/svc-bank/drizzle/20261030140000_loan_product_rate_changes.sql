@@ -2,7 +2,8 @@
 --
 -- `loan_product_rate_changes` records each operator change to a product's rate: the rate set, the rate it replaced (read
 -- under the same row lock as the update, so two changes never report the same previous rate), the reason and the second
--- person who approved it. New loans open at the product's current rate; an open loan keeps the rate written on its own
+-- person who approved it, under that approval's id (one approval makes one change; a retry with it reads the change back).
+-- The approval is also bound to the rate it replaces, so it can't be spent once the rate has moved. New loans open at the product's current rate; an open loan keeps the rate written on its own
 -- row at open, so this history explains the product, never a loan's accrual.
 --
 -- Reversal: 20261030140000_loan_product_rate_changes.down.sql (refuses while any change is recorded).
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS "bank"."loan_product_rate_changes" (
   "apr_bps" integer NOT NULL,
   "previous_apr_bps" integer NOT NULL,
   "reason" text NOT NULL,
+  "approval_id" text NOT NULL UNIQUE,
   "approved_by" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "loan_product_rate_changes_bps_ck" CHECK ("apr_bps" BETWEEN 0 AND 10000 AND "previous_apr_bps" BETWEEN 0 AND 10000),
