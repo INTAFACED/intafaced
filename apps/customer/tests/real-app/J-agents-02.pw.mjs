@@ -498,9 +498,9 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   expect(toUnits(afterAlert.spent)).toBeGreaterThan(toUnits(first));
 
   // The hard limit is strict: a run is admitted only when its worst case fits beside what the month spent and holds,
-  // so the month never passes it. Set just under one run's worst case above this month's spend (0.01 against just over
-  // 0.01024), the state reads reached and the next run is refused with the hard limit's own code, before the engine,
-  // billing 0.
+  // so a run it admits never takes the month past it. Set 0.01 above this month's spend, under one run's worst case
+  // (just over 0.01024), the page shows that room and the next run is refused with the hard limit's own code, before
+  // the engine, billing 0.
   const saveHardLimit = async (value) => {
     await field(/^Hard limit for the month/).fill(value);
     await alertForm.getByRole('button', { name: 'Save alert and limit' }).click();
@@ -509,22 +509,26 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   const tight = fromUnits(toUnits(afterAlert.spent) + toUnits('0.01'));
   await saveHardLimit(tight);
   await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText(
-    'The hard limit is reached: less than one run at this agent’s per-call cap fits this month, so a run that does not fit is refused until next month or until you raise it.',
+    'The hard limit leaves 0.01 USDT this month: a run whose worst case is more than that is refused.',
   );
   const before = await ledgerBalances(capped);
   await ask.fill('TEST question past the limit');
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   const refusal = session(page).getByRole('alert');
   await expect(refusal.locator('code')).toHaveText('agents.usage.hard_limit_reached');
-  await expect(refusal).toContainText('This agent reached your hard limit for the month, so this run did not start. Nothing was charged.');
+  await expect(refusal).toContainText(
+    'This run’s worst case does not fit under your hard limit for the month, so it did not start. Nothing was charged.',
+  );
   expect(await ledgerBalances(capped)).toEqual(before);
-  expect(await usageLimits()).toMatchObject({ spent: afterAlert.spent, hardLimitReached: true });
+  expect(await usageLimits()).toMatchObject({ spent: afterAlert.spent, hardLimitReached: false, hardLimitRoom: '0.01' });
 
-  // Raised to leave room for one run at the per-call cap (0.012 of 0.02), the state reads not reached and the next run
-  // is admitted and charged; what it cost keeps the month at or under the limit.
+  // Raised to leave 0.02, room for one run's worst case, the next run is admitted and charged; what it cost keeps the
+  // month at or under the limit.
   const roomy = fromUnits(toUnits(afterAlert.spent) + toUnits('0.02'));
   await saveHardLimit(roomy);
-  await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText('The hard limit is not reached.');
+  await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText(
+    'The hard limit leaves 0.02 USDT this month: a run whose worst case is more than that is refused.',
+  );
   await ask.fill('TEST question within the limit');
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);

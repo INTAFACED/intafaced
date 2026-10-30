@@ -5,7 +5,6 @@ import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/l
 import { AgentError } from '../errors.js';
 import { periodStart } from '../spend/limits.js';
 import { OwnAgentRefusal } from './catalog.js';
-import { readOwnCaps } from './limits.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OWN_PREFIX = 'own.';
@@ -33,6 +32,7 @@ export type OwnUsageLimitsView = {
   readonly alertCrossed: boolean;
   readonly alert: { readonly key: string; readonly spent: string } | null;
   readonly hardLimitReached: boolean;
+  readonly hardLimitRoom: string | null;
 };
 
 /** Blank is not set; anything else must be a decimal amount above zero. */
@@ -98,10 +98,10 @@ export async function ownAgentSpent(
 }
 
 /**
- * Refuses a new run of this own agent once this month's use reached the hard limit the person set. `used` is the
- * month's committed cost plus the worst case of every run still held, read under the reserve's per-user lock, so runs
- * started together cannot all pass a limit that only finished runs would show: past it by at most one run's worst
- * case. Called only where a run is held, never where one commits: a run already held finishes and is charged.
+ * Refuses a new run of this own agent unless its worst case `amount` fits under the hard limit the person set beside
+ * `used`: the month's committed cost plus the worst case of every run still held, read under the reserve's per-user
+ * lock, so runs started together cannot pass the limit between them. A run it admits never takes the month past the
+ * limit. Called only where a run is held, never where one commits: a run held before the limit was lowered finishes.
  */
 export async function assertBelowHardLimit(
   tx: Sql,
@@ -110,11 +110,9 @@ export async function assertBelowHardLimit(
   const { userId, agentId, assetId, used, amount, now } = input;
   const limits = await readOwnUsageLimits(tx, userId, agentId);
   if (!limits?.hardLimit) return;
-  // Strict: the run is admitted only when its worst case fits under the limit beside everything already spent or held,
-  // so the month's spend never passes the limit, not even by one run.
   if (used + amount > limits.hardLimit) {
     throw new AgentError(
-      `Own agent hard limit ${formatAmount(limits.hardLimit)} ${assetId} for ${usageMonth(now)} is reached`,
+      `Own agent run worst case ${formatAmount(amount)} ${assetId} does not fit under the hard limit ${formatAmount(limits.hardLimit)} for ${usageMonth(now)}`,
       'agents.usage.hard_limit_reached',
       'agents.refused.hard_limit_reached',
       { limit: formatAmount(limits.hardLimit), asset: assetId, month: usageMonth(now) },
@@ -289,7 +287,6 @@ export class OwnUsageLimitsStore {
     const spent = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now));
     // The same measure the hard limit admits runs against: what was spent plus every run still held at its worst case.
     const used = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now), { held: true });
-    const caps = await readOwnCaps(sql, ownerId, agentId);
     const alerts = await sql<Array<{ alert_key: string; spent: string }>>`
       SELECT alert_key, spent::text FROM agents.own_agent_usage_alerts WHERE alert_key = ${usageAlertKey(agentId, month)}
     `;
@@ -302,8 +299,8 @@ export class OwnUsageLimitsStore {
       spent: formatAmount(spent),
       alertCrossed: alert !== undefined,
       alert: alert ? { key: alert.alert_key, spent: formatAmount(parseAmount(alert.spent)) } : null,
-      // A run's worst case is at most the agent's per-call cap, so while one more at that cap fits, every run is admitted.
-      hardLimitReached: limits?.hardLimit != null && used + (caps?.perCall ?? 0n) > limits.hardLimit,
+      hardLimitReached: limits?.hardLimit != null && used >= limits.hardLimit,
+      hardLimitRoom: limits?.hardLimit == null ? null : formatAmount(limits.hardLimit > used ? limits.hardLimit - used : 0n),
     };
   }
 }

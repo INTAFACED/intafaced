@@ -130,13 +130,13 @@ const en = {
   usageSpent: 'Spent by this agent in {month}: {amount}.',
   alertCrossed: 'This month’s alert was recorded once, at {amount}. Runs go on.',
   alertNotCrossed: 'This month’s alert has not been reached.',
-  hardLimitReached:
-    'The hard limit is reached: less than one run at this agent’s per-call cap fits this month, so a run that does not fit is refused until next month or until you raise it.',
+  hardLimitReached: 'The hard limit is reached: new runs are refused until next month or until you raise it.',
+  hardLimitRoom: 'The hard limit leaves {amount} this month: a run whose worst case is more than that is refused.',
   hardLimitNotReached: 'The hard limit is not reached.',
   saveUsageLimits: 'Save alert and limit',
   usageLimitsSaved: 'Alert and limit saved.',
   code_usage_hard_limit_reached:
-    'This agent reached your hard limit for the month, so this run did not start. Nothing was charged. Raise the limit or wait for next month.',
+    'This run’s worst case does not fit under your hard limit for the month, so it did not start. Nothing was charged. Raise the limit or wait for next month.',
   code_usage_limit_invalid: 'Enter an amount above zero, or leave it blank.',
   code_usage_alert_above_limit: 'The alert must be below the hard limit. Enter a lower alert, or a higher limit.',
   sessionTitle: 'Session',
@@ -323,13 +323,13 @@ const es = {
   usageSpent: 'Gastado por este agente en {month}: {amount}.',
   alertCrossed: 'La alerta de este mes se registró una vez, con {amount}. Las ejecuciones siguen.',
   alertNotCrossed: 'No se ha alcanzado la alerta de este mes.',
-  hardLimitReached:
-    'Se alcanzó el límite máximo: este mes ya no cabe una ejecución al tope por llamada de este agente, así que se rechaza la que no quepa hasta el mes que viene o hasta que lo subas.',
+  hardLimitReached: 'Se alcanzó el límite máximo: se rechazan ejecuciones nuevas hasta el mes que viene o hasta que lo subas.',
+  hardLimitRoom: 'El límite máximo deja {amount} este mes: se rechaza una ejecución cuyo peor caso supere eso.',
   hardLimitNotReached: 'No se ha alcanzado el límite máximo.',
   saveUsageLimits: 'Guardar alerta y límite',
   usageLimitsSaved: 'Alerta y límite guardados.',
   code_usage_hard_limit_reached:
-    'Este agente alcanzó tu límite máximo del mes, así que esta ejecución no empezó. No se cobró nada. Sube el límite o espera al mes que viene.',
+    'El peor caso de esta ejecución no cabe en tu límite máximo del mes, así que no empezó. No se cobró nada. Sube el límite o espera al mes que viene.',
   code_usage_limit_invalid: 'Introduce un importe mayor que cero o déjalo en blanco.',
   code_usage_alert_above_limit: 'La alerta debe ser menor que el límite máximo. Introduce una alerta menor o un límite mayor.',
   sessionTitle: 'Sesión',
@@ -517,12 +517,13 @@ const fr = {
   alertCrossed: 'L’alerte de ce mois a été enregistrée une fois, à {amount}. Les exécutions continuent.',
   alertNotCrossed: 'L’alerte de ce mois n’a pas été atteinte.',
   hardLimitReached:
-    'La limite ferme est atteinte : ce mois-ci, une exécution au plafond par appel de cet agent ne tient plus, donc celle qui ne tient pas est refusée jusqu’au mois prochain ou jusqu’à ce que vous la releviez.',
+    'La limite ferme est atteinte : les nouvelles exécutions sont refusées jusqu’au mois prochain ou jusqu’à ce que vous la releviez.',
+  hardLimitRoom: 'La limite ferme laisse {amount} ce mois-ci : une exécution dont le pire cas dépasse ce montant est refusée.',
   hardLimitNotReached: 'La limite ferme n’est pas atteinte.',
   saveUsageLimits: 'Enregistrer l’alerte et la limite',
   usageLimitsSaved: 'Alerte et limite enregistrées.',
   code_usage_hard_limit_reached:
-    'Cet agent a atteint votre limite ferme du mois ; cette exécution n’a pas commencé. Rien n’a été facturé. Relevez la limite ou attendez le mois prochain.',
+    'Le pire cas de cette exécution ne tient pas sous votre limite ferme du mois ; elle n’a pas commencé. Rien n’a été facturé. Relevez la limite ou attendez le mois prochain.',
   code_usage_limit_invalid: 'Saisissez un montant supérieur à zéro, ou laissez vide.',
   code_usage_alert_above_limit:
     'L’alerte doit être inférieure à la limite ferme. Saisissez une alerte plus basse, ou une limite plus haute.',

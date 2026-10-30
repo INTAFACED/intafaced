@@ -215,11 +215,12 @@ if (!available) {
         alertCrossed: false,
         alert: null,
         hardLimitReached: false,
+        hardLimitRoom: null,
         assetId: 'USDT',
       };
       expect(await person.own.usageLimits.get({ id })).toEqual(blank);
       const set = await person.own.usageLimits.set({ id, alertAt: '0.5', hardLimit: '2', email: true });
-      expect(set).toEqual({ ...blank, alertAt: '0.5', hardLimit: '2', email: true });
+      expect(set).toEqual({ ...blank, alertAt: '0.5', hardLimit: '2', hardLimitRoom: '2', email: true });
       expect(await person.own.usageLimits.set({ id, alertAt: '0.5', hardLimit: '2', email: true })).toEqual(set);
       expect(await person.own.usageLimits.get({ id })).toEqual(set);
       expect(await person.own.usageLimits.set({ id, alertAt: ' ', hardLimit: null, email: false })).toEqual(blank);
@@ -325,7 +326,12 @@ if (!available) {
       // One unit short of room for the next run's worst case: refused before the engine, nothing held.
       const short = formatAmount(spent + worst! - 1n);
       await person.own.usageLimits.set({ id, alertAt: null, hardLimit: short, email: false });
-      expect(await person.own.usageLimits.get({ id })).toMatchObject({ hardLimitReached: true, spent: first.cost });
+      // Not reached, with one unit less room than the run needs: the page shows the room, and the run does not fit.
+      expect(await person.own.usageLimits.get({ id })).toMatchObject({
+        hardLimitReached: false,
+        hardLimitRoom: formatAmount(worst! - 1n),
+        spent: first.cost,
+      });
       await expect(person.own.run({ id, sessionId, requestId: 'usage-hard-2', ask: ASK })).rejects.toMatchObject({
         code: 'FORBIDDEN',
         message: 'agents.usage.hard_limit_reached',
@@ -348,6 +354,17 @@ if (!available) {
       await person.own.run({ id, sessionId, requestId: 'usage-hard-4', ask: ASK });
       expect(calls).toBe(2);
       expect(parseAmount((await person.own.usageLimits.get({ id })).spent)).toBeLessThanOrEqual(exact);
+    });
+
+    it('a run over the per-call cap is refused for that cap, not the hard limit, even with no room left under it', async () => {
+      const { person } = people();
+      const { id, sessionId } = await readyAgent(person);
+      await person.own.limits.set({ id, ...LIMITS, perCall: '0.01' });
+      await person.own.usageLimits.set({ id, alertAt: null, hardLimit: TINY, email: false });
+      await expect(person.own.run({ id, sessionId, requestId: 'usage-order-1', ask: ASK })).rejects.toMatchObject({
+        message: 'agents.spend.cap_exceeded',
+      });
+      expect(calls).toBe(0);
     });
 
     it('a run already held when the limit is reached finishes and is charged; the next one is refused', async () => {
@@ -375,13 +392,11 @@ if (!available) {
       delayMs = 400;
       const { person } = people();
       const { id, sessionId } = await readyAgent(person);
-      delayMs = 0;
       const warm = await person.own.run({ id, sessionId, requestId: 'usage-pair-warm', ask: ASK });
       const [worst] = await heldAmounts();
       // Room for one more worst case, not two: whichever is held first counts at its worst case against the other.
       const room = formatAmount(parseAmount(warm.cost) + 2n * worst! - 1n);
       await person.own.usageLimits.set({ id, alertAt: TINY, hardLimit: room, email: false });
-      delayMs = 400;
       const results = await Promise.allSettled([
         person.own.run({ id, sessionId, requestId: 'usage-pair-a', ask: ASK }),
         person.own.run({ id, sessionId, requestId: 'usage-pair-b', ask: ASK }),
