@@ -406,12 +406,15 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds - readingAge);
   // The badge is cacheable, by embedders and caches, for exactly that time, at the public address: svc-notify sends it
   // (badge.ts statusBadgeCacheControl), Edge passes it on (PR 6817) and the origin keeps it for this one path (the local
-  // stack's proxy, apiCacheControl; apps/customer/nginx.conf in production). The image was fetched a moment before the
-  // JSON, so its max-age may be one second more than the JSON's, never less.
+  // stack's proxy, apiCacheControl; apps/customer/nginx.conf in production). The image route answers from a page read
+  // up to 5 seconds old (svc-notify index.ts badgeRead, 5_000 ms) and was fetched before the JSON, so its max-age may be
+  // up to 5 seconds, plus one of rounding, more than the JSON's, never less.
   const cacheControl = fresh.headers.get('cache-control');
   const sent = /^public, max-age=(\d+)$/.exec(cacheControl ?? '');
   expect(sent, `the badge's Cache-Control at the public address: ${cacheControl}`).not.toBeNull();
-  expect([0, 1]).toContain(Number(sent[1]) - json.result.data.maxAgeSeconds);
+  const ahead = Number(sent[1]) - json.result.data.maxAgeSeconds;
+  expect(ahead).toBeGreaterThanOrEqual(0);
+  expect(ahead).toBeLessThanOrEqual(6);
   // Every other /api/ answer stays no-store.
   expect((await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).headers.get('cache-control')).toBe('no-store');
 
