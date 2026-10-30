@@ -84,6 +84,8 @@ export function MyVouchers() {
   const [busy, setBusy] = useState<'check' | 'claim' | null>(null);
   const [refusal, setRefusal] = useState<Failed | null>(null);
   const [checked, setChecked] = useState<VoucherValidation | null>(null);
+  // Each row's last refusal, by voucher: the wallet is read again after every answer, so it outlives the rows' remount.
+  const [rowRefusals, setRowRefusals] = useState<Record<string, Failed | null>>({});
 
   const check = async () => {
     setBusy('check');
@@ -148,7 +150,17 @@ export function MyVouchers() {
             headers={[t('colCode'), t('colCampaign'), t('colState'), t('colLeft'), t('colUseBy'), t('colRedeem')]}
           >
             {wallet.resource.data.vouchers.map((v) => (
-              <VoucherRow key={v.id} voucher={v} when={when} reload={wallet.reload} />
+              <VoucherRow
+                key={v.id}
+                voucher={v}
+                when={when}
+                refusal={rowRefusals[v.id] ?? null}
+                answered={(result) => {
+                  setRowRefusals((all) => ({ ...all, [v.id]: result }));
+                  // The wallet is read again either way, so the next redemption is numbered from what is stored.
+                  wallet.reload();
+                }}
+              />
             ))}
           </DataTable>
         )}
@@ -158,12 +170,21 @@ export function MyVouchers() {
   );
 }
 
-function VoucherRow({ voucher: v, when, reload }: { voucher: MyVoucher; when: (iso: string) => string; reload: () => void }) {
+function VoucherRow({
+  voucher: v,
+  when,
+  refusal,
+  answered,
+}: {
+  voucher: MyVoucher;
+  when: (iso: string) => string;
+  refusal: Failed | null;
+  answered: (refusal: Failed | null) => void;
+}) {
   const api = useApi();
   const { t } = campaignVouchersCopy.useCopy();
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<Failed | null>(null);
   const open = (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
   const redeem = async () => {
     setBusy(true);
@@ -174,10 +195,8 @@ function VoucherRow({ voucher: v, when, reload }: { voucher: MyVoucher; when: (i
       voucherRedeemResultSchema,
     );
     setBusy(false);
-    setRefusal(result.ok ? null : result);
     if (result.ok) setAmount('');
-    // The wallet is read again either way, so the next redemption is numbered from what is stored.
-    reload();
+    answered(result.ok ? null : result);
   };
   return (
     <tr data-testid="my-voucher" data-voucher-id={v.id} data-state={v.state}>
