@@ -18,6 +18,7 @@ import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_ITEMS_NOW_ONLY,
   LEDGER_RECONCILE_RAIL_SOURCE_UNSET,
   LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
   updateReconciliationControlInputSchema,
@@ -1113,6 +1114,131 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
       });
       expect(down.reconcilingItems).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('judges a rail asset only the items explain, FAILs ahead of an unset asset, refuses a past run and an item seen after the statement', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const userId = 'abcdeaaa-8888-4888-8888-000000000004';
+    await engine.post(recipes.deposit({ userId, assetId: 'USDT', amount: amt('7'), rail: 'recon-items-b', railRef: 'recon-items-b-1' }));
+    // The ledger also holds BTC on the rail; the statement never names BTC, so BTC stays unset on every run below.
+    await engine.post(recipes.deposit({ userId, assetId: 'BTC', amount: amt('1'), rail: 'recon-items-b', railRef: 'recon-items-b-2' }));
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', rail: 'recon-items-b' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'critical',
+      tolerance: { default: '1' },
+      reason: REASON,
+      activate: true,
+    });
+    type Listed = { kind: 'held' | 'reversal_unfunded'; id: string; assetId: string; amount: string };
+    let listed: Listed[] = [];
+    let detectedAt = '2026-01-01T00:00:00.000Z';
+    const asked: unknown[] = [];
+    const server = Fastify();
+    server.get('/statement', async () => ({
+      source: 'rail',
+      rail: 'recon-items-b',
+      asOf: '2026-01-01T00:00:00.000Z',
+      // USDC: custody holds 4 the ledger never booked (a held first deposit posts nothing, so the ledger has no USDC account).
+      balances: [
+        { assetId: 'USDT', amount: '-10' },
+        { assetId: 'USDC', amount: '-4' },
+      ],
+    }));
+    server.post('/items', async (req) => {
+      asked.push(req.body);
+      const items = listed.map((item, i) => ({
+        depositId: item.id,
+        kind: item.kind,
+        userId,
+        assetId: item.assetId,
+        networkId: 'ethereum',
+        txHash: `0xb${i}`,
+        outputIndex: 0,
+        amount: item.amount.replace('-', ''),
+        signedAmount: item.amount,
+        status: item.kind === 'held' ? 'held_travel_rule' : 'needs_review',
+        reason: item.kind === 'held' ? null : 'reversal_unfunded',
+        detectedAt,
+      }));
+      const assets = [...new Set(listed.map((i) => i.assetId))];
+      return {
+        items,
+        total: items.length,
+        sums: assets.map((assetId) => {
+          const of = (kind: string) => listed.filter((i) => i.assetId === assetId && i.kind === kind);
+          const add = (rows: Listed[]) => rows.reduce((n, i) => n + amt(i.amount.replace('-', '')), 0n);
+          return {
+            networkId: 'ethereum',
+            assetId,
+            held: formatAmount(add(of('held'))),
+            heldCount: of('held').length,
+            reversalUnfunded: formatAmount(add(of('reversal_unfunded'))),
+            reversalUnfundedCount: of('reversal_unfunded').length,
+            net: formatAmount(add(of('held')) - add(of('reversal_unfunded'))),
+          };
+        }),
+      };
+    });
+    const base = await server.listen({ port: 0, host: '127.0.0.1' });
+    const sources = () =>
+      reconciliationSourcesFrom(undefined, new Map([['recon-items-b', `${base}/statement`]]), fetch, undefined, {
+        urls: new Map([['recon-items-b', `${base}/items`]]),
+        sign: (payload) => ({ 'x-test-signed': payload }),
+      });
+    const run = (extra: Record<string, string> = {}) =>
+      runReconciliationControl(
+        db.sql,
+        approvals,
+        actor,
+        { controlId: defined.id, reason: REASON, approvalId: 'appr-items-b', operationId: nextOp(), ...extra },
+        sources(),
+      );
+    try {
+      // USDT is one unit over its items (a residual of 1 within a tolerance of 1 still FAILs); USDC is explained exactly by
+      // its held deposit; BTC is unset. FAIL: a known break is never hidden behind the unset asset.
+      listed = [
+        { kind: 'held', id: 'dep-b-usdt', assetId: 'USDT', amount: '2' },
+        { kind: 'held', id: 'dep-b-usdc', assetId: 'USDC', amount: '4' },
+      ];
+      const broken = await run();
+      expect(broken.status).toBe('FAIL');
+      expect(broken.assets).toEqual([
+        { assetId: 'BTC', observed: '-1', expected: 'unset', difference: 'unset', tolerance: '1', reconcilingItems: '0' },
+        // The ledger side of USDC is 0, judged, not unset.
+        { assetId: 'USDC', observed: '0', expected: '-4', difference: '4', tolerance: '1', reconcilingItems: '4', residual: '0' },
+        { assetId: 'USDT', observed: '-7', expected: '-10', difference: '3', tolerance: '1', reconcilingItems: '2', residual: '1' },
+      ]);
+
+      // With USDT explained too, only the unset BTC is left: UNSET, not PASS.
+      listed = [...listed, { kind: 'held', id: 'dep-b-usdt-2', assetId: 'USDT', amount: '1' }];
+      const unset = await run();
+      expect(unset.status).toBe('UNSET');
+      expect(unset.assets.find((a) => a.assetId === 'USDT')).toMatchObject({ residual: '0' });
+
+      // svc-pay lists what is open now: a run at a past instant cannot take items out. UNSET with its code, nothing asked.
+      const before = asked.length;
+      const past = await run({ asOf: new Date(Date.now() - 60_000).toISOString(), margin: '0' });
+      expect(past).toMatchObject({
+        status: 'UNSET',
+        phase: { status: 'set', value: 'items' },
+        errorCode: { status: 'set', value: LEDGER_RECONCILE_ITEMS_NOW_ONLY },
+      });
+      expect(past.reconcilingItems).toBeUndefined();
+      expect(asked).toHaveLength(before);
+
+      // An item svc-pay saw after the statement's as-of is not in that statement: ERROR at items, never netted.
+      detectedAt = '2026-01-01T00:00:00.001Z';
+      const late = await run();
+      expect(late).toMatchObject({
+        status: 'ERROR',
+        phase: { status: 'set', value: 'items' },
+        errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE },
+      });
     } finally {
       await server.close();
     }

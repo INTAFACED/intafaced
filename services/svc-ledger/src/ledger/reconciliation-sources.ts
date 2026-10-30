@@ -1,4 +1,10 @@
-import { payCustodyOpenItemsReplySchema, type ServiceCallRequest } from '@intafaced/contracts';
+import {
+  PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT,
+  payCustodyOpenItemsReplySchema,
+  payCustodyRailOpenItemsInputSchema,
+  type PayCustodyRailOpenItemsInput,
+  type ServiceCallRequest,
+} from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   RECONCILIATION_ITEMS_MAX,
@@ -114,7 +120,8 @@ export interface OpenItemsSource {
   readonly sign: OpenItemsSigner;
 }
 
-const OPEN_ITEMS_PAGE = 200;
+/** svc-pay's own page cap for the door, so the fewest calls read the list. */
+const OPEN_ITEMS_PAGE = PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT;
 
 /** Adds one kind's amount and count under `key` (`<kind>:<asset>`, and `#<kind>:<asset>` for the count). */
 function tally(into: Map<string, bigint>, key: string, amount: bigint, count: bigint): void {
@@ -144,7 +151,10 @@ async function readOpenItems(
   let byKind = new Map<string, bigint>();
   try {
     for (let offset = 0; offset === 0 || offset < total; offset += OPEN_ITEMS_PAGE) {
-      const payload = JSON.stringify({ rail, offset, limit: OPEN_ITEMS_PAGE });
+      const body: PayCustodyRailOpenItemsInput = { rail, offset, limit: OPEN_ITEMS_PAGE };
+      // The door's own schema: a body it would refuse is never sent, so a refusal can't read as svc-pay being down.
+      if (!payCustodyRailOpenItemsInputSchema.safeParse(body).success) return { kind: 'unavailable' };
+      const payload = JSON.stringify(body);
       const headers = sign(payload, { method: 'POST', url: new URL(url), contentType: 'application/json' });
       const res = await fetchImpl(url, {
         method: 'POST',

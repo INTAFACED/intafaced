@@ -83,8 +83,8 @@ describe('per-rail open items (lead ruling 2026-10-30)', () => {
     reason: signedAmount.startsWith('-') ? 'reversal_unfunded' : null,
     detectedAt: '2026-10-29T11:00:00.000Z',
   });
-  const sums = (held: string, unfunded: string, net: string) => [
-    { networkId: 'ethereum', assetId: 'USDT', held, heldCount: 1, reversalUnfunded: unfunded, reversalUnfundedCount: 1, net },
+  const sums = (held: string, unfunded: string, net: string, heldCount = 1, reversalUnfundedCount = 1) => [
+    { networkId: 'ethereum', assetId: 'USDT', held, heldCount, reversalUnfunded: unfunded, reversalUnfundedCount, net },
   ];
   const urls = new Map([['test', 'http://127.0.0.1:9/items']]);
   function postFetch(answer: (body: { offset: number; limit: number }) => Response) {
@@ -98,13 +98,15 @@ describe('per-rail open items (lead ruling 2026-10-30)', () => {
     return { impl, bodies, headers };
   }
   const sign = (payload: string) => ({ 'x-signed': payload });
+  // The statement's as-of: every item above was seen by then.
+  const statementAt = new Date('2026-10-29T12:00:00.000Z');
 
   it('pages through every item, signs each exact body, and names each by id with its signed amount', async () => {
     const all = Array.from({ length: 201 }, (_, i) => item(`d${i}`, '1'));
     const fetch = postFetch(({ offset, limit }) =>
-      json({ items: all.slice(offset, offset + limit), total: 201, sums: sums('201', '0', '201') }),
+      json({ items: all.slice(offset, offset + limit), total: 201, sums: sums('201', '0', '201', 201, 0) }),
     );
-    const read = await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('test');
+    const read = await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('test', statementAt);
     expect(read.kind).toBe('items');
     expect(read.items).toHaveLength(201);
     expect(read.items![200]).toEqual({ source: 'svc-pay', id: 'd200', kind: 'held', assetId: 'USDT', amount: '1' });
@@ -117,10 +119,12 @@ describe('per-rail open items (lead ruling 2026-10-30)', () => {
 
   it('is unset for a rail with no URL or no source, and reads nothing', async () => {
     const fetch = postFetch(() => json({}));
-    expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('crypto-native')).toEqual({
+    expect(
+      await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls, sign }).openItems!('crypto-native', statementAt),
+    ).toEqual({
       kind: 'unset',
     });
-    expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl).openItems!('test')).toEqual({ kind: 'unset' });
+    expect(await reconciliationSourcesFrom(undefined, new Map(), fetch.impl).openItems!('test', statementAt)).toEqual({ kind: 'unset' });
     expect(fetch.bodies).toHaveLength(0);
   });
 
@@ -138,22 +142,106 @@ describe('per-rail open items (lead ruling 2026-10-30)', () => {
       // The total says 3 but only two items ever come.
       () => json({ items: page++ === 0 ? two : [], total: 3, sums: sums('5', '2', '3') }),
       // A duplicate id across pages.
-      () => json({ items: [item('a', '5'), item('a', '5')], total: 2, sums: sums('10', '0', '10') }),
+      () => json({ items: [item('a', '5'), item('a', '5')], total: 2, sums: sums('10', '0', '10', 2, 0) }),
       // More than the cap: refused, not truncated.
       () => json({ items: [], total: 2001, sums: [] }),
     ];
     for (const answer of answers) {
-      const read = await reconciliationSourcesFrom(undefined, new Map(), postFetch(answer).impl, 1000, { urls, sign }).openItems!('test');
+      const read = await reconciliationSourcesFrom(undefined, new Map(), postFetch(answer).impl, 1000, { urls, sign }).openItems!(
+        'test',
+        statementAt,
+      );
       expect(read).toEqual({ kind: 'unavailable' });
     }
     // The total moves between page one and page two.
     const moving = postFetch(({ offset }) =>
       offset === 0
-        ? json({ items: Array.from({ length: 200 }, (_, i) => item(`m${i}`, '1')), total: 201, sums: sums('201', '0', '201') })
+        ? json({ items: Array.from({ length: 200 }, (_, i) => item(`m${i}`, '1')), total: 201, sums: sums('201', '0', '201', 201, 0) })
         : json({ items: [item('m200', '1')], total: 202, sums: sums('202', '0', '202') }),
     );
-    expect(await reconciliationSourcesFrom(undefined, new Map(), moving.impl, 1000, { urls, sign }).openItems!('test')).toEqual({
+    expect(
+      await reconciliationSourcesFrom(undefined, new Map(), moving.impl, 1000, { urls, sign }).openItems!('test', statementAt),
+    ).toEqual({
       kind: 'unavailable',
     });
+  });
+  it('is unavailable when an item carries the wrong sign for its kind, a non-positive amount, or was seen after the statement', async () => {
+    const read = (items: unknown[], held: string, heldCount: number, unfunded: string, unfundedCount: number, net: string) =>
+      reconciliationSourcesFrom(
+        undefined,
+        new Map(),
+        postFetch(() =>
+          json({
+            items,
+            total: items.length,
+            sums: [
+              {
+                networkId: 'ethereum',
+                assetId: 'USDT',
+                held,
+                heldCount,
+                reversalUnfunded: unfunded,
+                reversalUnfundedCount: unfundedCount,
+                net,
+              },
+            ],
+          }),
+        ).impl,
+        1000,
+        { urls, sign },
+      ).openItems!('test', statementAt);
+    // A held item whose signed amount is negative: the sums still add up, the sign does not.
+    expect(await read([{ ...item('h', '5'), signedAmount: '-5' }], '5', 1, '0', 0, '5')).toEqual({ kind: 'unavailable' });
+    // An uncovered reversal listed as positive.
+    expect(await read([{ ...item('r', '-2'), signedAmount: '2' }], '0', 0, '2', 1, '-2')).toEqual({ kind: 'unavailable' });
+    // A zero amount names nothing.
+    expect(await read([{ ...item('z', '0'), kind: 'held' }], '0', 1, '0', 0, '0')).toEqual({ kind: 'unavailable' });
+    // Seen one millisecond after the statement's as-of: not in that statement, so the list is refused, never netted.
+    expect(await read([{ ...item('late', '5'), detectedAt: '2026-10-29T12:00:00.001Z' }], '5', 1, '0', 0, '5')).toEqual({
+      kind: 'unavailable',
+    });
+    // Seen exactly at the as-of: in it.
+    expect((await read([{ ...item('edge', '5'), detectedAt: '2026-10-29T12:00:00.000Z' }], '5', 1, '0', 0, '5')).kind).toBe('items');
+  });
+
+  it('is unavailable when two kinds swap behind a net and a total that still add up', async () => {
+    // Listed: held 5 and held 1 (net 6). Claimed: held 7 and an uncovered reversal of 1 (net 6, two items).
+    const items = [item('a', '5'), item('b', '1')];
+    const swapped = postFetch(() =>
+      json({
+        items,
+        total: 2,
+        sums: [
+          { networkId: 'ethereum', assetId: 'USDT', held: '7', heldCount: 1, reversalUnfunded: '1', reversalUnfundedCount: 1, net: '6' },
+        ],
+      }),
+    );
+    expect(
+      await reconciliationSourcesFrom(undefined, new Map(), swapped.impl, 1000, { urls, sign }).openItems!('test', statementAt),
+    ).toEqual({
+      kind: 'unavailable',
+    });
+    // The same items with counts that miss: amounts agree, the count says three held.
+    const miscounted = postFetch(() =>
+      json({
+        items,
+        total: 2,
+        sums: [
+          { networkId: 'ethereum', assetId: 'USDT', held: '6', heldCount: 3, reversalUnfunded: '0', reversalUnfundedCount: 0, net: '6' },
+        ],
+      }),
+    );
+    expect(
+      await reconciliationSourcesFrom(undefined, new Map(), miscounted.impl, 1000, { urls, sign }).openItems!('test', statementAt),
+    ).toEqual({ kind: 'unavailable' });
+  });
+
+  it('sends only a body the door accepts', async () => {
+    const fetch = postFetch(() => json({ items: [], total: 0, sums: [] }));
+    const bad = new Map([['Not A Rail', 'http://127.0.0.1:9/items']]);
+    expect(
+      await reconciliationSourcesFrom(undefined, new Map(), fetch.impl, 1000, { urls: bad, sign }).openItems!('Not A Rail', statementAt),
+    ).toEqual({ kind: 'unavailable' });
+    expect(fetch.bodies).toHaveLength(0);
   });
 });
