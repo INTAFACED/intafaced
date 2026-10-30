@@ -60,6 +60,21 @@ import {
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
 import { voteMessage, type VoteSignaturePort } from './vote-signature.js';
 import {
+  cancelGovernanceProposal,
+  governanceRoleOf,
+  governanceRoles,
+  governanceSettingsHistory,
+  precheckGovernanceRole,
+  precheckGovernanceSettings,
+  proposalWindow,
+  readGovernanceSettings,
+  setGovernanceRole,
+  setGovernanceSettings,
+  type GovernanceRole,
+  type GovernanceRoleRow,
+  type GovernanceSettings,
+} from './governance-settings.js';
+import {
   reportBuybackRuns,
   reportLastBuyback,
   reportTreasury,
@@ -278,7 +293,23 @@ export class TokenError extends Error {
       /** A vote arrived without a wallet signature. Unsigned votes are refused (OWNER 108). Nothing is stored. */
       | 'token.vote_signature_required'
       /** The signature is unreadable or not from a wallet linked to the account. Nothing is stored. */
-      | 'token.vote_signature_invalid',
+      | 'token.vote_signature_invalid'
+      /** Neither proposal time was given and the governance voting delay or period is not set. Never a compiled default. */
+      | 'token.proposal_window_unset'
+      /** The account's governance role does not allow this. */
+      | 'token.permission_denied'
+      /** Not a governance role, the account already has it, or the account would grant its own role. */
+      | 'token.role_invalid'
+      /** The role moved since the revision the founders approved. Nothing is written. */
+      | 'token.role_stale'
+      /** A voting delay or period outside what the settings door stores. */
+      | 'token.settings_invalid'
+      /** The settings moved since the revision the founders approved. Nothing is written. */
+      | 'token.settings_stale'
+      /** A cancel without a reason of 12 to 500 characters. */
+      | 'token.cancel_reason_invalid'
+      /** Only a draft or open proposal is cancelled. */
+      | 'token.proposal_not_cancellable',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
@@ -511,6 +542,8 @@ export interface ProposalRecord {
   snapshot: SnapshotSeal | null;
   /** Written when a non-basic proposal closes (`closed_ranked`). */
   ranking: number[] | null;
+  /** Written when a governance moderator, admin or controller cancels it (MC-token-02). Its votes stay. */
+  cancel: { reason: string; at: Date } | null;
   counts: ProposalCounts;
 }
 
@@ -2768,6 +2801,49 @@ export class TokenService {
   // `token.governance_execute_unwired` and never post. `executed` / `cancelled`
   // stay unwired.
 
+  /** The founders' voting delay and period (MC-token-02). Null means not set. */
+  governanceSettings(): Promise<GovernanceSettings> {
+    return readGovernanceSettings(this.sql);
+  }
+
+  governanceSettingsHistory() {
+    return governanceSettingsHistory(this.sql);
+  }
+
+  /** Refuses, without writing, a settings change the write would refuse. */
+  precheckGovernanceSettings(input: Parameters<typeof precheckGovernanceSettings>[1]): Promise<void> {
+    return precheckGovernanceSettings(this.sql, input);
+  }
+
+  /** Refuses, without writing, a role move the write would refuse. */
+  precheckGovernanceRole(input: Parameters<typeof precheckGovernanceRole>[1]): Promise<void> {
+    return precheckGovernanceRole(this.sql, input);
+  }
+
+  setGovernanceSettings(input: Parameters<typeof setGovernanceSettings>[1]): Promise<GovernanceSettings> {
+    return setGovernanceSettings(this.sql, input);
+  }
+
+  governanceRoles(limit: number): Promise<GovernanceRoleRow[]> {
+    return governanceRoles(this.sql, limit);
+  }
+
+  governanceRoleOf(userId: string): Promise<GovernanceRole | null> {
+    return governanceRoleOf(this.sql, userId);
+  }
+
+  setGovernanceRole(input: Parameters<typeof setGovernanceRole>[1]): Promise<GovernanceRoleRow> {
+    return setGovernanceRole(this.sql, input);
+  }
+
+  /** A governance moderator, admin or controller cancels a draft or open proposal with a reason; its votes stay. */
+  async cancelProposal(input: { proposalId: string; reason: string; actorId: string; now?: Date }): Promise<ProposalRecord> {
+    await cancelGovernanceProposal(this.sql, { ...input, now: input.now ?? new Date() });
+    const row = await loadProposalRow(this.sql, input.proposalId);
+    if (!row) throw new TokenError(`Proposal ${input.proposalId} not found`, 'token.proposal_not_found');
+    return row;
+  }
+
   /**
    * Open a proposal. Who may propose and how many per period are owner
    * settings: blank refuses, and admin does not bypass a blank or the cap.
@@ -2801,14 +2877,6 @@ export class TokenService {
     const now = input.now ?? new Date();
     const votingType = assertBallotType(input.votingType ?? 'basic');
     const choices = asBallotError(() => normalizeChoices(votingType, input.choices));
-    const opensAt = input.opensAt ?? now;
-    // Caller-omitted close still uses the existing fixed length. The owner
-    // period for that default is MC-token-02 (`token.proposal_window_unset`).
-    const closesAt = input.closesAt ?? new Date(opensAt.getTime() + 7 * 86_400_000);
-    if (!(closesAt.getTime() > opensAt.getTime())) {
-      throw new TokenError('Proposal window must close after it opens', 'token.proposal_window');
-    }
-
     const asAdmin = input.asAdmin === true;
     const peeked = await assessProposalAccess(this.sql, { userId: input.createdBy, asAdmin, staked: 0n, now });
     if (peeked.code === 'token.proposer_rule_unset' || peeked.code === 'token.proposal_limit_unset') {
@@ -2835,8 +2903,17 @@ export class TokenService {
       body: input.body ?? {},
       authorId: input.createdBy,
       asAdmin,
-      opensAt,
-      closesAt,
+      // A time the author leaves out comes from the founders' voting delay and period, read after the proposer rule
+      // passes; a blank one refuses `token.proposal_window_unset` (MC-token-02).
+      window: async (tx) => {
+        const needsSettings = !input.opensAt || !input.closesAt;
+        const settings = needsSettings ? await readGovernanceSettings(tx) : { votingDelayMs: null, votingPeriodMs: null };
+        const window = proposalWindow(settings, { opensAt: input.opensAt, closesAt: input.closesAt, now });
+        if (!(window.closesAt.getTime() > window.opensAt.getTime())) {
+          throw new TokenError('Proposal window must close after it opens', 'token.proposal_window');
+        }
+        return window;
+      },
       now,
       handle: input.handle,
       title: input.title,

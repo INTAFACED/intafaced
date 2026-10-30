@@ -105,6 +105,8 @@ export interface P2pExport {
   readonly remarkCases: unknown[];
   /** The person's ad edits counted against the daily cap (P-ads-merchant-06). */
   readonly offerEdits: unknown[];
+  /** Links the person made to their ads: when made, when they end or were withdrawn. Tokens are not held (P-ads-merchant-07). */
+  readonly shareLinks: unknown[];
   readonly reputation: unknown | null;
   /**
    * The caller's payment destinations — **headers only, never the values.**
@@ -139,8 +141,8 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits] = await Promise.all(
-        [
+      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits, shareLinks] =
+        await Promise.all([
           this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
           this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
           this.sql`
@@ -173,8 +175,12 @@ export class P2pErasure {
         `,
           this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
           this.sql`SELECT * FROM p2p.offer_edits WHERE maker_id = ${userId} ORDER BY edited_at`,
-        ],
-      );
+          this.sql`
+          SELECT id, offer_id, created_at, expires_at, revoked_at FROM p2p.offer_share_links
+           WHERE maker_id = ${userId}
+           ORDER BY created_at
+        `,
+        ]);
 
       // The column list above is the export reader. `details` is not selected, so a
       // sealed blob cannot leave as if it were account text. Reveal is the logged
@@ -194,6 +200,7 @@ export class P2pErasure {
         orderReviews: [...orderReviews],
         remarkCases: [...remarkCases],
         offerEdits: [...offerEdits],
+        shareLinks: [...shareLinks],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
         riskAcceptances: [...riskAcceptances],
@@ -275,6 +282,10 @@ export class P2pErasure {
           // P-ads-merchant-06: the person's ad edits, counted against the daily cap. They name nobody else.
           const edits = await tx`DELETE FROM p2p.offer_edits WHERE maker_id = ${userId} RETURNING offer_id`;
           erased.push({ category: 'ad edits counted against the daily cap', rows: edits.length });
+
+          // P-ads-merchant-07: links the person made to their ads, kept ones included. Only token hashes and times.
+          const links = await tx`DELETE FROM p2p.offer_share_links WHERE maker_id = ${userId} RETURNING id`;
+          erased.push({ category: 'share links to ads', rows: links.length });
 
           // Offers with no trades against them never became part of anyone
           // else's record. Ones that were traded are load-bearing: a trade row

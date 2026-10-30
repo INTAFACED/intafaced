@@ -1148,11 +1148,11 @@ describe('native P2P original terms and decisions', () => {
           });
         expect(
           (
-            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' - 'non_instant' - 'settlement_window_seconds' - 'cash_release_seconds' AS terms FROM p2p.p2p_trades t`
+            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' - 'non_instant' - 'settlement_window_seconds' - 'cash_release_seconds' - 'shared_from' AS terms FROM p2p.p2p_trades t`
           )[0]?.terms,
         ).toEqual(original);
         const row = (
-          await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot, non_instant, settlement_window_seconds, cash_release_seconds FROM p2p.p2p_trades`
+          await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot, non_instant, settlement_window_seconds, cash_release_seconds, shared_from FROM p2p.p2p_trades`
         )[0];
         // A legacy order reads as paid on an instant method: the profile columns arrive at their defaults.
         expect(row).toEqual({
@@ -1162,6 +1162,8 @@ describe('native P2P original terms and decisions', () => {
           non_instant: false,
           settlement_window_seconds: null,
           cash_release_seconds: null,
+          // P-ads-merchant-07: a legacy order was not taken through a share link.
+          shared_from: false,
         });
         await expect(legacy.sql`UPDATE p2p.p2p_trades SET original_terms_claimed_at = now() WHERE id = ${TRADE}`).rejects.toThrow();
         const ledger = new MemoryLedger();

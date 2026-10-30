@@ -193,7 +193,7 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
 
   it('omit eventId refuses bank.repayment_id_required and posts nothing', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     await expect(bank.loans.repay({ loanId: opened.loan.id, amount: amt('1000'), eventId: '', now: NOW })).rejects.toMatchObject({
@@ -204,7 +204,7 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
 
   it('two repays of the same eventId — one loan.repaid', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const eventId = randomUUID();
@@ -224,7 +224,7 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
 
   it('timeout after repay posts, retry same eventId — one loan.repaid', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const eventId = randomUUID();
@@ -252,7 +252,7 @@ describe('LoanService.repay — timed-out retry is one loanRepay', () => {
 
   it('two eventIds of the same amount are two repayments', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const first = await bank.loans.repay({
@@ -287,7 +287,7 @@ describe('HTTP /trpc/loans.repay — retry with the same eventId is one loanRepa
 
   it('HTTP without eventId is 400', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     const app = await mountDoors(bank);
@@ -299,7 +299,7 @@ describe('HTTP /trpc/loans.repay — retry with the same eventId is one loanRepa
 
   it('two HTTP posts with the same eventId are one loan.repaid', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     const eventId = randomUUID();

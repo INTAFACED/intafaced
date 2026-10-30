@@ -84,7 +84,7 @@ if (!available) {
 
   beforeEach(async () => {
     await lock`select pg_advisory_lock(842671)`;
-    await sql`TRUNCATE agents.own_agent_limits, agents.own_agents`;
+    await sql`TRUNCATE agents.own_agent_usage_alerts, agents.own_agent_usage_limits, agents.own_agent_limits, agents.own_agents`;
   });
 
   afterEach(async () => {

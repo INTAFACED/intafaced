@@ -1,6 +1,7 @@
 /**
- * Child orders and fills: open orders, recent closed orders and fills in one table. The service links no child to a parent,
- * so "Scaled" is matched by the id prefix this room wrote and "Algo" only by market, side and time, and the tab says so.
+ * Child orders and fills: open orders, recent closed orders and fills in one table. "Scaled" is matched by the id prefix
+ * this room wrote; "Algo" by the children each schedule's own read lists, and otherwise only by market, side and time,
+ * which the tab says and the export marks.
  */
 import { useMemo, useState } from 'react';
 import { Button, SegmentedControl } from '../rooms/ui';
@@ -8,7 +9,7 @@ import { Freshness } from '../rooms/RoomNotices';
 import { useClosedOrders, useFills, useOpenOrders, useRefreshPrivate } from '../desk/data';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';
-import { algoWindows, blotterCsv, buildBlotter, filterBlotter, type BlotterFilter, type Source } from './blotter';
+import { algoWindows, blotterCsv, buildBlotter, childParents, filterBlotter, type BlotterFilter, type Source } from './blotter';
 import { scaledGroupOf } from './model';
 import { BlotterTable, useCancelFlow } from './OrdersView';
 import { Gate, Pick, Why } from './parts';
@@ -29,9 +30,10 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
   const fills = useFills(false);
   const refresh = useRefreshPrivate();
   const cancel = useCancelFlow(refresh);
-  const [filter, setFilter] = useState<BlotterFilter>({ market: 'all', side: 'all', source: 'all' });
+  const [filter, setFilter] = useState<BlotterFilter>({ market: 'all', side: 'all', source: 'all', parent: 'all' });
 
   const windows = useMemo(() => algoWindows(parents.flatMap((p) => (p.ok ? [p.parent] : []))), [parents]);
+  const childOf = useMemo(() => childParents(parents.flatMap((p) => (p.ok ? [{ id: p.id, children: p.parent.children }] : []))), [parents]);
   const all = useMemo(
     () =>
       buildBlotter(
@@ -39,8 +41,9 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
         closed.status === 'ready' ? closed.data : [],
         fills.status === 'ready' ? fills.data : [],
         windows,
+        childOf,
       ),
-    [open, closed, fills, windows],
+    [open, closed, fills, windows, childOf],
   );
   const shown = useMemo(() => filterBlotter(all, filter), [all, filter]);
   const markets = [...new Set(all.map((r) => r.symbol))].sort();
@@ -80,6 +83,30 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
             onChange={(v) => set('side', v)}
           />
         </div>
+        <div className="w-56">
+          <Pick
+            label={t('Schedule')}
+            value={filter.parent}
+            options={[
+              { value: 'all', label: t('All schedules') },
+              ...parents.flatMap((p) =>
+                p.ok
+                  ? [
+                      {
+                        value: p.id,
+                        label: t('{market} {kind} {id}', { market: p.parent.symbol, kind: p.parent.kind.toUpperCase(), id: p.id }),
+                      },
+                    ]
+                  : [],
+              ),
+              // A chosen schedule that can no longer be read stays named, so the filter in force is never hidden.
+              ...(filter.parent !== 'all' && !parents.some((p) => p.ok && p.id === filter.parent)
+                ? [{ value: filter.parent, label: t('Schedule {id} not read', { id: filter.parent }) }]
+                : []),
+            ]}
+            onChange={(v) => set('parent', v)}
+          />
+        </div>
         <SegmentedControl
           aria-label={t('Source')}
           size={32}
@@ -97,7 +124,7 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
           {t('Export what you see')}
         </Button>
       </div>
-      <p className="m-0 text-sm text-fg-2">{t('Matched by market and time, not by link')}</p>
+      <p className="m-0 text-sm text-fg-2">{t('How rows are matched')}</p>
       <p className="m-0 text-sm text-fg-2">{t('CSV is not a statement')}</p>
       {partial && open.status === 'ready' ? <Why>{t('History partly unread')}</Why> : null}
       {groups.length > 0 ? (
