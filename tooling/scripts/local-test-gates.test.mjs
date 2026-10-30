@@ -3,6 +3,7 @@
 // hashes match what the services compute. Run: node tooling/scripts/local-test-gates.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createDecipheriv } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -51,9 +52,16 @@ import {
   nextTotpStep,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
+  POSTING_FREEZE_REASON,
+  postingFreezePlan,
+  postingFreezeProposal,
+  ADMIN_SESSION_COOKIE,
+  scopesWithout,
+  sealConsoleSession,
+  stackFounderScopes,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,8 +109,8 @@ try {
 
   // Guard 5: every CLI command refuses (exit 1) with no marker.
   const nothing = mkdtempSync(join(tmpdir(), 'local-test-gates-none-'));
-  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) {
-    const r = run(nothing, [cmd]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status', ['posting-freeze', 'on'], ['posting-freeze', 'off']]) {
+    const r = run(nothing, [cmd].flat());
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
     assert.match(r.stderr, /refusing: state directory .* not found/);
   }
@@ -330,6 +338,7 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
     dbUrl: () => '',
     urlOf: () => '',
     PORTS: {},
+    STATE: '/nonexistent/local-test-state',
   }).env();
   for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
 }
@@ -362,10 +371,14 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
     dbUrl: () => '',
     urlOf: () => '',
     PORTS: {},
+    STATE: '/nonexistent/local-test-state',
   }).env();
   assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
   // J-wallet-05: a TEST custody signer on TEST Ethereum only, so TEST Base stays unconnected (#7).
   assert.equal(payEnv.PAY_TEST_WITHDRAW_SIGNER_NETWORKS, 'ethereum');
+  // J-wallet-05 #8: the in-memory chain's TEST pace, so a real send is seen sending, and a send of 13 is refused by name.
+  assert.equal(payEnv.PAY_TEST_CHAIN_SEND_DELAY_MS, '6000');
+  assert.equal(payEnv.PAY_TEST_CHAIN_REFUSE_AMOUNT, '13');
 }
 // The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
 // asks one approval of the second founder for its own config task.
@@ -410,15 +423,27 @@ assert.deepEqual(
   ['BTC/USDT'],
 );
 
-// TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker, and opened like any spot book.
+// TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
+// like any spot book.
 {
   const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
   assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
+  for (const symbol of UNQUOTED_TEST_SPOT)
+    assert.ok(
+      TEST_SPOT_LISTINGS.some((l) => l.symbol === symbol),
+      `${symbol} is listed`,
+    );
   for (const l of TEST_SPOT_LISTINGS) {
     assert.match(l.displayName, /TEST/);
     assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
-    assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
-    assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    if (UNQUOTED_TEST_SPOT.includes(l.symbol)) {
+      // Unquoted on purpose: no TEST price and not in the market maker's defaults.
+      assert.ok(!marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} must stay unquoted`);
+      assert.doesNotMatch(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    } else {
+      assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
+      assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    }
     assert.deepEqual(
       openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
       [l.symbol],
@@ -566,5 +591,104 @@ assert.equal(
   EDGE_AUTHORITY_CACHE_MAX_MS,
   "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
 );
+
+// The platform posting freeze. svc-ledger's `ledgerActionPayloadHash` is TypeScript that imports
+// @intafaced/contracts, so this plain-node test cannot import it without a build; the pins below check only the
+// parts that decide whether an approval is consumable (the hash recipe, the action types and targets, the freeze
+// reason as the one hashed field, the version binding, the founder audience), not the surrounding text.
+const ledgerConsume = readFileSync(resolve(here, '../../services/svc-ledger/src/ledger/action-approval-consume.ts'), 'utf8');
+assert.ok(ledgerConsume.includes('JSON.stringify({ actionType, ...fields })'), 'ledger hash recipe changed');
+assert.ok(ledgerConsume.includes("`sha256:${createHash('sha256')"), 'ledger hash prefix changed');
+const ledgerOperator = readFileSync(resolve(here, '../../services/svc-ledger/src/operator-http.ts'), 'utf8').replace(/\s+/g, ' ');
+assert.ok(
+  ledgerOperator.includes("'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, { reason: parsed.reason, }"),
+  'freeze consume changed',
+);
+assert.ok(ledgerOperator.includes("'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {}"), 'unfreeze consume changed');
+const audience = readFileSync(resolve(here, '../../services/svc-identity/src/auth/action-approval-audience.ts'), 'utf8');
+const founderLevel = /FOUNDER_LEVEL_ACTION_TYPES[^=]*=\s*\[([^\]]*)\]/.exec(audience)?.[1] ?? '';
+assert.ok(founderLevel.includes("'ledger.freeze'") && founderLevel.includes("'ledger.unfreeze'"), 'the freeze verbs are founder-level');
+// The same hash svc-ledger computes, by behaviour: sha256 over { actionType, ...fields } in that order.
+const version = '2026-10-29 05:00:00.123456+00';
+const on = postingFreezeProposal(true, version);
+assert.deepEqual(
+  [on.actionType, on.targetService, on.targetId, on.expectedVersion, on.policyVersion],
+  ['ledger.freeze', 'svc-ledger', 'posting_freeze', version, 'local-test:v1'],
+);
+assert.equal(on.payloadHash, sha({ actionType: 'ledger.freeze', reason: POSTING_FREEZE_REASON.trim() }));
+const off = postingFreezeProposal(false, version);
+assert.deepEqual([off.actionType, off.targetId, off.expectedVersion], ['ledger.unfreeze', 'posting_unfreeze', version]);
+assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
+assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
+assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
+// svc-ledger wants a reason of 12 to 500 characters after trimming; the freeze carries the LOCAL TEST label.
+assert.ok(POSTING_FREEZE_REASON.trim().length >= 12 && POSTING_FREEZE_REASON.length <= 500);
+assert.ok(POSTING_FREEZE_REASON.startsWith(MARKERS.label));
+// Planning, from the record founder A reads, before anyone else signs in.
+const ours = { frozen: true, reason: POSTING_FREEZE_REASON, actor: 'f-a', version };
+const open0 = { frozen: false, reason: null, actor: null, version };
+assert.deepEqual(postingFreezePlan(open0, false), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(ours, true), { action: 'skip' });
+assert.deepEqual(postingFreezePlan(open0, true), { action: 'run' });
+assert.deepEqual(postingFreezePlan(ours, false), { action: 'run' });
+// A freeze this tool did not set is refused both ways: `off` never lifts it, `on` never reports it as its own.
+const foreignState = { frozen: true, reason: 'reconciliation mismatch on USDT', actor: 'reconciliation', version };
+for (const want of [true, false]) {
+  const plan = postingFreezePlan(foreignState, want);
+  assert.equal(plan.action, 'refuse', `foreign freeze, ${want ? 'on' : 'off'}`);
+  assert.match(plan.why, /reconciliation mismatch on USDT.*reconciliation/);
+}
+// No state, or a change with no version to bind the approval to, refuses before any second sign-in.
+assert.equal(postingFreezePlan(null, true).action, 'refuse');
+assert.equal(postingFreezePlan({ reason: null }, true).action, 'refuse');
+assert.match(postingFreezePlan({ ...open0, version: undefined }, true).why, /version/);
+assert.match(postingFreezePlan({ ...ours, version: '' }, false).why, /version/);
+assert.deepEqual(postingFreezePlan({ ...open0, version: undefined }, false), { action: 'skip' });
+// Usage is checked before the stack is: a bad or missing on|off exits 2 without reading any marker.
+for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
+  const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off/);
+  assert.doesNotMatch(r.stderr, /refusing/);
+}
+// scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
+{
+  const identityDef = readFileSync(resolve(here, 'local-stack-services/identity.mjs'), 'utf8');
+  const literal = /IDENTITY_FOUNDER_SESSION_SCOPES: '([^']+)'/.exec(identityDef)?.[1];
+  assert.ok(literal, 'identity.mjs still names the founder session scopes as one literal');
+  const scopes = await stackFounderScopes(mkdtempSync(join(tmpdir(), 'scoped-')));
+  assert.deepEqual(scopes, literal.split(','), "the founder scopes are identity's own list");
+  assert.deepEqual(scopesWithout(['a:x', 'b:y', 'c:z'], 'b:y'), ['a:x', 'c:z']);
+  assert.throws(
+    () => scopesWithout(['a:x', 'b:y'], 'b:yy'),
+    /b:yy is not a founder session scope/,
+    'a misspelt scope never passes as left out',
+  );
+}
+// The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.
+{
+  const key = Buffer.alloc(32, 7);
+  const secret = key.toString('base64url');
+  const session = { userId: 'u', accessToken: 't', refreshToken: 'r', expiresAt: 'e', issuedAt: 'i', csrf: 'c' };
+  const open = (value, origin) => {
+    const bytes = Buffer.from(value, 'base64url');
+    const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12));
+    decipher.setAuthTag(bytes.subarray(12, 28));
+    decipher.setAAD(Buffer.from(`${ADMIN_SESSION_COOKIE}\n${origin}\nv1`));
+    return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8'));
+  };
+  const sealed = sealConsoleSession(session, { secret, origin: 'http://127.0.0.1:3100' });
+  assert.deepEqual(open(sealed, 'http://127.0.0.1:3100'), session);
+  assert.throws(() => open(sealed, 'http://127.0.0.1:3101'), 'a cookie sealed for one origin never opens on another');
+  assert.throws(() => sealConsoleSession(session, { secret: 'short', origin: 'x' }), /32-byte/);
+  const consoleSession = readFileSync(resolve(here, '../../apps/admin/src/lib/founder-session.ts'), 'utf8');
+  assert.ok(consoleSession.includes(`export const ADMIN_COOKIE = '${ADMIN_SESSION_COOKIE}';`), "the console's cookie name");
+  assert.ok(consoleSession.includes("createCipheriv('aes-256-gcm', config.key, iv)"), "the console's cipher");
+  assert.ok(consoleSession.includes('cipher.setAAD(Buffer.from(`${ADMIN_COOKIE}\\n${config.origin}\\nv1`));'), "the console's AAD");
+  assert.ok(
+    consoleSession.includes("'accessToken,csrf,expiresAt,issuedAt,refreshToken,userId'"),
+    "the console's session keys are the ones scoped-session seals",
+  );
+}
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

@@ -64,6 +64,7 @@ import { guarded } from './control-errors.js';
 import { createDepositSettingsRouter, type DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import { createDepositFreezesRouter, type DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import { createDepositTravelRuleRouter, type DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
+import { createDepositOpenItemsRouter, type DepositOpenItemsMountDeps } from '../custody/deposits/open-items.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 import { createCategoryPolicyRouter, type CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
@@ -109,6 +110,8 @@ export interface FounderAdminMounts {
   depositFreezes?: DepositFreezesMountDeps;
   /** W-deposit-07: the inbound travel rule on large chain deposits (`founderAdmin.depositTravelRule.*`). Mounted only when supplied. */
   depositTravelRule?: DepositTravelRuleMountDeps;
+  /** OPS-reconciliation-02: open held deposits and unfunded reversals across customers (`founderAdmin.depositOpenItems.*`). Mounted only when supplied. */
+  depositOpenItems?: DepositOpenItemsMountDeps;
   /** W-withdraw-05: owner-set withdrawal limits (`founderAdmin.limits.*`). Mounted only when supplied. */
   limits?: WithdrawalLimitsMountDeps;
   /** W-custody-ops-01: the custody account model (`founderAdmin.custody.*`). Mounted only when supplied. */
@@ -187,6 +190,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     depositSettings,
     depositFreezes,
     depositTravelRule,
+    depositOpenItems,
     limits,
     custody,
     purchaseHolds,
@@ -224,6 +228,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(depositFreezes ? { depositFreezes: createDepositFreezesRouter({ founderAuthority, ...depositFreezes }) } : {}),
       // W-deposit-07: inbound travel rule per asset; a large deposit is held until its declaration is reviewed (src/custody/deposits/travel-rule).
       ...(depositTravelRule ? { depositTravelRule: createDepositTravelRuleRouter({ founderAuthority, ...depositTravelRule }) } : {}),
+      // OPS-reconciliation-02: what custody holds or lost that the ledger does not show, read-only (src/custody/deposits/open-items).
+      ...(depositOpenItems ? { depositOpenItems: createDepositOpenItemsRouter({ founderAuthority, ...depositOpenItems }) } : {}),
       // W-withdraw-05: owner-set withdrawal limits per KYC tier and asset (src/limits). Mounted only when its deps are supplied.
       ...(limits ? { limits: createWithdrawalLimitsRouter({ founderAuthority, ...limits }) } : {}),
       // W-custody-ops-01: custody entities, vaults and wallets (src/custody). Mounted only when its deps are supplied.

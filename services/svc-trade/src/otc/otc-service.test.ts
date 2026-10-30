@@ -11,7 +11,7 @@ import { describeOtcPolicy } from './otc-policy.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
 /** Minimal principal — avoid pulling auth/contracts into this suite's graph. */
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -22,6 +22,8 @@ const published: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 
 /** Fresh observed mid — standing in for a live TRADE_OTC_MIDS / feed. */
@@ -182,7 +184,7 @@ describe('OtcDeskService', () => {
       now: () => now,
     });
     const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
-    const stranger = { userId: '00000000-0000-4000-8000-000000000002' } as import('@intafaced/auth').Principal;
+    const stranger = { userId: '00000000-0000-4000-8000-000000000002', tier: 'basic' } as import('@intafaced/auth').Principal;
     const missing = await svc.accept(stranger, { quoteId: '00000000-0000-4000-8000-000000000099' }).then(
       () => null,
       (err: unknown) => err,
@@ -237,7 +239,8 @@ describe('OtcDeskService', () => {
     const partial = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
       // The house desk is the one provider these requests ask (CB-otc-01).
       makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
-      law: published,
+      // SOL is on the desk's asset list (CB-otc-11), so the refusal is the missing mid, not the list.
+      law: { ...published, assets: ['BTC', 'SOL'] },
       midSource: freshMids(() => now),
       now: () => now,
     });

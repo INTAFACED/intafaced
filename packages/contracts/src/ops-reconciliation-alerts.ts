@@ -1,9 +1,12 @@
 /**
- * Reconciliation alerts (OPS-reconciliation-03).
+ * Reconciliation alerts (OPS-reconciliation-03, -04).
  *
  * svc-ops owns the alert store. It reads every settled evaluation from svc-ledger's `reconciliationEvaluations` door and
- * keeps one alert per control, failing asset and period. Acknowledge and snooze never change a balance or a freeze, and
- * never turn a period green: a period is green only when its latest evaluation passed and it has no open or acknowledged alert.
+ * keeps one alert per control, failing asset, period and cause. A FAIL is a money discrepancy raised to finance; an ERROR
+ * (the run could not finish) is raised to the platform team, never to finance. Acknowledge, snooze, resolve and accept never
+ * change a balance or a freeze, and never turn a period green: a period is green only when its latest evaluation passed and
+ * it has no open or acknowledged alert. A resolved alert reopens on a repeat failure in its period; a passing run of the
+ * same control and period resolves it automatically.
  */
 
 import { z } from 'zod';
@@ -25,11 +28,38 @@ export const OPS_ALERT_NOTE_REQUIRED = 'ops.alert_note_required' as const;
 /** A snooze must end after it starts. */
 export const OPS_ALERT_SNOOZE_END_INVALID = 'ops.alert_snooze_end_invalid' as const;
 
+/** A corrective transaction id the ledger has never booked. Nothing was changed. */
+export const OPS_RESOLVE_TRANSACTION_NOT_FOUND = 'ops.resolve_transaction_not_found' as const;
+/** Accepting a discrepancy needs a note. Nothing was changed and no approval was spent. */
+export const OPS_RESOLVE_NOTE_REQUIRED = 'ops.resolve_note_required' as const;
+/** svc-ops could not ask the ledger whether the corrective transactions exist (unwired, refused, timed out). Nothing was changed. */
+export const OPS_RESOLVE_LEDGER_UNAVAILABLE = 'ops.resolve_ledger_unavailable' as const;
+
+/** The four-eyes action a discrepancy acceptance spends. */
+export const OPS_ALERT_ACCEPT_ACTION = 'ops.reconciliation_alert.accept' as const;
+/** How many corrective transactions one fix may link. */
+export const OPS_ALERT_CORRECTIVE_MAX = 20;
+
 export const OPS_ALERT_KINDS = ['reconciliation'] as const;
+/** `fail`: the books disagree. `error`: the run could not finish. */
+export const OPS_ALERT_CAUSES = ['fail', 'error'] as const;
+/** Who an alert is raised to: a FAIL to finance, an ERROR to the platform team. */
+export const OPS_ALERT_TEAMS = ['finance', 'platform'] as const;
+/** `fixed`: an operator linked the corrective ledger transactions. `auto`: a later run of the same control and period passed. */
+export const OPS_ALERT_RESOLUTIONS = ['fixed', 'auto'] as const;
 export const OPS_ALERT_RECORD_STATES = ['open', 'acknowledged', 'resolved', 'accepted'] as const;
 /** What happened to the in-console notice when an alert opened or failed again. */
 export const OPS_ALERT_NOTICE_OUTCOMES = ['sent', 'not_due', 'repeat_unset', 'snoozed'] as const;
-export const OPS_ALERT_TIMELINE_KINDS = ['opened', 'repeated', 'acknowledged', 'snoozed', 'unsnoozed'] as const;
+export const OPS_ALERT_TIMELINE_KINDS = [
+  'opened',
+  'repeated',
+  'acknowledged',
+  'snoozed',
+  'unsnoozed',
+  'resolved',
+  'accepted',
+  'reopened',
+] as const;
 
 export const OPS_ALERT_LIST_MAX = 200;
 
@@ -54,7 +84,15 @@ export const opsAlertSchema = z
     id: z.string().uuid(),
     kind: z.enum(OPS_ALERT_KINDS),
     state: z.enum(OPS_ALERT_RECORD_STATES),
-    /** The fingerprint: one alert per control, failing asset and period. A failure with no asset (a broken chain) is null. */
+    /** Part of the fingerprint. A FAIL goes to finance; an ERROR to the platform team. */
+    cause: z.enum(OPS_ALERT_CAUSES),
+    team: z.enum(OPS_ALERT_TEAMS),
+    /** The ERROR run's own code and phase; null for a FAIL. */
+    error: z
+      .object({ code: z.string().min(1), phase: z.string().min(1).nullable() })
+      .strict()
+      .nullable(),
+    /** The fingerprint: one alert per control, failing asset, period and cause. No asset (a broken chain, an ERROR) is null. */
     controlId: z.string().uuid(),
     assetId: z.string().nullable(),
     periodStart: isoSchema,
@@ -86,6 +124,34 @@ export const opsAlertSchema = z
       .nullable(),
     /** The snooze in force now, if any. It mutes notices only; the alert still counts. */
     snooze: opsAlertSnoozeSchema.nullable(),
+    /** Set while the alert is resolved; a reopen clears it, and the timeline keeps it. */
+    resolved: z
+      .object({
+        resolution: z.enum(OPS_ALERT_RESOLUTIONS),
+        /** The operator, or `auto`. */
+        by: z.string().min(1),
+        at: isoSchema,
+        /** Each checked to exist in the ledger; empty for `auto`. */
+        correctiveTxIds: z.array(z.string().guid()).max(OPS_ALERT_CORRECTIVE_MAX),
+        passingRunId: z.string().uuid().nullable(),
+        note: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+    /**
+     * Set once a discrepancy is accepted by two founders. The evidence is frozen at the hash both signed: a later failure with
+     * the same figures changes nothing, and one with different figures opens a new alert.
+     */
+    accepted: z
+      .object({
+        requestedBy: z.string().min(1),
+        approvedBy: z.string().min(1),
+        at: isoSchema,
+        note: z.string().min(1),
+        evidenceHash: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .strict()
+      .nullable(),
     notices: z
       .object({
         sent: z.number().int().nonnegative(),
@@ -113,6 +179,8 @@ export const opsAlertTimelineEntrySchema = z
     runId: z.string().uuid().nullable(),
     notice: z.enum(OPS_ALERT_NOTICE_OUTCOMES).nullable(),
     snoozeId: z.string().uuid().nullable(),
+    /** The corrective ledger transactions a `resolved` entry linked; empty otherwise. */
+    txIds: z.array(z.string().guid()),
   })
   .strict();
 export type OpsAlertTimelineEntry = z.infer<typeof opsAlertTimelineEntrySchema>;
@@ -181,6 +249,71 @@ export type OpsAlertSnoozeInput = z.infer<typeof opsAlertSnoozeInputSchema>;
 
 export const opsAlertUnsnoozeInputSchema = z.object({ alertId: z.string().uuid(), idempotencyKey: keySchema }).strict();
 export type OpsAlertUnsnoozeInput = z.infer<typeof opsAlertUnsnoozeInputSchema>;
+
+export const opsAlertResolveInputSchema = z
+  .object({
+    alertId: z.string().uuid(),
+    correctiveTxIds: z.array(z.string().guid()).min(1).max(OPS_ALERT_CORRECTIVE_MAX),
+    note: z.string().max(1000).optional(),
+    idempotencyKey: keySchema,
+  })
+  .strict();
+export type OpsAlertResolveInput = z.infer<typeof opsAlertResolveInputSchema>;
+
+/** Runs a discrepancy acceptance two founders approved. The approval binds the alert, the note and the evidence hash. */
+export const opsAlertAcceptInputSchema = z
+  .object({
+    alertId: z.string().uuid(),
+    note: z.string().max(500),
+    evidenceHash: z.string().regex(/^[0-9a-f]{64}$/),
+    approvalId: z.string().min(1).max(200),
+    operationId: z.string().min(1).max(200),
+  })
+  .strict();
+export type OpsAlertAcceptInput = z.infer<typeof opsAlertAcceptInputSchema>;
+
+/**
+ * The text an acceptance freezes: the alert's period and failing asset's figures (observed, expected, difference, tolerance),
+ * parsed by this contract so its keys always come in the same order, as JSON. The run id and read times are left out, so a
+ * later run that fails with the same figures does not void an approval in flight. svc-ops and the console hash it with
+ * SHA-256 (hex); the approval binds that hash.
+ */
+export function opsAlertEvidenceCanonical(evidence: unknown): string {
+  const parsed = opsAlertSchema.shape.evidence.parse(evidence);
+  return JSON.stringify({ periodStart: parsed.run.periodStart, periodEnd: parsed.run.periodEnd, asset: parsed.asset });
+}
+
+/** The approval fields an acceptance binds. svc-ops and the console hash `{ actionType, ...fields }` the same way. */
+export function opsAlertAcceptFields(alertId: string, note: string, evidenceHash: string) {
+  return { targetId: `reconciliation-alert:${alertId}`, note, evidenceHash };
+}
+
+/** A ledger reconciliation run that could not finish, as svc-ops received it from `ledger.reconciliation_run.failed`. */
+export const opsPlatformIncidentSchema = z
+  .object({
+    /** The event's business key: the same event delivered twice is one incident. */
+    eventKey: z.string().min(1),
+    team: z.literal('platform'),
+    errorCode: z.string().min(1),
+    phase: z.string().min(1),
+    consecutiveIncomplete: z.number().int().min(1),
+    /** The ledger's own reconcile run id, when it had one. Not a control run. */
+    ledgerRunId: z.string().nullable(),
+    occurredAt: isoSchema,
+    receivedAt: isoSchema,
+  })
+  .strict();
+export type OpsPlatformIncident = z.infer<typeof opsPlatformIncidentSchema>;
+
+export const opsPlatformIncidentsInputSchema = z.object({ limit: z.number().int().min(1).max(OPS_ALERT_LIST_MAX) }).strict();
+export const opsPlatformIncidentsSchema = z
+  .object({
+    /** Whether svc-ops is attached to the event bus now; detached, nothing new arrives and the list says so. */
+    bus: z.enum(['attached', 'detached']),
+    incidents: z.array(opsPlatformIncidentSchema),
+  })
+  .strict();
+export type OpsPlatformIncidents = z.infer<typeof opsPlatformIncidentsSchema>;
 
 export const opsReconciliationPeriodsInputSchema = z
   .object({ controlId: z.string().uuid().optional(), limit: z.number().int().min(1).max(OPS_ALERT_LIST_MAX) })

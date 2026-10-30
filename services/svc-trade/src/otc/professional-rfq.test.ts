@@ -14,7 +14,7 @@ import { createObservedOtcMidSource } from './mid-source.js';
 import { expireOtcQuote, parseRequiredOtcPrice, parseRequiredOtcSize } from './rfq.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -25,6 +25,8 @@ const published: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
   minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 
 function desk(now = new Date('2026-08-26T12:00:00.000Z'), mids = true) {

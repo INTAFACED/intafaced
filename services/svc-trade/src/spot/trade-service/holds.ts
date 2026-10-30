@@ -6,7 +6,7 @@
  */
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, orderHoldAccount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
 import { FeeScheduleError, REGULAR_FEE_TIER, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from '../fees.js';
@@ -25,6 +25,7 @@ import { toOrder, type OrderRow } from '../rows.js';
 import { holdLeft } from '../order-holds.js';
 import { type EngineSubmitRequest, type EngineSubmitResult } from '../matching-client.js';
 import { attributionFromOrder, withLedgerAttribution } from '../auth-attribution.js';
+import { buybackReleasePost, holdAccountOf, isBuybackUser } from '../buyback-order.js';
 import { TradeError, type Market, type OrderRecord, type OrderStatus, type RecoveryReason } from '../types.js';
 import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 
@@ -261,30 +262,30 @@ export async function finalize(
       // attempts: if a crashed attempt already booked sequence 0, the pot is
       // smaller now and re-capping would change the body. Reuse the key's
       // booked amount (post it again as a no-op); cap only a fresh release.
-      const terminalKey = `order.release:${orderId}:0`;
+      // A buyback order's release is its own recipe and key (`buyback-order.ts`).
+      const buyback = isBuybackUser(order.userId);
+      const terminalKey = buyback ? buybackReleasePost(order, 1n).idempotencyKey : `order.release:${orderId}:0`;
       const booked = await svc.ledger.getTxByKey(terminalKey);
       let releasable: Amount;
       if (booked) {
         const credit = booked.entries.find((entry) => entry.direction === 'credit');
         releasable = credit ? credit.amount : 0n;
       } else {
-        const bookHold = (await svc.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
+        const bookHold = (await svc.ledger.balance(holdAccountOf(order))).amount;
         releasable = bookHold < remaining ? bookHold : remaining;
       }
       if (releasable > 0n) {
         // ── 6 · THE RELEASE ────────────────────────────────────────────────
-        await svc.ledger.post(
-          withLedgerAttribution(
-            recipes.orderHoldRelease({
+        const release = buyback
+          ? buybackReleasePost(order, releasable)
+          : recipes.orderHoldRelease({
               orderId,
               userId: order.userId,
               assetId: order.holdAsset,
               amount: releasable,
               sequence: 0,
-            }),
-            attributionFromOrder(order),
-          ),
-        );
+            });
+        await svc.ledger.post(withLedgerAttribution(release, attributionFromOrder(order)));
       }
 
       const finalStatus: OrderStatus = order.filledQty > 0n && order.filledQty >= order.qty ? 'filled' : status;
@@ -318,7 +319,8 @@ export async function finalize(
   if (outcome) {
     const latest = (await svc.findOrder(orderId)) ?? { ...outcome.order, status: outcome.status };
     await svc.publishOrderUpdated({ ...latest, status: outcome.status });
-    if (outcome.order.filledQty > 0n) await svc.publishXp(outcome.order, outcome.status);
+    // The buyback is the house, not a person: it earns no XP.
+    if (outcome.order.filledQty > 0n && !isBuybackUser(outcome.order.userId)) await svc.publishXp(outcome.order, outcome.status);
   }
 }
 

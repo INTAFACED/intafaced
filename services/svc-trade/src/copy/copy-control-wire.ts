@@ -7,7 +7,10 @@ import { COPY_FLATTEN_DISPOSITION } from './copy-flatten.js';
 import { COPY_CONTROL_DISPOSITIONS, COPY_RELATIONSHIP_STATES } from './copy-lifecycle.js';
 
 export const COPY_PAUSE_DISPOSITIONS = ['PAUSE_NEW'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
-export const COPY_STOP_DISPOSITIONS = ['STOP_NEW'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
+export const COPY_STOP_DISPOSITIONS = [
+  'STOP_NEW',
+  'STOP_CLOSE_ONLY',
+] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
 export const COPY_DETACH_DISPOSITIONS = ['DETACH_KEEP'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
 export const COPY_RESUME_DISPOSITIONS = ['RESUME'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
 export const COPY_FLATTEN_WIRE_DISPOSITIONS = [COPY_FLATTEN_DISPOSITION] as const;

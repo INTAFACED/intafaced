@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
+import { OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import {
   STAFF_HOLD_TARGET_SERVICE,
@@ -167,6 +168,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-ops `approvalPayloadHash('ops.hold.confirm', staffHoldConfirmFields(holdNo))`: { targetId: 'hold:<n>' }.
     case 'ops.hold.confirm':
       return sha(request.kind, staffHoldConfirmFields(request.holdNo));
+    // svc-ops `approvalPayloadHash('ops.reconciliation_alert.accept', opsAlertAcceptFields(alertId, note, evidenceHash))`.
+    case 'ops.reconciliation_alert.accept':
+      return sha(OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash));
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -416,6 +420,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: STAFF_HOLD_TARGET_SERVICE,
         targetId: staffHoldTargetId(request.holdNo),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the alert itself. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.reconciliation_alert.accept':
+      return {
+        actionType: OPS_ALERT_ACCEPT_ACTION,
+        targetService: 'svc-ops',
+        targetId: opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash).targetId,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

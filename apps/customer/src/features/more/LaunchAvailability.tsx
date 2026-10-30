@@ -4,14 +4,17 @@ import { Tabs } from '../../shared/ui';
 import { launchCopy } from './launch-copy';
 import { launchDepthCopy } from './launch-depth-copy';
 import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';
+import { LaunchCatalogue } from './LaunchCatalogue';
+import { launchCatalogueCopy } from './launch-catalogue-copy';
 import './launch-availability.css';
 
-export type LaunchTab = 'Journey' | 'Check' | 'Requirements' | 'Participation';
-const TABS: readonly LaunchTab[] = ['Journey', 'Check', 'Requirements', 'Participation'];
-/** Issuer journey, pre-listing check, requirements and participation. `tab`: the section an address such as /launch/check opens on. */
+export type LaunchTab = 'Catalogue' | 'Journey' | 'Check' | 'Requirements' | 'Participation';
+const TABS: readonly LaunchTab[] = ['Catalogue', 'Journey', 'Check', 'Requirements', 'Participation'];
+/** The published launches, issuer journey, pre-listing check, requirements and participation. `tab`: the section an address such as /launch/check opens on. */
 export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?: LaunchTab }) {
-  const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Journey'));
+  const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Catalogue'));
   const { t } = launchDepthCopy.useCopy();
+  const catalogue = launchCatalogueCopy.useCopy();
   return (
     <div className="more-grid">
       <Tabs
@@ -20,13 +23,16 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
         onChange={(value) => setTab(value as LaunchTab)}
         label={t('sections')}
         labels={{
+          Catalogue: catalogue.t('tabCatalogue'),
           Journey: t('tabJourney'),
           Check: t('tabCheck'),
           Requirements: t('tabRequirements'),
           Participation: t('tabParticipation'),
         }}
       />
-      {tab === 'Journey' ? (
+      {tab === 'Catalogue' ? (
+        <LaunchCatalogue />
+      ) : tab === 'Journey' ? (
         <LaunchJourney onTab={setTab} />
       ) : tab === 'Check' ? (
         <LaunchCheck />

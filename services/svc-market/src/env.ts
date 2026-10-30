@@ -25,6 +25,9 @@ import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
  * unset means refuse-closed (`market.commission_not_configured`). Setting `0` is
  * an explicit free-commission decision by the owner, not silence.
  */
+const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
+
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
@@ -52,6 +55,20 @@ const schema = serviceEnvSchema
        * missing / whitespace → refuse every purchase. Do not invent 0.
        */
       MARKET_HOUSE_COMMISSION_BPS: marketHouseCommissionBpsSchema,
+
+      /**
+       * MC-market-02, owner values with no default. MARKET_PURCHASE_HOLD ('on' | 'off'; blank is off) decides whether a
+       * new purchase is held until its refund window ends. MARKET_REFUND_WINDOW_SECONDS is that window; with the switch
+       * on and the window blank, a new purchase refuses `market.refund_window_unset`. MARKET_RELEASE_SWEEP_SECONDS is
+       * how often the sweep releases held purchases whose window ended; with the switch on and it blank, a new purchase
+       * refuses `market.release_sweep_unset`, since nothing would ever release it. MARKET_REFUND_POLICY is the owner's
+       * refund policy ('seller_full': the seller refunds the whole price once inside the window); blank, a refund request
+       * and a refund refuse `owner.decision` and the purchase stays held.
+       */
+      MARKET_PURCHASE_HOLD: blankAsAbsent(z.enum(['on', 'off']).optional()),
+      MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
+      MARKET_RELEASE_SWEEP_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
+      MARKET_REFUND_POLICY: blankAsAbsent(z.enum(['seller_full']).optional()),
     }),
   );
 

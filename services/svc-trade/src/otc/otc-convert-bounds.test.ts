@@ -16,7 +16,7 @@ import {
   parseOtcConvertBoundsJson,
 } from './otc-convert-bounds.js';
 
-const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
+const principal = { userId: '00000000-0000-4000-8000-000000000001', tier: 'basic' } as import('@intafaced/auth').Principal;
 const TEST_LAW: OtcDeskLaw = {
   published: true,
   spreadBps: 50,
@@ -26,6 +26,9 @@ const TEST_LAW: OtcDeskLaw = {
   maxMidAgeSeconds: 60,
   // The desk minimum is left blank on purpose: convert is sized by its own owner bounds, never by the RFQ desk minimum
   // (CB-otc-07), so every convert below prices without one.
+  // BTC is the one asset the desk quotes (CB-otc-11), the base of every convert below.
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 const TEST_BOUNDS_JSON = JSON.stringify({ convert: { minQty: '1', maxQty: '10' }, oneClickBuy: { minQty: '2', maxQty: '5' } });
 
@@ -39,10 +42,10 @@ function codeOf(fn: () => unknown): OtcErrorCode {
   throw new Error('expected a refusal');
 }
 
-function desk(convertBoundsJson: string) {
+function desk(convertBoundsJson: string, law: OtcDeskLaw = TEST_LAW) {
   const now = () => new Date('2026-10-22T03:00:00.000Z');
   return new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
-    law: TEST_LAW,
+    law,
     midSource: createObservedOtcMidSource('BTC/USDT:200', now),
     convertBounds: parseOtcConvertBoundsJson(convertBoundsJson),
     now,
@@ -105,6 +108,13 @@ describe('OtcDeskService.convertQuote', () => {
     expect(q.midPrice).toBe('200');
     expect(q.quotedPrice).not.toBe(q.midPrice);
     expect(q.expiresAt).toBeTruthy();
+  });
+
+  it("carries the owner's settle window, and null when it is blank", async () => {
+    expect((await desk(TEST_BOUNDS_JSON, { ...TEST_LAW, settleWindowMs: 45_000 }).convertQuote(principal, input)).settleWindowMs).toBe(
+      45_000,
+    );
+    expect((await desk(TEST_BOUNDS_JSON).convertQuote(principal, input)).settleWindowMs).toBeNull();
   });
 
   it('an amount outside the bounds refuses', async () => {

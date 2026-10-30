@@ -24,6 +24,7 @@ import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
+import type { SelfFreezeState } from '@intafaced/contracts/identity';
 import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import type {
   AccountState,
@@ -2157,6 +2158,17 @@ export class AuthService {
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
     return { frozen: true, ...result };
+  }
+
+  /**
+   * The owner's freeze as another service reads it (`selfFreezeStateSchema`, `GET /internal/self-freeze/:userId`), or
+   * null for an unknown user, which the caller refuses on. It reads the same open freeze as `selfFreezeStatus`.
+   */
+  async selfFreezeState(userId: string): Promise<SelfFreezeState | null> {
+    const users = await this.sql`SELECT 1 FROM users WHERE id = ${userId}`;
+    if (users.length === 0) return null;
+    const { frozen, since } = await this.selfFreezeStatus(userId);
+    return { userId, frozen, since: since ? since.toISOString() : null };
   }
 
   async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {

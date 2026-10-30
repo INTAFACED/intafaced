@@ -1,7 +1,8 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
+import { ROOT, api, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser, toUnits } from './stack.mjs';
 import { verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -264,6 +265,36 @@ function founders() {
   return founderSessions;
 }
 
+/**
+ * What the ledger itself holds free for `userId` (its `available` accounts at `user:<id>`), in units per asset, read
+ * at svc-ledger's operator account search with founder a's session (second factor) carrying `admin:treasury`. A
+ * frozen owner cannot sign in, so their balances are read as an operator reads them.
+ */
+async function ledgerFree(userId) {
+  const { ctx, sessions } = await founders();
+  const treasuryToken = await sessions.a.treasuryToken();
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(`user:${userId}`)}`, {
+    headers: { authorization: `Bearer ${treasuryToken}` },
+  });
+  const text = await res.text();
+  expect(res.status, text).toBe(200);
+  const page = JSON.parse(text);
+  expect(page.nextCursor, 'one page holds every account of one owner').toBeNull();
+  const free = {};
+  for (const row of page.accounts) {
+    if (row.address !== `user:${userId}` || row.kind !== 'available') continue;
+    free[row.assetId] = (free[row.assetId] ?? 0n) + toUnits(row.balance);
+  }
+  return free;
+}
+
+/** The free balance per asset the customer's own API answers, in units. */
+async function apiFree(client) {
+  const out = {};
+  for (const [asset, b] of Object.entries(await client.balances())) out[asset] = toUnits(b.free);
+  return out;
+}
+
 /** One identity call as a member of Support (founder `a` or `b` of the local stack), answering its data or its refusal. */
 async function support(kind, procedure, input, founder = 'a') {
   const { ctx, sessions } = await founders();
@@ -271,7 +302,13 @@ async function support(kind, procedure, input, founder = 'a') {
     kind === 'query'
       ? await ctx.edge.query('identity', procedure, input, sessions[founder].token)
       : await ctx.edge.mutate('identity', procedure, input, sessions[founder].token);
-  return { status: res.status, data: res.json?.result?.data, text: res.text };
+  return { status: res.status, data: res.json?.result?.data, json: res.json, text: res.text };
+}
+
+/** The one typed code a tRPC refusal carries. */
+function typed(res) {
+  const body = res.json?.error ?? res.json?.[0]?.error;
+  return body?.data?.intafacedCode ?? body?.data?.cause?.code ?? null;
 }
 
 test(`${J} #5 support recovery: a case with a mailed one-time link, a second approver, and the agent never sees the link`, async ({
@@ -442,6 +479,9 @@ test.describe('recovery keys', () => {
     await expect(heirSetupPage).not.toHaveURL(/\/login/);
     await verify(heirSetupPage, heir);
     await heirSetup.close();
+    const heirApi = await api(heir);
+    const heirBefore = await apiFree(heirApi);
+    const heirLedgerBefore = await ledgerFree(heirApi.userId);
     expect(fund(owner.email, 'USDT', '125').tx).toBeTruthy();
     expect(fund(owner.email, 'BTC', '0.02').tx).toBeTruthy();
     // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
@@ -458,8 +498,12 @@ test.describe('recovery keys', () => {
     });
     expect(recorded.data, recorded.text).toMatchObject({ status: 'received', userId: ownerId });
     const { noticeId } = recorded.data;
+    // Before the claim, the ledger holds exactly the funded amounts free on the owner.
+    const ownerBefore = await ledgerFree(ownerId);
+    expect(ownerBefore.USDT).toBe(toUnits('125'));
+    expect(ownerBefore.BTC).toBe(toUnits('0.02'));
     const alone = await support('mutate', 'deathNotice.confirm', { noticeId, approvalId: 'apr-none' });
-    expect(alone.text).toContain('identity.death_notice_approval_required');
+    expect(typed(alone), alone.text).toBe('identity.death_notice_approval_required');
     const { gates, ctx, sessions } = await founders();
     const { approvalId } = await gates.twoPerson(ctx, sessions, { ...recorded.data.approvalProposal, policyVersion: 'local-test:v1' });
     const confirmed = await support('mutate', 'deathNotice.confirm', { noticeId, approvalId });
@@ -473,6 +517,74 @@ test.describe('recovery keys', () => {
     await ownerPage.getByRole('button', { name: /^sign in$/i }).click();
     await expect(ownerPage.getByRole('alert')).toContainText('This account is frozen.');
     await ownerContext.close();
+
+    // Staff never hold a key and every recovery door refuses them. Founder a's own signed-in session is staff: it holds
+    // the desk scopes and the customer scopes those doors ask for, so only the staff check can refuse it. Each door is
+    // tried once and refused by its one typed code; then both sides' balances read exactly what they read before.
+    const staffToken = sessions.a.token;
+    const staffScopes = JSON.parse(Buffer.from(staffToken.split('.')[1], 'base64url').toString('utf8')).scopes;
+    expect(staffScopes, 'a founder desk scope makes this session staff').toEqual(expect.arrayContaining(['admin:read']));
+    expect(staffScopes, 'the scopes the recovery doors ask for').toEqual(
+      expect.arrayContaining(['bank:read', 'bank:write', 'identity:read', 'identity:write']),
+    );
+    const someKey = { kty: 'EC', crv: 'P-256', x: randomBytes(32).toString('base64url'), y: randomBytes(32).toString('base64url') };
+    const someSignature = { publicKey: someKey, signature: randomBytes(64).toString('base64url') };
+    const asked = `staff-${owner.handle}`;
+    // A one-key plan: the number of keys that must sign, not a screenshot tolerance.
+    const oneKey = 1;
+    const RECOVERY_ROUTERS = [
+      ['bank', 'services/svc-bank/src/recovery/recovery.router.ts'],
+      ['identity', 'services/svc-identity/src/recovery-keys-router.ts'],
+    ];
+    const RECOVERY_DOORS = [
+      ['bank', 'query', 'recovery.estates', undefined, 'bank.recovery_staff_forbidden'],
+      ['bank', 'mutate', 'recovery.claims.open', { ownerUserId: ownerId }, 'bank.recovery_staff_forbidden'],
+      [
+        'bank',
+        'mutate',
+        'recovery.claims.execute',
+        { claimId: randomUUID(), signatures: [someSignature] },
+        'bank.recovery_staff_forbidden',
+      ],
+      ['identity', 'query', 'recovery.keys.list', {}, 'identity.recovery_staff_forbidden'],
+      [
+        'identity',
+        'mutate',
+        'recovery.keys.add',
+        { kind: 'key', label: 'staff', publicKey: someKey, clientRequestId: `${asked}-add` },
+        'identity.recovery_staff_forbidden',
+      ],
+      [
+        'identity',
+        'mutate',
+        'recovery.keys.revoke',
+        { keyId: randomUUID(), clientRequestId: `${asked}-revoke` },
+        'identity.recovery_staff_forbidden',
+      ],
+      [
+        'identity',
+        'mutate',
+        'recovery.plan.set',
+        { heirHandle: heir.handle, threshold: oneKey, clientRequestId: `${asked}-plan` },
+        'identity.recovery_staff_forbidden',
+      ],
+    ];
+    // Every door is on the list exactly once: the list matches the procedures the two recovery routers declare.
+    for (const [service, file] of RECOVERY_ROUTERS) {
+      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(/^\s+\w+:\s*\w*[pP]rocedure\b/gm) ?? []).length;
+      const listed = RECOVERY_DOORS.filter(([s]) => s === service).map(([, , procedure]) => procedure);
+      expect(new Set(listed).size, `${service}: each recovery door once`).toBe(listed.length);
+      expect(listed.length, `${service}: the list holds every door ${file} declares`).toBe(declared);
+    }
+    await test.step('never staff: every recovery door refuses a staff session by its typed code', async () => {
+      for (const [service, kind, procedure, input, code] of RECOVERY_DOORS) {
+        const res = await ctx.edge[kind](service, procedure, input, staffToken);
+        expect(typed(res), `${service} ${procedure}: ${res.text?.slice(0, 300)}`).toBe(code);
+      }
+      expect(await ledgerFree(ownerId)).toEqual(ownerBefore);
+      expect(await ledgerFree(heirApi.userId)).toEqual(heirLedgerBefore);
+      expect(await apiFree(heirApi)).toEqual(heirBefore);
+    });
 
     // The heir opens the claim room from the bank, pastes the two keys, and the owner's free balances move to the
     // heir's main account. The keys sign in the browser; staff hold none.
@@ -501,11 +613,27 @@ test.describe('recovery keys', () => {
     await expect(moved).not.toContainText('Refused');
     await expect(heirPage.getByText('Nothing is left to move.')).toBeVisible();
     await expect(heirPage.getByText(/^Claimed /)).toBeVisible();
+    // Balances, not the page: the heir gained exactly 125 USDT and 0.02 BTC, read both from their own API and from the
+    // ledger, and the ledger holds nothing free on the owner in any asset.
+    const heirAfter = await apiFree(heirApi);
+    expect(heirAfter.USDT ?? 0n).toBe((heirBefore.USDT ?? 0n) + toUnits('125'));
+    expect(heirAfter.BTC ?? 0n).toBe((heirBefore.BTC ?? 0n) + toUnits('0.02'));
+    const heirLedgerAfter = await ledgerFree(heirApi.userId);
+    expect(heirLedgerAfter.USDT ?? 0n).toBe((heirLedgerBefore.USDT ?? 0n) + toUnits('125'));
+    expect(heirLedgerAfter.BTC ?? 0n).toBe((heirLedgerBefore.BTC ?? 0n) + toUnits('0.02'));
+    const ownerAfter = await ledgerFree(ownerId);
+    expect(ownerAfter, "the owner's USDT account is still read").toHaveProperty('USDT');
+    expect(ownerAfter, "the owner's BTC account is still read").toHaveProperty('BTC');
+    for (const [asset, units] of Object.entries(ownerAfter)) expect(units, `owner's free ${asset}`).toBe(0n);
     // Claiming again moves nothing twice.
     await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
     await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
     await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
     await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.')).toBeVisible({ timeout: 20_000 });
+    // The second claim moved nothing, by balance: both sides read exactly what they read after the first.
+    expect(await apiFree(heirApi)).toEqual(heirAfter);
+    expect(await ledgerFree(heirApi.userId)).toEqual(heirLedgerAfter);
+    expect(await ledgerFree(ownerId)).toEqual(ownerAfter);
     await heirContext.close();
   });
 });
