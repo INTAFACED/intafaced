@@ -41,6 +41,7 @@ type ChildJson = {
   qty: string;
   placedAt: string;
   basisQty?: string;
+  price?: string;
 };
 
 type MissJson = {
@@ -58,6 +59,7 @@ function childrenToJson(children: readonly AlgoChildRef[]): ChildJson[] {
     qty: formatAmount(c.qty),
     placedAt: c.placedAt.toISOString(),
     ...(c.basisQty != null ? { basisQty: formatAmount(c.basisQty) } : {}),
+    ...(c.price != null ? { price: formatAmount(c.price) } : {}),
   }));
 }
 
@@ -72,6 +74,7 @@ function childrenFromJson(raw: unknown): AlgoChildRef[] {
       qty: parseAmount(row.qty),
       placedAt: new Date(row.placedAt),
       ...(typeof row.basisQty === 'string' ? { basisQty: parseAmount(row.basisQty) } : {}),
+      ...(typeof row.price === 'string' ? { price: parseAmount(row.price) } : {}),
     };
   });
 }
@@ -157,7 +160,8 @@ export class SqlTwapParentStore implements TwapParentStore {
         status, created_at, started_at, next_due_at, projected_ends_at,
         schedule_stretch_reason, paused_at, halt_reason,
         slices_planned, next_slice_index, plan_slices, children, misses, grant_claims,
-        participation_bps, lot_size, random_seed, trigger_price, trigger_above, triggered_at, pov_basis, updated_at
+        participation_bps, lot_size, random_seed, trigger_price, trigger_above, triggered_at, pov_basis,
+        chase_max_distance_bps, chase_start_price, updated_at
       ) VALUES (
         ${p.id},
         ${p.userId},
@@ -191,6 +195,8 @@ export class SqlTwapParentStore implements TwapParentStore {
         ${p.triggerAbove ?? null},
         ${p.triggeredAt ?? null},
         ${p.povBasis ?? null},
+        ${p.chaseMaxDistanceBps ?? null},
+        ${p.chaseStartPrice == null ? null : formatAmount(p.chaseStartPrice)},
         now()
       )
       ON CONFLICT (id) DO UPDATE SET
@@ -274,7 +280,7 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
     marketId: String(row.market_id),
     symbol: String(row.symbol),
     side: row.side as OrderSide,
-    kind: row.kind === 'vwap' || row.kind === 'pov' ? row.kind : 'twap',
+    kind: row.kind === 'vwap' || row.kind === 'pov' || row.kind === 'chase' ? row.kind : 'twap',
     totalQty: parseAmount(String(row.total_qty)),
     durationMs,
     sliceIntervalMs,
@@ -298,6 +304,10 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
     triggerAbove: row.trigger_above === null || row.trigger_above === undefined ? null : Boolean(row.trigger_above),
     triggeredAt: row.triggered_at ? new Date(String(row.triggered_at)) : null,
     povBasis: row.pov_basis === 'traded_volume' || row.pov_basis === 'opposite_liquidity' ? row.pov_basis : null,
+    chaseMaxDistanceBps:
+      row.chase_max_distance_bps === null || row.chase_max_distance_bps === undefined ? null : Number(row.chase_max_distance_bps),
+    chaseStartPrice:
+      row.chase_start_price === null || row.chase_start_price === undefined ? null : parseAmount(String(row.chase_start_price)),
   };
   return { parent, plan: planFromJson(row.plan_slices), grant: parseAlgoPlaceGrant(row.grant_claims) };
 }

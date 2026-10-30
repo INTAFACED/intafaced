@@ -17,6 +17,11 @@ interface MemoryRow {
   clientStrategyId: string;
   deletedAt: string | null;
   createdAt: string;
+  name: string | null;
+  folder: string;
+  description: string;
+  organised: number;
+  restores: number;
   versions: StrategyVersionRecord[];
 }
 
@@ -34,11 +39,16 @@ function detailOf(row: MemoryRow): StrategyDetail {
   if (!head) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
   return clone({
     ...head,
+    name: row.name ?? head.name,
     id: row.id,
     accountId: row.accountId,
     clientStrategyId: row.clientStrategyId,
     deletedAt: row.deletedAt,
     createdAt: row.createdAt,
+    folder: row.folder,
+    description: row.description,
+    organised: row.organised,
+    restores: row.restores,
     versions: row.versions,
   });
 }
@@ -150,6 +160,11 @@ export function createMemoryStrategyRepository(): StrategyRepository {
         clientStrategyId: input.clientStrategyId,
         deletedAt: null,
         createdAt: now,
+        name: null,
+        folder: '',
+        description: '',
+        organised: 0,
+        restores: 0,
         versions: [{ ...clone(input.draft), version: 1, createdAt: now }],
       };
       rows.set(row.id, row);
@@ -170,6 +185,8 @@ export function createMemoryStrategyRepository(): StrategyRepository {
       if (!previous) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
       const next: StrategyVersionRecord = { ...clone(input.draft), version: previous.version + 1, createdAt: new Date().toISOString() };
       row.versions.push(next);
+      // A saved version names the strategy again; the head follows it until the next rename.
+      row.name = null;
       const detail = detailOf(row);
       remember(input.accountId, input.idempotencyKey, 'revise', detail);
       return detail;
@@ -186,6 +203,46 @@ export function createMemoryStrategyRepository(): StrategyRepository {
       row.deletedAt = new Date().toISOString();
       remember(input.accountId, input.idempotencyKey, 'delete', { ok: true });
       return { ok: true as const };
+    },
+
+    async organise(input) {
+      const existing = prior(input.accountId, input.idempotencyKey);
+      if (existing) {
+        if (existing.operation !== 'organise') idempotencyConflict(existing.operation);
+        return existing.response;
+      }
+      const row = owned(input.accountId, input.id);
+      if (!row || row.deletedAt) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+      row.name = input.head.name;
+      row.folder = input.head.folder;
+      row.description = input.head.description;
+      row.organised += 1;
+      const detail = detailOf(row);
+      remember(input.accountId, input.idempotencyKey, 'organise', detail);
+      return detail;
+    },
+
+    async restore(input) {
+      const existing = prior(input.accountId, input.idempotencyKey);
+      if (existing) {
+        if (existing.operation !== 'restore') idempotencyConflict(existing.operation);
+        return existing.response;
+      }
+      const row = owned(input.accountId, input.id);
+      if (!row) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+      if (row.deletedAt) {
+        row.deletedAt = null;
+        row.restores += 1;
+      }
+      const detail = detailOf(row);
+      remember(input.accountId, input.idempotencyKey, 'restore', detail);
+      return detail;
+    },
+
+    async listDeleted(input) {
+      const deleted = [...rows.values()].filter((row) => row.accountId === input.accountId && row.deletedAt !== null);
+      const paged = page(deleted, input.limit, input.cursor);
+      return { strategies: paged.rows.map(headOf), nextCursor: paged.nextCursor };
     },
 
     async list(input) {
