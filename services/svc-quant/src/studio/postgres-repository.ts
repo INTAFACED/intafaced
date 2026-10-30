@@ -414,6 +414,17 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
           if (existing.operation !== 'organise') idempotencyConflict(existing.operation);
           return existing.response;
         }
+        // Lock the row, then read the receipt again: a racing call with the same key waits here and replays.
+        const locked = await query<{ id: string }>(tx, `SELECT id FROM ${strategies} WHERE id = $1 AND account_id = $2 FOR UPDATE`, [
+          input.id,
+          input.accountId,
+        ]);
+        if (!locked[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        const raced = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (raced) {
+          if (raced.operation !== 'organise') idempotencyConflict(raced.operation);
+          return raced.response;
+        }
         const updated = await query<{ id: string }>(
           tx,
           `UPDATE ${strategies} SET name = $3, folder = $4, description = $5, organised = organised + 1
@@ -439,6 +450,11 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
           input.accountId,
         ]);
         if (!locked[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        const raced = await readReceipt(tx, input.accountId, input.idempotencyKey);
+        if (raced) {
+          if (raced.operation !== 'restore') idempotencyConflict(raced.operation);
+          return raced.response;
+        }
         await query(
           tx,
           `UPDATE ${strategies} SET deleted_at = NULL, restores = restores + 1
