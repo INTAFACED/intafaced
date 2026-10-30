@@ -7,8 +7,8 @@ import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
 // identity's refusal, and an approved archive run anyway is refused (identity.archive_blocked_open_account). Once closed,
 // founder A asks with a reason code, founder B approves on their own console, and A runs it: the record is archived and
 // every edit control on the account page is disabled with the reason. A reopen two founders approve is then refused by
-// identity (identity.account_archived). The stack leaves the owner's dormancy period blank, so the console proposes no
-// dormant customer and says the period is not set.
+// identity (identity.account_archived). The stack leaves the owner's dormancy period blank, so identity proposes no
+// dormant customer, the console lists none and sends nothing, and it says the period is not set.
 
 const login = (who) =>
   fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -34,6 +34,27 @@ const step = (page, endpoint, body) =>
 
 const archiveState = (page, userId) =>
   page.evaluate(async (id) => (await fetch(`/api/accounts/archive?id=${id}`, { cache: 'no-store' })).json(), userId);
+
+/** What identity proposes for archive under the owner's dormancy period, as the console reads it. */
+const archiveProposals = (page) =>
+  page.evaluate(async () => {
+    const res = await fetch('/api/accounts/archive?proposals=true', { cache: 'no-store' });
+    return { status: res.status, body: await res.json() };
+  });
+
+/** Every POST this page sends to the archive route while `run` runs: a proposal would be one of them. */
+async function archivePostsDuring(page, run) {
+  const sent = [];
+  const seen = (req) => {
+    if (req.method() === 'POST' && new URL(req.url()).pathname === '/api/accounts/archive') sent.push(req.postData());
+  };
+  page.on('request', seen);
+  try {
+    return { result: await run(), sent };
+  } finally {
+    page.off('request', seen);
+  }
+}
 
 const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
 
@@ -98,10 +119,18 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   const founderB = await founderSignIn(b, 'b');
 
   // Open: the console holds the archive form and names identity's refusal; no dormancy period is set on the stack.
-  let { closure, archive } = await openAccount(a, userId);
+  const opened = await archivePostsDuring(a, () => openAccount(a, userId));
+  let { closure, archive } = opened.result;
   await expect(archive.getByTestId('account-archive-status')).toContainText('Open, not archived');
   await expect(archive).toContainText('identity.archive_blocked_open_account');
-  await expect(archive.getByTestId('account-archive-dormancy')).toContainText('Dormancy period: not set');
+  const dormancy = archive.getByTestId('account-archive-dormancy');
+  await expect(dormancy).toContainText('Dormancy period: not set');
+  // A blank dormancy period makes no proposal: identity answers no period and an empty list, the console lists no
+  // customer, and opening the account sent nothing to the archive route.
+  expect(await archiveProposals(a)).toMatchObject({ status: 200, body: { dormancyDays: null, proposals: [] } });
+  await expect(dormancy.locator('li')).toHaveCount(0);
+  await expect(dormancy).not.toContainText('Identity proposes these closed records');
+  expect(opened.sent, 'opening the account sends no archive request').toEqual([]);
   await expect(archive.getByRole('button', { name: 'Ask a second founder to approve the archive' })).toBeDisabled();
 
   // Even with two founders, identity refuses to archive the open account and nothing changes.
@@ -169,9 +198,46 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   const tier = a.getByTestId('account-tier');
   await expect(tier).toContainText('identity.account_archived');
   await expect(tier.getByRole('button', { name: 'Tier move unavailable' })).toBeDisabled();
-  // No new hold on an archived record; a hold already placed could still be released, so no money is stranded.
+  // No new hold on an archived record.
   await expect(a.getByTestId('hold-place-why')).toContainText('identity.account_archived');
   await expect(a.getByRole('button', { name: 'Place the hold' })).toBeDisabled();
+  // The customer's details: every field and the save are off, with the reason.
+  const details = a.getByTestId('account-details-edit');
+  await expect(details.getByTestId('account-details-edit-why')).toContainText('identity.account_archived');
+  for (const control of await details.locator('input, select, textarea, button').all()) await expect(control).toBeDisabled();
+  // Limit overrides: no override form is offered, and the panel says why.
+  const limits = a.getByTestId('account-limits');
+  await expect(limits).toContainText('identity.account_archived');
+  // Every button on the edit desks is off: details, close or reopen, archive, holds, tier and limits.
+  for (const id of ['account-details', 'account-closure', 'account-archive', 'account-holds', 'account-tier', 'account-limits']) {
+    const enabled = await a
+      .getByTestId(id)
+      .locator('button')
+      .evaluateAll((all) => all.filter((b) => !b.disabled).map((b) => b.textContent.trim()));
+    expect(enabled, `${id}: no button is left on after the archive`).toEqual([]);
+  }
+  // Freeze and unfreeze: the record is closed and restricted, so neither the restrict form nor the unfreeze desk is
+  // offered as a live control, and the read-only note names both.
+  await expect(a.getByTestId('account-readonly-note')).toContainText('cannot be frozen, unfrozen');
+  await expect(a.getByTestId('account-closed-note')).toContainText('there is no freeze to lift');
+  await expect(a.getByRole('button', { name: /^(Restrict|Restore) access/ })).toHaveCount(0);
+
+  // The row asks for every edit control to be shown disabled with its reason. Two desks are not: the freeze/unfreeze desk
+  // is not drawn at all on an archived record (only a note stands in for it), and the hold release and confirm desks are
+  // left open by design ("a hold already placed could still be released") and never name the archive. Each fails by name.
+  await expect
+    .soft(
+      a.getByTestId('account-unfreeze').getByRole('button', { name: 'Restore unavailable' }),
+      'the freeze/unfreeze desk is shown, disabled, saying identity.account_archived: on an archived record it is not drawn at all (OPS-accounts-desk-02)',
+    )
+    .toBeVisible({ timeout: 5_000 });
+  for (const id of ['hold-release', 'hold-confirm'])
+    await expect
+      .soft(
+        a.getByTestId(id),
+        `the ${id} desk is disabled and says identity.account_archived: it is not switched off by the archive (OPS-accounts-desk-02)`,
+      )
+      .toContainText('identity.account_archived', { timeout: 5_000 });
 
   // Identity refuses a reopen two founders approved, and the person stays out.
   const archived = await archiveState(a, userId);
@@ -186,4 +252,11 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   );
   expect(reopen.body).toMatchObject({ ok: false, refusal: { code: 'identity.account_archived' } });
   expect((await login(who)).status, 'the archived customer stays out').toBe(403);
+
+  // Still no period, still no proposal: the archived record is not listed, and nothing was proposed.
+  expect(await archiveProposals(a)).toMatchObject({ status: 200, body: { dormancyDays: null, proposals: [] } });
+  const reread = await archivePostsDuring(a, () => openAccount(a, userId));
+  await expect(reread.result.archive.getByTestId('account-archive-dormancy')).toContainText('Dormancy period: not set');
+  await expect(reread.result.archive.getByTestId('account-archive-dormancy').locator('li')).toHaveCount(0);
+  expect(reread.sent, 'reading the archived account sends no archive request').toEqual([]);
 });
