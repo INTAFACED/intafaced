@@ -87,6 +87,7 @@ async function expectedWindow(interval) {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${interval}&limit=240`);
   expect(res.status).toBe(200);
   const rows = (await res.json()).sort((a, b) => a[0] - b[0]);
+  expect(rows.length, `Edge serves BTC/USDT ${interval} candles`).toBeGreaterThan(0);
   const now = Math.floor(Date.now() / step) * step;
   const first = Math.max(Math.floor(rows[0][0] / step) * step, now - 239 * step);
   return { first, last: now, bars: (now - first) / step + 1 };
@@ -94,7 +95,7 @@ async function expectedWindow(interval) {
 
 /** A market as Edge publishes it (its tick size is `precision.price`). */
 async function marketOf(symbol) {
-  const res = await fetch(`${EDGE}/api/v1/markets?limit=50`);
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
   expect(res.status).toBe(200);
   const body = await res.json();
   const list = Array.isArray(body) ? body : Object.values(body).find(Array.isArray);
@@ -118,10 +119,14 @@ test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interva
   await expect(pressedInterval(page)).toHaveText('15m');
   // The last bars: the 240 buckets up to the current one (or from the first that traded), as the library draws them.
   await expect
-    .poll(async () => {
-      const [want, got] = [await expectedWindow('15m'), await drawn(page)];
-      return [got.heldFirst === want.first, got.heldLast === want.last, got.held === want.bars, got.bars === got.held];
-    })
+    .poll(
+      async () => {
+        const [want, got] = [await expectedWindow('15m'), await drawn(page)];
+        return [got.heldFirst === want.first, got.heldLast === want.last, got.held === want.bars, got.bars === got.held];
+        // A bucket that rolls over mid-check shows on the chart's next 10 s poll.
+      },
+      { timeout: 30_000 },
+    )
     .toEqual([true, true, true, true]);
   // The chart draws on a real canvas, not a placeholder.
   await expect(canvas(page).locator('canvas').first()).toBeVisible();
@@ -131,20 +136,18 @@ test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interva
   await page.goto(CHART);
   await expect(title(page)).toHaveText('BTC/USDT · 1h');
   await expect(pressedInterval(page)).toHaveText('1h');
-  await expect.poll(async () => (await drawn(page)).heldLast).toBe((await expectedWindow('1h')).last);
-  // The spot desk shows the same market's chart: its newest close is the newest close Edge serves at its interval.
+  await expect.poll(async () => (await drawn(page)).heldLast, { timeout: 30_000 }).toBe((await expectedWindow('1h')).last);
+  // The spot desk shows the same market's chart: at 1m its newest close is the newest 1m close Edge serves.
   await page.goto('/trade/spot/BTC-USDT');
   const desk = page.getByRole('img', { name: 'Price chart of BTC/USDT', exact: true }).first();
   await expect(desk).toBeVisible();
-  const deskInterval = await page
-    .getByTestId('dk-chart')
-    .getByRole('group', { name: 'Chart intervals' })
-    .locator('button[aria-pressed="true"]')
-    .textContent();
+  const deskIntervals = page.getByTestId('dk-chart').getByRole('group', { name: 'Chart intervals' });
+  await deskIntervals.getByRole('button', { name: '1m', exact: true }).click();
+  await expect(deskIntervals.getByRole('button', { name: '1m', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect
     .poll(
       async () => {
-        const [, , , , close] = await lastCandle(deskInterval.trim());
+        const [, , , , close] = await lastCandle('1m');
         return cents(await desk.getByTestId('pc-legend').locator('b').nth(3).textContent()) === cents(close);
       },
       { timeout: 60_000 },
@@ -154,9 +157,9 @@ test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interva
 
 /** After an interval switch the newest bar of that interval is drawn and stays in view at the right edge. */
 async function keepsRightEdge(page, interval) {
-  await expect.poll(async () => (await drawn(page)).heldLast).toBe((await expectedWindow(interval)).last);
+  await expect.poll(async () => (await drawn(page)).heldLast, { timeout: 30_000 }).toBe((await expectedWindow(interval)).last);
   const got = await drawn(page);
-  expect(got.last * 1000).toBe(got.heldLast);
+  expect(got.last).toBe(got.heldLast);
   const v = await settledView(page);
   expect(v.to).toBeGreaterThanOrEqual(got.bars - 1);
   expect(v.from).toBeLessThan(got.bars - 1);
@@ -195,7 +198,7 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     await expect
       .poll(async () => {
         const got = await drawn(page);
-        return [got.type, got.bars === got.held, got.first * 1000 === got.heldFirst, got.last * 1000 === got.heldLast];
+        return [got.type, got.bars === got.held, got.first === got.heldFirst, got.last === got.heldLast];
       })
       .toEqual([kind, true, true, true]);
   }
@@ -278,8 +281,13 @@ test(`${J} #5 jumps to a date and sees it, or is told there is no data that far 
   // Two years back: older than the 720 bars a 15m chart keeps (7.5 days). Said in those words; nothing invented.
   await go(Date.now() - 730 * 86_400_000);
   await expect(note).toContainText('older than the 720 bars this interval keeps');
-  // Five days back: inside those 720 bars but before the stack's TEST history starts (about 52 hours): no data.
-  await go(Date.now() - 5 * 86_400_000);
+  // Inside those 720 bars but two hours before the first one that traded (read from Edge's deepest 15m window): no data.
+  const step = STEP_MS['15m'];
+  const since = (Math.floor(Date.now() / step) - 719) * step;
+  const deep = await (await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&since=${since}&limit=720`)).json();
+  const earliest = Math.min(...deep.map((row) => row[0]));
+  expect(earliest - 2 * 3_600_000, 'the TEST history starts inside the 7.5 days a 15m chart keeps').toBeGreaterThan(since);
+  await go(earliest - 2 * 3_600_000);
   await expect(note).toContainText('There’s no data that far back: this market has no trades from that date until');
   // A time that has bars, 100 bars before the newest: the chart moves that bar to the middle of the view and the note goes.
   // Zoomed in first, so the view is narrower than the bars and a move shows.
@@ -338,8 +346,17 @@ test(`${J} #7 reads the numbers the chart plots: the service's bars, the axis fo
       { timeout: 60_000 },
     )
     .toBe(true);
-  // Bar times are epoch seconds in the library: its newest bar is Edge's newest 1m candle time divided by 1000.
-  await expect.poll(async () => (await drawn(page)).last * 1000 === Number((await lastCandle('1m'))[0]), { timeout: 60_000 }).toBe(true);
+  // Bar times: the library's bars (epoch seconds there, written back in ms) are the chart's own minute buckets, its
+  // newest is the current minute, and Edge's newest 1m candle sits on one of them (a quiet minute repeats the last close).
+  await expect
+    .poll(
+      async () => {
+        const [got, edge] = [await drawn(page), Number((await lastCandle('1m'))[0])];
+        return [got.last === got.heldLast, got.first === got.heldFirst, got.last % 60_000, (got.last - edge) % 60_000, edge <= got.last];
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual([true, true, 0, 0, true]);
   // The price axis formats from the market's tick size, read from Edge: BTC/USDT 0.01 gives two decimals, and a
   // market with a 0.0001 tick (IFC/USDT) gives four, on the axis and in the legend alike.
   for (const [path, pair, digits] of [
