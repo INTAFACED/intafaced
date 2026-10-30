@@ -28,6 +28,7 @@ import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
 import { PayoutDetailView } from './Payouts';
 import { TierLadder } from './Limits';
+import { calculatorAssets, TierFeeTable } from './Pricing';
 import { EffectiveFeeView, EffectiveRatesList } from './fee-rate';
 import type { TierList } from './schemas';
 import { NoPayable } from './PayoutNew';
@@ -537,5 +538,104 @@ describe('the effective fee rate', () => {
     const out = renderToString(<EffectiveFeeView resource={ready(null)} fallback={<p>From 1.5% + 0.30</p>} note="note" />);
     expect(out).toContain('From 1.5% + 0.30');
     expect(out).not.toContain('note');
+  });
+});
+
+describe('the tier fee table (M-money-out-06)', () => {
+  const caps = [
+    { kind: 'per_payment' as const, assetCode: 'USDT', limit: '5000' },
+    { kind: 'beneficiaries_per_day' as const, limit: 3 },
+  ];
+  const fee = {
+    assetCode: 'USDT',
+    bands: [
+      { fromAmount: '0', feeBps: 250, flatFee: null },
+      { fromAmount: '10000', feeBps: 150, flatFee: '0.3' },
+    ],
+    minFee: '0.5',
+    maxFee: null,
+  };
+  const table = (tiers: Extract<TierList, { status: 'configured' }>['tiers'], ownTierId: string | null = 'a') =>
+    renderToString(<TierFeeTable tiers={ready({ status: 'configured', ownTierId, tiers })} retry={noop} />).replace(/<!-- -->/g, '');
+  const rowOf = (out: string, id: string) => {
+    const start = out.indexOf(`data-testid="tier-fee-${id}"`);
+    return out.slice(start, out.indexOf('</tr>', start));
+  };
+
+  it("shows a tier's own bands, minimum and published payout fee, and marks the merchant's tier", () => {
+    const out = table([{ id: 'a', name: 'TEST A', caps, fees: [fee], payoutFee: { kind: 'not_charged' } }]);
+    const row = rowOf(out, 'a-USDT');
+    expect(row).toContain('TEST A (your tier)');
+    expect(row).toContain('2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.00 USDT · minimum 0.50 USDT');
+    expect(row).toContain('Not charged');
+    expect(row).not.toContain('Not set');
+  });
+
+  it("shows a tier's conversion spread to full-pricing roles only, and gives each asset's row its own test id", () => {
+    const tiers = [
+      {
+        id: 'a',
+        name: 'TEST A',
+        caps,
+        fees: [
+          { ...fee, spreadBps: 40 },
+          { ...fee, assetCode: 'USD' },
+        ],
+        payoutFee: null,
+      },
+    ];
+    const full = renderToString(<TierFeeTable tiers={ready({ status: 'configured', ownTierId: 'a', tiers })} retry={noop} />).replace(
+      /<!-- -->/g,
+      '',
+    );
+    expect(rowOf(full, 'a-USDT')).toContain('minimum 0.50 USDT · plus 0.40% spread on a conversion');
+    expect(rowOf(full, 'a-USD')).not.toContain('spread');
+    expect(full.match(/data-testid="tier-fee-a-/g)).toHaveLength(2);
+    const feeOnly = renderToString(
+      <TierFeeTable tiers={ready({ status: 'configured', ownTierId: 'a', tiers })} retry={noop} feeOnly />,
+    ).replace(/<!-- -->/g, '');
+    expect(feeOnly).not.toContain('spread');
+  });
+
+  it('a single band from zero drops its "from"', () => {
+    const out = table([
+      { id: 'a', name: 'TEST A', caps, fees: [{ assetCode: 'USDT', bands: [{ fromAmount: '0', feeBps: 99, flatFee: null }] }] },
+    ]);
+    expect(rowOf(out, 'a-USDT')).toContain('>0.99%<');
+  });
+
+  it('a tier with no fee, an empty fee list or an unpublished payout fee reads "Not set" and never free', () => {
+    const out = table(
+      [
+        { id: 'a', name: 'TEST A', caps, fees: [], payoutFee: null },
+        { id: 'b', name: 'TEST B', caps },
+        { id: 'c', name: 'TEST C', caps, fees: [fee], payoutFee: { kind: 'charged_later' } },
+      ],
+      null,
+    );
+    expect(rowOf(out, 'a-none').match(/Not set/g)).toHaveLength(2);
+    expect(rowOf(out, 'b-none').match(/Not set/g)).toHaveLength(2);
+    expect(rowOf(out, 'c-USDT').match(/Not set/g)).toHaveLength(1);
+    expect(out).not.toContain('Not charged');
+    expect(out).not.toContain('your tier');
+    expect(out).not.toMatch(/0\.00%|Free/);
+  });
+
+  it('says no tier is published rather than inventing one, and a failed read is a refusal with a retry', () => {
+    expect(renderToString(<TierFeeTable tiers={ready({ status: 'not_configured', ownTierId: null })} retry={noop} />)).toContain(
+      'No tier is published for your account, so there is no tier fee to show.',
+    );
+    const failed = renderToString(
+      <TierFeeTable tiers={{ status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'down' } } as never} retry={noop} />,
+    );
+    expect(failed).toContain('data-testid="failure"');
+  });
+
+  it('the calculator offers the priced assets plus every asset the own tier names, so a blank tier asks the engine', () => {
+    const blank = { id: 'b', name: 'TEST B', caps, fees: [], payoutFee: null };
+    expect(calculatorAssets([], blank)).toEqual(['USDT']);
+    expect(calculatorAssets(['USD'], { ...blank, fees: [{ ...fee, assetCode: 'EUR' }] })).toEqual(['EUR', 'USD', 'USDT']);
+    expect(calculatorAssets(['USDT'], null)).toEqual(['USDT']);
+    expect(calculatorAssets([], null)).toEqual([]);
   });
 });

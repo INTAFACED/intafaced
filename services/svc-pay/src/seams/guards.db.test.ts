@@ -204,7 +204,7 @@ describe('guard seams are called on the real money paths', () => {
     expect(seen[0]).toBe(`payment.create:${m.id}`);
   });
 
-  it('RC-merchant-08: a prohibited category or a blank reserve opens no checkout session, and a restricted one routes to crypto-native only', async () => {
+  it('RC-merchant-08: a prohibited category or a blank reserve opens no checkout session, and a restricted one takes no card payment', async () => {
     const checkout = () =>
       new PayService(sql, ledger, rails, {
         payoutDestinations: memoryPayoutDestinations(),
@@ -269,6 +269,18 @@ describe('guard seams are called on the real money paths', () => {
     await sql`UPDATE pay.merchant_categories SET category_key = 'test-travel' WHERE merchant_id = ${m.id}`;
     await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
     expect(await sql`SELECT rail_adapter FROM pay.payments`).toEqual([{ rail_adapter: 'crypto-native' }]);
+
+    // A standard category (OWNER 108) takes a card payment, through the same admission guard.
+    await sql`
+      INSERT INTO pay.business_categories (key, label, class, reserve_percent, reserve_hold_days, extra_documents, version, updated_by, approved_by)
+      VALUES ('test-shop', 'TEST Shop', 'standard', NULL, NULL, '{}', 1, 'founder-a', 'founder-b')
+    `;
+    await sql`UPDATE pay.merchant_categories SET category_key = 'test-shop' WHERE merchant_id = ${m.id}`;
+    await pay.createPayment({ merchantId: m.id, amount: amt('5'), assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' });
+    expect(await sql`SELECT rail_adapter FROM pay.payments ORDER BY created_at`).toEqual([
+      { rail_adapter: 'crypto-native' },
+      { rail_adapter: 'card-sandbox' },
+    ]);
   });
 
   it('a refusing beforeSettlementRun freezes no settlement and moves no value', async () => {

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -5,6 +6,14 @@ function testValue(name) {
   const entry = loadProfile().values[name];
   if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/bank.json.`);
   return entry.value;
+}
+
+/** The staking risk wording (BK-earn-04): the profile's TEST wording, or blank when the stack is asked to show it unset. */
+function earnRiskWording() {
+  const asked = process.env.LOCAL_STACK_BANK_EARN_RISK_WORDING;
+  if (asked === undefined || asked === '') return { BANK_EARN_RISK_WORDING_JSON: testValue('BANK_EARN_RISK_WORDING_JSON') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
 }
 
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
@@ -15,7 +24,7 @@ function depositCustody(urlOf) {
   throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'bank',
   env: () => ({
     ...c('svc-bank', PORTS.bank),
@@ -95,6 +104,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.
     BANK_PAYOUT_PARTNER: 'payout-sim',
     BANK_PAYOUT_SIM_JSON: testValue('BANK_PAYOUT_SIM_JSON'),
+    // The stand-in keeps its own TEST record of rail payout-sim in the stack's records folder (read by
+    // local-test-rail-records.mjs), so a reconciliation compares that rail with its own word, not the ledger's.
+    BANK_PAYOUT_SIM_RECORDS_DIR: path.join(STATE, 'test-rail-records'),
     // LOCAL TEST stand-in for a direct debit scheme (BK-xfer-11; no network, pays nobody, refused under live posture): its
     // TEST creditors set up mandates and present collections only through the signed job doors, as J-bank-06 #4 does.
     BANK_DD_SCHEME: 'dd-sim',
@@ -112,6 +124,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
     BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
     BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
+    // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
+    // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
+    ...earnRiskWording(),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.

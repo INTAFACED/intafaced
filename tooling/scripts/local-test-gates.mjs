@@ -8,13 +8,17 @@
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs kyc-reject <handle> <reasonCode>   test operators reject a journey account's request
+ *   node tooling/scripts/local-test-gates.mjs kyc-capability-off <handle> <capability> <reasonCode>   test operators switch one off
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
- *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy and the network rules in svc-pay
+ *   node tooling/scripts/local-test-gates.mjs withdraw-limit <tier> <asset> unset|test  clear one TEST withdrawal limit, or put it back
+ *   node tooling/scripts/local-test-gates.mjs withdraw-fee <network> unset|test  clear one TEST network's withdrawal fee, or put it back
+ *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy, the network rules and the custody policy in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
@@ -23,6 +27,7 @@
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
+ *   node tooling/scripts/local-test-gates.mjs scoped-session --without <scope>   a founder console cookie whose scopes leave one out (JSON)
  *
  * What this stands in for, and nothing else:
  *   1. the owner who publishes a market lifecycle (opens markets),
@@ -31,6 +36,9 @@
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
  *   5. the two founders who publish which assets and networks are supported (the address book refuses while none are),
  *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   6b. the two founders who turn the platform posting freeze on and off (a journey step: a money call refused
+ *      `posting_frozen` while a read still works). Founders only, never the test operators; neither `on` nor `off`
+ *      adopts or lifts a freeze this tool did not set.
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
@@ -229,6 +237,31 @@ export function bookProposal(action, marketId) {
 
 export const openProposal = (marketId) => bookProposal('open', marketId);
 
+/** The four-eyes proposal for one vendor decision, hashed as services/svc-market/src/action-approval-consume.ts does. */
+export function vendorVetProposal(vendorId, decision, reason) {
+  return {
+    actionType: 'market.vendor.vet',
+    targetService: 'svc-market',
+    targetId: 'market.vendor.vet',
+    expectedVersion: '1',
+    payloadHash: matchingPayloadHash('market.vendor.vet', { vendorId, decision, reason }),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * The stack's two TEST operators decide one vendor application through svc-market's own door: founder a proposes, founder
+ * b approves in identity, then founder a records the decision with `market:ops`. Returns svc-market's answer.
+ */
+export async function vetVendor(ctx, vendorId, decision, reason) {
+  const pair = await approverSessions(ctx);
+  const ids = await twoPerson(ctx, pair, vendorVetProposal(vendorId, decision, reason));
+  const res = await ctx.edge.mutate('market', 'vet', { vendorId, decision, reason, ...ids }, await pair.a.marketOpsToken());
+  const row = data(res);
+  if (!row?.vendor) throw new Error(`market vet refused (${res.status}): ${refusalText(res)}`);
+  return row;
+}
+
 export function kycApproveProposal(recordId) {
   return {
     actionType: 'kyc.approve',
@@ -251,6 +284,21 @@ export function kycRejectProposal(recordId, reasonCode) {
     targetId: 'kyc.reject',
     expectedVersion: '1',
     payloadHash: identityPayloadHash('kyc.reject', { recordId, reasonCode, customerNote: '', noteVisible: 'false' }),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * The four-eyes proposal for switching one KYC capability off. The approval binds the person, the capability, the state
+ * and the code, in the order `kyc.capabilities.set` hashes them (I-kyc-compliance-07).
+ */
+export function kycCapabilityOffProposal(userId, capability, reasonCode) {
+  return {
+    actionType: 'kyc.capabilities.set',
+    targetService: 'svc-identity',
+    targetId: 'kyc.capabilities.set',
+    expectedVersion: '1',
+    payloadHash: identityPayloadHash('kyc.capabilities.set', { userId, capability, state: 'inactive', reasonCode }),
     policyVersion: MARKERS.policyVersion,
   };
 }
@@ -373,6 +421,47 @@ export function ageAccount(secrets, handle, seconds) {
   );
   if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
   return rows[0][0];
+}
+
+const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const COPY_REWIND_FILL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * LOCAL TEST: the one statement that moves a follow's copy cursor back to just before a named leader fill, so the copy
+ * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). The
+ * cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time at millisecond
+ * precision, then id), or that millisecond with no fill when none is. Only a follow of that fill's leader moves.
+ */
+export function copyCursorRewindSql(followId, fillId) {
+  const fill = String(fillId ?? '').toLowerCase();
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '') || !COPY_REWIND_FILL_ID.test(fill))
+    throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  return `WITH f AS (SELECT id, user_id::text AS leader, date_trunc('milliseconds', created_at) AS at
+                FROM trade.fills WHERE id = '${fill}'::uuid),
+       prev AS (SELECT max(p.id::text) AS id FROM trade.fills p, f
+                 WHERE p.user_id::text = f.leader AND date_trunc('milliseconds', p.created_at) = f.at AND p.id::text < f.id::text)
+  UPDATE trade.copy_follows c SET copy_cursor_at = f.at, copy_cursor_fill = prev.id
+    FROM f, prev
+   WHERE c.follow_id = '${followId}' AND c.leader_id = f.leader
+  RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
+}
+
+/** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
+export function rewindCopyCursor(secrets, followId, fillId) {
+  const sql = copyCursorRewindSql(followId, fillId);
+  const [follower] = psqlRead(secrets, 'svc_trade', `SELECT follower_id FROM trade.copy_follows WHERE follow_id = '${followId}'`);
+  if (!follower) throw new Error(`no copy follow ${followId}`);
+  if (!/^[0-9a-f-]{36}$/i.test(follower[0])) throw new Error(`copy follow ${followId} has no account id`);
+  const [account] = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
+  );
+  if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
+  const rows = psqlRead(secrets, 'svc_trade', sql);
+  if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
+  const [, at, fill] = rows[0];
+  return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
 }
 
 export function pendingKycCount(secrets) {
@@ -501,20 +590,54 @@ export function nextTotpStep(lastStep, current) {
   return step <= current + TOTP_SKEW_STEPS ? step : null;
 }
 
+/**
+ * The step to count as spent after identity refused a code as `auth.mfa_invalid`: the step sent, or the latest step
+ * identity can have consumed by now (it accepts at most one step past its own clock), whichever is later. A sign-in from
+ * there waits for the next window and cannot replay a step identity holds, whoever spent it (failure it prevents: main
+ * run 833, shard 9, stopped in setup on founder a's refused code and 93 journeys never ran).
+ */
+export function stepAfterRefusal(sentStep, current) {
+  const sent = Number(sentStep ?? 0);
+  return Math.max(Number.isFinite(sent) ? sent : 0, current + TOTP_SKEW_STEPS);
+}
+
+/** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
+const stepOf = (ctx) => (ctx.clock ? Math.floor(ctx.clock() / STEP_MS) : stepNow());
+
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
   let step;
-  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  while ((step = nextTotpStep(op.lastStep, stepOf(ctx))) === null) await (ctx.sleep ?? sleep)(1000);
   op.lastStep = step;
   return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
-async function operatorLogin(ctx, op) {
+const mfaRefused = (res) => res.status === 401 && JSON.stringify(res.json?.error ?? null).includes('auth.mfa_invalid');
+
+/**
+ * Sign an operator or founder in, with a fresh TOTP step when they have a second factor. A code identity refuses as
+ * `auth.mfa_invalid` is tried once more, at a step after any identity can hold (`stepAfterRefusal`), and both steps are
+ * logged; a second refusal stops the run. MFA is not loosened: every code sent is a real, unused step.
+ */
+export async function operatorLogin(ctx, op) {
   const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
-  const res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let retried = '';
+  if (op.totpSecret && !data(res)?.accessToken && mfaRefused(res)) {
+    const refused = op.lastStep;
+    const current = stepOf(ctx);
+    ctx.log(
+      `operator ${op.handle}: identity refused TOTP step ${refused} at step ${current} (auth.mfa_invalid); signing in once more at the next window`,
+    );
+    op.lastStep = stepAfterRefusal(refused, current);
+    input.totpCode = await freshCode(ctx, op);
+    res = await ctx.edge.mutate('identity', 'auth.login', input);
+    retried = ` (retried at TOTP step ${op.lastStep} after step ${refused} was refused)`;
+    if (data(res)?.accessToken) ctx.log(`operator ${op.handle}: signed in at TOTP step ${op.lastStep} on the retry`);
+  }
   const d = data(res);
-  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}`);
+  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}${retried}`);
   op.userId = d.userId;
   op.sessionId = decodeJwtPayload(d.accessToken).sid;
   return d.accessToken;
@@ -620,12 +743,19 @@ export async function approverSessions(ctx) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0) return operatorSessions(ctx);
   return shared(ctx, 'founders', () => {
-    const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-    const steps = readJson(stepsFile, {});
-    const ops = {};
-    for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-    return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+    const { ops, saveSteps } = founderOps(ctx, pair);
+    return signInPair(ctx, ops, saveSteps);
   });
+}
+
+/** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
+function founderOps(ctx, pair) {
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const steps = readJson(stepsFile, {});
+  const ops = {};
+  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+  return { ops, saveSteps };
 }
 
 /**
@@ -664,54 +794,65 @@ export async function founderTotp(ctx, key, secret) {
 
 async function signInPair(ctx, ops, saveSteps) {
   const sessions = {};
-  for (const l of ['a', 'b']) {
-    const op = ops[l];
-    const loginToken = await operatorLogin(ctx, op);
-    saveSteps();
-    sessions[l] = {
-      op,
-      /** Second-factor session token (what a signed-in operator holds). */
-      token: loginToken,
-      /** Same session, plus the operator scope. Short-lived. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /**
-       * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
-       * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
-       * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
-       * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
-       */
-      async approvalToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
-      async treasuryToken() {
-        return mintOperatorToken(ctx, op, ['admin:treasury']);
-      },
-      /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
-      async tradeOpsToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
-      },
-      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
-      },
-      /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
-      async crmToken() {
-        return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
-      },
-      /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
-      async campaignsOpsToken() {
-        return mintOperatorToken(ctx, op, ['campaigns:ops']);
-      },
-      /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
-      async supportOpsToken() {
-        return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
-      },
-    };
-  }
+  for (const l of ['a', 'b']) sessions[l] = await signInOne(ctx, ops[l], saveSteps);
   return sessions;
+}
+
+/** Sign one operator (or founder) in with their second factor; returns the session with its minted tokens. */
+async function signInOne(ctx, op, saveSteps) {
+  let loginToken;
+  try {
+    loginToken = await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    saveSteps();
+  }
+  return {
+    op,
+    /** Second-factor session token (what a signed-in operator holds). */
+    token: loginToken,
+    /** Same session, plus the operator scope. Short-lived. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /**
+     * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
+     * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
+     * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
+     * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
+     */
+    async approvalToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+    async treasuryToken() {
+      return mintOperatorToken(ctx, op, ['admin:treasury']);
+    },
+    /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
+    async tradeOpsToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
+    },
+    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+    },
+    /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
+    async crmToken() {
+      return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
+    },
+    /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
+    async campaignsOpsToken() {
+      return mintOperatorToken(ctx, op, ['campaigns:ops']);
+    },
+    /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
+    async supportOpsToken() {
+      return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
+    },
+    /** Same session with the marketplace operator scope svc-market's vendor vetting checks (vet). */
+    async marketOpsToken() {
+      return mintOperatorToken(ctx, op, ['market:ops']);
+    },
+  };
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
@@ -950,6 +1091,95 @@ export async function setBookHalt(ctx, symbol, halted) {
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
 
+// ── The platform posting freeze (svc-ledger, two founders) ─────────────────
+
+/** The reason a LOCAL TEST freeze carries (svc-ledger wants 12 to 500 characters, trimmed). Also how `off` knows it is ours. */
+export const POSTING_FREEZE_REASON = `${MARKERS.label}: platform posting freeze for a journey step`;
+
+/**
+ * The four-eyes proposal for the platform posting freeze or its thaw, as the founders' freeze desk proposes it
+ * (apps/admin/src/lib/desk/approval-hash.ts): bound to the ledger's own version of the freeze row, so a freeze that
+ * moved since the proposal refuses at consume instead of acting on stale intent. svc-ledger hashes
+ * `{ actionType, ...fields }` exactly as matching does (`ledgerActionPayloadHash`), so the matching helper is reused.
+ */
+export function postingFreezeProposal(frozen, version) {
+  if (typeof version !== 'string' || version.length === 0) throw new Error('the ledger did not report the freeze version');
+  const actionType = frozen ? 'ledger.freeze' : 'ledger.unfreeze';
+  return {
+    actionType,
+    targetService: 'svc-ledger',
+    targetId: frozen ? 'posting_freeze' : 'posting_unfreeze',
+    expectedVersion: version,
+    payloadHash: matchingPayloadHash(actionType, frozen ? { reason: POSTING_FREEZE_REASON.trim() } : {}),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * What `posting-freeze on|off` does with the freeze record it read, before anyone else signs in:
+ *   - `skip` when the ledger is already where it was asked to be, by this tool;
+ *   - `refuse` for a freeze this tool did not set, either way: `off` must not lift it and `on` must not report it as
+ *     its own (a reconciliation self-freeze on the stack is a finding), and for a record with no state or no version;
+ *   - otherwise `run`.
+ */
+export function postingFreezePlan(state, frozen) {
+  if (!state || typeof state.frozen !== 'boolean') return { action: 'refuse', why: 'the ledger did not report its freeze state' };
+  if (state.frozen && state.reason !== POSTING_FREEZE_REASON)
+    return {
+      action: 'refuse',
+      why: `the ledger is frozen for another reason (${JSON.stringify(state.reason)}, by ${state.actor ?? 'unknown'}); use the freeze desk`,
+    };
+  if (state.frozen === frozen) return { action: 'skip' };
+  if (typeof state.version !== 'string' || state.version.length === 0)
+    return { action: 'refuse', why: 'the ledger did not report the freeze version an approval is bound to' };
+  return { action: 'run' };
+}
+
+/**
+ * Turn the platform posting freeze on or off on the local stack, through the door the founders use: Edge's
+ * `/admin/ledger/freeze` and `/admin/ledger/unfreeze` (admin:treasury, second factor, live session), with an identity
+ * approval founder A proposes and founder B approves. Both verbs are founder-level in svc-identity
+ * (`FOUNDER_LEVEL_ACTION_TYPES`) and svc-ledger refuses a consume without the founder attestation, so the test
+ * operators cannot stand in: with no enrolled founder pair this refuses before any call (`pnpm local:stack` enrols
+ * it). Founder A reads the record first; founder B signs in only when there is something to approve. svc-ledger
+ * consumes the approval once and writes who moved the switch. Reads keep answering.
+ */
+export async function setPostingFreeze(ctx, frozen) {
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0)
+    throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
+  const { ops, saveSteps } = founderOps(ctx, pair);
+
+  const a = await signInOne(ctx, ops.a, saveSteps);
+  const read = async () => {
+    const res = await ctx.edge.call('GET', '/admin/ledger/freeze', undefined, await a.treasuryToken());
+    if (res.status !== 200 || typeof res.json?.frozen !== 'boolean')
+      throw new Error(`ledger freeze read refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+    return res.json;
+  };
+  const before = await read();
+  const plan = postingFreezePlan(before, frozen);
+  if (plan.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${plan.why}`);
+  if (plan.action === 'skip') return { frozen, changed: false, actor: before.actor };
+
+  const b = await signInOne(ctx, ops.b, saveSteps);
+  const ids = await twoPerson(ctx, { a, b }, postingFreezeProposal(frozen, before.version));
+  const body = frozen
+    ? { reason: POSTING_FREEZE_REASON, approvalId: ids.approvalId, operationId: ids.operationId }
+    : { approvalId: ids.approvalId, operationId: ids.operationId };
+  const res = await ctx.edge.call('POST', `/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, body, await a.treasuryToken());
+  if (res.status !== 200 || res.json?.frozen !== frozen)
+    throw new Error(`ledger ${frozen ? 'freeze' : 'unfreeze'} refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+  // Read back: only the ledger's own record says the switch moved.
+  const after = await read();
+  if (after.frozen !== frozen)
+    throw new Error(`the ledger still reports frozen=${after.frozen} after the ${frozen ? 'freeze' : 'unfreeze'}`);
+  ctx.log(
+    `ledger posting ${frozen ? 'FROZEN' : 'unfrozen'} (founder ${res.json.actor ?? a.op.userId}, confirmed by ${res.json.confirmOperatorId}; ${MARKERS.label})`,
+  );
+  return { frozen, changed: true, actor: after.actor, approvalId: ids.approvalId };
+}
+
 // ── 2c. Supported assets and networks (two-person approval) ─────────────────
 
 /**
@@ -1061,6 +1291,17 @@ async function treasuryCall(ctx, op, method, route, body) {
     /* non-JSON */
   }
   return { status: res.status, json, text };
+}
+
+/**
+ * The ledger's own record of one business key, read by TEST founder a through svc-ledger's lookup door
+ * (GET /operator/trace). A read: nothing posts. `{ found: false }` when the key booked nothing.
+ */
+export async function ledgerTrace(ctx, businessKey) {
+  const sessions = await approverSessions(ctx);
+  const res = await treasuryCall(ctx, sessions.a.op, 'GET', `/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+  if (res.status !== 200) throw new Error(`ledger GET /operator/trace refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json;
 }
 
 /**
@@ -1334,6 +1575,170 @@ export async function publishWithdrawQuotePolicy(ctx) {
 }
 
 /**
+ * LOCAL TEST custody transaction policy (svc-pay `founderAdmin.custody.policy`, W-custody-ops-07), not an owner value: allow a
+ * TEST send out to a wallet on the crypto-native rail, which on this stack is the in-memory MemoryChain. svc-pay refuses every
+ * send out of the platform while no policy is published (`pay.guard_custody_policy_unset`; PAY_CUSTODY_POLICY defaults to
+ * required), so J-wallet-05 #6 and #4 need one. A send inside the platform (J-wallet-07) is not a custody transaction and never
+ * reads it. Published the way the service requires: a draft, then a `policy` config task that founder a proposes and founder b,
+ * registered as a TEST custody approver, approves. A TEST quorum of one approval for config tasks is set only when none is.
+ */
+export const TEST_CUSTODY_POLICY_RULES = Object.freeze([
+  Object.freeze({
+    id: 'TEST-allow-wallet-sends',
+    action: 'allow',
+    match: Object.freeze({ networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] }),
+  }),
+]);
+export const TEST_CUSTODY_CONFIG_QUORUM = Object.freeze({ kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
+
+const sameRules = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Publish the TEST custody policy. A published policy that already says the same is left alone. */
+export async function publishWithdrawCustodyPolicy(ctx) {
+  const sessions = await approverSessions(ctx);
+  const a = sessions.a.token;
+  const b = sessions.b.token;
+  const what = 'custody transaction policy';
+  const want = TEST_CUSTODY_POLICY_RULES.map((rule) => JSON.parse(JSON.stringify(rule)));
+  const current = await ctx.edge.query('pay', 'founderAdmin.custody.policy.current', {}, a);
+  if (data(current) && sameRules(data(current).rules, want)) return [{ what, status: 'already published' }];
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+
+  const quorum = await ctx.edge.query('pay', 'founderAdmin.custody.approvalSettings.quorum', { kind: 'config' }, a);
+  if (quorum.status !== 200) throw new Error(`pay custody quorum refused (${quorum.status}): ${refusalText(quorum)}`);
+  if (!data(quorum)) {
+    const set = await ctx.edge.mutate('pay', 'founderAdmin.custody.approvalSettings.setQuorum', { ...TEST_CUSTODY_CONFIG_QUORUM }, a);
+    if (!data(set)) throw new Error(`pay custody setQuorum refused (${set.status}): ${refusalText(set)}`);
+  } else if (data(quorum).requiredApprovals > 1) {
+    throw new Error(`the custody config quorum asks ${data(quorum).requiredApprovals} approvals; this stack has one second founder`);
+  }
+  const approver = sessions.b.op.userId;
+  const listed = await ctx.edge.query('pay', 'founderAdmin.custody.approvers.list', {}, a);
+  if (!Array.isArray(data(listed))) throw new Error(`pay custody approvers.list refused (${listed.status}): ${refusalText(listed)}`);
+  if (!data(listed).some((row) => row.userId === approver && row.active)) {
+    const registered = await ctx.edge.mutate(
+      'pay',
+      'founderAdmin.custody.approvers.register',
+      { userId: approver, label: 'TEST founder b', role: 'founder' },
+      a,
+    );
+    if (!data(registered)) throw new Error(`pay custody approvers.register refused (${registered.status}): ${refusalText(registered)}`);
+  }
+
+  const versions = await ctx.edge.query('pay', 'founderAdmin.custody.policy.list', { limit: 50 }, a);
+  if (!Array.isArray(data(versions))) throw new Error(`pay custody policy.list refused (${versions.status}): ${refusalText(versions)}`);
+  const open = data(versions).find((row) => row.status === 'draft') ?? null;
+  let draft = open && sameRules(open.rules, want) ? open : null;
+  if (!draft) {
+    const saved = await ctx.edge.mutate(
+      'pay',
+      'founderAdmin.custody.policy.draft',
+      { rules: want, note: `${MARKERS.label}: TEST custody policy`, expectedDraftVersion: open ? open.version : null },
+      a,
+    );
+    draft = data(saved);
+    if (!draft) throw new Error(`pay custody policy.draft refused (${saved.status}): ${refusalText(saved)}`);
+  }
+  const proposed = await ctx.edge.mutate(
+    'pay',
+    'founderAdmin.custody.config.propose',
+    {
+      scope: 'policy',
+      title: `${MARKERS.label}: publish TEST custody policy v${draft.version}`,
+      payload: { version: draft.version, rulesHash: draft.rulesHash },
+      clientRef: `local-test:custody-policy:v${draft.version}`,
+    },
+    a,
+  );
+  const task = data(proposed);
+  if (!task) throw new Error(`pay custody config.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  if (task.status !== 'executed') {
+    const approved = await ctx.edge.mutate(
+      'pay',
+      'founderAdmin.custody.config.approve',
+      { taskId: task.id, payloadHash: task.payloadHash },
+      b,
+    );
+    const done = data(approved);
+    if (!done || done.status !== 'executed') {
+      throw new Error(`pay custody config.approve did not publish (${approved.status}): ${done ? done.status : refusalText(approved)}`);
+    }
+  }
+  ctx.log(`${what}: TEST sends out on crypto-native allowed, version ${draft.version} (${MARKERS.label})`);
+  return [{ what, status: 'published' }];
+}
+
+/**
+ * LOCAL TEST destination fraud list (svc-bank `ops.setDestinationFraudListing`, W-withdraw-03), not an owner list: one TEST
+ * address on every network, so J-wallet-05 #2 can watch the address book refuse it. The address is a made-up pattern
+ * (`0x7e57…fa1d`), not anyone's wallet. Nothing else is listed on the stack.
+ */
+export const TEST_FRAUD_LIST = Object.freeze([
+  Object.freeze({
+    network: '*',
+    address: '0x7e5700000000000000000000000000000000fa1d',
+    reason: 'LOCAL TEST: J-wallet-05 #2 fraud-listed address',
+  }),
+]);
+export const SET_FRAUD_LISTING_ACTION = 'bank.ops.setDestinationFraudListing';
+
+/** The fields svc-bank binds a fraud listing's approval to (`fraudListingFields` in services/svc-bank/src/ramps/fraud-list.ts). */
+export function fraudListingFields({ network, address, listed, expectedRevision, reason }) {
+  const key = /^0x[0-9a-fA-F]{40}$/.test(address) ? address.toLowerCase() : address;
+  return {
+    network: network === '*' ? '*' : network.toLowerCase(),
+    address: key,
+    listed: String(listed),
+    revision: String(expectedRevision + 1),
+    reason: reason.trim(),
+  };
+}
+
+/** List the TEST fraud address through compliance's door, with the second founder's approval. A listed address is left alone. */
+export async function publishTestFraudList(ctx) {
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const want of TEST_FRAUD_LIST) {
+    const what = `fraud list ${want.address} on ${want.network}`;
+    const read = await ctx.edge.query(
+      'bank',
+      'ops.destinationFraudList',
+      { limit: 50, address: want.address },
+      await sessions.a.complianceToken(),
+    );
+    const entries = data(read)?.entries;
+    if (!Array.isArray(entries)) throw new Error(`bank ops.destinationFraudList refused (${read.status}): ${refusalText(read)}`);
+    const key = fraudListingFields({ ...want, listed: true, expectedRevision: 0 });
+    const row = entries.find((e) => e.network === key.network && e.address === key.address) ?? null;
+    if (row?.listed) {
+      out.push({ what, status: 'already listed' });
+      continue;
+    }
+    const change = {
+      network: want.network,
+      address: want.address,
+      listed: true,
+      expectedRevision: row ? row.revision : 0,
+      reason: want.reason,
+    };
+    const ids = await twoPerson(ctx, sessions, {
+      actionType: SET_FRAUD_LISTING_ACTION,
+      targetService: 'svc-bank',
+      targetId: SET_FRAUD_LISTING_ACTION,
+      expectedVersion: '1',
+      payloadHash: bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(change)),
+      policyVersion: MARKERS.policyVersion,
+    });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate('bank', 'ops.setDestinationFraudListing', { ...change, ...ids }, await sessions.a.complianceToken());
+    if (data(res)?.listed !== true) throw new Error(`bank ops.setDestinationFraudListing refused (${res.status}): ${refusalText(res)}`);
+    out.push({ what, status: 'listed', approvalId: ids.approvalId });
+    ctx.log(`${what}: listed as fraud (${MARKERS.label}); approval ${ids.approvalId}`);
+  }
+  return out;
+}
+
+/**
  * LOCAL TEST withdrawal rules per asset and network (svc-pay `founderAdmin.withdrawalNetworkRules`, W-withdraw-02), not owner
  * values: for every TEST deposit pair, a minimum of 1, a maximum of 1000 (the TEST per-withdrawal limit) and a step of 0.01, and
  * no tag (the TEST networks are EVM chains, which take none). With no rules a pair's quotes refuse `withdrawal_network_rules.unset`,
@@ -1411,6 +1816,81 @@ export async function publishWithdrawalLimits(ctx) {
     }
   }
   return out;
+}
+
+/**
+ * One TEST withdrawal limit cleared to unset, or put back to the TEST figures, through the same founders' door: a journey step's
+ * own change (J-wallet-05 #4, a blank limit refuses). Only the TEST tiers and coins; the published TEST figures are untouched.
+ */
+export async function setWithdrawalLimit(ctx, tier, assetId, value) {
+  const assets = new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId));
+  if (!TEST_WITHDRAWAL_LIMITS.tiers.includes(tier) || !assets.has(assetId))
+    throw new Error(`withdraw-limit refuses ${tier} ${assetId}: only the TEST tiers and coins can be changed`);
+  if (value !== 'unset' && value !== 'test') throw new Error(`withdraw-limit takes unset or test, not ${value}`);
+  const limit = value === 'unset' ? null : { perTx: TEST_WITHDRAWAL_LIMITS.perTx, rolling24h: TEST_WITHDRAWAL_LIMITS.rolling24h };
+  const sessions = await approverSessions(ctx);
+  const listed = await ctx.edge.query('pay', 'founderAdmin.limits.list', {}, sessions.a.token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay limits.list refused (${listed.status}): ${refusalText(listed)}`);
+  const row = data(listed).find((r) => r.tier === tier && r.assetId === assetId) ?? null;
+  const what = `withdrawal limit ${tier} ${assetId}`;
+  if (JSON.stringify(row?.limit ?? null) === JSON.stringify(limit)) return { what, status: `already ${value}` };
+  const change = {
+    tier,
+    assetId,
+    limit,
+    expectedVersion: row ? row.version : null,
+    reason: `${MARKERS.label}: TEST withdrawal limit ${value}`,
+  };
+  const r = await payFounderSave(ctx, sessions, {
+    preview: 'founderAdmin.limits.preview',
+    previewInput: change,
+    save: 'founderAdmin.limits.change',
+    input: change,
+    what,
+  });
+  return { what, status: value === 'unset' ? 'cleared to unset' : 'back to the TEST figures', approvalId: r.approvalId };
+}
+
+/**
+ * Blank one TEST network's withdrawal fee in svc-pay's network registry, or put the TEST fixed fee back, through the
+ * founders' own door (`founderAdmin.registries.networks.save`, dual-controlled). J-wallet-05 #3 uses it inside a
+ * try/finally to prove that a blank fee refuses `pay.fee_unset`; nothing else on the row changes. Only the TEST networks.
+ */
+export async function setWithdrawFee(ctx, networkId, value) {
+  const want = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === networkId);
+  if (!want) throw new Error(`withdraw-fee refuses ${networkId}: only the TEST networks can be changed`);
+  if (value !== 'unset' && value !== 'test') throw new Error(`withdraw-fee takes unset or test, not ${value}`);
+  const fee =
+    value === 'unset'
+      ? { feeEstimateSource: null, feeEstimateAmount: null }
+      : { feeEstimateSource: want.feeEstimateSource, feeEstimateAmount: want.feeEstimateAmount };
+  const sessions = await approverSessions(ctx);
+  const listed = await ctx.edge.query('pay', 'founderAdmin.registries.networks.list', {}, sessions.a.token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay networks.list refused (${listed.status}): ${refusalText(listed)}`);
+  const row = data(listed).find((n) => n.networkId === networkId) ?? null;
+  if (!row) throw new Error(`withdraw-fee: network ${networkId} is not published; run withdraw-terms first`);
+  const what = `withdrawal fee on ${networkId}`;
+  if (row.feeEstimateSource === fee.feeEstimateSource && row.feeEstimateAmount === fee.feeEstimateAmount) {
+    return { what, status: `already ${value}` };
+  }
+  const change = {
+    networkId,
+    displayName: row.displayName,
+    assetCodes: row.assetCodes,
+    confirmationsRequired: row.confirmationsRequired,
+    enabled: row.enabled,
+    ...fee,
+    expectedVersion: row.version,
+    reason: `${MARKERS.label}: TEST withdrawal fee ${value}`,
+  };
+  const r = await payFounderSave(ctx, sessions, {
+    preview: 'founderAdmin.registries.preview',
+    previewInput: { registry: 'network', change },
+    save: 'founderAdmin.registries.networks.save',
+    input: change,
+    what,
+  });
+  return { what, status: value === 'unset' ? 'cleared to unset' : 'back to the TEST fee', approvalId: r.approvalId };
 }
 
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
@@ -2216,6 +2696,112 @@ export async function rejectPending(ctx, handle, reasonCode) {
   return out;
 }
 
+/**
+ * Switch one KYC capability off for a journey account through the two-person path, with a code from the stack's TEST
+ * capability reasons (J-identity-08 #7). Only `@local-test.invalid` accounts.
+ */
+export async function capabilityOff(ctx, handle, capability, reasonCode) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !/^[a-z_]{3,32}$/.test(capability ?? '') ||
+    !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? '')
+  )
+    throw new Error('usage: local-test-gates.mjs kyc-capability-off <handle> <capability> <reasonCode>');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`kyc-capability-off: ${handle} is not a journey account`);
+  const pair = await approverSessions(ctx);
+  const ids = await twoPerson(ctx, pair, kycCapabilityOffProposal(user.id, capability, reasonCode));
+  const token = await pair.a.complianceToken();
+  const res = await ctx.edge.mutate(
+    'identity',
+    'kyc.capabilities.set',
+    { userId: user.id, capability, state: 'inactive', reasonCode, approvalId: ids.approvalId, operationId: ids.operationId },
+    token,
+  );
+  const row = data(res)?.capabilities?.find?.((c) => c.capability === capability);
+  const ok = row?.state === 'inactive';
+  return { handle, capability, ok, why: ok ? `switched off (${reasonCode})` : refusalText(res) };
+}
+
+/**
+ * Restrict or restore trading for a journey account at identity, through the two-person path a trade-ops operator uses
+ * (`trading.restrict` four-eyes, then `accountControls.change`). Needs the stack's TEST flag
+ * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL. Only `@local-test.invalid` accounts. `reasonCode` (restrict only) is a code
+ * from the stack's TEST trading restriction reason list; identity stores it and the approval binds it.
+ */
+export async function tradingRestrict(ctx, handle, action, reasonCode) {
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['restrict', 'restore'].includes(action) ||
+    (reasonCode !== undefined && (action !== 'restrict' || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode)))
+  )
+    throw new Error('usage: local-test-gates.mjs trading-restrict <handle> restrict [<reasonCode>] | restore');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`trading-restrict: ${handle} is not a journey account`);
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const pair = await approverSessions(ctx);
+  // Two different people, or the approval proves nothing (as `twoPerson`, which uses the approval role's tokens).
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if (who(pair.a) === null || who(pair.a) === who(pair.b))
+    throw new Error('trading-restrict needs two different operators: the proposer and the approver must differ');
+  const token = await pair.a.tradeOpsToken();
+  const reason = `LOCAL TEST journey trading ${action}`;
+  const change = (expectedVersion, approvalId) =>
+    ctx.edge.mutate(
+      'identity',
+      'accountControls.change',
+      {
+        requestId: crypto.randomUUID(),
+        target: { area: 'trading', userId: user.id },
+        action,
+        reason,
+        expectedVersion,
+        ...(approvalId ? { approvalId } : {}),
+        ...(reasonCode ? { reasonCode } : {}),
+      },
+      token,
+    );
+  // Without an approval identity answers with the current state (no four eyes, or a version conflict): its version.
+  const probe = data(await change('0'));
+  const expectedVersion = probe?.current?.version;
+  if (expectedVersion === undefined) throw new Error(`trading-restrict: no current state (${JSON.stringify(probe)})`);
+  // A code identity will not take refuses before any approval: stop here rather than approve a pair it cannot use.
+  if (probe.code === 'restriction.reason_unlisted' || probe.code === 'restriction.reason_in_force')
+    throw new Error(`trading-restrict: identity refused the reason code ${reasonCode} (${probe.code})`);
+  const payloadHash = founderChangeHash(
+    { area: 'trading', userId: user.id.toLowerCase(), action, reason, ...(reasonCode ? { reasonCode } : {}) },
+    expectedVersion,
+  );
+  const proposed = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.propose',
+    {
+      actionType: 'trading.restrict',
+      targetService: 'svc-identity',
+      targetId: user.id,
+      expectedVersion,
+      payloadHash,
+      policyVersion: MARKERS.policyVersion,
+    },
+    token,
+  );
+  const approvalId = data(proposed)?.approvalId;
+  if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId, expectedPayloadHash: payloadHash },
+    await pair.b.tradeOpsToken(),
+  );
+  if (data(approved)?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
+  const res = data(await change(expectedVersion, approvalId));
+  const ok = (res?.outcome === 'changed' || res?.outcome === 'noop') && res.after?.restricted === (action === 'restrict');
+  return { handle, action, ok, why: ok ? `${res.outcome}, version ${res.after.version}` : JSON.stringify(res) };
+}
+
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
@@ -2262,17 +2848,137 @@ function die(msg, code = 1) {
   process.exit(code);
 }
 
+// ── Scoped founder session (journeys) ───────────────────────────────────────
+
+/** The founder console's session cookie (apps/admin/src/lib/founder-session.ts, ADMIN_COOKIE). */
+export const ADMIN_SESSION_COOKIE = '__Host-intafaced-admin';
+const SCOPED_SESSION_TTL_SECONDS = 15 * 60;
+
+/**
+ * The scopes identity adds to a founder's signed-in session on this stack, read from the stack's own identity
+ * definition (local-stack-services/identity.mjs, IDENTITY_FOUNDER_SESSION_SCOPES), never a copy of it.
+ */
+export async function stackFounderScopes(stateDir) {
+  // Imported when asked: identity.mjs imports this file.
+  const { default: identity } = await import('./local-stack-services/identity.mjs');
+  const env = identity({
+    c: () => ({}),
+    secrets: {},
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+    STATE: stateDir,
+    CUSTOMER_LOCALHOST_ORIGIN: '',
+    identityFounderEnv: () => ({}),
+  }).env();
+  const scopes = String(env.IDENTITY_FOUNDER_SESSION_SCOPES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (scopes.length === 0) throw new Error('the stack gives founder sessions no scopes (IDENTITY_FOUNDER_SESSION_SCOPES is blank)');
+  return scopes;
+}
+
+/** The founder scopes less one. Refuses a scope the list does not hold, so a misspelt name never passes as "left out". */
+export function scopesWithout(scopes, without) {
+  if (!scopes.includes(without)) throw new Error(`${without} is not a founder session scope on this stack (${scopes.join(', ')})`);
+  return scopes.filter((s) => s !== without);
+}
+
+/**
+ * The console's sealed session cookie value, as apps/admin/src/lib/founder-session.ts seals it: AES-256-GCM under the
+ * console's ADMIN_SESSION_SECRET, bound to the cookie name and the console origin.
+ */
+export function sealConsoleSession(session, { secret, origin }) {
+  const key = Buffer.from(secret, 'base64url');
+  if (key.length !== 32) throw new Error('the stack has no 32-byte console session secret');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(`${ADMIN_SESSION_COOKIE}\n${origin}\nv1`));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(session), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url');
+}
+
+/**
+ * LOCAL TEST: founder a signs in with their second factor, and that live session gets the stack's founder scopes less
+ * `without`, sealed in the console's session cookie. For a journey that needs a console session lacking one scope (the
+ * stack has no staff account without it). Returns Playwright cookies; the TOTP step used is recorded as every founder
+ * sign-in records it.
+ */
+export async function scopedConsoleSession(ctx, without) {
+  const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
+  if (!a) throw new Error('the founder pair is not enrolled on this stack');
+  const scopes = scopesWithout(await stackFounderScopes(ctx.paths.stateDir), without);
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  let reply;
+  try {
+    // As the console's server signs in: no Origin, so identity returns the refresh token in the body (a browser
+    // sign-in gets it only as a cookie), and the console session needs it.
+    assertActiveLocalStack();
+    const login = await fetch(`${ctx.url('edge')}/api/identity/trpc/auth.login`, {
+      redirect: 'error',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        identifier: op.email ?? op.handle,
+        password: op.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+        totpCode: await freshCode(ctx, op),
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const res = { status: login.status, json: await login.json().catch(() => null) };
+    reply = data(res);
+    // Never print the reply: a half-good one carries a live token.
+    if (!reply?.accessToken || !reply?.refreshToken)
+      throw new Error(`founder a login refused (${res.status}): ${res.json?.error ? refusalText(res) : 'no session in the reply'}`);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+  }
+  op.userId = reply.userId;
+  op.sessionId = decodeJwtPayload(reply.accessToken).sid;
+  const minted = await mintSessionToken(ctx, op, scopes, SCOPED_SESSION_TTL_SECONDS);
+  const origin = `http://${HOST}:${ctx.marker.ports.admin}`;
+  const session = {
+    userId: op.userId,
+    accessToken: minted.token,
+    refreshToken: reply.refreshToken,
+    expiresAt: minted.expiresAt.toISOString(),
+    issuedAt: new Date().toISOString(),
+    csrf: crypto.randomBytes(32).toString('base64url'),
+  };
+  const value = sealConsoleSession(session, { secret: ctx.secrets.adminSession, origin });
+  return {
+    scopes,
+    // Host and path, not `url`: Playwright takes Secure from a url's scheme, and Chromium refuses a __Host- cookie
+    // without it. Chromium still sends a Secure cookie to the console's http://127.0.0.1 (a trustworthy origin).
+    cookies: [{ name: ADMIN_SESSION_COOKIE, value, domain: HOST, path: '/', httpOnly: true, secure: true, sameSite: 'Strict' }],
+  };
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
+  // Usage first: a typo never signs anyone in or touches the stack.
+  if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
+    die('usage: local-test-gates.mjs posting-freeze on|off', 2);
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
   } catch (err) {
     die(String(err.message ?? err));
   }
-  say(`LOCAL TEST GATES — ${MARKERS.label}`);
+  // scoped-session prints only its JSON, which a journey parses.
+  if (cmd !== 'scoped-session') say(`LOCAL TEST GATES — ${MARKERS.label}`);
   try {
-    if (cmd === 'operators') {
+    if (cmd === 'scoped-session') {
+      const flag = process.argv.indexOf('--without');
+      const without = flag > 0 ? process.argv[flag + 1] : undefined;
+      if (!without) die('usage: local-test-gates.mjs scoped-session --without <scope>', 2);
+      const { cookies } = await scopedConsoleSession(ctx, without);
+      process.stdout.write(`${JSON.stringify({ cookies })}\n`);
+    } else if (cmd === 'operators') {
       const ops = await ensureOperators(ctx);
       say(`operators ready: ${ops.a.handle}, ${ops.b.handle} (credentials in ${ctx.paths.operators}, mode 600)`);
     } else if (cmd === 'lifecycle') {
@@ -2296,6 +3002,12 @@ async function main() {
       const rows = await rejectPending(ctx, process.argv[3], process.argv[4]);
       for (const r of rows) say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.tier}: ${r.why}`);
       if (rows.length === 0) say('  no pending verification requests');
+    } else if (cmd === 'kyc-capability-off') {
+      const r = await capabilityOff(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.capability}: ${r.why}`);
+    } else if (cmd === 'trading-restrict') {
+      const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'futures') {
@@ -2330,6 +3042,7 @@ async function main() {
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawQuotePolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawCustodyPolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'kyb') {
       const out = await seedPayKybRequirements(ctx);
       for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
@@ -2346,16 +3059,34 @@ async function main() {
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawQuotePolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawNetworkRules(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawCustodyPolicy(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+      for (const r of await publishTestFraudList(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdraw-limit') {
+      const [tier, assetId, value] = process.argv.slice(3);
+      if (!tier || !assetId || !value) die('usage: local-test-gates.mjs withdraw-limit <tier> <assetId> unset|test', 2);
+      const r = await setWithdrawalLimit(ctx, tier, assetId, value);
+      say(`  withdraw  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdraw-fee') {
+      const [networkId, value] = process.argv.slice(3);
+      if (!networkId || !value) die('usage: local-test-gates.mjs withdraw-fee <networkId> unset|test', 2);
+      const r = await setWithdrawFee(ctx, networkId, value);
+      say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'posting-freeze') {
+      const r = await setPostingFreeze(ctx, process.argv[3] === 'on');
+      say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
     } else if (cmd === 'charts') {
       sayCharts(await publishCharts(ctx));
+    } else if (cmd === 'copy-rewind') {
+      const r = rewindCopyCursor(ctx.secrets, process.argv[3], process.argv[4]);
+      say(`  copy      ${r.followId} (${r.handle}) cursor now ${r.cursorAt} ${r.cursorFill ?? '(no fill)'} (LOCAL TEST)`);
     } else if (cmd === 'chart-class') {
       // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
       const [symbol, dataClass] = process.argv.slice(3);
@@ -2392,7 +3123,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }
@@ -2401,4 +3132,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();
+// Not awaited at the top level: scoped-session imports identity.mjs, which imports this file, and that import would
+// wait on this module's evaluation for ever. main() catches its own errors (die).
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main();

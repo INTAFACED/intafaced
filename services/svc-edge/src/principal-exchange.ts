@@ -10,6 +10,20 @@ import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, K
 import { hashBody, ipAllowlistSatisfied, optionalFlag, readRequestSignHeaders, type RequestSignMaterial } from './api-key-request-sign.js';
 import { assertApiKeyProduct, optionalProductScopesFromExchange, requestProduct, KeyProductError } from './api-key-product.js';
 import { readEdgeAuthority } from './live-authority.js';
+import {
+  ACCOUNT_FROZEN,
+  API_KEY_DENIED,
+  API_KEY_EXPIRED,
+  apiKeyRefusalFromAuthorityCode,
+  apiKeyRefusalFromIdentityCode,
+  apiKeyShapeOk,
+  identityErrorCode,
+  isIdentityKeyVerdict,
+  presentedScopeShapeOk,
+  REQUEST_UNSIGNED,
+  requestSignShapeOk,
+  type ApiKeyRefusal,
+} from './api-key-refusal.js';
 
 /**
  * THE EDGE (§9) — where a bearer token becomes a principal.
@@ -50,6 +64,12 @@ export interface ExchangeResult {
   principal: Principal | null;
   /** Why a token was refused. Null when accepted or when none was offered. */
   rejected: 'malformed' | 'expired' | 'invalid' | 'unavailable' | null;
+  /**
+   * Set only when a platform API key (`ifc_…`) was presented and refused. The proxy answers it at the edge and
+   * forwards nothing (`api-key-refusal.ts`). An interactive JWT never sets it: a refused session still goes up
+   * as anonymous, so it can reach `auth.refresh`.
+   */
+  apiKeyRefusal?: ApiKeyRefusal;
 }
 
 export interface ExchangeOptions {
@@ -186,13 +206,45 @@ export function looksLikeApiKey(token: string): boolean {
   return token.startsWith('ifc_') && !token.includes('.');
 }
 
+/** What identity's key exchange gave back, when it opened the key. */
+export interface ApiKeyExchanged {
+  accessToken: string;
+  expiresAt?: Date;
+  accountId?: string;
+  status?: string;
+  originAllowlist?: string[];
+  ipAllowlist?: string[];
+  productScopes?: string[];
+  requireSignature?: boolean;
+  requireNonEmptyIpAllowlist?: boolean;
+}
+
 /**
- * Call identity's public exchange and return the short-lived JWT.
+ * The exchange's three outcomes.
+ *
+ * `refused` is identity's verdict on the key: a refusal carrying one of the verdict codes
+ * (`isIdentityKeyVerdict`). `unavailable` is everything else: identity not answering (network, timeout, 5xx,
+ * 408, 429), an unreadable success, and any refusal without a verdict code — a 404 for a path, a 400 for a body
+ * the edge built, a service-authentication refusal. Those are the edge's own setup failing, not the caller's
+ * key, so the caller is told to retry (503) instead of being told its key is bad.
+ */
+export type ApiKeyExchangeOutcome =
+  | { readonly kind: 'opened'; readonly exchanged: ApiKeyExchanged }
+  | { readonly kind: 'refused'; readonly identityCode: string }
+  | { readonly kind: 'unavailable' };
+
+/**
+ * Call identity's public exchange for the short-lived JWT.
  * Named account uses `exchangeApiKeyForAccount` (bound key must match).
  * Named product uses `exchangeApiKeyForProduct` (bound key must list it).
- * Unbound / missing account+product keeps `apiKeys.exchange`. Returns null on failure.
+ * Unbound / missing account+product keeps `apiKeys.exchange`.
  */
-export async function exchangeApiKeyForAccessToken(
+/** Identity did not answer in a way that decides anything about the key. */
+function identityUnavailable(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
+}
+
+export async function exchangeApiKeyOutcome(
   key: string,
   identityUrl: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
@@ -203,17 +255,7 @@ export async function exchangeApiKeyForAccessToken(
   requestSign?: RequestSignMaterial,
   identityOwnershipSecret?: string,
   s2s?: EdgeS2s,
-): Promise<{
-  accessToken: string;
-  expiresAt?: Date;
-  accountId?: string;
-  status?: string;
-  originAllowlist?: string[];
-  ipAllowlist?: string[];
-  productScopes?: string[];
-  requireSignature?: boolean;
-  requireNonEmptyIpAllowlist?: boolean;
-} | null> {
+): Promise<ApiKeyExchangeOutcome> {
   const base = identityUrl.replace(/\/$/, '');
   const presented = typeof accountId === 'string' && accountId.trim().length > 0 ? accountId.trim() : undefined;
   const namedProduct = typeof product === 'string' && product.trim().length > 0 ? product.trim() : undefined;
@@ -253,15 +295,25 @@ export async function exchangeApiKeyForAccessToken(
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
-    return null;
+    return { kind: 'unavailable' };
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    if (identityUnavailable(response.status)) return { kind: 'unavailable' };
+    let refusal: unknown;
+    try {
+      refusal = await response.json();
+    } catch {
+      refusal = undefined;
+    }
+    const identityCode = identityErrorCode(refusal);
+    return identityCode !== undefined && isIdentityKeyVerdict(identityCode) ? { kind: 'refused', identityCode } : { kind: 'unavailable' };
+  }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    return null;
+    return { kind: 'unavailable' };
   }
 
   const envelope = body as {
@@ -269,7 +321,8 @@ export async function exchangeApiKeyForAccessToken(
     accessToken?: string;
   };
   const accessToken = envelope.result?.data?.json?.accessToken ?? envelope.result?.data?.accessToken ?? envelope.accessToken;
-  if (typeof accessToken !== 'string' || accessToken.length === 0) return null;
+  // A 200 with no token is identity saying something we cannot read: not a verdict on the key.
+  if (typeof accessToken !== 'string' || accessToken.length === 0) return { kind: 'unavailable' };
   const expiresAt = optionalExpiresAtFromExchange(body);
   const boundAccountId = optionalAccountIdFromExchange(body);
   const status = optionalUserStatusFromExchange(body);
@@ -277,7 +330,7 @@ export async function exchangeApiKeyForAccessToken(
   const ipAllowlist = optionalIpAllowlistFromExchange(body);
   const productScopes = optionalProductScopesFromExchange(body);
   const data = envelope.result?.data?.json ?? envelope.result?.data ?? body;
-  return {
+  const exchanged: ApiKeyExchanged = {
     accessToken,
     ...(expiresAt === undefined ? {} : { expiresAt }),
     ...(boundAccountId === undefined ? {} : { accountId: boundAccountId }),
@@ -288,6 +341,7 @@ export async function exchangeApiKeyForAccessToken(
     ...(optionalFlag(data, 'requireSignature', 'require_signature') ? { requireSignature: true } : {}),
     ...(optionalFlag(data, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist') ? { requireNonEmptyIpAllowlist: true } : {}),
   };
+  return { kind: 'opened', exchanged };
 }
 
 /**
@@ -298,6 +352,11 @@ export async function exchangeApiKeyForAccessToken(
  * service as ANONYMOUS rather than as a 500 — `protectedProcedure` will refuse
  * it there with the right status. Failing closed means failing quietly to
  * anonymous, not failing loudly.
+ *
+ * A platform API key is the exception: a refused `ifc_…` key comes back with
+ * `apiKeyRefusal` set, and the proxy answers it at the edge instead of
+ * forwarding anything (`api-key-refusal.ts`). Identity not answering is
+ * `rejected: 'unavailable'` for a key as for a session, never a key verdict.
  */
 export async function exchangePrincipal(
   headers: Record<string, string | string[] | undefined>,
@@ -325,8 +384,16 @@ export async function exchangePrincipal(
   const presentedApiKey = looksLikeApiKey(token);
 
   if (presentedApiKey) {
+    // A key is refused at the edge, never forwarded as anonymous (`api-key-refusal.ts`).
+    const refuse = (refusal: ApiKeyRefusal, rejected: 'expired' | 'invalid' = 'invalid'): ExchangeResult => ({
+      headers: forward,
+      principal: null,
+      rejected,
+      apiKeyRefusal: refusal,
+    });
     if (!options.identityUrl) {
-      return { headers: forward, principal: null, rejected: 'invalid' };
+      // No identity to ask is this process's configuration, not a verdict on the caller's key.
+      return { headers: forward, principal: null, rejected: 'unavailable' };
     }
     const presentedAccountId = requestAccountId(headers);
     const presentedProduct = options.resolvedProduct ?? requestProduct(headers);
@@ -342,7 +409,17 @@ export async function exchangePrincipal(
             signature: signHeaders.signature,
           }
         : undefined;
-    const exchanged = await exchangeApiKeyForAccessToken(
+    // A shape identity's schema refuses is answered here, with no identity call: identity's answer would be a
+    // code-less 400, which must not be readable as an identity outage (`api-key-refusal.ts`). The signed
+    // request is checked only when it will be sent (`attest` in `exchangeApiKeyOutcome`).
+    if (
+      !apiKeyShapeOk(token) ||
+      !presentedScopeShapeOk(presentedAccountId, options.resolvedProduct === undefined ? presentedProduct : undefined) ||
+      (requestSign && options.identityOwnershipSecret && !requestSignShapeOk(requestSign))
+    ) {
+      return refuse(API_KEY_DENIED);
+    }
+    const outcome = await exchangeApiKeyOutcome(
       token,
       options.identityUrl,
       options.fetch,
@@ -354,14 +431,19 @@ export async function exchangePrincipal(
       options.identityOwnershipSecret,
       options.s2s,
     );
-    if (!exchanged) {
-      return { headers: forward, principal: null, rejected: 'invalid' };
+    if (outcome.kind === 'unavailable') {
+      return { headers: forward, principal: null, rejected: 'unavailable' };
     }
+    if (outcome.kind === 'refused') {
+      const refusal = apiKeyRefusalFromIdentityCode(outcome.identityCode);
+      return refuse(refusal, refusal === API_KEY_EXPIRED ? 'expired' : 'invalid');
+    }
+    const exchanged = outcome.exchanged;
     if (exchanged.requireSignature && !requestSign) {
-      return { headers: forward, principal: null, rejected: 'invalid' };
+      return refuse(REQUEST_UNSIGNED);
     }
     if (!ipAllowlistSatisfied(exchanged.requireNonEmptyIpAllowlist === true, exchanged.ipAllowlist)) {
-      return { headers: forward, principal: null, rejected: 'invalid' };
+      return refuse(API_KEY_DENIED);
     }
     try {
       assertKeyNotExpired(exchanged.expiresAt, now);
@@ -372,25 +454,22 @@ export async function exchangePrincipal(
       assertApiKeyProduct(exchanged.productScopes, presentedProduct);
     } catch (err) {
       if (err instanceof KeyExpiresError) {
-        return {
-          headers: forward,
-          principal: null,
-          rejected: err.code === 'auth.api_key_expired' ? 'expired' : 'invalid',
-        };
+        return err.code === 'auth.api_key_expired' ? refuse(API_KEY_EXPIRED, 'expired') : refuse(API_KEY_DENIED);
       }
-      if (
-        err instanceof KeyAccountError ||
-        err instanceof KeyUserStatusError ||
-        err instanceof KeyOriginError ||
-        err instanceof KeyIpError ||
-        err instanceof KeyProductError
-      ) {
-        return { headers: forward, principal: null, rejected: 'invalid' };
+      if (err instanceof KeyUserStatusError) {
+        return refuse(ACCOUNT_FROZEN);
+      }
+      if (err instanceof KeyAccountError || err instanceof KeyOriginError || err instanceof KeyIpError || err instanceof KeyProductError) {
+        return refuse(API_KEY_DENIED);
       }
       throw err;
     }
     token = exchanged.accessToken;
   }
+
+  // From here a key has been opened by identity. A refusal is named only from identity's own code; without
+  // one it is the one denied answer: the edge cannot name a reason identity did not give.
+  const keyRefused = presentedApiKey ? { apiKeyRefusal: API_KEY_DENIED } : {};
 
   let principal: Principal;
   try {
@@ -398,11 +477,11 @@ export async function exchangePrincipal(
   } catch (err) {
     const code = err instanceof AuthError ? err.code : 'token.invalid';
     const rejected = code === 'token.expired' ? 'expired' : code === 'token.malformed' ? 'malformed' : 'invalid';
-    return { headers: forward, principal: null, rejected };
+    return { headers: forward, principal: null, rejected, ...keyRefused };
   }
 
   if (principal.expiresAt.getTime() <= now.getTime()) {
-    return { headers: forward, principal: null, rejected: 'expired' };
+    return { headers: forward, principal: null, rejected: 'expired', ...keyRefused };
   }
 
   const read = await readEdgeAuthority(principal, {
@@ -418,7 +497,10 @@ export async function exchangePrincipal(
   // Identity answered "no" -> refuse as before. Identity could not be asked -> say so; the caller
   // answers 503 and keeps the session instead of forwarding anonymous.
   if (read.status === 'unavailable') return { headers: forward, principal: null, rejected: 'unavailable' };
-  if (read.status !== 'eligible') return { headers: forward, principal: null, rejected: 'invalid' };
+  if (read.status !== 'eligible') {
+    const named = presentedApiKey ? { apiKeyRefusal: apiKeyRefusalFromAuthorityCode(read.code) } : {};
+    return { headers: forward, principal: null, rejected: 'invalid', ...named };
+  }
   const authority = read.proof;
   // Identity's current tier may have changed since this JWT was minted.
   principal = { ...principal, tier: authority.account.kycTier };

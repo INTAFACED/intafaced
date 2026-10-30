@@ -15,10 +15,33 @@ export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
 export const algoParentSchema = algoSchema.extend({
   participationBps: z.number().int().nullable().optional(),
+  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
   startedAt: z.string().nullable().optional(),
   nextDueAt: z.string().nullable().optional(),
   scheduleStretchReason: z.string().nullable().optional(),
+  randomSeed: z.number().int().nullable().optional(),
+  triggerPrice: decimalSchema.nullable().optional(),
+  triggeredAt: z.string().nullable().optional(),
+  awaitingTrigger: z.boolean().optional(),
+  plannedSliceQtys: z.array(decimalSchema).optional(),
+  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of. */
+  children: z
+    .array(z.object({ sliceIndex: z.number().int(), qty: decimalSchema.optional(), basisQty: decimalSchema.nullable().optional() }))
+    .optional(),
 });
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+
+/** `algo.result`: per quote asset, the average price of the real child fills — null while nothing has filled. */
+export const algoResultSchema = z.object({
+  quotes: z.array(z.object({ quoteAsset: z.string(), filledQty: decimalSchema, averageFillPrice: decimalSchema.nullable() })),
+});
+export type AlgoResult = z.infer<typeof algoResultSchema>;
+
+/** `algo.list`: the person's schedules as the service keeps them, newest first, so every browser shows the same list. */
+export const algoListSchema = z.object({ rows: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+export type AlgoListPage = z.infer<typeof algoListSchema>;
+/** Schedules the room lists at a time. The service refuses a list read without a limit. */
+export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
@@ -31,14 +54,38 @@ export const algoPolicySchema = z.object({
 });
 export type AlgoPolicy = z.infer<typeof algoPolicySchema>;
 
+/** `otc.makers.list` (CB-otc-01): the owner's provider list and pick cap, or the honest empty state. */
+export const otcMakersSchema = z.object({
+  published: z.boolean(),
+  makers: z.array(z.object({ id: z.string(), name: z.string(), route: z.enum(['platform', 'outside']) })),
+  selectCap: z.number().int().nullable(),
+  emptyLabel: z.string().nullable(),
+});
+export type OtcMakers = z.infer<typeof otcMakersSchema>;
+
 export const deskStatusSchema = z.object({
   published: z.boolean(),
   statusLine: z.string(),
   residual: z.string().nullable().optional(),
+  /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
+  assets: z.array(z.string()).nullable().optional(),
+  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
+  minTier: z.string().nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
 export type DeskStatus = z.infer<typeof deskStatusSchema>;
+
+const convertFlowBoundsSchema = z.object({ minQty: decimalSchema, maxQty: decimalSchema }).nullable();
+/** `otc.convertBounds` (CB-otc-12): the owner's size range for each flow at the desk price; null when it is blank. */
+export const convertBoundsSchema = z.object({ convert: convertFlowBoundsSchema, oneClickBuy: convertFlowBoundsSchema });
+export type ConvertBounds = z.infer<typeof convertBoundsSchema>;
+/** `otc.convertQuote`: a desk quote for a conversion, with the owner's settle window (null when blank). */
+export const otcConvertQuoteSchema = otcQuoteSchema.extend({
+  flow: z.enum(['convert', 'oneClickBuy']),
+  settleWindowMs: z.number().int().nullable(),
+});
+export type OtcConvertQuote = z.infer<typeof otcConvertQuoteSchema>;
 export type RfqQuote = z.infer<typeof otcQuoteSchema>;
 export type RfqFill = z.infer<typeof otcFillSchema> & { fillId: string; takerOrderId: string; makerOrderId: string };
 
@@ -88,6 +135,18 @@ export const batchItemSchema = z.object({
 export type BatchItem = z.infer<typeof batchItemSchema>;
 export const batchSchema = z.object({ results: z.array(batchItemSchema) });
 
+/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
+export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
+
+export interface IcebergOrder {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: string;
+  price: string;
+  displayQty: string;
+  clientOrderId: string;
+}
+
 export interface CreateTwapInput {
   symbol: string;
   side: 'buy' | 'sell';
@@ -98,7 +157,22 @@ export interface CreateTwapInput {
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
+  /** POV only: traded volume (default) or opposite-side liquidity. */
+  povBasis?: PovBasis;
+  /** TWAP only: random slice sizes fixed by this seed. */
+  randomSeed?: number;
+  /** TWAP only: the schedule waits until the mark reaches this price. */
+  triggerPrice?: string;
 }
+
+export interface PreviewSizesInput {
+  symbol: string;
+  totalQty: string;
+  durationMs: number;
+  sliceIntervalMs: number;
+  randomSeed?: number;
+}
+export const previewSizesSchema = z.object({ sliceQtys: z.array(decimalSchema) });
 
 export interface BatchOrder {
   symbol: string;
@@ -126,11 +200,18 @@ export function createRoomApi(api: ApiClient) {
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
+    algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
+    algoResult: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.result', { algoId }, algoResultSchema, { signal }),
+    algoList: (signal?: AbortSignal) => api.query('trade', 'algo.list', { limit: ALGO_LIST_PAGE }, algoListSchema, { signal }),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),
     deskStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, deskStatusSchema, { signal }),
-    rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) =>
+    otcMakers: (signal?: AbortSignal) => api.query('trade', 'otc.makers.list', undefined, otcMakersSchema, { signal }),
+    otcConvertBounds: (signal?: AbortSignal) => api.query('trade', 'otc.convertBounds', undefined, convertBoundsSchema, { signal }),
+    otcConvertQuote: (input: { flow: 'convert'; side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string }) =>
+      api.mutate('trade', 'otc.convertQuote', input, otcConvertQuoteSchema),
+    rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
     /** `assertedPrice` can only cause a refusal (last look is forbidden); it never sets the fill price. */
@@ -148,6 +229,15 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    /** One of the account's orders by its request id; `trade.order_not_found` when no order was made with it. */
+    orderByClientId: (clientOrderId: string, symbol: string) =>
+      api.rest(
+        `/orders/by-client-id/${encodeURIComponent(clientOrderId)}`,
+        icebergAnswerSchema.extend({ executionOutcome: z.unknown().nullable().optional() }),
+        { query: { symbol } },
+      ),
+    placeIceberg: (order: IcebergOrder) =>
+      api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;

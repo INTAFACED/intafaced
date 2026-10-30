@@ -7,12 +7,15 @@ import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
+import { asksForWallet } from './withdraw-to-wallet';
+import { WalletProvider } from '../protocol/wallet/WalletProvider';
 import { INTERNAL_RAIL } from './withdraw-destination';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { supportedAssetsCopy } from './supported-assets-copy';
 import { useSupportedAssets } from './supported-assets-reads';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { withdrawalCopy } from './withdrawal-copy';
+import { failureWords } from './withdrawal-failure';
 import {
   createWithdrawalReads,
   requestedWithdrawal,
@@ -435,7 +438,14 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
         ),
       ],
       [t('attempts'), <span lang="und">{record.attempts}</span>],
-      [t('failureCode'), record.failureCode === null ? t('none') : <span lang="und">{record.failureCode}</span>],
+      [
+        t('failureCode'),
+        record.failureCode === null
+          ? t('none')
+          : failureWords(record.status, record.failureCode)
+              .map((key) => t(key))
+              .join(' '),
+      ],
       [t('created'), <time dateTime={record.createdAt}>{date(record.createdAt)}</time>],
     ];
   }
@@ -517,10 +527,19 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   if (!context.current()) return <p role="status">{t('changed')}</p>;
   // The address bar names no withdrawal: this is the Withdraw page itself. The form leads; records and Find sit below it.
   const listing = requested.ok && !requested.id;
+  const toWallet = listing && asksForWallet(search);
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
-        {listing && <WithdrawForm />}
+        {listing &&
+          (toWallet ? (
+            // The browser wallet's connection, mounted here only when the page is asked to fill from it.
+            <WalletProvider>
+              <WithdrawForm toWallet />
+            </WalletProvider>
+          ) : (
+            <WithdrawForm />
+          ))}
         {!requested.ok ? (
           <Lookup current={current} invalid />
         ) : requested.id ? (

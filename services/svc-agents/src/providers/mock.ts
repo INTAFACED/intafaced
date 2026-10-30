@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { ProviderError } from '../errors.js';
 import type {
   ChatMessage,
@@ -43,6 +45,19 @@ export interface MockProviderOptions {
   readonly failFirst?: number;
   readonly capabilities?: readonly ProviderCapability[];
   readonly latencyMs?: number;
+  /**
+   * How long each answer takes, in milliseconds. Zero or absent answers at once. A local test stack sets it so that
+   * two runs started together are both in flight at the same moment, as they would be against a real engine.
+   */
+  readonly answerDelayMs?: number;
+  /**
+   * TEST stand-in control: while this file exists, a completion parks at the engine's door, before it answers, and
+   * writes `<holdFile>.held` so a test can see it is parked. Removing the file lets it answer. A test stack sets it so a
+   * journey can read the service's own record of a run while the engine has not answered yet.
+   */
+  readonly holdFile?: string;
+  /** How long a parked completion waits before it answers anyway. */
+  readonly holdMaxMs?: number;
 }
 
 /**
@@ -166,6 +181,9 @@ export class MockModelProvider implements ModelProvider {
   private lastLatencyMs: number;
   private failWith: ProviderError | undefined;
   private failFirst: number;
+  private readonly answerDelayMs: number;
+  private readonly holdFile: string | undefined;
+  private readonly holdMaxMs: number;
 
   constructor(options: MockProviderOptions = {}) {
     this.id = options.id ?? 'mock';
@@ -173,6 +191,9 @@ export class MockModelProvider implements ModelProvider {
     this.lastLatencyMs = options.latencyMs ?? 1;
     this.failWith = options.failWith;
     this.failFirst = options.failFirst ?? 0;
+    this.answerDelayMs = options.answerDelayMs ?? 0;
+    this.holdFile = options.holdFile;
+    this.holdMaxMs = options.holdMaxMs ?? 60_000;
   }
 
   /** Test control: start failing. */
@@ -206,12 +227,14 @@ export class MockModelProvider implements ModelProvider {
 
   async complete(request: CompletionRequest): Promise<CompletionResult> {
     this.calls++;
+    if (this.answerDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.answerDelayMs));
     // Freshness is recorded before the failure branch: a provider that answered
     // with an error still answered. That is what separates a transient blip
     // (`failFirst` — the next call is routed normally) from an outage
     // (`failWith` — `health()` reports unhealthy and the gateway stops routing).
     this.lastUpdate = new Date();
     this.throwIfBroken();
+    await this.parkWhileHeld();
 
     const usage = mockUsage(request);
     const digest = requestDigest(request);
@@ -249,6 +272,20 @@ export class MockModelProvider implements ModelProvider {
 
     const inputTokens = request.inputs.reduce((acc, s) => acc + Math.ceil(s.length / CHARS_PER_TOKEN), 0);
     return { providerId: this.id, model: request.model, vectors, usage: { inputTokens, outputTokens: 0 } };
+  }
+
+  /** Waits while the hold file exists (see `holdFile`), marking itself parked; answers anyway after `holdMaxMs`. */
+  private async parkWhileHeld(): Promise<void> {
+    const hold = this.holdFile;
+    if (!hold || !existsSync(hold)) return;
+    const marker = `${hold}.held`;
+    writeFileSync(marker, new Date().toISOString());
+    try {
+      const until = Date.now() + this.holdMaxMs;
+      while (existsSync(hold) && Date.now() < until) await sleep(25);
+    } finally {
+      rmSync(marker, { force: true });
+    }
   }
 
   private throwIfBroken(): void {

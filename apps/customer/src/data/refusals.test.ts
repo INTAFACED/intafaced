@@ -1,7 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { createApiClient } from '../shared/api';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
+
+describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
+  it('a REST refusal with intafacedCode posting_frozen gets the orders-paused copy, not the account-on-hold one', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ code: 'OnMaintenance', message: 'ledger.frozen', intafacedCode: 'posting_frozen' }), { status: 400 }),
+    });
+    const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
+    expect(result).toMatchObject({ ok: false, reason: 'error', code: 'posting_frozen', status: 400 });
+    const code = result.ok ? '' : (result.code ?? '');
+    expect(classifyRefusal(code)).toBe('ordersPaused');
+    expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
+    expect(refusalCopy(code).title).toBe('Orders are paused right now');
+    // The account's trading restriction keeps its own copy, and so does the ledger's raw code, which rooms other than
+    // trade send.
+    expect(classifyRefusal('trade.account_restricted')).toBe('tradingOnHold');
+    expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
+  });
+});
 
 describe('edge.authority_unavailable', () => {
   it('is a retry, not a sign-out', () => {
@@ -195,6 +216,9 @@ describe('order refusals the pro desk shows by their registered words (TRD-0521)
 });
 
 describe('classifyRefusal', () => {
+  it("names svc-trade's own trading restriction as a hold, never a retry", () => {
+    expect(classifyRefusal('trade.desk_restricted')).toBe('accountOnHold');
+  });
   it('sorts the codes customers can reach', () => {
     const cases: Array<[string, string]> = [
       ['denied.region_blocked', 'region'],
@@ -206,7 +230,10 @@ describe('classifyRefusal', () => {
       ['trade.order_not_found', 'orderGone'],
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
-      ['ledger.frozen', 'accountOnHold'],
+      ['ledger.frozen', 'platformPaused'],
+      ['trade.account_restricted', 'tradingOnHold'],
+      ['bank.space_locked', 'spaceLocked'],
+      ['posting_frozen', 'ordersPaused'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],
@@ -227,6 +254,14 @@ describe('classifyRefusal', () => {
       ['trade.convert_invalid_qty', 'quoteFailed'],
     ];
     for (const [code, kind] of cases) expect(classifyRefusal(code), code).toBe(kind);
+  });
+
+  it("never says the account is held for the ledger's platform-wide pause (I-kyc-compliance-17, ENGINE FRZ-1)", () => {
+    const source = readFileSync(new URL('./refusal-codes.ts', import.meta.url), 'utf8');
+    const ledgerCodes = [...source.matchAll(/'(ledger\.[a-z_.]+)'/g)].map((m) => m[1]!);
+    expect(ledgerCodes.length).toBeGreaterThan(0);
+    for (const code of ledgerCodes) expect(classifyRefusal(code), code).not.toBe('accountOnHold');
+    expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
   });
   it('is case-insensitive and tolerant of blanks', () => {
     expect(classifyRefusal('  KYC.TIER_REQUIRED ')).toBe('verify');

@@ -25,6 +25,7 @@ import {
 import { protocolCopy as copy } from './copy';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
+import { TokensNav } from './tokens/TokensRoom';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -580,6 +581,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           onChange={(id) => navigate(id === tabs[0]!.id ? `/${slug}` : `/${slug}/${id}`)}
           labels={Object.fromEntries(tabs.map((entry) => [entry.id, t(`tab_${entry.id}` as 'tab_status')]))}
         />
+        {slug === 'dex' && <TokensNav />}
         {body}
         <Actions actions={actions} snapshot={snapshot} t={t} />
       </Page>

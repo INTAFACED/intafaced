@@ -364,6 +364,7 @@ export function PaymentDetailView({
           const events = history.status === 'ready' ? history.data : [];
           const links = paymentLinks(events);
           const held = nameHold(p.status, events);
+          const waiting = p.status === 'created' ? (p.confirmations ?? null) : null;
           const customerRef = p.customerRef?.trim() || links.customerRef;
           const fee = feeSummary(p);
           const derived = paymentRefunds(events);
@@ -436,6 +437,11 @@ export function PaymentDetailView({
                 {p.failure && (
                   <p className="pp-callout" role="note">
                     {t('pay_whyFailed')} {p.failure.message}
+                  </p>
+                )}
+                {waiting && (
+                  <p className="pp-callout" role="note" data-testid="payment-confirmations">
+                    {t('pay_waitingConfirmations', { seen: waiting.seen, required: waiting.required })} <DateTime value={waiting.asOf} />
                   </p>
                 )}
                 {held && (

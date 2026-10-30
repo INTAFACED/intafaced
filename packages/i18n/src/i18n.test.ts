@@ -90,7 +90,10 @@ describe('catalog — the key set is closed and complete', () => {
     // Sign-in factor change notices (I-signin-sessions-08) add five titles and one shared body.
     // The ads-paused notice to the maker (P-ads-merchant-18) adds a title and a body key.
     // The reported-remark notice to the reported party (P-ads-merchant-19) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(278);
+    // Agent runs refused for an unpublished rate and for funds below the worst case (AG-spend-01) add two refusal keys.
+    // An unpaid usage window, a blank allowance for unpaid usage and a settled session (J-agents-02 #5) add four agents keys.
+    // A balance that could not be read gets its own refusal, apart from funds below the worst case (AG-spend-01): one key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(285);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

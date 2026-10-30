@@ -148,11 +148,26 @@ export async function setPropertiesAsLead(ticketId, priority, ticketType) {
   );
 }
 
-// The desk tokens, minted once per worker; a refused mint is not kept, so the next call tries again.
-let leadTokenOnce;
-let agentTokenOnce;
-const deskLeadToken = () => (leadTokenOnce ??= leadToken().catch((error) => ((leadTokenOnce = undefined), Promise.reject(error))));
-const agentToken = () => (agentTokenOnce ??= appointAgent().catch((error) => ((agentTokenOnce = undefined), Promise.reject(error))));
+// The desk tokens, kept per worker for four minutes of their five-minute life (local-test-gates.mjs mints them for 300
+// seconds), so a journey that runs longer gets a fresh one rather than a 401. A refused mint is not kept, so the next call
+// tries again.
+const TOKEN_KEEP_MS = 240_000;
+function kept(mint) {
+  let held;
+  return () => {
+    if (!held || Date.now() - held.at > TOKEN_KEEP_MS) {
+      const entry = { at: Date.now(), token: mint() };
+      entry.token = entry.token.catch((error) => {
+        if (held === entry) held = undefined;
+        return Promise.reject(error);
+      });
+      held = entry;
+    }
+    return held.token;
+  };
+}
+const deskLeadToken = kept(leadToken);
+const agentToken = kept(appointAgent);
 
 /** A token for founder B as a support agent, appointed by the lead (founder A) the first time. */
 async function appointAgent() {

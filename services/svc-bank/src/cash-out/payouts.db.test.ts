@@ -5,13 +5,22 @@
  * TEST_DATABASE_URL. Does not start Docker.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount, railBoundary, recipes, userAvailable, withdrawalHoldAccount } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount,
+  railBoundary,
+  recipes,
+  userAvailable,
+  withdrawalHoldAccount,
+} from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
@@ -39,8 +48,9 @@ const migrations = readdirSync(drizzle)
   .sort()
   .map((file) => readFileSync(join(drizzle, file), 'utf8'));
 
-const OPEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null }) };
-const LOCKED: SecurityLockPort = { read: async () => ({ locked: true, unlocksAt: null }) };
+const OPEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null, selfFrozen: false }) };
+const LOCKED: SecurityLockPort = { read: async () => ({ locked: true, unlocksAt: null, selfFrozen: false }) };
+const SELF_FROZEN: SecurityLockPort = { read: async () => ({ locked: false, unlocksAt: null, selfFrozen: true }) };
 
 const codeOf = (err: unknown) => (err instanceof BankError ? err.code : (err as { cause?: { code?: string } }).cause?.code);
 
@@ -268,6 +278,32 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       expect(await available()).toBe(parseAmount('30'));
     });
 
+    it("while the owner's self-freeze is open the re-drive holds nothing new and pays nothing; lifted, it carries on", async () => {
+      const id = await usable();
+      const unheld = await left(id, false);
+      const posts = ledger.journal().length;
+      expect(await services(SIM, SELF_FROZEN).cashOut.redrive(10)).toEqual([
+        { id: unheld, outcome: 'failed', reason: 'bank.account_frozen_self' },
+      ]);
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(unheld)).toBe(0n);
+      expect(await available()).toBe(parseAmount('50'));
+      expect((await as(ADA).cashOut.requests({ limit: 1 }))[0]).toMatchObject({ status: 'processing', payoutRef: null });
+      expect(await services().cashOut.redrive(10)).toEqual([{ id: unheld, outcome: 'completed' }]);
+      expect(await held(unheld)).toBe(parseAmount('20'));
+    });
+
+    it('a hold booked before the self-freeze is stamped and stays held, and the partner is not asked to pay', async () => {
+      const requestId = await left(await usable(), true);
+      const posts = ledger.journal().length;
+      expect(await services(SIM, SELF_FROZEN).cashOut.redrive(10)).toEqual([
+        { id: requestId, outcome: 'failed', reason: 'bank.account_frozen_self' },
+      ]);
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(requestId)).toBe(parseAmount('20'));
+      expect((await as(ADA).cashOut.requests({ limit: 1 }))[0]).toMatchObject({ status: 'processing', payoutRef: null });
+    });
+
     it('a failed payout gives back a hold the ledger booked but the request never recorded', async () => {
       const requestId = await left(await usable(), true);
       expect(await services().cashOut.fail(requestId, 'bank.payout_rejected')).toMatchObject({ status: 'failed' });
@@ -401,6 +437,89 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
         await refused(services(null).cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' })),
       ).toBe('rail.bank');
       expect(ledger.journal()).toHaveLength(posts + 1);
+    });
+
+    it("with its records folder, the stand-in's own word on its rail matches the payout rail boundary; a failed payout records nothing", async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const cashOut = services(recording).cashOut;
+      const id = await usable();
+      const { requestId: paidOut } = await start(id, '20');
+      const { requestId: notPaid } = await start(id, '4');
+      await cashOut.complete(paidOut);
+      await cashOut.complete(paidOut);
+      await cashOut.returned(paidOut, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      await cashOut.returned(paidOut, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      await cashOut.fail(notPaid, 'bank.payout_rejected');
+
+      const records = readFileSync(join(dir, 'payout-sim.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { label: string; key: string; direction: string; assetId: string; amount: string });
+      expect(records.map(({ label, key, direction, assetId, amount }) => [label, key, direction, assetId, amount])).toEqual([
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:paid`, 'out', 'USDT', '20'],
+        ['TEST', `${cashOutWithdrawalId(paidOut)}:returned`, 'in', 'USDT', '5'],
+      ]);
+      // The rail's own total, in the ledger's signed form for its boundary (out positive, in negative), against the ledger.
+      const said = records.reduce((sum, r) => sum + (r.direction === 'in' ? -1n : 1n) * parseAmount(r.amount), 0n);
+      expect(formatAmount(said)).toBe('15');
+      expect((await ledger.balance(railBoundary(PAYOUT_SIM_RAIL, 'USDT'))).amount).toBe(said);
+    });
+
+    it('a record the stand-in cannot write stops the answer before anything is posted', async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const id = await usable();
+      const { requestId } = await start(id, '10');
+      // The rail already says otherwise about this payout: it would contradict itself, so nothing settles.
+      mkdirSync(dir, { recursive: true });
+      const line = {
+        label: 'TEST',
+        rail: 'payout-sim',
+        key: `${cashOutWithdrawalId(requestId)}:paid`,
+        direction: 'out',
+        assetId: 'USDT',
+        amount: '9',
+      };
+      writeFileSync(join(dir, 'payout-sim.jsonl'), `${JSON.stringify({ ...line, at: new Date().toISOString() })}\n`);
+      const posts = ledger.journal().length;
+      expect(await refused(services(recording).cashOut.complete(requestId))).toBe('bank.ramp_conflict');
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await held(requestId)).toBe(parseAmount('10'));
+      expect((await services(recording).cashOut.list(ADA, 10)).find((r) => r.requestId === requestId)?.status).toBe('processing');
+    });
+
+    it('a settle that failed after the stand-in recorded paid is finished by saying paid again, never by saying failed', async () => {
+      const dir = join(mkdtempSync(join(tmpdir(), 'bank-payout-records-')), 'test-rail-records');
+      const recording = payoutSim(
+        { label: 'TEST payout stand-in', payouts: [{ asset: 'USDT', currency: 'EUR', rate: '0.9', fee: '1.5' }] },
+        dir,
+      );
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      const post = ledger.post.bind(ledger);
+      let down = true;
+      ledger.post = (async (...args: Parameters<MemoryLedger['post']>) => {
+        if (down) throw new Error('TEST ledger unavailable');
+        return post(...args);
+      }) as MemoryLedger['post'];
+      try {
+        await expect(services(recording).cashOut.complete(requestId)).rejects.toThrow('TEST ledger unavailable');
+      } finally {
+        down = false;
+      }
+      expect(await refused(services(recording).cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.ramp_conflict');
+      expect(await held(requestId)).toBe(parseAmount('20'));
+      expect(await services(recording).cashOut.complete(requestId)).toMatchObject({ status: 'completed' });
+      const records = readFileSync(join(dir, 'payout-sim.jsonl'), 'utf8').split('\n').filter(Boolean);
+      expect(records).toHaveLength(1);
+      expect((await ledger.balance(railBoundary(PAYOUT_SIM_RAIL, 'USDT'))).amount).toBe(parseAmount('20'));
     });
 
     it('an answer for no cash-out is not found', async () => {

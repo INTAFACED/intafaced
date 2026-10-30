@@ -723,7 +723,7 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
 
   /**
    * Operator reconciliation controls. Forwarded with the operator's own token.
-   * List is treasury or compliance. Define, update and run are treasury (MFA).
+   * List and runs are treasury or compliance. Define, update and run are treasury (MFA).
    * Run's body carries the reason and the approval. svc-ledger's answer passes through.
    */
   app.get('/admin/ledger/reconciliation/controls', async (req, reply) => {
@@ -736,6 +736,26 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     const header = req.headers.authorization;
     if (typeof header !== 'string') return reply.code(401).send({ error: 'An operator token is required', code: 'token.invalid' });
     const res = await admin.listReconciliationControls(header);
+    return reply.code(res.status).send(res.body);
+  });
+
+  /** One control's evaluations, newest first. Read-only, so the list rule applies: treasury (MFA) or compliance. */
+  app.post('/admin/ledger/reconciliation/controls/runs', async (req, reply) => {
+    try {
+      await admin.authenticateControlRead(req.headers.authorization);
+    } catch (err) {
+      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    const header = req.headers.authorization;
+    if (typeof header !== 'string') return reply.code(401).send({ error: 'An operator token is required', code: 'token.invalid' });
+    let res;
+    try {
+      res = await admin.listReconciliationControlRuns(req.body, header);
+    } catch (err) {
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
+    }
     return reply.code(res.status).send(res.body);
   });
 

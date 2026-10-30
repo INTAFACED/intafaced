@@ -283,7 +283,7 @@ export async function confirmDeathNotice(
         updated_at = clock_timestamp()
       WHERE id = ${row.id} RETURNING ${tx.unsafe(NOTICE_COLUMNS)}`;
     await tx`UPDATE sessions SET revoked = true WHERE user_id = ${row.subject_user_id} AND revoked = false`;
-    await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${row.subject_user_id} AND revoked = false`;
+    await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${row.subject_user_id} AND revoked = false`;
     await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${row.subject_user_id} AND revoked = false`;
     await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now()
       WHERE user_id = ${row.subject_user_id} AND status = 'open'`;

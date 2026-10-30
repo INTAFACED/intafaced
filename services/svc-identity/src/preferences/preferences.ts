@@ -1,6 +1,7 @@
 /**
  * Per-user preferences. get and set touch only the caller's row.
- * ifVersion is compare-and-set. A replay of the same client id returns the first result.
+ * ifVersion is compare-and-set. A replay of the same client id returns the first result. Setting the value the record
+ * already holds, at its current version, is stored as it stands: nothing is written, the version stays, and no receipt is kept.
  *
  * A receipt keeps only what a replay needs: the outcome and the version (the value of a replayed set is the value the request
  * carried, which the fingerprint already matched). Receipts older than RECEIPT_RETENTION_DAYS are pruned on the account's next
@@ -13,6 +14,14 @@ import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
+import {
+  ADDRESS_WATCHES_NAMESPACE,
+  TOKEN_WATCHLIST_NAMESPACE,
+  parseAddressWatches,
+  parseTokenWatchlist,
+  type AddressWatchesValue,
+  type TokenWatchlistValue,
+} from './protocol-watches.js';
 import type { SavedScreensValue, WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
 import {
   NO_WATCHLIST_CAPS,
@@ -46,8 +55,18 @@ export type PreferenceNamespace =
   | typeof UI_VIEW_NAMESPACE
   | typeof HOME_TILES_NAMESPACE
   | typeof WATCHLISTS_NAMESPACE
-  | typeof SAVED_SCREENS_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue | WatchlistsValue | SavedScreensValue;
+  | typeof SAVED_SCREENS_NAMESPACE
+  | typeof TOKEN_WATCHLIST_NAMESPACE
+  | typeof ADDRESS_WATCHES_NAMESPACE;
+export type PreferenceValue =
+  | TradeViewsValue
+  | AccountDisplayValue
+  | UiViewValue
+  | HomeTilesValue
+  | WatchlistsValue
+  | SavedScreensValue
+  | TokenWatchlistValue
+  | AddressWatchesValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = {
@@ -75,7 +94,9 @@ export type PreferenceView =
   | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
   | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null }
   | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
-  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null };
+  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
+  | { readonly namespace: typeof TOKEN_WATCHLIST_NAMESPACE; readonly version: number; readonly value: TokenWatchlistValue | null }
+  | { readonly namespace: typeof ADDRESS_WATCHES_NAMESPACE; readonly version: number; readonly value: AddressWatchesValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -119,6 +140,8 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
     growth: (next, stored, settings) =>
       checkSavedScreenGrowth(next as SavedScreensValue, stored as SavedScreensValue | null, settings.watchlists ?? NO_WATCHLIST_CAPS),
   },
+  [TOKEN_WATCHLIST_NAMESPACE]: { shape: (value) => parseTokenWatchlist(value) },
+  [ADDRESS_WATCHES_NAMESPACE]: { shape: (value) => parseAddressWatches(value) },
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {
@@ -213,6 +236,11 @@ export async function setPreferences(
         version: currentVersion,
         value: currentValue,
       };
+    } else if (current && stableJson(value) === stableJson(currentValue)) {
+      // Saving what the record already holds changes nothing: no write, the record keeps its version, and no receipt is
+      // kept, so a client whose request id names only the version it read can still send its next change under that id.
+      // Sending this request again is the same no-op, or a conflict once the record has moved on.
+      return { outcome: 'stored', namespace, version: currentVersion, value: currentValue } as StoredResult;
     } else {
       // A refusal here stores no receipt, so the same request can be sent again once the cap allows it.
       try {

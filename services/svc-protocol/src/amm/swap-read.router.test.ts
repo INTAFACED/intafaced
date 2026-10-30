@@ -29,7 +29,7 @@ describe('protocol.amm.swapSettings', () => {
     ).resolves.toEqual({ slippageCeilingBps: 300, quoteTtlSeconds: 30, confirmations: 2 });
   });
 
-  it.each([
+  it.each<[string, Partial<ProtocolRouterDeps>, string]>([
     [
       'slippage',
       { swapSlippageBps: () => null, swapQuoteTtlSeconds: () => 30, swapConfirmations: () => 2 },
@@ -47,7 +47,7 @@ describe('protocol.amm.swapSettings', () => {
     ],
     ['absent seams', { swapSlippageBps: () => 300 }, 'protocol.swap_settings_unset'],
   ])('refuses a blank %s instead of inventing it', async (_name, overrides, code) => {
-    await expect(caller(overrides as Partial<ProtocolRouterDeps>).amm.swapSettings()).rejects.toMatchObject({
+    await expect(caller(overrides).amm.swapSettings()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: expect.stringContaining(code),
     });

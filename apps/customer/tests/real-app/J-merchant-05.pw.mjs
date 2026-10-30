@@ -47,14 +47,15 @@ async function signInOwner(page, state, destination) {
   return who;
 }
 
-/** The owner's own pay API through Edge, with a session of its own and its authenticator's next code. */
-async function ownerApi(state) {
+/** The owner's own pay API through Edge, with a session of its own and its authenticator's next code. `as` names the
+ * saved person to act as: the owner, or `foreign`, the owner of a second TEST business. */
+async function ownerApi(state, as = 'owner') {
   const totp = await totpOf();
-  const owner = { ...state.owner };
+  const owner = { ...state[as] };
   const code = async () => {
     const next = await nextCode(totp, owner.secret, owner.step);
     owner.step = next.step;
-    run.write({ owner: saved(owner) });
+    run.write({ [as]: saved(owner) });
     return next.code;
   };
   const send = async (route, body, token) => {
@@ -70,7 +71,12 @@ async function ownerApi(state) {
     } catch {
       /* the body is kept as text for the error */
     }
-    if (!res.ok || !json?.result) throw new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`);
+    if (!res.ok || !json?.result) {
+      throw Object.assign(new Error(`${route} refused: ${res.status} ${text.slice(0, 400)}`), {
+        status: res.status,
+        typed: /^([a-z]+\.[a-z_]+):/.exec(json?.error?.message ?? '')?.[1] ?? null,
+      });
+    }
     return json.result.data;
   };
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -243,4 +249,202 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   await expect(page.getByRole('list', { name: 'Payments' }).getByRole('listitem')).toHaveCount(25);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(refused).toEqual([]);
+});
+
+/** One fact's value in a facts list: the `dd` under the `dt` with exactly this label. */
+const fact = (section, label) =>
+  section
+    .locator('[data-testid="pp-facts"] > div')
+    .filter({ has: section.page().locator('dt').getByText(label, { exact: true }) })
+    .locator('dd');
+
+/** The status word in a payment page's header. */
+const statusWord = (page) => page.locator('.pp-detail-head [data-testid="pp-chip"]');
+
+/** The typed code a pay read refused with. A read that answers is the step's failure. */
+async function refusalOf(read) {
+  const answered = await read.then(
+    () => null,
+    (err) => err,
+  );
+  expect(answered, 'the read was refused').not.toBeNull();
+  return answered.typed;
+}
+
+test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and the dispute card, never the payer's instrument, a count while it waits for confirmations; an unknown or foreign id reads as not found`, async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const state = journey();
+  const ids = state.payments;
+  expect(ids?.refunded, `${J} #2 made the TEST payments this step reads`).toBeTruthy();
+
+  // A second TEST business with a paid payment of its own: its id is the foreign id this business must not read.
+  if (!state.foreign?.secret || !state.foreignMerchantId) {
+    const other = await businessReadyPerson(page, 'm5x', '/pay/onboarding');
+    const foreignMerchantId = await openBusiness(page, other, 'TEST Other Shop Ltd');
+    await verifiedBusiness(page, other, foreignMerchantId);
+    await forgetSession(page);
+    run.write({ foreign: saved(other), foreignMerchantId });
+  }
+  const foreignApi = await ownerApi(journey(), 'foreign');
+  const foreignPaid = await cardPayment(foreignApi, journey().foreignMerchantId, {
+    amount: '5.00',
+    reference: `TEST-${state.stamp}-foreign`,
+    want: 'captured',
+  });
+  expect(
+    (await foreignApi.query('payment.get', { paymentId: foreignPaid.id })).status,
+    'the foreign payment exists for its own business',
+  ).toBe('captured');
+
+  // A TEST crypto payment whose one transfer is 2 confirmations deep of the stack's 6: the page counts it while it
+  // waits, then drops the count once the transfer is final.
+  const owner = await ownerApi(journey());
+  const waiting = await owner.mutate('payment.create', {
+    // A fresh payment per attempt: a retried step must not find the one its first attempt already completed.
+    requestId: uuidOf(`${J}:payment:confirming:${state.merchantId}:${Date.now()}`),
+    merchantId: state.merchantId,
+    amount: '7.00',
+    assetId: 'USDT',
+    method: 'crypto',
+    railAdapter: 'crypto-native',
+    metadata: { reference: `TEST-${state.stamp}-confirming` },
+  });
+  const opened = waiting.status === 'created' ? await owner.mutate('payment.authorize', { paymentId: waiting.id }) : waiting;
+  expect(opened.railRef, 'the crypto rail gives the payment its address').toBeTruthy();
+  const tx = `j-merchant-05-confirming-${waiting.id}`;
+  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '2', '--tx', tx);
+  expect((await owner.mutate('payment.authorize', { paymentId: waiting.id })).status).toBe('created');
+  await signInOwner(page, journey(), `/pay/payments/${ids.refunded}`);
+  const refused = refusedPayCalls(page);
+  const section = (name) => page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name, level: 2 }) });
+  // Each payment's status word is the one the page's vocabulary gives the status the service reads back.
+  const WORD = {
+    created: 'Created',
+    authorized: 'Authorised',
+    captured: 'Paid',
+    settled: 'Settled',
+    refunded: 'Refunded',
+    disputed: 'Disputed',
+    failed: 'Failed',
+  };
+  const showsItsStatus = async (paymentId, expected) => {
+    const read = await owner.query('payment.get', { paymentId });
+    expect(read.status, `payment ${paymentId} is ${expected}`).toBe(expected);
+    await expect(statusWord(page)).toHaveText(WORD[expected]);
+    return read;
+  };
+
+  // A timeline step's words for each kind of event in the service's history (the page's vocabulary).
+  const STEP = {
+    created: 'Payment created',
+    authorized: 'Authorised',
+    captured: 'Money taken',
+    settled: 'Added to a settlement',
+    refunded: 'Refunded',
+    'refund.reversed': 'A refund did not go through and was put back',
+    disputed: 'Customer disputed the payment',
+    failed: 'The payment did not go through',
+    'payer_name.held': 'Bank transfer held for a name check',
+  };
+  const REFUND_WORD = { posted: 'Refund sent', settled: 'Refund settled', reversed: 'Refund reversed' };
+  /** The page's Timeline lists the payment's history from the service, oldest first, one step per event it names. */
+  const showsItsTimeline = async (paymentId) => {
+    const events = await owner.query('payment.history', { paymentId, limit: 200 });
+    const expected = events
+      .filter((e) => STEP[e.event])
+      .sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+      .map((e) => STEP[e.event]);
+    expect(expected.length, `payment ${paymentId} has a history`).toBeGreaterThan(1);
+    await expect(section('Timeline').getByRole('list', { name: 'Timeline' }).getByRole('listitem').locator('strong')).toHaveText(expected);
+    return expected;
+  };
+
+  // The payment refunded in part: its facts and amounts, each read back from the service, and its timeline.
+  const refundedRead = await showsItsStatus(ids.refunded, 'captured');
+  const summary = section('Summary');
+  await expect(summary).toBeVisible();
+  // Decimal strings, compared as scaled whole cents (the wire drops trailing zeros).
+  const cents = (v) => BigInt(Math.round(Number(v) * 100));
+  expect([refundedRead.amount, refundedRead.capturedAmount, refundedRead.refundedAmount].map(cents)).toEqual([10000n, 10000n, 3000n]);
+  await expect(fact(summary, 'Amount')).toHaveText(/^100\.00\s*USDT$/);
+  await expect(fact(summary, 'Paid')).toHaveText(/^100\.00\s*USDT$/);
+  await expect(fact(summary, 'Refunded')).toHaveText(/^30\.00\s*USDT$/);
+  await expect(fact(summary, 'Still refundable')).toHaveText(/^70\.00\s*USDT$/);
+  const facts = section('Key facts');
+  await expect(fact(facts, 'Payer reference')).toHaveText('TEST-cust-ben');
+  await expect(fact(facts, 'Payer reference').getByRole('link')).toHaveAttribute('href', '/pay/customers/TEST-cust-ben');
+  expect(refundedRead.railAdapter).toBe('card-sandbox');
+  await expect(fact(facts, 'Paid with')).toHaveText('Card');
+  await expect(fact(facts, 'Created').locator('time')).toHaveAttribute('datetime', refundedRead.createdAt);
+  // The timeline is the service's own history of the payment, step for step and oldest first, the refund included.
+  const refundedSteps = await showsItsTimeline(ids.refunded);
+  expect(refundedSteps).toContain('Refunded');
+  // The refunds card is the service's refunds list for this payment: each refund's id, amount and status.
+  const refundRows = (await owner.query('payment.refunds.list', { merchantId: state.merchantId, paymentId: ids.refunded, limit: 200 }))
+    .items;
+  expect(refundRows).toHaveLength(1);
+  const [refundRow] = refundRows;
+  expect([refundRow.paymentId, cents(refundRow.amount), refundRow.assetId]).toEqual([ids.refunded, 3000n, 'USDT']);
+  const refundItems = section('Refunds').getByRole('listitem');
+  await expect(refundItems).toHaveCount(1);
+  await expect(refundItems.first()).toContainText(/^30\.00\s*USDT · /);
+  await expect(refundItems.first()).toContainText(REFUND_WORD[refundRow.status]);
+  await expect(refundItems.first().getByRole('link')).toHaveAttribute('href', `/pay/refunds/${encodeURIComponent(refundRow.id)}`);
+  // The card the payer used never shows.
+  await expect(page.locator('body')).not.toContainText('tok_ok');
+  await expect(page.locator('body')).not.toContainText('tok_decline');
+
+  // The disputed payment: its status word, the dispute card with its amount and reason, and a way to it.
+  await page.goto(`/pay/payments/${ids.disputed}`);
+  await showsItsStatus(ids.disputed, 'disputed');
+  // The dispute card is the service's one dispute on this payment: its amount, its reason and a way to it by its id.
+  const disputes = (await owner.query('merchantOps.disputes.list', { limit: 200 })).items.filter((d) => d.paymentId === ids.disputed);
+  expect(disputes).toHaveLength(1);
+  const [disputeRead] = disputes;
+  // The stack's TEST tool labels the reason it opens the dispute with (local-test-world.mjs open-dispute).
+  expect([cents(disputeRead.amount), disputeRead.assetId, disputeRead.reasonCode]).toEqual([
+    1200n,
+    'USDT',
+    'LOCAL-TEST product_not_received',
+  ]);
+  const dispute = section('Dispute');
+  await expect(fact(dispute, 'Amount')).toHaveText(/^12\.00\s*USDT$/);
+  await expect(fact(dispute, 'Reason')).toHaveText(disputeRead.reasonCode);
+  await expect(dispute.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute(
+    'href',
+    `/pay/disputes/${encodeURIComponent(disputeRead.disputeId)}`,
+  );
+  expect(await showsItsTimeline(ids.disputed)).toContain('Customer disputed the payment');
+
+  // The declined payment: one plain word for its status, and why it failed.
+  await page.goto(`/pay/payments/${ids.declined}`);
+  await showsItsStatus(ids.declined, 'failed');
+  await expect(page.getByText('Why it failed:')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('tok_decline');
+
+  // The crypto payment: its status word and its confirmation count while it waits, and no count once the transfer is
+  // final.
+  await page.goto(`/pay/payments/${waiting.id}`);
+  await showsItsStatus(waiting.id, 'created');
+  await expect(page.getByTestId('payment-confirmations')).toContainText('Waiting for confirmations: 2 of 6');
+  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '6', '--tx', tx);
+  await owner.mutate('payment.authorize', { paymentId: waiting.id });
+  await page.reload();
+  await expect(section('Timeline')).toBeVisible();
+  await expect(page.getByTestId('payment-confirmations')).toHaveCount(0);
+  expect(refused).toEqual([]);
+
+  // An unknown id, and the id of the other business's payment, both refuse with the one not-found code, and the page
+  // says so; an id that is not one reads as not found too.
+  const unknownId = crypto.randomUUID();
+  expect(await refusalOf(owner.query('payment.get', { paymentId: unknownId }))).toBe('pay.payment_not_found');
+  expect(await refusalOf(owner.query('payment.get', { paymentId: foreignPaid.id }))).toBe('pay.payment_not_found');
+  for (const id of [unknownId, foreignPaid.id, 'not-an-id']) {
+    await page.goto(`/pay/payments/${id}`);
+    await expect(page.getByText('We could not find that payment.').first()).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('TEST Other Shop Ltd');
+    await expect(page.locator('body')).not.toContainText('5.00 USDT');
+  }
 });

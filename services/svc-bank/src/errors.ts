@@ -35,6 +35,18 @@ export type BankErrorCode =
   | 'bank.fixed_pool_rate_locked'
   /** A rate change that names the rate already in force records nothing. */
   | 'bank.pool_rate_unchanged'
+  /** A pool status change that names the status already in force records nothing, and spends no approval (BK-earn-04). */
+  | 'bank.pool_status_unchanged'
+  /** A pool status change whose revision is not the pool's next one: another change landed first (BK-earn-04). */
+  | 'bank.pool_status_stale'
+  /** A take back from a staking-style pool that did not confirm the unbonding it starts (BK-earn-04). */
+  | 'bank.unbond_not_confirmed'
+  /** A plain take back of a saving that is still unbonding; it is released when the unbonding ends (BK-earn-04). */
+  | 'bank.position_unbonding'
+  /** The owner has not published the staking risk wording (`BANK_EARN_RISK_WORDING_JSON`), or it is not in shape. */
+  | 'bank.earn_risk_wording_unset'
+  /** A release of an ended unbonding failed for a reason without its own code; the next run tries again. */
+  | 'bank.earn_release_failed'
   | 'bank.pool_underfunded'
   /**
    * No open pool carries an operator-configured APR for the requested earn
@@ -404,6 +416,10 @@ export type BankErrorCode =
    * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
    */
   | 'bank.address_lookalike'
+  /** The address is on the owner's destination fraud list (W-withdraw-03), on its network or on every network. Nothing was saved. */
+  | 'bank.destination_fraud_listed'
+  /** The destination fraud list could not be read, so the address was refused rather than assumed safe. Nothing was saved. */
+  | 'bank.destination_fraud_list_unreadable'
   /** The owner has not published how long a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`). Nothing was offered. */
   | 'bank.wallet_proof_window_unset'
   /** The owner has not published how long a verified wallet proof holds (`BANK_WALLET_PROOF_VALID_DAYS`). Nothing was recorded. */
@@ -481,6 +497,8 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The owner froze the account themselves (I-account-lifecycle-08): no address change and nothing sent until they lift it. */
+  | 'bank.account_frozen_self'
   /** The address was approved already, so there is nothing to approve or mail. */
   | 'bank.address_approval_not_pending'
   /** Approving from the device (or the sign-in, where no device is named) that saved the address: another one, or the link, must. */
@@ -531,6 +549,11 @@ export type BankErrorCode =
    * HTTP job and `ops.accrueInterest` must agree — tRPC is not a back door.
    */
   | 'bank.interest_accrual_disabled'
+  /**
+   * `ops.accrueInterest` was asked to pay a UTC day whose 00:00Z is still in
+   * the future. Only a day that has begun is paid.
+   */
+  | 'bank.accrual_day_not_begun'
   /**
    * Loan interest capitalisation kill switch (`LOAN_ACCRUAL_ENABLED=false`).
    * Same parity rule as transfers / earn.
@@ -598,6 +621,7 @@ export type BankErrorCode =
    */
   | 'bank.earn_resume_pending_limit_unset'
   | 'bank.earn_renew_batch_limit_unset'
+  | 'bank.earn_release_batch_limit_unset'
   | 'bank.loan_resume_pending_limit_unset'
   | 'bank.loan_accrue_batch_limit_unset'
   | 'bank.transfer_due_limit_unset'

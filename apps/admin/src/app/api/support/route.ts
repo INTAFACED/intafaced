@@ -5,19 +5,24 @@ import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-sess
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { bulkSummary, type BulkRow } from '@/lib/support/bulk';
 import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
+import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
 import {
+  applyMacro,
   claimTicket,
   loadBulkPolicy,
   loadKb,
+  loadMacros,
   loadQueue,
   loadTicket,
   loadTicketExtras,
   loadGroups,
   loadStaff,
   loadRatingSummary,
+  loadCustomerCard,
   loadTicketLifecycle,
   loadTicketProperties,
+  loadViews,
   previewMerge,
   runSupportAction,
 } from '@/lib/support/server';
@@ -25,14 +30,15 @@ import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
  * Support desk BFF: the operator queue, one ticket (with its case file and rating), the help articles, and the desk's
- * writes: claim, reply, set status, escalate, publish and unpublish an article.
+ * writes: claim, unclaim, reassign, reply, set status, escalate, publish and unpublish an article, and the agent's own
+ * signature. A macro is read filled from one request (`view=macro`) and only goes into the agent's draft.
  *
  * Runs as the signed-in founder: svc-support takes the operator id from the verified session, so a claim is recorded
  * against the founder who made it and cannot be made on anyone else's behalf. Every procedure is `support:ops`; if
  * founder sign-in does not carry it, svc-support answers 403 and the desk says that (admin-BACKEND-NEEDS.md).
  *
- * There is no unclaim or reassign: svc-support has none. That is why a claim needs a second click in the page. Every other
- * write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
+ * A claim holds the request until its holder unclaims it or a lead gives it to someone else (svc-support refuses both to
+ * anyone else), and it still takes a second click in the page. Every other write needs one too: a reply cannot be unsent, a closed ticket stays closed, an escalation's case file is immutable, and
  * a published article changes what customers read. No write here moves money, and none needs a second approver.
  */
 
@@ -68,6 +74,18 @@ export async function GET(request: Request) {
     }
     return Response.json({ asOf: new Date().toISOString(), preview: result.data }, { headers: NO_STORE });
   }
+  if (url.searchParams.get('view') === 'macros') return Response.json(await loadMacros(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'macro') {
+    const id = url.searchParams.get('id');
+    const macro = url.searchParams.get('macro');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    if (!isTicketId(macro)) return Response.json({ code: 'admin.support_macro_id' }, { status: 400, headers: NO_STORE });
+    const result = await applyMacro(session, id, macro);
+    if (result.kind !== 'ok') {
+      return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+    }
+    return Response.json({ ok: true, applied: result.data }, { headers: NO_STORE });
+  }
   if (url.searchParams.get('view') === 'bulk') return Response.json(await loadBulkPolicy(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'staff') return Response.json(await loadStaff(session), { headers: NO_STORE });
@@ -75,6 +93,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'customer') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadCustomerCard(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'lifecycle') {
     const id = url.searchParams.get('id');
@@ -94,7 +117,12 @@ export async function GET(request: Request) {
     });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
-  return Response.json(await loadQueue(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'views') return Response.json(await loadViews(session), { headers: NO_STORE });
+  // The queue, narrowed by `filter`, `q` or `savedView` (a saved view's id; `view` names the part of the desk asked for).
+  const query = readQueueQuery({
+    get: (name) => url.searchParams.get(name === 'view' ? 'savedView' : name),
+  });
+  return Response.json(await loadQueue(session, query), { headers: NO_STORE });
 }
 
 export async function POST(request: Request) {
@@ -175,17 +203,23 @@ const INVALID = {
 const targetOf = (request: SupportActionRequest) =>
   request.action === 'staff_availability'
     ? (request.userId ?? 'self')
-    : request.action === 'group_save'
-      ? (request.groupId ?? 'new')
-      : request.action === 'group_member'
-        ? request.groupId
-        : request.action === 'bulk'
-          ? request.batchKey
-          : request.action === 'merge'
-            ? `${request.ticketId}->${request.survivorId}`
-            : 'ticketId' in request
-              ? request.ticketId
-              : request.id;
+    : request.action === 'signature_set'
+      ? 'self'
+      : request.action === 'group_save'
+        ? (request.groupId ?? 'new')
+        : request.action === 'group_member'
+          ? request.groupId
+          : request.action === 'bulk'
+            ? request.batchKey
+            : request.action === 'view_save'
+              ? `view:${request.name}`
+              : request.action === 'merge' || request.action === 'assign'
+                ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
+                : request.action === 'claim_next'
+                  ? 'queue'
+                  : 'ticketId' in request
+                    ? request.ticketId
+                    : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -216,9 +250,16 @@ async function writeAction(session: Session, raw: Record<string, unknown>) {
       action: request.action,
       summary: summaryOf(request, result.data),
       ...(request.action === 'bulk' ? { results: result.data } : {}),
+      // The claimed request is the page's next address: the id, holder and status come from svc-support's answer.
+      ...(request.action === 'claim_next' ? claimedOf(result.data) : {}),
     },
     { headers: NO_STORE },
   );
+}
+
+function claimedOf(data: unknown) {
+  const t = data as { id: string; assigneeId: string | null; status: string };
+  return { ticketId: t.id, assigneeId: t.assigneeId, status: t.status };
 }
 
 function audienceWords(audience: unknown): string {
@@ -233,6 +274,14 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
   switch (request.action) {
     case 'reply':
       return 'svc-support recorded your reply on the ticket.';
+    case 'note':
+      return 'svc-support recorded your internal note. The customer does not see it.';
+    case 'claim_next':
+      return `svc-support gave you the next request; it is now ${String(d.status)} and yours.`;
+    case 'unclaim':
+      return `svc-support released the request back to the queue; it is now ${String(d.status)} with no assignee.`;
+    case 'assign':
+      return `svc-support says the request is now assigned to ${String(d.assigneeId)}.`;
     case 'merge':
       return `svc-support merged the request: ${String(d.commentsMoved)} messages and ${String(d.attachmentsMoved)} files now sit under the surviving request, and the duplicate is closed.`;
     case 'status':
@@ -247,12 +296,16 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
     case 'properties':
       return 'svc-support recorded the new priority, type and labels on the ticket.';
+    case 'view_save':
+      return `svc-support saved the view "${String(d.name)}"${d.shared === true ? ', shared with the team' : ', for you only'}.`;
     case 'escalate':
       return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
     case 'kb_publish':
       return `svc-support says ${String(d.id)} is published at revision ${String(d.revision)}.`;
     case 'kb_audience':
       return `svc-support says ${String(d.id)} is now readable by ${audienceWords(d.audience)}. Its revision is now ${String(d.revision)}.`;
+    case 'signature_set':
+      return `svc-support saved your signature at revision ${String(d.revision)}.`;
     case 'kb_unpublish':
       return `svc-support says ${String(d.id)} is hidden from customers. Its revision is now ${String(d.revision)}; quote it to publish it again.`;
   }

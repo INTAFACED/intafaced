@@ -26,6 +26,10 @@ export const explorerTxSchema = z.object({
   chainId: z.number().int(),
   hash: z.string(),
   status: z.enum(['success', 'failed', 'pending', 'dropped', 'replaced']),
+  /** The hash that replaced this one (same sender and nonce), when the status is `replaced`. */
+  replacingHash: z.string().nullable(),
+  /** Set when the block that held this transaction was reorged away. */
+  orphaned: z.object({ reason: z.string() }).nullable(),
 });
 
 export type ExplorerBlockRow = z.infer<typeof explorerBlockRowSchema>;
