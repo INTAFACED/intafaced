@@ -341,6 +341,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.gradingQueue',
         'admin.openGrading',
         'admin.gradeSubmission',
+        'admin.bulkGrade',
         'admin.itemMedia',
         'admin.mediaUploadIntent',
         'admin.confirmMedia',

@@ -342,6 +342,14 @@ export interface RailResult {
    * the bank reported no name for), so the core checks exactly the money it is about to take in (RC-merchant-09).
    */
   readonly payerNames?: readonly (string | null)[];
+
+  /**
+   * On a `captured` result from a rail that holds captured funds before it makes them available (RC-merchant-10): the
+   * rail's own word that the money is not yet released, with the day it says it will be where it names one. Absent means
+   * the rail made the funds available at capture. Only the rail sets this; release comes later as a signed
+   * `funds.available` delivery, never from a client.
+   */
+  readonly funds?: { readonly state: 'pending'; readonly availableOn?: Date };
 }
 
 /**
@@ -394,7 +402,14 @@ export type RailEventType =
    * the new one (W-deposit-06). Carries `chain`. Only the customer deposit record acts on it; on a payment it is recorded and
    * not acted on, like any type without a `case`.
    */
-  | 'chain.reorged';
+  | 'chain.reorged'
+  /**
+   * The rail released a captured payment's held funds (RC-merchant-10). Settlement takes a payment whose capture the
+   * rail reported held only after this delivery is recorded on it.
+   */
+  | 'funds.available'
+  /** The rail still holds a captured payment's funds and names (`availableOn`) the day it will release them. */
+  | 'funds.pending';
 
 /** §6.1: `verifyWebhook(req): RailEvent | null`. */
 export interface RailEvent {
@@ -438,6 +453,9 @@ export interface RailEvent {
    * the name the payer gave before a bank transfer is captured (RC-merchant-09); never shown to the payer or the business.
    */
   readonly payerName?: string;
+
+  /** On a `funds.pending` delivery: the day the rail says it will release the funds. Absent when it names none. */
+  readonly availableOn?: Date;
 }
 
 /**

@@ -105,6 +105,16 @@ export interface UsageWindowView {
   readonly openedAt: Date;
 }
 
+/** One agent's sealed usage on one UTC day for one task (or the tasks one window ran as), summed exactly. */
+export interface UsageDayView {
+  readonly agentId: string;
+  readonly day: string;
+  readonly task: string;
+  readonly amount: Amount;
+  readonly windows: number;
+  readonly assetId: string;
+}
+
 interface WindowRow {
   session_id: string;
   window_id: string;
@@ -496,6 +506,38 @@ export class UsageMeter {
       assetId: r.charged_asset ?? this.assetId,
       chargeKey: r.charge_key,
       openedAt: r.opened_at,
+    }));
+  }
+
+  /**
+   * The sealed usage of these agents' sessions, one row per agent, UTC day and task: the exact sum of the windows'
+   * sealed amounts, so an agent's rows add up to its sealed windows. A window lies in one day (its id starts with it);
+   * its task is every task its usage ran as. Open windows have no amount yet and are left out (a sealed one always has
+   * its amount, by the table's CHECK; the coalesce only keeps a NULL from ever reaching `parseAmount`).
+   */
+  async usageByDay(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
+    if (agentIds.length === 0) return [];
+    const rows = await this.sql<Array<{ agent_id: string; day: string; task: string; amount: string; windows: number; asset: string }>>`
+      SELECT s.agent_id, left(w.window_id, 10) AS day, coalesce(t.tasks, '') AS task,
+             coalesce(sum(w.charged_amount), 0)::text AS amount, count(*)::int AS windows, coalesce(w.charged_asset, ${this.assetId}) AS asset
+        FROM agents.usage_windows w
+        JOIN agents.agent_sessions s ON s.id = w.session_id
+        LEFT JOIN LATERAL (
+          SELECT string_agg(DISTINCT r.task, ', ' ORDER BY r.task) AS tasks
+            FROM agents.usage_records r
+           WHERE r.session_id = w.session_id AND r.window_id = w.window_id
+        ) t ON true
+       WHERE s.user_id = ${userId} AND s.agent_id = ANY(${agentIds as string[]}) AND w.sealed_at IS NOT NULL
+       GROUP BY 1, 2, 3, 6 -- agent, day, task, asset: one bound fee asset stands in for a window sealed without one
+       ORDER BY day DESC, s.agent_id, task
+    `;
+    return rows.map((r) => ({
+      agentId: r.agent_id,
+      day: r.day,
+      task: r.task,
+      amount: parseAmount(r.amount),
+      windows: r.windows,
+      assetId: r.asset,
     }));
   }
 

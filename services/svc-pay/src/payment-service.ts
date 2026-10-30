@@ -1,3 +1,4 @@
+import { heldClearingOf, type HeldClearing } from './payment-service/funds.js';
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
 import { linkPrice } from './link-price.js';
 import { checkoutLookOf, type CheckoutLook } from './checkout-branding/branding.js';
@@ -327,6 +328,7 @@ export type PayErrorCode =
   /** webhook-endpoints list page size unpublished. Blank is not 50 — never dump every endpoint. */
   | 'pay.webhook_endpoint_list_limit_unset'
   | 'pay.nothing_to_settle'
+  | 'pay.payout_clearing_pending'
   | 'pay.fee_exceeds_gross'
   | 'pay.invalid_window'
   | 'pay.settlement_not_found'
@@ -813,6 +815,11 @@ export interface SettlementRecord {
   /** Rail refusals so far. Part of the payout hold's idempotency key. */
   payoutAttempts: number;
   status: SettlementStatus;
+  /**
+   * On a settlement run (RC-merchant-10): the payments the rail still holds, which this run did not post and which stay
+   * in clearing. Present only when there are some.
+   */
+  clearingPending?: HeldClearing[];
 }
 
 /**
@@ -2852,6 +2859,11 @@ export class PayService {
 
   private async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
     return webhooks.restoreAfterWonDispute(this.internal, paymentId, disputeId);
+  }
+
+  /** RC-merchant-10: one business's captured payments whose funds the rail still holds, with the day it named. */
+  async heldClearing(merchantId: string, assetId?: string): Promise<HeldClearing[]> {
+    return heldClearingOf(this.internal.sql, merchantId, assetId);
   }
 
   async settleWindow(input: {

@@ -82,6 +82,8 @@ const en = {
   ticketCount: 'Tickets',
   tierWeight: 'Tier weight',
   signIn: 'Sign in to check your eligibility and read your basis.',
+  signInBrowse:
+    'Anyone can read the launches and their terms. Sign in to check who may take part, read your basis and see your participation.',
   back: 'All launches',
   refusedNotFound: 'We could not find that launch.',
   refusedTierUnset:

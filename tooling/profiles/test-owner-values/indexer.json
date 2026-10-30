@@ -1,0 +1,30 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "INDEXER_START_HEIGHT": {
+      "service": "indexer",
+      "value": "0",
+      "note": "TEST: the local TEST chain starts empty, so the explorer indexes it from genesis. Blank in production refuses boot."
+    },
+    "INDEXER_FINALITY_DEPTH": {
+      "service": "indexer",
+      "value": "2",
+      "note": "TEST finality depth on the local TEST chain (one block a second). Blank in production refuses boot."
+    },
+    "INDEXER_BATCH_SIZE": {
+      "service": "indexer",
+      "value": "50",
+      "note": "TEST blocks per ingest pass on the local TEST chain. Blank in production refuses boot."
+    },
+    "INDEXER_EXPLORER_LIST_LIMIT": {
+      "service": "indexer",
+      "value": "25",
+      "note": "TEST explorer page size. Blank in production refuses indexer.explorer_list_limit_unset."
+    },
+    "INDEXER_TX_DROP_WINDOW_SECONDS": {
+      "service": "indexer",
+      "value": "600",
+      "note": "TEST window before an unseen pending hash reads dropped. Blank in production refuses indexer.tx_drop_window_unset."
+    }
+  }
+}

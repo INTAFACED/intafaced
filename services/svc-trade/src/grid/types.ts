@@ -78,3 +78,32 @@ export const gridReserveKey = (botId: string): string => `bots.grid.reserve:${bo
 export const gridBusinessId = (botId: string): string => `grid:${botId}`;
 export const gridClientOrderId = (botId: string, level: number, side: 'buy' | 'sell', cycle: number): string =>
   `grid:${botId}:${level}:${side === 'buy' ? 'b' : 's'}${cycle}`;
+
+/**
+ * One applied profit withdrawal (CB-bots-05): it lowered the bot's reserve row by `amount`, under the owner's reserve
+ * lock, and posted no ledger row. Profit here is what the reserve still holds over the investment. The cap fields are
+ * the owner's daily cap for the asset and, after this withdrawal, what the owner has used of it today (UTC) and what is left.
+ * Business key `bots.grid.withdraw:<botId>:<requestId>`.
+ */
+export interface GridWithdrawal {
+  readonly withdrawalId: string;
+  readonly botId: string;
+  readonly userId: string;
+  readonly requestId: string;
+  /** sha256 of bot, asset and amount: the same key with a different body is a conflict, never a second withdrawal. */
+  readonly requestHash: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly profitBefore: Amount;
+  readonly profitAfter: Amount;
+  readonly reserveBefore: Amount;
+  readonly reserveAfter: Amount;
+  readonly dailyCap: Amount;
+  readonly capUsed: Amount;
+  readonly capRemaining: Amount;
+  /** The identity step-up approval this withdrawal consumed. An id, never a secret. */
+  readonly stepUpEventId: string;
+  readonly appliedAt: Date;
+}
+
+export const gridWithdrawalKey = (botId: string, requestId: string): string => `bots.grid.withdraw:${botId}:${requestId}`;

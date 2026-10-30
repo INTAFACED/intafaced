@@ -67,11 +67,15 @@ export const ownAgentRunResultSchema = z.object({
 });
 export type OwnAgentRunResult = z.infer<typeof ownAgentRunResultSchema>;
 
-/** `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. */
+/**
+ * `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. `task` is
+ * the routing task the call was priced as (a blank rate refuses under it); null only on a row logged without one.
+ */
 export const ownAgentRunRowSchema = z.object({
   sessionId: z.string().uuid(),
   sequence: z.number().int(),
   status: z.enum(['executed', 'refused', 'failed']),
+  task: z.string().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
   assetId: z.string(),
@@ -98,3 +102,19 @@ export const ownAgentUsageWindowSchema = z.object({
   openedAt: z.string(),
 });
 export type OwnAgentUsageWindow = z.infer<typeof ownAgentUsageWindowSchema>;
+
+/**
+ * `own.usageByDay`: the sealed usage of every agent the person built, one row per agent, UTC day and task, each the
+ * exact sum of the sealed windows it covers (`windows` of them), so the rows of one agent add up to its sealed windows.
+ * A window holds one day; `task` names every task its usage ran as. Amounts are decimal strings in `assetId`.
+ */
+export const ownAgentUsageDaySchema = z.object({
+  agentId: z.string().uuid(),
+  agentName: z.string(),
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  task: z.string(),
+  amount: z.string(),
+  windows: z.number().int().positive(),
+  assetId: z.string(),
+});
+export type OwnAgentUsageDay = z.infer<typeof ownAgentUsageDaySchema>;
