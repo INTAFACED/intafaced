@@ -9,6 +9,7 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs end-earn-unbonding <positionId> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-earn-position <positionId> <days> [--state <dir>]
  *
  * Default state dir: ~/.intafaced/local-test-stack
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
@@ -601,6 +602,25 @@ export async function endEarnUnbonding(deps, positionId) {
   return { ...ended, lines: [`saving ${positionId}: unbonding ends ${ended.unbondsAt} (moved back)`, FUNDS_LABEL] };
 }
 
+/**
+ * Moves one TEST saving's opening back whole days, so the bank's own accrual job can pay a day that has begun on this
+ * stack (J-bank-08 #3, #5, #6: the job refuses a day that has not begun, and a journey cannot wait for midnight). Only
+ * the saving's opening moves; its pool's rate and status history are append-only and stay as recorded. Nothing is
+ * posted. Refused unless the saving is in a TEST pool, active, open-ended (no term) and not unbonding, and its pool has
+ * no day recorded on or after the new opening, so no day already paid without it becomes one it should have been paid.
+ */
+export async function ageEarnPosition(deps, positionId, days) {
+  if (typeof positionId !== 'string' || !UUID.test(positionId)) {
+    throw new GuardError('refusing: age-earn-position needs a saving id (a UUID)');
+  }
+  if (!/^\d+$/.test(String(days)) || Number(days) < 1 || Number(days) > MAX_AGE_DAYS) {
+    throw new GuardError(`refusing: age-earn-position needs whole days from 1 to ${MAX_AGE_DAYS}`);
+  }
+  const aged = await deps.ageEarnPositionRows(positionId, Number(days), TEST_POOL_NAME);
+  if (aged.refused) throw new GuardError(`refusing: saving ${positionId} ${aged.refused}`);
+  return { ...aged, lines: [`saving ${positionId}: opened ${aged.openedAt} (moved back ${days} days)`, FUNDS_LABEL] };
+}
+
 // ── Status (read-only) ──────────────────────────────────────────────────────
 
 export async function statusReport(deps, now = new Date()) {
@@ -921,6 +941,37 @@ export async function openLocal(plan) {
         return { unbondsAt: moved.unbonds_at.toISOString() };
       });
     },
+    async ageEarnPositionRows(positionId, days, testPoolName) {
+      return bankSql.begin(async (tx) => {
+        const rows = await tx`
+          SELECT ps.pool_id, ps.status, ps.matures_at, ps.unbonding_started_at, ps.opened_at, pl.name AS pool
+            FROM bank.earn_positions ps JOIN bank.earn_pools pl ON pl.id = ps.pool_id
+           WHERE ps.id = ${positionId}
+             FOR UPDATE OF ps
+        `;
+        const position = rows[0];
+        if (!position) return { refused: 'is not on this stack' };
+        // Held to the end of this transaction: no day can be recorded for any pool while the check and the move run.
+        await tx`LOCK TABLE bank.interest_accruals IN SHARE MODE`;
+        if (!testPoolName.test(position.pool)) return { refused: 'is not in a TEST pool' };
+        if (position.status !== 'active') return { refused: `is ${position.status}, not active` };
+        if (position.matures_at !== null) return { refused: 'has a term; only an open-ended saving is aged' };
+        if (position.unbonding_started_at !== null) return { refused: 'is unbonding' };
+        const shift = tx`make_interval(days => ${days})`;
+        const [recorded] = await tx`
+          SELECT count(*)::int AS n FROM bank.interest_accruals
+           WHERE pool_id = ${position.pool_id}
+             AND accrual_date >= ((${position.opened_at}::timestamptz - ${shift}) AT TIME ZONE 'UTC')::date
+        `;
+        if (recorded.n > 0) return { refused: 'is in a pool with a day recorded on or after its new opening' };
+        const [moved] = await tx`
+          UPDATE bank.earn_positions SET opened_at = opened_at - ${shift}
+           WHERE id = ${positionId}
+          RETURNING opened_at
+        `;
+        return { openedAt: moved.opened_at.toISOString() };
+      });
+    },
     async close() {
       await bankSql.end({ timeout: 5 });
       await p2pSql.end({ timeout: 5 });
@@ -930,7 +981,8 @@ export async function openLocal(plan) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding';
+const USAGE =
+  'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding | age-earn-position';
 const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
 
 export function parseArgs(argv) {
@@ -959,8 +1011,9 @@ export function parseArgs(argv) {
     'age-loan': 'refusing: age-loan needs <loanId> <days>',
     'fund-earn-pool': 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
     'end-earn-unbonding': 'refusing: end-earn-unbonding needs <positionId>',
+    'age-earn-position': 'refusing: age-earn-position needs <positionId> <days>',
   };
-  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1 }[command] ?? 0;
+  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1, 'age-earn-position': 2 }[command] ?? 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
   if (rest.length < operands) throw new GuardError(needs[command]);
   return {
@@ -1005,6 +1058,11 @@ async function dispatch(command, deps, hooks, operands = [], options = {}) {
   }
   if (command === 'end-earn-unbonding') {
     const report = await endEarnUnbonding(deps, operands[0]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'age-earn-position') {
+    const report = await ageEarnPosition(deps, operands[0], operands[1]);
     for (const line of report.lines) out(line);
     return 0;
   }
