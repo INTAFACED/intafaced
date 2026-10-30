@@ -1,13 +1,13 @@
 /**
  * LOCAL TEST HTTPS front for the stack's founder console (apps/admin on plain http). The Customer app's production build
- * links to the Team console only over HTTPS (apps/customer/src/app/TeamDesk.tsx), so the stack serves the console through
- * this proxy with its own self-signed TEST certificate instead of relaxing that check. The key and certificate are made
+ * links to the Team console only over HTTPS (apps/customer/src/app/TeamDesk.tsx), so the stack gives the link this HTTPS
+ * address, with its own self-signed TEST certificate, which sends the browser on to the console instead of relaxing
+ * that check. The key and certificate are made
  * per stack in its state folder (mode 600), name only 127.0.0.1 and localhost, and are never a live certificate.
  */
 import { spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 
@@ -60,45 +60,16 @@ export function ensureTestCert(dir, { now = Date.now(), run = spawnSync } = {}) 
 }
 
 /**
- * An HTTPS server on host:port that passes every request and upgrade to the plain-http console at `upstream`, telling it
- * the browser's own scheme and host (x-forwarded-proto/-host) and keeping the browser's Host. Resolves to the server.
+ * An HTTPS server on host:port that sends every request on to the same path at the console's own origin (`target`) with
+ * a 308. It proxies nothing: the console checks that its requests reach it on its own origin (ADMIN_ORIGIN), so the
+ * founder signs in there, and this front exists only so the Customer build's HTTPS-only Team link has a real address.
  */
-export function serveTeamTls({ host, port, upstream, key, cert }) {
-  const target = new URL(upstream);
-  const forwarded = (req) => ({
-    ...req.headers,
-    'x-forwarded-proto': 'https',
-    'x-forwarded-host': req.headers.host ?? `${host}:${port}`,
-    'x-forwarded-for': req.socket.remoteAddress ?? '',
-  });
+export function serveTeamTls({ host, port, target, key, cert }) {
+  const base = new URL(target);
   const server = https.createServer({ key: fs.readFileSync(key), cert: fs.readFileSync(cert) }, (req, res) => {
-    const out = http.request(
-      { hostname: target.hostname, port: target.port, method: req.method, path: req.url, headers: forwarded(req) },
-      (up) => {
-        res.writeHead(up.statusCode ?? 502, up.headers);
-        up.pipe(res);
-      },
-    );
-    out.on('error', () => {
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
-      res.end('team-tls: the founder console is not answering\n');
-    });
-    req.pipe(out);
-  });
-  server.on('upgrade', (req, socket, head) => {
-    const out = http.request({ hostname: target.hostname, port: target.port, method: req.method, path: req.url, headers: forwarded(req) });
-    out.on('upgrade', (up, upSocket, upHead) => {
-      const lines = [`HTTP/1.1 ${up.statusCode} ${up.statusMessage}`];
-      for (let i = 0; i < up.rawHeaders.length; i += 2) lines.push(`${up.rawHeaders[i]}: ${up.rawHeaders[i + 1]}`);
-      socket.write(`${lines.join('\r\n')}\r\n\r\n`);
-      if (upHead?.length) socket.write(upHead);
-      if (head?.length) upSocket.write(head);
-      upSocket.pipe(socket).pipe(upSocket);
-      upSocket.on('error', () => socket.destroy());
-      socket.on('error', () => upSocket.destroy());
-    });
-    out.on('error', () => socket.destroy());
-    out.end();
+    const to = new URL(req.url ?? '/', base);
+    if (to.origin !== base.origin) return res.writeHead(400, { 'content-type': 'text/plain' }).end('team-tls: path only\n');
+    res.writeHead(308, { location: to.href, 'cache-control': 'no-store' }).end();
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -106,12 +77,12 @@ export function serveTeamTls({ host, port, upstream, key, cert }) {
   });
 }
 
-/** GET `url` trusting only `certPath` as its authority: { status } or { status: 0 } on any failure. */
+/** GET `url` trusting only `certPath` as its authority: { status, location } or { status: 0 } on any failure. */
 export function httpsGetTrusting(url, certPath, timeoutMs = 2000) {
   return new Promise((resolve) => {
     const req = https.get(url, { ca: fs.readFileSync(certPath), timeout: timeoutMs }, (res) => {
       res.resume();
-      resolve({ status: res.statusCode ?? 0 });
+      resolve({ status: res.statusCode ?? 0, location: res.headers.location });
     });
     req.on('timeout', () => req.destroy());
     req.on('error', () => resolve({ status: 0 }));

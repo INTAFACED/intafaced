@@ -751,7 +751,7 @@ assert.match(
 );
 // Its Team link points at the console's TEST HTTPS front: the build's HTTPS-only check stays as it is (TeamDesk.tsx).
 assert.match(source, /const TEAM_TLS_ORIGIN = `https:\/\/\$\{HOST\}:\$\{PORTS\['team-tls'\]\}`;/);
-assert.match(source, /serveTeamTls\(\{ host: HOST, port: PORTS\['team-tls'\], upstream: ADMIN_ORIGIN, \.\.\.ensureTestCert\(P\.tls\) \}\)/);
+assert.match(source, /serveTeamTls\(\{ host: HOST, port: PORTS\['team-tls'\], target: ADMIN_ORIGIN, \.\.\.ensureTestCert\(P\.tls\) \}\)/);
 assert.equal(source.split("'build-customer'").length - 1, 1, 'one place builds the Customer app');
 console.log('local-test-stack: customer folder override checks passed');
 

@@ -964,7 +964,10 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
-  const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
+  // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  const customerOk = override
+    ? !act.error
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
   const edits = worktreeEdits(SOURCE_PATHS);
   const fresh =
     !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
@@ -1070,6 +1073,7 @@ function ensureBuilt(rebuild) {
         backendEdits,
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
+        customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
       },
       null,
       2,
@@ -1680,22 +1684,37 @@ async function startAdmin(secrets) {
   await waitHealthy('admin', url, pid, 60_000);
 }
 
-/** The founder console over HTTPS with the stack's own TEST certificate, for the Customer build's Team link. */
+/** The front answers on HTTPS with the stack's TEST certificate and sends `/login` on to the console's own origin. */
+async function teamTlsAnswers(cert, timeoutMs = 2000) {
+  const r = await httpsGetTrusting(`${TEAM_TLS_ORIGIN}/login`, cert, timeoutMs);
+  return r.status === 308 && r.location === `${ADMIN_ORIGIN}/login`;
+}
+
+/**
+ * The HTTPS address the Customer build's Team link names (local-test-team-tls.mjs), with the stack's own TEST certificate.
+ * A machine whose openssl cannot make the certificate starts without it: the link's address then does not answer, and
+ * the start says why, instead of failing the whole stack over a TEST convenience.
+ */
 async function startTeamTls() {
   const procs = readProcs();
-  const { cert } = ensureTestCert(P.tls);
-  const url = `${TEAM_TLS_ORIGIN}/login`;
-  if (ownedAlive(procs['team-tls']) && (await httpsGetTrusting(url, cert)).status === 200) return;
+  let cert;
+  try {
+    ({ cert } = ensureTestCert(P.tls));
+  } catch (err) {
+    say(`  team-tls: not started: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (ownedAlive(procs['team-tls']) && (await teamTlsAnswers(cert))) return;
   if (ownedAlive(procs['team-tls'])) await stopProc('team-tls', procs['team-tls']);
   if (await portOpen(PORTS['team-tls'])) fail(`port ${PORTS['team-tls']} (team-tls) is in use by a process this script did not start`);
   const pid = startProc('team-tls', [process.execPath, SCRIPT, '__serve-team-tls'], baseEnv(), REPO);
   const t0 = Date.now();
   while (Date.now() - t0 < 20_000) {
     if (!psCommand(pid)) fail(`team-tls exited during start. Log ${path.join(P.logs, 'team-tls.log')}`);
-    if ((await httpsGetTrusting(url, cert)).status === 200) return;
+    if (await teamTlsAnswers(cert)) return;
     await sleep(500);
   }
-  fail(`team-tls did not answer at ${url} within 20s (see ${path.join(P.logs, 'team-tls.log')})`);
+  fail(`team-tls did not answer at ${TEAM_TLS_ORIGIN}/login within 20s (see ${path.join(P.logs, 'team-tls.log')})`);
 }
 
 /**
@@ -1798,15 +1817,9 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
-  const teamTls = fs.existsSync(path.join(P.tls, 'team-tls.crt'))
-    ? await httpsGetTrusting(`${TEAM_TLS_ORIGIN}/login`, path.join(P.tls, 'team-tls.crt'), 4000)
-    : { status: 0 };
-  rows.push([
-    'team-tls (TEST)',
-    PORTS['team-tls'],
-    procs['team-tls']?.pid ?? '-',
-    teamTls.status === 200 ? 'ok' : `DOWN (${teamTls.status})`,
-  ]);
+  const teamCert = path.join(P.tls, 'team-tls.crt');
+  const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
+  rows.push(['team-tls (TEST)', PORTS['team-tls'], procs['team-tls']?.pid ?? '-', teamTlsOk ? 'ok' : 'DOWN']);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -1822,7 +1835,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1970,7 +1983,8 @@ async function cmdStop(names = []) {
     'rail-statements',
     'nats',
   ];
-  const only = names.length ? names : null;
+  // The console's HTTPS front starts with it (`--only admin`), so it stops with it too.
+  const only = names.length ? (names.includes('admin') ? [...new Set([...names, 'team-tls'])] : names) : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
@@ -2043,7 +2057,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -3525,7 +3539,7 @@ async function runCli() {
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-team-tls')
-    await serveTeamTls({ host: HOST, port: PORTS['team-tls'], upstream: ADMIN_ORIGIN, ...ensureTestCert(P.tls) });
+    await serveTeamTls({ host: HOST, port: PORTS['team-tls'], target: ADMIN_ORIGIN, ...ensureTestCert(P.tls) });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,
