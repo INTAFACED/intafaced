@@ -248,6 +248,8 @@ const en = {
   balEmptyTitle: 'No money yet',
   balEmptyBody: 'Your balance starts when your first payment is paid. Create a payment link to take one.',
   balEmptyAction: 'Create a payment link',
+  balAllZeroBody: 'Each asset your account settles in, read from your balance now.',
+  rSettlementAssetsUnset: 'No list of the assets your account settles in is set, so we can’t show a balance for each one.',
   balAssetLabel: 'Choose an asset',
   balAvailable: 'Available to pay out',
   balClearing: 'Clearing',

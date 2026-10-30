@@ -268,6 +268,14 @@ const schema = serviceEnvSchema
       PAY_CHECKOUT_SUCCESS_RATES: z.string().optional().default(''),
 
       /**
+       * The assets a business can settle in, as ledger asset ids (`USDT,EUR`). The Balances room shows a row for each,
+       * read from the ledger, so a new business sees its zero per asset. NO DEFAULT: blank refuses
+       * `pay.settlement_assets_unset` and is never filled with a guessed list. Parsed and checked at boot by
+       * `parseSettlementAssets` (metrics/settlement-assets.ts).
+       */
+      PAY_SETTLEMENT_ASSETS: z.string().optional().default(''),
+
+      /**
        * svc-identity base for D26-P1-O2 affiliate accrue after merchantSettlement.
        * Blank → noop port (settlement still posts). Never invent rates.
        */
