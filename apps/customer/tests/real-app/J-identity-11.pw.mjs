@@ -139,17 +139,22 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   expect(Number.isNaN(Date.parse(first))).toBe(false);
 
   // No session and no key remain: the sign-in made before the freeze, the key, and the browser's own session all refuse.
+  // Edge may hold a session's authority for its cache window, so the first read waits that window out once.
+  const { EDGE_AUTHORITY_CACHE_MAX_MS } = await import(path.join(ROOT, 'tooling/scripts/local-test-gates.mjs'));
+  await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
   expect((await session.get(STATUS)).status).toBe(401);
   expect((await withKey(key, { path: STATUS })).status).toBe(401);
   await page.goto('/uc/safe');
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
 
-  // The same link again shows the result stored at its first use, and changes nothing.
-  await mailbox.goto(link);
-  await mailbox.getByRole('button', { name: 'Freeze my account' }).click();
-  await expect(mailbox.getByRole('heading', { level: 1 })).toHaveText('This link was already used');
-  await expect(mailbox.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'false');
-  await expect(mailbox.getByTestId('freeze-link-result').locator('time')).toHaveAttribute('datetime', first);
+  // The same link again, opened from the mail in a new tab, shows the result stored at its first use and changes nothing.
+  // (A goto on the open tab would only change its fragment, so the page would not load again.)
+  const reopened = await mailbox.context().newPage();
+  await reopened.goto(link);
+  await reopened.getByRole('button', { name: 'Freeze my account' }).click();
+  await expect(reopened.getByRole('heading', { level: 1 })).toHaveText('This link was already used');
+  await expect(reopened.getByTestId('freeze-link-result')).toHaveAttribute('data-first-use', 'false');
+  await expect(reopened.getByTestId('freeze-link-result').locator('time')).toHaveAttribute('datetime', first);
 
   // Signed in again, the account reads frozen by its owner since that moment, and the bank's withdrawal guard refuses.
   const again = await api(who);
