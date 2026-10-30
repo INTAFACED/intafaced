@@ -84,13 +84,13 @@ function refundPolicy(mode) {
 let operator;
 /** svc-ledger's own record of a business key, read through the operator lookup door. A read: nothing posts. */
 async function booked(key) {
-  operator ??= await makeContext({ log: () => undefined });
+  operator ??= await makeContext({ log: () => undefined, shareSessions: true });
   return ledgerTrace(operator, key);
 }
 
 /** The house's market fee account for USDT, from svc-ledger. */
 async function houseFees() {
-  operator ??= await makeContext({ log: () => undefined });
+  operator ??= await makeContext({ log: () => undefined, shareSessions: true });
   const [account] = (await ledgerAccounts(operator, 'house:fees:market')).filter((a) => a.assetId === 'USDT' && a.kind === 'available');
   expect(account, 'the house market fee account').toBeTruthy();
   return account;
@@ -269,6 +269,9 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   expect(second.status).toBe(409);
   expect(causeOf(second.body)?.code).toBe('market.purchase_already_held');
   expect(await purchaseOf(who, purchaseId)).toEqual(first);
+  // The same purchase sent again under its own id is the same purchase: the stored record comes back, nothing more posts.
+  const replay = await ok(await client.post('/api/market/trpc/purchase', { listingId, purchaseId }));
+  expect(replay).toEqual(first);
   expect((await myPurchases(who)).filter((p) => p.listingId === listingId).map((p) => p.id)).toEqual([purchaseId]);
   expect(await usdt(who)).toEqual(before);
   await heldOnce(purchaseId, price);
@@ -342,6 +345,9 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
   const price = await priceOf(who, listingId);
   const { commission, net } = split(price, await commissionBps(who));
   const house = (await houseFees()).accountId;
+  const sellerAtStart = await usdt(seller);
+  const houseAtStart = (await houseFees()).balance;
+  const releasedHere = [];
   const sellerBefore = await usdt(seller);
   const before = await usdt(who);
   // The refund policy undecided: market restarts with the window unset, and the ask is refused by name. Nothing moves and
@@ -416,6 +422,7 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
     expect(toSeller.map((e) => toUnits(e.amount))).toEqual([net]);
     expect(toUnits((await usdt(seller)).free)).toBe(toUnits(sellerBeforeRelease.free) + net);
     expect(toUnits((await houseFees()).balance)).toBe(toUnits(feesBefore) + commission);
+    releasedHere.push(release);
     released = await purchaseOf(who, bought.id);
     expect(released.hold).toMatchObject({ state: 'released', releaseTxId: release.txId, refundTxId: null });
     expect(await booked(`market:refund:${bought.id}:1`)).toMatchObject({ found: false });
@@ -432,12 +439,22 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
     // after, while the release job runs. Each ask either books the refund or is refused as closed by name. An ask that
     // reached svc-market inside the window wins: the refund books, and once a release-job run has passed the window's
     // end the release is still refused (never booked) and the pot paid out once, to the buyer.
+    // A second TEST buyer's purchase, held in the same seconds, asks only after its window ends: the release job must
+    // release it, which shows the job ran past both windows' end, and its refund asks are refused by name.
+    const other = await signUp(page, 'mkr');
+    await verify(page, other);
+    expect(fund(other.email, 'USDT', '100').tx).toBeTruthy();
+    const otherAsker = await api(other);
     const sellerBeforeRace = await usdt(seller);
     const asker = await api(who);
     const racer = await ok(await asker.post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() }));
+    const companion = await ok(await otherAsker.post('/api/market/trpc/purchase', { listingId, purchaseId: randomUUID() }));
     const buyerBeforeRace = await usdt(who);
     const racePot = (await heldOnce(racer.id, price)).pot;
+    const companionPot = (await heldOnce(companion.id, price)).pot;
     const ends = Date.parse(racer.hold.windowEndsAt);
+    const companionEnds = Date.parse(companion.hold.windowEndsAt);
+    expect(companionEnds - ends).toBeLessThan(5_000);
     expect(Date.now(), 'the race starts before the window ends').toBeLessThan(ends - 1_000);
     const asks = [];
     for (let at = ends - 1_000; at <= ends + 1_000; at += 150) {
@@ -446,6 +463,10 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
       asks.push(asker.post('/api/market/trpc/refundPurchase', { purchaseId: racer.id }).then((a) => ({ ...a, sentAt })));
     }
     const answers = await Promise.all(asks);
+    // The companion asks a second after its window ends, and again after the job has released it: refused both times.
+    await new Promise((r) => setTimeout(r, Math.max(0, companionEnds + 1_000 - Date.now())));
+    const tooLate = await otherAsker.post('/api/market/trpc/refundPurchase', { purchaseId: companion.id });
+    expect([tooLate.status, causeOf(tooLate.body)?.code]).toEqual([412, 'market.refund_window_closed']);
     for (const a of answers) {
       if (a.status === 200) expect(data(a)?.hold?.state).toBe('refunded');
       else expect([a.status, causeOf(a.body)?.code]).toEqual([412, 'market.refund_window_closed']);
@@ -458,8 +479,20 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
       type: 'race',
       description: `${answers.filter((a) => a.status === 200).length} of ${answers.length} asks answered refunded; ${inside.length} sent inside the window`,
     });
-    // One release-job run (every 30 s) past the window's end, so the release job has had its turn at this purchase.
-    await new Promise((r) => setTimeout(r, Math.max(0, ends + 40_000 - Date.now())));
+    // The release job's run past the window's end is seen, not assumed: it released the companion, once, out of its pot.
+    await expect
+      .poll(async () => (await purchaseOf(other, companion.id)).hold.state, { timeout: 120_000, intervals: [2_000] })
+      .toBe('released');
+    const companionRelease = await booked(`market:release:${companion.id}`);
+    expect(companionRelease).toMatchObject({ found: true, module: 'market' });
+    expect(companionRelease.postings.filter((e) => e.side === 'source')).toEqual([
+      expect.objectContaining({ accountId: companionPot, amount: price, balanceAfter: '0' }),
+    ]);
+    releasedHere.push(companionRelease);
+    expect(await booked(`market:refund:${companion.id}:1`)).toMatchObject({ found: false });
+    const afterRelease = await otherAsker.post('/api/market/trpc/refundPurchase', { purchaseId: companion.id });
+    expect([afterRelease.status, causeOf(afterRelease.body)?.code]).toEqual([412, 'market.refund_window_closed']);
+    // Then release is refused for the refunded purchase: the same job run left it unreleased.
     const raceRefund = await booked(`market:refund:${racer.id}:1`);
     expect(raceRefund).toMatchObject({ found: true, module: 'market' });
     expect(await booked(`market:release:${racer.id}`)).toMatchObject({ found: false });
@@ -469,12 +502,12 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
       expect.objectContaining({ accountId: racePot, amount: price, balanceAfter: '0' }),
     ]);
     expect(toUnits((await usdt(who)).free)).toBe(toUnits(buyerBeforeRace.free) + toUnits(price));
-    expect(await usdt(seller)).toEqual(sellerBeforeRace);
+    expect(toUnits((await usdt(seller)).free)).toBe(toUnits(sellerBeforeRace.free) + net);
   } finally {
     refundPolicy('test');
   }
 
-  // Still once, after more release-job runs: the refunded purchase never released, and the released one paid once.
+  // Still once, after the restart: the refunded purchase never released, and the released one paid once.
   expect(await booked(`market:release:${purchaseId}`)).toMatchObject({ found: false });
   expect((await purchaseOf(who, released.id)).hold).toMatchObject({ state: 'released', releaseTxId: released.hold.releaseTxId });
 
@@ -500,6 +533,12 @@ test(`${J} #6 requests a refund inside the window, or lets the window end: the r
   }
   expect([...kinds].sort()).toEqual(['refund', 'release']);
   expect(paid).toBe(held);
+  // The seller and the house, re-read now, rose by exactly the release legs this step booked (no refund reached them).
+  const legs = (to) => releasedHere.flatMap((r) => r.postings.filter((e) => e.side === 'destination' && to(e.accountId)));
+  const sum = (es) => es.reduce((t, e) => t + toUnits(e.amount), 0n);
+  expect(releasedHere).toHaveLength(2);
+  expect(toUnits((await usdt(seller)).free) - toUnits(sellerAtStart.free)).toBe(sum(legs((a) => a !== house)));
+  expect(toUnits((await houseFees()).balance) - toUnits(houseAtStart)).toBe(sum(legs((a) => a === house)));
   run.write({ releasedId: released.id, racedId: raced.id });
 });
 
@@ -535,7 +574,7 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   expect(Date.parse(held.accessUntil) - paidUntil).toBe(PERIOD_SECONDS * 1000);
   const inventory = await myPurchases(who);
   const statuses = new Set(inventory.map(statusOf));
-  expect([...statuses].sort()).toEqual(expect.arrayContaining(['Held', 'Refunded', 'Released']));
+  expect([...statuses].sort()).toEqual(['Held', 'Refunded', 'Released']);
   expect(statusOf(inventory.find((p) => p.id === held.id))).toBe('Held');
   expect(statusOf(inventory.find((p) => p.id === releasedId))).toBe('Released');
   await openPurchases(page, who);
