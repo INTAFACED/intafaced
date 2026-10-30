@@ -43,6 +43,8 @@ import {
   unmountedCopyDeskFacts,
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
+import type { LeadDesk } from './copy/lead-applications.js';
+import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -826,9 +828,31 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  leadDesk?: LeadDesk,
   grid?: GridService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
+  /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
+  // Mapped outside `guard`: guard wraps any TRPCError thrown inside it again as a 500, which loses the code.
+  const lead = async <T>(fn: (desk: LeadDesk) => Promise<T>): Promise<T> => {
+    try {
+      if (!leadDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return await fn(leadDesk);
+    } catch (err) {
+      if (err instanceof CopyError && err.code.startsWith('trade.copy_lead_')) {
+        const code =
+          err.code === 'trade.copy_lead_application_not_found'
+            ? 'NOT_FOUND'
+            : err.code === 'trade.copy_lead_criteria_unset'
+              ? 'PRECONDITION_FAILED'
+              : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
+      }
+      if (err instanceof TradeOpsError)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
@@ -1796,7 +1820,47 @@ export function createTradeRouter(
           }),
         ),
 
+      /** Apply to lead (CB-copy-12). One open application per person; the same submit again answers it. */
+      applyToLead: scopedProcedure('trade:write', { module: 'trade' })
+        // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
+        .input(z.object({ displayName: z.string().max(200) }))
+        .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
+
+      /** The caller's newest lead application, or null. */
+      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+
       ops: router({
+        /** The founders' lead desk (CB-ops-01): the queue, the criteria, two-founder approval, rejection, leads, audit. */
+        leadDesk: router({
+          queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.queue(ctx.principal))),
+          leads: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.leads(ctx.principal))),
+          audit: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.audit(ctx.principal))),
+          setCriteria: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({ minTrackRecordDays: z.number().int().min(0).max(3650), clientRequestId: z.string().trim().min(1).max(128) })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => lead((desk) => desk.setCriteria(ctx.principal, input))),
+          propose: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ applicationId: z.string().uuid(), approvalId: z.string().trim().min(1).max(128) }).strict())
+            .mutation(({ ctx, input }) => lead((desk) => desk.propose(ctx.principal, input))),
+          approve: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({
+                  applicationId: z.string().uuid(),
+                  approvalId: z.string().trim().min(1).max(128),
+                  operationId: z.string().trim().min(1).max(128),
+                })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => lead((desk) => desk.approve(ctx.principal, input))),
+          reject: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ applicationId: z.string().uuid(), reason: z.string().min(3).max(500) }).strict())
+            .mutation(({ ctx, input }) => lead((desk) => desk.reject(ctx.principal, input))),
+        }),
+
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */
         upsertListing: scopedProcedure('admin:write', { module: 'trade' })
           .input(
