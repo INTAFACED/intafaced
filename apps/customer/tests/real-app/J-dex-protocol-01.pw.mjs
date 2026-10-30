@@ -64,13 +64,14 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   await page.goto('/chain/blocks/abc');
   const malformed = page.locator('main [data-code="protocol.not_found"]');
   await expect(malformed).toBeVisible();
-  await expect(malformed).toHaveText(/^That id is not a valid .+ on this network, so nothing is looked up\.$/);
+  // The empty state draws its mark before the sentence.
+  await expect(malformed).toHaveText(/(^|\W)That id is not a valid .+ on this network, so nothing is looked up\.$/);
   await expect(page.locator('main')).toContainText('Not found on this network');
   await expect(page.locator('main [data-blocker]')).toHaveCount(0);
 
   await page.goto('/dex/nothing-here');
   const unclaimed = page.locator('main [data-code="protocol.not_found"]');
-  await expect(unclaimed).toHaveText('There is no page at this address on this network.');
+  await expect(unclaimed).toHaveText(/(^|\W)There is no page at this address on this network\.$/);
   await expect(page.locator('main h1')).toHaveText('Not found on this network');
   await expect(page.locator('main').getByRole('button', { name: 'Back to DEX' })).toBeVisible();
 });
