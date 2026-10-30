@@ -1,6 +1,6 @@
 /**
- * The quote desk's reads. The desk status and the pair list are polled through the tab's one scheduler; each quote is
- * read on its own with `rfq.get` (there is no list door), never trusted from device storage.
+ * The quote desk's reads. The desk status, the pair list and the board are polled through the tab's one scheduler; each
+ * open quote is read on its own with `rfq.get`, never trusted from device storage.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
@@ -24,7 +24,10 @@ export function useOtcMakers(api: RoomApi): Loadable<OtcMakers> {
 const BOARD_LOOKBACK_MS = 24 * 3_600_000;
 const BOARD_LIMIT = 50;
 
-/** The caller's requests, grouped by status with counts and each with its quotes ranked (CB-otc-02), re-read like a quote. */
+/**
+ * The caller's requests, grouped by status with counts and each with its quotes ranked (CB-otc-02). The board is a
+ * summary, so it is re-read at the progress cadence rather than each quote's; the open quote card keeps its own.
+ */
 export function useRfqBoard(api: RoomApi): Loadable<RfqBoard> {
   return usePrivateRead<RfqBoard>(
     'otc-rfq-board',
@@ -37,7 +40,7 @@ export function useRfqBoard(api: RoomApi): Loadable<RfqBoard> {
       };
       return api.rfqBoard(window, signal);
     },
-    ROOM_INTERVALS.quote,
+    ROOM_INTERVALS.progress,
   );
 }
 

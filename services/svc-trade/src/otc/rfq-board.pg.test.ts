@@ -91,6 +91,15 @@ describe('RFQ with several quotes, in PostgreSQL', () => {
     ]);
   });
 
+  it('saves a request all or none: a quote the database refuses leaves no other quote of that request open', async () => {
+    const good = quote('rfq-torn', 1, 'house', 20);
+    // A side the table's check refuses, standing in for any failure part-way through the request.
+    const refused = { ...quote('rfq-torn', 2, 'test-lp-1', 10), side: 'neither' as OtcSide };
+    await expect(store.saveOpenRequest([good, refused])).rejects.toMatchObject({ code: '23514' });
+    expect(await store.listRfq('rfq-torn')).toEqual([]);
+    expect(await store.load('rfq-torn')).toBeNull();
+  });
+
   it('refuses a second accepted quote of one request, and the first stays the only one bound', async () => {
     const first = quote('rfq-b', 1, 'house', 20);
     const second = quote('rfq-b', 2, 'test-lp-1', 10);

@@ -146,9 +146,14 @@ export function listOtcMakers(directory: OtcMakerDirectory) {
 /**
  * Validate a multi-select of providers for one request.
  * Order of refusals: blank list, empty pick, over cap, duplicate, unknown, outside route. Under LOCAL TEST an outside
- * provider is not refused by its route: it is priced at its TEST spread, and a blank spread refuses it by name.
+ * provider is not refused by its route on a platform desk (`pricesLocalTest`): it is priced at its TEST spread, and a
+ * blank spread refuses it by name.
  */
-export function selectOtcMakers(directory: OtcMakerDirectory, makerIds: readonly string[]): OtcMakerEntry[] {
+export function selectOtcMakers(
+  directory: OtcMakerDirectory,
+  makerIds: readonly string[],
+  { pricesLocalTest = true }: { pricesLocalTest?: boolean } = {},
+): OtcMakerEntry[] {
   if (!directory.published) {
     throw new OtcError('No providers are set — the request refuses', 'trade.otc_makers_unset', OTC_MAKERS_UNSET_RESIDUAL);
   }
@@ -170,7 +175,7 @@ export function selectOtcMakers(directory: OtcMakerDirectory, makerIds: readonly
   for (const id of ids) {
     const maker = byId.get(id);
     if (!maker) throw new OtcError(`Provider ${id} is not in the provider list`, 'trade.otc_provider_unknown');
-    if (maker.route === 'outside' && directory.localTest === true) {
+    if (maker.route === 'outside' && directory.localTest === true && pricesLocalTest) {
       if (maker.spreadBps === undefined) {
         throw new OtcError(
           `The spread for provider ${id} is not set — the request refuses`,

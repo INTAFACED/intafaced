@@ -6,7 +6,7 @@
  * spread, stake, or TTL.
  */
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OtcError } from './errors.js';
 import type { BoundOtcFill, OtcQuote, OtcSide } from './rfq.js';
@@ -41,6 +41,8 @@ function isUniqueViolation(err: unknown): boolean {
 
 export interface OtcQuoteStore {
   saveOpen(quote: OtcQuote): Promise<void>;
+  /** Every quote of one request, all or none: a request that fails part-way leaves no quote of it open. */
+  saveOpenRequest(quotes: readonly OtcQuote[]): Promise<void>;
   /** Every quote of one request, in the order asked. A quote saved before requests had ids is its own request. */
   listRfq(rfqId: string): Promise<OtcStoredQuote[]>;
   saveExpired(quote: OtcQuote): Promise<void>;
@@ -119,6 +121,10 @@ export class MemoryOtcQuoteStore implements OtcQuoteStore {
 
   async saveOpen(quote: OtcQuote): Promise<void> {
     this.byId.set(quote.quoteId, { lifecycle: 'open', quote: { ...quote } });
+  }
+
+  async saveOpenRequest(quotes: readonly OtcQuote[]): Promise<void> {
+    for (const quote of quotes) await this.saveOpen(quote);
   }
 
   async saveExpired(quote: OtcQuote): Promise<void> {
@@ -237,6 +243,12 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
     await this.upsert(quote, 'open', null, null, null, null);
   }
 
+  async saveOpenRequest(quotes: readonly OtcQuote[]): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      for (const quote of quotes) await this.upsert(quote, 'open', null, null, null, null, tx);
+    });
+  }
+
   async saveExpired(quote: OtcQuote): Promise<void> {
     const updated = await this.sql<{ quote_id: string }[]>`
       UPDATE otc_desk_quotes
@@ -316,8 +328,9 @@ export class SqlOtcQuoteStore implements OtcQuoteStore {
     fillPrice: string | null,
     fillNotional: string | null,
     settledAt: string | null,
+    sql: Sql | TransactionSql = this.sql,
   ): Promise<void> {
-    await this.sql`
+    await sql`
       INSERT INTO otc_desk_quotes (
         quote_id, user_id, lifecycle, side, base_asset, quote_asset,
         qty, mid_price, quoted_price, mid_notional, user_notional,

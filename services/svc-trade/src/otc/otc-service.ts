@@ -254,10 +254,13 @@ export class OtcDeskService {
     // naming the cap, and an unknown or outside provider refuses by name, all before any stake read or price lookup.
     // Convert and one-click buy name no providers; in maker mode they still pick their one maker from the list.
     let picked: readonly OtcMakerEntry[] = [];
+    // Only a platform desk prices an outside provider at its LOCAL TEST spread; a maker desk would route to it, so there
+    // an outside provider still refuses feed.market.
+    const pricesLocalTest = law.counterparty === 'platform';
     if (options.desk) {
-      picked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId]));
+      picked = selectOtcMakers(this.makerDirectory, input.makerIds ?? (input.makerId == null ? [] : [input.makerId]), { pricesLocalTest });
     } else if (law.counterparty === 'maker') {
-      picked = selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+      picked = selectOtcMakers(this.makerDirectory, [input.makerId ?? ''], { pricesLocalTest });
     }
     const asked = picked.map((m) => m.id);
     // In maker mode the quoting maker is one of the providers asked: the one picked, or the makerId named among them.
@@ -360,7 +363,7 @@ export class OtcDeskService {
       }
     }
 
-    for (const quote of quotes) await this.store.saveOpen(quote);
+    await this.store.saveOpenRequest(quotes);
     // The best quote answers: callers that take one quote (convert, one-click buy, otc.quote) keep their shape.
     return presentOtcQuote(rankRfqQuotes(quotes)[0]!);
   }
@@ -533,6 +536,10 @@ export class OtcDeskService {
     const next = expireOtcQuote({ lifecycle: stored.lifecycle });
     if (stored.lifecycle !== 'expired') {
       await this.store.saveExpired(stored.quote);
+    }
+    // #5: letting the request's quote go lets the request go, so none of its other providers' quotes stays acceptable.
+    for (const other of await this.store.listRfq(stored.quote.rfqId)) {
+      if (other.quote.quoteId !== stored.quote.quoteId && other.lifecycle === 'open') await this.store.saveExpired(other.quote);
     }
     return presentFirmRfq(stored.quote, { lifecycle: next });
   }

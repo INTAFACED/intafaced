@@ -182,6 +182,20 @@ describe('one request, one quote per provider asked (#5)', () => {
     expect(store.saved).toBe(0);
   });
 
+  it('a maker desk never prices an outside provider at its LOCAL TEST spread: it still refuses feed.market', async () => {
+    const { svc, store } = desk([HOUSE, LP1], { counterparty: 'maker' });
+    await expect(svc.quote(principal, { ...ask(['test-lp-1']), makerId: 'test-lp-1' })).rejects.toMatchObject({
+      code: 'feed.market',
+      residual: OTC_MAKER_ROUTING_RESIDUAL,
+    });
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerId: 'test-lp-1' }, { desk: false }),
+    ).rejects.toMatchObject({
+      code: 'feed.market',
+    });
+    expect(store.saved).toBe(0);
+  });
+
   it('a convert asks no provider: one quote at the desk law spread, not TEST', async () => {
     const { svc, store } = desk([HOUSE, LP1]);
     const q = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' }, { desk: false });
@@ -206,6 +220,25 @@ describe('a request takes one provider’s price (#5)', () => {
     }
     // Accepting the bound quote again still answers it.
     expect(await svc.accept(principal, { quoteId: best!.quoteId })).toMatchObject({ quoteId: best!.quoteId });
+  });
+
+  it('letting the shown quote go lets the request go: every other open quote of it expires too', async () => {
+    const { svc, store } = desk([HOUSE, LP1, LP2]);
+    const rfq = await svc.rfqQuote(principal, ask(['house', 'test-lp-1', 'test-lp-2']));
+    await svc.rfqExpire(principal, { quoteId: rfq.quoteId });
+    expect((await store.listRfq(rfq.rfqId)).map((s) => s.lifecycle)).toEqual(['expired', 'expired', 'expired']);
+    for (const other of rfq.quotes.slice(1)) {
+      await expect(svc.accept(principal, { quoteId: other.quoteId })).rejects.toMatchObject({ code: 'trade.otc_quote_expired' });
+    }
+  });
+
+  it('expiring an open quote of an accepted request leaves the bound quote bound', async () => {
+    const { svc, store } = desk([HOUSE, LP1, LP2]);
+    const rfq = await svc.rfqQuote(principal, ask(['house', 'test-lp-1', 'test-lp-2']));
+    await svc.accept(principal, { quoteId: rfq.quotes[0]!.quoteId });
+    await svc.rfqExpire(principal, { quoteId: rfq.quotes[1]!.quoteId });
+    const byId = new Map((await store.listRfq(rfq.rfqId)).map((s) => [s.quote.quoteId, s.lifecycle]));
+    expect(rfq.quotes.map((q) => byId.get(q.quoteId))).toEqual(['bound', 'expired', 'expired']);
   });
 
   it('the store itself refuses a second bound quote of one request', async () => {

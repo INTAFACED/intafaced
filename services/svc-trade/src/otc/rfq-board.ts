@@ -146,7 +146,7 @@ export async function listRfqBoard(sql: Sql, principal: Principal, query: RfqLis
            q.qty::text AS qty, q.quoted_price::text AS quoted_price, q.user_notional::text AS user_notional,
            q.spread_bps, q.lifecycle, q.test, q.created_at, q.expires_at, ranked.page_rank
     FROM ranked
-    JOIN otc_desk_quotes q ON COALESCE(q.rfq_id, q.quote_id) = ranked.rid AND q.user_id = ${principal.userId}
+    JOIN otc_desk_quotes q ON (q.rfq_id = ranked.rid OR (q.rfq_id IS NULL AND q.quote_id = ranked.rid)) AND q.user_id = ${principal.userId}
     ORDER BY ranked.page_rank, q.rfq_seq, q.quote_id
   `;
   const more = rows.some((r) => Number(r.page_rank) > limit);
