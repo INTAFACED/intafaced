@@ -487,6 +487,16 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   await expect(slot).toContainText('TEST Position size');
   await expect(slot).toContainText(TITLE);
   await expect(slot).toContainText('TEST first article for new learners');
+  // The customer Learn hub, signed out: its Featured slot shows the lesson and its course. The course is a draft, so the
+  // slot says there is no course page to open yet rather than linking to one.
+  const visitor = await (await browser.newContext({ baseURL: ORIGIN, storageState: { cookies: [], origins: [] } })).newPage();
+  await visitor.goto('/academy');
+  const learnHub = visitor.locator('[data-academy-hub="true"]');
+  const featuredLesson = learnHub.locator('[data-featured-lesson="true"]');
+  await expect(featuredLesson.getByRole('heading', { level: 3 })).toHaveText('TEST Position size');
+  await expect(featuredLesson).toContainText(`A lesson from the course ${TITLE}.`);
+  await expect(featuredLesson).toContainText('Its course is not open to learners yet, so there is no course page to open.');
+  await expect(featuredLesson.getByRole('link')).toHaveCount(0);
 
   // Withdrawn from learners: it leaves the slot in the same step.
   await page.goto(lessonUrl);
@@ -497,6 +507,11 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   await expect(featuredNote).toContainText('Not featured. Only a lesson learners can read is featured.');
   await page.goto('/academy-ops/catalogue/featured');
   await expect(slot).toHaveText('Nothing is featured. Feature a lesson learners can read from that lesson’s page.');
+  // It has left the customer Learn hub too.
+  await visitor.reload();
+  await expect(learnHub.locator('[data-featured-lesson="true"]')).toHaveCount(0);
+  await expect(learnHub.getByText('Nothing is featured yet.')).toBeVisible();
+  await visitor.context().close();
 
   // The lesson goes back to learners for the steps after this one.
   await page.goto(lessonUrl);

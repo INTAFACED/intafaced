@@ -2409,6 +2409,11 @@ export class AcademyService {
     return this.learnHub.featuredSlot();
   }
 
+  /** AC-articles-01: the featured course lesson as the public hub shows it, or null. */
+  featuredLesson() {
+    return this.learnHub.publicLesson();
+  }
+
   featureLesson(input: { itemId: string; reason: string; operatorId: string; now?: Date }) {
     return this.learnHub.featureLesson({ ...input, now: input.now ?? new Date() });
   }

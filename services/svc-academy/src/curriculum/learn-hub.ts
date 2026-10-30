@@ -14,6 +14,7 @@ import type {
   AcademyCourseState,
   AcademyCreateTopicInput,
   AcademyFeaturedSlot,
+  AcademyPublicHubLesson,
   AcademyTopic,
   AcademyTopicList,
 } from '@intafaced/contracts';
@@ -77,6 +78,22 @@ export class LearnHub {
       chosenBy: row.chosen_by,
       chosenAt: row.chosen_at.toISOString(),
     };
+  }
+
+  /**
+   * The featured lesson as a visitor sees it: its title and its course's, and the course's address only while the course is
+   * published. Shown while the lesson is live in a draft or published course, the same rule as the founder console's slot.
+   */
+  async publicLesson(): Promise<AcademyPublicHubLesson | null> {
+    const [row] = await this.sql<Array<{ title: string; course_title: string; course_slug: string; course_state: AcademyCourseState }>>`
+      SELECT i.title, c.title AS course_title, c.slug AS course_slug, c.state AS course_state
+      FROM academy.featured_items f
+      JOIN academy.course_items i ON i.id = f.course_item_id
+      JOIN academy.courses c ON c.id = i.course_id
+      WHERE f.slot = 'hub' AND i.live_revision IS NOT NULL AND c.state IN ('draft', 'published')
+    `;
+    if (!row) return null;
+    return { title: row.title, courseTitle: row.course_title, courseSlug: row.course_state === 'published' ? row.course_slug : null };
   }
 
   /**

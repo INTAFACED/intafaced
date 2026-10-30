@@ -27,13 +27,15 @@ const tabStrip = (page) => page.getByRole('group', { name: /academy sections/i }
 const pressed = (page, name) => tabStrip(page).filter({ hasText: name });
 
 test(`${J} #1 /academy is a hub with exactly the five tabs; the featured slot shows only what staff chose`, async ({ page }) => {
-  const { featured } = await door('publicHub');
+  const { featured, lesson } = await door('publicHub');
   await page.goto('/academy');
   await expect(tabStrip(page)).toHaveText(TABS.map(([name]) => name));
   const hub = page.locator('[data-academy-hub="true"]');
   await expect(hub.getByRole('heading', { name: 'Featured', exact: true })).toBeVisible();
   if (featured) {
     await expect(hub.getByRole('link', { name: featured.title })).toBeVisible();
+  } else if (lesson) {
+    await expect(hub.locator('[data-featured-lesson="true"]').getByRole('heading', { level: 3 })).toHaveText(lesson.title);
   } else {
     await expect(hub.getByText('Nothing is featured yet.')).toBeVisible();
     await expect(hub.locator('article')).toHaveCount(0);
