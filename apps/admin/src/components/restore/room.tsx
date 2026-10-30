@@ -118,9 +118,10 @@ export function RestoreRoom({ room, runNo, userId }: { room: Room; runNo: string
         {room.backups.kind === 'failed' ? (
           <Failed part={room.backups} testId="backups-failed" />
         ) : room.backups.data.backups.length === 0 ? (
-          <p className="dk-muted" data-testid="backups-empty">
-            No backup is listed. {refusalWords(room.backups.data.reason) ?? room.backups.data.reason}
-          </p>
+          <div data-testid="backups-empty">
+            <p className="dk-muted">No backup is listed. {refusalWords(room.backups.data.reason) ?? room.backups.data.reason}</p>
+            <p className="dk-muted">Code: {room.backups.data.reason}</p>
+          </div>
         ) : (
           <p data-testid="backups-count">{room.backups.data.backups.length} backups listed by svc-ops.</p>
         )}
