@@ -19,7 +19,15 @@ describe('roomRefusal', () => {
     const service = readFileSync(new URL('../../../../../../services/svc-trade/src/grid/errors.ts', import.meta.url), 'utf8');
     const gridCodes = [...service.matchAll(/'(trade\.grid_[a-z_]+)'/g)].map((m) => m[1]!);
     expect(gridCodes.length).toBeGreaterThan(15);
-    for (const code of [...new Set(gridCodes), 'trade.bots_verification_insufficient', 'trade.bots_verification_level_not_set'])
+    const withdrawCodes = [...service.matchAll(/'(trade\.bots_withdraw_[a-z_]+)'/g)].map((m) => m[1]!);
+    expect(withdrawCodes.length).toBeGreaterThan(6);
+    for (const code of [
+      ...new Set([...gridCodes, ...withdrawCodes]),
+      'trade.bots_verification_insufficient',
+      'trade.bots_verification_level_not_set',
+      'identity.step_up_required',
+      'identity.step_up_unavailable',
+    ])
       expect(KNOWN_ROOM_CODES, code).toContain(code);
   });
   it('never repeats the service sentence', () => {

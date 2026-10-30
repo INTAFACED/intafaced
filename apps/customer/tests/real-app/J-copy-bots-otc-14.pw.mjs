@@ -1,6 +1,8 @@
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
+import { ROOT, api, bestPrices, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
+import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 const ONE = toUnits('1');
 
@@ -11,8 +13,9 @@ const ONE = toUnits('1');
 // The grid is svc-trade's own (services/svc-trade/src/grid): its reserve row and level orders are read back from it, and
 // what the ledger holds is read from the ledger. A blank owner level comes from restarting trade with
 // LOCAL_STACK_TRADE_BOTS_LEVEL=blank, and a price out of range from the TEST market's `move`, each undone in a finally.
-// Steps that are written but not built yet fail at their first missing part, quickly, by name (UNBUILT):
-// - #7 needs a grid profit withdrawal (CB-bots-05).
+// Steps that are written but not built yet fail at their first missing part, quickly, by name (UNBUILT); none is left.
+// #7 confirms each withdrawal with an authenticator the step adds from Security, and the owner's daily cap comes blank
+// from restarting trade with LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank, undone in a finally.
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -613,23 +616,126 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   await expect(metrics).toContainText(/Yearly return \(APR\)\s*Not set: the bot has run less than a day/);
 });
 
+const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+/** The owner's daily withdrawal cap, blank or as the TEST profile sets it ({"USDT":"0.50"}). */
+const withdrawCap = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP', state);
+const CAP = toUnits('0.50');
+
 test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({
   page,
 }) => {
-  await openBots(page);
-  await page
-    .getByRole('region', { name: 'My bots' })
-    .getByRole('link', { name: /Spot grid/ })
-    .first()
-    .click(UNBUILT);
-  // UNBUILT: CB-bots-05's withdrawal (the owner's daily cap and identity's step-up) is not built, so this fails here.
-  await expect(
-    page.getByRole('button', { name: 'Withdraw profit' }),
-    'UNBUILT: CB-bots-05 grid profit withdrawal (daily cap, step-up) is not built',
-  ).toBeVisible(UNBUILT);
-  await page.getByRole('button', { name: 'Withdraw profit' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('textbox', { name: 'Amount, USDT' }).fill('1000000');
-  await dialog.getByRole('button', { name: 'Withdraw' }).click();
-  await expect(dialog.getByRole('alert')).toContainText(/more than you can withdraw/);
+  test.setTimeout(240_000);
+  const { who, botId } = run.read();
+  // One API session, signed in before the authenticator is added: every read below is this person's own.
+  const me = await api(who);
+  const bot = async () => {
+    const { status, body } = await me.get(read(`${GRID}.get`, { botId }));
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.result.data;
+  };
+  const held = (b) => ({ reserve: b.reserve, withdrawable: b.withdrawableProfit, gridProfit: b.gridProfit });
+  const withdraw = (input) => me.post(`${GRID}.withdrawProfit`, { botId, asset: 'USDT', ...input });
+  const before = await bot();
+  expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
+  // Two closed pairs (#6) raised the reserve by their profit; that profit, and no more, is withdrawable.
+  expect(toUnits(before.withdrawableProfit)).toBe(toUnits(before.reserve.amount) - toUnits(before.investment));
+  expect(toUnits(before.withdrawableProfit), 'profit to withdraw after #6').toBeGreaterThan(0n);
+
+  // The owner's cap left blank: refused by its code before identity is asked, and nothing changed.
+  try {
+    withdrawCap('blank');
+    const blank = await withdraw({ requestId: `${J}-blank-${Date.now().toString(36)}`, amount: '0.01' });
+    expect(codeOf(blank.body), JSON.stringify(blank.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
+    expect(held(await bot())).toEqual(held(before));
+  } finally {
+    withdrawCap('set');
+  }
+
+  // Within the cap and the profit, but with no step-up: refused by identity's code, and nothing changed.
+  const bare = await withdraw({ requestId: `${J}-bare-${Date.now().toString(36)}`, amount: '0.01' });
+  expect(bare.status, JSON.stringify(bare.body).slice(0, 300)).toBe(403);
+  expect(codeOf(bare.body)).toBe('identity.step_up_required');
+  expect(held(await bot())).toEqual(held(before));
+
+  // The room, with an authenticator to confirm each withdrawal for its exact amount.
+  await signIn(page, who);
+  const { totp } = await totpLib();
+  let { secret, step } = await addAuthenticator(page, totp);
+  await page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
+  await page.getByRole('tab', { name: 'Metrics' }).click();
+  const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
+  await expect(metrics).toContainText(`Withdrawable profit${fromUnits(toUnits(before.withdrawableProfit))} USDT`);
+
+  /** Opens the withdrawal, names the amount, confirms it with the next code; returns the service's answer. */
+  async function withdrawInRoom(amount) {
+    await metrics.getByRole('button', { name: 'Withdraw profit' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Withdraw profit' });
+    await dialog.getByRole('textbox', { name: 'Amount, USDT' }).fill(amount);
+    await dialog.getByRole('button', { name: 'Continue' }).click();
+    const confirm = dialog.getByRole('region', { name: 'Confirm it’s you' });
+    const next = await nextCode(totp, secret, step);
+    step = next.step;
+    await confirm.getByRole('textbox', { name: 'Authenticator code' }).fill(next.code);
+    const answer = page.waitForResponse((r) => r.url().includes('bots.grid.withdrawProfit') && r.request().method() === 'POST');
+    await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
+    const res = await answer;
+    return { dialog, status: res.status(), body: await res.json() };
+  }
+
+  // Over the cap, with a step-up: refused by the cap's code with the cap's numbers, in words, and nothing changed.
+  const over = await withdrawInRoom('1.00');
+  expect(codeOf(over.body), JSON.stringify(over.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_exceeded');
+  const alert = over.dialog.getByRole('alert');
+  await expect(alert).toContainText('Over your daily withdrawal limit');
+  await expect(alert).toContainText('Reference trade.bots_withdraw_cap_exceeded');
+  expect(held(await bot())).toEqual(held(before));
+  await page.keyboard.press('Escape');
+  await expect(over.dialog).toBeHidden();
+
+  // Within both: half of what is withdrawable or the cap, whichever is less, to the 8 decimals the field takes.
+  const room = toUnits(before.withdrawableProfit) < CAP ? toUnits(before.withdrawableProfit) : CAP;
+  const amount = (room / 2n / 10n ** 10n) * 10n ** 10n;
+  expect(amount, 'an amount above zero within both').toBeGreaterThan(0n);
+  const ok = await withdrawInRoom(fromUnits(amount));
+  expect(ok.status, JSON.stringify(ok.body).slice(0, 300)).toBe(200);
+  const receipt = ok.body.result.data;
+  const after = await bot();
+  // Every receipt field, from the service's own answer, against the bot re-read before and after.
+  expect(receipt.withdrawalId).toMatch(new RegExp(`^bots\\.grid\\.withdraw:${botId}:`));
+  expect(receipt.botId).toBe(botId);
+  expect(receipt.asset).toBe('USDT');
+  expect(toUnits(receipt.amount)).toBe(amount);
+  expect(toUnits(receipt.profitBefore)).toBe(toUnits(before.withdrawableProfit));
+  expect(toUnits(receipt.profitAfter)).toBe(toUnits(before.withdrawableProfit) - amount);
+  expect(toUnits(receipt.profitAfter)).toBe(toUnits(after.withdrawableProfit));
+  expect(toUnits(receipt.reserveBefore)).toBe(toUnits(before.reserve.amount));
+  expect(toUnits(receipt.reserveAfter)).toBe(toUnits(before.reserve.amount) - amount);
+  expect(toUnits(receipt.reserveAfter)).toBe(toUnits(after.reserve.amount));
+  expect(toUnits(receipt.dailyCap)).toBe(CAP);
+  expect(toUnits(receipt.capUsed)).toBe(amount);
+  expect(toUnits(receipt.capRemaining)).toBe(CAP - amount);
+  expect(receipt.stepUpEventId.length).toBeGreaterThan(0);
+  expect(Math.abs(Date.now() - Date.parse(receipt.appliedAt))).toBeLessThan(120_000);
+  // The investment stays; grid profit (what the pairs earned) is not rewritten by a withdrawal.
+  expect(after.investment).toBe(before.investment);
+  expect(after.gridProfit).toBe(before.gridProfit);
+  // The receipt in the room shows each of those values, labelled TEST.
+  const shown = ok.dialog.getByRole('region', { name: 'Withdrawal receipt' });
+  await expect(shown).toContainText('TEST account');
+  const usd = (v) => `${fromUnits(toUnits(v))} USDT`;
+  for (const [label, value] of [
+    ['Withdrawal ID', receipt.withdrawalId],
+    ['Bot ID', receipt.botId],
+    ['Amount', usd(receipt.amount)],
+    ['Profit before', usd(receipt.profitBefore)],
+    ['Profit after', usd(receipt.profitAfter)],
+    ['Set aside before', usd(receipt.reserveBefore)],
+    ['Set aside after', usd(receipt.reserveAfter)],
+    ['Daily cap', usd(receipt.dailyCap)],
+    ['Used today', usd(receipt.capUsed)],
+    ['Left today', usd(receipt.capRemaining)],
+    ['Confirmation ID', receipt.stepUpEventId],
+    ['Time', receipt.appliedAt],
+  ])
+    await expect(shown, label).toContainText(`${label}${value}`);
 });
