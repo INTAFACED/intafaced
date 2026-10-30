@@ -77,6 +77,10 @@ function entry(cmd, label) {
 const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
 
 /** What the test-content seed says it has made on this stack. */
+// The sections `status` prints, one per room the seed fills, in its order.
+const SEEDED_ROOMS = ['pools', 'products', 'house', 'method', 'home'];
+const sections = (out) => [...out.matchAll(/^([a-z]+):$/gm)].map((m) => m[1]);
+const withoutClock = (out) => out.replace(/^as of .*$/m, '');
 const seedStatus = () => run('tooling/scripts/local-test-seed.mjs', ['status', '--state', STATE], { LOCAL_TEST: '1' });
 
 /** The founder vault on this stack (founders.json): the founders' sign-in details, which no page may show. */
@@ -151,7 +155,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(seedRun.out).toMatch(/^seed: done \(3 steps\)$/m);
   const founder = vault().founders[0].handle;
   expect(seedRun.out).toContain(`home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST `);
-  expect(seedRun.out).toContain(`home notice: ${HOME_NOTICE_TITLE} `);
+  // The notice ran on this run: published by it, not skipped as already open.
+  expect(seedRun.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
   expect(seedRun.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
   // Its closing `status` step reports the same three things.
   expect(seedRun.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
@@ -165,10 +170,13 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
   expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
   expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
+  // The rooms the seed fills, each once: Earn's pools, Loans' products, the house inventory, the P2P method and Home.
+  expect(sections(report.out)).toEqual(SEEDED_ROOMS);
+  const before = withoutClock(report.out);
 
-  // A second run of the same entrypoint makes nothing new: the deposit is keyed on its business key and the notice is
-  // still open, so `home` skips it. status exits 0 only while the seeded transfer has exactly one deposit record (it
-  // refuses on a second), and still reads one inbox row.
+  // A second run of the same entrypoint makes nothing new in any seeded room: apply creates no pool or product, the house
+  // postings and the deposit are keyed on their business keys, and the notice is still open, so `home` skips it. status
+  // then reads every room exactly as before (it refuses on a second deposit record for the seeded transfer).
   const again = run(
     SEED_ENTRY,
     [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
@@ -176,12 +184,14 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
     { timeout: 7 * 60_000 },
   );
   expect(again.status, again.out).toBe(0);
+  expect(again.out).toMatch(/^earn pools: created 0, skipped \d+$/m);
+  expect(again.out).toMatch(/^loan products: created 0, skipped \d+$/m);
   expect(again.out).toContain(`home notice: ${HOME_NOTICE_TITLE} skipped`);
   expect(again.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
   const after = seedStatus();
   expect(after.status, after.out).toBe(0);
-  expect(after.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
-  expect(after.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
+  expect(sections(after.out)).toEqual(SEEDED_ROOMS);
+  expect(withoutClock(after.out)).toBe(before);
 });
 
 test(`${J} #2 the documented sign-in steps get the founder in with founder scopes, and the founder console opens`, async ({ page }) => {
