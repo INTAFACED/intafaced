@@ -100,37 +100,41 @@ export function SwapForm() {
   const candidates = tokenIn && tokenOut ? poolsFor(pools, tokenIn.address, tokenOut.address) : [];
   const candidateKey = candidates.map((pool) => pool.pool).join(',');
 
-  // Quote: the service ranks every pool for the pair at one block (amm.routes); the best usable leg is then quoted.
-  // In Manual the pools the person excluded are left out; a stale or empty pool is never used. A new input or a
-  // refresh reads again.
+  // Quote: the service ranks every pool for the pair at one block (amm.routes) and quotes each from that block; the
+  // best usable leg is the quote. In Manual the pools the person excluded are left out; a stale, empty or unreadable
+  // pool is never used. A new input or a refresh reads again. The last ranking stays on screen while the next is read,
+  // unless the pair or amount changed, so the open route table keeps its place when a pool is excluded.
   const exclude = mode === 'manual' ? excluded : [];
   const excludeKey = exclude.join(',');
+  const inputKey = `${tokenIn?.address ?? ''}:${tokenOut?.address ?? ''}:${amountIn?.toString() ?? ''}`.toLowerCase();
   useEffect(() => {
     setQuote(null);
     setQuoteProblem(null);
-    setRoutes(null);
-    if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return;
+    setRoutes((shown) => (shown && `${shown.tokenIn}:${shown.tokenOut}:${shown.amountIn}`.toLowerCase() === inputKey ? shown : null));
+    if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return setRoutes(null);
     const controller = new AbortController();
-    const input = { tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString() };
-    void (async () => {
-      const ranked = await api.routes({ ...input, exclude }, controller.signal);
-      if (controller.signal.aborted) return;
-      if (!ranked.ok) return setQuoteProblem(t('quoteRefused'));
-      setRoutes(ranked.data);
-      const best = ranked.data.legs.find((leg) => leg.status === 'best');
-      const pool = best ? candidates.find((candidate) => candidate.pool.toLowerCase() === best.pool.toLowerCase()) : undefined;
-      if (!best) return setQuoteProblem(t('routeNone'));
-      if (!pool) return setQuoteProblem(t('quoteRefused'));
-      const read = await api.poolQuote({ pool: pool.pool, tokenIn: input.tokenIn, amountIn: input.amountIn }, controller.signal);
-      if (controller.signal.aborted) return;
-      if (!read.ok) return setQuoteProblem(t('quoteRefused'));
-      setNow(Date.now());
-      setQuote({ pool, quote: read.data, amountIn, readAt: Date.now() });
-    })();
+    void api
+      .routes({ tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString(), exclude }, controller.signal)
+      .then((ranked) => {
+        if (controller.signal.aborted) return;
+        if (!ranked.ok) {
+          setRoutes(null);
+          return setQuoteProblem(t('quoteRefused'));
+        }
+        setRoutes(ranked.data);
+        const best = ranked.data.legs.find((leg) => leg.status === 'best');
+        const pool = best ? candidates.find((candidate) => candidate.pool.toLowerCase() === best.pool.toLowerCase()) : undefined;
+        if (!best || !best.quote) return setQuoteProblem(exclude.length > 0 ? t('routeNone') : t('noUsablePool'));
+        if (!pool) return setQuoteProblem(t('quoteRefused'));
+        setNow(Date.now());
+        setQuote({ pool, quote: best.quote, amountIn, readAt: Date.now() });
+      });
     return () => controller.abort();
     // The inputs are named by their values; the objects are rebuilt each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, tokenIn?.address, tokenOut?.address, amountIn?.toString(), candidateKey, excludeKey, refresh]);
+  }, [api, inputKey, candidateKey, excludeKey, refresh]);
+  // An exclusion belongs to the pair it was made on: choosing other tokens starts with every pool in.
+  useEffect(() => setExcluded([]), [tokenIn?.address, tokenOut?.address]);
 
   const expiresAt = quote && setting ? quote.readAt + setting.quoteTtlSeconds * 1000 : null;
   const expired = expiresAt !== null && now >= expiresAt;
@@ -503,9 +507,10 @@ export function SwapForm() {
                   routes={routes}
                   tokenOut={tokenOut}
                   excluded={excluded}
-                  onExclude={(pool, out) =>
-                    setExcluded((now) => (out ? [...now.filter((item) => item !== pool), pool] : now.filter((item) => item !== pool)))
-                  }
+                  onExclude={(pool, out) => {
+                    const key = pool.toLowerCase();
+                    setExcluded((now) => [...now.filter((item) => item !== key), ...(out ? [key] : [])]);
+                  }}
                 />
               )}
             </>

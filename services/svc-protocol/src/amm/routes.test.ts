@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
 import { createEdgeContext, type ProtocolSwapPairs } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
-import { routeOptions, type RoutesChain } from './routes.js';
+import { blockBalances, isStale, routeOptions, type RoutesChain } from './routes.js';
 import { quoteExactIn } from './build.js';
 
 const A = '0x00000000000000000000000000000000000a11ce' as Address;
@@ -41,14 +41,14 @@ const PAIRS: ProtocolSwapPairs = {
   skipped: 0,
 };
 
-/** Balances equal reserves, except the stale pool, which holds 1,000 more TEST Token A than it recorded. */
+/** Balances equal reserves, except the stale pool, which holds 100,000 more TEST Token A than it recorded (5%). */
 function chain(asked: Array<{ token: string; holder: string; block: bigint }> = []): RoutesChain {
   return {
     tokenBalanceAt: async (token, holder, block) => {
       asked.push({ token, holder, block });
       const row = PAIRS.pools.find((entry) => entry.pool === holder)!;
       const recorded = BigInt(token === row.token0 ? row.reserve0 : row.reserve1);
-      return holder === STALE && token === A ? recorded + e(1_000) : recorded;
+      return holder === STALE && token === A ? recorded + e(100_000) : recorded;
     },
   };
 }
@@ -65,9 +65,16 @@ describe('routeOptions', () => {
       [STALE, 'unavailable', 'stale'],
       [EMPTY, 'unavailable', 'no_liquidity'],
     ]);
-    expect(answer.legs[0]!.amountOut).toBe(quote(e(1_000_000), 30).toString());
+    expect(answer.legs[0]!.quote).toMatchObject({
+      amountOut: quote(e(1_000_000), 30).toString(),
+      reserveIn: e(1_000_000).toString(),
+      reserveOut: e(1_000_000).toString(),
+      feeBps: 30,
+      reservesFromChain: true,
+      blockTimestampLast: 1,
+    });
     expect(answer.legs[1]!.shortfall).toBe((quote(e(1_000_000), 30) - quote(e(50_000), 100)).toString());
-    expect(answer.legs[2]!.amountOut).toBeNull();
+    expect(answer.legs[2]!.quote).toBeNull();
     // Every holding is read at the pairs' block, never at a later one.
     expect(new Set(asked.map((read) => read.block))).toEqual(new Set([77n]));
     expect(answer).toMatchObject({ venue: 'pool', blockNumber: '77', amountIn: e(10).toString() });
@@ -86,13 +93,13 @@ describe('routeOptions', () => {
       [STALE, 'unavailable'],
       [EMPTY, 'unavailable'],
     ]);
-    expect(answer.legs[0]!.amountOut).toBe(quote(e(1_000_000), 30).toString());
+    expect(answer.legs[0]!.quote!.amountOut).toBe(quote(e(1_000_000), 30).toString());
     expect(answer.legs[1]!.shortfall).toBeNull();
   });
 
   it('quotes the reverse direction from the other side of each pool', async () => {
     const answer = await routeOptions(chain(), PAIRS, { tokenIn: B, tokenOut: A, amountIn: e(10), exclude: [] });
-    expect(answer.legs[0]).toMatchObject({ pool: DEEP, status: 'best', amountOut: quote(e(1_000_000), 30).toString() });
+    expect(answer.legs[0]).toMatchObject({ pool: DEEP, status: 'best', quote: { amountOut: quote(e(1_000_000), 30).toString() } });
   });
 
   it('a stale pool is never quoted, even when its recorded reserves would win', async () => {
@@ -101,12 +108,48 @@ describe('routeOptions', () => {
     expect(stale).toEqual({
       pool: STALE,
       feeBps: 50,
-      amountOut: null,
-      priceImpactBps: null,
+      quote: null,
       status: 'unavailable',
       shortfall: null,
       reason: 'stale',
     });
+  });
+
+  it('one unit sent to a pool leaves it usable; holding less than it records, or well past it, is stale', async () => {
+    expect(isStale(e(1_000_000) + 1n, e(1_000_000))).toBe(false);
+    expect(isStale(e(1_010_000), e(1_000_000))).toBe(false);
+    expect(isStale(e(1_010_000) + 1n, e(1_000_000))).toBe(true);
+    expect(isStale(e(1_000_000) - 1n, e(1_000_000))).toBe(true);
+    expect(isStale(0n, 0n)).toBe(false);
+    // A donation of one unit to the best pool does not send anyone to a worse one.
+    const donated: RoutesChain = {
+      tokenBalanceAt: async (token, holder, block) =>
+        holder === DEEP && token === A ? e(1_000_000) + 1n : chain().tokenBalanceAt(token, holder, block),
+    };
+    const answer = await routeOptions(donated, PAIRS, { tokenIn: A, tokenOut: B, amountIn: e(10), exclude: [] });
+    expect(answer.legs[0]).toMatchObject({ pool: DEEP, status: 'best' });
+  });
+
+  it('a pool the chain does not answer for, or with a fee no pool may charge, is unreadable and the others still rank', async () => {
+    const BADFEE = '0x1000000000000000000000000000000000000006';
+    const pairs = { ...PAIRS, pools: [...PAIRS.pools, pool(BADFEE, A, B, e(10), e(10), 5_000)] };
+    const flaky: RoutesChain = {
+      tokenBalanceAt: async (token, holder, block) => {
+        if (holder === SHALLOW) throw new Error('chain.tokenBalanceAt: the node did not answer');
+        if (holder === BADFEE) return e(10);
+        return chain().tokenBalanceAt(token, holder, block);
+      },
+    };
+    const answer = await routeOptions(flaky, pairs, { tokenIn: A, tokenOut: B, amountIn: e(10), exclude: [] });
+    expect(answer.legs[0]).toMatchObject({ pool: DEEP, status: 'best' });
+    expect(answer.legs.find((leg) => leg.pool === SHALLOW)).toMatchObject({ status: 'unavailable', reason: 'unreadable', quote: null });
+    expect(answer.legs.find((leg) => leg.pool === BADFEE)).toMatchObject({ status: 'unavailable', reason: 'unreadable', quote: null });
+  });
+
+  it('an amount that would get nothing out is no liquidity, never a best leg paying zero', async () => {
+    const answer = await routeOptions(chain(), PAIRS, { tokenIn: A, tokenOut: B, amountIn: 1n, exclude: [] });
+    expect(answer.legs.every((leg) => leg.status === 'unavailable')).toBe(true);
+    expect(answer.legs.find((leg) => leg.pool === DEEP)).toMatchObject({ reason: 'no_liquidity', quote: null });
   });
 
   it('lists nothing for a pair no pool trades, and every leg is unavailable when no pool can be used', async () => {
@@ -114,6 +157,32 @@ describe('routeOptions', () => {
     const only = { ...PAIRS, pools: PAIRS.pools.filter((row) => row.pool === STALE || row.pool === EMPTY) };
     const answer = await routeOptions(chain(), only, { tokenIn: A, tokenOut: B, amountIn: e(1), exclude: [] });
     expect(answer.legs.every((leg) => leg.status === 'unavailable')).toBe(true);
+  });
+});
+
+describe('blockBalances', () => {
+  it('reads each holding once per block, again at a new block, and again after a failed read', async () => {
+    let reads = 0;
+    let fail = true;
+    const cached = blockBalances({
+      tokenBalanceAt: async () => {
+        reads += 1;
+        if (fail) {
+          fail = false;
+          throw new Error('chain.tokenBalanceAt: the node did not answer');
+        }
+        return 5n;
+      },
+    });
+    await expect(cached.tokenBalanceAt(A, DEEP as Address, 7n)).rejects.toThrow('did not answer');
+    expect(await cached.tokenBalanceAt(A, DEEP as Address, 7n)).toBe(5n);
+    expect(await cached.tokenBalanceAt(A, DEEP.toUpperCase().replace('0X', '0x') as Address, 7n)).toBe(5n);
+    expect(reads).toBe(2);
+    expect(await cached.tokenBalanceAt(A, DEEP as Address, 8n)).toBe(5n);
+    expect(reads).toBe(3);
+    // An older block is read through, never answered from the newer one's entries.
+    expect(await cached.tokenBalanceAt(A, DEEP as Address, 7n)).toBe(5n);
+    expect(reads).toBe(4);
   });
 });
 

@@ -28,7 +28,7 @@ export function RouteOptions({
     if (leg.status === 'excluded') return t('routeExcluded');
     if (leg.status === 'lost')
       return t('routeLost', { amount: formatUnits(BigInt(leg.shortfall ?? '0'), tokenOut.decimals), token: tokenOut.name });
-    return leg.reason === 'stale' ? t('routeStale') : t('routeNoLiquidity');
+    return leg.reason === 'stale' ? t('routeStale') : leg.reason === 'unreadable' ? t('routeUnreadable') : t('routeNoLiquidity');
   };
   const isExcluded = (pool: string) => excluded.some((item) => item.toLowerCase() === pool.toLowerCase());
   return (
@@ -40,7 +40,7 @@ export function RouteOptions({
             <td className="numeric">{shortContract(leg.pool)}</td>
             <td className="numeric">{bpsToPercent(leg.feeBps)}%</td>
             <td className="numeric">
-              {leg.amountOut === null ? '—' : `${formatUnits(BigInt(leg.amountOut), tokenOut.decimals)} ${tokenOut.name}`}
+              {leg.quote === null ? '—' : `${formatUnits(BigInt(leg.quote.amountOut), tokenOut.decimals)} ${tokenOut.name}`}
             </td>
             <td>{status(leg)}</td>
             <td>

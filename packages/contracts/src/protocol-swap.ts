@@ -210,13 +210,21 @@ export const protocolRouteLegSchema = z
   .object({
     pool: address,
     feeBps: z.number().int().nonnegative(),
-    /** Null when the leg is unavailable: no quote is shown for a pool that cannot be used. */
-    amountOut: units.nullable(),
-    priceImpactBps: z.number().int().nullable(),
+    /**
+     * The pool's own quote for this amount at the answer's block, in the shape `amm.quoteFromPool` gives, so the best
+     * leg can be shown and swapped without a second read. Null when the leg is unavailable: no quote is shown for a
+     * pool that cannot be used.
+     */
+    quote: protocolPoolQuoteOutputSchema.nullable(),
     status: z.enum(['best', 'lost', 'excluded', 'unavailable']),
     /** For `lost`: how much less it gives than the best leg, in the output token's base units. */
     shortfall: units.nullable(),
-    reason: z.enum(['stale', 'no_liquidity']).nullable(),
+    /**
+     * Why an unavailable leg cannot be used: `stale` (the tokens it holds fall short of, or run well past, the reserves
+     * it prices from), `no_liquidity` (an empty side, or this amount would get nothing out), `unreadable` (the chain did
+     * not answer for this pool, or its fee is outside what a pool may charge).
+     */
+    reason: z.enum(['stale', 'no_liquidity', 'unreadable']).nullable(),
   })
   .strict();
 export type ProtocolRouteLeg = z.infer<typeof protocolRouteLegSchema>;
