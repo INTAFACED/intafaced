@@ -203,6 +203,8 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [rolesNote, setRolesNote] = useState<Note | null>(null);
   const [override, setOverride] = useState<Record<string, boolean>>({});
+  // A saved tick stays shown until the team is read again, so the box never flips back to the old value in between.
+  useEffect(() => setOverride({}), [team]);
 
   /** Saves one member's allow and deny for one role as that grant's next change. */
   async function saveGrant(memberUserId: string, role: Role, allow: boolean, deny: boolean, version: number) {
@@ -215,7 +217,8 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
     );
     setBusy(false);
     setRolesNote(result.ok ? { ok: true, text: t('saved') } : { ok: false, failed: result as Refusal });
-    setOverride({});
+    // A refused change shows the stored value again at once; a saved one keeps its tick until the reload lands.
+    if (!result.ok) setOverride({});
     reload();
     return result.ok;
   }

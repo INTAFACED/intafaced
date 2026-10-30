@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { agentsRun, createOwnAgent, tableIn } from './agents.mjs';
+import { agentsRun, createOwnAgent, OWN_AGENT, tableIn } from './agents.mjs';
 import { fundedTrader } from './desk.mjs';
-import { forgetSession } from './identity-factors.mjs';
+import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, signInWithCode } from './merchant.mjs';
-import { api, fund, ORIGIN, ROOT, toUnits } from './stack.mjs';
+import { api, DEVICE_KEY, EDGE, fund, json, ORIGIN, ROOT, toUnits } from './stack.mjs';
 
 // J-agents-11, in the running app (docs/roadmap/journeys.json): run agents for my team: roles, a shared pool and
 // per-project limits. One test per step, titled "J-agents-11 #<n>", run in order. The start is real: a TEST owner sets up
@@ -57,15 +57,34 @@ async function openTeam(page, key = 'owner') {
 /** Ticks one checkbox and waits for the change to be saved and read back. */
 async function tick(page, box) {
   await box.check();
-  await expect(main(page).getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+  // The roles note is the status right after the Members table (the project and pool forms keep notes of their own).
+  const note = main(page).getByRole('region', { name: 'Members', exact: true }).locator('xpath=following-sibling::*[1]');
+  await expect(note).toHaveAttribute('role', 'status');
+  await expect(note).toHaveText('Saved.');
   await expect(box).toBeEnabled();
   await expect(box).toBeChecked();
 }
 
 /** A decimal shown as "<amount> USDT", in units. */
 const unitsOf = async (locator) => toUnits((await locator.innerText()).replace(/\s*USDT$/, ''));
-/** The person's TEST USDT total on the ledger, in units. */
-const ledgerTotal = async (key) => toUnits((await (await api(person(key))).balances()).USDT?.total ?? '0');
+/** The person's TEST USDT total on the ledger, in units. A person with an authenticator signs in with its next code,
+ * and the code's step is kept, so no later sign-in replays it. */
+async function ledgerTotal(key) {
+  const who = person(key);
+  if (!who.secret) return toUnits((await (await api(who)).balances()).USDT?.total ?? '0');
+  const next = await nextCode(totp, who.secret, who.step);
+  agents.run.write({ [key]: keep({ ...who, step: next.step }) });
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: next.code }),
+  }).then(json);
+  const token = login.body?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  const read = await fetch(`${EDGE}/api/v1/account/balance`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } }).then(json);
+  if (read.status !== 200) throw new Error(`balance read refused: ${read.status} ${JSON.stringify(read.body).slice(0, 300)}`);
+  return toUnits(read.body.balances.USDT?.total ?? '0');
+}
 
 /** Confirms one bank action dialog (the money room's review, then its submit) and waits for the service's answer. */
 async function confirmDialog(page, submit) {
@@ -88,6 +107,20 @@ async function businessTeam(page) {
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   return card;
+}
+
+/** The person's own limits for their agent (TEST figures, above any team allocation here), so a team run is held
+ * against the team's allocation, projects and pool rather than refused for a blank own cap. */
+async function ownLimits(page) {
+  await page.goto('/agents');
+  await main(page).getByRole('link', { name: OWN_AGENT, exact: true }).click();
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Limits', exact: true }).click();
+  const limits = main(page).getByRole('form', { name: 'Spending limits' });
+  await limits.getByRole('textbox', { name: /^Per call/ }).fill('1');
+  await limits.getByRole('textbox', { name: /^Per session/ }).fill('1');
+  await limits.getByRole('textbox', { name: /^Per month/ }).fill('5');
+  await limits.getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits.getByRole('status')).toHaveText('Limits saved.');
 }
 
 /** The Team runs panel of the signed-in member. */
@@ -124,11 +157,13 @@ test(`${J} starts: a business owner with team members`, async ({ page }) => {
     made[key] = await fundedTrader(page, `ag11${key[0]}${key.at(-1)}`, '1');
     await signInWithCode(page, made[key], '/agents');
     await createOwnAgent(page);
+    await ownLimits(page);
     await forgetSession(page);
   }
   const owner = await businessReadyPerson(page, 'ag11o', '/agents');
   expect(fund(owner.email, 'USDT', '5').tx).toBeTruthy();
   await createOwnAgent(page);
+  await ownLimits(page);
   // The business account: the owner becomes its admin; the threshold is a TEST figure.
   await page.goto('/bank/business');
   await main(page).getByRole('button', { name: 'Set up approvals' }).click();
@@ -170,6 +205,7 @@ test(`${J} #1 opens Team and grants creator, runner, approver, log reader and sp
   await grant.getByRole('button', { name: 'Grant' }).click();
   await expect(main(page).getByRole('alert').locator('code')).toHaveText('agents.role_not_member');
   await page.reload();
+  await expect(members(page).getByRole('row').locator('td code')).toHaveCount(ids.length);
   await expect(members(page).getByRole('row').filter({ hasText: NOT_A_MEMBER })).toHaveCount(0);
   expect((await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
   await expect(rowOf(members(page), 'one').getByTestId('effective-roles')).toHaveText(ROLES.join(', '));
