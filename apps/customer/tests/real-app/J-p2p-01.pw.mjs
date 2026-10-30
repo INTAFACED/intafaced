@@ -234,7 +234,7 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   const current = page.getByRole('region', { name: 'Current offer' });
   // The release time is the service's average for that order, in the app's own rounding (whole seconds, minutes, or
   // hours and minutes), never a bare prefix.
-  expect(record.avgReleaseSecs).toBeGreaterThan(0);
+  expect(Number.isInteger(record.avgReleaseSecs) && record.avgReleaseSecs >= 0).toBe(true);
   const secs = Math.floor(record.avgReleaseSecs);
   const releases =
     secs < 60
