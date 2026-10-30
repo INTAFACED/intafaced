@@ -33,6 +33,7 @@ import {
 } from '../spot/testing.js';
 import { TradeError } from '../spot/types.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
+import { chaseChildState } from '../spot/trade-service/algo.js';
 import { ALGO_IMMATURE_KINDS, ALGO_VOLUME_IMMATURE_CODE, describeAlgoPolicy } from './algo-policy.js';
 import { withinPriceBand } from './mark-gate.js';
 
@@ -490,5 +491,98 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
     });
     expect((await counts()).parents).toBe('0');
     await app.close();
+  });
+
+  describe('chase', () => {
+    function chase(overrides: Record<string, unknown> = {}) {
+      return schedule({
+        kind: 'chase',
+        limitPrice: null,
+        totalQty: amt('0.01'),
+        durationMs: 600_000,
+        sliceIntervalMs: 5_000,
+        ...overrides,
+      });
+    }
+
+    it('a blank maximum distance refuses with its typed code and stores nothing', async () => {
+      await fund(ALICE, 'USDT', '100000');
+      const before = await counts();
+      await expect(trade.createTwap(principalFor(ALICE), chase({ clientAlgoId: 'chase-blank' }))).rejects.toMatchObject({
+        code: 'trade.algo_chase_distance_required',
+      });
+      expect(await counts()).toEqual(before);
+    });
+
+    it('a limit price, or a distance on another kind, refuses', async () => {
+      await fund(ALICE, 'USDT', '100000');
+      await expect(
+        trade.createTwap(principalFor(ALICE), chase({ chaseDistanceBps: 200, limitPrice: amt('60000'), clientAlgoId: 'chase-limit' })),
+      ).rejects.toMatchObject({ code: 'trade.algo_invalid_schedule' });
+      await expect(
+        trade.createTwap(principalFor(ALICE), schedule({ chaseDistanceBps: 200, clientAlgoId: 'twap-dist' })),
+      ).rejects.toMatchObject({
+        code: 'trade.algo_invalid_schedule',
+      });
+      expect((await counts()).parents).toBe('0');
+    });
+
+    it('funds a buy at the furthest price its distance allows, and stores the start price and the distance', async () => {
+      // Best bid 59990, 2%: the child may rest as high as 61189.8, so 0.01 BTC needs 611.898 USDT.
+      await fund(ALICE, 'USDT', '611');
+      await expect(
+        trade.createTwap(principalFor(ALICE), chase({ chaseDistanceBps: 200, clientAlgoId: 'chase-short' })),
+      ).rejects.toMatchObject({ code: 'trade.algo_insufficient_balance', data: { required: '611.898' } });
+      await fund(ALICE, 'USDT', '1');
+      const parent = await trade.createTwap(principalFor(ALICE), chase({ chaseDistanceBps: 200, clientAlgoId: 'chase-ok' }));
+      expect(parent.kind).toBe('chase');
+      expect(parent.chaseStartPrice).toBe(amt('59990'));
+      expect(parent.chaseMaxDistanceBps).toBe(200);
+      const stored = await db.sql<Array<{ kind: string; bps: number; start: string; limit_price: string | null }>>`
+        SELECT kind::text AS kind, chase_max_distance_bps AS bps, chase_start_price::text AS start, limit_price::text AS limit_price
+        FROM trade.algo_parents WHERE id = ${parent.id}`;
+      expect(stored[0]).toEqual({ kind: 'chase', bps: 200, start: '59990.000000000000000000', limit_price: null });
+      expect(await available(ALICE, 'USDT')).toBe('612');
+    });
+
+    it('the store refuses a chase row without a distance', async () => {
+      await expect(db.sql`
+        INSERT INTO trade.algo_parents (id, user_id, market_id, symbol, side, kind, total_qty, duration_ms, slice_interval_ms,
+          status, created_at, started_at, next_due_at, projected_ends_at, slices_planned, next_slice_index, plan_slices, children, misses)
+        VALUES ('chase-no-bps', ${ALICE}, ${marketId}, 'BTC/USDT', 'buy', 'chase', 1, 600000, 5000,
+          'active', now(), now(), now(), now(), 1, 0, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb)`).rejects.toThrow(/algo_parents_chase_ck/);
+    });
+
+    it('reads its children: fills summed from the fills table, and which children still rest', async () => {
+      const resting = randomUUID();
+      const cancelled = randomUUID();
+      const counter = randomUUID();
+      const session = '99999999-9999-4999-8999-999999999999';
+      for (const [id, user, status] of [
+        [resting, ALICE, 'open'],
+        [cancelled, ALICE, 'cancelled'],
+        [counter, BOB, 'filled'],
+      ] as const) {
+        await db.sql`
+          INSERT INTO trade.orders (
+            id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, session_id, seeded
+          ) VALUES (
+            ${id}, ${user}, ${marketId}, ${user === ALICE ? 'buy' : 'sell'}, 'limit', ${'60000'}::numeric, ${'0.01'}::numeric,
+            ${status}, 'GTC', 'USDT', ${'600'}::numeric, 0, ${session}, false
+          )`;
+      }
+      await db.sql`
+        INSERT INTO trade.fills (
+          id, order_id, counter_order_id, market_id, user_id, side, liquidity,
+          price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence, ts
+        ) VALUES (
+          ${randomUUID()}, ${cancelled}, ${counter}, ${marketId}, ${ALICE}, 'buy', 'maker',
+          ${'60000'}::numeric, ${'0.004'}::numeric, ${'240'}::numeric, 'BTC', ${'0'}::numeric, 0, 1, ${NOW}
+        )`;
+      const state = await chaseChildState(db.sql, [resting, cancelled]);
+      expect(state.filledQty).toBe(amt('0.004'));
+      expect([...state.openOrderIds]).toEqual([resting]);
+      expect(await chaseChildState(db.sql, [])).toEqual({ filledQty: 0n, openOrderIds: new Set() });
+    });
   });
 });

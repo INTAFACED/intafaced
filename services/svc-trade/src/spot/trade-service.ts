@@ -120,6 +120,7 @@ import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
 import * as twap from './trade-service/algo.js';
+import { orderIdFor } from './ids.js';
 
 export {
   assertSamePlaceCommand,
@@ -838,6 +839,11 @@ export class TradeService {
         oppositeBookQty: async (marketId, side, limitPrice) => {
           const depth = await this.matching.depth(marketId, twap.OPPOSITE_BOOK_LEVELS);
           return twap.sideQty(side === 'buy' ? depth.asks : depth.bids, side, limitPrice);
+        },
+        chaseChildState: (orderIds) => twap.chaseChildState(this.sql, orderIds),
+        chaseChildByClientOrderId: async (parent, clientOrderId) => {
+          const order = await this.findOrder(orderIdFor(parent.userId, parent.marketId, clientOrderId));
+          return order ? { orderId: order.id, qty: order.qty, price: order.price, placedAt: order.createdAt } : null;
         },
       },
       {
@@ -1750,6 +1756,7 @@ export class TradeService {
       povBasis?: PovBasis;
       randomSeed?: number;
       triggerPrice?: Amount;
+      chaseDistanceBps?: number;
     },
   ): Promise<TwapParent> {
     return twap.createTwap(this.internal, principal, input);

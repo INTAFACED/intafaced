@@ -14,6 +14,7 @@ export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
 
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
 export const algoParentSchema = algoSchema.extend({
+  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
   participationBps: z.number().int().nullable().optional(),
   povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
   startedAt: z.string().nullable().optional(),
@@ -24,9 +25,21 @@ export const algoParentSchema = algoSchema.extend({
   triggeredAt: z.string().nullable().optional(),
   awaitingTrigger: z.boolean().optional(),
   plannedSliceQtys: z.array(decimalSchema).optional(),
-  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of. */
+  /** Chase: the bound, the own-side best price it started from, the newest child's price and how often it re-priced. */
+  chaseMaxDistanceBps: z.number().int().nullable().optional(),
+  chaseStartPrice: decimalSchema.nullable().optional(),
+  chasePrice: decimalSchema.nullable().optional(),
+  chaseReprices: z.number().int().nullable().optional(),
+  /** `algo.get` children: each placed size and, for POV, the volume or book size it was a share of; a chase child's price. */
   children: z
-    .array(z.object({ sliceIndex: z.number().int(), qty: decimalSchema.optional(), basisQty: decimalSchema.nullable().optional() }))
+    .array(
+      z.object({
+        sliceIndex: z.number().int(),
+        qty: decimalSchema.optional(),
+        basisQty: decimalSchema.nullable().optional(),
+        price: decimalSchema.nullable().optional(),
+      }),
+    )
     .optional(),
 });
 export type PovBasis = 'traded_volume' | 'opposite_liquidity';
@@ -126,7 +139,7 @@ export interface CreateTwapInput {
   totalQty: string;
   durationMs: number;
   sliceIntervalMs: number;
-  kind: 'twap' | 'vwap' | 'pov';
+  kind: 'twap' | 'vwap' | 'pov' | 'chase';
   clientAlgoId: string;
   limitPrice?: string;
   participationBps?: number;
@@ -136,6 +149,8 @@ export interface CreateTwapInput {
   randomSeed?: number;
   /** TWAP only: the schedule waits until the mark reaches this price. */
   triggerPrice?: string;
+  /** Chase only, required: how far from its start price, in bps, the chase may follow the book. */
+  chaseDistanceBps?: number;
 }
 
 export interface PreviewSizesInput {

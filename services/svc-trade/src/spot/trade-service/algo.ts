@@ -18,6 +18,7 @@ import { assertEmailProved } from '../email-proof.js';
 import { MatchingNoBookError, type EngineDepth } from '../matching-client.js';
 import { presentAlgoProgress, type AlgoProgressView, type CreateTwapInput, type TwapParent } from '../../algo/index.js';
 import type { PovBasis } from '../../algo/types.js';
+import type { ChaseChildState } from '../../algo/twap-engine.js';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../../algo/durable-principal.js';
 import { gateAlgoCreate } from '../../algo/create-gate.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../../algo/volume-plan.js';
@@ -74,6 +75,8 @@ export async function createTwap(
     randomSeed?: number;
     /** TWAP only: the schedule starts when the mark reaches this price. */
     triggerPrice?: Amount;
+    /** Chase only, and required there: how far the child may follow the book, in bps of the start price. */
+    chaseDistanceBps?: number;
   },
 ): Promise<TwapParent> {
   requireScope(principal, 'trade:write');
@@ -84,11 +87,21 @@ export async function createTwap(
     throw new TradeError('spot trading is disabled by the operator kill-switch', 'trade.spot_disabled');
   }
   const kind = (input.kind ?? 'twap').toLowerCase();
-  if (kind !== 'twap' && kind !== 'vwap' && kind !== 'pov') {
+  if (kind !== 'twap' && kind !== 'vwap' && kind !== 'pov' && kind !== 'chase') {
     throw new TradeError(
-      `algo kind "${kind}" is not available — v1 is TWAP / VWAP / POV (icebergs still out)`,
+      `algo kind "${kind}" is not available — v1 is TWAP / VWAP / POV / chase (icebergs still out)`,
       'trade.algo_unsupported_kind',
     );
+  }
+  // A chase without a bound would follow the book anywhere: a blank distance refuses before anything is read.
+  if (kind === 'chase' && input.chaseDistanceBps === undefined) {
+    throw new TradeError(
+      'a chase needs a maximum chase distance — refuse rather than follow the book without a bound',
+      'trade.algo_chase_distance_required',
+    );
+  }
+  if (kind !== 'chase' && input.chaseDistanceBps !== undefined) {
+    throw new TradeError('a maximum chase distance is a chase option', 'trade.algo_invalid_schedule');
   }
 
   // Replay returns the stored parent and does not re-run the creation gate,
@@ -99,7 +112,7 @@ export async function createTwap(
   const market = await svc.requireMarket(input);
   // TWAP is spot-only by name (see `assertSpotSurface`), not because
   // `assertTradable` happens to refuse the kind.
-  assertSpotSurface(market, kind === 'twap' ? 'TWAP' : kind === 'vwap' ? 'VWAP' : 'POV');
+  assertSpotSurface(market, kind === 'twap' ? 'TWAP' : kind === 'vwap' ? 'VWAP' : kind === 'pov' ? 'POV' : 'Chase');
   assertTradable(market);
   assertSettlementRails(market);
   assertMarketOpen(market, svc.now());
@@ -157,6 +170,10 @@ export async function createTwap(
   };
 
   if (input.randomSeed !== undefined) createInput = { ...createInput, randomSeed: input.randomSeed };
+  // The chase starts at the best price on its own side (the best bid for a buy); its distance is measured from there.
+  if (kind === 'chase') {
+    createInput = { ...createInput, chaseMaxDistanceBps: input.chaseDistanceBps, chaseStartPrice: input.side === 'buy' ? bid : ask };
+  }
   if (input.triggerPrice !== undefined) {
     // The mark the scheduler reads is this same mid (`markFor`). The side of it the trigger sits on fixes its direction:
     // above waits for the mark to rise to it. A trigger at the mid is already reached, so it is refused, not started.
@@ -234,6 +251,25 @@ export async function createTwap(
   return parent;
 }
 
+/**
+ * What a chase reads of its children: the sum of their fills (the fills are the evidence, never the order row's
+ * counter) and which of them still rest in the book or may still.
+ */
+export async function chaseChildState(sql: TradeServiceInternal['sql'], orderIds: readonly string[]): Promise<ChaseChildState> {
+  const ids = [...orderIds];
+  if (ids.length === 0) return { filledQty: 0n, openOrderIds: new Set() };
+  const [fills, open] = await Promise.all([
+    sql<Array<{ qty: string }>>`
+      SELECT COALESCE(SUM(qty), 0)::text AS qty FROM trade.fills WHERE order_id = ANY(${ids}::uuid[])
+    `,
+    sql<Array<{ id: string }>>`
+      SELECT id::text AS id FROM trade.orders
+      WHERE id = ANY(${ids}::uuid[]) AND status IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+    `,
+  ]);
+  return { filledQty: parseAmount(fills[0]?.qty ?? '0'), openOrderIds: new Set(open.map((r) => r.id)) };
+}
+
 /** Owner recovery restores only the immutable admitted proposal. Each child
  * still needs a fresh identity decision and local trading admission. */
 export async function recoverAdmittedAlgo(svc: TradeServiceInternal, userId: string, parentId: string): Promise<TwapParent | null> {
@@ -263,6 +299,7 @@ export async function recoverAdmittedAlgo(svc: TradeServiceInternal, userId: str
     nextDueAt: new Date(String(wire.parent.nextDueAt)),
     projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
     triggerPrice: wire.parent.triggerPrice == null ? null : parseAmount(String(wire.parent.triggerPrice)),
+    chaseStartPrice: wire.parent.chaseStartPrice == null ? null : parseAmount(String(wire.parent.chaseStartPrice)),
     triggeredAt: null,
     pausedAt: null,
     children: [],

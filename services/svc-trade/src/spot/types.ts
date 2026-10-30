@@ -609,6 +609,7 @@ export type TradeErrorCode =
    */
   | 'trade.algo_resume_extends_too_far'
   | 'trade.algo_cancel_incomplete'
+  | 'trade.algo_chase_distance_required'
   /** Identity S2S ownership consult failed — refuse rather than store an unvalidated id */
   | 'trade.sub_account_unavailable'
   /** Missing or foreign sub-account (existence not leaked) */
