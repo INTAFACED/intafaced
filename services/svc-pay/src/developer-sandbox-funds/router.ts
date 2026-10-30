@@ -22,7 +22,7 @@ export class SandboxFundError extends Error {
 export function createSandboxFundsRouter() {
   return router({
     sandboxFunds: router({
-      fund: scopedProcedure('trade:write')
+      fund: scopedProcedure('trade:write', { person: true })
         .input(sandboxFundInputSchema)
         .output(sandboxFundOutputSchema)
         .mutation((): never => {
