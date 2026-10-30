@@ -52,4 +52,3 @@ export type NoticeStatus = z.infer<typeof noticeStatusSchema>;
 /** Open published incidents and maintenance windows. Public, so it works signed out. */
 export const readNoticeStatus = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<NoticeStatus>> =>
   api.query('notify', 'notify.noticeStatus', undefined, noticeStatusSchema, { signal });
-
