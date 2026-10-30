@@ -56,6 +56,7 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
     if (!representation.ok) return setState({ step: 'refused', failure: representation });
     if (!representation.data.accepted)
       return setState({ step: 'representation', challenge, address: wallet.address, status: representation.data });
+    setState({ step: 'checking', challenge });
     const signed = await wallet.sign({ kind: 'message', message: challenge.message });
     if (signed.status !== 'signed') {
       setState({
@@ -103,8 +104,11 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
               status={state.status}
               api={protocol}
               onEnd={(end: RepresentationEnd) => {
-                if (end.kind === 'accepted') void sign(state.challenge);
-                else
+                if (end.kind === 'accepted') {
+                  // The representation is done: the dialog shows the challenge again while the wallet asks for it.
+                  setState({ step: 'challenge', challenge: state.challenge });
+                  void sign(state.challenge);
+                } else
                   setState({
                     step: 'challenge',
                     challenge: state.challenge,
