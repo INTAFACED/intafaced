@@ -16,6 +16,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKET_OPS_SCOPE, VendorService } from '../vendor-service.js';
 import type { SlotEntitlementSource, VendorEntitlement } from '../stake-source.js';
+import type { AffiliateMarketFeeLeg } from '../affiliate-accrue.js';
 import { CommerceService } from './commerce-service.js';
 import type { PurchaseHoldConfig } from './held-purchase.js';
 
@@ -55,8 +56,8 @@ describe('market held purchase (MC-market-02)', () => {
   let vendors: VendorService;
   let ledger: MemoryLedger;
   let now: Date;
-  let accrue: ReturnType<typeof vi.fn>;
-  let payout: ReturnType<typeof vi.fn>;
+  let accrue: ReturnType<typeof vi.fn<(leg: AffiliateMarketFeeLeg) => Promise<void>>>;
+  let payout: ReturnType<typeof vi.fn<(feeEventId: string) => Promise<void>>>;
   let sweepErrors: Array<{ purchaseId: string; err: unknown }>;
 
   const service = (hold: PurchaseHoldConfig | undefined, clock: () => Date = () => now) =>
@@ -135,8 +136,8 @@ describe('market held purchase (MC-market-02)', () => {
     vendors = new VendorService(sql, new FixedEntitlement());
     ledger = new MemoryLedger();
     now = START;
-    accrue = vi.fn(async () => undefined);
-    payout = vi.fn(async () => undefined);
+    accrue = vi.fn<(leg: AffiliateMarketFeeLeg) => Promise<void>>(async () => undefined);
+    payout = vi.fn<(feeEventId: string) => Promise<void>>(async () => undefined);
     sweepErrors = [];
     const vendor = await vendors.applyAsVendor({ userId: SELLER, displayName: 'TEST seller', description: 'TEST' });
     await vendors.vet({ vendorId: vendor.id, decision: 'approved', reason: 'TEST', actorId: OPERATOR, actorScope: MARKET_OPS_SCOPE });
