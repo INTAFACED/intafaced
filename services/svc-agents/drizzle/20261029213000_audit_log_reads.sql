@@ -1,5 +1,5 @@
 -- svc-agents · the operator's read of a customer's agent log, and the kept transcript (AG-audit-01, AG-audit-02)
--- Reversal: 20261029213000_ops_log_reads.down.sql
+-- Reversal: 20261029213000_audit_log_reads.down.sql
 --
 -- `agent_log_reads`: one row per operator read of the action log, its export or one transcript, keyed on a business
 -- key (`agents:logread:<operator>:<request id>`), so a retried read writes no second row. It names the operator, the

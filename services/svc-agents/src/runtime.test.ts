@@ -23,7 +23,7 @@ import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
-import { actionsCsv, purgeExpiredTranscripts, type OpsLogSettings } from './oplog/routes.js';
+import { actionsCsv, logReadKey, purgeExpiredTranscripts, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * svc-agents — the fleet runtime end to end.
@@ -2557,8 +2557,9 @@ if (!available) {
     const OPERATOR = '44444444-4444-4444-8444-444444444444';
     const REASONS = ['TEST customer complaint', 'TEST incident review'];
     const SETTINGS: OpsLogSettings = { reasons: REASONS, limit: 50, retentionDays: 1 };
-    const operatorCtx = (scopes = ['admin:read']) => {
+    const operatorCtx = (scopes = ['admin:read'], extra: Partial<Principal> = {}) => {
       const raw = encodePrincipal({
+        ...extra,
         sub: OPERATOR,
         userId: OPERATOR,
         sid: '55555555-5555-4555-8555-555555555555',
@@ -2726,6 +2727,11 @@ if (!available) {
       const [audit] = await sql`SELECT kind, action_id, subject_id, row_count FROM agents.agent_log_reads`;
       expect(audit).toMatchObject({ kind: 'transcript', action_id: ranId, subject_id: USER_A, row_count: 1 });
 
+      // Kept under a longer retention than today's, the text is not read past today's retention.
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() + interval '1 day' WHERE action_id = ${ranId}`;
+      await expect(open(ranId, 'ops-log:t:shortened')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      expect((await open(ranId, 'ops-log:t:longer', { retentionDays: 3 })).digest).toBe(action!.input_digest);
+
       // Past its expiry the text is never read.
       await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
       await expect(open(ranId, 'ops-log:t:expired')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
@@ -2745,6 +2751,16 @@ if (!available) {
       expect((await opsLog().actions(read)).auditRows).toBe(1);
       const audit = await sql`SELECT subject_id, reason FROM agents.agent_log_reads`;
       expect(audit).toEqual([{ subject_id: USER_A, reason: REASONS[0] }]);
+
+      // Past the retry window the same request id is refused: a fresh read needs its own row.
+      const stale = { ...read, requestId: 'ops-log:reuse:stale' };
+      await sql`
+        INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, row_count, read_at)
+        VALUES (${logReadKey('actions', OPERATOR, stale.requestId)}, ${OPERATOR}, ${USER_A}, 'actions', ${REASONS[0]}, 1,
+                now() - interval '6 minutes')
+      `;
+      await expect(opsLog().actions(stale)).rejects.toMatchObject({ code: 'CONFLICT', message: 'agents.log_read_request_reused' });
+      expect(await reads()).toBe(2);
     });
 
     it('writes a cell a spreadsheet would run as a formula as text in the export', () => {
@@ -2759,16 +2775,29 @@ if (!available) {
       ]);
     });
 
-    it('purges every kept transcript past its expiry, on its own and whatever retention is now', async () => {
+    it('purges every kept transcript past its expiry or older than today’s retention, on its own; blank or 0 retention keeps none', async () => {
       const { ranId } = await history();
-      expect(await purgeExpiredTranscripts(sql)).toBe(0);
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
       await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
       // An engine call with retention 0 keeps nothing and leaves the purge to the timer.
       const session = await runtime.openSession({ userId: USER_A, agentId: 'probe' });
       await runtime.think({ sessionId: session.id, requestId: 'ops-log-purge', task: 'plan', messages: MESSAGES });
       expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(1);
-      expect(await purgeExpiredTranscripts(sql)).toBe(1);
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(1);
       expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(0);
+
+      // Kept under a longer retention, a row older than today's goes before its own expiry.
+      const longer = (await history()).ranId;
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() + interval '1 day' WHERE action_id = ${longer}`;
+      expect(await purgeExpiredTranscripts(sql, 3)).toBe(0);
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(1);
+
+      // Blank or 0 retention keeps none: every kept row goes, however fresh.
+      for (const retention of [0, null]) {
+        await history();
+        expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
+        expect(await purgeExpiredTranscripts(sql, retention)).toBe(1);
+      }
     });
 
     it('needs admin:read, and an audit row is never rewritten', async () => {
@@ -2778,6 +2807,16 @@ if (!available) {
       await expect(customer.opsLog.actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:scope:1' })).rejects.toMatchObject({
         code: 'FORBIDDEN',
       });
+      // Only an operator's own session reads: never a sub-account or an API key.
+      for (const extra of [{ sub_account: '66666666-6666-4666-8666-666666666666' }, { kid: 'key-ops-log' }]) {
+        const via = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: SETTINGS }).createCaller(
+          operatorCtx(['admin:read'], extra),
+        );
+        await expect(via.opsLog.actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:person:1' })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
+      expect(await reads()).toBe(0);
       await opsLog().actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:append:1' });
       await expect(sql`UPDATE agents.agent_log_reads SET reason = 'TEST other'`).rejects.toThrow(/append-only/);
       await expect(sql`DELETE FROM agents.agent_log_reads`).rejects.toThrow(/append-only/);

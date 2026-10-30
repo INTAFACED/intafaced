@@ -20,7 +20,8 @@ export type OpsLogRefusalCode =
   | 'agents.transcript_retention_unset'
   | 'agents.transcript_not_kept'
   | 'agents.action_not_found'
-  | 'agents.log_read_request_reused';
+  | 'agents.log_read_request_reused'
+  | 'agents.log_read_person_only';
 
 export class OpsLogRefusal extends Error {
   constructor(readonly code: OpsLogRefusalCode) {
@@ -75,6 +76,7 @@ const STATUS: Record<OpsLogRefusalCode, TRPCError['code']> = {
   'agents.transcript_not_kept': 'NOT_FOUND',
   'agents.action_not_found': 'NOT_FOUND',
   'agents.log_read_request_reused': 'CONFLICT',
+  'agents.log_read_person_only': 'FORBIDDEN',
 };
 
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -97,9 +99,13 @@ type ReadKind = 'actions' | 'export' | 'transcript';
 export const logReadKey = (kind: ReadKind, operatorId: string, requestId: string): string =>
   `agents:logread:${kind}:${operatorId}:${requestId}`;
 
+/** How long a retried request may reuse its audit row. Past it, the request id is refused, never re-read silently. */
+const RETRY_WINDOW_MINUTES = 5;
+
 /**
  * Writes the read's audit row (once per key) and re-reads how many rows carry its key. A key already written for a
- * different customer, reason, filter or action is refused, so a reused request id never reads without its own row.
+ * different customer, reason, filter or action, or written more than RETRY_WINDOW_MINUTES ago, is refused, so a reused
+ * request id never reads without its own row.
  */
 async function recordRead(
   tx: Sql,
@@ -121,10 +127,12 @@ async function recordRead(
             ${read.actionId}, ${read.rowCount})
     ON CONFLICT (business_key) DO NOTHING
   `;
-  const rows = await tx<{ subject_id: string; reason: string; filter: Record<string, string>; action_id: string | null }[]>`
-    SELECT subject_id, reason, filter, action_id FROM agents.agent_log_reads WHERE business_key = ${key}
+  const rows = await tx<{ subject_id: string; reason: string; filter: Record<string, string>; action_id: string | null; fresh: boolean }[]>`
+    SELECT subject_id, reason, filter, action_id, read_at > now() - make_interval(mins => ${RETRY_WINDOW_MINUTES}) AS fresh
+      FROM agents.agent_log_reads WHERE business_key = ${key}
   `;
   const same = (row: (typeof rows)[number]): boolean =>
+    row.fresh &&
     row.subject_id === read.subjectId &&
     row.reason === read.reason &&
     row.action_id === read.actionId &&
@@ -222,7 +230,15 @@ export function actionsCsv(rows: readonly z.infer<typeof actionView>[]): string 
 }
 
 export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
-  const operator = () => scopedProcedure('admin:read', { module: 'agents' });
+  // A signed-in operator's own session reads a customer's log: never a service forwarding a principal, an API key, a
+  // sub-account or a delegated token.
+  const operator = () =>
+    scopedProcedure('admin:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
+      if (ctx.principal.kid || ctx.principal.sub_account) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.log_read_person_only' });
+      }
+      return next();
+    });
 
   return router({
     /** The reasons an operator may pick, as the owner published them; blank refuses. Reads no log and writes nothing. */
@@ -323,15 +339,18 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
         guard(async () => {
           const reason = assertReason(settings, input.reason);
           if (settings.retentionDays === null) throw new OpsLogRefusal('agents.transcript_retention_unset');
-          if (settings.retentionDays === 0) throw new OpsLogRefusal('agents.transcript_not_kept');
+          const retentionDays = settings.retentionDays;
+          if (retentionDays === 0) throw new OpsLogRefusal('agents.transcript_not_kept');
           return transaction(sqlOf(sql), async (tx) => {
             const [action] = await tx<{ user_id: string; input_digest: string | null }[]>`
               SELECT user_id, input_digest FROM agents.agent_actions WHERE id = ${input.actionId}
             `;
             if (!action) throw new OpsLogRefusal('agents.action_not_found');
+            // Bounded by today's retention too, so a shortened retention hides text kept under a longer one.
             const [kept] = await tx<{ text: string; stored_at: Date; expires_at: Date }[]>`
               SELECT text, stored_at, expires_at FROM agents.agent_transcripts
                WHERE action_id = ${input.actionId} AND expires_at > now()
+                 AND stored_at > now() - make_interval(days => ${retentionDays})
             `;
             if (!kept) throw new OpsLogRefusal('agents.transcript_not_kept');
             const auditRows = await recordRead(tx, {
@@ -365,8 +384,15 @@ function assertReasonsSet(settings: OpsLogSettings): readonly string[] {
   return settings.reasons;
 }
 
-/** Deletes every kept transcript past its expiry, whatever retention is now. Returns how many went. */
-export async function purgeExpiredTranscripts(sql: Sql): Promise<number> {
-  const gone = await sql`DELETE FROM agents.agent_transcripts WHERE expires_at <= now()`;
+/**
+ * Deletes every kept transcript past its expiry or older than today's retention. Retention 0 or blank keeps none, so
+ * every kept transcript goes. Returns how many went.
+ */
+export async function purgeExpiredTranscripts(sql: Sql, retentionDays: number | null): Promise<number> {
+  const keep = retentionDays ?? 0;
+  const gone = await sql`
+    DELETE FROM agents.agent_transcripts
+     WHERE ${keep} = 0 OR expires_at <= now() OR stored_at <= now() - make_interval(days => ${keep})
+  `;
   return gone.count;
 }
