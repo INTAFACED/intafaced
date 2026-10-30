@@ -32,7 +32,8 @@ async function openHome() {
 }
 
 /** A tRPC refusal's typed code, read where the app's own client reads it (src/shared/api.ts). */
-const refusalCode = (json) => json?.error?.data?.intafacedCode ?? json?.error?.data?.cause?.code ?? json?.error?.data?.code;
+const refusalCode = (json) =>
+  json?.error?.data?.intafacedCode ?? json?.intafacedCode ?? json?.error?.data?.cause?.code ?? json?.error?.data?.code ?? json?.code;
 
 /** "23 Oct, 05:00", as Home words an end time in the browser's own zone (UTC here). */
 const dayTime = (iso) =>
