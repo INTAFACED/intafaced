@@ -361,11 +361,10 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   browser,
 }) => {
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES });
-  const observedAt = Date.now() - 30_000;
   await recordReading({
     componentId: 'trading',
     state: 'operational',
-    observedAt: new Date(observedAt).toISOString(),
+    observedAt: new Date(Date.now() - 30_000).toISOString(),
     source: 'TEST probe',
   });
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
@@ -390,17 +389,21 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   const svg = await fresh.text();
   expect(svg).toContain('<title>Trading: operational</title>');
   expect(svg).not.toMatch(/<script|<foreignObject/i);
-  // The cache time at the public address: the origin sends exactly no-store on every /api/ reply (apps/customer/nginx.conf;
-  // Edge forwards no Cache-Control), so no copy outlives the staleness window.
+  // The cache time at the public address: exactly no-store. The origin sets it on every /api/ reply (here the local stack's
+  // proxy, in production apps/customer/nginx.conf), and Edge forwards no Cache-Control, so no copy outlives the window.
   expect(fresh.headers.get('cache-control')).toBe('no-store');
   const json = await (
     await fetch(`${ORIGIN}/api/notify/trpc/statusPage.badge?input=${encodeURIComponent(JSON.stringify({ componentId: 'trading' }))}`)
   ).json();
   expect(json.result.data).toMatchObject({ state: 'operational', label: 'operational' });
   // The service's own cache time: what is left of the reading's window, capped at its 300-second ceiling
-  // (STATUS_BADGE_MAX_AGE_SECONDS, svc-notify badge.ts), and more than none while the reading is fresh.
-  const readingAge = (Date.parse(json.result.data.asOf) - observedAt) / 1000;
+  // (STATUS_BADGE_MAX_AGE_SECONDS, svc-notify badge.ts), and more than none while the reading is fresh. The reading is the
+  // one the page holds for Trading, read back, not assumed to be the one recorded above.
+  const statusRead = await (await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).json();
+  const { reading } = statusRead.result.data.components.find((c) => c.id === 'trading');
+  const readingAge = (Date.parse(json.result.data.asOf) - Date.parse(reading.observedAt)) / 1000;
   expect(readingAge).toBeGreaterThanOrEqual(0);
+  expect(readingAge).toBeLessThan(TEST_VALUES.stalenessSeconds);
   expect(json.result.data.maxAgeSeconds).toBe(Math.min(300, Math.floor(TEST_VALUES.stalenessSeconds - readingAge)));
   expect(json.result.data.maxAgeSeconds).toBeGreaterThan(0);
   expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds - readingAge);
