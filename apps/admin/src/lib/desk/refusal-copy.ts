@@ -44,16 +44,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
     next: 'Read the roles again and decide again.',
   },
-  // A governance role change also needs the running founder's own fresh step-up (J-more-catalogue-10 #6), spent at
-  // identity and checked by svc-token before the two-founder approval is spent.
+  // Same-person step-ups (a governance role change, J-more-catalogue-10 #6): the owning service refuses a run without
+  // the running person's fresh step-up for exactly that change.
   'identity.step_up_required': {
     title: 'Your fresh authenticator code is needed to run this',
-    body: 'svc-token runs a role change only with a fresh step-up by the founder who runs it, for exactly this change. Nothing was changed, and the approval was not spent.',
+    body: 'This change runs only with a fresh step-up by the person who runs it, for exactly this change. Nothing was changed.',
     next: 'Type the current code from your authenticator app and try again.',
   },
   'identity.step_up_unavailable': {
     title: 'The step-up could not be checked',
-    body: 'svc-token could not reach identity to check the step-up, so it refused the role change. Nothing was changed, and the approval was not spent.',
+    body: 'The service could not reach identity to check the step-up, so it refused the change. Nothing was changed.',
     next: 'Try again shortly with a new code.',
   },
   'auth.mfa_invalid': {

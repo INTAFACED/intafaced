@@ -23,10 +23,7 @@ export async function assertAdminUp() {
 /** Signs founder `key` ('a' or 'b') in to the console in this page, and returns the founder's vault entry (no secrets used after). */
 export async function founderSignIn(page, key = 'a') {
   await assertAdminUp();
-  const ctx = await makeContext({ log: () => {} });
-  const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
-  const founder = vault.founders[key === 'a' ? 0 : 1];
-  if (!founder?.totpSecret) throw new Error(`founder ${key} has no confirmed second factor yet: start the stack first (pnpm local:stack)`);
+  const { ctx, founder } = await founderEntry(key);
   // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
   await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
   await page.goto(`${ADMIN}/login`);
@@ -43,9 +40,15 @@ export async function founderSignIn(page, key = 'a') {
  * founderTotp records the step, so it never hands out a code the sign-in or another step already spent.
  */
 export async function founderCode(key = 'a') {
+  const { ctx, founder } = await founderEntry(key);
+  return founderTotp(ctx, key, founder.totpSecret);
+}
+
+/** Founder `key`'s entry in the stack's founder vault, with a confirmed second factor. */
+async function founderEntry(key) {
   const ctx = await makeContext({ log: () => {} });
   const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
   const founder = vault.founders[key === 'a' ? 0 : 1];
   if (!founder?.totpSecret) throw new Error(`founder ${key} has no confirmed second factor yet: start the stack first (pnpm local:stack)`);
-  return founderTotp(ctx, key, founder.totpSecret);
+  return { ctx, founder };
 }

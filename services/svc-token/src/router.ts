@@ -1286,12 +1286,15 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
               actorId: ctx.principal.userId ?? '',
             });
             // The founder who runs it proves a fresh second factor for exactly this move, before the founders' approval is spent.
+            // Unwired, it says so rather than asking for a code nothing could check (the shared check asks for the code first).
             if (!stepUp) {
               throw new StepUpCheckError(
                 'Your confirmation could not be checked right now, so nothing was changed: identity is not wired in this deployment',
                 'identity.step_up_unavailable',
               );
             }
+            // A replay (the same move retried after a lost reply) carries on: a move that was written already fails the
+            // revision precheck above, so reaching here means it was not written and the approval below is still owed.
             await stepUp.require({
               scope: GOVERNANCE_ROLE_STEP_UP_SCOPE,
               userId: ctx.principal.userId ?? '',

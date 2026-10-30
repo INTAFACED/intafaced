@@ -34,14 +34,8 @@ export function governanceRolePayload(input: { userId: string; role: string | nu
 /** The running founder's same-person step-up for one role move (J-more-catalogue-10 #6). */
 export const GOVERNANCE_ROLE_STEP_UP_SCOPE = 'token.step_up.governance.setRole' as const;
 
-/** The fields the founder confirmed: the account, the role (empty for a revoke) and the role revision. */
-export function governanceRoleStepUpFields(input: {
-  userId: string;
-  role: string | null;
-  expectedRevision: number;
-}): Record<string, string> {
-  return { userId: input.userId, role: input.role ?? '', expectedRevision: String(input.expectedRevision) };
-}
+/** The fields the founder confirmed: exactly the fields the founders' approval binds (the role is empty for a revoke). */
+export const governanceRoleStepUpFields = governanceRolePayload;
 
 /** One role move's business key: a retry after a lost reply replays at identity instead of asking for a new confirmation. */
 export function governanceRoleStepUpRequestId(input: { userId: string; expectedRevision: number }): string {

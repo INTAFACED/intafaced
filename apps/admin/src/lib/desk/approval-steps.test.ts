@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decodePacket, type DeskRequest } from './approval-packet';
+import { confirmPhrase, decodePacket, type DeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { approvalMatchesRequest, auditLine, parseStepBody, runStep, type ExecuteFn, type StepBody } from './approval-steps';
 import type { FounderCallContext } from './founder-call';
@@ -77,13 +77,29 @@ describe('parseStepBody', () => {
     expect(parseStepBody({ step: 'revoke', approvalId: 'appr_1' })).toMatchObject({ ok: true });
     expect(parseStepBody({ step: 'reject' }).ok).toBe(false);
   });
-  it('takes a step-up code only on execute, and only as six digits', () => {
-    const exec = { step: 'execute', request: kill, confirm: 'KILL trade', approvalId: 'appr_1', operationId: 'op_1' };
+  it('takes a step-up code only to run a request that needs one, and only as six digits', () => {
+    const role: DeskRequest = {
+      kind: 'token.governance.role.set',
+      userId: '22222222-2222-4222-8222-222222222222',
+      role: 'author',
+      revision: '0',
+    };
+    const phrase = confirmPhrase(role);
+    const exec = { step: 'execute', request: role, confirm: phrase, approvalId: 'appr_1', operationId: 'op_1' };
     expect(parseStepBody({ ...exec, stepUpCode: '123456' })).toMatchObject({ ok: true, body: { stepUpCode: '123456' } });
     for (const bad of ['12345', '1234567', 'abcdef', 123456]) expect(parseStepBody({ ...exec, stepUpCode: bad }).ok).toBe(false);
-    expect(parseStepBody({ step: 'approve', request: kill, confirm: 'KILL trade', approvalId: 'appr_1', stepUpCode: '123456' }).ok).toBe(
-      false,
-    );
+    expect(parseStepBody({ step: 'approve', request: role, confirm: phrase, approvalId: 'appr_1', stepUpCode: '123456' }).ok).toBe(false);
+    // No other executor ever receives the code.
+    expect(
+      parseStepBody({
+        step: 'execute',
+        request: kill,
+        confirm: 'KILL trade',
+        approvalId: 'appr_1',
+        operationId: 'op_1',
+        stepUpCode: '123456',
+      }).ok,
+    ).toBe(false);
   });
   it('execute needs both ids; approve needs the approval id', () => {
     expect(parseStepBody({ step: 'execute', request: kill, confirm: 'KILL trade', approvalId: 'appr_1' }).ok).toBe(false);
@@ -192,10 +208,19 @@ describe('execute', () => {
     expect(execute).toHaveBeenCalledWith(kill, { approvalId: 'appr_1', operationId: 'op_1' });
     expect(reply).toEqual({ ok: true, step: 'execute', detail: 'svc-edge answered 200' });
   });
-  it('hands a step-up code to the executor only when one was sent', async () => {
+  it('hands a step-up code only to the executor of a request that needs one', async () => {
+    const role: DeskRequest = {
+      kind: 'token.governance.role.set',
+      userId: '22222222-2222-4222-8222-222222222222',
+      role: 'author',
+      revision: '0',
+    };
     const execute = vi.fn<ExecuteFn>(async () => ({ ok: true, detail: 'ok' }));
-    await runStep(ctx, body({ step: 'execute', approvalId: 'appr_1', operationId: 'op_1', stepUpCode: '123456' }), execute);
-    expect(execute).toHaveBeenCalledWith(kill, { approvalId: 'appr_1', operationId: 'op_1', stepUpCode: '123456' });
+    const ids = { approvalId: 'appr_1', operationId: 'op_1' };
+    await runStep(ctx, body({ step: 'execute', request: role, confirm: confirmPhrase(role), ...ids, stepUpCode: '123456' }), execute);
+    expect(execute).toHaveBeenLastCalledWith(role, { ...ids, stepUpCode: '123456' });
+    await runStep(ctx, body({ step: 'execute', ...ids, stepUpCode: '123456' }), execute);
+    expect(execute).toHaveBeenLastCalledWith(kill, ids);
   });
   it('passes a refusal through unchanged', async () => {
     const refusal = { title: 't', body: 'b', next: 'n', code: 'action_approval.not_approved', changed: 'no' as const };

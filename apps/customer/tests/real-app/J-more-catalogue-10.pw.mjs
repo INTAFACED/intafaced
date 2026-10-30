@@ -383,7 +383,7 @@ test(`${J} #6 Changes a role without a fresh step-up: Refused until step-up is d
   // Run without a code: svc-token refuses before the two-founder approval is spent, and the role is not written.
   const refused = await runAsA(deskA, request.phrase, false);
   await expect(refused).toContainText('Your fresh authenticator code is needed to run this');
-  await expect(refused).toContainText('Nothing was changed, and the approval was not spent.');
+  await expect(refused).toContainText('Nothing was changed.');
   const roleRow = async () => {
     await openPanel(pages.b);
     return pages.b.locator(`tr[data-role-user="${target.userId}"]`);

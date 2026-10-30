@@ -1,6 +1,6 @@
 import 'server-only';
 import { actionApprovalSchema, type ActionApproval } from '@intafaced/contracts';
-import { confirmPhrase, encodePacket, isApprovalId, readDeskRequest, type DeskRequest } from './approval-packet';
+import { confirmPhrase, encodePacket, isApprovalId, needsStepUp, readDeskRequest, type DeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallFailure } from './founder-call';
 import { explainRefusal } from './refusal-copy';
@@ -68,8 +68,11 @@ export function parseStepBody(raw: unknown): ParsedStep {
   if (step !== 'propose' && !isApprovalId(approvalId)) return { ok: false, error: 'approvalId is required' };
   if (step === 'execute' && !isApprovalId(operationId)) return { ok: false, error: 'operationId is required' };
   const stepUpCode = raw.stepUpCode === undefined ? undefined : raw.stepUpCode;
-  if (stepUpCode !== undefined && (step !== 'execute' || typeof stepUpCode !== 'string' || !/^\d{6}$/.test(stepUpCode))) {
-    return { ok: false, error: 'stepUpCode is six digits, sent only with execute' };
+  if (
+    stepUpCode !== undefined &&
+    (step !== 'execute' || request === null || !needsStepUp(request) || typeof stepUpCode !== 'string' || !/^\d{6}$/.test(stepUpCode))
+  ) {
+    return { ok: false, error: 'stepUpCode is six digits, sent only to run a request that needs a step-up' };
   }
   const confirm = typeof raw.confirm === 'string' ? raw.confirm : '';
   if (needsRequest && request !== null && confirm !== confirmPhrase(request)) {
@@ -218,7 +221,7 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
     const result = await execute(request, {
       approvalId: body.approvalId,
       operationId: body.operationId,
-      ...(body.stepUpCode ? { stepUpCode: body.stepUpCode } : {}),
+      ...(body.stepUpCode && needsStepUp(request) ? { stepUpCode: body.stepUpCode } : {}),
     });
     if (!result.ok) return { ok: false, step, refusal: result.refusal };
     return result.document

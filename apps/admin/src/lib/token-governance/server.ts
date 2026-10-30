@@ -1,4 +1,5 @@
 import 'server-only';
+import { doorForScope } from '@intafaced/contracts';
 import type { ExecuteFn, ExecuteReply } from '@/lib/desk/approval-steps';
 import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { partFrom, type Part } from '@/lib/desk/part';
@@ -6,6 +7,7 @@ import type { DeskRequest } from '@/lib/desk/approval-packet';
 import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
 import { failureRefusal } from '@/lib/ops-desk/execute';
 import {
+  isObj,
   readRoleResult,
   readRoles,
   readSettings,
@@ -107,8 +109,9 @@ export function governanceExecute(ctx: FounderCallContext): ExecuteFn {
   };
 }
 
-/** The scope and purpose identity binds a governance role step-up to (`CUSTOMER_STEP_UP_DOORS`). */
-const ROLE_STEP_UP = { scope: 'token.step_up.governance.setRole', purpose: 'governance.setRole' } as const;
+/** The scope and purpose identity binds a governance role step-up to, from its door in contracts. */
+const ROLE_DOOR = doorForScope('token.step_up.governance.setRole');
+const ROLE_STEP_UP = { scope: ROLE_DOOR?.scope ?? '', purpose: ROLE_DOOR?.purpose ?? '' };
 
 /**
  * Proves the signed-in founder's fresh authenticator code for exactly this role move at identity: begin binds the
@@ -140,5 +143,3 @@ async function stepUpForRole(
 /** A failed call's refusal; a reply that claims success here is the console's own fault, not a pass. */
 const refusedOnly = (reply: ExecuteReply): { ok: false; refusal: RefusalView } =>
   reply.ok ? { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) } : { ok: false, refusal: reply.refusal };
-
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -8,6 +8,7 @@ import {
   confirmPhrase,
   decodePacket,
   describeRequest,
+  needsStepUp,
   requestReason,
   type ApprovalPacket,
   type PacketReading,
@@ -126,11 +127,17 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
   const packet: ApprovalPacket | null = reading.ok ? reading.packet : null;
   const phrase = packet ? confirmPhrase(packet.request) : null;
   const role = packet ? roleFor(packet, userId) : 'unknown';
+  // Only the founder who asked runs it (the approver never runs their own approval), so only they see the code field.
+  const askStepUp = Boolean(props.stepUpNote && packet && needsStepUp(packet.request) && role === 'requester');
+  const partialCode = askStepUp && (props.stepUpCode ?? '').length > 0 && (props.stepUpCode ?? '').length < 6;
   const gates = packet
-    ? (Object.keys(STEP_LABEL) as Array<Exclude<StepName, 'propose'>>).map((step) => ({
-        step,
-        gate: stepGate({ step, packet, userId, confirm, blockedReason, busy: busy !== null, now }),
-      }))
+    ? (Object.keys(STEP_LABEL) as Array<Exclude<StepName, 'propose'>>).map((step) => {
+        const gate = stepGate({ step, packet, userId, confirm, blockedReason, busy: busy !== null, now });
+        return {
+          step,
+          gate: step === 'execute' && gate.ok && partialCode ? { ok: false as const, why: 'Type all six digits of your code.' } : gate,
+        };
+      })
     : [];
   const reason = packet ? requestReason(packet.request) : null;
   return (
@@ -194,7 +201,7 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
               onChange={(e) => props.onConfirm(e.target.value)}
             />
           </div>
-          {props.stepUpNote && (
+          {askStepUp && (
             <div className="adm-field">
               <label htmlFor={`${uid}dk-step-up`}>Your authenticator code, to run it</label>
               <input
@@ -287,7 +294,7 @@ export function ApprovalWorkbench({
         confirm,
         approvalId: packet.approvalId,
         ...(step === 'execute' ? { operationId: packet.operationId } : {}),
-        ...(step === 'execute' && stepUpNote && /^\d{6}$/.test(stepUpCode) ? { stepUpCode } : {}),
+        ...(step === 'execute' && stepUpNote && needsStepUp(packet.request) && /^\d{6}$/.test(stepUpCode) ? { stepUpCode } : {}),
       });
       // A code is spent once, whatever the reply.
       if (step === 'execute') setStepUpCode('');
