@@ -1839,12 +1839,6 @@ const moreSections: readonly DeskSection[] = [
     reads: [],
     unavailable: [
       un(
-        'launch.issuers',
-        'Issuer state: applications, launches in progress, deployer standing',
-        'No service keeps an issuer registry. agents.launch.assess scores one deployer you name; svc-market and svc-token have no launch list.',
-        24,
-      ),
-      un(
         'launch.predict',
         'Predict markets',
         'Predict stays on Protocol. The P1 GO is recorded, but no INTACORE or svc-predict service runs on this stack, and whether they run is an owner decision. Nothing here reads a chain.',
@@ -1852,7 +1846,13 @@ const moreSections: readonly DeskSection[] = [
       ),
     ],
     disabledActions: [],
-    links: [],
+    links: [
+      {
+        href: '/launch',
+        label: 'Launch issuers',
+        why: 'svc-token keeps the issuers and every launch, drafts included: review an issuer, save a draft and move a launch, each with two founders.',
+      },
+    ],
   },
   {
     id: 'market',

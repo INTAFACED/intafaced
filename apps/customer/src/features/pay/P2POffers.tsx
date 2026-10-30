@@ -16,6 +16,9 @@ import { isOwnOffer } from './personal/p2p-model';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { OfferSettlement } from './personal/Settlement';
 import { settlementCopy } from './personal/settlement-copy';
+import { MyAdsLifecycle, StateSince, closeRefusal } from './personal/p2p-my-ads';
+import { myAdsCopy } from './personal/p2p-my-ads-copy';
+import { OfferSharing } from './personal/p2p-share';
 import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
@@ -160,6 +163,10 @@ export function BoardPages({
 export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: string | null; mine: boolean }) {
   const { Copy, t, languageFor, directionFor } = offerCopy.useCopy();
   const arrival = new URL(p2pReturn(location.pathname + location.search + location.hash).href, location.origin);
+  // P-ads-merchant-07: an ad opened from a share link carries its token; the ad's reads, quote and take send it.
+  const sharedOfferId = new URLSearchParams(location.search).get('offerId');
+  const sharedToken = new URLSearchParams(location.search).get('share');
+  if (!mine && sharedOfferId && sharedToken) pay.rememberShare(sharedOfferId, sharedToken);
   const initialFilter = {
     ...(arrival.searchParams.get('asset') ? { asset: arrival.searchParams.get('asset')! } : {}),
     ...(arrival.searchParams.get('fiatCurrency') ? { fiatCurrency: arrival.searchParams.get('fiatCurrency')! } : {}),
@@ -437,6 +444,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                                 <OfferSettlement offer={offer} label={(methodId) => methodId} />
                                 <Status value={offer.status} />
                               </div>
+                              {mine ? <StateSince offer={offer} /> : null}
                               <OfferPrice offer={offer} />
                               <div className="p2p-offer-quantities">
                                 <span className="muted">
@@ -476,6 +484,19 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             )}
           </PayState>
           {mine ? <PausedOffers pay={pay} userId={userId} revision={pausedRevision} choose={choose} /> : null}
+          {mine ? (
+            <MyAdsLifecycle
+              pay={pay}
+              userId={userId}
+              revision={pausedRevision}
+              choose={choose}
+              onChanged={() => {
+                list.reload();
+                setPausedRevision((n) => n + 1);
+              }}
+              side={(offer) => <OfferSide offer={offer} own />}
+            />
+          ) : null}
           <p className="muted">
             <Copy k="window" />
           </p>
@@ -711,6 +732,7 @@ function CurrentOffer({
   outcome: (result: ApiResult<Offer>) => void;
 }) {
   const { Copy, t } = offerCopy.useCopy();
+  const myAds = myAdsCopy.useCopy();
   const own = isOwnOffer(offer, userId);
   const traders = useTraders(pay, own ? [] : [offer.makerId]);
   const record = traders[offer.makerId.toLowerCase()];
@@ -736,11 +758,15 @@ function CurrentOffer({
     </div>
   );
   async function perform(action: 'pause' | 'resume' | 'close', reviewCurrent: () => boolean) {
-    const result = await pay.manageOffer(offer.id, action, {
-      expected: offer,
-      current: () => current() && reviewCurrent(),
-      recoveryCurrent,
-    });
+    // P-ads-merchant-06: a close refused for open orders says how many, in plain words.
+    const result = closeRefusal(
+      await pay.manageOffer(offer.id, action, {
+        expected: offer,
+        current: () => current() && reviewCurrent(),
+        recoveryCurrent,
+      }),
+      myAds.t,
+    );
     outcome(result);
     return result;
   }
@@ -800,6 +826,7 @@ function CurrentOffer({
               review={review}
               perform={(reviewCurrent) => perform('close', reviewCurrent)}
             />
+            <OfferSharing pay={pay} offer={offer} onChanged={(updated) => outcome({ ok: true, data: updated })} />
           </div>
         )
       ) : (
@@ -857,6 +884,7 @@ function PausedOffers({
                     <Status value={offer.status} />
                   </div>
                   <PauseReason offer={offer} />
+                  <StateSince offer={offer} />
                   <Button className="p2p-offer-inspect" variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
                     <Copy k="inspect" />
                   </Button>

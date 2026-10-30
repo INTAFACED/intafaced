@@ -1,19 +1,21 @@
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, api, json, journeyState, tool, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { EDGE, ROOT, api, json, journeyState, tool, toUnits } from './stack.mjs';
+import { signUp, verify } from './desk.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { blankSigningWindow, signingPolicy } from './developer.mjs';
 
 // J-developer-02, in the running app (docs/roadmap/journeys.json): make a first call in the sandbox. One test per step,
-// titled "J-developer-02 #<n>". The person is a TEST account on the local stack, signed in, with a passkey for each fresh
-// step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
+// titled "J-developer-02 #<n>". The person is a TEST account on the local stack that owns a TEST business the stack's
+// operators approved (pay permissions come only from that grant, with no sandbox temporary grant), signed in with its
+// authenticator code, with a passkey for each fresh step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #2, #3: no named sandboxes at /developers/sandbox and no sandbox key with an environment rule (DV-sandbox-01).
-// - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
-//   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
-// - #7: no door refuses a sandbox key at the live host with `env.mismatch`.
+// - #8: no test values page or simulated decline yet (DV-sandbox-02). The sandbox store's Fund and Reset are built: the
+//   stack starts with the owner's fund amount and resets per day blank (#4 makes sure of it), and
+//   `local-test-gates.mjs sandbox-funds set` sets TEST values (#5).
 const J = 'J-developer-02';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
@@ -44,15 +46,29 @@ const sandboxBalance = async () =>
   toUnits(((await page.getByTestId('sandbox-balance').textContent()) ?? '').match(/([\d,.]+)\s*USDT/)?.[1]?.replaceAll(',', '') ?? '0');
 
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
   await virtualAuthenticator(page);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
   const who = await signUp(page, 'sb');
   await verify(page, who);
-  await signIn(page, who);
+  // An approved TEST business (as J-merchant-02 sets one up): opening it needs a second factor, and the owner signs in
+  // again after approval for the pay grant.
+  await signInWithCode(page, who, '/uc/safe');
+  const { secret, step } = await addAuthenticator(page, totp);
+  Object.assign(who, { totp, secret, step });
+  await forgetSession(page);
+  await signInWithCode(page, who, '/pay/merchant');
+  const merchantId = await openBusiness(page, who);
+  await verifiedBusiness(page, who, merchantId);
+  await forgetSession(page);
+  await signInWithCode(page, who, '/uc/safe');
+  delete who.totp;
   await addPasskey(page);
   // write, not reset: a worker restart after a failure keeps what earlier steps stored (the key from #3).
-  run.write({ who });
+  // A key that #3 made for an account from before a worker restart is not this account's: drop it.
+  const kept = run.read().keyOwner === who.userId ? {} : { key: null, baseUrl: null, keyOwner: null };
+  run.write({ who, merchantId, ...kept });
 });
 
 test.afterAll(async () => {
@@ -81,41 +97,165 @@ test(`${J} #1 follows the trading quickstart: account, key, clock check, first c
   await expect(page.getByRole('main')).toContainText('GET /api/v1/time');
 });
 
-test(`${J} #2 creates a sandbox with a name: listed, and a second named sandbox works`, async () => {
+/** One sign-in through the edge as the account, with its authenticator's next code, kept for this worker. */
+let signedIn = null;
+async function account(who) {
+  if (!signedIn) {
+    const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+    const { code, step } = await nextCode(totp, who.secret, who.step);
+    who.step = step;
+    run.write({ who });
+    signedIn = await api(who, { totpCode: code });
+  }
+  return signedIn;
+}
+
+/** What identity holds for this account's sandboxes, read through the edge as the account (not from the page). */
+async function sandboxRecords(who) {
+  const res = await (await account(who)).get('/api/identity/trpc/developerSandboxes.list');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+async function sandboxDetail(who, sandboxId) {
+  const input = encodeURIComponent(JSON.stringify({ sandboxId }));
+  const res = await (await account(who)).get(`/api/identity/trpc/developerSandboxes.get?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** Identity restarted with the owner's sandbox cap blank, or back on the stack's TEST cap (as J-identity-08 #5 does). */
+function identitySandboxCap(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
+  else process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
+    else process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP = before;
+  }
+}
+
+async function createSandboxNamed(name) {
+  await page.getByRole('textbox', { name: 'Sandbox name' }).fill(name);
+  await page.getByRole('button', { name: 'Create sandbox' }).click();
+}
+
+/** The server's own answer to the request the page sends for `procedure` when `act` runs (not the page's rendering of it). */
+async function serverAnswer(procedure, act) {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === 'POST' && new URL(res.url()).pathname.endsWith(`/developerSandboxes.${procedure}`),
+    ),
+    act(),
+  ]);
+  return { status: response.status(), body: await response.json() };
+}
+
+test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox works, and with the sandbox cap blank the second refuses`, async () => {
+  test.setTimeout(240_000);
+  const { who } = run.read();
+  // beforeAll signs up a new account, so it holds no sandbox yet.
+  expect((await sandboxRecords(who)).sandboxes).toEqual([]);
   await page.goto('/developers/sandbox');
   await expect(page.getByRole('heading', { name: 'Sandbox', level: 1 })).toBeVisible();
-  for (const name of ['development', 'ci']) {
-    await page.getByRole('textbox', { name: 'Sandbox name' }).fill(name, UNBUILT);
-    await page.getByRole('button', { name: 'Create sandbox' }).click();
+
+  // "sandbox with a name listed": on the page and in identity's own record.
+  await createSandboxNamed('development');
+  await expect(sandboxes().getByRole('row', { name: /^development\b/ })).toBeVisible();
+  expect((await sandboxRecords(who)).sandboxes.map((sandbox) => sandbox.name)).toEqual(['development']);
+
+  // "with the sandbox cap blank the second refuses": identity restarted with the cap blank refuses by its code, and
+  // nothing is written.
+  identitySandboxCap(false);
+  try {
+    await page.reload();
+    await expect(page.getByTestId('sandbox-cap')).toHaveAttribute('data-limit', 'unset');
+    const refused = await serverAnswer('create', () => createSandboxNamed('ci'));
+    expect(refused.status, JSON.stringify(refused.body)).toBe(412);
+    expect(refused.body.error.message).toContain('[identity.sandbox_cap_unset]');
+    await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'identity.sandbox_cap_unset');
+    await expect(bodyRows(sandboxes())).toHaveCount(1);
+    const held = await sandboxRecords(who);
+    expect(held.sandboxes.map((sandbox) => sandbox.name)).toEqual(['development']);
+    expect(held.cap).toEqual({ limit: null, held: 1 });
+  } finally {
+    identitySandboxCap(true);
+  }
+
+  // "a second named sandbox (development, CI, UAT) works" once the stack's TEST cap is back.
+  await page.reload();
+  await expect(page.getByTestId('sandbox-cap')).toHaveAttribute('data-limit', '3');
+  for (const name of ['ci', 'uat']) {
+    await createSandboxNamed(name);
     await expect(sandboxes().getByRole('row', { name: new RegExp(`^${name}\\b`) })).toBeVisible();
   }
-  await expect(bodyRows(sandboxes())).toHaveCount(2);
+  await expect(bodyRows(sandboxes())).toHaveCount(3);
+  const made = await sandboxRecords(who);
+  expect(made.sandboxes.map((sandbox) => sandbox.name)).toEqual(['development', 'ci', 'uat']);
+  expect(made.cap).toEqual({ limit: 3, held: 3 });
 });
 
 test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandbox-safe scopes only, and a trade scope is refused for that reason`, async () => {
+  const { who } = run.read();
   await openSandbox('development');
-  // A trade permission cannot be served by a sandbox, so asking for one is refused and makes nothing.
+  const sandboxId = /\/developers\/sandbox\/([0-9a-f-]{36})$/.exec(new URL(page.url()).pathname)?.[1];
+  expect(sandboxId, page.url()).toBeTruthy();
+  expect((await sandboxDetail(who, sandboxId)).keys).toEqual([]);
+
+  // "trade scope refused for that reason": a sandbox serves no trading, so the refusal is env.scope_not_sandboxable and
+  // no key is made.
   await page.getByRole('link', { name: 'Create a sandbox key' }).click();
   await page.getByLabel('Key name').fill('sandbox-trade');
   await page.getByLabel('Trade', { exact: true }).check();
-  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  const tradeRefused = await serverAnswer('createKey', () =>
+    page.getByRole('button', { name: 'Create with a passkey', exact: true }).click(),
+  );
+  expect(tradeRefused.status, JSON.stringify(tradeRefused.body)).toBe(403);
+  expect(tradeRefused.body.error.message).toContain('[env.scope_not_sandboxable]');
+  await expect(page.getByRole('alert')).toHaveAttribute('data-code', 'env.scope_not_sandboxable');
   await expect(page.getByRole('alert')).toContainText('can’t be used in a sandbox');
+  expect((await sandboxDetail(who, sandboxId)).keys).toEqual([]);
 
+  // "sandbox key shown once with sandbox base URL".
   await page.getByLabel('Key name').fill('sandbox-first');
   await page.getByLabel('Read only', { exact: true }).check();
-  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  const made = await serverAnswer('createKey', () => page.getByRole('button', { name: 'Create with a passkey', exact: true }).click());
+  expect(made.status, JSON.stringify(made.body)).toBe(200);
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
   const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_test_/);
+  // The page shows the key and address identity sent, in the one reply that carries the key.
+  expect(made.body.result.data.key).toBe(key);
   const baseUrl = (await page.getByTestId('sandbox-base-url').textContent())?.trim();
-  expect(baseUrl).toMatch(/^https?:\/\//);
+  expect(made.body.result.data.baseUrl).toBe(baseUrl);
+  // The address shown is identity's sandbox address, and that is the edge's sandbox host on this stack (EDGE_SANDBOX_HOSTS
+  // is localhost at the edge's port; the live host is 127.0.0.1).
+  expect(baseUrl).toBe((await sandboxRecords(who)).baseUrl);
+  expect(baseUrl).toBe(`http://localhost:${new URL(EDGE).port}`);
   await page.getByLabel('I have stored this key somewhere safe').check();
   await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('heading', { name: 'development', level: 1 })).toBeVisible();
   expect(await page.content()).not.toContain(key);
-  run.write({ key, baseUrl });
+  // "shown once": identity never answers the key again, and a fresh load of the sandbox does not show it.
+  expect(JSON.stringify(await sandboxDetail(who, sandboxId))).not.toContain(key);
+  expect(JSON.stringify(await sandboxRecords(who))).not.toContain(key);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'development', level: 1 })).toBeVisible();
+  expect(await page.content()).not.toContain(key);
+
+  // "only sandbox-safe scopes": the one key identity holds for this sandbox is a sandbox key with the read scope only.
+  const { keys } = await sandboxDetail(who, sandboxId);
+  expect(keys).toHaveLength(1);
+  expect(keys[0]).toMatchObject({ name: 'sandbox-first', mode: 'sandbox', scopes: ['pay:read'], revoked: false });
+  expect(key.startsWith(keys[0].prefix)).toBe(true);
+  run.write({ key, baseUrl, keyOwner: who.userId });
 });
 
 test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal naming the decision, nothing written`, async () => {
+  // A stack an earlier run left with TEST values set starts blank again.
+  tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
@@ -125,14 +265,14 @@ test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal na
 
 test(`${J} #5 funds the sandbox once the decision is set: the sandbox balance rises, labelled TEST, and the live book is untouched`, async () => {
   const { who } = run.read();
-  const live = await (await api(who)).balances();
+  const live = await (await account(who)).balances();
   tool('local-test-gates.mjs', 'sandbox-funds', 'set');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
   await expect.poll(sandboxBalance).toBeGreaterThan(before);
   await expect(page.getByTestId('sandbox-balance')).toContainText('TEST');
-  expect(await (await api(who)).balances()).toEqual(live);
+  expect(await (await account(who)).balances()).toEqual(live);
 });
 
 test(`${J} #6 runs the clock check: the offset against the server, and within the owner's window it passes`, async () => {
@@ -189,18 +329,31 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
 });
 
 test(`${J} #7 sends the first signed call: success in the sandbox, and the same key at the live host is refused with the environment mismatch code`, async () => {
-  const { key, baseUrl } = run.read();
+  const { key, baseUrl, keyOwner, who, merchantId } = run.read();
   expect(key, 'a sandbox key from #3').toBeTruthy();
-  const at = (host) => fetch(`${host}/api/v1/account/balance`, { headers: { authorization: `Bearer ${key}` } }).then(json);
-  const sandbox = await at(baseUrl);
-  expect(sandbox.status, JSON.stringify(sandbox.body)).toBe(200);
+  expect(keyOwner, "the key from #3 is this account's").toBe(who.userId);
+  // A sandbox key holds the pay scopes only (#3), and the edge serves it only at the pay door, the one door with a
+  // sandbox backing (svc-edge gateway-plane SANDBOX_BACKED_DOORS). The first call is a read of the account's own
+  // business's TEST payments, as the API reference writes it: the business and a page size.
+  const at = (host) =>
+    fetch(`${host}/api/pay/v1/payments?merchantId=${merchantId}&limit=10`, { headers: { authorization: `Bearer ${key}` } }).then(json);
+  // The same key at the live host: refused for its environment before anything else, by the typed code.
   const live = await at(EDGE);
-  expect(live.body?.code ?? live.body?.error?.code).toBe('env.mismatch');
+  expect(live.status, JSON.stringify(live.body)).toBe(403);
+  expect(live.body?.error?.data?.intafacedCode).toBe('env.mismatch');
+  // At the sandbox host the door lets it through: never refused for its environment.
+  const sandbox = await at(baseUrl);
+  expect(JSON.stringify(sandbox.body)).not.toContain('env.mismatch');
+  // Success: the sandbox answers with the business's sandbox payments only (a fresh business has none), never a live one.
+  expect(sandbox.status, JSON.stringify(sandbox.body)).toBe(200);
+  expect(sandbox.body).toEqual({ items: expect.any(Array), nextCursor: null });
+  for (const item of sandbox.body.items) expect(item.railAdapter, JSON.stringify(item)).toMatch(/sandbox/);
 });
 
 test(`${J} #8 triggers a simulated decline and resets the balance: the payment ends declined; reset works until the daily cap, then a typed refusal`, async () => {
   test.setTimeout(180_000);
-  const { key, baseUrl } = run.read();
+  const { key, baseUrl, keyOwner, who } = run.read();
+  expect(keyOwner, "the key from #3 is this account's").toBe(who.userId);
   await page.goto('/developers/sandbox/test-values');
   const decline = tableIn(page, 'Test values')
     .getByRole('row', { name: /Decline/ })
@@ -215,10 +368,11 @@ test(`${J} #8 triggers a simulated decline and resets the balance: the payment e
   expect(payment.body?.status, JSON.stringify(payment.body)).toBe('declined');
 
   await openSandbox('development');
-  const reset = page.getByRole('button', { name: 'Reset balances' });
+  const funds = page.getByRole('region', { name: 'TEST funds' });
+  const reset = funds.getByRole('button', { name: 'Reset balances' });
   for (let i = 0; i < 50; i += 1) {
     await reset.click();
-    const said = page.getByRole('status').or(page.getByRole('alert'));
+    const said = funds.getByRole('status').or(funds.getByRole('alert'));
     await expect(said).toBeVisible();
     if (/daily reset limit/i.test((await said.textContent()) ?? '')) return;
   }

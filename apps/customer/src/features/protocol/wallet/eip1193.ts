@@ -79,7 +79,18 @@ export type SignResult =
 export type SignRequest =
   | { kind: 'typedData'; typedData: TypedDataDocument }
   | { kind: 'message'; message: string }
-  | { kind: 'transaction'; to: string; value?: string; data?: string };
+  | {
+      kind: 'transaction';
+      to: string;
+      value?: string;
+      data?: string;
+      /**
+       * The network fee the person chose, as hex wei per gas (EIP-1559): both or neither. Absent, the wallet sets the fee
+       * itself. Shown on the sheet and sent in the same object.
+       */
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+    };
 
 export interface TypedDataDocument {
   types: Record<string, Array<{ name: string; type: string }>>;
@@ -170,7 +181,20 @@ function utf8Hex(text: string): string {
 
 /** The plain-words facts for the sheet that comes before every wallet prompt. Every fact is read from the payload itself. */
 export interface SheetFact {
-  label: 'contract' | 'spender' | 'amount' | 'expiry' | 'action' | 'recipient' | 'value' | 'message' | 'calldata' | 'domain' | 'token';
+  label:
+    | 'contract'
+    | 'spender'
+    | 'amount'
+    | 'expiry'
+    | 'action'
+    | 'recipient'
+    | 'value'
+    | 'message'
+    | 'calldata'
+    | 'domain'
+    | 'token'
+    | 'maxFee'
+    | 'priorityFee';
   value: string;
 }
 const SPENDER_KEYS = ['spender', 'operator', 'delegate'];
@@ -214,6 +238,12 @@ export function refuseReason(request: SignRequest): string | null {
     if (!ADDRESS.test(request.to)) return 'The recipient is not a valid address.';
     if (request.value !== undefined && !/^0x[0-9a-fA-F]+$/.test(request.value)) return 'The value is not a hex amount.';
     if (request.data !== undefined && !/^0x([0-9a-fA-F]{2})*$/.test(request.data)) return 'The calldata is not valid hex.';
+    const fee = [request.maxFeePerGas, request.maxPriorityFeePerGas];
+    if (fee.some((entry) => entry !== undefined)) {
+      if (fee.some((entry) => entry === undefined || !/^0x[0-9a-fA-F]{1,64}$/.test(entry)))
+        return 'The network fee is not a pair of hex amounts per gas.';
+      if (BigInt(request.maxPriorityFeePerGas!) > BigInt(request.maxFeePerGas!)) return 'The priority fee is above the most per gas.';
+    }
   }
   if (request.kind === 'typedData') {
     const { domain, types, primaryType } = request.typedData;
@@ -238,6 +268,12 @@ export function describeRequest(request: SignRequest): SheetFact[] {
       { label: 'recipient', value: request.to },
       { label: 'value', value: request.value ?? '0x0' },
       { label: 'calldata', value: request.data && request.data !== '0x' ? request.data : 'none' },
+      ...(request.maxFeePerGas !== undefined && request.maxPriorityFeePerGas !== undefined
+        ? [
+            { label: 'maxFee' as const, value: `${BigInt(request.maxFeePerGas).toString()} wei` },
+            { label: 'priorityFee' as const, value: `${BigInt(request.maxPriorityFeePerGas).toString()} wei` },
+          ]
+        : []),
     ];
   const { domain, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
@@ -267,7 +303,17 @@ export function describeRequest(request: SignRequest): SheetFact[] {
 
 /** The one object both the sheet and the wallet call use, so what is shown is what is sent. */
 export function transactionParams(request: Extract<SignRequest, { kind: 'transaction' }>, account: string, chainId: number) {
-  return { from: account, to: request.to, chainId: toHexChainId(chainId), value: request.value ?? '0x0', data: request.data ?? '0x' };
+  return {
+    from: account,
+    to: request.to,
+    chainId: toHexChainId(chainId),
+    value: request.value ?? '0x0',
+    data: request.data ?? '0x',
+    // The person's chosen network fee, when there is one; otherwise the wallet sets it.
+    ...(request.maxFeePerGas !== undefined && request.maxPriorityFeePerGas !== undefined
+      ? { maxFeePerGas: request.maxFeePerGas, maxPriorityFeePerGas: request.maxPriorityFeePerGas }
+      : {}),
+  };
 }
 
 /** The exact payload the wallet will be asked to sign or send, rendered from the same object that is sent. */

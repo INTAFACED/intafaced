@@ -47,6 +47,7 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
+  { path: '/appeal', title: 'Appeal a freeze', description: 'Ask staff to look again at a freeze', area: 'public', hidden: true },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
@@ -95,6 +96,20 @@ export const rooms: readonly Room[] = [
     title: 'Authentication and permission errors',
     description: 'Codes a refused key or token carries',
     area: 'public',
+  },
+  {
+    path: '/developers/sandbox/:sandboxId',
+    title: 'Sandbox',
+    description: 'One named sandbox and its keys',
+    area: 'public',
+    hidden: true,
+  },
+  {
+    path: '/developers/sandbox/:sandboxId/keys/new',
+    title: 'Create a sandbox key',
+    description: 'A key that works only in this sandbox',
+    area: 'public',
+    hidden: true,
   },
   {
     path: '/developers/:section',
@@ -252,6 +267,13 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Money', area: 'money' },
+  {
+    path: '/bank/loans/apply',
+    title: 'Apply for a loan',
+    description: 'Collateral needed, conditions and fees for a new loan',
+    door: 'Money',
+    area: 'money',
+  },
   {
     path: '/bank/loans/detail',
     title: 'Loan details',

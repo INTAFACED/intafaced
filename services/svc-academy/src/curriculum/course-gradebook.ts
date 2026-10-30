@@ -12,6 +12,7 @@ import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
 import type { AcademyCourseGradebook, AcademyGradeType, AcademySaveGradingPolicyInput } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { fractionOf, fractionText, typeAverage, weightedTotal, weightSum, type Fraction } from './course-gradebook-math.js';
+import { effectiveScoreSql } from './course-quiz-trail.js';
 
 type Db = Sql | TransactionSql;
 type ItemRow = { id: string; title: string; kind: 'assignment' | 'quiz'; scoring_policy: string | null };
@@ -138,7 +139,7 @@ export class CourseGradebook {
     const attempts = await sql<
       Array<{ item_id: string; user_id: string; number: number; state: string; score: number | null; max_score: number | null }>
     >`
-      SELECT t.item_id, t.user_id, t.number, t.state, t.score, t.max_score
+      SELECT t.item_id, t.user_id, t.number, t.state, ${effectiveScoreSql(sql)} AS score, t.max_score
       FROM academy.course_quiz_attempts t JOIN academy.course_items i ON i.id = t.item_id
       WHERE i.course_id = ${courseId}
     `;

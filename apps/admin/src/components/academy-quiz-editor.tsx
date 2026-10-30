@@ -151,7 +151,14 @@ function Facts({ quiz }: { quiz: AcademyAdminCourseQuiz }) {
       <dt>Kind</dt>
       <dd>{quiz.kind === 'survey' ? (quiz.anonymous ? 'Anonymous survey' : 'Survey') : 'Graded quiz'}</dd>
       <dt>Attempts by learners</dt>
-      <dd>{quiz.attempts}</dd>
+      <dd>
+        {quiz.attempts}{' '}
+        {quiz.kind === 'quiz' && (
+          <a className="adm-btn" href={`/academy-ops/catalogue/quizzes/${quiz.itemId}`}>
+            Attempts and score changes
+          </a>
+        )}
+      </dd>
       <dt>Waiting for an essay score</dt>
       <dd>{quiz.pendingReview}</dd>
       <dt>Survey responses</dt>

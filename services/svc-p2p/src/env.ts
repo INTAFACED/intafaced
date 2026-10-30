@@ -95,6 +95,18 @@ const schema = serviceEnvSchema
       P2P_REMIND_MAX: ownerInt,
 
       /**
+       * P-ads-merchant-06. Ad edits one person may make per UTC day. Empty is unset: every ad edit then refuses
+       * `p2p.config_unset`. No default.
+       */
+      P2P_OFFER_EDITS_PER_DAY: ownerInt,
+
+      /**
+       * P-ads-merchant-07. The longest a share link to an ad may live, in seconds. Empty is unset: every new share link
+       * then refuses `p2p.config_unset`. No default.
+       */
+      P2P_SHARE_LINK_MAX_SECONDS: ownerInt,
+
+      /**
        * P-trade-orders-20. Basis points of an order's fiat amount within which a reported under-, over- or part payment
        * lets the order go on (0 is the exact amount only, at most 10000). Empty is unset: no report is classified and
        * every one goes to a person through a dispute.

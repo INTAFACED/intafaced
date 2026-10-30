@@ -1,8 +1,8 @@
-import { createPublicClient, defineChain, http } from 'viem';
+import { createPublicClient, defineChain, getAddress, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { factoryAbi, poolAbi } from '../amm/abi.js';
-import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
+import { erc20ApprovalAbi, erc20ApprovalEvent, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
   chainIdMismatchRefusal,
@@ -443,6 +443,56 @@ export class ProtocolChain {
         blockNumber,
       });
       return { value, blockNumber };
+    });
+  }
+
+  /**
+   * Every (token, spender) pair `owner`'s `Approval` logs name for `tokens` between two blocks, deduplicated. One
+   * `eth_getLogs` with the owner as the indexed topic. The amounts in the logs are not used: the current allowance is
+   * read separately, because a later transfer spends an allowance without any Approval log.
+   */
+  async approvalSpenders(
+    tokens: readonly Address[],
+    owner: Address,
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<Array<{ token: Address; spender: Address }>> {
+    return this.#read('approvalSpenders', 'chain.approvalLogs', async () => {
+      const logs = await this.client.getLogs({
+        address: [...tokens],
+        event: erc20ApprovalEvent,
+        args: { owner },
+        fromBlock,
+        toBlock,
+      });
+      const found = new Map<string, { token: Address; spender: Address }>();
+      for (const log of logs) {
+        const spender = log.args.spender;
+        if (!spender) continue;
+        found.set(`${log.address.toLowerCase()}:${spender.toLowerCase()}`, {
+          token: getAddress(log.address),
+          spender: getAddress(spender),
+        });
+      }
+      return [...found.values()];
+    });
+  }
+
+  /** `owner`'s allowance for `spender` at `blockNumber`. Null when the token reverts rather than answering. */
+  async allowanceAt(token: Address, owner: Address, spender: Address, blockNumber: bigint): Promise<bigint | null> {
+    return this.#read('allowanceAt', 'chain.allowanceAt', async () => {
+      try {
+        return await this.client.readContract({
+          address: token,
+          abi: erc20ApprovalAbi,
+          functionName: 'allowance',
+          args: [owner, spender],
+          blockNumber,
+        });
+      } catch (err) {
+        if (isExecutionRevert(err)) return null;
+        throw err;
+      }
     });
   }
 

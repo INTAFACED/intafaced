@@ -49,6 +49,11 @@ export type CustomerStepUpDoor = {
   readonly emptyOk: readonly string[];
   readonly decimalFields: readonly string[];
   readonly fixed: Readonly<Record<string, string>>;
+  /**
+   * A shape each named field must have, checked when the step-up is bound, so identity never mints an approval over bytes
+   * the consuming service cannot rebuild. An empty value is still governed by `emptyOk`.
+   */
+  readonly shapes?: Readonly<Record<string, (value: string) => boolean>>;
 };
 
 export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
@@ -308,6 +313,25 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     emptyOk: [],
     decimalFields: [],
     fixed: {},
+  },
+  {
+    // svc-token (MC-token-02, J-more-catalogue-10 #6): the founder who runs a two-founder governance role change proves a
+    // fresh second factor for exactly that account, role (empty for a revoke) and role revision. One confirmation
+    // approves one role move.
+    scope: 'token.step_up.governance.setRole',
+    purpose: 'governance.setRole',
+    clientFields: ['userId', 'role', 'expectedRevision'],
+    targetField: 'userId',
+    targetRequired: true,
+    emptyOk: ['role'],
+    decimalFields: [],
+    fixed: {},
+    // Exactly what svc-token hashes: its account id shape, one of its roles, and its revision as `String(number)`.
+    shapes: {
+      userId: (value) => /^[A-Za-z0-9._:-]{1,128}$/.test(value),
+      role: (value) => ['controller', 'admin', 'moderator', 'author'].includes(value),
+      expectedRevision: (value) => /^(?:0|[1-9]\d{0,8})$/.test(value),
+    },
   },
   {
     scope: 'pay.step_up.payoutDestination.set',
@@ -680,6 +704,8 @@ function fieldShapeOk(door: CustomerStepUpDoor, key: string, value: string): boo
   }
   const fixed = door.fixed[key];
   if (fixed !== undefined && value !== fixed) return false;
+  const shape = door.shapes?.[key];
+  if (shape && !shape(value)) return false;
   return true;
 }
 

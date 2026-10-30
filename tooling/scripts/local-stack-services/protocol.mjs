@@ -37,9 +37,18 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_SWAP_SLIPPAGE_BPS: '300',
       PROTOCOL_SWAP_QUOTE_TTL_SECONDS: '30',
       PROTOCOL_SWAP_CONFIRMATIONS: '1',
+      // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
+      // Slow, Normal and Fast, how many blocks they are read from, and the fee cap per gas (100 gwei). Production stays
+      // blank and the fee levels refuse by name (protocol.gas_percentiles_unset, protocol.swap_fee_cap_unset).
+      PROTOCOL_GAS_PERCENTILES: '10,50,90',
+      PROTOCOL_GAS_HISTORY_BLOCKS: '20',
+      PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
       // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
       // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
       ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
+      // LOCAL TEST only (same profile): how long a contract ownership challenge stays signable. Blank in production refuses
+      // protocol.listing.challenge_ttl_unset and no challenge is issued.
+      PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: 'TEST:300',
     };
   },
 });

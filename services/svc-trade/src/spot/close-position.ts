@@ -19,6 +19,7 @@ import { REGULAR_FEE_TIER } from './fee-schedule.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
+import { classifyHoldPostError } from './hold-outcome.js';
 import { assertMarketOpen, assertSettlementRails, assertTradable, holdFor } from './risk.js';
 import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
@@ -85,20 +86,10 @@ export function sumBuyFillNotional(fills: readonly { readonly price: string; rea
  * Unit tests in close-position.flatten-hold and slice-futures-amounts still
  * call this. The close catch does not: the engine has already printed the
  * flatten when the hold is posted, so a close never deletes its row.
+ * A definite refusal is the one set in `hold-outcome.ts`, so the two never drift.
  */
-const DEFINITE_HOLD_REFUSAL_CODES = new Set([
-  'ledger.insufficient_funds',
-  'ledger.invalid_entry',
-  'ledger.unbalanced',
-  'ledger.owner_identity_space',
-  'ledger.frozen',
-  'ledger.unauthenticated',
-  'ledger.freeze_attributed',
-]);
-
 export function closeHoldFailureAction(err: unknown): 'keep_recovery' | 'delete_intent' {
-  if (err instanceof LedgerError && DEFINITE_HOLD_REFUSAL_CODES.has(err.code)) return 'delete_intent';
-  return 'keep_recovery';
+  return classifyHoldPostError(err) === 'refused' ? 'delete_intent' : 'keep_recovery';
 }
 
 function flattenFromResult(result: EngineSubmitResult): { side: OrderSide; qty: Amount; price: Amount } {

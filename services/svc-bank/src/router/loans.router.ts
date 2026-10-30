@@ -3,6 +3,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { loanServicingPreviewProcedures } from '../loans/loan-servicing-preview.js';
 import { loanCustomerReadProcedures } from '../loans/loan-reads.router.js';
+import { loanApplyProcedures } from '../loans/loan-apply.router.js';
 import { assertSelf } from '../assert-self.js';
 import { amountString } from './shared.js';
 import { guard } from './errors.js';
@@ -29,6 +30,7 @@ export function createLoansRouter(c: BankRouterContext) {
    */
   return router({
     ...loanCustomerReadProcedures(bank, guard),
+    ...loanApplyProcedures(bank, guard),
     products: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
@@ -90,6 +92,8 @@ export function createLoansRouter(c: BankRouterContext) {
           productId: z.string().guid(),
           collateralAmount: amountString,
           principal: amountString,
+          /** The rate the borrower was shown; a new loan refuses bank.loan_rate_changed when it no longer matches. */
+          expectedAprBps: z.number().int().min(0).max(10_000).optional(),
         }),
       )
       .output(z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }))
@@ -104,6 +108,7 @@ export function createLoansRouter(c: BankRouterContext) {
             userId: ctx.principal.userId,
             collateralAmount: parseAmount(input.collateralAmount),
             principal: parseAmount(input.principal),
+            ...(input.expectedAprBps === undefined ? {} : { expectedAprBps: input.expectedAprBps }),
           });
           return {
             loanId: result.loan.id,
