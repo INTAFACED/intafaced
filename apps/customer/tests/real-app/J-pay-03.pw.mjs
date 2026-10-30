@@ -94,13 +94,37 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with n
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page, me);
+  // Handles are live on this stack: identity answers `me` with the person's own handle, and Receive shows exactly it.
+  const meRead = page.waitForResponse((r) => r.url().includes('/api/identity/trpc/me') && r.request().method() === 'GET');
   await page.goto('/pay/receive');
+  const identityMe = await meRead;
+  expect(identityMe.status()).toBe(200);
+  const mine = (await identityMe.json()).result.data;
+  expect(mine.handle, 'identity holds a handle for this person').toBeTruthy();
   await expect(page.getByRole('tab', { name: 'Receive' })).toHaveAttribute('aria-selected', 'true');
-  const shown = (await page.getByTestId('receive-value').textContent())?.trim();
-  expect(shown === `@${me.handle}` || /^[0-9a-f-]{36}$/.test(shown ?? '')).toBe(true);
+  await expect(page.getByRole('heading', { name: 'Your handle' })).toBeVisible();
+  const value = page.getByTestId('receive-value');
+  await expect(value).toHaveText(`@${mine.handle}`);
+  await expect(value).not.toHaveAttribute('data-mono', /.*/);
   await page.getByTestId('receive-copy').click();
   await expect(page.getByText('Copied', { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shown);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`@${mine.handle}`);
+});
+
+// #1's second clause is a state no running stack can show, so it is its own test, red by name. Receive falls back to
+// the Account ID only when identity has no `me` procedure at all (`fetchMe` reads "procedure missing" as "no handles
+// live"); every stack serves `me`, so handles are always live here. The fallback is proven in the component test
+// (apps/customer/src/screens/pay/pay.pw.mjs, "receive without handles shows the Account ID in mono").
+test(`${J} part of #1 with no handles live, the Account ID in mono (blocked: handles are live on every stack; identity always serves me)`, async ({
+  page,
+}) => {
+  const { me } = people();
+  await signIn(page, me);
+  await page.goto('/pay/receive');
+  await expect(
+    page.getByRole('heading', { name: 'Your account ID' }),
+    'blocked: handles are live, so Receive shows the handle',
+  ).toBeVisible(UNBUILT);
 });
 
 test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason naming the rule; past the lifetime change cap it refuses with the count`, async ({
