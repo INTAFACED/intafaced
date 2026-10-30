@@ -224,13 +224,14 @@ describe('LoanService.seize refuses a missing mark before any post', () => {
   it('bank.mark_missing — no loan.liquidated', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW),
         venue: marketMakerVenue(),
       },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW), venue: marketMakerVenue() },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW), venue: marketMakerVenue() },
     });
 
     await expect(bank.loans.seize({ loanId: opened.loan.id, now: NOW })).rejects.toMatchObject({
@@ -247,7 +248,7 @@ describe('LoanService.seize refuses a missing mark before any post', () => {
       USDT: { price: '1', quality: 'mid' },
     };
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource(prices, () => NOW), venue: marketMakerVenue() },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource(prices, () => NOW), venue: marketMakerVenue() },
     });
     await fund(ledger, PAYER, 'USDT', '100000');
     await bank.loans.fundReserve({
@@ -304,13 +305,14 @@ describe('HTTP /trpc/ops.seizeLoan — seize through ledger-client', () => {
   it('refuses bank.mark_missing on the operator door and posts nothing', async () => {
     const openBank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW),
         venue: marketMakerVenue(),
       },
     });
     const opened = await seedOpenLoan(openBank, ledger);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW), venue: marketMakerVenue() },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW), venue: marketMakerVenue() },
     });
     const app = await mountDoors(bank);
 
@@ -331,7 +333,7 @@ describe('HTTP /trpc/ops.seizeLoan — seize through ledger-client', () => {
   it('with an insolvency mark, posts loan.liquidated — no invented rate', async () => {
     const prices: Record<string, { price: string; quality: 'mid' }> = { BTC: { price: '10000', quality: 'mid' } };
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource(prices), venue: marketMakerVenue() },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource(prices), venue: marketMakerVenue() },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     prices.BTC = { price: '5200', quality: 'mid' };

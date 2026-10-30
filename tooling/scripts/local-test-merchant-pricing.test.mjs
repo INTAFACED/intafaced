@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  JOURNEY_CAPPED_DAILY_PAYOUT,
   JOURNEY_PRICING_RULE,
   journeyTier,
   planMove,
@@ -55,6 +56,19 @@ test('each business gets its own tier, off the shared ladder; only the flag publ
   assert.equal(priced.payoutFee, null);
   assert.deepEqual(journeyTier(MERCHANT, 'blank', true).payoutFee, { kind: 'not_charged' });
   assert.equal(journeyTier(MERCHANT, 'blank', true).id, 'j07-blank-1b2c3d4e');
+});
+
+test('the capped tier is its own, with a TEST daily payout cap of 1 USDT; the others keep 500', () => {
+  assert.deepEqual(pricingArgs([MERCHANT, '--tier', 'capped']), { merchantId: MERCHANT, tier: 'capped', payoutNotCharged: false });
+  const capped = journeyTier(MERCHANT, 'capped', false);
+  assert.equal(capped.id, 'j07-capped-1b2c3d4e');
+  assert.equal(JOURNEY_CAPPED_DAILY_PAYOUT, '1');
+  assert.deepEqual(
+    capped.caps.find((c) => c.kind === 'daily_payout'),
+    { kind: 'daily_payout', assetCode: 'USDT', limit: '1' },
+  );
+  assert.equal(journeyTier(MERCHANT, 'priced', false).caps.find((c) => c.kind === 'daily_payout').limit, '500');
+  assert.equal(pricingArgs([MERCHANT, '--tier', 'tight']), null);
 });
 
 test('a tier is written when missing or when any term differs, the payout fee included; an equal tier is left alone', () => {

@@ -169,7 +169,7 @@ describe('LoanService.releaseExcess — one release, cap held across callers', (
 
   it('timeout after the release posts, retry same eventId and amount — one loanCollateralRelease', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     // 3 BTC at 10000, debt 5000, max LTV 50%: up to 2 BTC may leave. A second
     // 0.5 still fits the cap, so a fresh sequence would post again.
@@ -201,7 +201,7 @@ describe('LoanService.releaseExcess — one release, cap held across callers', (
 
   it('two overlapping releases of the capped headroom do not both pass', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     // 2 BTC, debt 5000 at 10000, max LTV 50%. Releasing 1 leaves LTV at the cap.
     // A second 1 leaves nothing pledged. Each call alone is allowed.
@@ -258,7 +258,7 @@ describe('HTTP /trpc/loans.releaseExcess — same event is one release', () => {
 
   it('two HTTP posts with the same eventId and amount release once', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, '3', new Date());
     const eventId = randomUUID();
@@ -276,7 +276,7 @@ describe('HTTP /trpc/loans.releaseExcess — same event is one release', () => {
 
   it('HTTP without eventId is 400 and posts nothing', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, '3', new Date());
     const app = await mountDoors(bank);

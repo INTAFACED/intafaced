@@ -290,7 +290,15 @@ test(`${J} #5 peer review: two classmates' work against the rubric, then my own;
 
 test(`${J} #6 after grading, the grade and comment show once released, with no grader name on an anonymous grade`, async ({ browser }) => {
   test.setTimeout(240_000);
-  needs('workUrl', 'me');
+  needs('workUrl', 'me', 'learnerUrl', 'workItem');
+  // Before staff grade, nothing is released: the learner's page shows no score and no comment.
+  const before = await learnerPage(browser);
+  await signIn(before, run.me);
+  await before.goto(run.learnerUrl);
+  const unreleased = before.locator(`[data-academy-assignment="${run.workItem}"]`).getByTestId('assignment-grade');
+  await expect(unreleased).toHaveText('Ungraded: staff grade each hand-in after it arrives.');
+  await before.context().close();
+
   const desk = await console_(browser);
   await desk.goto(run.workUrl);
   await desk.getByRole('link', { name: 'Grade hand-ins', exact: true }).click({ timeout: 10_000 });

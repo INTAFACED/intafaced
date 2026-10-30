@@ -209,8 +209,13 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
         const el = cellEls.current[i];
         if (el) el.dataset[name] = value;
       };
-      const onMove = (param: { time?: number; point?: { x: number; y: number } }) => {
+      const onMove = (param: { time?: number; point?: { x: number; y: number }; paneIndex?: number }) => {
         mark('crosshair', param.time === undefined ? '' : String(param.time));
+        // The price at the pointer's height, as the library reads it, so a check can compare a placed point with it.
+        // Only over the price pane: a height in an indicator pane is not a price.
+        const onPrice = param.paneIndex === undefined || param.paneIndex === host.main.getPane().paneIndex();
+        const atPointer = param.point && onPrice ? host.main.coordinateToPrice(param.point.y) : null;
+        mark('crosshairPrice', atPointer === null ? '' : String(atPointer));
         if (syncing || !grid.sync.crosshair) return;
         syncing = true;
         try {

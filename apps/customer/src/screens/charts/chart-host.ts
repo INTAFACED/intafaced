@@ -31,6 +31,7 @@ export interface ChartSeries {
   coordinateToPrice(y: number): number | null;
   dataByIndex(index: number, mismatchDirection?: number): unknown;
   seriesType(): string;
+  getPane(): { paneIndex(): number };
   options(): Record<string, unknown>;
   data(): readonly unknown[];
 }
@@ -62,8 +63,12 @@ export interface ChartApi {
   };
   setCrosshairPosition(price: number, time: number, series: ChartSeries): void;
   clearCrosshairPosition(): void;
-  subscribeCrosshairMove(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
-  unsubscribeCrosshairMove(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
+  subscribeCrosshairMove(
+    handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number; paneIndex?: number }) => void,
+  ): void;
+  unsubscribeCrosshairMove(
+    handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number; paneIndex?: number }) => void,
+  ): void;
   subscribeClick(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   unsubscribeClick(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   applyOptions(options: Record<string, unknown>): void;

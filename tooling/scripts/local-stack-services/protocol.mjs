@@ -12,7 +12,9 @@
 // (src/deployments/sepolia-deploy-env.ts). The account factories stay the zero default (not deployed), so their paths
 // refuse by name. INDEXER_URL and DEX_URL stay unset (not started here): the blockers say "not connected". DATABASE_URL
 // is this stack's svc_protocol role; protocol is in SCHEMAS, so db:migrate runs before the process listens.
-export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
+import { createHash } from 'node:crypto';
+
+export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
     const chain = testChain?.() ?? null;
@@ -37,6 +39,15 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_SWAP_SLIPPAGE_BPS: '300',
       PROTOCOL_SWAP_QUOTE_TTL_SECONDS: '30',
       PROTOCOL_SWAP_CONFIRMATIONS: '1',
+      // LOCAL TEST only (tooling/profiles/test-owner-values/protocol.json): the wallet session that opens the address book
+      // (J-dex-protocol-04). The secret is TEST-labelled and derived from this machine's secrets.json, so it is never a
+      // literal in the tree; svc-protocol refuses to boot on a TEST secret outside dev or test. Production stays blank and
+      // the address book refuses protocol.wallet_session_unset until the owner sets all three.
+      PROTOCOL_WALLET_SESSION_SECRET: `TEST-${createHash('sha256').update(`protocol wallet session\0${secrets.internal}`).digest('hex')}`,
+      PROTOCOL_WALLET_SESSION_TTL_SECONDS: '3600',
+      PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+      PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
+      PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
       // Slow, Normal and Fast, how many blocks they are read from, and the fee cap per gas (100 gwei). Production stays
       // blank and the fee levels refuse by name (protocol.gas_percentiles_unset, protocol.swap_fee_cap_unset).
@@ -46,6 +57,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
       // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
       ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
+      // LOCAL TEST only (same profile): how long a contract ownership challenge stays signable. Blank in production refuses
+      // protocol.listing.challenge_ttl_unset and no challenge is issued.
+      PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: 'TEST:300',
     };
   },
 });

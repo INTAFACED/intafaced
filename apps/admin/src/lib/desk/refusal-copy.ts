@@ -22,6 +22,28 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  // svc-token governance founder doors (J-more-catalogue-10). Each is checked before the approval is spent, except a
+  // founder approving a role for their own account, which only the approval names.
+  'token.settings_invalid': {
+    title: 'Those settings are outside what governance stores',
+    body: 'The voting delay is 0 to one year and the voting period more than 0 and at most one year. Nothing was changed.',
+    next: 'Pick figures in range and ask again.',
+  },
+  'token.settings_stale': {
+    title: 'The governance settings changed since you read them',
+    body: 'The settings are no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the settings again and decide again.',
+  },
+  'token.role_invalid': {
+    title: 'That role change is not allowed',
+    body: 'The account already has that role, or a founder on this request is the account that would receive it. Nothing was changed.',
+    next: 'Pick another account or role.',
+  },
+  'token.role_stale': {
+    title: 'The role changed since you read it',
+    body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
+    next: 'Read the roles again and decide again.',
+  },
   // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
   'launch.issuer_not_onboarded': {
     title: 'This issuer is not onboarded',
@@ -1320,6 +1342,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That grade file cannot be read',
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
+  },
+  'academy.permission_denied': {
+    title: 'This needs a role you do not hold',
+    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
+    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+  },
+  'academy.bulk_limit_unset': {
+    title: 'The curve file limit is not set',
+    body: 'The owner has not set how large a curve file may be, so no curve file is read.',
+    next: 'Ask the owner to set the curve file limit. Nothing was changed.',
+  },
+  'academy.bulk_file_too_large': {
+    title: 'That file is over the limit',
+    body: 'The file is larger than the owner allows for one curve file, so it was refused before it was read.',
+    next: 'Split the file and upload each part. Nothing was changed.',
   },
   'academy.key_fix_invalid': {
     title: 'That is not a key fix',

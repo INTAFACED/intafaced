@@ -5,6 +5,7 @@ import { withMoneySpan } from '../tracing.js';
 import { assertMarketOpen, assertNotional, assertPrice, assertQty, assertSettlementRails, assertTradable, holdFor } from './risk.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { EngineAmendResult, MatchingClient } from './matching-client.js';
+import { BUYBACK_INVALID, isBuybackUser } from './buyback-order.js';
 import { TradeError, type AmendOrderOutcome, type AmendOutcomeCode, type AmendPriority, type Market, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput } from './trade-service.js';
 
@@ -66,6 +67,10 @@ async function amendOrderWithQtyUp(
     const order = await host.findOrder(orderId);
     if (!order || order.userId !== principal.userId) {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
+    }
+    // A buyback order is IOC and its hold lives in the buyback account: refuse before the engine is asked to change it.
+    if (isBuybackUser(order.userId)) {
+      return host.amendOutcome(order, 'NOT_AMENDABLE', BUYBACK_INVALID, false, false, null);
     }
     if (order.status === 'recovery_required') {
       return host.amendOutcome(order, 'AMEND_UNKNOWN', order.recoveryReason ?? 'AMEND_UNKNOWN', true, false, null);

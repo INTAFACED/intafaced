@@ -139,7 +139,7 @@ describe('svc-bank — a pool full of overlapping money requests does not freeze
 
   async function openLoans(count: number, prices: Record<string, { price: string; quality: 'mid' }>) {
     const bank = createBankServices(pool, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource(prices), venue: marketMakerVenue() },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource(prices), venue: marketMakerVenue() },
     });
     await fund(ledger, PAYER, 'USDT', '1000000');
     await bank.loans.fundReserve({
