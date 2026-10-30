@@ -14,16 +14,24 @@ import { signUpInBrowser } from './stack.mjs';
 // operator_read_audit holds one row per search, under the founder, as a hash of the search.
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
-const PEOPLE = 26;
+/** Identity's page of search results; one more customer than that must page, never be cut. */
+const PAGE = 25;
+const PEOPLE = PAGE + 1;
 
-/** svc-identity's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
-function identityDb(ctx) {
+/** One query on svc-identity's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function identityDb(read) {
+  const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(REPO, 'services', 'svc-identity', 'package.json'))('postgres');
   const port = ctx.marker.ports.postgres ?? 15460;
-  return postgres(`postgres://svc_identity:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+  const sql = postgres(`postgres://svc_identity:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
   });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
 }
 
 const searchHash = (kind, value) => createHash('sha256').update(`${kind}\0${value}`).digest('hex');
@@ -48,9 +56,7 @@ test('J-ops-console-02 #1 customer search by handle start and by email', async (
   const context = await browser.newContext();
   const page = await context.newPage();
   const founder = await founderSignIn(page, 'a');
-  const ctx = await makeContext({ log: () => undefined });
-  const sql = identityDb(ctx);
-  const [{ since }] = await sql`SELECT clock_timestamp() AS since`;
+  const since = await identityDb(async (sql) => (await sql`SELECT clock_timestamp() AS since`)[0].since);
   await page.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
   const search = page.getByTestId('account-search');
   await expect(search.getByRole('button', { name: 'Search' })).toBeEnabled();
@@ -59,10 +65,10 @@ test('J-ops-console-02 #1 customer search by handle start and by email', async (
   await search.getByRole('button', { name: 'Search' }).click();
   const results = page.getByTestId('account-search-results');
   const rows = results.getByTestId('account-search-row');
-  await expect(rows).toHaveCount(25, { timeout: 30_000 });
+  await expect(rows).toHaveCount(PAGE, { timeout: 30_000 });
   await expect(rows.first()).toContainText('Handle start');
   await expect(rows.first()).toContainText(people[0].handle);
-  await expect(results.getByTestId('account-search-count')).toHaveText('25 shown, more match.');
+  await expect(results.getByTestId('account-search-count')).toHaveText(`${PAGE} shown, more match.`);
   const handles = async () => (await rows.allInnerTexts()).map((text) => new RegExp(`${prefix}n\\d+`).exec(text)?.[0]);
   // More than the page limit pages: Next page adds the rest below the first 25, and every match is then shown once.
   await results.getByRole('button', { name: 'Next page' }).click();
@@ -87,18 +93,21 @@ test('J-ops-console-02 #1 customer search by handle start and by email', async (
 
   await search.getByLabel('Handle or email').fill(prefix);
   await search.getByRole('button', { name: 'Search' }).click();
-  await expect(rows).toHaveCount(25, { timeout: 30_000 });
+  await expect(rows).toHaveCount(PAGE, { timeout: 30_000 });
 
   // Every search the console sent is in identity's audit under this founder, as a hash and never the words searched:
   // the handle start, its next page, the email, and the handle start again. The two-letter search was never sent.
-  const audited = await sql`
-    SELECT kind, query_hash FROM identity.operator_read_audit
-     WHERE actor_id = ${founder.userId} AND created_at >= ${since} ORDER BY created_at`;
-  await sql.end();
+  // Only this test's own searches are looked at, so another read by the same founder meanwhile does not count here.
   const handleHash = searchHash('handle', prefix);
-  expect(audited.map((r) => r.kind)).toEqual(['account_search', 'account_search', 'account_search', 'account_search']);
-  expect(audited.map((r) => r.query_hash === handleHash)).toEqual([true, true, false, true]);
-  expect(audited[2].query_hash, 'the email search is audited as a hash, not the address').not.toContain('@');
+  const emailHash = searchHash('email', people[1].email.toLowerCase());
+  const audited = await identityDb(
+    (sql) => sql`
+      SELECT query_hash FROM identity.operator_read_audit
+       WHERE actor_id = ${founder.userId} AND kind = 'account_search' AND created_at >= ${since}
+         AND query_hash IN (${handleHash}, ${emailHash})
+       ORDER BY created_at`,
+  );
+  expect(audited.map((r) => r.query_hash)).toEqual([handleHash, handleHash, emailHash, handleHash]);
 
   await results.getByRole('link', { name: 'Open record' }).first().click();
   await page.waitForURL(/\/accounts\/[0-9a-f-]{36}$/, { timeout: 60_000 });
