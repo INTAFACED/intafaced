@@ -39,6 +39,42 @@ export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 
 export const STATUS_CONTEXT = 'Independent review';
 
+const SESSION_ID = /session_[A-Za-z0-9]+/g;
+
+/**
+ * The sessions that wrote a pull request: every session id on a `Claude-Session:` line of its commit messages.
+ */
+export function commitSessions(messages) {
+  const out = new Set();
+  for (const msg of messages ?? []) {
+    for (const line of String(msg ?? '').split('\n')) {
+      if (/^Claude-Session:/i.test(line.trim())) for (const id of line.match(SESSION_ID) ?? []) out.add(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * The session a PASS names: the ids on its `Reviewer session:` lines (docs/agents/reviewer-brief.md), or, when it has
+ * none, every session id in the comment.
+ */
+export function passSessions(body) {
+  const lines = String(body ?? '').split('\n');
+  const named = lines.filter((l) => /^Reviewer session:/i.test(l.trim()));
+  return new Set((named.length > 0 ? named : lines).flatMap((l) => l.match(SESSION_ID) ?? []));
+}
+
+/**
+ * A PASS that names the PR's own session does not count (owner decision 2026-10-30, OWNER 124 (4)): the session the
+ * comment names is one on the PR's `Claude-Session:` commit lines. Returns that session, or null.
+ * `authorSessions` null means the commits could not all be read: no PASS counts then (fail closed).
+ */
+export function selfPassSession(body, authorSessions) {
+  if (authorSessions === null) return "unknown (the pull request's commits could not all be read)";
+  for (const id of passSessions(body)) if (authorSessions.has(id)) return id;
+  return null;
+}
+
 /** True when the newest status of the review context on this head is a success. */
 export function hasSignoff(statuses) {
   const mine = statuses.filter((s) => s?.context === STATUS_CONTEXT);
@@ -47,14 +83,16 @@ export function hasSignoff(statuses) {
 
 /**
  * True when a listed reviewer commented a PASS for exactly this head. `comments` are issue comments, `reviewers` are
- * lower-case logins from the default branch's reviewers.json, `author` is the pull request author's login.
+ * lower-case logins from the default branch's reviewers.json, `author` is the pull request author's login,
+ * `authorSessions` the sessions on the PR's `Claude-Session:` commit lines (a PASS naming one of them does not count).
  */
-export function hasCommentSignoff({ comments, sha, reviewers, requireDistinctFromAuthor, author }) {
+export function hasCommentSignoff({ comments, sha, reviewers, requireDistinctFromAuthor, author, authorSessions = new Set() }) {
   const want = String(sha).toLowerCase();
   return comments.some((c) => {
     const login = String(c?.user?.login ?? '').toLowerCase();
     const m = MARKER.exec(c?.body ?? '');
     if (!m || m[1].toLowerCase() !== want || !reviewers.includes(login)) return false;
+    if (selfPassSession(c.body, authorSessions)) return false;
     return !(requireDistinctFromAuthor && login === String(author ?? '').toLowerCase());
   });
 }
@@ -167,12 +205,42 @@ function selfTest() {
     [input([]), false],
     [input([pass('nino', `Independent review: PASS ${sha}`)], { requireDistinctFromAuthor: true }), false],
     [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), true],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://claude.ai/code/session_R1`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      true,
+    ],
+    [
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://claude.ai/code/session_A1`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      false,
+    ],
+    [input([pass('nino', `Independent review: PASS ${sha}\nsession_A1 (review)`)], { authorSessions: new Set(['session_A1']) }), false],
+    [
+      input([pass('nino', `Asked by session_A1.\nIndependent review: PASS ${sha}\nReviewer session: session_R1`)], {
+        authorSessions: new Set(['session_A1']),
+      }),
+      true,
+    ],
+    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R1`)], { authorSessions: null }), false],
   ];
   for (const [args, want] of commentCases) {
     if (hasCommentSignoff(args) !== want) {
       console.error('review-marker comment self-test failed for', JSON.stringify(args));
       process.exit(1);
     }
+  }
+  const msgs = [
+    'feat: x\n\nCo-Authored-By: Claude\nClaude-Session: https://claude.ai/code/session_A1',
+    'fix: y',
+    'z\nclaude-session: session_B2 ',
+  ];
+  const got = [...commitSessions(msgs)].sort().join(',');
+  if (got !== 'session_A1,session_B2' || commitSessions(['see session_C3 in the body']).size !== 0) {
+    console.error('review-marker commit-session self-test failed:', got);
+    process.exit(1);
   }
   const money = { dependencies: { [LEDGER_CLIENT]: 'workspace:*' } };
   const plain = { dependencies: { react: '19' } };
@@ -300,6 +368,21 @@ async function readComments(repo, number, token) {
   return all;
 }
 
+/**
+ * The sessions on the pull request's `Claude-Session:` commit lines, or null when the list cannot be read whole for this
+ * head (GitHub lists at most 250 commits; a head that moved during the read) — then no PASS comment counts here.
+ */
+export async function readAuthorSessions(repo, number, sha, token) {
+  const commits = [];
+  for (let page = 1; page <= 3; page++) {
+    const batch = await api(`/repos/${repo}/pulls/${number}/commits?per_page=100&page=${page}`, token);
+    commits.push(...batch);
+    if (batch.length < 100) break;
+  }
+  if (commits.length === 0 || commits.length >= 250 || commits.at(-1)?.sha !== sha) return null;
+  return commitSessions(commits.map((c) => c?.commit?.message));
+}
+
 async function main() {
   if (process.argv.includes('--self-test')) return selfTest();
   const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER, PR_AUTHOR } = process.env;
@@ -319,6 +402,7 @@ async function main() {
     console.log(`independent review required (${reason})`);
   }
   const config = PR_NUMBER ? await readReviewConfig(REPO, GH_TOKEN) : null;
+  const authorSessions = PR_NUMBER ? await readAuthorSessions(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN) : null;
   const deadline = Date.now() + REVIEW_WAIT_MS;
   for (let attempt = 1; ; attempt++) {
     if (hasSignoff(await readStatuses(REPO, HEAD_SHA, GH_TOKEN))) {
@@ -327,10 +411,15 @@ async function main() {
     }
     if (PR_NUMBER) {
       const comments = await readComments(REPO, PR_NUMBER, GH_TOKEN);
-      if (hasCommentSignoff({ comments, sha: HEAD_SHA, author: PR_AUTHOR, ...config })) {
+      if (hasCommentSignoff({ comments, sha: HEAD_SHA, author: PR_AUTHOR, authorSessions, ...config })) {
         console.log(`review sign-off comment found for ${HEAD_SHA}`);
         return;
       }
+      const self = comments
+        .filter((c) => hasCommentSignoff({ comments: [c], sha: HEAD_SHA, author: PR_AUTHOR, ...config }))
+        .map((c) => selfPassSession(c.body, authorSessions))
+        .find(Boolean);
+      if (self && attempt === 1) console.log(`a PASS for ${HEAD_SHA} names the pull request's own session (${self}): it does not count`);
     }
     if (Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)

@@ -5,7 +5,8 @@
  *
  *   issue_comment      a comment `Independent review: PASS <full head sha>` from a login in tooling/ci/reviewers.json,
  *                      for the PR's current head, becomes the success status `Independent review` on that head. A
- *                      comment from anyone else, or for another sha, does nothing.
+ *                      comment from anyone else, for another sha, or naming a session on the PR's `Claude-Session:`
+ *                      commit lines (its author's own session, OWNER 124 (4)) does nothing.
  *   pull_request_target on a push, the sign-off of the previous head is carried to the new head when the patch is the
  *                      same (a clean rebase). Any change to the patch needs a new review.
  *
@@ -18,7 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { MARKER, STATUS_CONTEXT } from './review-marker.mjs';
+import { MARKER, STATUS_CONTEXT, commitSessions, selfPassSession } from './review-marker.mjs';
 
 const PATCH_RE = /patch ([0-9a-f]{12})/;
 
@@ -36,8 +37,11 @@ export function markerSha(body) {
   return m ? m[1].toLowerCase() : null;
 }
 
-/** Does this comment sign off this PR's current head? Pure, so the policy table is testable. */
-export function judgeComment({ commenter, body, pr }, config) {
+/**
+ * Does this comment sign off this PR's current head? Pure, so the policy table is testable. `authorSessions` are the
+ * sessions on the PR's `Claude-Session:` commit lines, or null when they could not all be read (then nothing signs off).
+ */
+export function judgeComment({ commenter, body, pr, authorSessions = new Set() }, config) {
   const login = String(commenter ?? '').toLowerCase();
   const sha = markerSha(body);
   if (!sha) return { ok: false, reason: 'no review marker' };
@@ -47,6 +51,8 @@ export function judgeComment({ commenter, body, pr }, config) {
   if (config.requireDistinctFromAuthor && login === String(pr.user.login).toLowerCase()) {
     return { ok: false, reason: 'a reviewer may not sign off their own pull request' };
   }
+  const self = selfPassSession(body, authorSessions);
+  if (self) return { ok: false, reason: `the PASS names the pull request's own session (${self}); another session must review` };
   return { ok: true, sha, reviewer: commenter };
 }
 
@@ -105,6 +111,19 @@ async function gh(method, path, body, accept = 'application/vnd.github+json') {
   }
   const json = accept.includes('json') && text ? JSON.parse(text) : null;
   return { status: res.status, json, text };
+}
+
+/** The sessions on the PR's `Claude-Session:` commit lines, or null when they cannot be read whole for this head. */
+async function prAuthorSessions(repo, n, sha) {
+  const commits = [];
+  for (let page = 1; page <= 3; page++) {
+    const { status, json } = await gh('GET', `/repos/${repo}/pulls/${n}/commits?per_page=100&page=${page}`);
+    if (status !== 200) return null;
+    commits.push(...(json ?? []));
+    if ((json ?? []).length < 100) break;
+  }
+  if (commits.length === 0 || commits.length >= 250 || commits.at(-1)?.sha !== sha) return null;
+  return commitSessions(commits.map((c) => c?.commit?.message));
 }
 
 async function prFileList(repo, n) {
@@ -232,6 +251,17 @@ async function selfTest() {
   const strict = { ...cfg, requireDistinctFromAuthor: true };
   assert(!judgeComment({ commenter: 'nino', body, pr }, strict).ok, 'the author may not review their own PR when distinctness is on');
   assert(judgeComment({ commenter: 'phantom', body, pr }, strict).ok, 'another listed reviewer may');
+  const own = new Set(['session_A1']);
+  const named = (s) => `${body}\nReviewer session: https://claude.ai/code/${s}`;
+  assert(judgeComment({ commenter: 'nino', body: named('session_R1'), pr, authorSessions: own }, cfg).ok, 'another session may sign off');
+  assert(
+    !judgeComment({ commenter: 'nino', body: named('session_A1'), pr, authorSessions: own }, cfg).ok,
+    "a PASS naming the PR's own session does not count",
+  );
+  assert(
+    !judgeComment({ commenter: 'nino', body: named('session_R1'), pr, authorSessions: null }, cfg).ok,
+    'commits that cannot be read: nothing signs off',
+  );
 
   const d1 = 'diff --git a/x.ts b/x.ts\nindex 111..222 100644\n--- a/x.ts\n+++ b/x.ts\n@@ -1,3 +1,3 @@\n ctx\n-old\n+new\n';
   const d2 = 'diff --git a/x.ts b/x.ts\nindex 333..444 100644\n--- a/x.ts\n+++ b/x.ts\n@@ -40,3 +52,3 @@\n other ctx\n-old\n+new\n';
@@ -355,7 +385,8 @@ async function main() {
     if (!payload.issue?.pull_request || payload.action !== 'created') return console.log('not a new comment on a pull request');
     const n = payload.issue.number;
     const pr = (await gh('GET', `/repos/${repo}/pulls/${n}`)).json;
-    const verdict = judgeComment({ commenter: payload.comment.user.login, body: payload.comment.body, pr }, config);
+    const authorSessions = await prAuthorSessions(repo, n, pr.head.sha);
+    const verdict = judgeComment({ commenter: payload.comment.user.login, body: payload.comment.body, pr, authorSessions }, config);
     if (!verdict.ok) return console.log(`no sign-off: ${verdict.reason}`);
     const pid = await currentPatchId(repo, n, verdict.sha);
     await postStatus(repo, verdict.sha, `PASS by ${verdict.reviewer}${pid ? `; patch ${pid.slice(0, 12)}` : ''}`);
