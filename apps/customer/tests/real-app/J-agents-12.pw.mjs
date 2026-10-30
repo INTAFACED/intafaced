@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { agentsRun, openNavigatorSession, tableIn } from './agents.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
-import { EDGE, api, json, toUnits } from './stack.mjs';
+import { EDGE, ROOT, api, json, toUnits } from './stack.mjs';
 
 // J-agents-12, in the running app (docs/roadmap/journeys.json): read an agent's runs from my own code with the session
 // API. One test per step, titled "J-agents-12 #<n>", run in order. Everything the steps read is made in the start, so a
@@ -48,6 +51,27 @@ const NOT_YOUR_SESSION = 'agents.refused.session_closed';
 const NOT_YOUR_RUN = 'agents.run_not_found';
 /** An id no session or run has. */
 const NO_SUCH_ID = '00000000-0000-4000-8000-000000000000';
+
+/** The steps that stay red by name, and why. Every failure inside them carries the name (`blockedBy`). */
+const BLOCKED = {
+  2: `${J} #2 BLOCKED (OWNER 107): starting a run from an API key is overtaken by the owner's decision that runs start only from the person's own session`,
+  5: `${J} #5 BLOCKED (developer-webhooks-001): the developer module's webhook delivery is not on main, so no endpoint can be registered`,
+  outside: `${J} outside BLOCKED (AG-sessions-04 events): intafaced.agents.run.completed is not declared in packages/events, so no run notice exists`,
+};
+
+/**
+ * A step that is red by name: `check` asserts what the app does today, and any assertion it fails carries the name;
+ * when it passes, the step still fails with the name.
+ */
+async function blockedBy(name, check) {
+  try {
+    await check();
+  } catch (error) {
+    if (error instanceof Error) error.message = `${name}\n(a check before the block failed) ${error.message}`;
+    throw error;
+  }
+  throw new Error(name);
+}
 
 /** One call of the agents API with `key`, as the person's code makes it: a query or a mutation, no browser. */
 async function call(key, procedure, input, method = 'GET') {
@@ -187,6 +211,44 @@ const ledgerBalances = async () => (await api(agents.account())).balances();
 const personRun = (sessionId, requestId, task, content) =>
   personCall('run.complete', { sessionId, requestId, task, messages: [{ role: 'user', content }] }, 'POST');
 
+/** A route as a comparable record: its task, capability, ceiling and both rates in ledger units. */
+const rateRow = ({ task, capability, maxOutputTokens, inputPerMillion, outputPerMillion }) => ({
+  task,
+  capability,
+  maxOutputTokens,
+  inputPerMillion: toUnits(inputPerMillion),
+  outputPerMillion: toUnits(outputPerMillion),
+});
+
+/**
+ * The stack's TEST rate card as the profile sets it (tooling/profiles/test-owner-values/agents.json): the routing
+ * table's routes, then the Coach route the stack appends, each with the table's default capability.
+ */
+function profileRates() {
+  const { values } = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/agents.json'), 'utf8'));
+  const routes = [...JSON.parse(values.AGENTS_ROUTING_TABLE.value).routes, JSON.parse(values.AGENTS_COACH_ROUTE.value)];
+  return routes.map(({ task, capability = 'complete', maxOutputTokens, price }) =>
+    rateRow({ task, capability, maxOutputTokens, ...price }),
+  );
+}
+
+/** Session `sessionId`'s usage windows as its owner reads them. */
+const windowsOf = async (sessionId) => ok(await personCall('session.detail', { sessionId })).windows;
+
+/** The ledger's transaction under a business key, as the founder console looks it up (the person has no such read). */
+async function ledgerTrace(browser, businessKey) {
+  const context = await browser.newContext();
+  try {
+    const founder = await context.newPage();
+    await founderSignIn(founder);
+    const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    return await res.json();
+  } finally {
+    await context.close();
+  }
+}
+
 test(`${J} starts: a funded TEST account with a passkey and two keys; two Navigator runs and one refused run in one session, closed and settled; a second session; another person's key and session`, async ({
   browser,
 }) => {
@@ -200,6 +262,21 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
     await keyReadBack(who, 'TEST agents-off', offKey, ['trade:read']);
     await keyReadBack(who, 'TEST agents-on', onKey, ['agents:read']);
     agents.run.write({ offKey, onKey });
+    // The keys page never offers agents:execute, so no key can start a run (OWNER 107): identity lists it as a scope a
+    // key never holds, and the page shows it among those with the reason, never as a box to tick.
+    const keyScopes = ok(await as(who, '/api/identity/trpc/developerKeys.scopes')).scopes;
+    expect(keyScopes.filter(({ scope }) => scope === 'agents:execute')).toEqual([
+      { scope: 'agents:execute', access: 'write', onKey: false, blockedBy: 'interactive_only' },
+    ]);
+    await page.goto('/uc/safe/api-keys/new');
+    await page.getByLabel('Choose', { exact: true }).check();
+    await expect(page.getByRole('checkbox', { name: /^agents:execute/ })).toHaveCount(0);
+    await expect(page.getByTestId('api-keys__blocked').getByRole('listitem').filter({ hasText: 'agents:execute' })).toHaveText(
+      'agents:execute: Only while you are signed in on a device, never by a key.',
+    );
+
+    // The rates the service publishes are exactly the stack's TEST rate card.
+    expect(ok(await personCall('routes.list')).map(rateRow)).toEqual(profileRates());
 
     const before = await ledgerBalances();
     // The person runs Navigator from the room: Run, then the spend ceiling, as in J-agents-01 #5.
@@ -251,12 +328,25 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
 
     // Closing session A settles its window once: the ledger drops by exactly the two runs' cost, as a fee from USDT;
     // session B's open window has not settled, and nothing else moved.
-    expect(ok(await personCall('session.close', { sessionId }, 'POST')).status).toBe('closed');
+    const closed = ok(await personCall('session.close', { sessionId }, 'POST'));
+    expect(closed.status).toBe('closed');
     await expect.poll(async () => toUnits((await ledgerBalances()).USDT.total)).toBe(toUnits(before.USDT.total) - held);
     const after = await ledgerBalances();
     expect(toUnits(before.USDT.free) - toUnits(after.USDT.free)).toBe(held);
     expect(after.USDT.used).toBe(before.USDT.used);
     expect({ ...after, USDT: undefined }).toEqual({ ...before, USDT: undefined });
+    // A's windows are settled, together exactly the two runs' cost, each on its charge key; B's window still holds
+    // exactly B's run.
+    const windowsA = await windowsOf(sessionId);
+    expect(windowsA.length).toBeGreaterThan(0);
+    for (const window of windowsA) expect(window).toMatchObject({ state: 'settled', chargeKey: expect.any(String) });
+    expect(windowsA.reduce((sum, { amount }) => sum + toUnits(amount), 0n)).toBe(held);
+    expect((await usage(sessionId)).total).toBe(held);
+    expect(await usage(sessionB)).toEqual({ pending: toUnits(runB.cost), total: toUnits(runB.cost) });
+    // Closing A again is a no-op: the same closed session, and nothing more is charged.
+    expect(ok(await personCall('session.close', { sessionId }, 'POST'))).toEqual(closed);
+    expect(await windowsOf(sessionId)).toEqual(windowsA);
+    expect(await ledgerBalances()).toEqual(after);
 
     agents.run.write({
       sessionId,
@@ -273,9 +363,26 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
       laterReply: later.text,
       laterCost: later.cost,
       laterActionId: later.action.id,
+      runBId: runB.runId,
+      windowsA: windowsA.map(({ chargeKey, amount }) => ({ chargeKey, amount })),
     });
   } finally {
     await context.close();
+  }
+
+  // The ledger booked each of A's windows once, under the fee recipe's key for its charge key: one agents transaction of
+  // two postings for the window's exact amount, taken from the person's USDT.
+  for (const { chargeKey, amount } of kept('windowsA')) {
+    const businessKey = `fee:agents:${chargeKey}`;
+    const booked = await ledgerTrace(browser, businessKey);
+    expect(booked.found, `${J}: the ledger booked ${businessKey}`).toBe(true);
+    expect(booked.transaction).toMatchObject({ businessKey, module: 'agents' });
+    expect(booked.transaction.postings).toHaveLength(2);
+    for (const posting of booked.transaction.postings) {
+      expect(posting.assetId).toBe('USDT');
+      expect(toUnits(posting.amount)).toBe(toUnits(amount));
+    }
+    expect(booked.transaction.postings.map(({ side }) => side).sort()).toEqual(['destination', 'source']);
   }
 
   const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
@@ -316,7 +423,10 @@ const readInputs = () => ({
 
 test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {
   const inputs = readInputs();
-  // Every read of the session API, as the service's own router lists them, is tried exactly once.
+  // Every read of the session API, as the service's own router lists them, is tried exactly once. The session API is the
+  // part of the router about a person's sessions and what ran in them: their sessions (session.*), runs (run.*), usage
+  // windows (usage.*) and log (log.*). The other routers (routes, the doors, ops, the agents' own rooms) are not
+  // session reads, and a new read under these four prefixes fails the inventory check until it is added below.
   const reads = (await agentsProcedures())
     .filter(({ path, type }) => type === 'query' && /^(session|run|usage|log)\./.test(path))
     .map(({ path }) => path);
@@ -333,26 +443,26 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
 });
 
 test(`${J} #2 opens a background run with a key holding the scope: a run id and a status`, async () => {
-  // What the app does today: a key with agents:read cannot start a run, by the scope a run needs, and nothing is stored.
-  const sessionB = kept('sessionB');
-  const logBefore = await logOf(agents.account(), sessionB);
-  const runsBefore = ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }));
-  scopeDenied(
-    await call(
-      kept('onKey'),
-      'run.complete',
-      { sessionId: sessionB, requestId: `${sessionB}:from-key`, task: kept('task'), messages: [{ role: 'user', content: 'TEST' }] },
-      'POST',
-    ),
-    'agents:execute',
-  );
-  expect(await logOf(agents.account(), sessionB)).toEqual(logBefore);
-  expect(ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }))).toEqual(runsBefore);
   // STALE under OWNER 107 ("never from API keys or delegated tokens"): a run starts only from the person's own session.
-  // Red by name and never counted.
-  throw new Error(
-    `${J} #2 BLOCKED (OWNER 107): starting a run from an API key is overtaken by the owner's decision that runs start only from the person's own session`,
-  );
+  // Red by name and never counted. What the app does today: a key with agents:read cannot start a run, by the scope a
+  // run needs, and nothing is stored. No key can hold that scope: the keys page never offers agents:execute (the start
+  // checks identity's list and the page), so there is no key with it to try.
+  await blockedBy(BLOCKED[2], async () => {
+    const sessionB = kept('sessionB');
+    const logBefore = await logOf(agents.account(), sessionB);
+    const runsBefore = ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }));
+    scopeDenied(
+      await call(
+        kept('onKey'),
+        'run.complete',
+        { sessionId: sessionB, requestId: `${sessionB}:from-key`, task: kept('task'), messages: [{ role: 'user', content: 'TEST' }] },
+        'POST',
+      ),
+      'agents:execute',
+    );
+    expect(await logOf(agents.account(), sessionB)).toEqual(logBefore);
+    expect(ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }))).toEqual(runsBefore);
+  });
 });
 
 test(`${J} #3 lists events from a cursor: only later actions, only for the caller's session`, async () => {
@@ -405,6 +515,8 @@ test(`${J} #3 lists events from a cursor: only later actions, only for the calle
   const absent = await call(kept('otherKey'), 'session.events', { sessionId: NO_SUCH_ID, limit: 500 });
   refusedWith(absent, 404, NOT_YOUR_SESSION);
   expect(notYours.body.error.data.code).toBe(absent.body.error.data.code);
+  // The same for the person's open session B: still live, still not theirs.
+  refusedWith(await call(kept('otherKey'), 'session.events', { sessionId: kept('sessionB'), limit: 500 }), 404, NOT_YOUR_SESSION);
   // A malformed cursor is the existing typed refusal.
   const bad = await call(onKey, 'session.events', { sessionId, cursor: 'x', limit: 500 });
   refusedWith(bad, 400, 'agents.refused.cursor_invalid');
@@ -484,6 +596,7 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
   ];
   expect(await states(runId)).toEqual([...ran, { sequence: 3, state: 'completed', code: null }]);
   expect(await states(refusedId)).toEqual([...ran, { sequence: 3, state: 'refused', code: TASK_REFUSAL.code }]);
+  expect(await states(kept('laterRunId'))).toEqual([...ran, { sequence: 3, state: 'completed', code: null }]);
   const events = await Promise.all(
     [runId, refusedId, kept('laterRunId')].map((id) => call(onKey, 'run.events', { runId: id, limit: 500 })),
   );
@@ -494,27 +607,71 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
   // Someone else's key finds no such run, exactly as for a run that does not exist; nothing changed.
   refusedWith(await call(kept('otherKey'), 'run.get', { runId }), 404, NOT_YOUR_RUN);
   refusedWith(await call(kept('otherKey'), 'run.get', { runId: NO_SUCH_ID }), 404, NOT_YOUR_RUN);
+  // The same for the run in the person's open session B.
+  refusedWith(await call(kept('otherKey'), 'run.get', { runId: kept('runBId') }), 404, NOT_YOUR_RUN);
   expect((await call(onKey, 'run.get', { runId })).body).toEqual(finished.body);
 });
 
 test(`${J} #5 registers a webhook: one delivery per finished run`, async () => {
-  // What the app has today: the agents service publishes no webhook procedure, and a register call finds none.
-  expect((await agentsProcedures()).filter(({ path }) => /webhook/i.test(path))).toEqual([]);
+  // Webhook signing and delivery belong to the developer module (developer-webhooks-001), not on main. Red by name only
+  // while the register endpoint is absent: once it answers, this step no longer proves anything and must be rewritten.
+  const procedures = (await agentsProcedures()).filter(({ path }) => /webhook/i.test(path));
   const register = await call(kept('onKey'), 'webhook.register', { url: 'http://127.0.0.1:9/agents-hook' }, 'POST');
-  expect(register.status).toBe(404);
-  expect(register.body.error.data.code).toBe('NOT_FOUND');
-  // Webhook signing and delivery belong to the developer module (developer-webhooks-001), not on main. Red by name.
-  throw new Error(
-    `${J} #5 BLOCKED (developer-webhooks-001): the developer module's webhook delivery is not on main, so no endpoint can be registered`,
-  );
+  const absent = procedures.length === 0 && register.status === 404 && register.body.error?.data?.code === 'NOT_FOUND';
+  if (!absent) {
+    throw new Error(
+      `${J} #5 NEEDS A REWRITE: a webhook endpoint now exists (procedures ${JSON.stringify(procedures)}, register answered ${register.status} ${JSON.stringify(register.body).slice(0, 200)}); prove one delivery per finished run instead of the block`,
+    );
+  }
+  await blockedBy(BLOCKED[5], async () => undefined);
 });
 
+/** The out-of-app channels a run notice may go by; the in-app inbox row is written whatever they do. */
+const CHANNELS = ['email', 'sms', 'push'];
+
 test(`${J} outside: run notices by email, SMS or push show their vendor notice and write an inbox row`, async () => {
-  // The notices ride on AG-sessions-04's run events, declared in packages/events before any service publishes them.
-  // Red by name until they are: this check turns when the catalogue declares the run's completion.
-  const { ALL_EVENTS } = await import(new URL('../../../../packages/events/dist/catalog.js', import.meta.url).href);
-  expect(
-    ALL_EVENTS.map(({ subject }) => subject),
-    `${J} outside BLOCKED (AG-sessions-04 events): agents.run.completed is not declared in packages/events, so no run notice exists`,
-  ).toContain('intafaced.agents.run.completed');
+  // The notices ride on AG-sessions-04's run events. Precondition, by name: the catalogue declares the run's completion.
+  // Until it does, this step fails with its BLOCKED name, and declaring it alone never turns it green.
+  const declared = await import(new URL('../../../../packages/events/dist/catalog.js', import.meta.url).href).then(
+    ({ ALL_EVENTS }) => ALL_EVENTS.some(({ subject }) => subject === 'intafaced.agents.run.completed'),
+    (error) => {
+      error.message = `${BLOCKED.outside}\n(a check before the block failed) ${error.message}`;
+      throw error;
+    },
+  );
+  if (!declared) throw new Error(BLOCKED.outside);
+
+  // Green only on a real notice: a run finished on the person's own session writes exactly one inbox row, read back
+  // from the notify service, and each out-of-app channel whose vendor is unset carries exactly its vendor notice.
+  const name = `${J} outside`;
+  const notifyCall = (procedure, input) => as(agents.account(), `/api/notify/trpc/${procedure}`, input);
+  // The stack wires no email, SMS or push vendor (its notify profile sets none), so every channel already starts blank
+  // and no restart is needed. A channel that reads configured means the stack gained a vendor and no knob blanks it.
+  const grid = ok(await notifyCall('notify.categoryPrefs'));
+  for (const channel of CHANNELS) {
+    const row = grid.find((cell) => cell.channel === channel);
+    expect(row?.configured, `${name}: the stack now wires a ${channel} vendor; add a knob to restart notify with it blank`).toBe(false);
+    expect(row.notConnected, `${name}: the ${channel} vendor notice`).toBe(`vendor.${channel}`);
+  }
+
+  const sessionId = ok(await personCall('session.open', { agentId: 'navigator' }, 'POST')).id;
+  let runId;
+  try {
+    runId = ok(await personRun(sessionId, `${J}:outside:${sessionId}`, kept('task'), ASK)).runId;
+  } finally {
+    ok(await personCall('session.close', { sessionId }, 'POST'));
+  }
+  const ofRun = async () =>
+    ok(await notifyCall('notify.list', { limit: 100 })).items.filter(
+      ({ kind, params }) => kind === 'agents.run.completed' && params.runId === runId,
+    );
+  await expect.poll(async () => (await ofRun()).length, { message: `${name}: exactly one inbox row`, timeout: 20_000 }).toBe(1);
+  const [notice] = await ofRun();
+  const deliveries = ok(await notifyCall('notify.deliveries', { notificationId: notice.id }));
+  for (const channel of CHANNELS) {
+    expect(
+      deliveries.filter((row) => row.channel === channel).map(({ status, refusalCode }) => ({ status, refusalCode })),
+      `${name}: the ${channel} delivery refused for its unset vendor`,
+    ).toEqual([{ status: 'refused', refusalCode: 'channel.not_configured' }]);
+  }
 });
