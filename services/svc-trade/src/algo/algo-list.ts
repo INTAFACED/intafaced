@@ -17,7 +17,7 @@ export const TRADE_ALGO_LIST_CURSOR_INVALID = 'trade.algo_list_cursor_invalid' a
 const STATUSES: readonly AlgoStatus[] = ['active', 'paused', 'cancelled', 'completed', 'halted'];
 
 /** Kinds a caller may filter "My bots" by. `grid` and `dca` have no engine yet, so they list empty. */
-export const ALGO_LIST_KINDS = ['twap', 'vwap', 'pov', 'grid', 'dca'] as const;
+export const ALGO_LIST_KINDS = ['twap', 'vwap', 'pov', 'chase', 'grid', 'dca'] as const;
 export type AlgoListKind = (typeof ALGO_LIST_KINDS)[number];
 export const TRADE_ALGO_LIST_KIND_INVALID = 'trade.algo_list_kind_invalid' as const;
 

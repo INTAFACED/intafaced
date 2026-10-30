@@ -13,7 +13,7 @@ import type { OrderSide } from '../spot/types.js';
  * `progressPct` field on the parent. Those would be the fabrication surface.
  */
 
-export type AlgoKind = 'twap' | 'vwap' | 'pov';
+export type AlgoKind = 'twap' | 'vwap' | 'pov' | 'chase';
 
 export type AlgoStatus = 'active' | 'paused' | 'cancelled' | 'completed' | 'halted';
 
@@ -45,6 +45,8 @@ export interface AlgoChildRef {
   readonly placedAt: Date;
   /** POV only: the volume or book size the participation rate was applied to for this slice. */
   readonly basisQty?: Amount | null;
+  /** Chase only: the limit price this child rests at. */
+  readonly price?: Amount | null;
 }
 
 /**
@@ -130,6 +132,13 @@ export interface TwapParent {
   /** True when the trigger was above the mark at create, so it is reached when the mark rises to it. */
   readonly triggerAbove?: boolean | null;
   readonly triggeredAt?: Date | null;
+  /**
+   * Chase only: how far, in bps of `chaseStartPrice`, the child may follow the book. Caller-published; a blank
+   * distance refuses at create. Null or absent on other kinds.
+   */
+  readonly chaseMaxDistanceBps?: number | null;
+  /** Chase only: the best same-side price read at create. The distance is measured from it. */
+  readonly chaseStartPrice?: Amount | null;
 }
 
 /** True while a parent with a trigger price has not seen the price reach it. */
@@ -187,6 +196,10 @@ export interface CreateTwapInput {
   /** Start price, and whether it lay above the mark at create (the service reads the mark). */
   readonly triggerPrice?: Amount;
   readonly triggerAbove?: boolean;
+  /** Chase only. Integer 1..10000; absent refuses. */
+  readonly chaseMaxDistanceBps?: number;
+  /** Chase only: the best same-side price the service read at create. */
+  readonly chaseStartPrice?: Amount;
 }
 
 /** Mark feed for algo halt gates — same vocabulary as prices.ts / futures mark-policy. */

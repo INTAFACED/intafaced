@@ -97,6 +97,20 @@ export const rooms: readonly Room[] = [
     area: 'public',
   },
   {
+    path: '/developers/sandbox/:sandboxId',
+    title: 'Sandbox',
+    description: 'One named sandbox and its keys',
+    area: 'public',
+    hidden: true,
+  },
+  {
+    path: '/developers/sandbox/:sandboxId/keys/new',
+    title: 'Create a sandbox key',
+    description: 'A key that works only in this sandbox',
+    area: 'public',
+    hidden: true,
+  },
+  {
     path: '/developers/:section',
     title: 'Developer section',
     description: 'One section of the developer portal',
