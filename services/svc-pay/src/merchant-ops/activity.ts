@@ -10,7 +10,8 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  *
  * A read of rows the merchant already owns: payment events, team changes, KYB
  * transitions, dispute evidence and responses, export jobs, payout approvals,
- * webhook endpoints and deliveries. `pay.control_audit` is not a source. That
+ * webhook endpoints and deliveries, and each payer detail a teammate unmasked
+ * (who, which field; the reason stays in `payment.unmaskReads`). `pay.control_audit` is not a source. That
  * table is the founder control room (captured-over-cap, destination reads,
  * tier and pricing edits).
  *
@@ -35,6 +36,7 @@ const DETAIL_KEYS = new Set([
   'host',
   'fee',
   'status',
+  'field',
 ]);
 const DECIMAL = /^[0-9]+(\.[0-9]+)?$/;
 const LABEL = /^[A-Za-z0-9._:@+-]{1,64}$/;
@@ -151,6 +153,17 @@ export class ActivityFeed {
           JOIN pay.payments p ON p.id = e.payment_id
          WHERE p.merchant_id = ${merchantId}
          ${bound('payment', 'e.ts', 'e.id', 'e.event', paymentActor, 'e.payment_id::text')}
+        )
+        UNION ALL
+        (
+        SELECT u.id::text, u.created_at,
+               to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+               u.actor_id, 'payment.unmasked', 'payment', u.payment_id::text,
+               jsonb_build_object('field', u.field, 'role', u.actor_role),
+               NULL, NULL
+          FROM pay.payment_unmask_reads u
+         WHERE u.merchant_id = ${merchantId}
+         ${bound('payment', 'u.created_at', 'u.id', `'payment.unmasked'`, 'u.actor_id', 'u.payment_id::text')}
         )
         UNION ALL
         (

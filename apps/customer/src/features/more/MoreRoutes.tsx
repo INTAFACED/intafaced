@@ -6,6 +6,8 @@ import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
+import { AgentsTeam } from './AgentsTeam';
+import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -84,6 +86,10 @@ function MoreRooms({ path }: { path: string }) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;
     content = <OwnAgentPage key={id} id={id} />;
+  } else if (p === '/agents/team') {
+    title = <agentsTeamCopy.Copy k="title" />;
+    description = <agentsTeamCopy.Copy k="description" />;
+    content = <AgentsTeam />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');

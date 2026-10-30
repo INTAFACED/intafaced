@@ -28,6 +28,7 @@ const PERMISSIONS = [
   'webhooks.manage',
   'products.read',
   'products.manage',
+  'payments.unmask',
 ];
 const READS = [
   'team.read',
@@ -48,7 +49,16 @@ const READS = [
 const HELD = {
   owner: PERMISSIONS,
   admin: PERMISSIONS,
-  finance: [...READS, 'disputes.respond', 'invoices.write', 'exports.create', 'notifications.manage', 'payout.request', 'payout.approve'],
+  finance: [
+    ...READS,
+    'disputes.respond',
+    'invoices.write',
+    'exports.create',
+    'notifications.manage',
+    'payout.request',
+    'payout.approve',
+    'payments.unmask',
+  ],
   developer: [...READS, 'exports.create', 'webhooks.read', 'webhooks.manage', 'products.manage'],
   viewer: READS,
 };
@@ -86,6 +96,7 @@ const REQUIRES = {
   'payout.approve': ['payouts.read'],
   'webhooks.manage': ['webhooks.read'],
   'products.manage': ['products.read'],
+  'payments.unmask': ['payments.read'],
 };
 const ROLE_DESCRIPTION = {
   owner: 'TEST stand-in. The person who opened the merchant account. Can do everything.',

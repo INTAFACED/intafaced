@@ -22,6 +22,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_CHAIN_ID: '84532',
       PROTOCOL_RPC_URL: chain ? chain.rpcUrl : UNUSED,
       ...(chain ? { PROTOCOL_AMM_FACTORY_ADDRESS: chain.factory } : {}),
+      // LOCAL TEST price reference: the seeded TEST USD token counts as one dollar, and a pool must hold 1,000 TEST USD
+      // worth on its priced side (labelled in tooling/profiles/test-owner-values/protocol.json). Blank in production.
+      ...(chain?.usdToken ? { PROTOCOL_PRICE_USD_TOKENS: chain.usdToken, PROTOCOL_PRICE_MIN_RESERVE_USD: '1000' } : {}),
       PROTOCOL_ENTRYPOINT_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
       // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/protocol.json: the representation a
       // wallet signs once before its first signing action. Production stays blank and every signing action refuses

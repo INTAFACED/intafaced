@@ -126,6 +126,16 @@ class SessionSpendCeilingError extends Error {
   }
 }
 
+/** A team run's hold refusals (team/hold.ts), recorded as refusals like the own-agent caps. */
+const TEAM_HOLD_REFUSALS = [
+  'agents.team.allocation_exceeded',
+  'agents.team.project_limit_exceeded',
+  'agents.team.pool_exceeded',
+  'agents.team.allocation_unset',
+] as const;
+const isTeamHoldRefusal = (code: string): code is (typeof TEAM_HOLD_REFUSALS)[number] =>
+  (TEAM_HOLD_REFUSALS as readonly string[]).includes(code);
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -150,6 +160,12 @@ export interface ThinkInput {
   readonly messages: readonly { role: 'user' | 'assistant'; content: string }[];
   readonly maxOutputTokens?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Set only by the team run route (team/runs.ts), after it read the member's business membership and runner role. A
+   * team session's hold refuses without it, so no other route can run on a team session, whatever request id it sends.
+   * Never taken from a request body.
+   */
+  readonly teamRun?: boolean;
 }
 
 export interface ThinkResult {
@@ -603,6 +619,7 @@ export class AgentRuntime {
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
           overageGrace: this.overageGrace,
+          teamRun: input.teamRun === true,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -640,6 +657,7 @@ export class AgentRuntime {
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
             overageGrace: this.overageGrace,
+            teamRun: input.teamRun === true,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
@@ -671,7 +689,10 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset' || isTeamHoldRefusal(err.code))
+        ) {
           throw await this.appendRefusal(
             session,
             {
