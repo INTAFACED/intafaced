@@ -63,7 +63,8 @@ test('J-ops-console-01 #4 a module service page: owner, on call, dependencies, r
     await form.getByRole('button', { name: 'Save the service record' }).click();
     await expect(form.getByTestId('service-record-outcome')).toContainText('service record saved');
 
-    // Every panel, each on its own: the record's three, the alerts read, and the four with no source naming their blocker.
+    // Every panel with a source, each on its own: the record's three and the alerts read. On call, incidents, objectives and
+    // dashboards have no source in the product; they are asserted at the end, where each fails by name.
     await expect(page.getByTestId('service-owner-team')).toHaveText(RUN);
     await expect(page.getByTestId('service-dependencies').getByRole('link', { name: 'Identity' })).toHaveAttribute(
       'href',
@@ -72,13 +73,6 @@ test('J-ops-console-01 #4 a module service page: owner, on call, dependencies, r
     await expect(page.getByTestId('service-dependencies').getByRole('link', { name: 'Edge' })).toHaveAttribute('href', '/health/edge');
     await expect(page.getByTestId('service-runbook-path')).toHaveText(RUNBOOK);
     await expect(page.getByTestId('service-alerts')).toHaveAttribute('data-state', 'read');
-    for (const id of ['on-call', 'incidents', 'objectives', 'dashboards']) {
-      const panel = page.getByTestId(`service-${id}`);
-      await expect(panel).toHaveAttribute('data-state', 'unwired');
-      await expect(panel).toContainText('no source');
-      await expect(panel).toContainText('ops.health_source_unwired');
-    }
-    await expect(page.getByTestId('service-on-call')).toContainText('nobody is shown as on call');
     for (const id of ['owner', 'dependencies', 'runbook'])
       await expect(page.getByTestId(`service-${id}`)).toHaveAttribute('data-state', 'read');
     // The module state is the board's own row for this module, read the same way.
@@ -110,6 +104,22 @@ test('J-ops-console-01 #4 a module service page: owner, on call, dependencies, r
     // A name that is not a module is a typed refusal.
     await b.goto(`${ADMIN}/health/mars`, { waitUntil: 'load' });
     await expect(b.getByTestId('service-not-found')).toContainText('ops.service_not_found');
+
+    // The row asks for who is on call, open incidents, objectives and dashboards on the page, and for the on-call panel alone
+    // to refuse when its source is down. The product has no source for any of the four (apps/admin/src/lib/service-page/
+    // model.ts UNWIRED_PANELS), so each panel's content is asserted here and fails by name; every other clause above ran.
+    await a.goto(`${ADMIN}/health/ledger`, { waitUntil: 'load' });
+    const missing = {
+      'on-call':
+        'who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source to go down "only the on-call panel refuses" cannot be shown (OPS-service-health-01)',
+      incidents: 'open incidents: no incident desk source exists for a module, so none can be listed (OPS-service-health-01)',
+      objectives: 'objectives: no service level objective source exists (the objectives desk is not built) (OPS-service-health-01)',
+      dashboards: 'dashboards: no dashboard source is linked to a module (the dashboards desk is not built) (OPS-service-health-01)',
+    };
+    for (const [id, what] of Object.entries(missing))
+      await expect
+        .soft(a.locator(`[data-testid="service-${id}"][data-state="read"]`), `service page panel shows its content: ${what}`)
+        .toBeVisible({ timeout: 5_000 });
   } finally {
     if (before) {
       // Put the ledger's record back as it was, from the revision stored now.
