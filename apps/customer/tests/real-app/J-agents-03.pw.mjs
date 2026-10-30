@@ -13,7 +13,7 @@ import { api, tool } from './stack.mjs';
 //   it empty (AG-catalogue-02);
 // - #4 "tool shapes": a tool is a name only, with no declared inputs or outputs to set (AG-tools-01);
 // - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
-// The identity page and the publish flow are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
+// The identity page, publishing to a surface and sharing are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
 // at their first missing part, quickly (UNBUILT).
 // Not covered yet: #5's frozen-owner clause (freezing this run's account would stop #6 to #8) and its blank-lifetime
 // clause (it depends on the owner value the stack publishes); both join #5 with the identity page.
@@ -227,11 +227,14 @@ test(`${J} #4 sets the tool shapes`, async ({ page }) => {
   const draft = await ownAgent();
   const shapes = builder(page).getByRole('group', { name: 'Tool shapes' });
   await expect(shapes).toBeVisible(UNBUILT);
-  const [first] = draft.tools;
-  await shapes.getByRole('textbox', { name: `${first} input` }).fill('{ "query": "string" }');
+  expect(draft.tools.length).toBeGreaterThan(0);
+  for (const name of draft.tools) await shapes.getByRole('textbox', { name: `${name} input` }).fill('{ "query": "string" }');
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
   await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
-  expect((await ownRead('get', { id: draft.id })).toolShapes?.[first]).toMatchObject({ input: { query: 'string' } });
+  // Every tool's shape, each exactly once, is the one set, read back from svc-agents.
+  const { toolShapes } = await ownRead('get', { id: draft.id });
+  expect(Object.keys(toolShapes ?? {}).sort()).toEqual([...draft.tools].sort());
+  for (const name of draft.tools) expect(toolShapes[name]).toMatchObject({ input: { query: 'string' } });
 });
 
 test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too`, async ({
@@ -272,7 +275,8 @@ test(`${J} #6 asks the assistant to draft an agent: with the model unset the own
 test(`${J} #6 once the model choice is set a draft appears whose tools passed the validator; nothing is saved until accepted`, async ({
   page,
 }) => {
-  // The assistant waits on the owner's choice of model (owner.decision): red, by name, until the owner makes it.
+  // The assistant waits on the owner's choice of model (owner.decision): red, by name, until the owner makes it. No
+  // model setting exists yet to set here; when it lands, this test sets it and restores it blank in a try/finally.
   await openBuilder(page);
   const before = await ownAgents();
   const { tools: catalogue } = await ownRead('catalogue');
@@ -281,7 +285,10 @@ test(`${J} #6 once the model choice is set a draft appears whose tools passed th
   await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeEnabled(UNBUILT);
   await assistant.getByRole('button', { name: 'Draft it' }).click();
   // A draft appears; each of its tools is one the validator admits: in the catalogue, and none moves money.
-  const proposed = await assistant.getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code').allInnerTexts();
+  const proposedTools = assistant.getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code');
+  await expect(proposedTools.first()).toBeVisible();
+  const proposed = await proposedTools.allInnerTexts();
+  expect(proposed.length).toBeGreaterThan(0);
   for (const name of proposed) expect(catalogue.find((tool) => tool.name === name)).toMatchObject({ movesMoney: false });
   // Nothing is saved until it is accepted.
   expect(await ownAgents()).toEqual(before);
@@ -289,6 +296,10 @@ test(`${J} #6 once the model choice is set a draft appears whose tools passed th
   const after = await ownAgents();
   expect(after).toHaveLength(before.length + 1);
   expect(after[0]).toMatchObject({ tools: proposed, state: 'draft' });
+  // svc-agents' own validator held it: read back, the accepted draft carries exactly those tools and no money tool.
+  const accepted = await ownRead('get', { id: after[0].id });
+  expect(accepted.tools).toEqual(proposed);
+  expect(accepted.tools.filter((name) => catalogue.find((tool) => tool.name === name)?.movesMoney !== false)).toEqual([]);
 });
 
 test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version`, async ({
