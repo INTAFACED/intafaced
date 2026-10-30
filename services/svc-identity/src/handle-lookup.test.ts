@@ -21,6 +21,7 @@ const authConfig = {
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const FRIEND = '22222222-2222-4222-8222-222222222222';
+const HIDDEN = '33333333-3333-4333-8333-333333333333';
 const SESSION = '44444444-4444-4444-8444-444444444444';
 
 async function ctx(opts: { anonymous?: boolean; userId?: string; apiKeyId?: string } = {}): Promise<Context> {
@@ -40,8 +41,9 @@ async function ctx(opts: { anonymous?: boolean; userId?: string; apiKeyId?: stri
 }
 
 const users = new Map([
-  ['luffy', { userId: FRIEND, handle: 'Luffy' }],
-  ['me_self', { userId: ME, handle: 'Me_Self' }],
+  ['luffy', { userId: FRIEND, handle: 'Luffy', discoverable: true }],
+  ['me_self', { userId: ME, handle: 'Me_Self', discoverable: true }],
+  ['hidden_one', { userId: HIDDEN, handle: 'Hidden_One', discoverable: false }],
 ]);
 
 function setup(limiter?: HandleLookupLimiter) {
@@ -94,6 +96,21 @@ describe('identity.users.resolveHandle', () => {
       found: true,
       userId: ME,
       handle: 'Me_Self',
+      self: true,
+    });
+  });
+
+  it('answers an undiscoverable handle exactly like an unknown one, for everyone but its owner (PP-send-request-03)', async () => {
+    const { router } = setup();
+    const stranger = router.createCaller(await ctx());
+    expect(await stranger.users.resolveHandle({ handle: 'hidden_one' })).toEqual(
+      await stranger.users.resolveHandle({ handle: 'nobodyhere' }),
+    );
+    const owner = router.createCaller(await ctx({ userId: HIDDEN }));
+    expect(await owner.users.resolveHandle({ handle: '@Hidden_One' })).toEqual({
+      found: true,
+      userId: HIDDEN,
+      handle: 'Hidden_One',
       self: true,
     });
   });

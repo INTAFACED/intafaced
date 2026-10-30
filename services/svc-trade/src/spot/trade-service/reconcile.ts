@@ -4,7 +4,8 @@
  * Moved out of `trade-service.ts` as it was (owner decision 2026-10-23): `TradeService` keeps one method per
  * function here, which passes itself as `svc`.
  */
-import { formatAmount, orderHoldAccount } from '@intafaced/ledger-client';
+import { formatAmount } from '@intafaced/ledger-client';
+import { holdAccountOf } from '../buyback-order.js';
 import { withMoneySpan } from '../../tracing.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../hold-outcome.js';
@@ -56,7 +57,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string)
       };
     }
 
-    const holdBal = (await svc.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
+    const holdBal = (await svc.ledger.balance(holdAccountOf(order))).amount;
     const holdBefore = formatAmount(holdBal);
 
     // ── orphan pending: intent row, never funded ───────────────────────────

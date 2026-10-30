@@ -21,7 +21,26 @@ export function poolFactRows(pool: EarnPool, t: Copy): Array<{ key: string; labe
   return [
     { key: 'rate', label: t('rowRate'), value: bps(pool.aprBps) },
     { key: 'term', label: t('rowTerm'), value: pool.termDays === null ? t('flexibleTerm') : t('termDays', { days: pool.termDays }) },
-    { key: 'lock', label: t('rowLock'), value: pool.termDays === null ? t('noLock') : t('lockDays', { days: pool.termDays }) },
+    {
+      key: 'program',
+      label: t('rowProgram'),
+      value: pool.unbondingDays === null ? t('programSavings') : t('programStaking'),
+    },
+    {
+      key: 'lock',
+      label: t('rowLock'),
+      value:
+        pool.termDays !== null
+          ? t('lockDays', { days: pool.termDays })
+          : pool.unbondingDays !== null
+            ? t('unbondingLock', { days: pool.unbondingDays })
+            : t('noLock'),
+    },
+    {
+      key: 'unbonding',
+      label: t('rowUnbonding'),
+      value: pool.unbondingDays === null ? t('noUnbonding') : t('unbondingDays', { days: pool.unbondingDays }),
+    },
     { key: 'payout', label: t('rowPayout'), value: t('everyDay') },
     { key: 'compounding', label: t('rowCompounding'), value: t('simple') },
     { key: 'minimum', label: t('rowMinimum'), value: amount(pool.minDeposit, pool.assetId) },

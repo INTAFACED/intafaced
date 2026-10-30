@@ -25,6 +25,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Stake could not be checked',
     body: 'The desk could not read your stake, so it did not quote. Nothing was held.',
   },
+  'trade.convert_bounds_not_set': {
+    title: 'Desk size range not set',
+    body: 'The desk has no size range for conversions at its price, so none can be priced. Nothing was priced or held.',
+  },
   'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
   'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
   'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
@@ -54,6 +58,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
   },
   'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_level_unset': {
+    title: 'Verification level not set',
+    body: 'The desk has no verification level set, so a request cannot be sent. Nothing was priced or held.',
+  },
+  'trade.otc_assets_unset': {
+    title: 'No assets set',
+    body: 'The desk has no asset list, so a request cannot be sent. Nothing was priced or held.',
+  },
   'trade.otc_provider_unknown': {
     title: 'Provider not on the list',
     body: "A provider picked is not on the desk's provider list. Pick again from the list; nothing was priced or held.",
@@ -168,6 +180,21 @@ const NAMES_ITS_LIMIT: Readonly<Record<string, { title: string; fallback: string
     title: 'Too many providers',
     fallback: 'More providers were picked than the desk allows',
     after: 'Pick fewer; nothing was priced or held.',
+  },
+  'trade.otc_level_insufficient': {
+    title: 'Verification level too low',
+    fallback: 'Your verification level is below what the desk prices for',
+    after: 'Complete verification to ask the desk; nothing was priced or held.',
+  },
+  'trade.convert_out_of_bounds': {
+    title: 'Outside the desk size range',
+    fallback: 'This size is outside the desk range for conversions',
+    after: 'Pick a size inside the range; nothing was priced or held.',
+  },
+  'trade.otc_asset_unlisted': {
+    title: 'Asset not on the desk',
+    fallback: "That asset is not on the desk's asset list",
+    after: 'Pick a pair whose asset the desk lists; nothing was priced or held.',
   },
 };
 

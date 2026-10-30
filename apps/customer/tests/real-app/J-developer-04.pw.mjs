@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { EDGE, fund, json, journeyState, staffFreeze, tool } from './stack.mjs';
+import { EDGE, fund, json, journeyState, staffFreeze, staffRestore, toUnits, tool } from './stack.mjs';
 import { awayBid, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { tableIn } from './tables.mjs';
@@ -177,10 +177,12 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
 });
 
 test(`${J} #3 sends a request with two invalid fields: one typed body listing both, with a request id and a docs link`, async () => {
-  const { trade } = run.read();
+  const { who, trade } = run.read();
   const clientOrderId = `jd04-${RUN}-3`;
-  const balance = await call('GET', '/api/v1/account/balance', trade);
-  expect(balance.status, JSON.stringify(balance.body)).toBe(200);
+  // Funded, so "nothing held" compares a real balance: a refused order would have held USDT.
+  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  const before = await balance(trade);
+  expect(toUnits(before.balances?.USDT?.free) >= toUnits('1000'), JSON.stringify(before)).toBe(true);
   const reply = await call('POST', '/api/v1/orders', {
     ...trade,
     body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId },
@@ -193,28 +195,46 @@ test(`${J} #3 sends a request with two invalid fields: one typed body listing bo
   // The request id in the body is the one Edge put on the reply's header; the docs link names the error page.
   expect(reply.body.requestId).toBeTruthy();
   expect(reply.body.requestId).toBe(reply.headers.get('x-request-id'));
-  expect(reply.body.docs).toMatch(/^\/developers\/errors\b/);
+  expect(reply.body.docs).toBe(`/developers/errors#${reply.body.intafacedCode}`);
+  // The docs link opens the published entry for this refusal: its code, status and detail code as the reply sent them.
+  await page.goto(reply.body.docs);
+  const entry = page.locator(`tr[id="${reply.body.intafacedCode}"]`);
+  await expect(entry).toBeVisible();
+  await expect(entry.getByRole('rowheader')).toHaveText(reply.body.code);
+  await expect(entry.getByRole('cell').first()).toHaveText(String(reply.status));
+  await expect(entry.getByRole('cell').nth(1)).toHaveText(reply.body.intafacedCode);
   // Refused, so nothing was placed and nothing was held.
   const placed = await call('GET', `/api/v1/orders/by-client-id/${clientOrderId}?symbol=BTC/USDT`, trade);
   expect(placed.status, JSON.stringify(placed.body)).toBe(404);
   expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
-  const after = await call('GET', '/api/v1/account/balance', trade);
-  expect(after.body?.balances).toEqual(balance.body?.balances);
+  expect(await balance(trade)).toEqual(before);
 });
 
 test(`${J} #4 provokes a gateway refusal and a service error: the edge prefix tells them apart`, async () => {
   const { trade } = run.read();
+  const before = await balance(trade);
   const gateway = await call('GET', '/api/v1/account/balance', { key: 'ifc_not_a_real_key_000000000000' });
-  expect(gateway.status).toBe(401);
-  expect(codeOf(gateway), JSON.stringify(gateway.body)).toMatch(/^edge\./);
+  // Refused at the gateway: a key Edge cannot find, under Edge's own prefix.
+  expect(gateway.status, JSON.stringify(gateway.body)).toBe(401);
+  expect(codeOf(gateway)).toBe('edge.api_key_denied');
+  expect(codeOf(gateway)).toMatch(/^edge\./);
   const service = await call('POST', '/api/v1/orders', {
     ...trade,
     body: { symbol: 'NOPE/USDT', type: 'limit', side: 'buy', amount: '1', price: '1', clientOrderId: `jd04-${RUN}-4` },
   });
-  expect(service.status).toBeGreaterThanOrEqual(400);
-  expect(codeOf(service), JSON.stringify(service.body)).toBeTruthy();
+  // Passed the gateway and refused by the trade service: its own typed code, with no Edge prefix.
+  expect(service.status, JSON.stringify(service.body)).toBe(404);
+  expect(service.body).toMatchObject({ code: 'BadSymbol', intafacedCode: 'trade.market_not_found' });
   expect(codeOf(service)).not.toMatch(/^edge\./);
-  for (const reply of [gateway, service]) expect(reply.body.requestId, JSON.stringify(reply.body)).toBeTruthy();
+  expect(service.body.intafacedCode).not.toMatch(/^edge\./);
+  for (const reply of [gateway, service]) {
+    expect(reply.body.requestId, JSON.stringify(reply.body)).toBeTruthy();
+    expect(reply.body.requestId).toBe(reply.headers.get('x-request-id'));
+  }
+  // Both refused: the order does not exist and nothing was held.
+  const placed = await call('GET', `/api/v1/orders/by-client-id/jd04-${RUN}-4?symbol=NOPE/USDT`, trade);
+  expect(placed.status, JSON.stringify(placed.body)).toBe(404);
+  expect(await balance(trade)).toEqual(before);
 });
 
 test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each body code matches the catalogue entry`, async () => {
@@ -270,16 +290,21 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
 
 test(`${J} #7 reads the response headers: the request id and the server's received and sent times, sent not before received`, async () => {
   const { trade } = run.read();
+  const asked = Date.now();
   const reply = await call('GET', '/api/v1/account/balance', trade);
-  expect(reply.headers.get('x-request-id')).toBeTruthy();
+  const answered = Date.now();
+  expect(reply.status, JSON.stringify(reply.body)).toBe(200);
+  expect(reply.headers.get('x-request-id')).toMatch(/^[A-Za-z0-9_-]{8,}$/);
+  // Unix milliseconds from the server's clock, read between this program's send and receipt (the stack shares the clock).
   const received = Number(reply.headers.get('x-server-received'));
   const sent = Number(reply.headers.get('x-server-sent'));
-  expect(received, 'x-server-received').toBeGreaterThan(0);
+  expect(received, 'x-server-received').toBeGreaterThanOrEqual(asked);
+  expect(sent, 'x-server-sent').toBeLessThanOrEqual(answered);
   expect(sent).toBeGreaterThanOrEqual(received);
 });
 
 test(`${J} #6 calls from a frozen account, then a money call during the platform posting freeze: account_frozen, then posting_frozen while a read still works`, async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const { who, trade } = run.read();
   // A buy the account can pay for and the market accepts, resting under the book: only the freeze can refuse it.
   expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
@@ -295,16 +320,13 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   tool('local-test-gates.mjs', 'posting-freeze', 'on');
   let failed;
   try {
-    const before = await call('GET', '/api/v1/account/balance', trade);
-    expect(before.status, JSON.stringify(before.body)).toBe(200);
+    const before = await balance(trade);
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
     // Refused before the engine: a 400 the client may correct by waiting, named for the ledger's freeze.
     expect(money.status, JSON.stringify(money.body)).toBe(400);
     expect(money.body).toMatchObject({ code: 'OnMaintenance', intafacedCode: 'posting_frozen' });
     // A read still works, and the refused order held nothing and does not exist.
-    const read = await call('GET', '/api/v1/account/balance', trade);
-    expect(read.status, JSON.stringify(read.body)).toBe(200);
-    expect(read.body?.balances).toEqual(before.body?.balances);
+    expect(await balance(trade)).toEqual(before);
     const placed = await call('GET', `/api/v1/orders/by-client-id/${order.clientOrderId}?symbol=BTC/USDT`, trade);
     expect(placed.status, JSON.stringify(placed.body)).toBe(404);
     expect(placed.body?.intafacedCode).toBe('trade.order_not_found');
@@ -319,7 +341,8 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
     throw new Error(`the platform posting freeze is still ON and must be lifted by hand: ${error.message}`, { cause: failed });
   }
   if (failed) throw failed;
-  await staffFreeze(who);
+  const open = await balance(trade);
+  const userId = await staffFreeze(who);
   // The account freeze (svc-identity), not the posting freeze (svc-ledger): a read and a money call both name it.
   const frozen = await call('GET', '/api/v1/account/balance', trade);
   expect(frozen.status, JSON.stringify(frozen.body)).toBe(403);
@@ -330,4 +353,15 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   });
   expect(frozenMoney.status, JSON.stringify(frozenMoney.body)).toBe(403);
   expect(codeOf(frozenMoney)).toBe('account_frozen');
+  // Lifted through the same control, the account reads as it did before the freeze: the refused order does not exist
+  // and nothing was held.
+  // The freeze ended the account's sessions and revoked its keys, and lifting it brings neither back: the account signs
+  // in again and makes a new key to look.
+  await staffRestore(userId);
+  await signIn(page, who);
+  const after = await makeKey('bot-after-freeze');
+  const gone = await call('GET', `/api/v1/orders/by-client-id/jd04-${RUN}-6b?symbol=BTC/USDT`, after);
+  expect(gone.status, JSON.stringify(gone.body)).toBe(404);
+  expect(gone.body?.intafacedCode).toBe('trade.order_not_found');
+  expect(await balance(after)).toEqual(open);
 });

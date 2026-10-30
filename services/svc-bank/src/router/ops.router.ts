@@ -16,7 +16,7 @@ import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause
 import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure } from '../ops/loan-products.js';
-import { createEarnPoolProcedure, setEarnPoolRateProcedure } from '../ops/earn-pools.js';
+import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
@@ -29,6 +29,7 @@ import { businessApprovalsProcedure } from '../ops/business-approvals.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
+import { accrualBoundary, accrualDate } from '../earn/interest.js';
 import type { BankRouterContext } from './context.js';
 
 export function createOpsRouter(c: BankRouterContext) {
@@ -174,6 +175,41 @@ export function createOpsRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * Pay back every staking-style saving whose unbonding ended (BK-earn-04), through the withdraw recipe keyed per
+     * saving, so a second run releases nothing twice. tRPC only: the scheduler signs as svc-bank.
+     */
+    releaseUnbondedEarn: jobProcedure
+      .input(
+        z.object({
+          limit: z.number().int().min(1).max(1_000).optional(),
+          poolId: z.string().guid().optional(),
+          /** The previous page's `next`. There is no `at`: the bank's own clock decides when an unbonding ends. */
+          after: z.string().guid().optional(),
+        }),
+      )
+      .output(
+        z.object({
+          released: z.array(z.object({ positionId: z.string(), principal: amountString })),
+          skipped: z.array(z.object({ positionId: z.string(), code: z.string() })),
+          next: z.string().nullable(),
+        }),
+      )
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const report = await bank.earn.releaseUnbonded({
+            limit: input.limit,
+            ...(input.poolId ? { poolId: input.poolId } : {}),
+            ...(input.after ? { after: input.after } : {}),
+          });
+          return {
+            released: report.released.map((r) => ({ positionId: r.positionId, principal: formatAmount(r.principal) })),
+            skipped: report.skipped,
+            next: report.next,
+          };
+        }),
+      ),
+
     accrueInterest: jobProcedure
       .input(z.object({ poolId: z.string().guid().optional(), at: z.string().datetime({ offset: true }).optional() }))
       .output(
@@ -204,6 +240,11 @@ export function createOpsRouter(c: BankRouterContext) {
             throw new BankError('interest accrual is disabled', 'bank.interest_accrual_disabled');
           }
           const at = input.at ? new Date(input.at) : new Date();
+          // A day is paid only once it has begun: paying tomorrow today would
+          // credit interest nobody has earned yet and consume that day early.
+          if (accrualBoundary(at) > new Date()) {
+            throw new BankError(`the accrual day ${accrualDate(at)} has not begun`, 'bank.accrual_day_not_begun');
+          }
           // Single-pool path stays loud: operator targeted that pool, so throw.
           if (input.poolId) {
             const r = await bank.earn.accrue({ poolId: input.poolId, at });
@@ -900,6 +941,7 @@ export function createOpsRouter(c: BankRouterContext) {
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
     createEarnPool: createEarnPoolProcedure(bank, consumeOpsApproval, guard),
     setEarnPoolRate: setEarnPoolRateProcedure(bank, consumeOpsApproval, guard),
+    setEarnPoolStatus: setEarnPoolStatusProcedure(bank, consumeOpsApprovalPair, guard),
     publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
     /** W-withdraw-03: the destination fraud list. Read on the desk; a listing or delisting needs compliance and a second person. */
     destinationFraudList: destinationFraudListProcedure(() => new DestinationFraudList(bank.transferOps.sql), guard),

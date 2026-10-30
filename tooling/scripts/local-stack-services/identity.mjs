@@ -96,6 +96,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
     IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
     IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
+    // Handle change cap (J-pay-03 #2): a TEST value from the profile file, not an owner decision.
+    IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
     // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
     IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
     IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE'),
@@ -146,12 +148,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
     // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-    // contact channels and request forms), the notify desk's writes (admin:write: the status page and notices) and the
+    // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
+    // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
     // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
     // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,campaigns:ops',
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',

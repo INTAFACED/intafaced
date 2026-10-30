@@ -80,17 +80,20 @@ async function confirmItsMe(page) {
   await dialog.getByRole('button', { name: 'Confirm' }).click();
 }
 
-/** The customer's own reads through Edge, signed in with the password and an authenticator code. */
-async function customerApi() {
-  const state = account();
+/**
+ * The customer's own reads through Edge: the journey's person, signed in with the password and an authenticator code, or
+ * another person with no second factor (`who` from signUp), signed in with the password.
+ */
+async function customerApi(who) {
+  const person = who ?? account().account;
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({
       deviceKey: DEVICE_KEY,
-      identifier: state.account.email,
-      password: state.account.password,
-      totpCode: await freshCode(),
+      identifier: person.email,
+      password: person.password,
+      ...(who ? {} : { totpCode: await freshCode() }),
     }),
   }).then((res) => res.json());
   const token = login?.result?.data?.accessToken;
@@ -124,6 +127,18 @@ async function customerApi() {
       const { status, body } = await get('/api/v1/account/balance');
       if (status !== 200) throw new Error(`balance read refused: ${status}`);
       return body.balances[asset]?.free ?? '0';
+    },
+    /** One withdrawal as svc-pay's `withdrawal.get` answers it, with the state the person is shown (`customerStatus`). */
+    async withdrawal(withdrawalId) {
+      const { status, body } = await get(`/api/pay/trpc/withdrawal.get?input=${encodeURIComponent(JSON.stringify({ withdrawalId }))}`);
+      if (status !== 200) throw new Error(`withdrawal read refused: ${status}`);
+      return body.result.data;
+    },
+    /** svc-bank's network catalogue, as the Withdraw form reads it: each asset's networks and its default. */
+    async networks() {
+      const { status, body } = await get('/api/bank/trpc/ramps.destinations.networks');
+      if (status !== 200) throw new Error(`network catalogue read refused: ${status}`);
+      return body.result.data;
     },
     async withdrawals(limit = 10) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit }))}`);
@@ -267,10 +282,17 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 }) => {
   test.setTimeout(180_000);
   await signInWithCode(page);
+  // The default is the one svc-bank's catalogue names for USDT, read from the catalogue itself, never a guess.
+  const api = await customerApi();
+  const usdt = (await api.networks()).find((entry) => entry.assetId === 'USDT');
+  expect(usdt?.defaultNetworkId, 'the catalogue names a default network for USDT').toBeTruthy();
+  expect(usdt.networks.map((network) => network.networkId)).toContain(usdt.defaultNetworkId);
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   await pick(page, 'Asset').selectOption('USDT');
-  await expect(pick(page, 'Network')).toHaveValue('ethereum');
+  await expect(pick(page, 'Network')).toHaveValue(usdt.defaultNetworkId);
+  // The steps below use TEST Ethereum's address book and rules, so the stack's default must be that one.
+  expect(usdt.defaultNetworkId, 'the stack publishes TEST Ethereum as the USDT default').toBe('ethereum');
 
   // A typed address is checked on the network chosen: saved on TEST Ethereum, not saved on TEST Base.
   const typed = form(page).getByRole('textbox', { name: /^Or enter a new address/ });
@@ -301,6 +323,26 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+  // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
+  // dropped and sent without it. Then nothing is held and nothing is recorded.
+  const quoteRef = `${J}-tag-quote-${Date.now()}`;
+  const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
+  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
+  const tagged = await api.create(
+    {
+      assetId: 'USDT',
+      amount: '25',
+      railId: 'crypto-native',
+      networkId: 'ethereum',
+      quoteRef,
+      destination: { kind: 'crypto', ref: ADDRESS, tag: '12345' },
+      clientRef: `${J}-tag-${Date.now()}`,
+    },
+    (await api.stepUp()).accessToken,
+  );
+  expect(tagged.body?.error?.data?.cause?.code, JSON.stringify(tagged.body).slice(0, 400)).toBe('pay.withdrawal_tag_not_taken');
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+  expect(await api.withdrawals()).toEqual([]);
 });
 
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
@@ -572,6 +614,8 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm s
   await expect(outcome).toContainText('Withdrawal recorded', { timeout: 30_000 });
   const [made] = await api.withdrawals();
   expect(made?.id).toBeTruthy();
+  // #8 watches this one by its id.
+  run.reset({ ...account(), sent6: made.id });
   await expect(outcome).toContainText(`Withdrawal ${made.id} is recorded.`);
   expect(await api.withdrawals()).toHaveLength(1);
   // One withdrawal: 25 out with the 1.5 fee on top, so the balance reads 273.5.
@@ -654,55 +698,159 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
   page,
   browser,
 }, testInfo) => {
-  test.setTimeout(300_000);
-  // The person's own send from #6, through the TEST Ethereum signer, watched on its page until it reads Settled. A state
-  // passed between two looks is fine; a state going backwards is not. On the TEST stack the rail answers inside the send,
-  // so it may already read Settled at the first look.
+  test.setTimeout(600_000);
+  // Every word the page may show, in the order a withdrawal moves through them, then the ends that are not Settled.
+  const order = ['requested', 'pending_review', 'approved', 'held', 'dispatching', 'broadcast', 'confirming', 'settled'];
+  const word = {
+    requested: 'Requested',
+    pending_review: 'In review',
+    approved: 'Approved',
+    held: 'Held',
+    dispatching: 'Sending',
+    broadcast: 'Broadcast',
+    confirming: 'Confirming',
+    settled: 'Settled',
+    rejected: 'Rejected',
+    canceled: 'Cancelled',
+    failed: 'Failed',
+    needs_review: 'Needs review',
+  };
   const ownContext = await browser.newContext();
   try {
     const own = await ownContext.newPage();
     await signInWithCode(own);
     const api = await customerApi();
-    // A full page, newest first: #4's sends come after #6's, so the oldest 25 USDT send to ADDRESS is #6's.
-    const sends = (await api.withdrawals(200)).filter(
-      (w) => w.destination?.ref?.toLowerCase() === ADDRESS.toLowerCase() && toUnits(w.amount) === toUnits('25'),
-    );
-    const real = sends.at(-1);
-    expect(real?.id, 'the withdrawal #6 sent (#8 runs after #6)').toBeTruthy();
-    const order = ['Requested', 'In review', 'Approved', 'Held', 'Sending', 'Broadcast', 'Confirming', 'Settled'];
-    const words = [...order, 'Rejected', 'Cancelled', 'Failed', 'Needs review'];
-    const seen = [];
-    const until = Date.now() + 60_000;
-    while (seen.at(-1) !== 'Settled' && Date.now() < until) {
-      await own.goto(`/uc/withdraw?withdrawalId=${real.id}`);
-      const shown = (await own.getByTestId('withdrawal-status').textContent({ timeout: 15_000 }))?.trim();
-      expect(words, `"${shown}" is a status word`).toContain(shown);
-      if (seen.at(-1) !== shown) seen.push(shown);
-      if (shown !== 'Settled') await own.waitForTimeout(1_000);
-    }
-    expect(seen.at(-1), `seen in order: ${seen.join(' → ')}`).toBe('Settled');
-    const steps = seen.map((word) => order.indexOf(word));
-    expect(steps, `never backwards: ${seen.join(' → ')}`).toEqual([...steps].sort((a, b) => a - b));
-    // The person's list says the same of the same withdrawal.
+    const record = async (id) => {
+      const found = (await api.withdrawals(200)).find((w) => w.id === id);
+      expect(found, `svc-pay has withdrawal ${id}`).toBeTruthy();
+      return found;
+    };
+    /**
+     * The withdrawal's page, read between two reads of svc-pay's record: it shows a state the record held in that time
+     * (the one read before, the one read after, or a step between them on the way to Settled), in its word.
+     */
+    const look = async (tab, id, reader = api, reads = []) => {
+      const before = (await reader.withdrawal(id)).customerStatus;
+      await tab.goto(`/uc/withdraw?withdrawalId=${id}`);
+      const status = tab.getByTestId('withdrawal-status');
+      await expect(status).toBeVisible({ timeout: 15_000 });
+      const shown = { state: await status.getAttribute('data-status'), text: (await status.textContent())?.trim() };
+      const after = (await reader.withdrawal(id)).customerStatus;
+      reads.push(before, after);
+      const [from, to, at] = [before, after, shown.state].map((state) => order.indexOf(state));
+      const between = from >= 0 && to >= 0 && from <= at && at <= to;
+      expect(
+        between || [before, after].includes(shown.state),
+        `the page reads ${shown.state} while svc-pay read ${before}, then ${after}`,
+      ).toBe(true);
+      expect(shown.text, `${shown.state} in its word`).toBe(word[shown.state]);
+      return shown.state;
+    };
+    const forwards = (seen) => {
+      for (const state of seen) expect(order, `${state} is a step on the way to Settled (${seen.join(' → ')})`).toContain(state);
+      const steps = seen.map((state) => order.indexOf(state));
+      expect(steps, `never backwards: ${seen.join(' → ')}`).toEqual([...steps].sort((a, b) => a - b));
+    };
+
+    // #6's send, picked by the id #6 kept: Settled on its page and in svc-pay's record, and in the person's list.
+    const sent6 = run.read().sent6;
+    expect(sent6, 'the withdrawal #6 sent (#8 runs after #6)').toBeTruthy();
+    expect(await look(own, sent6)).toBe('settled');
+    const made6 = await record(sent6);
+    expect(made6).toMatchObject({ status: 'settled', destination: { kind: 'crypto', ref: ADDRESS } });
+    expect(toUnits(made6.amount)).toBe(toUnits('25'));
     await own.goto('/uc/withdraw');
     await own.mouse.move(0, 600);
-    const row = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${real.id}"]`);
-    await expect(row.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
+    const row6 = own.getByTestId('withdrawal-history').locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${sent6}"]`);
+    await expect(row6.locator('[data-withdrawal-status]')).toHaveText('Settled', { timeout: 30_000 });
+
+    // A new real send of 12, watched while it goes. The stack's TEST chain waits a few seconds after a send is recorded
+    // before it answers (`PAY_TEST_CHAIN_SEND_DELAY_MS`), so the page can be read while the money is held and on its way.
+    const known = new Set((await api.withdrawals(200)).map((w) => w.id));
+    const freeBeforeTwelve = toUnits(await api.available('USDT'));
+    await signInWithCode(page);
+    await readyToConfirm(page, '12');
+    await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
+    let watching = null;
+    await expect
+      .poll(
+        async () => {
+          watching = (await api.withdrawals(200)).find((w) => !known.has(w.id)) ?? null;
+          return watching?.status ?? null;
+        },
+        { timeout: 20_000, intervals: [100] },
+      )
+      .not.toBeNull();
+    const seen = [];
+    const reads = [];
+    const until = Date.now() + 60_000;
+    while (seen.at(-1) !== 'settled' && Date.now() < until) {
+      const state = await look(own, watching.id, api, reads);
+      if (seen.at(-1) !== state) seen.push(state);
+    }
+    expect(seen.at(-1), `seen: ${seen.join(' → ')}`).toBe('settled');
+    forwards(seen);
+    // While the TEST chain waits, svc-pay has asked the chain to send and does not yet know the outcome: its record reads
+    // `dispatching`, and the page must show that, in its word (Sending).
+    expect(seen, `the page read the send on its way before it settled: ${seen.join(' → ')}`).toContain('dispatching');
+    expect(reads, `svc-pay itself read the send on its way: ${reads.join(', ')}`).toContain('dispatching');
+    // Requested, Held and Broadcast stay red by name: a real send passes them inside the one create request, because
+    // svc-pay has no confirm-later flow yet, so the page can never read them on a real send. Soft, so the rest of #8 is
+    // proven; the seeded rows below check only their words.
+    for (const state of ['requested', 'held', 'broadcast']) {
+      expect
+        .soft(seen, `blocked until svc-pay has a confirm-later flow: the page never read a real send ${state} (${seen.join(' → ')})`)
+        .toContain(state);
+    }
+    await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
+    const made12 = await record(watching.id);
+    expect(made12.status).toBe('settled');
+    expect(toUnits(made12.amount)).toBe(toUnits('12'));
+    // Its debit, read back from the ledger: the 12 out with the TEST 1.5 fee on top.
+    expect(toUnits(await api.available('USDT')), 'the settled 12 took 12 + 1.5 from the balance').toBe(freeBeforeTwelve - toUnits('13.5'));
+
+    // A real send the TEST chain refuses (any send of exactly 13, `PAY_TEST_CHAIN_REFUSE_AMOUNT`): held, refused, its
+    // hold back, and the page says why in a sentence, never as its code.
+    const availableBefore = toUnits(await api.available('USDT'));
+    const knownNow = new Set((await api.withdrawals(200)).map((w) => w.id));
+    await readyToConfirm(page, '13');
+    await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
+    await expect(page.getByTestId('withdraw-outcome')).toBeVisible({ timeout: 30_000 });
+    const refused = (await api.withdrawals(200)).find((w) => !knownNow.has(w.id));
+    expect(refused, 'the refused send has its own record').toBeTruthy();
+    expect(refused).toMatchObject({ status: 'failed', failure: { code: 'rail.refused', known: true } });
+    expect(toUnits(refused.amount)).toBe(toUnits('13'));
+    expect(toUnits(await api.available('USDT')), 'the refused send held nothing back').toBe(availableBefore);
+    expect(await look(own, refused.id)).toBe('failed');
+    await expect(own.getByTestId('withdrawal-facts')).toContainText(
+      'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
+    );
+    await expect(own.getByTestId('withdrawal-facts')).not.toContainText('rail.refused');
   } finally {
     await ownContext.close();
   }
 
-  // The words for each state, read from rows written straight into svc-pay on TEST: the TEST rail answers inside the send,
-  // so a real send never waits in requested, held or broadcast long enough to be seen; an old `sent` row and a rail
-  // refusal can only be fixtures here.
+  // Only these words come from rows written straight into svc-pay on TEST: a real send passes requested, held and
+  // broadcast inside the one request (svc-pay has no confirm-later flow yet), and an old `sent` row can only be written.
+  // The sends above are the real ones; this part only checks the words a real send cannot stop on.
   // A person of its own, so these withdrawals don't count against the limits the steps above use.
   const who = await signUp(page, 'wd8');
   await verify(page, who);
   await signIn(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
   const tag = `jw05-${who.handle}-r${testInfo.retry}`;
-  const words = { requested: 'Requested', held: 'Held', broadcast: 'Broadcast', sent: 'Settled' };
+  const words = { requested: word.requested, held: word.held, broadcast: word.broadcast, sent: word.settled };
   const ids = Object.fromEntries(Object.keys(words).map((state) => [state, seedWithdrawal(who, state, '1', `${tag}-${state}`)]));
+  // Each row as svc-pay itself reads it back (an old `sent` row reads settled), then its own page in that word.
+  const theirs = await customerApi(who);
+  const expected = { requested: 'requested', held: 'held', broadcast: 'broadcast', sent: 'settled' };
+  for (const [state, id] of Object.entries(ids)) {
+    expect((await theirs.withdrawal(id)).customerStatus, `svc-pay reads the ${state} row`).toBe(expected[state]);
+    await page.goto(`/uc/withdraw?withdrawalId=${id}`);
+    const status = page.getByTestId('withdrawal-status');
+    await expect(status).toHaveAttribute('data-status', expected[state], { timeout: 15_000 });
+    await expect(status).toHaveText(words[state]);
+  }
 
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
@@ -711,13 +859,4 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     const row = history.locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${id}"]`);
     await expect(row.locator('[data-withdrawal-status]')).toHaveText(words[state], { timeout: 30_000 });
   }
-
-  // A failed withdrawal says what went wrong in a sentence, never as its code.
-  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.refused');
-  await page.goto(`/uc/withdraw?withdrawalId=${failed}`);
-  await expect(page.getByTestId('withdrawal-status')).toHaveText('Failed', { timeout: 30_000 });
-  await expect(page.getByTestId('withdrawal-facts')).toContainText(
-    'The network refused this withdrawal. Nothing was sent, and any amount held for it went back to your available balance.',
-  );
-  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.refused');
 });

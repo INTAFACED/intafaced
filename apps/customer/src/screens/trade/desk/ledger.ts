@@ -7,6 +7,37 @@ import type { LedgerEntry } from '../../../features/trade/trade-api';
  * balance, which is how the tab proves it shows every change.
  */
 
+export type LedgerKindKey =
+  | 'Ledger kind fill'
+  | 'Ledger kind fee'
+  | 'Ledger kind hold'
+  | 'Ledger kind amend'
+  | 'Ledger kind release'
+  | 'Ledger kind deposit'
+  | 'Ledger kind withdrawal'
+  | 'Ledger kind reward'
+  | 'Ledger kind other';
+
+/** The words for a ledger line's kind; anything else reads "Other" rather than a service code. */
+const KINDS: Record<string, LedgerKindKey> = {
+  'trade.fill': 'Ledger kind fill',
+  'trade.fill.mm_maker': 'Ledger kind fill',
+  // A maker's sale to the token buyback (ledger-client recipes/buyback.ts `buybackTakerFill`).
+  'trade.fill.buyback': 'Ledger kind fill',
+  'trade.fee': 'Ledger kind fee',
+  'order.hold': 'Ledger kind hold',
+  'order.hold.amend': 'Ledger kind amend',
+  'order.hold.released': 'Ledger kind release',
+  'campaigns.task.reward': 'Ledger kind reward',
+};
+export function ledgerKindKey(e: Pick<LedgerEntry, 'type'>): LedgerKindKey {
+  const known = KINDS[e.type];
+  if (known) return known;
+  if (e.type.startsWith('deposit')) return 'Ledger kind deposit';
+  if (e.type.startsWith('withdraw')) return 'Ledger kind withdrawal';
+  return 'Ledger kind other';
+}
+
 /** Each asset's sum of the lines read, as a decimal string; a signed sum (out more than in reads negative). */
 export function sumByAsset(entries: readonly LedgerEntry[]): Map<string, string> {
   const sums = new Map<string, bigint>();

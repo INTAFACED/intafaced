@@ -69,6 +69,8 @@ export const developersCopy = defineCopy(
     hostsUnpublished: 'No API host is published yet, so every host reads host not set.',
     hostsStaticNote:
       'This file is written when the site is built and holds no host. The published hosts are on the page and at GET /api/trade/developer-portal/hosts.',
+    regionalStaticNote:
+      'This file is written when the site is built and holds no regional host rule. The published rule is on the page and at GET /api/trade/developer-portal/regional-rule.',
     termsStaticNote:
       'This file is written when the site is built and holds no term. The published terms are on the page and at GET /api/trade/developer-portal/data-terms.',
     unknownTitle: 'No such developer page',

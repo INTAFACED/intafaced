@@ -23,8 +23,8 @@ const setLev = service.match(/async setLeverage\([\s\S]*?^  async addIsolatedMar
 
 describe('live re-leverage is mounted; margin-mode stays NotSupported', () => {
   it('POST leverage is a real handler, not the 501 helper', () => {
-    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*async/);
-    expect(src).not.toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*derivativesNotSupported\('setLeverage'/);
+    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*privateWrite,\s*async/);
+    expect(src).not.toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*(?:privateWrite,\s*)?derivativesNotSupported\('setLeverage'/);
     expect(src).toMatch(/deps\.setLeverage\(/);
     expect(src).toMatch(/typeof body\.leverage === 'string'/);
   });
@@ -40,7 +40,7 @@ describe('live re-leverage is mounted; margin-mode stays NotSupported', () => {
   });
 
   it('POST margin-mode still uses the derivativesNotSupported helper', () => {
-    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode',\s*derivativesNotSupported\('setMarginMode'/);
+    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode',\s*privateWrite,\s*derivativesNotSupported\('setMarginMode'/);
   });
 
   it('the helper sends notSupported, not rateLimited', () => {

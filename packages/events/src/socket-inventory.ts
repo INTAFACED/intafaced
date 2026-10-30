@@ -104,6 +104,7 @@ export const EVENT_BUS_MATRIX = {
   coreOpsRestoreFailed: { kind: 'socket', socketClass: 'A' },
   payCustodyAuditCreated: { kind: 'socket', socketClass: 'A' },
   payDepositCreditPosted: { kind: 'live' },
+  payWithdrawalStatusUpdated: { kind: 'socket', socketClass: 'A' },
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
   bankMarginCalled: { kind: 'live' },
@@ -145,6 +146,9 @@ export const EVENT_BUS_MATRIX = {
   p2pChatMessageSent: { kind: 'socket', socketClass: 'A' },
   p2pDisputeEscalated: { kind: 'socket', socketClass: 'A' },
   p2pQuoteExpired: { kind: 'socket', socketClass: 'A' },
+  copySkipped: { kind: 'socket', socketClass: 'A' },
+  copyFailed: { kind: 'socket', socketClass: 'A' },
+  copyStopped: { kind: 'socket', socketClass: 'A' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;

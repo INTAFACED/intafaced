@@ -199,7 +199,12 @@ describe('escalation carries its case file', () => {
     expect(file.citations.map((c) => c.kind).sort()).toEqual(['account_state', 'kb_article', 'ticket_comment']);
     // Every citation is a ref plus a digest. None of them is content.
     for (const c of file.citations) expect(c.digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(file)).not.toContain('4321');
+    // No cited content either: not the comment, and not its card digits outside the random ids and digests, whose hex can
+    // hold "4321" by chance (a ticket id ending 6c843211 did once).
+    expect(JSON.stringify(file)).not.toContain('card ending');
+    expect(JSON.stringify(file).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64}/g, '')).not.toContain(
+      '4321',
+    );
   });
 
   it('an escalation that read nothing at all is refused by code', async () => {

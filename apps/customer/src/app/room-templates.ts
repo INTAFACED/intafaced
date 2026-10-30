@@ -231,6 +231,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/market/strategy': { template: 'flow' },
   '/academy': { template: 'catalogue' },
   '/agents': { template: 'catalogue' },
+  '/agents/new': { template: 'flow' },
+  '/agents/:agentId': { template: 'catalogue' },
   '/quant': { template: 'desk' },
   '/quant/sandbox': { template: 'desk' },
   '/quant/studio': { template: 'desk' },
@@ -256,6 +258,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/launch/:projectId': { template: 'catalogue' },
   '/token/governance': { template: 'record-list' },
   '/token/economy': { template: 'monitor' },
+  '/token/burn': { template: 'record-list' },
   '/token/governance/:proposalId': { template: 'reading' },
   '/mining/workers': { template: 'record-list' },
   '/mining/shares': { template: 'record-list' },
@@ -323,6 +326,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/*': 'fallback',
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
+  '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
 };
 
 /** Merchant portal pages behind `/pay/:page` and `/pay/:page/:child`. */

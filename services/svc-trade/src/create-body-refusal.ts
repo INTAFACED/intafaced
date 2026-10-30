@@ -1,3 +1,4 @@
+import { tradeErrorDocsLink } from '@intafaced/contracts/trade-errors';
 import { invalidOrder, type CcxtErrorBody } from './ccxt-errors.js';
 
 /**
@@ -19,9 +20,9 @@ export interface CreateBodyRefusal extends CcxtErrorBody {
 
 type Issue = { path: ReadonlyArray<PropertyKey>; message: string };
 
-/** The page section that explains a code. */
+/** The page section that explains a code: its entry in the published order error catalogue. */
 export function errorDocsLink(intafacedCode: string): string {
-  return `/developers/errors#${intafacedCode}`;
+  return tradeErrorDocsLink(intafacedCode);
 }
 
 function fieldOf(path: ReadonlyArray<PropertyKey>): string {

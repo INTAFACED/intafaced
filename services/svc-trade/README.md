@@ -201,6 +201,18 @@ open has no client idempotency key — see audit residual).
 | **Cross ban**     | Seed submits are limit `PO`; synchronous engine fills → `manufactured_cross` + hold release (SD-5)                                   |
 | **F8**            | seed↔seed prints never inflate public tape                                                                                           |
 
+### Token buyback IOC buy (J-dex-protocol-17)
+
+`POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
+
+- **Whose money:** the rewards engine's, never a person's. svc-token sweeps the fee share first (`sweepFeesToRewards`). The hold is `buybackOrderHold`, each fill `buybackTakerFill` and the remainder `buybackOrderHoldRelease`. An unfunded hold is refused by the ledger and leaves no row.
+- **The row:** a `trade.orders` row under the house buyback user (`HOUSE_BUYBACK_USER_UUID`), at the regular tier with no tier volume, so the normal fill, release and reconcile paths find it. Every hold read and release on those paths goes through `holdAccountOf` and `buybackReleasePost` (`src/spot/buyback-order.ts`). It earns no XP.
+- **The engine account:** `house:buyback`, distinct from `house:market-maker`, so self-trade prevention does not pull the house maker's orders.
+- **House against house is refused** with `trade.buyback_house_maker`. Before the hold, a resting house market-maker ask at or under the limit refuses the buy, and an unreadable book refuses it with `trade.buyback_book_unreadable`. At settlement, a fill against a house maker is refused and posts nothing; customer fills before it in the same batch settle. The buyback row is marked `recovery_required` (`RECONCILIATION_REQUIRED`) and its quote stays in its own hold. Reconcile releases that hold only when the engine and `trade.fills` prove nothing else filled; otherwise it is a named break for an operator. The customer order path refuses the house buyback user (`trade.buyback_invalid`).
+- **Retries:** the same run id and command on the same market returns the first order. Another command under it is `trade.buyback_conflict`, and a run still settling is `trade.buyback_in_flight`; a retry never resubmits a stranded row, which reconcile resolves.
+- **Hold outcome:** a hold the ledger refuses, or a post that never left, deletes the row. A post with no answer keeps the row `pending` (`trade.hold_unknown`) for reconcile's age-bounded path. The engine is asked only when the booked hold equals the row's; otherwise `trade.buyback_conflict`.
+- **Not live yet:** svc-ledger has not granted svc-trade the three recipes, so a key-signed (S2S v3 keypair) post of them is refused at the ledger; a shared-secret post is only logged as a binding violation there. svc-token does not call this door yet.
+
 ### OHLCV / candles (A-TRADE-SPOT-1 + A-TRADE-SPOT-OPS)
 
 | Path                                 | Behavior                                                                                                                                         |
@@ -625,6 +637,10 @@ committing; an uncertain granted intent becomes its original owner admission, ne
 a fresh admission under restriction. Each child/mirror needs its own decision and
 verified persisted parent provenance; legacy parents lacking it refuse new exposure.
 
+A fresh admission under this service's own restriction refuses `trade.desk_restricted`. Identity's trading
+restriction (svc-identity's founder control, which account status lists) refuses `trade.account_restricted`, so a
+caller can tell which owner holds the restriction.
+
 Cancellation, closing and recovery of original admitted effects remain available.
 Internal `recoverAdmittedOrder`, `recoverAdmittedPosition` and `recoverAdmittedAlgo`
 hooks reconstruct owned stored payloads after uncertain responses. They accept no
@@ -687,8 +703,14 @@ A create-order body the schema refuses (`POST /api/v1/orders`, each batch item, 
 
 A money call during svc-ledger's platform posting freeze (`ledger.frozen` from the ledger) is answered by where the freeze stopped it:
 
-- **Before the engine** (the order's first hold refused; order-place deletes the pending row and marks the error with `refusedBeforeEngine`): HTTP 400 `{code: 'OnMaintenance', intafacedCode: 'posting_frozen'}`. A refusal; nothing exists and nothing is held. The CCXT class tells a bot to back off and retry, which is safe under the same `clientOrderId`.
-- **After the engine accepted, filled or cancelled the order** (a fill or release post, a cancel's release, every post of a spot close): HTTP 503 `{code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending'}`. The order exists and its settlement is not confirmed: read the order before sending it again. An unmarked freeze is always this case, so a freeze nobody classified never reads as "nothing happened".
+- **Before the engine** (the order's first hold refused; order-place's own delete removed the pending row, and only then marks the error with `refusedBeforeEngine`; a row a concurrent request already moved stays unmarked): HTTP 400 `{code: 'OnMaintenance', intafacedCode: 'posting_frozen'}`. A refusal; nothing exists and nothing is held. The CCXT class tells a bot to back off and retry, which is safe under the same `clientOrderId`.
+- **After the engine accepted, filled or cancelled the order** (a fill or release post, a cancel's release): HTTP 503 `{code: 'ExchangeNotAvailable', intafacedCode: 'trade.settlement_pending'}`. The order exists and its settlement is not confirmed: read the order before sending it again. An unmarked freeze is always this case, so a freeze nobody classified never reads as "nothing happened".
+
+A spot close (`POST /api/v1/spot/positions/close`) posts only after the engine printed the flatten, and its row is kept `recovery_required` whatever the ledger said. The posting freeze, an outcome nobody knows, or a refusal raised before the ledger looks up the key (`ledger.unauthenticated`: a retried post that committed can get it), is 503 `trade.settlement_pending`. A refusal the ledger's engine named (`classifyPostOutcome` 'refused') or a post that never left is 500 `trade.close_settlement_refused`: a posting of the settlement was refused, earlier ones may have booked, and the close waits for recovery. Any untyped error (a ledger reply without a code, a transport deadline) is 503 `trade.settlement_pending`. All carry fixed words, never the ledger's own message. The close door answers `{error, message}`, not the CCXT body, so its codes sit outside the trade error catalogue at `/developers/errors`.
+
+A replace whose new order could not be placed answers `REPLACEMENT_NOT_SUBMITTED` with `reasonCode` naming why: `posting_frozen` when the replacement's hold was refused before the engine, or `trade.settlement_pending` when the freeze is unmarked. Then the replacement may exist, so read it by its client order id before sending it again.
+
+A replace whose replacement was not submitted names a ledger error by its own published code: only order-place marks a freeze `posting_frozen`.
 
 Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in one place, `src/ledger-public-code.ts`, used by the CCXT body, the replace outcome's `reasonCode` (`REPLACEMENT_NOT_SUBMITTED`) and the tRPC error cause (`BAD_REQUEST` for `posting_frozen`, `SERVICE_UNAVAILABLE` for `trade.settlement_pending`). The account freeze is svc-identity's (`account_frozen`), not this.
 

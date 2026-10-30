@@ -220,5 +220,43 @@ describe('desk API money answers (H8a PG-hard)', () => {
       expect(outcome.original.id).toBe(original.id);
       expect(outcome.original.status).toBe('cancelled');
     });
+
+    it('names a ledger error the replacement place did not mark by its own code: an unmarked freeze is never relabelled posting_frozen', async () => {
+      const book = new MemoryLedger();
+      const local = service(book, 200);
+      await book.post(
+        recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: `unmarked:${Math.random()}` }),
+      );
+      const original = await local.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('2'),
+        price: amt('100'),
+        clientOrderId: 'orig-unmarked',
+      });
+      // The replacement's place fails with a freeze it could not prove came before the engine, and no replacement row
+      // persisted: only placeOrder may mark a freeze `posting_frozen`, so the outcome keeps the unmarked code.
+      const realPlace = local.placeOrder.bind(local);
+      local.placeOrder = async (principal, input) => {
+        if (input.replacementOf) throw new LedgerError('TEST freeze after the engine', 'ledger.frozen');
+        return realPlace(principal, input);
+      };
+      const outcome = await local.replaceOrder(principalFor(ALICE), original.id, {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('90'),
+        clientOrderId: 'repl-unmarked',
+      });
+      expect(outcome).toMatchObject({
+        accepted: false,
+        code: 'REPLACEMENT_NOT_SUBMITTED',
+        reasonCode: 'trade.settlement_pending',
+        replacement: null,
+      });
+      expect(outcome.original.status).toBe('cancelled');
+    });
   });
 });

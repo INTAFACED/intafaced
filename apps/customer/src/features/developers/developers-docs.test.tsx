@@ -39,8 +39,8 @@ describe('developer portal home', () => {
     expect(home).toContain('aria-label="Search the developer docs"');
   });
   it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
     expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
+    expect(text(html('/developers/rate-limits'))).toContain('It waits for DV-limits-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -77,9 +77,16 @@ describe('developer docs pages', () => {
   it('the permission table has a row per key scope, with POST /api/v1/orders under trade:write', () => {
     const page = html('/developers/permissions');
     expect(page).toContain('aria-label="Permissions and endpoints"');
-    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="trade:withdraw"'));
+    const write = page.slice(page.indexOf('data-scope="trade:write"'), page.indexOf('data-scope="admin:read"'));
     expect(write).toContain('POST /api/v1/orders');
     expect(write).not.toContain('GET /api/v1/');
+    // admin:read is never offered to a key: its row says so and holds the staff routes no key can call.
+    const staff = page.slice(page.indexOf('data-scope="admin:read"'), page.indexOf('data-scope="trade:withdraw"'));
+    expect(staff).toContain('data-never-on-key=""');
+    expect(staff).toContain('Never on a key: only a staff session holds it');
+    expect(staff).toContain('GET /api/v1/admin/orders/open');
+    const read = page.slice(page.indexOf('data-scope="trade:read"'), page.indexOf('data-scope="trade:write"'));
+    expect(read).not.toContain('/api/v1/admin/');
   });
   it('the specs page links the two downloads and the docs index', () => {
     const page = html('/developers/openapi');

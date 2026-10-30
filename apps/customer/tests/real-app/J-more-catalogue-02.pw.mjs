@@ -2,22 +2,22 @@ import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { testStrategyListing } from './market-listing.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
-// TEST USDT through the real ledger. The listing is the stack's TEST strategy listing with a refund window, approved by
-// the stack's TEST operators. The purchase is held, then released or refunded once; the steps read the buyer's ledger
+// TEST USDT through the real ledger. The listing is a TEST strategy listing this run publishes through the product's own
+// doors (market-listing.mjs: a TEST seller stakes, applies, is approved by the stack's TEST operators, and lists). The
+// purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - The stack seeds no approved TEST strategy listing (`local-test-gates.mjs market-listing`, proposed), so #2 and #4
-//   to #8 have nothing to open or buy.
+// - The listing has no refund window yet, and a purchase is not held (MC-market-02).
 // - #1: /market has no listing-type switch and no four entry points to the copy, bot and signal rooms (MC-market-01).
 // - #3: no listings of other kinds and no placement label (RC-more-catalogue-18 to -20).
 // - #6, #7: no refund or release after the window and no reviews (MC-market-01, -02).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
-const LISTING = 'TEST strategy with a refund window';
 
 test.describe.configure({ mode: 'default' });
 
@@ -31,18 +31,21 @@ async function openMarket(page) {
 
 async function openListing(page) {
   await openMarket(page);
-  const card = page.getByRole('article').filter({ hasText: LISTING });
+  const card = page.getByRole('article').filter({ hasText: run.read().title });
   await expect(card).toBeVisible(UNBUILT);
   await card.getByRole('button', { name: /View/ }).click();
   return page.getByRole('dialog');
 }
 
-test(`${J} starts: a verified TEST account with 100 USDT, and the stack's TEST strategy listing approved`, async ({ page }) => {
-  test.setTimeout(180_000);
+test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller's TEST strategy listing`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
+  const { listing } = await testStrategyListing(page, { title });
+  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
   const who = await signUp(page, 'mk');
   await verify(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  run.reset({ who, title, listingId: listing.id });
 });
 
 test(`${J} #1 opens /market: listings with terms, a listing-type switch and four entry points to their own rooms, ordered by registration, price or title, never by returns`, async ({
@@ -107,7 +110,7 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   await expect(listing.getByRole('button', { name: 'Buy' })).toBeDisabled();
   await expect(listing).toContainText('You own this. Held until the refund window ends.');
   await page.goto('/market/purchases');
-  await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(LISTING) })).toHaveCount(1);
+  await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(run.read().title) })).toHaveCount(1);
   expect(await usdt(who)).toEqual(before);
 });
 
@@ -119,7 +122,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   const before = await usdt(who);
   await signIn(page, who);
   await page.goto('/market/purchases');
-  const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(LISTING) });
+  const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(run.read().title) });
   await row.getByRole('button', { name: 'Ask for a refund' }).click(UNBUILT);
   await page.getByRole('dialog').getByRole('button', { name: 'Refund' }).click();
   const said = page.getByRole('status').or(page.getByRole('alert'));

@@ -34,8 +34,13 @@ const BOB = '22222222-2222-4222-8222-222222222222';
 /** svc-ledger's freeze: every post refuses `ledger.frozen` before any balance is read; reads still answer. */
 class FreezableLedger extends MemoryLedger {
   frozen = false;
+  /** Runs as the freeze refuses a post, as a concurrent request would between the hold and the pending row's delete. */
+  onRefuse: (() => Promise<unknown>) | undefined;
   override async post(request: PostRequest): Promise<LedgerTx> {
-    if (this.frozen) throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
+    if (this.frozen) {
+      await this.onRefuse?.();
+      throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
+    }
     return super.post(request);
   }
 }
@@ -126,6 +131,23 @@ describe('the order door under the platform posting freeze (PG-hard)', () => {
     expect(matching.submitted).toHaveLength(0);
     // A read during the freeze answers, and shows the balance unchanged.
     expect(await usdt()).toEqual(before);
+  });
+
+  it('a refused hold whose pending row a concurrent request already moved is never published posting_frozen', async () => {
+    ledger.frozen = true;
+    // Another request opens the row before this one's delete: the delete removes nothing, so nothing proves the order
+    // is gone. The freeze stays unmarked: settlement pending, read the order.
+    ledger.onRefuse = () => db.sql`UPDATE trade.orders SET status = 'open' WHERE client_order_id = 'raced-1' AND status = 'pending'`;
+    let caught: unknown;
+    try {
+      await place('raced-1');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toMatchObject({ name: 'LedgerError', code: 'ledger.frozen' });
+    const mapped = toCcxtError(caught);
+    expect(mapped).toMatchObject({ status: 503, body: { code: 'ExchangeNotAvailable', intafacedCode: SETTLEMENT_PENDING } });
+    expect(await db.sql`SELECT id FROM trade.orders WHERE client_order_id = 'raced-1'`).toHaveLength(1);
   });
 
   it('after the freeze lifts, the same client order id places once with one hold', async () => {

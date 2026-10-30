@@ -16,7 +16,7 @@ Public market data needs no key. Your own orders, balances and positions need a 
 - API reference: /developers/reference
 - WebSocket streams: Waits for DV-websocket-01
 - Rate limits: Waits for DV-limits-01
-- Errors: Waits for DV-errors-01
+- Errors: /developers/errors
 - Idempotency: Waits for DV-auth-03
 - Versioning: Waits for DV-versioning-01
 - Changelog: /developers/changelog

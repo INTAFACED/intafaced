@@ -293,6 +293,7 @@ export type ActionReply =
 
 const ACTIONS: readonly string[] = [
   'reply',
+  'note',
   'bulk',
   'merge',
   'status',

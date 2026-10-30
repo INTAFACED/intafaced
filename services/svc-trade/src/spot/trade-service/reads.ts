@@ -301,6 +301,23 @@ export async function fillsForOrder(
   return rows.map(toFill);
 }
 
+/**
+ * Every fill of one owned order, not a page: a bot summing an order's fees and proceeds must see all of them. One
+ * order's fills are bounded by its quantity over the market lot.
+ */
+export async function everyFillOfOrder(svc: TradeServiceInternal, principal: Principal, orderId: string): Promise<FillRecord[]> {
+  requireScope(principal, 'trade:read');
+  const order = await svc.findOrder(orderId);
+  if (!order || order.userId !== principal.userId) {
+    throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
+  }
+  const rows = await svc.sql<FillRow[]>`
+    SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId}
+     ORDER BY ts ASC, sequence ASC, id ASC
+  `;
+  return rows.map(toFill);
+}
+
 export async function marketById(svc: TradeServiceInternal, marketId: string): Promise<Market | null> {
   const rows = await svc.sql<MarketRow[]>`
     SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,

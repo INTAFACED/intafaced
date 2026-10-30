@@ -14,7 +14,7 @@ import {
   rateLimited,
   toCcxtError,
 } from './ccxt-errors.js';
-import { POSTING_FROZEN, SETTLEMENT_PENDING, refusedBeforeEngine } from './ledger-public-code.js';
+import { POSTING_FROZEN, POSTING_FROZEN_MESSAGE, SETTLEMENT_PENDING, refusedBeforeEngine } from './ledger-public-code.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
 import { TradeError, type TradeErrorCode } from './spot/types.js';
 
@@ -151,8 +151,10 @@ describe('CCXT error taxonomy', () => {
     const mapped = toCcxtError(refusedBeforeEngine(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen')));
     expect(mapped).toEqual({
       status: 400,
-      body: { code: 'OnMaintenance', message: 'Ledger posting is frozen: TEST', intafacedCode: POSTING_FROZEN },
+      body: { code: 'OnMaintenance', message: POSTING_FROZEN_MESSAGE, intafacedCode: POSTING_FROZEN },
     });
+    // The founders' free-text reason is an operator note: it never reaches a client.
+    expect(JSON.stringify(mapped)).not.toContain('TEST');
     expect(POSTING_FROZEN).toBe('posting_frozen');
     expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
   });
@@ -162,6 +164,8 @@ describe('CCXT error taxonomy', () => {
     expect(mapped).toMatchObject({ status: 503, body: { code: 'ExchangeNotAvailable', intafacedCode: SETTLEMENT_PENDING } });
     expect(mapped!.body.intafacedCode).not.toBe(POSTING_FROZEN);
     expect(mapped!.body.message).toMatch(/settlement is not confirmed: read the order or trade before sending it again/);
+    expect(mapped!.body.message).toMatch(new RegExp(`^${POSTING_FROZEN_MESSAGE};`));
+    expect(JSON.stringify(mapped)).not.toContain('TEST');
     expect(exchangeErrorSchema.safeParse(mapped!.body).success).toBe(true);
     // Every other ledger refusal keeps its own code and its 400, marked or not.
     for (const err of [
