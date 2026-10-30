@@ -337,7 +337,9 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     await expect(bulk('learner,score,comment,reason\n')).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
     await expect(bulk('learner,score,comment,reason\n1,"5,,\n')).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
     await expect(bulk('learner,score,comment,reason\n1,5,,\n', null)).rejects.toMatchObject({ code: 'academy.grader_lease_unset' });
-    const files = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.assignment_bulk_grades WHERE item_id = ${item.id}`;
+    const files = await db.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM academy.assignment_bulk_grades WHERE item_id = ${item.id}`;
     expect(files[0]!.n).toBe(0);
   });
 });

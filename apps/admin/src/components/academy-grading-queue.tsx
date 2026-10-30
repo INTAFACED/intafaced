@@ -47,8 +47,8 @@ function BulkGrade({ busy, onUpload }: { busy: boolean; onUpload: (fileName: str
     >
       <h2>Bulk grade</h2>
       <p className="dk-muted">
-        A CSV file whose first line is learner,score,comment,reason, one row per learner by alias (Learner 3). A row that
-        changes a grade needs a reason. The same file again changes nothing.
+        A CSV file whose first line is learner,score,comment,reason, one row per learner by alias (Learner 3). A row that changes a grade
+        needs a reason. The same file again changes nothing.
       </p>
       <div className="adm-field">
         <label htmlFor="bulk-grade-file">Grade file (CSV)</label>
@@ -73,29 +73,29 @@ function BulkResult({ result }: { result: AcademyBulkGradeResult }) {
         {formatWhen(result.at)} · sha256 {result.sha256}
       </span>
       <div className="dk-table-wrap" role="region" aria-label="Grade file rows" tabIndex={0}>
-      <table className="adm-table">
-        <thead>
-          <tr>
-            <th scope="col">Line</th>
-            <th scope="col">Learner</th>
-            <th scope="col">Outcome</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[
-            ...result.applied.map((row) => ({ line: row.line, alias: row.alias, ok: true, text: `Graded ${row.score}` })),
-            ...result.rejected.map((row) => ({ line: row.line, alias: row.alias, ok: false, text: row.message })),
-          ]
-            .sort((a, b) => a.line - b.line)
-            .map((row) => (
-              <tr key={row.line} data-line={row.line} data-outcome={row.ok ? 'applied' : 'rejected'}>
-                <td>{row.line}</td>
-                <td>{row.alias === null ? '—' : `Learner ${row.alias}`}</td>
-                <td>{row.ok ? row.text : `Not applied: ${row.text}`}</td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
+        <table className="adm-table">
+          <thead>
+            <tr>
+              <th scope="col">Line</th>
+              <th scope="col">Learner</th>
+              <th scope="col">Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ...result.applied.map((row) => ({ line: row.line, alias: row.alias, ok: true, text: `Graded ${row.score}` })),
+              ...result.rejected.map((row) => ({ line: row.line, alias: row.alias, ok: false, text: row.message })),
+            ]
+              .sort((a, b) => a.line - b.line)
+              .map((row) => (
+                <tr key={row.line} data-line={row.line} data-outcome={row.ok ? 'applied' : 'rejected'}>
+                  <td>{row.line}</td>
+                  <td>{row.alias === null ? '—' : `Learner ${row.alias}`}</td>
+                  <td>{row.ok ? row.text : `Not applied: ${row.text}`}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
