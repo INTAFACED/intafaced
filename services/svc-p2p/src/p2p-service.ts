@@ -937,6 +937,18 @@ export interface ShareLinkRecord {
   revokedAt: Date | null;
 }
 
+interface ShareLinkRow {
+  id: string;
+  offer_id: string;
+  created_at: Date;
+  expires_at: Date;
+  revoked_at: Date | null;
+}
+
+function toShareLink(row: ShareLinkRow): ShareLinkRecord {
+  return { id: row.id, offerId: row.offer_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at };
+}
+
 /** P-ads-merchant-07: a share token is stored only as this hash. */
 export function shareTokenHash(token: string): string {
   return createHash('sha256').update(`p2p.offer.share:${token}`).digest('hex');
@@ -2410,8 +2422,9 @@ export class P2pService {
 
   /**
    * P-ads-merchant-07: who may see, quote and take an ad. A public ad is open to all, and its maker always sees their
-   * own. A private ad needs a share link to it. A share token, when given, must be a live link to this ad (made, not
-   * revoked, not past its end); an order taken through one is marked shared. An unknown token says no more than private.
+   * own. A private ad needs a live share link to it (made, not revoked, not past its end). An order taken through a live
+   * link is marked shared. A dead or unknown token never stands in the way of an ad the caller may open without one; on
+   * a private ad it is refused by why (an unknown token says no more than private).
    */
   private async assertOfferAccess(
     db: Sql,
@@ -2419,18 +2432,20 @@ export class P2pService {
     viewerId: string | null,
     shareToken: string | undefined,
   ): Promise<{ sharedFrom: boolean }> {
+    const open = offer.visibility === 'public' || (viewerId !== null && viewerId === offer.makerId);
     if (shareToken === undefined || shareToken === '') {
-      if (offer.visibility === 'public' || (viewerId !== null && viewerId === offer.makerId)) return { sharedFrom: false };
+      if (open) return { sharedFrom: false };
       throw new P2pError('This ad is private: it opens only from a link its maker shared', 'p2p.offer_private');
     }
     const [link] = await db<Array<{ expired: boolean; revoked_at: Date | null }>>`
       SELECT expires_at <= now() AS expired, revoked_at FROM p2p.offer_share_links
        WHERE token_hash = ${shareTokenHash(shareToken)} AND offer_id = ${offer.id}
     `;
+    if (link && !link.revoked_at && !link.expired) return { sharedFrom: true };
+    if (open) return { sharedFrom: false };
     if (!link) throw new P2pError('This ad is private: it opens only from a link its maker shared', 'p2p.offer_private');
     if (link.revoked_at) throw new P2pError('Its maker withdrew this link', 'p2p.share_link_revoked');
-    if (link.expired) throw new P2pError('This link has expired', 'p2p.share_link_expired');
-    return { sharedFrom: true };
+    throw new P2pError('This link has expired', 'p2p.share_link_expired');
   }
 
   /** P-ads-merchant-07: make an ad public (on the board) or private (by its links only). Open orders are unaffected. */
@@ -2464,7 +2479,7 @@ export class P2pService {
     if (offer.status === 'closed') throw new P2pError(`Offer ${offer.id} is closed`, 'p2p.offer_not_active');
     const seconds = Math.min(input.seconds ?? max, max);
     const token = randomBytes(24).toString('base64url');
-    const [row] = await this.sql<Array<{ id: string; offer_id: string; created_at: Date; expires_at: Date; revoked_at: Date | null }>>`
+    const [row] = await this.sql<ShareLinkRow[]>`
       INSERT INTO p2p.offer_share_links (id, offer_id, maker_id, token_hash, expires_at)
       VALUES (${input.linkId}, ${offer.id}, ${input.makerId}, ${shareTokenHash(token)}, now() + make_interval(secs => ${seconds}))
       ON CONFLICT (id) DO NOTHING
@@ -2472,39 +2487,31 @@ export class P2pService {
     `;
     // The same link id again: the token was shown once and is not kept, so a retry cannot give it back.
     if (!row) throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
-    return { id: row.id, offerId: row.offer_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at, token };
+    return { ...toShareLink(row), token };
   }
 
   /** P-ads-merchant-07: the maker's links to one of their ads, newest first, without tokens. */
   async listShareLinks(offerId: string, makerId: string): Promise<ShareLinkRecord[]> {
     const offer = await this.loadOfferRaw(offerId);
     if (offer.makerId !== makerId) throw new P2pError('Only the maker can read an offer’s links', 'p2p.not_a_party');
-    const rows = await this.sql<Array<{ id: string; offer_id: string; created_at: Date; expires_at: Date; revoked_at: Date | null }>>`
+    const rows = await this.sql<ShareLinkRow[]>`
       SELECT id, offer_id, created_at, expires_at, revoked_at FROM p2p.offer_share_links
        WHERE offer_id = ${offerId} AND maker_id = ${makerId}
        ORDER BY created_at DESC, id
        LIMIT 50
     `;
-    return rows.map((row) => ({
-      id: row.id,
-      offerId: row.offer_id,
-      createdAt: row.created_at,
-      expiresAt: row.expires_at,
-      revokedAt: row.revoked_at,
-    }));
+    return rows.map(toShareLink);
   }
 
   /** P-ads-merchant-07: withdraw a link at once. Revoking twice is the same revoke. */
   async revokeShareLink(linkId: string, makerId: string): Promise<ShareLinkRecord> {
-    const [row] = await this.sql<
-      Array<{ id: string; offer_id: string; maker_id: string; created_at: Date; expires_at: Date; revoked_at: Date | null }>
-    >`
+    const [row] = await this.sql<ShareLinkRow[]>`
       UPDATE p2p.offer_share_links SET revoked_at = COALESCE(revoked_at, now())
        WHERE id = ${linkId} AND maker_id = ${makerId}
-      RETURNING id, offer_id, maker_id, created_at, expires_at, revoked_at
+      RETURNING id, offer_id, created_at, expires_at, revoked_at
     `;
     if (!row) throw new P2pError(`Share link ${linkId} not found`, 'p2p.offer_not_found');
-    return { id: row.id, offerId: row.offer_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at };
+    return toShareLink(row);
   }
 
   /** Maker management / take path — unfiltered methods as stored. */

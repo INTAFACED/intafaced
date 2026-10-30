@@ -874,7 +874,9 @@ export function createPersonalPayApi(
       if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
       if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema, { signal });
+      const result = shareLinkRefusal(
+        await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema, { signal }),
+      );
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
@@ -897,9 +899,9 @@ export function createPersonalPayApi(
       } catch {
         return takeRefusal('pay.take_quote_invalid', 'not_supported');
       }
-      const result = await api.mutate('p2p', 'trades.lockQuote', { ...request, ...shareOf(offer.id), quoteId }, s.lockedQuoteSchema, {
-        signal,
-      });
+      const result = shareLinkRefusal(
+        await api.mutate('p2p', 'trades.lockQuote', { ...request, ...shareOf(offer.id), quoteId }, s.lockedQuoteSchema, { signal }),
+      );
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       // Count down from the time left the service gave, on this device's clock: a device clock that runs fast or slow
@@ -993,7 +995,7 @@ export function createPersonalPayApi(
         );
         if (sent.ok)
           return tradeMatchesTake(sent.data, offer, me, request, tradeId) ? sent : takeRefusal('pay.take_unconfirmed', 'uncertain');
-        if (takeRefusalIsDefinite(sent)) return sent;
+        if (takeRefusalIsDefinite(sent)) return shareLinkRefusal(sent);
         // The order may exist. If the service already has it under this id, that is the answer.
         const found = await readOrder(tradeId, request);
         if (found.ok) return found;

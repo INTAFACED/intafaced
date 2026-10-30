@@ -8,6 +8,9 @@ import { PayFailure, PayState, PayTime } from '../components';
 import { encodeQr, qrPath } from './qr';
 import { shareCopy } from './p2p-share-copy';
 
+/** The longest life a person can type, in hours: a year, the most svc-p2p takes. The owner's own longest may be less. */
+const LINK_HOURS_MAX = 8760;
+
 /** The link a share token opens: this ad in the P2P room, with the token. */
 export const shareUrl = (offerId: string, token: string) =>
   `${location.origin}/p2p?offerId=${encodeURIComponent(offerId)}&share=${encodeURIComponent(token)}`;
@@ -17,14 +20,16 @@ export const shareUrl = (offerId: string, token: string) =>
  * new link with its QR code (the token is shown once, then only its end time is kept), and the links made so far, each
  * one withdrawn at once on request.
  */
-export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; offer: Offer; onChanged: () => void }) {
+export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; offer: Offer; onChanged: (offer: Offer) => void }) {
   const { Copy, t } = shareCopy.useCopy();
   const [visibility, setVisibility] = useState(offer.visibility ?? 'public');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [revision, setRevision] = useState(0);
-  const [made, setMade] = useState<{ url: string } | null>(null);
-  const [hours, setHours] = useState('24');
+  const [made, setMade] = useState<{ url: string; expiresAt: string } | null>(null);
+  // Blank: the longest the owner allows. A shorter life is the person's choice; the service never goes past the owner's.
+  const [hours, setHours] = useState('');
+  const [hoursProblem, setHoursProblem] = useState(false);
   const links = useResource((signal) => pay.shareLinks(offer.id, signal), `pay:share-links:${offer.id}:${revision}`);
   const change = async (next: 'public' | 'private') => {
     if (busy) return;
@@ -34,21 +39,23 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
     setBusy(false);
     if (!result.ok) return setFailure(result);
     setVisibility(next);
-    onChanged();
+    onChanged(result.data);
   };
   const share = async () => {
     if (busy) return;
     setBusy(true);
     setFailure(null);
-    const whole = Number.parseInt(hours, 10);
-    const result = await pay.createShareLink(
-      offer.id,
-      crypto.randomUUID(),
-      Number.isInteger(whole) && whole > 0 ? whole * 3600 : undefined,
-    );
+    const whole = hours.trim() === '' ? null : Number(hours.trim());
+    if (whole !== null && !(Number.isInteger(whole) && whole >= 1 && whole <= LINK_HOURS_MAX)) {
+      setBusy(false);
+      setHoursProblem(true);
+      return;
+    }
+    setHoursProblem(false);
+    const result = await pay.createShareLink(offer.id, crypto.randomUUID(), whole === null ? undefined : whole * 3600);
     setBusy(false);
     if (!result.ok) return setFailure(result);
-    setMade({ url: shareUrl(offer.id, result.data.token) });
+    setMade({ url: shareUrl(offer.id, result.data.token), expiresAt: result.data.expiresAt });
     setRevision((n) => n + 1);
   };
   const revoke = async (linkId: string) => {
@@ -81,12 +88,13 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
         <span>
           <Copy k="linkLife" />
         </span>
-        <input inputMode="numeric" value={hours} onChange={(event) => setHours(event.target.value)} />
+        <input inputMode="numeric" value={hours} placeholder={t('linkLifeLongest')} onChange={(event) => setHours(event.target.value)} />
       </label>
+      {hoursProblem ? <p className="error-text">{t('linkLifeInvalid', { max: String(LINK_HOURS_MAX) })}</p> : null}
       <Button variant="secondary" disabled={busy} onClick={() => void share()}>
         <Copy k={busy ? 'makingLink' : 'makeLink'} />
       </Button>
-      {made ? <MadeLink url={made.url} /> : null}
+      {made ? <MadeLink url={made.url} expiresAt={made.expiresAt} /> : null}
       {failure ? <PayFailure result={failure} /> : null}
       <h3>
         <Copy k="linksTitle" />
@@ -120,7 +128,7 @@ export function OfferSharing({ pay, offer, onChanged }: { pay: PersonalPayApi; o
   );
 }
 
-function MadeLink({ url }: { url: string }) {
+function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
   const { Copy, t } = shareCopy.useCopy();
   const [copied, setCopied] = useState(false);
   const drawn = useMemo(() => {
@@ -138,6 +146,9 @@ function MadeLink({ url }: { url: string }) {
       <code lang="zxx" data-testid="share-link-url">
         {url}
       </code>
+      <p className="muted" data-testid="share-link-ends">
+        <Copy k="linkEnds" /> <PayTime value={expiresAt} />
+      </p>
       <Button
         variant="secondary"
         onClick={async () => {

@@ -826,7 +826,7 @@ function CurrentOffer({
               review={review}
               perform={(reviewCurrent) => perform('close', reviewCurrent)}
             />
-            <OfferSharing pay={pay} offer={offer} onChanged={() => outcome({ ok: true, data: offer })} />
+            <OfferSharing pay={pay} offer={offer} onChanged={(updated) => outcome({ ok: true, data: updated })} />
           </div>
         )
       ) : (

@@ -150,14 +150,21 @@ describe('svc-p2p private ads and share links (P-ads-merchant-07)', () => {
     await expect(sql`UPDATE p2p.p2p_trades SET shared_from = false WHERE id = ${trade.id}`).rejects.toThrow(/written once at take/);
   });
 
-  it('a public ad taken through a link is marked shared; taken from the board it is not; a wrong token says private', async () => {
+  it('a public ad taken through a live link is marked shared; from the board, or with a dead or foreign token, it is not', async () => {
     const offer = await sellOffer();
-    const plain = await take(offer.id);
-    expect(plain.sharedFrom).toBe(false);
-    const { token } = await link(offer.id);
-    expect((await take(offer.id, token)).sharedFrom).toBe(true);
+    expect((await take(offer.id)).sharedFrom).toBe(false);
+    const live = await link(offer.id);
+    expect((await take(offer.id, live.token)).sharedFrom).toBe(true);
+    // A token for another ad, or a withdrawn one, does not stand in the way of a public ad: it is a plain take.
     const other = await sellOffer();
-    expect((await refusal(take(other.id, token))).code).toBe('p2p.offer_private');
+    expect((await take(other.id, live.token)).sharedFrom).toBe(false);
+    await p2p.revokeShareLink(live.id, MAKER);
+    expect((await take(offer.id, live.token)).sharedFrom).toBe(false);
+    // Nor of the maker's own read of a private ad.
+    const mine = await p2p.setOfferVisibility(offer.id, MAKER, 'private');
+    expect((await p2p.getOffer(mine.id, MAKER, live.token)).id).toBe(offer.id);
+    // On a private ad a foreign token says private, nothing more.
+    expect((await refusal(take(offer.id, (await link(other.id)).token))).code).toBe('p2p.offer_private');
   });
 
   it('a link refuses once its time ends, and at once when revoked; revoking twice is one revoke', async () => {

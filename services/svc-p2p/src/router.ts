@@ -3238,6 +3238,8 @@ export function createP2pRouter(
             remarkCases: z.array(z.unknown()),
             /** P-ads-merchant-06: the person's ad edits counted against the daily cap. */
             offerEdits: z.array(z.unknown()),
+            /** P-ads-merchant-07: links the person made to their ads (no tokens; only their hashes are held). */
+            shareLinks: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which
