@@ -5,6 +5,7 @@ import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
+import { WelcomeChecklist } from './WelcomeChecklist';
 import { promotionsCopy as copy } from './promotions-copy';
 import {
   currentLinkReply,
@@ -47,14 +48,20 @@ type Known = {
 type Problem = 'storage' | 'locks' | 'another';
 const empty: ShareJournal = { records: [], failed: false };
 
-export type PromotionsView = 'overview' | 'link' | 'records';
+export type PromotionsView = 'overview' | 'link' | 'records' | 'welcome';
 /** Each promotion address opens its own section; the bare address and the invitations address show both. */
 export function promotionsViewFor(path: string): PromotionsView {
   const clean = path.split('?')[0]!.replace(/\/+$/, '');
+  if (clean === '/uc/promotion/welcome') return 'welcome';
   return clean === '/uc/promotion/mycards' ? 'link' : clean === '/uc/promotion/mypromotion' ? 'records' : 'overview';
 }
-const promotionTabs: ReadonlyArray<{ view: PromotionsView; href: string; label: 'tabOverview' | 'tabLink' | 'tabRecords' }> = [
+const promotionTabs: ReadonlyArray<{
+  view: PromotionsView;
+  href: string;
+  label: 'tabOverview' | 'tabLink' | 'tabRecords' | 'tabWelcome';
+}> = [
   { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
+  { view: 'welcome', href: '/uc/promotion/welcome', label: 'tabWelcome' },
   { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
   { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
 ];
@@ -506,8 +513,12 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           </p>
         )}
         <PromotionTabs view={view} />
+        {(view === 'overview' || view === 'welcome') && <WelcomeChecklist />}
         {view === 'overview' && <RewardsHub />}
-        <div className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}>
+        <div
+          hidden={view === 'welcome'}
+          className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}
+        >
           {view !== 'records' && (
             <section className="promotions__link" aria-label={t('linkTitle')}>
               <h2 ref={readyHeading} tabIndex={-1}>

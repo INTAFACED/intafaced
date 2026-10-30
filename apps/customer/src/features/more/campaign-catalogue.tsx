@@ -366,7 +366,15 @@ function CampaignBody({
         ) : null}
         <p className="muted">{t('joinNote')}</p>
       </Panel>
-      {c.tasks ? <CampaignTasks campaign={c} /> : null}
+      {c.type === 'welcome' ? (
+        <p>
+          <a className="text-link" href="/uc/promotion/welcome">
+            {t('welcomeLink')}
+          </a>
+        </p>
+      ) : c.tasks ? (
+        <CampaignTasks campaign={c} />
+      ) : null}
     </>
   );
 }
