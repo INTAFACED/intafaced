@@ -108,6 +108,10 @@ TODO: svc-ledger should grow a cursor that pages entries by account. This proced
 
 **HTTP:** `POST /webhooks/:railId` (public, signature-authenticated), `GET /health`, `GET /ready`, hosted checkout `GET /checkout?token=` / `GET /pay/link/:token` (public HTML; browser via edge `/api/pay/checkout?token=`).
 
+### Developer sandbox TEST funds (`sandboxFunds.fund`)
+
+A signed-in person (`trade:write`) presses Fund on one of their developer sandboxes. Where a sandbox's TEST balances are kept is the owner's decision, so until it is made every call refuses `pay.sandbox_funds_unset` (PRECONDITION_FAILED) and nothing is written: no ledger call, no table. The sandbox belongs to svc-identity and pay never reads its tables; the refusal is the same for every sandbox id, so it reveals nothing about whose an id is.
+
 ### User money in and out
 
 Everything above is **merchant** money — a third party pays a merchant. These are the other half: a **user's own** balance entering and leaving the book.

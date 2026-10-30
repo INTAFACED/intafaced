@@ -404,19 +404,19 @@ test(`${J} #9 copy the badge snippet for a component: operational with a cache t
   expect(json.result.data.maxAgeSeconds).toBe(Math.min(300, Math.floor(TEST_VALUES.stalenessSeconds - readingAge)));
   expect(json.result.data.maxAgeSeconds).toBeGreaterThan(0);
   expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds - readingAge);
-  // The badge is cacheable, by embedders and caches, for exactly that time: svc-notify sends it (badge.ts
-  // statusBadgeCacheControl) and Edge passes it on (PR 6817), but at the public address it never arrives: the origin
-  // adds no-store to every /api/ reply (the local stack's proxy; apps/customer/nginx.conf in production), so this clause
-  // stays red by name. Soft, so the rest of the step is still proven; the step still fails. The image was fetched a moment
-  // before the JSON, so its max-age may be one second more than the JSON's, never less.
+  // The badge is cacheable, by embedders and caches, for exactly that time, at the public address: svc-notify sends it
+  // (badge.ts statusBadgeCacheControl), Edge passes it on (PR 6817) and the origin keeps it for this one path (the local
+  // stack's proxy, apiCacheControl; apps/customer/nginx.conf in production). The image route answers from a page read
+  // up to 5 seconds old (svc-notify index.ts badgeRead, 5_000 ms) and was fetched before the JSON, so its max-age may be
+  // up to 5 seconds, plus one of rounding, more than the JSON's, never less.
   const cacheControl = fresh.headers.get('cache-control');
   const sent = /^public, max-age=(\d+)$/.exec(cacheControl ?? '');
-  expect
-    .soft(
-      [0, 1],
-      `BLOCKED (badge_cache_dropped): the customer origin overwrites every /api/ answer with no-store (Edge passes the badge's own Cache-Control since PR 6817), so the badge cannot be cached (sent: ${cacheControl})`,
-    )
-    .toContain(sent ? Number(sent[1]) - json.result.data.maxAgeSeconds : null);
+  expect(sent, `the badge's Cache-Control at the public address: ${cacheControl}`).not.toBeNull();
+  const ahead = Number(sent[1]) - json.result.data.maxAgeSeconds;
+  expect(ahead).toBeGreaterThanOrEqual(0);
+  expect(ahead).toBeLessThanOrEqual(6);
+  // Every other /api/ answer stays no-store.
+  expect((await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).headers.get('cache-control')).toBe('no-store');
 
   // A component with no reading says no data.
   expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=wallets`)).text()).toContain(

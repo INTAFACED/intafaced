@@ -56,6 +56,7 @@ function jobs(impl?: {
 }) {
   return {
     loans: {
+      originationFeeBps: '0',
       resumePending: vi.fn(impl?.loans ?? (async () => [{ outcome: 'completed' }])),
       recoverRepayments: vi.fn(impl?.repay ?? (async () => [{ outcome: 'open' }])),
     },

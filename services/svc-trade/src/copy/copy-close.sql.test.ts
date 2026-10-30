@@ -24,6 +24,10 @@ import { TradeError, type Market } from '../spot/types.js';
 import { SqlMirrorEventLog } from './mirror-events.js';
 import { recordCopySkip } from './skip-log.js';
 import type { LeaderFill } from './copy-service.js';
+import type { StepUpCheck } from '@intafaced/contracts';
+
+/** Identity's step-up, approving: these tests are about the close-all itself (the gate's own tests are in copy-flatten-step-up.test.ts). */
+const approveStepUp: StepUpCheck = { require: async () => ({ stepUpEventId: 'appr-test', consumedAt: null, replayed: false }) };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -162,6 +166,7 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
       bestBid: async () => parseAmount('100'),
     };
     const copy = new CopyService(ledger, {
+      stepUp: approveStepUp,
       feeShareLaw: { published: true, leaderShareBps: 5_000, earningsCapPerFollower: '100', decayRoundTrips: 100, decayShareBps: 1_000 },
       jurisdictionLaw: { published: true, allowedRegions: ['SG'] },
       placeMirrorEnabled: true,
@@ -330,7 +335,7 @@ describe('copy.closePosition on Postgres (CB-copy-10)', () => {
 
     const closed = await box.copy.closePosition(principal, { followId, positionId: bought.orderId, qty: '0.2' });
     await fillOrder(closed.orderId, '0.2');
-    await box.copy.flatten(principal, { followId });
+    await box.copy.flatten(principal, { followId, requestId: 'flatten-0001', stepUpApprovalId: 'appr-test' });
     expect(box.calls.map((c) => formatAmount(c.qty))).toEqual(['0.2', '0.3']);
   });
 

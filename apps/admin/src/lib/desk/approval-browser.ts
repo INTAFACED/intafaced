@@ -27,7 +27,9 @@ export type ApprovalEndpoint =
   | '/api/identity-ops/keys'
   | '/api/more-ops/waves'
   | '/api/console-mode'
-  | '/api/restore/approvals';
+  | '/api/launch/issuers'
+  | '/api/restore/approvals'
+  | '/api/more-ops/token-governance';
 
 export interface StepPayload {
   readonly step: StepName;

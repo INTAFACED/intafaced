@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
+import { parseSwapSlippageBps } from './amm/slippage.js';
+import { parseFeeCapWei } from './amm/fee-levels.js';
 
 /** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
 function parseWhole(raw: string): number | null {
@@ -12,7 +15,6 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
-import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
 /**
@@ -161,6 +163,33 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_SWAP_CONFIRMATIONS: z.string().default('').transform(parseWhole),
     /**
+     * The fee cap: the most per unit of gas, in whole wei, that the swap form lets a person offer at any network fee
+     * level or as a custom fee (D-swap-11). NO DEFAULT: blank or not a positive whole number is null and
+     * `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`, so no level is offered and Swap stays off.
+     */
+    PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
+    /**
+     * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
+     * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_USD_TOKENS: z
+      .string()
+      .default('')
+      .refine((raw) => raw.trim() === '' || parseUsdTokens(raw) !== null, 'PROTOCOL_PRICE_USD_TOKENS must be blank or addresses')
+      .transform(parseUsdTokens),
+    /**
+     * The reliability filter: the least a pool must hold on its priced side, in whole US dollars, for its price to be
+     * shown. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_MIN_RESERVE_USD: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || parseMinReserveUsd(raw) !== null,
+        'PROTOCOL_PRICE_MIN_RESERVE_USD must be blank or whole US dollars above 0',
+      )
+      .transform(parseMinReserveUsd),
+    /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *
      * A loud zero, for the same reason as the two above: deriving a CREATE2
@@ -223,6 +252,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
         .optional(),
     ),
     PROTOCOL_REPRESENTATION_TEXT: blankIsUnset(z.string().max(4000).optional()),
+
+    /**
+     * How long a contract ownership challenge stays signable, in seconds (D-launch-listing-01). The owner's setting, no
+     * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
+     */
+    PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
 
     /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.

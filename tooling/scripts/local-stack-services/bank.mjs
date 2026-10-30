@@ -16,6 +16,29 @@ function earnRiskWording() {
   throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
 }
 
+/** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
+function lendingPolicy() {
+  const asked = process.env.LOCAL_STACK_BANK_LOANS;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'off') return { BANK_LOANS_ENABLED: 'false' };
+  throw new Error(`LOCAL_STACK_BANK_LOANS is "${asked}"; leave it unset for loans open, or set it to off.`);
+}
+
+/**
+ * The loan origination fee (BK-loan-01, J-bank-09 #3): the profile's TEST zero fee, blank when the stack is asked to
+ * show it unset, or the profile's TEST non-zero fee when asked to publish one.
+ */
+function originationFee() {
+  const asked = process.env.LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE;
+  if (asked === undefined || asked === '') return { BANK_LOAN_ORIGINATION_FEE_BPS: testValue('BANK_LOAN_ORIGINATION_FEE_BPS') };
+  if (asked === 'off') return {};
+  // LOCAL TEST non-zero fee, only to see a published fee refuse new loans bank.loan_fee_unwired (J-bank-09 #3).
+  if (asked === 'published') return { BANK_LOAN_ORIGINATION_FEE_BPS: '50' };
+  throw new Error(
+    `LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE is "${asked}"; leave it unset for the TEST zero fee, or set it to off or published.`,
+  );
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -124,6 +147,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
     BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
     BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
+    // The lending policy is on and the origination fee is the profile's TEST zero. `LOCAL_STACK_BANK_LOANS=off`, or
+    // `LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE=off` or `=published` on a restart, shows each refusal (J-bank-09 #1 and #3).
+    ...lendingPolicy(),
+    ...originationFee(),
     // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
     // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
     ...earnRiskWording(),

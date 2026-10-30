@@ -15,7 +15,7 @@ import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
-import { createLoanProductProcedure } from '../ops/loan-products.js';
+import { createLoanProductProcedure, setLoanProductRateProcedure } from '../ops/loan-products.js';
 import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
@@ -846,7 +846,8 @@ export function createOpsRouter(c: BankRouterContext) {
           outstandingPrincipal: amountString,
           badDebt: amountString,
           funded: amountString,
-          drift: amountString,
+          /** funded − badDebt − reserve − outstanding: a signed residual, negative when the reserve holds more than was recorded as funded. */
+          drift: signedAmountString,
           /** False until funded is journal-independent; do not treat drift 0 as green. */
           independent: z.boolean(),
           insuranceCapacity: amountString,
@@ -939,6 +940,7 @@ export function createOpsRouter(c: BankRouterContext) {
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
+    setLoanProductRate: setLoanProductRateProcedure(bank, consumeOpsApproval, guard),
     createEarnPool: createEarnPoolProcedure(bank, consumeOpsApproval, guard),
     setEarnPoolRate: setEarnPoolRateProcedure(bank, consumeOpsApproval, guard),
     setEarnPoolStatus: setEarnPoolStatusProcedure(bank, consumeOpsApprovalPair, guard),

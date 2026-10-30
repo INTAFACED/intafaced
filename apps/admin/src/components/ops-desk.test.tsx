@@ -167,10 +167,12 @@ describe('academy and more desks', () => {
     expect(page).toContain('aria-current="page"');
     expect(page).not.toContain('Ambassadors and residencies');
   });
-  it('more names mining, launch and campaigns as not available, and Predict as waiting on a decision', () => {
+  it('more names mining and campaigns as not available, links the launch issuer lens, and Predict as waiting on a decision', () => {
     const html = render(props('more', view('more', [])));
     expect(html).toContain('Not available: Payouts made and hashrate of the pool');
-    expect(html).toContain('Not available: Issuer state');
+    // svc-token keeps the issuers now (J-more-catalogue-14): the launch section links its lens instead of naming a gap.
+    expect(html).not.toContain('Not available: Issuer state');
+    expect(html).toContain('href="/launch"');
     expect(html).toContain('Not available: Campaign participation');
     expect(html).toContain('Waiting on a decision, not on code.');
   });

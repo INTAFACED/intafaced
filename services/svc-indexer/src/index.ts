@@ -9,6 +9,7 @@ import { startTokenBackfill } from './explorer/token-backfill.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
 import { parseTxDropWindow } from './explorer/tx.js';
 import { parseSearchNetworks, searchNetworkFinders } from './explorer/search-networks.js';
+import { parsePoolFactory } from './explorer/pools.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -185,6 +186,16 @@ export const appRouter = createIndexerRouter({
       }
     : {}),
   searchNetworks: searchNetworkFinders(searchNetworks),
+  pools: {
+    reads: {
+      list: (q) => store.explorerPools(q),
+      get: (q) => store.explorerPool(q),
+      swaps: (q) => store.explorerPoolSwaps(q),
+      volume: (q) => store.explorerPoolVolume(q),
+      candles: (q) => store.explorerPoolCandles(q),
+    },
+    factory: parsePoolFactory(env.INDEXER_POOL_FACTORY_ADDRESS),
+  },
 });
 export type AppRouter = typeof appRouter;
 

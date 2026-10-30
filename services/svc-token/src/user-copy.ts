@@ -87,6 +87,14 @@ export const TOKEN_REFUSAL_COPY = {
     'Your signed vote could not be checked: no wallet is linked to your account, or the check is unavailable. Nothing was saved.',
   'token.vote_signature_required': 'Sign your vote with the wallet linked to your account. Unsigned votes are not accepted.',
   'token.vote_signature_invalid': 'That signature is not from a wallet linked to your account, so the vote was not saved.',
+  'token.proposal_window_unset': 'The voting delay or period is not set, so give the proposal its opening and closing times.',
+  'token.permission_denied': 'Your governance role does not allow this.',
+  'token.role_invalid': 'That role change is not allowed.',
+  'token.role_stale': 'That role changed since it was approved. Read it again and ask for a new approval.',
+  'token.settings_invalid': 'That voting delay or period is outside what governance can store.',
+  'token.settings_stale': 'The governance settings changed since they were approved. Read them again and ask for a new approval.',
+  'token.cancel_reason_invalid': 'A cancel needs a reason of a sentence or two.',
+  'token.proposal_not_cancellable': 'Only a draft or open proposal can be cancelled.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */
