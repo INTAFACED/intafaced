@@ -98,6 +98,12 @@ export const offers = p2p.table(
      */
     makerTier: text('maker_tier'),
     status: offerStatusEnum('status').notNull().default('active'),
+    /** P-ads-merchant-06: why it is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
+    closeReason: text('close_reason'),
+    /** P-ads-merchant-06: when it came into its present status (set by a trigger on every status change). */
+    statusSince: tstz('status_since').notNull().defaultNow(),
+    /** P-ads-merchant-06: the closed ad this one relisted (one relist per closed ad). */
+    relistedFrom: uuid('relisted_from'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

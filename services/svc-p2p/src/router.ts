@@ -215,6 +215,12 @@ const offerOutput = z.object({
   status: z.enum(['active', 'paused', 'closed']),
   /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
   pauseReason: z.enum(['method_removed']).nullable(),
+  /** P-ads-merchant-06: why the ad is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
+  closeReason: z.enum(['by_you', 'sold_out']).nullable(),
+  /** P-ads-merchant-06: when the ad came into its present status. */
+  statusSince: z.string(),
+  /** P-ads-merchant-06: the closed ad this one relisted, or null. */
+  relistedFrom: z.string().guid().nullable(),
   createdAt: z.string(),
 });
 
@@ -678,6 +684,10 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.active_order_cap':
       // Buying is paused after too many cancelled orders; the error data says until when.
       case 'p2p.buying_restricted':
+      // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them); a closed ad is
+      // relisted once.
+      case 'p2p.offer_has_open_trades':
+      case 'p2p.offer_already_relisted':
       // A reminder before the wait has passed (the error data says when it may go), or past the owner's count.
       case 'p2p.remind_too_early':
       case 'p2p.remind_rate_limited':
@@ -704,6 +714,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.remark_case_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
+      // P-ads-merchant-06: the daily edit cap; the error data says when editing opens again.
+      case 'p2p.edit_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
@@ -1358,11 +1370,53 @@ export function createP2pRouter(
 
       /** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. */
       mine: merchantApiProcedure('p2p:read')
-        .input(z.object({ status: z.enum(['active', 'paused']), limit: z.number().int().min(1).max(200).optional() }))
+        .input(z.object({ status: z.enum(['active', 'paused', 'closed']), limit: z.number().int().min(1).max(200).optional() }))
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) =>
           guard(async () => {
             return presentOffers(await p2p.listOwnOffers(ctx.principal.userId, input.status, input.limit));
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-06: the caller's ad edits today against the owner's daily cap, and when the count starts again.
+       * Blank cap refuses `p2p.config_unset`.
+       */
+      editQuota: merchantApiProcedure('p2p:read')
+        .output(
+          z.object({
+            limit: z.number().int().positive(),
+            used: z.number().int().nonnegative(),
+            remaining: z.number().int().nonnegative(),
+            resetsAt: z.string().datetime(),
+          }),
+        )
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const quota = await p2p.offerEditQuota(ctx.principal.userId);
+            return { ...quota, resetsAt: quota.resetsAt.toISOString() };
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-06: post a closed ad again, as a new ad that names it, through every check `create` makes. One
+       * relist per closed ad; the same key returns the same new ad.
+       */
+      relist: merchantApiProcedure('p2p:write')
+        .input(z.object({ offerId: z.string().guid(), newOfferId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
+        .output(offerOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            return presentOffer(
+              await p2p.relistOffer({
+                offerId: input.offerId,
+                makerId: ctx.principal.userId,
+                newOfferId: input.newOfferId,
+                idempotencyKey: input.idempotencyKey,
+                makerTier: ctx.principal.tier,
+              }),
+            );
           }),
         ),
 
@@ -3846,6 +3900,9 @@ function toOfferOut(
     terms: offer.terms,
     status: offer.status,
     pauseReason: offer.pauseReason ?? null,
+    closeReason: offer.closeReason ?? null,
+    statusSince: offer.statusSince.toISOString(),
+    relistedFrom: offer.relistedFrom ?? null,
     createdAt: offer.createdAt.toISOString(),
   };
 }
