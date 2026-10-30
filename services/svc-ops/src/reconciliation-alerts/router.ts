@@ -1,13 +1,18 @@
 import { TRPCError } from '@trpc/server';
 import { scopedProcedure } from '@intafaced/contracts';
 import {
+  OPS_RESOLVE_NOTE_REQUIRED,
+  opsAlertAcceptInputSchema,
   opsAlertAcknowledgeInputSchema,
   opsAlertDetailSchema,
   opsAlertGetInputSchema,
   opsAlertListInputSchema,
   opsAlertListSchema,
+  opsAlertResolveInputSchema,
   opsAlertSnoozeInputSchema,
   opsAlertUnsnoozeInputSchema,
+  opsPlatformIncidentsInputSchema,
+  opsPlatformIncidentsSchema,
   opsReconciliationPeriodsInputSchema,
   opsReconciliationPeriodsSchema,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
@@ -42,11 +47,15 @@ function reconciliationAlertError(err: unknown): never {
 }
 
 /**
- * Reconciliation alerts (OPS-reconciliation-03): read, acknowledge, snooze and the periods' green state. Without storage
- * every call refuses `ops.alert_storage_unconfigured`; a failed ledger read shows on every answer as the source, never
- * as an empty list.
+ * Reconciliation alerts (OPS-reconciliation-03, -04): read, acknowledge, snooze, resolve, accept, the periods' green
+ * state and the platform incidents. Without storage every call refuses `ops.alert_storage_unconfigured`; a failed ledger
+ * read shows on every answer as the source, never as an empty list. Resolve and accept run on the treasury credential
+ * (`admin:treasury`), whose holder is a founder: resolve is that founder alone, accept spends a second founder's approval.
  */
-export function createReconciliationAlertRoutes(store: ReconciliationAlertStore | undefined) {
+export function createReconciliationAlertRoutes(
+  store: ReconciliationAlertStore | undefined,
+  options: { bus?: () => 'attached' | 'detached' } = {},
+) {
   const run = async <T>(work: (desk: ReconciliationAlertStore) => Promise<T>): Promise<T> => {
     try {
       if (!store) {
@@ -65,6 +74,7 @@ export function createReconciliationAlertRoutes(store: ReconciliationAlertStore 
   };
   const reader = scopedProcedure('admin:read', guards);
   const writer = scopedProcedure('admin:write', guards);
+  const treasury = scopedProcedure('admin:treasury', guards);
 
   return {
     list: reader
@@ -108,6 +118,46 @@ export function createReconciliationAlertRoutes(store: ReconciliationAlertStore 
           desk.unsnooze({ alertId: input.alertId, actor: actor(ctx.principal), key: assertIdempotencyKey(input.idempotencyKey) }),
         ),
       ),
+    resolve: treasury
+      .input(opsAlertResolveInputSchema)
+      .output(opsAlertDetailSchema)
+      .mutation(({ ctx, input }) =>
+        run((desk) =>
+          desk.resolveFixed({
+            alertId: input.alertId,
+            actor: actor(ctx.principal),
+            txIds: input.correctiveTxIds,
+            note: input.note?.trim() || null,
+            key: assertIdempotencyKey(input.idempotencyKey),
+          }),
+        ),
+      ),
+    accept: treasury
+      .input(opsAlertAcceptInputSchema)
+      .output(opsAlertDetailSchema)
+      .mutation(({ ctx, input }) =>
+        run((desk) => {
+          // Checked before the second factor and the approval, so a blank note never spends anything.
+          if (!input.note.trim()) {
+            throw new OpsError(
+              OPS_RESOLVE_NOTE_REQUIRED,
+              'Accepting a discrepancy needs a note. Nothing was changed and no approval was spent.',
+            );
+          }
+          return desk.accept({
+            alertId: input.alertId,
+            requesterId: actor(ctx.principal),
+            note: input.note,
+            evidenceHash: input.evidenceHash,
+            approvalId: input.approvalId,
+            operationId: input.operationId,
+          });
+        }),
+      ),
+    platformIncidents: reader
+      .input(opsPlatformIncidentsInputSchema)
+      .output(opsPlatformIncidentsSchema)
+      .query(({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) }))),
     periods: reader
       .input(opsReconciliationPeriodsInputSchema)
       .output(opsReconciliationPeriodsSchema)
