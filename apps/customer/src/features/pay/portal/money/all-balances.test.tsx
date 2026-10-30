@@ -62,6 +62,16 @@ describe('All balances on Money (J-merchant-07 #1)', () => {
     expect(out).not.toMatch(/>0(\.0+)?</);
   });
 
+  it('says what the zero rows are only above rows, never above a refusal or while loading', () => {
+    const intro = 'Each asset your account settles in, read from your balance now.';
+    expect(draw([], read([zero('USDT')]))).toContain(intro);
+    expect(draw([], { status: 'loading' })).not.toContain(intro);
+    for (const code of ['pay.settlement_assets_unset', 'pay.metrics_balance_unavailable']) {
+      const out = draw([], { status: 'failed', failure: { ok: false, reason: 'error', code, message: code } });
+      expect(out, code).not.toContain(intro);
+    }
+  });
+
   it('an unreadable balance is never a zero', () => {
     const out = draw([], {
       status: 'failed',

@@ -26,10 +26,13 @@ export function AllBalances({
   test: boolean;
 }) {
   const { t } = mc.useCopy();
+  // Two reads merge here: `held` is the snapshot's (assets the business has held), `enabled` is the settlement-assets
+  // read (every asset it settles in, from the ledger), each read at its own moment. A held asset keeps the snapshot's
+  // figures; only an asset the snapshot lacks is taken from the second read, so no asset is listed twice.
   const extra = enabled.status === 'ready' ? enabled.data.assets.filter((a) => !held.some((h) => h.assetCode === a.assetCode)) : [];
   const rows = [...held, ...extra];
   return (
-    <PaySection title={t('balAllTitle')} description={held.length === 0 ? t('balAllZeroBody') : undefined}>
+    <PaySection title={t('balAllTitle')} description={held.length === 0 && enabled.status === 'ready' ? t('balAllZeroBody') : undefined}>
       {rows.length > 0 && (
         <EntityList
           label={t('balAllTitle')}

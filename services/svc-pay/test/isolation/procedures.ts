@@ -620,6 +620,12 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, ...series }),
   },
   {
+    path: 'merchantMetrics.settlementAssets',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId }),
+  },
+  {
     path: 'conversion.quote',
     scope: 'pay:write',
     own: 'service',
@@ -1117,6 +1123,7 @@ export const TREE_PROCS: TreeProc[] = [
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },
+  { path: 'merchantMetrics.settlementAssets', area: 'payment', input: (i) => ({ merchantId: i.merchantId }) },
   {
     path: 'submerchant.summary',
     area: 'merchant.profile',
