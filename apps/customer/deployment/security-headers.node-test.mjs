@@ -37,10 +37,22 @@ test('every nginx location that sets add_header includes a security-headers snip
   for (const { match, body } of all) {
     if (!/\badd_header\b/.test(body)) continue;
     // add_header in a location replaces the server-level ones, so the include must be repeated here.
-    assert.ok(body.includes(`include ${match.startsWith('^~ /api/') ? API : FULL};`), `location ${match} drops the security headers`);
+    assert.ok(body.includes(`include ${/^(\^~|=) \/api\//.test(match) ? API : FULL};`), `location ${match} drops the security headers`);
   }
   const included = [...conf.matchAll(/include (\/etc\/nginx\/snippets\/[^;]+);/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(included)].sort(), [API, FULL].sort(), 'only the two shipped snippets are included');
+});
+
+test('the status badge alone keeps its own cache life; every other /api/ answer is no-store', () => {
+  const all = locations(conf);
+  const api = all.filter(({ match }) => /\/api\//.test(match));
+  assert.deepEqual(api.map(({ match }) => match).sort(), ['= /api/notify/status/badge.svg', '^~ /api/'].sort());
+  const badge = api.find(({ match }) => match.startsWith('= '));
+  const rest = api.find(({ match }) => match.startsWith('^~ '));
+  const proxy = (body) => /proxy_pass http:\/\/svc-edge:4000;/.test(body);
+  assert.ok(proxy(badge.body) && proxy(rest.body), 'both go to svc-edge');
+  assert.doesNotMatch(badge.body, /Cache-Control/i, 'the badge passes the edge cache-control through');
+  assert.match(rest.body, /add_header Cache-Control "no-store" always;/);
 });
 
 test('snippets carry every required header, with non-empty values', () => {

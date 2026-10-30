@@ -1692,6 +1692,13 @@ export function cspReportRows(body, at = new Date().toISOString()) {
 }
 
 /** Request headers to forward upstream: no hop-by-hop headers, and none only Edge may mint. */
+// The status badge's cache life comes from svc-notify through the edge, as apps/customer/nginx.conf passes it; every
+// other /api/ answer stays no-store.
+const STATUS_BADGE_PATH = '/api/notify/status/badge.svg';
+export function apiCacheControl(pathname, upstream) {
+  return pathname === STATUS_BADGE_PATH && typeof upstream === 'string' && upstream.length > 0 ? upstream : 'no-store';
+}
+
 function proxyHeaders(req, { upgrade = false } = {}) {
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -1774,7 +1781,11 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     }
     if (p.startsWith('/api/')) {
       const up = http.request({ ...edge, method: req.method, path: req.url, headers: proxyHeaders(req) }, (ur) => {
-        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
+        res.writeHead(ur.statusCode ?? 502, {
+          ...ur.headers,
+          ...API_SECURITY,
+          'cache-control': apiCacheControl(p, ur.headers['cache-control']),
+        });
         ur.pipe(res);
       });
       up.on('error', () =>
