@@ -63,6 +63,7 @@ const TYPE_LABEL: Record<(typeof CAMPAIGN_TYPES)[number], string> = {
   trial_pass: 'Trial pass',
   gift_card: 'Gift card',
   points: 'Points programme',
+  welcome: 'Welcome checklist',
 };
 
 const EXCLUSIONS: { value: ParticipationRules['exclusions'][number]; label: string }[] = [

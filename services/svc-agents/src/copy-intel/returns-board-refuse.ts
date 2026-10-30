@@ -25,6 +25,40 @@ export const FORBIDDEN_RETURNS_RANK_KEYS = [
   'rank',
 ] as const;
 
+/**
+ * A free-text request that asks for leaders (or traders) ranked, sorted or listed top-first by a performance measure.
+ * Checked on the Copy-Intel session's engine call before any price, hold or engine call, so such a request is refused and
+ * charges nothing; the ranking and the measure must sit in one clause. A question about one leader, or a ranking of
+ * something other than leaders, still runs. English, Spanish and French wordings are read. This is a
+ * wording guard on the request; the directory itself never builds a returns order (`rankLeadersByReturns` refuses).
+ */
+const LEADERS = String.raw`(?:(?:copy\s+)?(?:leaders?|traders?|masters?)|l[ií]deres|l[ií]der|leaders?)`;
+/** Plural only: "best month for leader L1" asks about one leader, "best leaders" ranks them. */
+const LEADERS_PLURAL = String.raw`(?:(?:copy\s+)?(?:leaders|traders|masters)|l[ií]deres)`;
+const GAP = String.raw`(?:\s+\w+){0,2}?\s+`;
+const RANKING = new RegExp(
+  [
+    String.raw`\b(?:rank|sort|order|clasific\w*|orden(?:a|e|ar)|class(?:e|ez|er)|tri(?:e|ez|er))(?:s|ed|ing)?${GAP}${LEADERS}\b`,
+    String.raw`\b(?:ranking|ranked list|ordered list|sorted list|classement)\s+(?:of|de|des)${GAP}${LEADERS}\b`,
+    String.raw`\b${LEADERS}\s+(?:ranked|sorted|ordered)\b`,
+    String.raw`\bleader\s?board\b`,
+    String.raw`\bleague\s+table\b`,
+    String.raw`\b(?:top|best|worst|highest|lowest|most)\b[\w\s-]{0,30}?\b${LEADERS_PLURAL}\b`,
+    String.raw`\b${LEADERS}\b[\w\s:-]{0,30}?\b(?:highest|lowest|best|worst|most|top)\b`,
+  ].join('|'),
+  'iu',
+);
+const PERFORMANCE =
+  /\b(?:returns?|pnl|p&l|profits?|profitable|roi|win\s?rates?|performance|performing|gains?|rentabilidad|rendimiento|ganancias|rendement|gains)\b/iu;
+
+/** The Copy-Intel agent's id (also `COPY_INTEL_AGENT_ID` in session-run.ts, which imports the runtime). */
+export const COPY_INTEL_SESSION_AGENT_ID = 'copy-intel';
+
+export function asksForReturnsRanking(text: string): boolean {
+  // Both in one clause: "my top leaders, what were my returns?" ranks nothing.
+  return text.split(/[.!?;,\n]+/u).some((clause) => RANKING.test(clause) && PERFORMANCE.test(clause));
+}
+
 /** Machine reason on the named throw (`rankLeadersByReturns`). */
 export const RETURNS_RANKED_BOARD_REFUSE_REASON = 'returns_ranked_board_forbidden' as const;
 

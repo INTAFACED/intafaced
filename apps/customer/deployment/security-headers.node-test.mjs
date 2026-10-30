@@ -43,6 +43,17 @@ test('every nginx location that sets add_header includes a security-headers snip
   assert.deepEqual([...new Set(included)].sort(), [API, FULL].sort(), 'only the two shipped snippets are included');
 });
 
+test('the status badge alone keeps its own cache life; every other /api/ answer is no-store', () => {
+  const api = locations(conf).filter(({ match }) => /\/api\//.test(match));
+  assert.deepEqual(
+    api.map(({ match }) => match),
+    ['^~ /api/'],
+  );
+  assert.match(api[0].body, /proxy_hide_header Cache-Control;/);
+  assert.match(api[0].body, /add_header Cache-Control \$api_cache_control always;/);
+  assert.match(conf, /map "\$uri\|\$upstream_http_cache_control" \$api_cache_control \{[^}]*default "no-store";/);
+});
+
 test('snippets carry every required header, with non-empty values', () => {
   const full = new Map(headers(renderSecurityHeaders()));
   assert.equal(full.get('strict-transport-security'), 'max-age=86400');

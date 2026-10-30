@@ -142,6 +142,12 @@ const schema = serviceEnvSchema
       PAY_URL: blankAsAbsent(z.string().url().optional()),
 
       /**
+       * svc-bank base for a business team's members (`POST /internal/agents/team-membership`). Unset / blank → every
+       * team call refuses `agents.membership_unavailable`. No localhost default.
+       */
+      BANK_URL: blankAsAbsent(z.string().url().optional()),
+
+      /**
        * Copy-intel live trade.copy leader plane (Class X). Only the literal `true`
        * opens the sealed plane; blank / unset stays refuse-closed.
        */
