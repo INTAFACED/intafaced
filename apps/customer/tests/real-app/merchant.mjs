@@ -209,11 +209,8 @@ export async function paidCardPayment(api, merchantId, { key, amount, assetId = 
   return api.mutate('payment.capture', { paymentId: created.id });
 }
 
-/** The sentence every refund and payout control shows while the business account is not active (`money-step.ts`). */
-export const MONEY_OFF_INACTIVE = 'Refunds and payouts open once your business account is active.';
-
-/** The rooms whose header action moves money out: Pay out or Issue refund. */
-const MONEY_ROOMS = ['/pay/money', '/pay/payouts', '/pay/payouts/destinations', '/pay/settlements', '/pay/refunds'];
+/** The rooms whose header action moves money out: Pay out or Issue a refund. */
+export const MONEY_ROOMS = ['/pay/money', '/pay/payouts', '/pay/payouts/destinations', '/pay/settlements', '/pay/refunds'];
 
 /** The rooms that list the business's own records, so a new business has none and each must say so honestly. */
 const LIST_ROOMS = [
@@ -246,11 +243,10 @@ async function navRooms(page) {
  * The person opens each room from navigation, starting at the business home: each shows its own heading and finishes
  * loading, never "no access", never an error block or an uncertain failure, no refused read, no console error, and no
  * room asks the founder's console for anything. A room that lists the business's records shows an honest state for a
- * new business: the kit's empty state, the card naming what it waits for, or a typed refusal in words. With
- * `moneyOff`, each room whose header action moves money out shows that action switched off with that sentence beside
- * it. Returns each room and the states it showed.
+ * new business: the kit's empty state, the card naming what it waits for, or a typed refusal in words. Each room whose
+ * header action moves money out records that action as drawn (`action`). Returns each room and the states it showed.
  */
-export async function everyRoomOpens(page, { moneyOff } = {}) {
+export async function everyRoomOpens(page) {
   const refused = refusedPayCalls(page);
   const errors = [];
   const asked = [];
@@ -283,11 +279,13 @@ export async function everyRoomOpens(page, { moneyOff } = {}) {
     };
     for (const block of await content.locator('[data-slot="state-block"][data-kind="empty"], [data-testid="pfo-soon"]').all())
       await expect(block, `${room}: the state says something`).not.toHaveText(/^\s*$/);
-    if (moneyOff && MONEY_ROOMS.includes(room)) {
-      const off = page.getByTestId('plo-heading').locator('.pfo-action-off');
-      await expect(off, `${room}: its money action is drawn, switched off`).toHaveCount(1);
-      await expect(off.getByRole('button'), room).toBeDisabled();
-      await expect(off.getByRole('button'), room).toHaveAccessibleDescription(moneyOff);
+    if (MONEY_ROOMS.includes(room)) {
+      // The room's own money action, as drawn: a live link and where it goes, or switched off with its reason.
+      const head = page.getByTestId('plo-heading');
+      const off = head.locator('.pfo-action-off');
+      states.action = (await off.count())
+        ? { off: await off.locator('small').innerText() }
+        : { on: await head.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href'))) };
     }
     visited.set(room, states);
     for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
@@ -295,7 +293,7 @@ export async function everyRoomOpens(page, { moneyOff } = {}) {
   page.off('console', onConsole);
   page.off('request', onRequest);
   expect(visited.size).toBeGreaterThan(20);
-  for (const room of [...LIST_ROOMS, ...(moneyOff ? MONEY_ROOMS : [])]) expect([...visited.keys()], `${room} is reached`).toContain(room);
+  for (const room of [...LIST_ROOMS, ...MONEY_ROOMS]) expect([...visited.keys()], `${room} is reached`).toContain(room);
   expect(refused).toEqual([]);
   expect(errors).toEqual([]);
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);

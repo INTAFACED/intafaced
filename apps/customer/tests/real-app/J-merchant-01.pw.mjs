@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { MONEY_OFF_INACTIVE, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
+import { MONEY_ROOMS, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
 
 // J-merchant-01, in the running app (docs/roadmap/journeys.json): open Business Pay and see my account as it really
 // is. The business is new and its verification not started, so its owner holds the onboarding grant only, not the
@@ -52,7 +52,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, refunds and payouts off with what blocks them, and no call to the founder console`, async ({
+test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, Pay out and Refund leading to pages that say there is nothing to move yet, and no call to the founder console`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -89,8 +89,8 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
 
-  // The home page has no money action of its own; the money rooms' Pay out and Refund, switched off with what blocks
-  // them, are checked room by room below (everyRoomOpens with moneyOff).
+  // The home page has no money action of its own; the money rooms' Pay out and Issue a refund are checked room by room
+  // below.
 
   // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
   await page.getByRole('link', { name: /Set up your account/ }).click();
@@ -121,11 +121,24 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   expect(refused).toEqual([]);
   expect(errors).toEqual([]);
 
-  // Every room is reachable from navigation, and each one that moves money out says why it is off.
-  const rooms = await everyRoomOpens(page, { moneyOff: MONEY_OFF_INACTIVE });
+  // Every room is reachable from navigation.
+  const rooms = await everyRoomOpens(page);
   await test
     .info()
     .attach('rooms-and-states.json', { body: JSON.stringify(Object.fromEntries(rooms), null, 2), contentType: 'application/json' });
+  // svc-pay does not hold back a payout or a refund for verification on test money: the payout door refuses KYB that is
+  // not approved only under live acquiring (`merchant-kyb-money-gate.ts`), and refunds are never KYB-gated. So each
+  // money room's action is on, and it leads to a page that says plainly there is nothing to move yet.
+  const target = (room) => (room === '/pay/refunds' ? '/pay/refunds/new' : '/pay/payouts/new');
+  for (const room of MONEY_ROOMS) expect(rooms.get(room).action, room).toEqual({ on: [target(room)] });
+  await page.goto('/pay/payouts/new');
+  await expect(page.getByText('Nothing is ready to pay out')).toBeVisible();
+  await expect(page.getByText('A settlement becomes payable once its statement is finalised.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Ask|Pay out|Send)/ })).toHaveCount(0);
+  await page.goto('/pay/refunds/new');
+  await expect(page.getByText('No refundable payments')).toBeVisible();
+  await expect(page.getByText('No payment matches, or everything has been refunded already.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Refund/ })).toHaveCount(0);
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });
