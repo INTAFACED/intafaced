@@ -10,7 +10,7 @@ import type { Resource } from '../../../../shared/resource';
 import { parsePortalRoute } from '../routes';
 import { TopUpView } from './TopUp';
 
-const draw = (resource: Resource<never>) => renderToString(<TopUpView resource={resource} retry={() => undefined} />);
+const draw = (resource: Resource<unknown>) => renderToString(<TopUpView resource={resource} retry={() => undefined} />);
 const refused = (code: string, reason: 'error' | 'unreachable' = 'error') =>
   ({ status: 'failed', failure: { ok: false, reason, code, message: code } }) as const;
 
@@ -47,5 +47,18 @@ describe('Top up (J-merchant-07 #5, M-money-out-02)', () => {
       /<button[^>]*aria-describedby="[^"]+"[^>]*disabled=""[^>]*>Request<\/button>|<button[^>]*disabled=""[^>]*aria-describedby="[^"]+"[^>]*>Request<\/button>/,
     );
     expect(out).toContain('Request is off until we know top up is set up for your account.');
+  });
+
+  it('Request and Amount follow the service: off when the read refuses, on once it answers', () => {
+    const refusedOut = draw(refused('pay.topup_unconfigured'));
+    expect(refusedOut).toMatch(/<button[^>]*disabled=""[^>]*>Request<\/button>/);
+    expect(refusedOut).toMatch(/<input[^>]*disabled=""/);
+    // An answer is only possible once a rail's slice declares one; any answer turns the form on and drops the note.
+    const answered = draw({ status: 'ready', data: {} });
+    expect(answered).toMatch(/<button[^>]*>Request<\/button>/);
+    expect(answered).not.toMatch(/<button[^>]*disabled=""[^>]*>Request<\/button>/);
+    expect(answered).not.toMatch(/<input[^>]*disabled=""/);
+    expect(answered).not.toContain('role="note"');
+    expect(answered).not.toContain('Top up is not set up for your account');
   });
 });

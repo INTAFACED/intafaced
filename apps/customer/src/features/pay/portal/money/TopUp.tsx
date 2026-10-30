@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { Button } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Field } from '../../ui-kit';
@@ -21,14 +21,17 @@ export function TopUp({ portal, merchantId }: { portal: PortalApi; merchantId: s
   return <TopUpView resource={options.resource} retry={options.reload} />;
 }
 
-/** The page itself, from the top-up read. */
-export function TopUpView({ resource: r, retry }: { resource: Resource<never>; retry: () => void }) {
+/**
+ * The page itself, from the top-up read. Request and Amount follow the service: off while the read is loading or
+ * refused (with the blocker named in the note), on only once it answers what a top-up can use. Today the read always
+ * refuses (svc-pay declares no answer shape, `z.never()`), so on is reachable only when a rail's slice brings one.
+ */
+export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>; retry: () => void }) {
   const { t } = mc.useCopy();
   const whyId = useId();
-  // Until a top-up rail exists there is nothing a request could go to: the read always refuses (or has not answered),
-  // so Request and the amount are always off, and the note always names the blocker. The rail's slice brings the
-  // answer shape, the amount's precision and the request with it.
-  const why = r.status === 'failed' && codeOf(r.failure) === TOP_UP_OFF ? t('tuOffWhy') : t('tuOffPending');
+  const [amount, setAmount] = useState('');
+  const off = r.status !== 'ready';
+  const why = r.status === 'ready' ? null : r.status === 'failed' && codeOf(r.failure) === TOP_UP_OFF ? t('tuOffWhy') : t('tuOffPending');
   return (
     <div className="stack mn-page">
       <TestBanner />
@@ -39,15 +42,25 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<never>; r
           <PortalFailure result={r.failure} retry={retry} />
         ) : null}
         <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
-          <Field label={t('tuAmount')} hint={t('tuAmountHint')} inputMode="decimal" autoComplete="off" value="" readOnly disabled />
+          <Field
+            label={t('tuAmount')}
+            hint={t('tuAmountHint')}
+            inputMode="decimal"
+            autoComplete="off"
+            value={off ? '' : amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={off}
+          />
           <div className="pp-actions">
-            <Button type="submit" variant="primary" disabled aria-describedby={whyId}>
+            <Button type="submit" variant="primary" disabled={off} aria-describedby={why ? whyId : undefined}>
               {t('tuRequest')}
             </Button>
           </div>
-          <p id={whyId} className="muted pp-note" role="note">
-            {why}
-          </p>
+          {why && (
+            <p id={whyId} className="muted pp-note" role="note">
+              {why}
+            </p>
+          )}
         </form>
       </PaySection>
     </div>
