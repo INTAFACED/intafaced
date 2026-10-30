@@ -289,6 +289,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_CAPABILITY_REASONS: z.string().optional(),
       /**
+       * Owner setting (J-identity-08 #7): the reasons staff may restrict an account's trading for, the same shape as
+       * `IDENTITY_KYC_REJECT_REASONS` (`{"code","reason","guidance"}`). NO DEFAULT. Unset, a trading restriction may carry
+       * no code (the customer reads "No reason recorded") and one given refuses `restriction.reason_unlisted`. Parsed at
+       * start; malformed stops the service.
+       */
+      IDENTITY_TRADING_RESTRICTION_REASONS: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
        * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID
        * photo's caps, set together: the largest file in bytes (at most 760 KiB, so its base64 and the JSON around it fit one 1 MiB request body) and a comma list of content

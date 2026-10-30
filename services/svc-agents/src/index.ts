@@ -6,7 +6,7 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
-import { userAvailable } from '@intafaced/ledger-client';
+import { parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -18,6 +18,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
+import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -30,6 +31,8 @@ import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-po
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
+import { parseTierLaws } from './tier-laws.js';
+import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -77,7 +80,11 @@ await sql`SELECT 1 FROM agents.agent_definitions LIMIT 1`.catch(() => {
  */
 function buildPrimaryProvider(): ModelProvider {
   if (env.AGENTS_PROVIDER === 'mock') {
-    return new MockModelProvider({ id: 'primary', ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}) });
+    return new MockModelProvider({
+      id: 'primary',
+      ...(env.AGENTS_MOCK_DELAY_MS ? { answerDelayMs: env.AGENTS_MOCK_DELAY_MS } : {}),
+      ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}),
+    });
   }
 
   if (!env.AGENTS_UPSTREAM_BASE_URL || !env.AGENTS_UPSTREAM_API_KEY) {
@@ -137,11 +144,14 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107).
   funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
+  transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
+  overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
+await registerCoachAgent(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl
@@ -188,10 +198,17 @@ const portfolioPrices =
 
 const appRouter = createAgentsRouter({
   runtime,
+  // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
+  tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
   gateway,
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  opsLog: {
+    reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
+    limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
+    retentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
+  },
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
   ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
@@ -268,9 +285,21 @@ app.log.info(
   'svc-agents ready',
 );
 
+// Kept transcripts past their expiry, or older than today's retention, go on a timer of their own, off the engine
+// call's transaction. Retention 0 keeps none, so every kept transcript goes; a blank retention deletes nothing.
+const purgeTranscripts = () =>
+  purgeExpiredTranscripts(sql, env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null).then(
+    (purged) => purged > 0 && app.log.info({ purged }, 'svc-agents purged expired transcripts'),
+    (err: unknown) => app.log.error({ err }, 'svc-agents transcript purge failed'),
+  );
+await purgeTranscripts();
+const transcriptPurge = setInterval(() => void purgeTranscripts(), 60 * 60 * 1000);
+transcriptPurge.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(transcriptPurge);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();

@@ -60,6 +60,8 @@ export interface PasswordResetMail {
     readonly antiPhishingCode?: string;
     /** A plain line naming what a service mail is about (`POST /internal/mail`), for example the address to approve. */
     readonly detail?: string;
+    /** The one-time freeze link's token, on security notices only (`freeze-link.ts`). A secret, like `code`. */
+    readonly freezeToken?: string;
   }): Promise<void>;
 }
 
@@ -252,7 +254,8 @@ export const MAIL_RETRY_FIRST_WAIT_MS = 60_000;
 
 /**
  * Notices that tell the person something already happened to the account's security: never withdrawn by a later freeze
- * or address change, and sent again when a send threw. They carry no secret.
+ * or address change, and sent again when a send threw. Their only secret is the freeze link (`freeze-link.ts`), minted
+ * afresh at each attempt and good once, so a second copy harms nothing.
  */
 const SECURITY_NOTICES = new Set([
   'password-changed',

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
+import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
+import { stamp } from '../../screens/money/time';
 import { Button, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { miningPoolCopy } from './mining-pool-copy';
 import type { ApiResult } from '../../shared/api';
@@ -28,10 +30,15 @@ export const poolConnection = z.object({
   secureUrl: z.string().nullable(),
   accountId: z.string(),
   workerNamePattern: z.string().nullable(),
-  credentialOffered: z.literal(false),
-  credentialReason: z.string(),
 });
 export type PoolConnection = z.infer<typeof poolConnection>;
+
+/** `minerSecret.status`: when the account's miner secret was issued, or null. Never the secret. */
+export const minerSecretStatus = z.object({ issuedAt: z.string().nullable() });
+export type MinerSecretStatus = z.infer<typeof minerSecretStatus>;
+/** `minerSecret.issue`: a new secret, shown this once; the pool keeps only its hash. */
+export const issuedMinerSecret = z.object({ secret: z.string().min(1), issuedAt: z.string() });
+export type IssuedMinerSecret = z.infer<typeof issuedMinerSecret>;
 
 /** `probe`: one TCP connect from the pool's network to its own published address. Stores nothing. */
 export const poolProbe = z.object({
@@ -74,11 +81,17 @@ export function MiningPool({ probe }: { probe: Probe }) {
   const api = useApi();
   const overview = useResource((signal) => api.query('mining', 'overview', undefined, poolOverview, { signal }), 'mining-overview');
   const connection = useResource((signal) => api.query('mining', 'connection', undefined, poolConnection, { signal }), 'mining-connection');
+  const secret = useResource(
+    (signal) => api.query('mining', 'minerSecret.status', undefined, minerSecretStatus, { signal }),
+    'mining-miner-secret',
+  );
+  const issue = () => api.mutate('mining', 'minerSecret.issue', undefined, issuedMinerSecret);
   return (
     <div className="more-columns">
       <div>
         <PoolOverviewView read={overview} />
         <PoolConnectView read={connection} />
+        <MinerSecretView read={secret} issue={issue} />
       </div>
       <div>
         <PoolProbeView state={probe.state} onPress={probe.press} />
@@ -161,7 +174,67 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
             onChange={(event) => setRig(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
           />
           <p className="muted">{t('accountIdNote')}</p>
-          <p className="muted">{t('credentialNote')}</p>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * The account's miner secret, which the rig sends as its password. A new one is shown once, here, with its copy button;
+ * after that the room only says when it was issued. Issuing again replaces it, and the old one stops working.
+ */
+export function MinerSecretView({
+  read,
+  issue,
+  initial = null,
+}: {
+  read: Read<MinerSecretStatus>;
+  issue: () => Promise<ApiResult<IssuedMinerSecret>>;
+  /** The secret just issued (tests). */
+  initial?: IssuedMinerSecret | null;
+}) {
+  const { t } = miningPoolCopy.useCopy();
+  const { timeZone } = usePreferences();
+  const [shown, setShown] = useState<IssuedMinerSecret | null>(initial);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failed | null>(null);
+  const { resource } = read;
+  async function press() {
+    setBusy(true);
+    setFailure(null);
+    const result = await issue();
+    setBusy(false);
+    // No re-read after an issue: the answer carries its own issue time, and a re-read that failed would hide the secret
+    // the person sees only this once.
+    if (result.ok) setShown(result.data);
+    else setFailure(result);
+  }
+  const issuedAt = shown?.issuedAt ?? (resource.status === 'ready' ? resource.data.issuedAt : null);
+  return (
+    <Panel title={t('secretTitle')} aria-label={t('secretTitle')}>
+      {resource.status === 'loading' ? (
+        <Loading />
+      ) : resource.status === 'failed' ? (
+        <Failure result={resource.failure} retry={read.reload} />
+      ) : (
+        <>
+          {shown ? (
+            <>
+              <dl>
+                <CopyLine id="mining-miner-secret" label={t('secretLabel')} copyLabel={t('copySecret')} value={shown.secret} />
+              </dl>
+              <p role="status">{t('secretShownOnce')}</p>
+            </>
+          ) : null}
+          <p data-testid="mining-miner-secret-issued" data-state={issuedAt ? 'issued' : 'none'}>
+            {issuedAt ? t('secretIssuedOn', { at: stamp(issuedAt, timeZone) }) : t('secretNone')}
+          </p>
+          <p className="muted">{t('secretNote')}</p>
+          {failure ? <Failure result={failure} /> : null}
+          <Button variant="secondary" disabled={busy} onClick={() => void press()}>
+            {issuedAt ? t('secretReissue') : t('secretIssue')}
+          </Button>
         </>
       )}
     </Panel>

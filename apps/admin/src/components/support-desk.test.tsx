@@ -47,6 +47,7 @@ const detail = (t = ticket()): SupportTicketView => ({
             ticketId: T1,
             authorId: U,
             authorRole: 'user',
+            visibility: 'public',
             body: 'any update?',
             createdAt: '2026-10-17T01:00:00.000Z',
           },
@@ -191,6 +192,25 @@ describe('a ticket', () => {
     const logDown = open({ ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, propertyChanges: down } } } });
     expect(logDown).toContain('Priority, type and label changes unavailable');
     expect(logDown).toContain('opened');
+  });
+  it('marks an internal note as staff only, apart from the replies', () => {
+    const d = detail();
+    if (d.detail.kind !== 'ok' || d.detail.data.comments.kind !== 'ok') throw new Error('fixture');
+    const reply = d.detail.data.comments.data[0]!;
+    const note = {
+      ...reply,
+      id: '66666666-6666-4666-8666-666666666666',
+      authorRole: 'operator' as const,
+      visibility: 'internal' as const,
+      body: 'TEST checked it',
+    };
+    const html = open({
+      ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, comments: { kind: 'ok', data: [reply, note] } } } },
+    });
+    expect(html).toMatch(
+      /<li[^>]*data-visibility="internal"[^>]*><strong>Internal note · [^<]*<\/strong><span[^>]*>Staff only · the customer does not see this<\/span><p[^>]*>TEST checked it<\/p>/,
+    );
+    expect(html).toMatch(/<li[^>]*data-visibility="public"[^>]*><strong>Customer · [^<]*<\/strong><p[^>]*>any update\?<\/p>/);
   });
   it('labels the customer as an account id and says why no handle is shown', () => {
     const html = open();

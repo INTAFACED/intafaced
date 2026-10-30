@@ -1340,6 +1340,15 @@ services:
       AGENTS_UPSTREAM_COMPLETIONS_PATH:
       AGENTS_UPSTREAM_EMBEDDINGS_PATH:
       AGENTS_ROUTING_TABLE:
+      # The scanner, navigator and support doors' tier law (pass-through). Unset
+      # refuses each door with tier_law_blank.
+      AGENTS_TIER_LAWS:
+      # The operator agent log's owner values (pass-through form, as above: an
+      # empty string would be a present value). Unset refuses every log read,
+      # and keeps no transcript.
+      AGENTS_LOG_READ_REASONS:
+      AGENTS_OPS_ACTIONS_LIMIT:
+      AGENTS_TRANSCRIPT_RETENTION_DAYS:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -2174,6 +2183,7 @@ services:
         'local-founder-seed.mjs init',
         'local-founder-seed.mjs enrol',
         'local-test-seed.mjs apply',
+        'local-test-seed.mjs home',
         'local-test-seed.mjs status',
       ]
     environment:

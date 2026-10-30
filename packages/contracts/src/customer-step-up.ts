@@ -285,6 +285,31 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-trade (CB-bots-05): one profit withdrawal from the caller's own grid bot. The request id is the business key
+    // `bots.grid.withdraw:<botId>:<requestId>`, so one confirmation approves one withdrawal of one amount.
+    scope: 'trade.step_up.bots.grid.withdrawProfit',
+    purpose: 'bots.grid.withdrawProfit',
+    clientFields: ['botId', 'requestId', 'asset', 'amount'],
+    amountField: 'amount',
+    targetField: 'botId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    // svc-trade (J-copy-bots-otc-03 #4): close every position of the caller's own copy follow and end it. The request id
+    // is the business key `copy.flatten:<followId>:<requestId>`, so one confirmation approves one close-all of one follow.
+    scope: 'trade.step_up.copy.flatten',
+    purpose: 'copy.flatten',
+    clientFields: ['followId', 'requestId'],
+    targetField: 'followId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],

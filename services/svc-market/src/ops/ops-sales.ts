@@ -132,7 +132,8 @@ function afterCursor(group: Group, cursor: SalesCursor): boolean {
 /**
  * Settled volume, count, and commission per vendor and asset.
  * Commission is each row's own `commission_bps`, floored the way `marketPurchase` floors.
- * Rejected and pending rows are counts only.
+ * Released held purchases count as settled at their release. Rejected, pending and held rows are counts only; a
+ * refunded purchase is neither.
  */
 export async function queryOpsSales(sql: Sql, input: OpsSalesQuery): Promise<OpsSalesPage> {
   if (input.actorScope !== MARKET_OPS_SCOPE) {
@@ -149,8 +150,8 @@ export async function queryOpsSales(sql: Sql, input: OpsSalesQuery): Promise<Ops
     SELECT vendor_id, asset_id, status, price::text AS price, commission_bps
       FROM market.purchases
      WHERE (
-       (status = 'settled' AND settled_at >= ${fromIso}::timestamptz AND settled_at <= ${toIso}::timestamptz)
-       OR (status = 'pending' AND created_at >= ${fromIso}::timestamptz AND created_at <= ${toIso}::timestamptz)
+       (status IN ('settled', 'released') AND settled_at >= ${fromIso}::timestamptz AND settled_at <= ${toIso}::timestamptz)
+       OR (status IN ('pending', 'held') AND created_at >= ${fromIso}::timestamptz AND created_at <= ${toIso}::timestamptz)
        OR (status = 'rejected' AND created_at >= ${fromIso}::timestamptz AND created_at <= ${toIso}::timestamptz)
      )
        AND (${vendorId}::uuid IS NULL OR vendor_id = ${vendorId}::uuid)
@@ -164,11 +165,12 @@ export async function queryOpsSales(sql: Sql, input: OpsSalesQuery): Promise<Ops
       refused += 1;
       continue;
     }
-    if (fact.status === 'pending') {
+    // A held purchase has not reached the seller yet: it counts with pending until its release settles it.
+    if (fact.status === 'pending' || fact.status === 'held') {
       pending += 1;
       continue;
     }
-    if (fact.status !== 'settled') continue;
+    if (fact.status !== 'settled' && fact.status !== 'released') continue;
     const key = `${fact.vendor_id}\u0000${fact.asset_id}`;
     const commission = commissionOfSnapshot(fact.price, fact.commission_bps);
     const price = parseAmount(fact.price);

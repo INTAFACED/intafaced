@@ -5,10 +5,15 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { SESSION_SCOPES } from '@intafaced/auth';
+import { selfFreezeStateSchema } from '@intafaced/contracts';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
+import { SelfFreezeLift } from './self-freeze-lift.js';
 import type { FactorActor } from './factor-gate.js';
 import { RankService } from '../rank/rank-service.js';
+import { FREEZE_LINK_INVALID, mintFreezeLink, withFreezeLink } from './freeze-link.js';
+import { localMailLine } from './local-mail.js';
+import type { PasswordResetMail } from './password-reset.js';
 
 function testDatabaseUrl(): string {
   const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -55,7 +60,8 @@ if (!available) {
   const unique = () => `sf${process.pid}${++n}`;
   const person = async () => {
     const handle = unique();
-    return auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple', region: 'DE' });
+    const tokens = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple', region: 'DE' });
+    return { ...tokens, handle };
   };
 
   afterAll(async () => {
@@ -128,12 +134,143 @@ if (!available) {
       ).rejects.toMatchObject({ code: 'identity.account_frozen_self' });
     });
 
+    it('reads to other services as frozen with its start while open, unfrozen after the lift, and null for an unknown user', async () => {
+      const u = await person();
+      const before = await auth.selfFreezeState(u.userId);
+      expect(selfFreezeStateSchema.parse(before)).toEqual({ userId: u.userId, frozen: false, since: null });
+      const done = await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'compromise', password: PASSWORD });
+      const during = selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId));
+      expect(during).toEqual({ userId: u.userId, frozen: true, since: done.since.toISOString() });
+      await expect(new SelfFreezeLift(db.sql, 0).lift(u.userId)).resolves.toMatchObject({ frozen: false, changed: true });
+      expect(selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId))).toEqual({ userId: u.userId, frozen: false, since: null });
+      expect(await auth.selfFreezeState('00000000-0000-4000-8000-000000000000')).toBeNull();
+    });
+
     it('leaves other people untouched', async () => {
       const a = await person();
       const b = await person();
       await auth.selfFreeze({ userId: a.userId, actor: me, reason: 'temporary', password: PASSWORD });
       expect(await auth.selfFreezeStatus(b.userId)).toMatchObject({ frozen: false });
       expect((await countLive(b.userId)).sessions).toBeGreaterThan(0);
+    });
+  });
+  describe('the freeze link a security notice carries', () => {
+    const sent: Array<Parameters<PasswordResetMail['send']>[0]> = [];
+    const warned: string[] = [];
+    const outbox = withFreezeLink({ send: async (m) => void sent.push(m) }, db.sql, { warn: (_o, msg) => void warned.push(msg) });
+    const notice = async (userId: string, email: string, purpose: 'password-changed' | 'password-reset') => {
+      sent.length = 0;
+      await outbox.send({ email, userId, code: '', expiresAt: new Date(Date.now() + 60_000), purpose });
+      return sent[0]!;
+    };
+
+    it('rides on a security notice and never on another mail', async () => {
+      const u = await person();
+      const email = `${u.handle}@example.com`;
+      const m = await notice(u.userId, email, 'password-changed');
+      expect(m.freezeToken).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      expect(localMailLine(m)).toContain(`freeze=freeze/confirm#token=${m.freezeToken}`);
+      expect((await notice(u.userId, email, 'password-reset')).freezeToken).toBeUndefined();
+      const stored = await db.sql<Array<{ token_hash: string }>>`SELECT token_hash FROM self_freeze_links WHERE user_id = ${u.userId}`;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]!.token_hash).not.toContain(m.freezeToken!);
+    });
+
+    it('used once freezes with no session and no key left; used twice shows the stored result and changes nothing', async () => {
+      const u = await person();
+      await auth.createApiKey({ userId: u.userId, name: 'k', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES });
+      const token = (await notice(u.userId, `${u.handle}@example.com`, 'password-changed')).freezeToken!;
+      const first = await auth.redeemFreezeLink({ token });
+      expect(first).toMatchObject({ userId: u.userId, firstUse: true, changed: true });
+      expect(await countLive(u.userId)).toEqual({ sessions: 0, keys: 0 });
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: true, reason: 'compromise', since: first.since });
+      const second = await auth.redeemFreezeLink({ token });
+      expect(second).toEqual({ userId: u.userId, since: first.since, firstUse: false, changed: false, frozenNow: true });
+      const rows = await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId}`;
+      expect(rows).toHaveLength(1);
+    });
+
+    it('a link used while a freeze is open keeps that freeze and still ends a session that outlived it', async () => {
+      const u = await person();
+      const done = await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'temporary', password: PASSWORD });
+      await db.sql`UPDATE sessions SET revoked = false WHERE user_id = ${u.userId}`;
+      expect((await countLive(u.userId)).sessions).toBeGreaterThan(0);
+      const token = await mintFreezeLink(db.sql, { userId: u.userId, email: `${u.handle}@example.com`, purpose: 'factor-changed' });
+      const used = await auth.redeemFreezeLink({ token: token! });
+      expect(used).toMatchObject({ since: done.since, firstUse: true, changed: true, frozenNow: true });
+      expect(await countLive(u.userId)).toEqual({ sessions: 0, keys: 0 });
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ reason: 'temporary' });
+      const rows = await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId}`;
+      expect(rows).toHaveLength(1);
+    });
+
+    it('a used link after the freeze was lifted shows the stored result and says it no longer holds', async () => {
+      const u = await person();
+      const token = (await notice(u.userId, `${u.handle}@example.com`, 'password-changed')).freezeToken!;
+      const first = await auth.redeemFreezeLink({ token });
+      await db.sql`UPDATE account_self_freezes SET state = 'lifted' WHERE user_id = ${u.userId}`;
+      const again = await auth.redeemFreezeLink({ token });
+      expect(again).toMatchObject({ since: first.since, firstUse: false, changed: false, frozenNow: false });
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
+    });
+
+    it('a link dies when the address moves, never comes back, and the change notice to the old address works until the next move', async () => {
+      const u = await person();
+      const first = `${u.handle}@example.com`;
+      const moved = `moved-${u.handle}@example.com`;
+      const plain = await mintFreezeLink(db.sql, { userId: u.userId, email: first, purpose: 'password-changed' });
+      await db.sql`UPDATE users SET email = ${moved} WHERE id = ${u.userId}`;
+      await expect(auth.redeemFreezeLink({ token: plain! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      // The notice of that change goes to the old address, after the change: its link is bound to the new one.
+      const change = await mintFreezeLink(db.sql, { userId: u.userId, email: first, purpose: 'email-change-notice' });
+      // Moving back to the first address does not revive the first link: the change notice deleted it.
+      await db.sql`UPDATE users SET email = ${first} WHERE id = ${u.userId}`;
+      await expect(auth.redeemFreezeLink({ token: plain! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await expect(auth.redeemFreezeLink({ token: change! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await db.sql`UPDATE users SET email = ${moved} WHERE id = ${u.userId}`;
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
+      await expect(auth.redeemFreezeLink({ token: change! })).resolves.toMatchObject({ firstUse: true, changed: true });
+    });
+
+    it('a failed mint still sends the notice, without a link, and logs it', async () => {
+      const broken = withFreezeLink({ send: async (m) => void sent.push(m) }, {} as never, { warn: (_o, msg) => void warned.push(msg) });
+      sent.length = 0;
+      warned.length = 0;
+      await broken.send({ email: 'a@example.com', code: '', expiresAt: new Date(), purpose: 'password-changed' });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.freezeToken).toBeUndefined();
+      expect(warned).toEqual(['auth.freeze_link_mint_failed']);
+    });
+
+    it('a staff-frozen account still freezes itself by link, and the staff freeze stays', async () => {
+      const u = await person();
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${u.userId}`;
+      const token = await mintFreezeLink(db.sql, { userId: u.userId, email: `${u.handle}@example.com`, purpose: 'password-changed' });
+      await expect(auth.redeemFreezeLink({ token: token! })).resolves.toMatchObject({ changed: true });
+      const row = await db.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${u.userId}`;
+      expect(row[0]!.status).toBe('frozen');
+    });
+
+    it('an unknown token, an empty one, and a closed account all get the one refusal and change nothing', async () => {
+      await expect(auth.redeemFreezeLink({ token: 'not-a-real-token-at-all' })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await expect(auth.redeemFreezeLink({ token: '  ' })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      const u = await person();
+      const token = await mintFreezeLink(db.sql, { userId: u.userId, email: `${u.handle}@example.com`, purpose: 'password-changed' });
+      const used = await mintFreezeLink(db.sql, { userId: u.userId, email: `${u.handle}@example.com`, purpose: 'password-changed' });
+      await auth.redeemFreezeLink({ token: used! });
+      await db.sql`UPDATE account_self_freezes SET state = 'lifted' WHERE user_id = ${u.userId}`;
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${u.userId}`;
+      await expect(auth.redeemFreezeLink({ token: token! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      await expect(auth.redeemFreezeLink({ token: used! })).rejects.toMatchObject({ code: FREEZE_LINK_INVALID });
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
+      expect(await mintFreezeLink(db.sql, { userId: u.userId, email: 'x@example.com', purpose: 'password-changed' })).toBeNull();
+    });
+
+    it('a notice to an address with no account carries no link', async () => {
+      sent.length = 0;
+      await outbox.send({ email: 'nobody-here@example.com', code: '', expiresAt: new Date(), purpose: 'password-changed' });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.freezeToken).toBeUndefined();
     });
   });
 }

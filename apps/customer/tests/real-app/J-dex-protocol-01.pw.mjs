@@ -1,10 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-01, in the running app (docs/roadmap/journeys.json): open the Web3 side, read the honest labels and
 // connect a wallet. One test per step, titled "J-dex-protocol-01 #<n>". Every step is signed out: the Protocol rooms are
 // public and read only. The stack runs svc-protocol on the app's network, Base Sepolia (84532), with no node published
-// to it (tooling/scripts/local-stack-services/protocol.mjs), so every chain read refuses as unreachable. The person's own
+// to it (tooling/scripts/local-stack-services/protocol.mjs), so every chain read refuses as unreachable. Where the stack
+// runs its LOCAL TEST chain (tooling/scripts/local-test-chain.mjs) this journey closes that chain's gate before its first
+// step and opens it again after its last, so svc-protocol sees no node, exactly as on a stack without one; the hooks
+// run after a failed step too, so the next journey finds the gate open. The person's own
 // browser wallet is the TEST wallet in test-wallet.mjs. No money moves in this journey.
 // Step 9 signs an EIP-2612 permit for a TEST token that only the TEST wallet answers for (its stand-in for a node).
 // Step 8: before a wallet's first signing action it accepts the representation (the stack's TEST text and version from
@@ -12,6 +16,14 @@ import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 // blocked-region run of step 8 needs a trusted region header on the test stack and is added with it.
 const J = 'J-dex-protocol-01';
 const SHORT = /^0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/;
+
+// The gate is shared stack state: shut for this journey only. afterAll runs when the worker ends, after a failure too.
+test.beforeAll(() => {
+  tool('local-test-chain.mjs', 'gate', 'closed');
+});
+test.afterAll(() => {
+  tool('local-test-chain.mjs', 'gate', 'open');
+});
 
 const networkChip = (page) => page.locator('[data-chip="network"]');
 const walletChip = (page) => page.locator('[data-chip="wallet"]');

@@ -109,11 +109,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
     IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
     IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
+    // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
+    // Off by default, where identity keeps refusing the change with operator.denied.
+    IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: testValue('IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL'),
     IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
     IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
     IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
+    IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
     IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY'),
     IDENTITY_KYC_UPLOAD_MAX_BYTES: testValue('IDENTITY_KYC_UPLOAD_MAX_BYTES'),
     IDENTITY_KYC_UPLOAD_TYPES: testValue('IDENTITY_KYC_UPLOAD_TYPES'),
@@ -153,12 +157,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
     // (support:ops: the queue and request workspace at /support, help articles, help-centre and attachment settings,
-    // contact channels and request forms), the notify desk's writes (admin:write: the status page and notices) and the
+    // contact channels and request forms), the support desk's read-only lookup of one customer's records in another
+    // module (support:lookup: copy follows, bots and quotes on the trade desk), the notify desk's writes (admin:write: the status page and notices) and the
     // campaigns desk (campaigns:ops: build, ask, approve, go live). admin:write is platform wide: it also opens the other services' admin:write doors to a founder's
     // session here (svc-trade's insurance top-up among them), the same scope the local gates' operator tokens already
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,campaigns:ops',
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',

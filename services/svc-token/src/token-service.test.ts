@@ -24,6 +24,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { TokenService, TokenError, foldTally, assertProposalListLimit, assertStakesListLimit } from './token-service.js';
 import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
 import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
+import { TEST_VOTE_SIGNATURE, testVoteSignatures } from './vote-signature.testkit.js';
 
 /**
  * svc-token money paths.
@@ -125,6 +126,9 @@ describe('svc-token money PG-hard', () => {
     // Test fixture only — production env has no default bar.
     governanceQuorumBps: 1000,
     governanceThresholdBps: 5000,
+    // Test fixture only — production env has no default vote rule.
+    voteRule: 'power:0',
+    voteSignatures: testVoteSignatures(),
   };
 
   /** Put real IFC in a user's available balance so a stake has something behind it. */
@@ -2919,6 +2923,7 @@ describe('svc-token money PG-hard', () => {
       });
 
       const atOpen = await token.castVote({
+        signature: TEST_VOTE_SIGNATURE,
         proposalId: proposal.id,
         userId: USER_A,
         choice: 'for',
@@ -2929,12 +2934,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_B, '1000');
       await token.stake({ userId: USER_B, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
       await expect(
-        token.castVote({
-          proposalId: proposal.id,
-          userId: USER_B,
-          choice: 'against',
-          now: closesAt,
-        }),
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'against', now: closesAt }),
       ).rejects.toMatchObject({ code: 'token.proposal_window' });
     });
 
@@ -2953,7 +2953,7 @@ describe('svc-token money PG-hard', () => {
       const results = await Promise.all(
         Array.from({ length: 8 }, () =>
           token
-            .castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now })
+            .castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now })
             .then(() => 'ok' as const)
             .catch((err: { code?: string }) => (err?.code === 'token.already_voted' ? 'voted' : 'other')),
         ),
@@ -2993,8 +2993,14 @@ describe('svc-token money PG-hard', () => {
         now,
       });
 
-      const aVote = await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
-      const bVote = await token.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'against', now });
+      const aVote = await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      const bVote = await token.castVote({
+        signature: TEST_VOTE_SIGNATURE,
+        proposalId: proposal.id,
+        userId: USER_B,
+        choice: 'against',
+        now,
+      });
 
       expect(formatAmount(aVote.weight)).toBe('5000');
       expect(formatAmount(bVote.weight)).toBe('2000');
@@ -3065,8 +3071,10 @@ describe('svc-token money PG-hard', () => {
         now,
       });
 
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
-      await expect(token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'against', now })).rejects.toMatchObject({
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'against', now }),
+      ).rejects.toMatchObject({
         code: 'token.already_voted',
       });
     });
@@ -3081,7 +3089,9 @@ describe('svc-token money PG-hard', () => {
         now,
       });
 
-      await expect(token.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'for', now })).rejects.toMatchObject({
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'for', now }),
+      ).rejects.toMatchObject({
         code: 'token.no_voting_weight',
       });
     });
@@ -3098,7 +3108,9 @@ describe('svc-token money PG-hard', () => {
         now,
       });
       expect(future.status).toBe('draft');
-      await expect(token.castVote({ proposalId: future.id, userId: USER_A, choice: 'for', now })).rejects.toMatchObject({
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: future.id, userId: USER_A, choice: 'for', now }),
+      ).rejects.toMatchObject({
         code: 'token.proposal_not_open',
       });
 
@@ -3110,7 +3122,9 @@ describe('svc-token money PG-hard', () => {
         now,
       });
       const afterClose = new Date('2026-07-23T00:00:00.000Z');
-      await expect(token.castVote({ proposalId: open.id, userId: USER_A, choice: 'for', now: afterClose })).rejects.toMatchObject({
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: open.id, userId: USER_A, choice: 'for', now: afterClose }),
+      ).rejects.toMatchObject({
         code: 'token.proposal_window',
       });
     });
@@ -3134,7 +3148,9 @@ describe('svc-token money PG-hard', () => {
       const afterOpen = new Date('2026-08-05T12:00:00.000Z');
       const reloaded = await token.getProposal(draft.id);
       expect(reloaded?.status).toBe('draft');
-      await expect(token.castVote({ proposalId: draft.id, userId: USER_A, choice: 'for', now: afterOpen })).rejects.toMatchObject({
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: draft.id, userId: USER_A, choice: 'for', now: afterOpen }),
+      ).rejects.toMatchObject({
         code: 'token.proposal_not_open',
       });
 
@@ -3154,7 +3170,9 @@ describe('svc-token money PG-hard', () => {
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
       const missing = '00000000-0000-4000-8000-0000000000ff';
 
-      await expect(token.castVote({ proposalId: missing, userId: USER_A, choice: 'for', now })).rejects.toMatchObject({
+      await expect(
+        token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: missing, userId: USER_A, choice: 'for', now }),
+      ).rejects.toMatchObject({
         code: 'token.proposal_not_found',
       });
 
@@ -3213,7 +3231,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'abstain', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'abstain', now });
 
       expect(await balanceOf(USER_A)).toBe(availableBefore);
       expect(await stakedOf(USER_A)).toBe(stakedBefore);
@@ -3230,7 +3248,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
 
       const closed = await token.closeProposal({
         proposalId: proposal.id,
@@ -3254,8 +3272,8 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
-      await token.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'against', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'against', now });
 
       const closed = await token.closeProposal({ proposalId: proposal.id, now: closesAt });
       expect(closed.status).toBe('rejected');
@@ -3273,7 +3291,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_B, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_B, choice: 'for', now });
 
       const closed = await token.closeProposal({ proposalId: proposal.id, now: closesAt });
       expect(closed.status).toBe('rejected');
@@ -3294,7 +3312,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      const smallVote = await token.castVote({ proposalId: missed.id, userId: USER_A, choice: 'for', now });
+      const smallVote = await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: missed.id, userId: USER_A, choice: 'for', now });
       expect(formatAmount(smallVote.weight)).toBe('100');
 
       await token.unstake(bStake.id);
@@ -3322,7 +3340,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      const heldVote = await token.castVote({ proposalId: held.id, userId: USER_C, choice: 'for', now });
+      const heldVote = await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: held.id, userId: USER_C, choice: 'for', now });
       expect(formatAmount(heldVote.weight)).toBe('1000');
       await token.stake({ userId: USER_B, amount: amt('10000'), tier: 'flex', stakeId: crypto.randomUUID() });
       const heldSnap = await sql<Array<{ eligible_stake: string }>>`
@@ -3351,7 +3369,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await unset.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await unset.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
 
       await expect(unset.closeProposal({ proposalId: proposal.id, now: closesAt })).rejects.toMatchObject({
         code: 'token.governance_quorum_unset',
@@ -3374,7 +3392,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
 
       const closed = await token.closeProposal({ proposalId: proposal.id, now: closesAt });
       expect(closed.status).toBe('passed');
@@ -3396,7 +3414,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
       const closed = await token.closeProposal({ proposalId: proposal.id, now: closesAt });
       expect(closed.status).toBe('passed');
       expect(closed.execute).toBe('token.governance_execute_unwired');
@@ -3412,7 +3430,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
 
       await sql`UPDATE token.stakes SET amount = ${'10000'}::numeric WHERE id = ${stake.id}`;
 
@@ -3433,7 +3451,7 @@ describe('svc-token money PG-hard', () => {
         closesAt,
         now,
       });
-      await token.castVote({ proposalId: proposal.id, userId: USER_A, choice: 'for', now });
+      await token.castVote({ signature: TEST_VOTE_SIGNATURE, proposalId: proposal.id, userId: USER_A, choice: 'for', now });
 
       await expect(token.closeProposal({ proposalId: proposal.id, now })).rejects.toMatchObject({
         code: 'token.proposal_window',

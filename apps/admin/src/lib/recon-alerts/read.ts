@@ -2,10 +2,12 @@ import 'server-only';
 import {
   opsAlertDetailSchema,
   opsAlertListSchema,
+  opsPlatformIncidentsSchema,
   opsReconciliationPeriodsSchema,
   type OpsAlertCursor,
   type OpsAlertDetail,
   type OpsAlertList,
+  type OpsPlatformIncidents,
   type OpsReconciliationPeriods,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
@@ -25,15 +27,23 @@ export interface AlertsRoom {
   readonly asOf: string;
   readonly list: Part<OpsAlertList>;
   readonly periods: Part<OpsReconciliationPeriods>;
+  /** Runs the ledger could not finish, as svc-ops received them from the bus: the platform team's, never finance's. */
+  readonly incidents: Part<OpsPlatformIncidents>;
 }
 
-/** The list and the periods, each read on its own so one failure never hides the other. */
+/** The list, the periods and the platform incidents, each read on its own so one failure never hides another. */
 export async function readAlertsRoom(ctx: FounderCallContext, after: OpsAlertCursor | null): Promise<AlertsRoom> {
-  const [list, periods] = await Promise.all([
+  const [list, periods, incidents] = await Promise.all([
     founderCall(ctx, 'ops', 'alerts.list', 'GET', { after, limit: ALERT_PAGE }, parseWith(opsAlertListSchema)),
     founderCall(ctx, 'ops', 'alerts.periods', 'GET', { limit: 50 }, parseWith(opsReconciliationPeriodsSchema)),
+    founderCall(ctx, 'ops', 'alerts.platformIncidents', 'GET', { limit: 50 }, parseWith(opsPlatformIncidentsSchema)),
   ]);
-  return { asOf: new Date().toISOString(), list: partFrom(list, (d) => d, labels), periods: partFrom(periods, (d) => d, labels) };
+  return {
+    asOf: new Date().toISOString(),
+    list: partFrom(list, (d) => d, labels),
+    periods: partFrom(periods, (d) => d, labels),
+    incidents: partFrom(incidents, (d) => d, labels),
+  };
 }
 
 export async function readAlertDetail(ctx: FounderCallContext, alertId: string): Promise<Part<OpsAlertDetail>> {

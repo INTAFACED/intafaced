@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
@@ -27,6 +28,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: Port
     );
   },
   kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
+  activation: (signal?: AbortSignal) => query('merchantOps.activation.get', {}, merchantActivationSchema, signal),
   kybHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.kyb.history', p.kybEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
   teamList: (cursor: string | undefined, status: string, signal?: AbortSignal) =>

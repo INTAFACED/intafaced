@@ -108,6 +108,8 @@ import { createAccountStatusRouter } from './account/account-status-router.js';
 import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createFreezeLinkRouter } from './freeze-link-router.js';
+import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
@@ -265,6 +267,11 @@ await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
   );
 });
+await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
+  );
+});
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: profiles.version is missing — apply drizzle/0042_profile_version.sql before starting svc-identity',
@@ -381,7 +388,10 @@ const transportMail = openIdentityMail({
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
-const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
+// Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
+const mail =
+  transportMail &&
+  withAntiPhishingCode(withFreezeLink(transportMail, sql, { warn: (obj, msg) => app.log.warn(obj, msg) }), sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
 auth.useKycCapabilities(kycCapabilityMap);
@@ -445,8 +455,10 @@ auth.useNewDevicePolicy({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const tradingRestrictionReasons = parseKycRejectReasons(env.IDENTITY_TRADING_RESTRICTION_REASONS, 'IDENTITY_TRADING_RESTRICTION_REASONS');
 const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+  tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
@@ -750,9 +762,18 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
+  createAccountStatusRouter(
+    new AccountStatusDesk(
+      sql,
+      env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS,
+      kycCapabilityReasons,
+      kycCapabilityMap,
+      tradingRestrictionReasons,
+    ),
+  ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
+  createFreezeLinkRouter(auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),
@@ -1071,6 +1092,26 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/**
+ * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/self-freeze/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const state = await auth.selfFreezeState(userId);
+  if (!state) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return state;
 });
 
 /**

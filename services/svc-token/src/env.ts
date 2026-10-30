@@ -131,11 +131,30 @@ const schema = serviceEnvSchema
       TOKEN_PROPOSER_RULE: z.string().optional(),
 
       /**
+       * Who may vote (MC-token-03). NO DEFAULT. Blank is `token.vote_rule_unset`.
+       * `power:<decimal>`: least voting power, at the proposal's creation
+       * snapshot, that may vote. `power:0` is a deliberate zero.
+       */
+      TOKEN_VOTE_RULE: z.string().optional(),
+
+      /**
        * How many proposals one author may open per period. NO DEFAULT.
        * Blank is `token.proposal_limit_unset`. Shape `count:period_ms`.
        * `0` is a deliberate zero. Used only when the stored row is still blank.
        */
       TOKEN_PROPOSAL_LIMIT: z.string().optional(),
+
+      /**
+       * Who may take part in a launch. NO DEFAULT. Blank is `launch.min_kyc_tier_unset`.
+       * The least identity verification: `none`, `basic`, `full` or `institutional`.
+       */
+      TOKEN_LAUNCH_MIN_KYC_TIER: z.string().optional(),
+
+      /**
+       * Regions that may not take part in a launch: two-letter codes, comma separated, or `none`.
+       * NO DEFAULT. Blank is `launch.restricted_regions_unset`.
+       */
+      TOKEN_LAUNCH_RESTRICTED_REGIONS: z.string().optional(),
 
       /**
        * Identity issuer for operator treasury consume (distributeRevenue /

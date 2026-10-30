@@ -1,65 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { opsAlertDetailSchema } from '@intafaced/contracts/ops-reconciliation-alerts';
+import { ALERT, FOUNDER, alertDetail, founderCtx as ctx, treasuryToken } from '@/lib/recon-alerts/fixtures.test-util';
 import { POST } from './route';
 
 const gate = vi.hoisted(() => ({ session: vi.fn<() => Promise<unknown>>() }));
 vi.mock('@/lib/admin-bff-gate', () => ({ adminBffSession: gate.session }));
 
-const FOUNDER = '11111111-1111-4111-8111-111111111111';
-const ALERT = '22222222-2222-4222-8222-222222222222';
-const ctx = {
-  session: {
-    userId: FOUNDER,
-    accessToken: 'founder-access-token',
-    refreshToken: 'r',
-    expiresAt: '2030-01-01T00:00:00.000Z',
-    issuedAt: '2026-01-01T00:00:00.000Z',
-    csrf: 'c'.repeat(43),
-  },
-  config: { origin: 'https://admin.example', edgeUrl: 'http://edge:4000', key: Buffer.alloc(32, 1) },
-};
-const T = '2026-10-29T12:00:00.000Z';
-const detail = opsAlertDetailSchema.parse({
-  source: { status: 'ok', readAt: T },
-  alert: {
-    id: ALERT,
-    kind: 'reconciliation',
-    state: 'acknowledged',
-    controlId: '33333333-3333-4333-8333-333333333333',
-    assetId: 'USDC',
-    periodStart: T,
-    periodEnd: T,
-    severity: { status: 'set', value: 'critical' },
-    occurrences: 1,
-    firstSeen: T,
-    lastSeen: T,
-    evidence: {
-      run: {
-        id: '44444444-4444-4444-8444-444444444444',
-        status: 'FAIL',
-        asOf: T,
-        readAt: T,
-        sources: { ledger: { asOf: T }, outside: { asOf: 'unset' }, parity: { asOf: 'unset' } },
-        outsideSide: 'unset',
-        periodStart: T,
-        periodEnd: T,
-      },
-      finishedAt: T,
-      asset: { assetId: 'USDC', observed: '5', expected: '0', difference: '5', tolerance: '0' },
-    },
-    acknowledged: { by: FOUNDER, at: T, note: 'looking' },
-    snooze: null,
-    notices: {
-      sent: 1,
-      lastSentAt: T,
-      repeat: { status: 'unset', code: 'ops.alert_repeat_unset' },
-      outside: { email: 'vendor.email', push: 'vendor.push' },
-    },
-    version: 2,
-  },
-  timeline: [],
-  snoozes: [],
-});
+const detail = alertDetail();
 const post = (body: unknown) =>
   new Request('http://admin.example/api/ledger-reconciliation/alerts', {
     method: 'POST',
@@ -72,7 +18,7 @@ const refusal = (status: number, code: string) =>
     { status },
   );
 
-const original = process.env.ADMIN_MODULES;
+const original = { ...process.env };
 beforeEach(() => {
   gate.session.mockResolvedValue(ctx);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -81,8 +27,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   gate.session.mockReset();
-  if (original === undefined) delete process.env.ADMIN_MODULES;
-  else process.env.ADMIN_MODULES = original;
+  process.env = { ...original };
 });
 
 describe('POST /api/ledger-reconciliation/alerts', () => {
@@ -171,5 +116,123 @@ describe('POST /api/ledger-reconciliation/alerts', () => {
     vi.stubGlobal('fetch', fetcher);
     expect((await POST(post({ action: 'unsnooze', alertId: ALERT, version: 1 }))).status).toBe(401);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  describe('resolve as fixed', () => {
+    const TX1 = '55555555-5555-4555-8555-555555555555';
+    const TX2 = '66666666-6666-4666-8666-666666666666';
+    beforeEach(() => {
+      process.env.EDGE_URL = 'http://isolated-edge:4000';
+      process.env.ADMIN_TREASURY_TOKEN = treasuryToken(FOUNDER);
+    });
+
+    it('goes on the treasury transport with the ids once each and a key naming the move, alert, version and founder', async () => {
+      const resolved = alertDetail({
+        state: 'resolved',
+        resolved: {
+          resolution: 'fixed',
+          by: FOUNDER,
+          at: '2026-10-29T12:05:00.000Z',
+          correctiveTxIds: [TX1, TX2],
+          passingRunId: null,
+          note: 'reversed',
+        },
+        version: 3,
+      });
+      const calls: Array<{ url: string; body: unknown; auth: string }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init: RequestInit) => {
+          calls.push({ url, body: JSON.parse(String(init.body)), auth: (init.headers as Record<string, string>).authorization! });
+          return Response.json({ result: { data: resolved } });
+        }),
+      );
+      const res = await POST(
+        post({ action: 'resolve', alertId: ALERT, version: 2, txIds: `${TX1.toUpperCase()}, ${TX2}\n${TX1}`, note: ' reversed ' }),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, alert: resolved.alert });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toBe('http://isolated-edge:4000/api/ops/trpc/alerts.resolve');
+      expect(calls[0]!.auth).toBe(`Bearer ${treasuryToken(FOUNDER)}`);
+      expect(calls[0]!.body).toEqual({
+        alertId: ALERT,
+        correctiveTxIds: [TX1, TX2],
+        note: 'reversed',
+        idempotencyKey: `alert:resolve:${ALERT}:v2:${FOUNDER}`,
+      });
+    });
+
+    it('a retry of the same press sends the same key, so svc-ops answers what it stored', async () => {
+      const bodies: Array<{ idempotencyKey: string }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init: RequestInit) => {
+          bodies.push(JSON.parse(String(init.body)));
+          return bodies.length === 1 ? new Response('lost', { status: 502 }) : Response.json({ result: { data: detail } });
+        }),
+      );
+      const first = await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds: TX1 }));
+      expect(first.status).toBe(503);
+      expect((await first.json()).unknown).toBe(true);
+      expect((await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds: TX1 }))).status).toBe(200);
+      expect(bodies[0]!.idempotencyKey).toBe(bodies[1]!.idempotencyKey);
+    });
+
+    it('passes the ledger check refusal through with its code and svc-ops naming the missing id', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          Response.json(
+            {
+              error: {
+                message: `ops.resolve_transaction_not_found: ${TX2}`,
+                code: -32603,
+                data: { code: 'PRECONDITION_FAILED', httpStatus: 412, cause: { code: 'ops.resolve_transaction_not_found' } },
+              },
+            },
+            { status: 412 },
+          ),
+        ),
+      );
+      const res = await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds: TX2 }));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body).toMatchObject({ ok: false, code: 'ops.resolve_transaction_not_found' });
+      expect(body.detail).toContain(TX2);
+      expect(body.message).toContain('never booked');
+    });
+
+    it('sends nothing while the treasury credential belongs to another founder', async () => {
+      process.env.ADMIN_TREASURY_TOKEN = treasuryToken('99999999-9999-4999-8999-999999999999');
+      const fetcher = vi.fn();
+      vi.stubGlobal('fetch', fetcher);
+      const res = await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds: TX1 }));
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('admin.treasury_holder_mismatch');
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it('refuses no ids, a non-id or more than twenty without calling svc-ops', async () => {
+      const fetcher = vi.fn();
+      vi.stubGlobal('fetch', fetcher);
+      const many = Array.from({ length: 21 }, (_, i) => `55555555-5555-4555-8555-${String(i).padStart(12, '0')}`).join(',');
+      for (const txIds of ['', ' , ', 'not-a-transaction', many, undefined]) {
+        const res = await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds }));
+        expect(res.status).toBe(400);
+        expect((await res.json()).code).toBe('admin.alert_input');
+      }
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it('an answer for another alert is unknown, never a success', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => Response.json({ result: { data: alertDetail({ id: '77777777-7777-4777-8777-777777777777' }) } })),
+      );
+      const res = await POST(post({ action: 'resolve', alertId: ALERT, version: 2, txIds: TX1 }));
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ ok: false, unknown: true });
+    });
   });
 });

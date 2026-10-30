@@ -1,7 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { createApiClient } from '../shared/api';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
+
+describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
+  it('a REST refusal with intafacedCode posting_frozen gets the orders-paused copy, not the account-on-hold one', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ code: 'OnMaintenance', message: 'ledger.frozen', intafacedCode: 'posting_frozen' }), { status: 400 }),
+    });
+    const result = await api.rest('/orders', z.unknown(), { method: 'POST', body: { symbol: 'BTC/USDT' } });
+    expect(result).toMatchObject({ ok: false, reason: 'error', code: 'posting_frozen', status: 400 });
+    const code = result.ok ? '' : (result.code ?? '');
+    expect(classifyRefusal(code)).toBe('ordersPaused');
+    expect(refusalCopy(code)).toEqual(refusalCopy('trade.orders_paused'));
+    expect(refusalCopy(code).title).toBe('Orders are paused right now');
+    // The account's trading restriction keeps its own copy, and so does the ledger's raw code, which rooms other than
+    // trade send.
+    expect(classifyRefusal('trade.account_restricted')).toBe('tradingOnHold');
+    expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
+  });
+});
 
 describe('edge.authority_unavailable', () => {
   it('is a retry, not a sign-out', () => {
@@ -195,6 +216,9 @@ describe('order refusals the pro desk shows by their registered words (TRD-0521)
 });
 
 describe('classifyRefusal', () => {
+  it("names svc-trade's own trading restriction as a hold, never a retry", () => {
+    expect(classifyRefusal('trade.desk_restricted')).toBe('accountOnHold');
+  });
   it('sorts the codes customers can reach', () => {
     const cases: Array<[string, string]> = [
       ['denied.region_blocked', 'region'],
@@ -207,8 +231,9 @@ describe('classifyRefusal', () => {
       ['trade.convert_price_moved', 'priceMoved'],
       ['trade.convert_quote_expired', 'quoteExpired'],
       ['ledger.frozen', 'platformPaused'],
-      ['trade.account_restricted', 'accountOnHold'],
+      ['trade.account_restricted', 'tradingOnHold'],
       ['bank.space_locked', 'spaceLocked'],
+      ['posting_frozen', 'ordersPaused'],
       ['mfa.required', 'stepUp'],
       ['auth.mfa_required', 'mfaRequired'],
       ['bank.prices_unavailable', 'pricesDown'],
