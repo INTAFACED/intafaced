@@ -11,7 +11,11 @@ import type { Sql } from 'postgres';
 import { formatAmount, merchantProceeds, parseAmount, recipes } from '@intafaced/ledger-client';
 import { assertRailMayMoveValue } from '../rails/posture.js';
 import { assertPayoutDestinationKind, DestinationKindError } from '../payout-destination.js';
-import { PayoutDestinationMissingError } from '../merchant-payout-destination.js';
+import {
+  PayoutDestinationHeldError,
+  PayoutDestinationMissingError,
+  PayoutDestinationUnverifiedError,
+} from '../merchant-payout-destination.js';
 import { settlementLedgerPlan } from '../settlement-ledger.js';
 import { dispatchedMarker, payoutRailKey, readDispatchedKey } from '../payout-dispatch.js';
 import { encodeListCursor } from '../list-page.js';
@@ -580,8 +584,8 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
 
 /**
  * The stored verified destination for this rail. An offered destination is
- * refused before this runs. Unverified rows (saved by payouts before D-142)
- * are not payable. Does not write. Does not invent a PSP.
+ * refused before this runs. An unverified row (`pay.payout_destination_unverified`)
+ * or one still inside its hold (`pay.payout_destination_held`) is not payable. Does not write. Does not invent a PSP.
  */
 export async function resolvePayoutDestination(
   svc: PayServiceInternal,
@@ -596,6 +600,16 @@ export async function resolvePayoutDestination(
   } catch (err) {
     if (err instanceof PayoutDestinationMissingError) {
       throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
+    }
+    if (err instanceof PayoutDestinationUnverifiedError) {
+      throw new PayError(err.message, 'pay.payout_destination_unverified', { merchantId, railId });
+    }
+    if (err instanceof PayoutDestinationHeldError) {
+      throw new PayError(err.message, 'pay.payout_destination_held', {
+        merchantId,
+        railId,
+        activatesAt: err.activatesAt.toISOString(),
+      });
     }
     if (err instanceof DestinationKindError) {
       throw new PayError(err.message, err.code);

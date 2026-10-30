@@ -61,6 +61,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // LOCAL-TEST value (same file): RC-merchant-09, a bank transfer is captured only when the name on the sending account
     // matches the name the payer gave, after case, accents, punctuation and spacing. Anything else is held for review.
     PAY_PAYER_NAME_MATCH_RULE: 'exact_normalised',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): J-merchant-02 #5, a newly verified payout destination
+    // is held 45 seconds before it can receive a payout (a change of a verified one waits as long), short enough for a
+    // journey to wait it out. Not an owner decision; blank refuses every verification and change (pay.destination_hold_unset).
+    PAY_DESTINATION_HOLD_SECONDS: '45',
     // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
     // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
     PAY_WITHDRAWAL_LIMITS: 'required',

@@ -61,8 +61,20 @@ export const destinationItemSchema = z.object({
   defaultFlag: z.string().optional(),
   createdAt: timestamp,
   lastUsedAt: timestamp.nullable().optional(),
+  /** J-merchant-02 #5: saved but not verified; verified and held until `activatesAt`; or active (payable). Never guessed. */
+  state: z.enum(['unverified', 'held', 'active']),
+  /** When a held destination becomes active; null otherwise. */
+  activatesAt: timestamp.nullable(),
 });
 export type DestinationItem = z.infer<typeof destinationItemSchema>;
+/** What `merchant.payoutDestinations.add` answers: the destination as saved, unverified. */
+export const destinationSavedSchema = z.object({
+  railId: z.string(),
+  kind: z.string(),
+  ref: z.string(),
+  status: z.literal('unverified'),
+  activatesAt: z.null(),
+});
 /** What `merchant.payoutDestinations.remove` answers. */
 export const destinationRemovedSchema = z.object({ removed: z.literal(true) });
 /** True only for the row the owner marked. A missing flag is "not the default", never a guess. */

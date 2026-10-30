@@ -462,6 +462,10 @@ export type PayErrorCode =
   | 'pay.invalid_destination_ref'
   /** Crypto payout has no stored verified dest — refused BEFORE withdrawHold. */
   | 'pay.payout_destination_missing'
+  /** The rail's stored destination is saved but not verified (J-merchant-02 #5). Refused before any admission or hold. */
+  | 'pay.payout_destination_unverified'
+  /** The rail's stored destination is verified and still inside its hold. Refused before any admission or hold. */
+  | 'pay.payout_destination_held'
   /** settlement.payout named a destination. A payout cannot choose or change one. */
   | 'pay.payout_destination_not_allowed'
   /** PAY_DESTINATION_HOLD_SECONDS is blank. A destination change is refused. */
@@ -3160,12 +3164,12 @@ export class PayService {
 
   /** Saved payout destinations, masked. `default` only after the owner marks one. */
   listPayoutDestinations(input: { merchantId: string; limit?: number; cursor?: string }) {
-    return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code));
+    return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code), this.now());
   }
 
   /** Owner write. Same authority as setPayoutDestination: no second approval. */
   setDefaultPayoutDestination(input: { merchantId: string; destinationId: string }) {
-    return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
+    return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code), this.now());
   }
 
   /** Unverified rows only. A verified destination is refused. An in-flight payout still blocks an unverified row. */

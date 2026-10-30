@@ -328,6 +328,15 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   // The Still clearing section now lists nothing: its empty line instead of the held list.
   await expect(page.getByTestId('mn-held-none')).toHaveText('Nothing is waiting to clear.');
   await expect(page.getByRole('region', { name: 'Still clearing' })).toHaveCount(0);
+
+  // The destination saved above with the code is verified and held for the stack's TEST hold (J-merchant-02 #5); the
+  // later steps pay out to it, so this one ends when svc-pay itself reads it Active.
+  await expect
+    .poll(async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 10 })).items.map((d) => d.state), {
+      timeout: 120_000,
+      intervals: [2_000],
+    })
+    .toEqual(['active']);
 });
 
 // #2's spend half stays red until a merchant can spend a balance in the running app. The only spend of a settlement

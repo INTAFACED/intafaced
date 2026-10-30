@@ -172,9 +172,13 @@ describe('payout destination lock', () => {
   it('refuses a payout when nothing verified is stored and posts nothing', async () => {
     const owner = randomUUID();
     const { merchant, settlement } = await settled(owner, 'w-missing');
-    await book.persist({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
     await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: RAIL })).rejects.toMatchObject({
       code: 'pay.payout_destination_missing',
+    });
+    await book.persist({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+    // J-merchant-02 #5: a saved, unverified destination refuses with its own code.
+    await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_unverified',
     });
     const [row] = await sql<Array<{ verified: boolean; ref: string }>>`
       SELECT verified, ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
@@ -239,7 +243,16 @@ describe('payout destination lock', () => {
       ref: A,
       stepUpApprovalId: 'ok',
     });
-    expect(added.status).toBe('active');
+    expect(added).toEqual({ status: 'held', railId: RAIL, kind: 'crypto', ref: A, activatesAt: '2026-10-17T01:00:00.000Z' });
+    // Held: refused before any admission or hold; nothing moves.
+    await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_held',
+      detail: { activatesAt: '2026-10-17T01:00:00.000Z' },
+    });
+    expect(await sql`SELECT 1 FROM pay.payout_admissions`).toHaveLength(0);
+    expect(holds()).toEqual([]);
+    expect(chain.outboundTransfers()).toEqual([]);
+    now = new Date('2026-10-17T01:00:00.000Z');
     const pending = await change.set({
       caller: person,
       merchantId: merchant.id,
@@ -265,7 +278,7 @@ describe('payout destination lock', () => {
     chain.credit({ address: againAddress, assetId: 'USDT', amount: amt('10'), from: '0xbuyer', confirmations: 12 });
     await pay.authorize(again.id);
     await pay.capture(again.id);
-    now = new Date('2026-10-17T01:00:00.000Z');
+    now = new Date('2026-10-17T02:00:00.000Z');
     const second = await pay.settleWindow({
       merchantId: merchant.id,
       window: 'w-hold-2',
@@ -351,5 +364,138 @@ describe('payout destination lock', () => {
       removed: true,
     });
     expect(await sql`SELECT id FROM pay.merchant_payout_destinations WHERE id = ${row!.id}`).toHaveLength(0);
+  });
+
+  it('J-merchant-02 #5 through the router: saved Unverified, verified into the hold, Active at activatesAt, one row throughout', async () => {
+    const previousHold = process.env.PAY_DESTINATION_HOLD_SECONDS;
+    process.env.PAY_DESTINATION_HOLD_SECONDS = '45';
+    try {
+      // The router's change door runs on the wall clock, so the store and the list read share it here.
+      now = new Date();
+      const clocked = new PayService(
+        sql,
+        ledger,
+        new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]),
+        {
+          payoutDestinations: book,
+          checkoutRiskBand: 'low',
+          linkDefaultTtlDays: 30,
+          linkMaxTtlDays: 365,
+          checkoutSessionTtlSeconds: 900,
+          maxOpenSessionsPerLink: 25,
+          now: () => now,
+        },
+      );
+      const owner = randomUUID();
+      const merchant = await clocked.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+      const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+      const caller = createPayRouter(
+        clocked,
+        rails,
+        new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] }),
+        null,
+        book,
+        acceptingApprovals(),
+        null,
+        undefined,
+        sql,
+      ).createCaller(await ownerContext(owner));
+      const list = async () => (await caller.merchant.payoutDestinations.list({ merchantId: merchant.id, limit: 10 })).items;
+
+      const saved = await caller.merchant.payoutDestinations.add({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+      expect(saved).toEqual({ status: 'unverified', railId: RAIL, kind: 'crypto', ref: A, activatesAt: null });
+      const [unverified] = await list();
+      expect(unverified).toMatchObject({ railId: RAIL, kind: 'crypto', state: 'unverified', activatesAt: null });
+      await expect(book.require({ merchantId: merchant.id, railId: RAIL })).rejects.toMatchObject({
+        code: 'pay.payout_destination_unverified',
+      });
+
+      const verified = await caller.merchant.setPayoutDestination({
+        merchantId: merchant.id,
+        railId: RAIL,
+        kind: 'crypto',
+        ref: A,
+        stepUpApprovalId: 'ok',
+      });
+      expect(verified.status).toBe('held');
+      const [verifiedAt] = await sql<Array<{ verified_at: Date; activates_at: Date }>>`
+        SELECT verified_at, activates_at FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}
+      `;
+      expect(verifiedAt!.activates_at.getTime() - verifiedAt!.verified_at.getTime()).toBe(45_000);
+      expect(verified.activatesAt).toBe(verifiedAt!.activates_at.toISOString());
+      const [held] = await list();
+      expect(held).toEqual({ ...unverified, state: 'held', activatesAt: verified.activatesAt });
+      // Verifying again keeps the first end.
+      expect(
+        await caller.merchant.setPayoutDestination({
+          merchantId: merchant.id,
+          railId: RAIL,
+          kind: 'crypto',
+          ref: A,
+          stepUpApprovalId: 'ok-2',
+        }),
+      ).toEqual(verified);
+      // A save over a verified destination is refused and changes nothing.
+      expect(
+        await refused(caller.merchant.payoutDestinations.add({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: B })),
+      ).toEqual({
+        trpc: 'CONFLICT',
+        pay: 'pay.payout_destination_verified_locked',
+      });
+
+      now = new Date(Date.parse(verified.activatesAt!) - 1);
+      expect((await list())[0]?.state).toBe('held');
+      now = new Date(verified.activatesAt!);
+      const [active] = await list();
+      expect(active).toEqual({ ...unverified, state: 'active', activatesAt: null });
+      expect(await book.require({ merchantId: merchant.id, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
+    } finally {
+      if (previousHold === undefined) delete process.env.PAY_DESTINATION_HOLD_SECONDS;
+      else process.env.PAY_DESTINATION_HOLD_SECONDS = previousHold;
+    }
+  });
+
+  it('an unverified save never replaces a destination a payout still names, and clears the old default mark', async () => {
+    const owner = randomUUID();
+    const { merchant, settlement } = await settled(owner, 'w-replace');
+    await book.persist({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+    const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+    const caller = createPayRouter(
+      pay,
+      rails,
+      new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] }),
+      null,
+      book,
+      acceptingApprovals(),
+      null,
+      undefined,
+      sql,
+    ).createCaller(await ownerContext(owner));
+    const [row] = await sql<Array<{ id: string }>>`SELECT id FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`;
+    await caller.merchant.payoutDestinations.setDefault({ merchantId: merchant.id, destinationId: row!.id });
+    await sql`
+      INSERT INTO pay.control_payout_approvals (
+        merchant_id, settlement_id, asset_code, amount, rail_id, destination_kind, destination_ref,
+        payload_hash, status, founder_required, maker_user_id, expires_at
+      ) VALUES (
+        ${merchant.id}, ${settlement.id}, 'USDT', 1, ${RAIL}, 'crypto', ${A},
+        ${'sha256:' + 'cd'.repeat(32)}, 'pending', false, ${owner}, ${new Date(Date.now() + 3_600_000)}
+      )`;
+    expect(
+      await refused(caller.merchant.payoutDestinations.add({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: B })),
+    ).toEqual({
+      trpc: 'CONFLICT',
+      pay: 'pay.payout_destination_in_flight',
+    });
+    expect(await sql`SELECT ref, is_default FROM pay.merchant_payout_destinations WHERE id = ${row!.id}`).toEqual([
+      { ref: A, is_default: true },
+    ]);
+    await sql`UPDATE pay.control_payout_approvals SET status = 'voided' WHERE merchant_id = ${merchant.id}`;
+    expect(await caller.merchant.payoutDestinations.add({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: B })).toMatchObject({
+      status: 'unverified',
+      ref: B,
+    });
+    const [after] = (await caller.merchant.payoutDestinations.list({ merchantId: merchant.id, limit: 10 })).items;
+    expect(after).toMatchObject({ id: row!.id, state: 'unverified', defaultFlag: 'unset' });
   });
 });
