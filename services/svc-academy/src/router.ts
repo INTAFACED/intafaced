@@ -133,6 +133,10 @@ import {
   academyCourseQuizReviewsSchema,
   academyScoreCourseQuizEssaysInputSchema,
   academyCourseQuizAttemptsSchema,
+  academyCurveCourseQuizInputSchema,
+  academyCurveCourseQuizResultSchema,
+  academyCourseQuizAnalyticsSchema,
+  academyCourseQuizAnswersSchema,
   academyFixCourseQuizKeyInputSchema,
   academyRescoreCourseQuizInputSchema,
   academyRescoreCourseQuizResultSchema,
@@ -1023,6 +1027,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.upload_incomplete':
     case 'academy.file_unavailable':
     case 'academy.grader_lease_unset':
+    case 'academy.bulk_limit_unset':
     case 'academy.programme_limit_unset':
     case 'academy.post_limit_unset':
     case 'academy.attachment_limit_unset':
@@ -1072,6 +1077,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.grade_invalid':
     case 'academy.key_fix_invalid':
     case 'academy.bulk_file_invalid':
+    case 'academy.bulk_file_too_large':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -3412,6 +3418,28 @@ export function createAcademyRouter(
         .output(academyRescoreCourseQuizResultSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseQuizTrail.rescore({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: a curve file by alias; a dry run writes nothing, applying writes all rows or none. */
+      curveCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCurveCourseQuizInputSchema)
+        .output(academyCurveCourseQuizResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.curve({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: item analysis and the score distribution from real graded attempts. */
+      courseQuizAnalytics: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAnalyticsSchema)
+        .query(({ input }) => guard(() => academy.courseQuizAnalytics.analytics(input.itemId))),
+
+      /** AC-quizzes-04: answers learner by learner; needs the data researcher role (AC-roles-01). */
+      courseQuizAnswers: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAnswersSchema)
+        .query(({ input, ctx }) =>
+          guard(() => academy.courseQuizAnalytics.answers({ itemId: input.itemId, operatorId: ctx.principal!.userId })),
         ),
 
       /** AC-quizzes-04: one question's points on a graded attempt, `override:<attempt>:<question>:<n>`, with a reason. */

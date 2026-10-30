@@ -368,7 +368,7 @@ export type AcademyOverrideCourseQuizScoreInput = z.infer<typeof academyOverride
 
 export const academyCourseQuizScoreEventSchema = z.object({
   n: z.number().int().positive(),
-  kind: z.enum(['override', 'rescore']),
+  kind: z.enum(['override', 'rescore', 'curve']),
   questionId: z.string().nullable(),
   revision: z.number().int().positive().nullable(),
   previousScore: z.number().int().nonnegative(),
@@ -421,3 +421,99 @@ export const academyRescoreCourseQuizResultSchema = z.object({
   attempts: academyCourseQuizAttemptsSchema,
 });
 export type AcademyRescoreCourseQuizResult = z.infer<typeof academyRescoreCourseQuizResultSchema>;
+
+/**
+ * `admin.curveCourseQuiz`: a CSV file of new total scores, a header `learner,score` and one row per learner by the alias
+ * staff see ("Learner 3" or "3"), applied to that learner's newest graded attempt. A dry run lists every row it would
+ * change and every row it refuses (an unknown learner, a score above the maximum, an attempt waiting for an essay
+ * score) and writes nothing. Applying refuses the whole file (`academy.bulk_file_invalid`) while any row is refused, so
+ * a curve applies whole or not at all, in one transaction, each row an event keyed by the file's sha256 and its line. The
+ * same file again answers with what it applied. The file's size limit is an owner value: blank refuses
+ * `academy.bulk_limit_unset`, and a larger file refuses `academy.bulk_file_too_large` before it is read.
+ */
+export const ACADEMY_CURVE_FILE_MAX_CHARS = 900_000;
+export const academyCurveCourseQuizInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    fileName: z.string().trim().min(1).max(200),
+    csv: z.string().min(1).max(ACADEMY_CURVE_FILE_MAX_CHARS),
+    dryRun: z.boolean(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyCurveCourseQuizInput = z.infer<typeof academyCurveCourseQuizInputSchema>;
+export const academyCurveCourseQuizResultSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  fileName: z.string().min(1),
+  dryRun: z.boolean(),
+  /** True when this file was applied before: the rows are what it applied then, and nothing changed now. */
+  repeated: z.boolean(),
+  /** True when the rows below were written now. */
+  applied: z.boolean(),
+  rows: z.array(
+    z.object({
+      line: z.number().int().positive(),
+      alias: z.number().int().positive(),
+      number: z.number().int().positive(),
+      from: z.number().int().nonnegative(),
+      to: z.number().int().nonnegative(),
+    }),
+  ),
+  rejected: z.array(
+    z.object({
+      line: z.number().int().positive(),
+      alias: z.number().int().positive().nullable(),
+      code: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ),
+});
+export type AcademyCurveCourseQuizResult = z.infer<typeof academyCurveCourseQuizResultSchema>;
+
+/**
+ * `admin.courseQuizAnalytics`: item analysis and the score distribution, worked out from real graded attempts as their
+ * score trail leaves them, never an invented figure. With no graded attempt, `graded` is 0, the distribution is empty and
+ * every item has no answers. Shares are percentages as decimal strings with one place; null with nothing to divide by.
+ * Answers learner by learner are `admin.courseQuizAnswers`, which needs the data researcher role (AC-roles-01).
+ */
+export const academyCourseQuizAnalyticsSchema = z.object({
+  itemId: z.string().guid(),
+  title: z.string(),
+  revision: z.number().int().nonnegative(),
+  graded: z.number().int().nonnegative(),
+  learners: z.number().int().nonnegative(),
+  /** How many graded attempts finished at each total, from 0 to the highest maximum; empty with none graded. */
+  scoreDistribution: z.array(z.object({ score: z.number().int().nonnegative(), count: z.number().int().nonnegative() })),
+  items: z.array(
+    z.object({
+      questionId: z.string(),
+      prompt: z.string(),
+      kind: z.enum(['single', 'multi', 'numeric', 'essay']),
+      points: z.number().int().positive(),
+      /** Graded attempts that hold this question. */
+      attempts: z.number().int().nonnegative(),
+      /** Share of those that earned the question's full points: its difficulty as the share who got it right. */
+      fullMarksShare: z.string().nullable(),
+      /** The mean points earned, as a decimal string with two places. */
+      meanPoints: z.string().nullable(),
+      /** The same share on each learner's first attempt only. */
+      firstAttemptFullMarksShare: z.string().nullable(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAnalytics = z.infer<typeof academyCourseQuizAnalyticsSchema>;
+
+/** `admin.courseQuizAnswers`: each answer under an anonymised id; refuses `academy.permission_denied` without the role. */
+export const academyCourseQuizAnswersSchema = z.object({
+  itemId: z.string().guid(),
+  rows: z.array(
+    z.object({
+      learner: z.string(),
+      attempt: z.number().int().positive(),
+      questionId: z.string(),
+      answer: academyCourseQuizAnswerSchema.nullable(),
+      earned: z.number(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAnswers = z.infer<typeof academyCourseQuizAnswersSchema>;
