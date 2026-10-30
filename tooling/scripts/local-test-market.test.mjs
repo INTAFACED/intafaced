@@ -17,10 +17,16 @@ import {
   createPriceWalk,
   crossingSide,
   bookMid,
+  parseShift,
+  shiftedMid,
   quoteOrder,
   crossesOn,
   fromScaled,
+  HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
+  historyBudgetWait,
+  laterEdgeBudget,
+  readEdgeBudget,
   tapeWindow,
   toScaled,
   toScaledFloor,
@@ -111,6 +117,42 @@ try {
   assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
   assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
   assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
+}
+
+// 5d. The wait at the end of `history`: none while Edge says half its budget or more is left, until the window ends when
+// less is, and the whole window after the last request when Edge said nothing. Readings come from every reply's headers;
+// out-of-order replies keep the lowest remaining in a window, and a later window replaces an earlier one.
+{
+  const now = 1_000_000;
+  const headers = (h) => new Headers(h);
+  const reply = (remaining, reset = '40') =>
+    readEdgeBudget(
+      headers({ 'x-ratelimit-limit': '6000', 'x-ratelimit-remaining': String(remaining), 'x-ratelimit-reset': reset }),
+      now - 2000,
+    );
+  assert.deepEqual(reply(5160), { limit: 6000, remaining: 5160, endsAt: now + 38_000 });
+  assert.equal(readEdgeBudget(headers({ 'x-ratelimit-limit': '6000', 'x-ratelimit-reset': '40' }), now), null);
+  assert.equal(readEdgeBudget(headers({ 'x-ratelimit-limit': '0', 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1' }), now), null);
+  assert.equal(readEdgeBudget(headers({ 'x-ratelimit-limit': '6000', 'x-ratelimit-remaining': 'x', 'x-ratelimit-reset': '1' }), now), null);
+  assert.equal(readEdgeBudget(headers({}), now), null);
+
+  assert.equal(historyBudgetWait({ budget: reply(5160), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: reply(3000), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: reply(2999), lastEdgeAt: now - 2000, nowMs: now }), 38_000);
+  assert.equal(historyBudgetWait({ budget: reply(0, '1'), lastEdgeAt: now - 2000, nowMs: now }), 0);
+  assert.equal(historyBudgetWait({ budget: null, lastEdgeAt: now - 2000, nowMs: now }), HISTORY_EDGE_WINDOW_MS - 2000);
+  assert.equal(historyBudgetWait({ budget: null, lastEdgeAt: 0, nowMs: now }), 0);
+
+  // A slow reply counted first arrives last: the lower remaining in the same window stays.
+  const counted2nd = reply(2998);
+  const counted1st = reply(2999);
+  assert.equal(laterEdgeBudget(laterEdgeBudget(null, counted2nd), counted1st), counted2nd);
+  assert.equal(laterEdgeBudget(counted2nd, null), counted2nd);
+  // A reply from the next window replaces the old window's low figure, and an old window's late reply does not return.
+  const next = readEdgeBudget(headers({ 'x-ratelimit-limit': '6000', 'x-ratelimit-remaining': '5990', 'x-ratelimit-reset': '60' }), now);
+  const old = readEdgeBudget(headers({ 'x-ratelimit-limit': '6000', 'x-ratelimit-remaining': '10', 'x-ratelimit-reset': '0' }), now);
+  assert.equal(laterEdgeBudget(old, next), next);
+  assert.equal(laterEdgeBudget(next, old), next);
 }
 
 // 6. Decimal helpers round-trip and refuse non-decimal text.
@@ -420,3 +462,19 @@ try {
 }
 
 console.log('local-test-market: supervision and exit-logging checks passed');
+
+// `move`: a percent becomes whole basis points within -50% to +100%; the walk mid moves by it, floored to the tick.
+assert.equal(parseShift('+2%'), 200n);
+assert.equal(parseShift('-6%'), -600n);
+assert.equal(parseShift('0.5%'), 50n);
+assert.equal(parseShift('0%'), 0n);
+assert.equal(parseShift('-50%'), -5000n);
+assert.equal(parseShift('-51%'), null);
+assert.equal(parseShift('101%'), null);
+assert.equal(parseShift('2'), null);
+assert.equal(parseShift('1.234%'), null);
+assert.equal(parseShift(undefined), null);
+assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02'));
+assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
+assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
+assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));

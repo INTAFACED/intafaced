@@ -155,10 +155,23 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_name_taken': 'You already have a key with this name. Choose another name.',
   'identity.key_expiry_invalid': 'Choose an end date in the future.',
   'identity.key_cap_unset': 'API keys cannot be made yet. The number of keys an account may hold is not set.',
+  'identity.key_signing_unset': 'Keys that place orders cannot be made yet. They sign every request, and request signing is not set up.',
   'identity.key_cap_reached': 'This account holds as many API keys as it may. Revoke one to make another.',
   'identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
+  'auth.request_unsigned': 'This key signs every request. Add the timestamp, nonce and signature headers.',
+  'auth.request_stale': 'The request was signed longer ago than the timestamp window. Check your clock and sign it again.',
+  'auth.request_future': 'The request is timestamped ahead of the server clock by more than the window. Check your clock.',
+  'auth.request_tampered': 'The signature does not match the request. Sign exactly the method, path, body and headers you send.',
+  'auth.request_replay': 'This nonce was already used. Use a new nonce for every request.',
+  'auth.request_window_unset': 'Signed requests are refused for now: the timestamp window is not set.',
+  'auth.api_key_revoked': 'This key was revoked. Make a new key.',
+  'auth.api_key_expired': 'This key has passed its end date. Make a new key.',
   'auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys.',
   'auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key.',
+  'auth.delegate_cannot_grant': 'An API key cannot create or change keys, including its own end date. Sign in on a device.',
+  'identity.key_not_found': 'No key with this id is on your account.',
+  'identity.key_not_live': 'This key is revoked or has ended. Make a new key instead.',
+  'identity.key_revoke_reason_invalid': 'Use a reason of at most 200 characters, with no control characters.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

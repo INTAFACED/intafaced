@@ -31,6 +31,41 @@
       "value": "[{\"code\":\"compliance_hold\",\"reason\":\"TEST: this was switched off after a compliance review.\",\"guidance\":\"TEST: ask Support what the review found.\"}]",
       "note": "TEST: one reason compliance can switch a capability off for, so the switch-off and its refusals can be shown (J-identity-08 #6)."
     },
+    "IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY": {
+      "service": "identity",
+      "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
+      "note": "TEST: accepted ID types for DE and US only, so another country reads not published (J-identity-08 #2)."
+    },
+    "IDENTITY_REQUEST_SIGN_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "300",
+      "note": "LOCAL TEST ONLY, not an owner decision: a five-minute request-signing timestamp window, so a request signed 305 seconds ago is stale and the clock check passes inside it (J-developer-04 #2, J-developer-02 #6)."
+    },
+    "IDENTITY_KYC_UPLOAD_MAX_BYTES": {
+      "service": "identity",
+      "value": "262144",
+      "note": "TEST: a 256 KiB cap on the ID photo, under the edge body limit, so an over-size file is refused naming the cap (J-identity-08 #2)."
+    },
+    "IDENTITY_KYC_UPLOAD_TYPES": {
+      "service": "identity",
+      "value": "image/jpeg,image/png,application/pdf",
+      "note": "TEST: the ID photo may be JPEG, PNG or PDF (J-identity-08 #2)."
+    },
+    "IDENTITY_KYC_POA_MAX_AGE_DAYS": {
+      "service": "identity",
+      "value": "90",
+      "note": "TEST: a proof of address may be at most 90 days old (J-identity-08 #5)."
+    },
+    "IDENTITY_KYC_POA_TYPES_BY_COUNTRY": {
+      "service": "identity",
+      "value": "{\"DE\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill (gas, power, water)\"},{\"type\":\"bank_statement\",\"label\":\"TEST: Bank statement\"}],\"rejected\":[{\"type\":\"screenshot\",\"label\":\"TEST: Screenshots\"},{\"type\":\"mobile_bill\",\"label\":\"TEST: Mobile phone bills\"}]},\"FR\":{\"accepted\":[{\"type\":\"utility_bill\",\"label\":\"TEST: Utility bill\"}],\"rejected\":[]}}",
+      "note": "TEST: accepted and refused proof-of-address documents for DE and FR only (J-identity-08 #5)."
+    },
+    "IDENTITY_KYC_HANDOFF_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "TEST: a phone hand-off link for the selfie lasts ten minutes (J-identity-08 #3)."
+    },
     "IDENTITY_KYC_MAX_DENIALS": {
       "service": "identity",
       "value": "2",
@@ -50,6 +85,11 @@
       "service": "identity",
       "value": "20",
       "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
+    },
+    "IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "A person's own freeze can be lifted twenty seconds after it was applied, so the journey sees a too-soon refusal with the seconds left and then a lift after step-up (J-identity-11 #4)."
     },
     "IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS": {
       "service": "identity",
@@ -180,6 +220,16 @@
       "service": "identity",
       "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
       "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
+    },
+    "IDENTITY_HANDLE_CHANGE_MAX": {
+      "service": "identity",
+      "value": "3",
+      "note": "TEST: a person may change their handle three times in the life of the account, so the receive card shows the changes left and the cap refusal can be reached (J-pay-03 #2)."
+    },
+    "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
+      "service": "identity",
+      "value": "7776000",
+      "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
     }
   }
 }

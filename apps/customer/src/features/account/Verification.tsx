@@ -8,7 +8,11 @@ import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
+import { VerificationCapabilityRefused, VerificationRestrictions } from './VerificationRestrictions';
 import { VerificationAttempts } from './VerificationAttempts';
+import { VerificationGuided } from './VerificationGuided';
+import { VerificationProofOfAddress } from './VerificationProofOfAddress';
+import { VerificationSelfie } from './VerificationSelfie';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -38,6 +42,8 @@ type Known = {
   refused: boolean;
   /** Set when the refusal was the attempt limit: the seconds the service said were left. */
   retryAfterSeconds?: number;
+  /** Set when the level grants a capability compliance switched off (`kyc.capability_inactive`). */
+  capabilityOff?: boolean;
   retained: boolean;
   finalized?: boolean;
 };
@@ -231,6 +237,7 @@ export function Verification() {
               local,
               ...(answer.ok ? { row: { ...answer.data } } : {}),
               ...(lockout && answer.retryAfterSeconds ? { retryAfterSeconds: answer.retryAfterSeconds } : {}),
+              ...(!answer.ok && answer.status === 409 && answer.code === 'kyc.capability_inactive' ? { capabilityOff: true } : {}),
               refused: !answer.ok,
               retained,
             },
@@ -406,6 +413,8 @@ export function Verification() {
                       <Copy k="replyBoundary" />
                     </p>
                   </>
+                ) : receipt.capabilityOff ? (
+                  <VerificationCapabilityRefused recordsKey={receipt.local.requestId} />
                 ) : receipt.retryAfterSeconds ? (
                   <p>
                     <Copy k="refusedLocked" params={{ seconds: String(receipt.retryAfterSeconds) }} />
@@ -637,7 +646,13 @@ export function Verification() {
           <Loading />
         ) : (
           <>
+            {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
+            {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
+            <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+            {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
+            <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
             <VerificationCapabilities recordsKey={casesKey} />
+            <VerificationRestrictions recordsKey={casesKey} />
             <VerificationCases
               recordsKey={casesKey}
               offered={offeredTiers}

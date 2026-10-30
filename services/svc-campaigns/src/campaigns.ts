@@ -19,16 +19,26 @@ import {
   type CampaignTasks,
   type CampaignType,
   type CampaignView,
+  type CampaignVoucher,
+  VOUCHER_LIST_LIMIT,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
   type RewardLock,
+  EARNING_TRIGGERS,
+  type EarningRule,
+  type EarningTrigger,
+  type RuleGroup,
+  type RuleLibraryEntry,
+  type RuleTestResult,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
 import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
+import { parseFormula } from './formula.js';
+import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
  * The campaign object, its type catalogue and lifecycle (CM-campaign-types-01, ENGINE LC-1 to LC-4, LC-6), with the time
@@ -43,8 +53,9 @@ import type { ParticipantSource } from './participants.js';
  *   frame, platform time zone or reward each refuses by its own code, and a parked type `owner.decision`.
  * - One person submits, a different person approves that revision (`campaigns.second_person_required`, and a CHECK in
  *   the database), and activation needs the approval (`campaigns.approval_required`). Whoever wrote the draft does not
- *   approve it either. In this version only a draft is edited, and each edit is a new revision, so a stale edit or move
- *   refuses `campaign.revision_conflict`; edits after launch come with the campaign builder (J-campaigns-16).
+ *   approve it either. Each draft edit is a new revision, so a stale edit or move refuses `campaign.revision_conflict`.
+ *   Past approval an edit is a change at revision n+1 beside the live row (`campaign_changes`, ENGINE LC-5), approved
+ *   the same way; joins and rewards keep the revision they were made under, and `campaign_revisions` keeps each one.
  * - Customer reads show times in the platform time zone: while it is blank they refuse `campaigns.timezone_unset`.
  * - A budget is a limit, never a balance. What is left is the limit less the reward intents that reserve or spent it
  *   (`campaigns.campaign_rows`, every intent not failed, forfeited or withheld; CM-payouts-ledger-02). Joining writes one
@@ -81,6 +92,9 @@ type CampaignRow = {
   reward_asset: string | null;
   reward_amount: string | null;
   tasks: CampaignTasks | null;
+  /** True while the founder has not picked the campaign's time zone; false reads the platform zone. */
+  time_zone_blank: boolean;
+  earning: EarningRule[];
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -91,7 +105,56 @@ type CampaignRow = {
   updated_at: Date;
 };
 
+/** An open change of a live campaign (ENGINE LC-5): revision n+1, beside the live row until it is approved. */
+type ChangeRow = {
+  campaign_id: string;
+  revision: number;
+  definition: CampaignDefinitionInput;
+  state: 'draft' | 'pending_approval';
+  created_by: string;
+  submitted_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type RuleRow = { name: string; revision: number; tree: RuleGroup; created_by: string; created_at: Date };
+
+const toRuleEntry = (r: RuleRow): RuleLibraryEntry => ({
+  name: r.name,
+  revision: r.revision,
+  tree: r.tree,
+  createdBy: r.created_by,
+  createdAt: r.created_at.toISOString(),
+});
+
+/** States in which a campaign is past approval and still changed by a new revision rather than edited in place. */
+const REVISABLE: readonly CampaignState[] = ['approved', 'scheduled', 'active', 'paused'];
+
 type ParticipationRow = { participation_key: string; campaign_id: string; revision: number; created_at: Date };
+type VoucherRow = {
+  id: string;
+  campaign_id: string;
+  code: string;
+  issue_key: string;
+  revision: number;
+  face_asset: string;
+  face_amount: string;
+  state: CampaignVoucher['state'];
+  issued_by: string;
+  created_at: Date;
+};
+
+const toVoucher = (v: VoucherRow): CampaignVoucher => ({
+  id: v.id,
+  campaignId: v.campaign_id,
+  code: v.code,
+  revision: v.revision,
+  face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
+  state: v.state,
+  issuedBy: v.issued_by,
+  issuedAt: v.created_at.toISOString(),
+});
+
 type ReviewRow = { review_key: string; campaign_id: string; created_at: Date };
 
 const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
@@ -183,7 +246,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
   }
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
-  if (!timeZone) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
+  if (!timeZone || row.time_zone_blank) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
   if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   if (row.budget_asset && row.reward_asset && row.budget_asset !== row.reward_asset) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
@@ -224,7 +287,7 @@ function budgetOf(r: CampaignRow): Campaign['budget'] {
   return { asset: r.budget_asset, limit, left: formatAmount(rest > 0n ? rest : 0n) };
 }
 
-function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaign {
+function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: ChangeRow | null = null): Campaign {
   return {
     id: r.id,
     name: r.name,
@@ -234,7 +297,8 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaig
     rules: r.rules,
     startsAt: r.starts_at ? iso(r.starts_at) : null,
     endsAt: r.ends_at ? iso(r.ends_at) : null,
-    timeZone,
+    timeZone: r.time_zone_blank ? null : timeZone,
+    timeZoneBlank: r.time_zone_blank,
     windows: {
       weekdays: r.weekdays,
       hours: r.hours_from && r.hours_to ? { from: r.hours_from, to: r.hours_to } : null,
@@ -243,12 +307,88 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaig
     budget: budgetOf(r),
     reward: r.reward_asset && r.reward_amount !== null ? { asset: r.reward_asset, amount: decimalOf(r.reward_amount) } : null,
     tasks: r.tasks,
+    earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
     approvedBy: r.approved_by,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
+    pendingChange: change
+      ? {
+          revision: change.revision,
+          state: change.state,
+          createdBy: change.created_by,
+          submittedBy: change.submitted_by,
+          definition: change.definition,
+          updatedAt: iso(change.updated_at),
+        }
+      : null,
   };
+}
+
+/** A parsed definition as the update door takes it, so a stored change reads back through the same parser. */
+function inputOf(d: Definition): CampaignDefinitionInput {
+  return {
+    name: d.name,
+    type: d.type,
+    rules: d.rules,
+    startsAt: d.startsAt ? iso(d.startsAt) : null,
+    endsAt: d.endsAt ? iso(d.endsAt) : null,
+    weekdays: d.weekdays,
+    hours: d.hoursFrom && d.hoursTo ? { from: d.hoursFrom, to: d.hoursTo } : null,
+    participation: d.participation,
+    budget: d.budgetAsset && d.budgetLimit ? { asset: d.budgetAsset, limit: d.budgetLimit } : null,
+    reward: d.rewardAsset && d.rewardAmount ? { asset: d.rewardAsset, amount: d.rewardAmount } : null,
+    tasks: d.tasks,
+    ...(d.earning.length > 0 ? { earning: d.earning } : {}),
+    // Blank stays blank; otherwise left out, which reads the platform zone.
+    ...(d.timeZoneBlank ? { timeZone: null } : {}),
+  };
+}
+
+/** The live row with a definition laid over it: what the gate reads for a change before it goes live. */
+function rowWith(r: CampaignRow, d: Definition): CampaignRow {
+  return {
+    ...r,
+    name: d.name,
+    type: d.type,
+    rules: d.rules,
+    starts_at: d.startsAt,
+    ends_at: d.endsAt,
+    weekdays: d.weekdays,
+    hours_from: d.hoursFrom,
+    hours_to: d.hoursTo,
+    participation: d.participation,
+    budget_asset: d.budgetAsset,
+    budget_limit: d.budgetLimit,
+    reward_asset: d.rewardAsset,
+    reward_amount: d.rewardAmount,
+    tasks: d.tasks,
+    time_zone_blank: d.timeZoneBlank,
+    earning: d.earning,
+  };
+}
+
+/** The live row's own definition, for the revision history. */
+function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
+  return inputOf({
+    name: r.name,
+    type: r.type,
+    rules: r.rules,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    weekdays: r.weekdays,
+    hoursFrom: r.hours_from,
+    hoursTo: r.hours_to,
+    participation: r.participation,
+    budgetAsset: r.budget_asset,
+    budgetLimit: r.budget_limit === null ? null : decimalOf(r.budget_limit),
+    rewardAsset: r.reward_asset,
+    rewardAmount: r.reward_amount === null ? null : decimalOf(r.reward_amount),
+    tasks: r.tasks,
+    timeZoneBlank: r.time_zone_blank,
+    earning: r.earning,
+  });
 }
 
 function toParticipation(r: ParticipationRow): Participation {
@@ -291,7 +431,8 @@ function toView(
 const isOpen = (state: CampaignState) => state === 'active' || state === 'paused' || state === 'scheduled';
 
 /** Whether a campaign's rules need identity's answer at all. A campaign open to every signed-in account does not. */
-export const needsParticipant = (rules: ParticipationRules) => rules.exclusions.length > 0 || rules.regionScope === 'listed';
+export const needsParticipant = (rules: ParticipationRules) =>
+  rules.exclusions.length > 0 || rules.regionScope === 'listed' || Boolean(rules.rule);
 
 /**
  * The caller's answer for one rule set (ENGINE EL-1 to EL-3, EL-6). Null participant is `unread`. A frozen or closed
@@ -307,6 +448,8 @@ export function eligibilityOf(rules: ParticipationRules, who: CampaignParticipan
   if (rules.regionScope === 'listed' && (!who.region || (rules.restrictedRegions ?? []).includes(who.region))) {
     return 'region_blocked';
   }
+  // A library rule (CM-eligibility-rules-02) the account does not meet leaves it out like an exclusion does.
+  if (rules.rule && !evaluateRule(rules.rule.tree, who).passes) return 'not_eligible';
   return 'eligible';
 }
 
@@ -317,6 +460,7 @@ const ELIGIBILITY_REFUSAL = {
 } as const;
 
 export const participationKeyOf = (campaignId: string, accountId: string) => `campaign:join:${campaignId}:${accountId}`;
+export const voucherKeyOf = (campaignId: string, code: string) => `voucher:issue:${campaignId}:${code}`;
 export const reviewKeyOf = (campaignId: string, accountId: string) => `campaign:review:${campaignId}:${accountId}`;
 
 /** What each move needs and where it goes. `activate` lands on scheduled or active by the start time. */
@@ -326,9 +470,9 @@ const MOVES: Record<CampaignAction, { from: readonly CampaignState[]; to: Campai
   activate: { from: ['approved'], to: 'active' },
   pause: { from: ['active'], to: 'paused' },
   resume: { from: ['paused'], to: 'active' },
-  end: { from: ['active', 'paused'], to: 'ended' },
+  end: { from: ['scheduled', 'active', 'paused'], to: 'ended' },
   close: { from: ['ended'], to: 'closed' },
-  archive: { from: ['draft', 'pending_approval', 'approved', 'scheduled', 'paused', 'ended', 'closed'], to: 'archived' },
+  archive: { from: ['draft', 'pending_approval', 'approved', 'ended', 'closed'], to: 'archived' },
 };
 
 type Definition = {
@@ -346,10 +490,29 @@ type Definition = {
   rewardAsset: string | null;
   rewardAmount: string | null;
   tasks: CampaignTasks | null;
+  timeZoneBlank: boolean;
+  earning: EarningRule[];
 };
 
+/**
+ * The campaign's time zone. Absent: the platform zone (every caller before the builder). Null or blank: not picked yet,
+ * which the gate names `campaigns.timezone_unset`. A name: in this version windows are read in the platform zone only,
+ * so any other zone refuses `campaigns.timezone_not_platform`, and with the platform zone blank none can be picked.
+ */
+function parseCampaignZone(raw: string | null | undefined, platform: string | null): boolean {
+  if (raw === undefined) return false;
+  const value = raw?.trim() ?? '';
+  if (!value) return true;
+  if (!platform)
+    throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set, so no campaign time zone can be picked');
+  if (value !== platform) {
+    throw new CampaignsError('campaigns.timezone_not_platform', `Campaigns run in the platform time zone, ${platform}, in this version`);
+  }
+  return false;
+}
+
 /** An operator definition, read field by field. Blanks stay blank for the gate to name; a malformed value refuses now. */
-export function parseDefinition(input: CampaignDefinitionInput): Definition {
+export function parseDefinition(input: CampaignDefinitionInput, platformZone: string | null): Definition {
   const type = input.type.trim();
   if (!(CAMPAIGN_TYPES as readonly string[]).includes(type)) {
     throw new CampaignsError('campaign.type_unknown', `Unknown campaign type: ${type || 'blank'}`);
@@ -390,7 +553,26 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
     rewardAsset: rewardAsset && rewardAmount ? rewardAsset : null,
     rewardAmount: rewardAsset && rewardAmount ? rewardAmount : null,
     tasks,
+    timeZoneBlank: parseCampaignZone(input.timeZone, platformZone),
+    earning: parseEarning(input.earning ?? []),
   };
+}
+
+/**
+ * Earning rules (CM-rewards-hub-05): a trigger from the closed catalogue, one name per rule, and a formula in the
+ * grammar, read against the names that trigger has. Stored as written, trimmed.
+ */
+function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
+  const seen = new Set<string>();
+  return rules.map((r) => {
+    const trigger = EARNING_TRIGGERS[r.trigger as EarningTrigger];
+    if (!trigger) throw new CampaignsError('campaigns.trigger_unknown', `"${r.trigger}" is not a trigger in the catalogue`);
+    const name = r.name.trim();
+    if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
+    seen.add(name.toLowerCase());
+    parseFormula(r.formula, trigger.names);
+    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+  });
 }
 
 /** How the reward is given, stored the same way every time: a bonus's products in the closed list's order, once each. */
@@ -447,6 +629,8 @@ function parseParticipation(input: ParticipationRules): ParticipationRules {
     exclusions: [...new Set(input.exclusions)].sort(),
     regionScope: input.regionScope,
     restrictedRegions: input.regionScope === 'listed' && regions.length > 0 ? regions : null,
+    // Only a campaign with a rule stores the key, so rules without one store as they always did.
+    ...(input.rule ? { rule: input.rule } : {}),
   };
 }
 
@@ -468,7 +652,9 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     amount(r.budget_limit) === amount(d.budgetLimit) &&
     r.reward_asset === d.rewardAsset &&
     amount(r.reward_amount) === amount(d.rewardAmount) &&
-    canonical(r.tasks) === canonical(d.tasks)
+    canonical(r.tasks) === canonical(d.tasks) &&
+    canonical(r.earning) === canonical(d.earning) &&
+    r.time_zone_blank === d.timeZoneBlank
   );
 }
 
@@ -489,6 +675,8 @@ export interface CampaignServiceOptions {
   timeZone: () => string | null;
   /** svc-identity's participant read, per check. Null answers read `unread`. */
   participants: ParticipantSource;
+  /** The owner's rule depth and size limits (CM-eligibility-rules-02); blank refuses every rule. */
+  ruleLimits?: () => RuleLimits;
   now?: () => Date;
 }
 
@@ -497,9 +685,11 @@ export class CampaignService {
   private readonly now: () => Date;
   private readonly timeZone: () => string | null;
   private readonly participants: ParticipantSource;
+  private readonly ruleLimits: () => RuleLimits;
 
   constructor(options: CampaignServiceOptions) {
     this.sql = options.sql;
+    this.ruleLimits = options.ruleLimits ?? (() => ({ depth: null, size: null }));
     this.participants = options.participants;
     this.now = options.now ?? (() => new Date());
     this.timeZone = options.timeZone;
@@ -512,16 +702,17 @@ export class CampaignService {
    * draft gets that draft back (a lost reply); anyone else, or a name in use past draft, refuses `campaign.name_taken`.
    */
   async create(input: { definition: CampaignDefinitionInput; actor: string }): Promise<Campaign> {
-    const d = parseDefinition(input.definition);
+    const d = parseDefinition(input.definition, this.timeZone());
     const id = `cmp_${randomUUID()}`;
     try {
       return await transaction(this.sql, async (tx) => {
+        await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -537,21 +728,33 @@ export class CampaignService {
     }
   }
 
-  /** Replaces a draft's definition. Past draft a definition does not change in this version (`campaign.not_draft`). */
+  /**
+   * Replaces a draft's definition, as a new revision. Past approval (approved, scheduled, active or paused) the live row
+   * stays as it is and the edit is a change at revision n+1 that a second person approves (ENGINE LC-5); its type stays,
+   * and its budget never drops below what its rewards already draw. Anywhere else refuses `campaign.not_draft`.
+   */
   async update(input: { id: string; revision: number; definition: CampaignDefinitionInput; actor: string }): Promise<Campaign> {
-    const d = parseDefinition(input.definition);
+    const d = parseDefinition(input.definition, this.timeZone());
     try {
       return await transaction(this.sql, async (tx) => {
-        const row = await this.lock(tx, input.id, input.revision);
-        if (row.state !== 'draft') {
-          throw new CampaignsError('campaign.not_draft', 'Only a draft is edited; a live campaign is changed by a new revision');
+        const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`;
+        if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+        const state = effectiveState(row, this.now());
+        if (REVISABLE.includes(state)) return await this.change(tx, row, d, input);
+        if (row.revision !== input.revision) {
+          throw new CampaignsError('campaign.revision_conflict', `The campaign is at revision ${row.revision}, not ${input.revision}`);
         }
+        if (row.state !== 'draft') {
+          throw new CampaignsError('campaign.not_draft', `A campaign that is ${state} is not edited`);
+        }
+        await this.checkCampaignRule(tx, d);
         const [out] = await tx<CampaignRow[]>`
           UPDATE campaigns.campaigns SET name = ${d.name}, type = ${d.type}, rules = ${d.rules}, starts_at = ${d.startsAt},
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null},
+            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -564,11 +767,120 @@ export class CampaignService {
     }
   }
 
+  /** Writes the open change of a live campaign at the next revision; an edit sent for approval goes back to draft. */
+  private async change(
+    tx: Sql,
+    row: CampaignRow,
+    d: Definition,
+    input: { id: string; revision: number; actor: string },
+  ): Promise<Campaign> {
+    const [open] = await tx<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${row.id} FOR UPDATE`;
+    const expected = open ? open.revision : row.revision;
+    if (input.revision !== expected) {
+      throw new CampaignsError('campaign.revision_conflict', `The campaign's latest revision is ${expected}, not ${input.revision}`);
+    }
+    if (d.type !== row.type) throw new CampaignsError('campaign.type_locked', 'A live campaign keeps its type');
+    await this.checkCampaignRule(tx, d);
+    await this.checkChange(tx, row, d);
+    const definition = tx.json(inputOf(d) as unknown as postgres.JSONValue);
+    const [out] = await tx<ChangeRow[]>`
+      INSERT INTO campaigns.campaign_changes (campaign_id, revision, definition, state, created_by)
+      VALUES (${row.id}, ${expected + 1}, ${definition}, 'draft', ${input.actor})
+      ON CONFLICT (campaign_id) DO UPDATE SET revision = EXCLUDED.revision, definition = EXCLUDED.definition, state = 'draft',
+        created_by = EXCLUDED.created_by, submitted_by = NULL, updated_at = now()
+      RETURNING *`;
+    await audit(tx, input.actor, 'campaign.change', row.id, { revision: out!.revision, live: row.revision });
+    const [read] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+    return toCampaign(read!, this.timeZone(), this.now(), out!);
+  }
+
+  /**
+   * What a change must still meet when it is written and again when it goes live, since rewards draw and names are taken
+   * in between: its budget is not below what the campaign's rewards already draw, and no other campaign has its name.
+   */
+  private async checkChange(tx: Sql, row: CampaignRow, d: Definition): Promise<void> {
+    const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+    if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
+      throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
+    }
+    const [other] = await tx<{ id: string }[]>`
+      SELECT id FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived' AND id <> ${row.id}`;
+    if (other) throw new CampaignsError('campaign.name_taken', 'Another campaign already uses this name');
+  }
+
+  /**
+   * A move of an open change: `submit` asks for approval of it (the gate reads the change), `approve` by a second person
+   * puts it live as the campaign's revision and keeps the revision it replaced in the history. Nothing else moves a change.
+   */
+  private async moveChange(tx: Sql, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
+    const timeZone = this.timeZone();
+    const now = this.now();
+    const d = parseDefinition(open.definition, timeZone);
+    const merged = rowWith(row, d);
+    const read = async (change: ChangeRow | null) => {
+      const [r] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+      return toCampaign(r!, timeZone, now, change);
+    };
+    if (action === 'submit') {
+      if (open.state === 'pending_approval') return read(open);
+      refuseGate(gateOf(merged, timeZone));
+      if (d.endsAt && d.endsAt <= now) throw new CampaignsError('campaign.invalid_transition', 'The campaign’s end time has passed');
+      const [out] = await tx<ChangeRow[]>`
+        UPDATE campaigns.campaign_changes SET state = 'pending_approval', submitted_by = ${actor}, updated_at = now()
+        WHERE campaign_id = ${row.id} RETURNING *`;
+      await audit(tx, actor, 'campaign.change.submit', row.id, { revision: open.revision });
+      return read(out!);
+    }
+    if (action !== 'approve') {
+      throw new CampaignsError(
+        'campaign.invalid_transition',
+        `Revision ${open.revision} is a change waiting to go live: it cannot ${action}`,
+      );
+    }
+    if (open.state !== 'pending_approval') {
+      throw new CampaignsError('campaign.invalid_transition', `Revision ${open.revision} has not been sent for approval`);
+    }
+    // The campaign's creator never approves it (a CHECK on the live row), so a change the other founder wrote is rewritten
+    // by the creator and approved by the other.
+    if (actor === open.created_by || actor === open.submitted_by || actor === row.created_by) {
+      throw new CampaignsError('campaigns.second_person_required', 'A second person approves; the one who wrote or asked for it cannot');
+    }
+    // The campaign may have ended, been archived or passed its end time since the change was asked for: only a running one
+    // takes it, so an approval never brings an ended campaign back.
+    const state = effectiveState(row, now);
+    if (!REVISABLE.includes(state)) {
+      throw new CampaignsError('campaign.invalid_transition', `A campaign that is ${state} takes no change`);
+    }
+    refuseGate(gateOf(merged, timeZone));
+    if (d.endsAt && d.endsAt <= now) throw new CampaignsError('campaign.invalid_transition', 'The campaign’s end time has passed');
+    await this.checkChange(tx, row, d);
+    await tx`
+      UPDATE campaigns.campaigns SET name = ${d.name}, rules = ${d.rules}, starts_at = ${d.startsAt}, ends_at = ${d.endsAt},
+        weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
+        participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
+        budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
+        tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
+        revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
+        approved_revision = ${open.revision}, updated_at = now()
+      WHERE id = ${row.id}`;
+    await tx`
+      INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+      VALUES (${row.id}, ${open.revision}, ${tx.json(open.definition as unknown as postgres.JSONValue)}, ${open.submitted_by!}, ${actor})
+      ON CONFLICT (campaign_id, revision) DO NOTHING`;
+    await tx`DELETE FROM campaigns.campaign_changes WHERE campaign_id = ${row.id}`;
+    await audit(tx, actor, 'campaign.change.approve', row.id, { revision: open.revision, replaced: row.revision });
+    return read(null);
+  }
+
   /** The gate's answer for one campaign, every blank by name. Stores nothing. */
   async validate(input: { id: string }): Promise<CampaignGate> {
     const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
-    return { missing: gateOf(row, this.timeZone()) };
+    // An open change is what would go live next, so the check reads it.
+    const [open] = await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`;
+    const timeZone = this.timeZone();
+    return { missing: gateOf(open ? rowWith(row, parseDefinition(open.definition, timeZone)) : row, timeZone) };
   }
 
   /**
@@ -578,6 +890,11 @@ export class CampaignService {
   async transition(input: { id: string; action: CampaignAction; revision: number; actor: string }): Promise<Campaign> {
     const move = MOVES[input.action];
     return transaction(this.sql, async (tx) => {
+      const [open] = await tx<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id} FOR UPDATE`;
+      if (open && open.revision === input.revision) {
+        const [live] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`;
+        return this.moveChange(tx, live!, open, input.action, input.actor);
+      }
       const row = await this.lock(tx, input.id, input.revision);
       const now = this.now();
       const current = effectiveState(row, now);
@@ -590,8 +907,18 @@ export class CampaignService {
         }
         return toCampaign(row, timeZone, now);
       }
-      if (input.action === 'archive' && current === 'active') {
-        throw new CampaignsError('campaign.archive_active', 'An active campaign cannot be archived; pause or end it first');
+      // A scheduled or paused campaign is in the catalogue too, and its customers' rewards read it: it is ended first.
+      // The same approval again, once its revision is live, returns the campaign as it is.
+      if (
+        input.action === 'approve' &&
+        row.approved_revision === row.revision &&
+        row.approved_by === input.actor &&
+        current !== 'pending_approval'
+      ) {
+        return toCampaign(row, timeZone, now, open ?? null);
+      }
+      if (input.action === 'archive' && (current === 'active' || current === 'scheduled' || current === 'paused')) {
+        throw new CampaignsError('campaign.archive_active', 'An active, paused or scheduled campaign cannot be archived; end it first');
       }
       if (input.action === 'activate' && (current === 'draft' || current === 'pending_approval')) {
         refuseGate(gateOf(row, timeZone));
@@ -628,15 +955,146 @@ export class CampaignService {
           updated_at = now()
         WHERE id = ${input.id}
         RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
+      if (input.action === 'approve') {
+        await tx`
+          INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by!},
+            ${input.actor})
+          ON CONFLICT (campaign_id, revision) DO NOTHING`;
+      }
       await audit(tx, input.actor, `campaign.${input.action}`, input.id, { from: current, to, revision: row.revision });
       return toCampaign(out!, timeZone, now);
     });
   }
 
+  // ── Rule library (CM-eligibility-rules-02, ENGINE EL-4) ─────────────────────────────────────────────────────
+
+  /** Tries a tree on a TEST fixture account. Reads no account and stores nothing. */
+  testRule(input: { tree: RuleGroup; fixture: string }): RuleTestResult {
+    return tryRule(input.tree, input.fixture, this.ruleLimits());
+  }
+
+  /** Saves a tree under a name as that name's next revision. The same tree sent again returns the revision it made. */
+  async saveRule(input: { name: string; tree: RuleGroup; actor: string }): Promise<RuleLibraryEntry> {
+    checkRule(input.tree, this.ruleLimits());
+    const name = input.name.trim();
+    return transaction(this.sql, async (tx) => {
+      // One writer per name at a time, so two saves never take the same revision.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:rule:${name.toLowerCase()}`}))`;
+      const [latest] = await tx<RuleRow[]>`
+        SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${name}) ORDER BY revision DESC LIMIT 1`;
+      if (latest && canonical(latest.tree) === canonical(input.tree)) return toRuleEntry(latest);
+      const [made] = await tx<RuleRow[]>`
+        INSERT INTO campaigns.rule_library (name, revision, tree, created_by)
+        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as unknown as postgres.JSONValue)}, ${input.actor})
+        RETURNING *`;
+      await audit(tx, input.actor, 'campaign.rule.save', made!.name, { revision: made!.revision });
+      return toRuleEntry(made!);
+    });
+  }
+
+  /** Every name's latest revision, newest first. */
+  async listRules(): Promise<RuleLibraryEntry[]> {
+    const rows = await this.sql<RuleRow[]>`
+      SELECT DISTINCT ON (lower(name)) * FROM campaigns.rule_library ORDER BY lower(name), revision DESC`;
+    return rows.map(toRuleEntry).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** A campaign's rule is a copy of one library revision, checked against the library and the limits when it is saved. */
+  private async checkCampaignRule(tx: Sql, d: Definition): Promise<void> {
+    const rule = d.participation?.rule;
+    if (!rule) return;
+    checkRule(rule.tree, this.ruleLimits());
+    const [entry] = await tx<RuleRow[]>`
+      SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${rule.name}) AND revision = ${rule.revision}`;
+    if (!entry || canonical(entry.tree) !== canonical(rule.tree)) {
+      throw new CampaignsError(
+        'campaigns.rule_unknown',
+        `The rule library holds no revision ${rule.revision} of ${rule.name} with this tree`,
+      );
+    }
+  }
+
+  // ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3) ──────────────────────────────────────────────
+
+  /**
+   * Issues (publishes) one voucher of a voucher campaign under its live revision, with that revision's reward as its face
+   * value. The campaign row is read under a share lock, so an approval of the next revision waits for the issue and the
+   * voucher never mixes two revisions. The code is the business key with the campaign: the same issue again returns the
+   * stored voucher, whoever sends it and whatever revision is live by then. Moves no value.
+   */
+  async issueVoucher(input: { campaignId: string; code: string; actor: string }): Promise<CampaignVoucher> {
+    const code = input.code.trim().toUpperCase();
+    const key = voucherKeyOf(input.campaignId, code);
+    return transaction(this.sql, async (tx) => {
+      const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
+      if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+      const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+      if (had) return toVoucher(had);
+      if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
+      const now = this.now();
+      const state = effectiveState(row, now);
+      // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
+      const ended = row.ends_at !== null && row.ends_at <= now;
+      if (ended || !REVISABLE.includes(state)) {
+        throw new CampaignsError(
+          'campaign.invalid_transition',
+          `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
+        );
+      }
+      if (!row.reward_asset || row.reward_amount === null) {
+        throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
+      }
+      // A campaign approved before revisions were recorded has no row for its live revision yet; it is recorded here from the
+      // campaign's own approval, as the first approval records it, so the voucher can name it.
+      if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
+        await tx`
+          INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+            ${row.approved_by})
+          ON CONFLICT (campaign_id, revision) DO NOTHING`;
+      }
+      const [made] = await tx<VoucherRow[]>`
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
+          ${input.actor})
+        ON CONFLICT (issue_key) DO NOTHING
+        RETURNING *`;
+      if (!made) {
+        const [raced] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+        return toVoucher(raced!);
+      }
+      await audit(tx, input.actor, 'campaign.voucher.issue', row.id, { voucher: made.id, code, revision: made.revision });
+      return toVoucher(made);
+    });
+  }
+
+  /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */
+  async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
+    const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const rows = await this.sql<VoucherRow[]>`
+      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
+    return rows.map(toVoucher);
+  }
+
+  /** One campaign as operators see it, at any age; the list is the newest 200. */
+  async getForOps(input: { id: string }): Promise<Campaign> {
+    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const [open] = await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`;
+    return toCampaign(row, this.timeZone(), this.now(), open ?? null);
+  }
+
   async listForOps(): Promise<Campaign[]> {
     const rows = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows ORDER BY created_at DESC LIMIT 200`;
+    const ids = rows.map((r) => r.id);
+    const changes = ids.length
+      ? await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id IN ${this.sql(ids)}`
+      : [];
+    const byId = new Map(changes.map((c) => [c.campaign_id, c]));
     const now = this.now();
-    return rows.map((r) => toCampaign(r, this.timeZone(), now));
+    return rows.map((r) => toCampaign(r, this.timeZone(), now, byId.get(r.id) ?? null));
   }
 
   /** The calendar (LC-6): every campaign with a time frame, by start, in the platform time zone. No state of its own. */

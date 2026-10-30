@@ -160,3 +160,10 @@ html[data-up-color='red'] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Account status (I-signin-sessions-22): the two lists side by side where there is room. */
+.account-status__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--if-space-3);
+}

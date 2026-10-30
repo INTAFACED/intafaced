@@ -70,10 +70,29 @@ export const supportCommentSchema = z.object({
   authorId: z.string().guid(),
   /** operator | user — operators use support:ops scope */
   authorRole: z.enum(['user', 'operator']),
+  /**
+   * `public` is on the request's thread for the customer; `internal` is a staff-only note (SP-tickets-05), never listed
+   * to the customer. Only an operator writes a note.
+   */
+  visibility: z.enum(['public', 'internal']),
   body: z.string().min(1).max(10_000),
   createdAt: z.string().datetime(),
 });
 export type SupportComment = z.infer<typeof supportCommentSchema>;
+
+/** The longest internal note, as long as a reply. */
+export const SUPPORT_NOTE_MAX = 10_000;
+
+/**
+ * A staff-only note on a request (SP-tickets-05). The key is the caller's: the same key again answers the first note and
+ * writes nothing. A blank body is refused by svc-support with `support.note_empty`, not by this schema.
+ */
+export const supportInternalNoteInputSchema = z.object({
+  ticketId: z.string().guid(),
+  body: z.string().max(SUPPORT_NOTE_MAX),
+  clientRequestId: z.string().min(1).max(200),
+});
+export type SupportInternalNoteInput = z.infer<typeof supportInternalNoteInputSchema>;
 
 export const createTicketInputSchema = z.object({
   category: supportTicketCategorySchema,
@@ -420,6 +439,39 @@ export const supportTicketPropertiesSchema = z.object({
   updatedAt: z.string().datetime().nullable(),
 });
 export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
+
+/**
+ * One field an agent changed on a ticket's properties, read from svc-support's property log (staff only). A save that
+ * changed priority and labels is two of these, with the same `logId`, operator, reason and time.
+ */
+const propertyChangeBase = {
+  logId: z.string().regex(/^[0-9]+$/),
+  ticketId: z.string().guid(),
+  setBy: z.string(),
+  reason: z.string().nullable(),
+  setAt: z.string().datetime(),
+};
+export const supportTicketPropertyChangeSchema = z.discriminatedUnion('field', [
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('priority'),
+    from: supportTicketPrioritySchema.nullable(),
+    to: supportTicketPrioritySchema.nullable(),
+  }),
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('type'),
+    from: supportTicketTypeSchema.nullable(),
+    to: supportTicketTypeSchema.nullable(),
+  }),
+  z.object({
+    ...propertyChangeBase,
+    field: z.literal('labels'),
+    from: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX),
+    to: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX),
+  }),
+]);
+export type SupportTicketPropertyChange = z.infer<typeof supportTicketPropertyChangeSchema>;
 
 /** Which agent-set properties a customer reads on their own request (SP-tickets-04). The owner chooses; blank refuses. */
 export const SUPPORT_CUSTOMER_PROPERTIES = ['priority', 'type'] as const;

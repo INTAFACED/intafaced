@@ -1,8 +1,10 @@
+import { SUPPORT_SIGNATURE_MAX } from '@intafaced/contracts/support-macros';
 import type { SupportKbAudience } from '@intafaced/contracts';
 import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
+import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
 /**
@@ -86,7 +88,7 @@ export type ClaimGate = { readonly ok: true } | { readonly ok: false; readonly w
 
 /**
  * Whether a ticket can be claimed by this founder. svc-support refuses stealing and claiming a closed ticket anyway;
- * this says so before the click. There is no release or reassign in svc-support, so a claim is final from here.
+ * this says so before the click. A claim holds until its holder unclaims it or a lead reassigns it.
  */
 export function claimGate(ticket: { status: string; assigneeId: string | null }, userId: string, busy: boolean): ClaimGate {
   if (busy) return { ok: false, why: 'A step is already in progress.' };
@@ -129,6 +131,10 @@ export const ESCALATION_REASONS = [
 export type EscalationReason = (typeof ESCALATION_REASONS)[number]['id'];
 
 export const REPLY_MAX = 10_000;
+/** An internal note's longest text: svc-support's `SUPPORT_NOTE_MAX`. */
+export const INTERNAL_NOTE_MAX = 10_000;
+/** The most comments the desk reads for one ticket. A read this long may have stopped short of the latest notes. */
+export const DESK_COMMENTS_READ = 100;
 export const NOTE_MAX = 500;
 export const SUMMARY_MAX = 2_000;
 
@@ -140,6 +146,27 @@ export function replyGate(ticket: { status: string }, body: string, busy: boolea
   if (ticket.status === 'closed') return { ok: false, why: 'This ticket is closed, and svc-support takes no replies on a closed ticket.' };
   if (body.trim() === '') return { ok: false, why: 'Write the reply first.' };
   if (body.length > REPLY_MAX) return { ok: false, why: `A reply can be at most ${REPLY_MAX} characters.` };
+  return GO;
+}
+
+/**
+ * Why a note cannot be keyed yet, or null when it can. A note adds no trail row, so its key counts the notes on the ticket:
+ * that count needs the comments read, and read whole (a read that fills the desk's limit may miss the latest notes, and a
+ * stalled count would make a new note replay an earlier one).
+ */
+export function noteKeyBlock(notesRead: number | null, capped: boolean): string | null {
+  if (notesRead === null)
+    return 'The comments on this ticket could not be read, so a note cannot be told apart from one already sent. Read the ticket again first.';
+  if (capped)
+    return `This ticket has ${DESK_COMMENTS_READ} or more comments, more than the desk reads, so a note cannot be told apart from one already sent.`;
+  return null;
+}
+
+/** An internal note may go on any request the desk reads, closed ones included: it is the desk's own annotation. */
+export function internalNoteGate(body: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (body.trim() === '') return { ok: false, why: 'Write the note first.' };
+  if (body.length > INTERNAL_NOTE_MAX) return { ok: false, why: `A note can be at most ${INTERNAL_NOTE_MAX} characters.` };
   return GO;
 }
 
@@ -171,6 +198,8 @@ export type TicketType = (typeof TICKET_TYPES)[number];
 export const LABEL_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const LABELS_MAX = 20;
 export const REASON_MAX = 500;
+/** svc-support's bound on a view name (`supportViewSaveInputSchema`). */
+export const VIEW_NAME_MAX = 80;
 
 /** Labels typed as text, separated by commas, spaces or new lines. Repeats collapse; order is kept. */
 export function parseLabels(text: string): string[] {
@@ -216,8 +245,37 @@ export type SupportActionRequest =
       readonly reason?: string;
     }
   | { readonly action: 'merge'; readonly ticketId: string; readonly survivorId: string; readonly reason: string }
-  | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
-  | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
+  | {
+      readonly action: 'reply';
+      readonly ticketId: string;
+      readonly body: string;
+      readonly expectedSequence?: number;
+      /** How many replies this agent has already sent from this view: the same text sent again is a new reply, a retry is not. */
+      readonly sent?: number;
+    }
+  | {
+      /** A staff-only note (SP-tickets-05): never on the customer's thread. */
+      readonly action: 'note';
+      readonly ticketId: string;
+      readonly body: string;
+      /** The trail row the agent read when they began the note: part of its key, so a retry is the same note. */
+      readonly expectedSequence: number;
+      /**
+       * The internal notes on the ticket when the agent began, plus those sent from this view since: the same text again
+       * (now, or after reopening the ticket) is a new note, a retry after an unknown outcome is not.
+       */
+      readonly sent: number;
+    }
+  | { readonly action: 'claim_next' }
+  | { readonly action: 'unclaim'; readonly ticketId: string; readonly expectedSequence: number }
+  | { readonly action: 'assign'; readonly ticketId: string; readonly assigneeId: string; readonly expectedSequence: number }
+  | {
+      readonly action: 'status';
+      readonly ticketId: string;
+      readonly status: TicketStatus;
+      readonly note?: string;
+      readonly expectedSequence?: number;
+    }
   | {
       readonly action: 'escalate';
       readonly ticketId: string;
@@ -234,11 +292,22 @@ export type SupportActionRequest =
       readonly category?: string;
       readonly tags?: readonly string[];
     }
+  | {
+      readonly action: 'view_save';
+      readonly name: string;
+      readonly shared: boolean;
+      readonly filter: FilterClause;
+      readonly reason: string;
+    }
   | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
+  /** The agent's own signature, at the revision they read: 0 before their first. */
+  | { readonly action: 'signature_set'; readonly signature: string; readonly expectedRevision: number }
   | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const isKey = (v: unknown): v is string => isText(v, 200);
+/** A trail row number (`sequence`) the browser read: the stale check on a reply or status change, and the owner changes' business keys. */
+const isSequence = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 function readBulkChange(raw: unknown): BulkChange | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -262,18 +331,47 @@ function readBulkChange(raw: unknown): BulkChange | null {
  */
 export function readActionRequest(raw: Record<string, unknown>): SupportActionRequest | null {
   switch (raw.action) {
+    case 'view_save': {
+      const clause = clauseOf(raw.filter);
+      const filter = clause ? parseFilterText(`${clause.field}:${clause.value}`) : null;
+      if (!filter || !isText(raw.name, VIEW_NAME_MAX) || typeof raw.shared !== 'boolean' || !isText(raw.reason, REASON_MAX)) return null;
+      return { action: 'view_save', name: raw.name.trim(), shared: raw.shared, filter, reason: raw.reason.trim() };
+    }
     case 'reply':
-      return isTicketId(raw.ticketId) && isText(raw.body, REPLY_MAX)
-        ? { action: 'reply', ticketId: raw.ticketId, body: raw.body.trim() }
+      if (!isTicketId(raw.ticketId) || !isText(raw.body, REPLY_MAX)) return null;
+      if (raw.expectedSequence !== undefined && !isSequence(raw.expectedSequence)) return null;
+      if (raw.sent !== undefined && !isSequence(raw.sent)) return null;
+      return {
+        action: 'reply',
+        ticketId: raw.ticketId,
+        body: raw.body.trim(),
+        ...(raw.expectedSequence === undefined ? {} : { expectedSequence: raw.expectedSequence }),
+        ...(raw.sent === undefined ? {} : { sent: raw.sent }),
+      };
+    case 'note':
+      if (!isTicketId(raw.ticketId) || !isText(raw.body, INTERNAL_NOTE_MAX)) return null;
+      if (!isSequence(raw.expectedSequence) || !isSequence(raw.sent)) return null;
+      return { action: 'note', ticketId: raw.ticketId, body: raw.body.trim(), expectedSequence: raw.expectedSequence, sent: raw.sent };
+    case 'claim_next':
+      return Object.keys(raw).length === 1 ? { action: 'claim_next' } : null;
+    case 'unclaim':
+      return isTicketId(raw.ticketId) && isSequence(raw.expectedSequence)
+        ? { action: 'unclaim', ticketId: raw.ticketId, expectedSequence: raw.expectedSequence }
+        : null;
+    case 'assign':
+      return isTicketId(raw.ticketId) && isTicketId(raw.assigneeId) && isSequence(raw.expectedSequence)
+        ? { action: 'assign', ticketId: raw.ticketId, assigneeId: raw.assigneeId, expectedSequence: raw.expectedSequence }
         : null;
     case 'status': {
       if (!isTicketId(raw.ticketId) || typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return null;
       if (raw.note !== undefined && !isText(raw.note, NOTE_MAX)) return null;
+      if (raw.expectedSequence !== undefined && !isSequence(raw.expectedSequence)) return null;
       return {
         action: 'status',
         ticketId: raw.ticketId,
         status: raw.status as TicketStatus,
         ...(raw.note === undefined ? {} : { note: raw.note.trim() }),
+        ...(raw.expectedSequence === undefined ? {} : { expectedSequence: raw.expectedSequence }),
       };
     }
     case 'escalate': {
@@ -374,6 +472,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         typeof raw.audience === 'string' &&
         (KB_AUDIENCES as readonly string[]).includes(raw.audience)
         ? { action: 'kb_audience', id: raw.id.trim(), baseRevision: raw.baseRevision, audience: raw.audience as SupportKbAudience }
+        : null;
+    case 'signature_set':
+      return Object.keys(raw).length === 3 && isText(raw.signature, SUPPORT_SIGNATURE_MAX) && isSequence(raw.expectedRevision)
+        ? { action: 'signature_set', signature: raw.signature.trim(), expectedRevision: raw.expectedRevision }
         : null;
     default:
       return null;

@@ -17,6 +17,7 @@ export interface MoreRoute {
     | 'launchRequirements'
     | 'governance'
     | 'economy'
+    | 'burn'
     | 'workers'
     | 'shares'
     | 'rewards'
@@ -46,6 +47,7 @@ export const MORE_ROUTES: readonly MoreRoute[] = [
   { pattern: '/launch/:projectId', room: 'launch', kind: 'detail', title: 'launchProject' },
   { pattern: '/token/governance', room: 'token', kind: 'part', title: 'governance' },
   { pattern: '/token/economy', room: 'token', kind: 'part', title: 'economy' },
+  { pattern: '/token/burn', room: 'token', kind: 'part', title: 'burn' },
   { pattern: '/token/governance/:proposalId', room: 'token', kind: 'detail', title: 'proposal' },
   { pattern: '/mining/workers', room: 'mining', kind: 'part', title: 'workers' },
   { pattern: '/mining/shares', room: 'mining', kind: 'part', title: 'shares' },
@@ -61,7 +63,7 @@ export const RESERVED_SEGMENTS: Readonly<Record<MoreRoomId, readonly string[]>> 
   predict: ['positions', 'settings'],
   market: ['mine', 'strategy', 'purchases'],
   launch: ['new', 'check', 'requirements', 'mine'],
-  token: ['governance', 'economy'],
+  token: ['governance', 'economy', 'burn'],
   mining: ['workers', 'shares', 'rewards', 'status'],
   blueprint: ['shared', 'crew'],
 };

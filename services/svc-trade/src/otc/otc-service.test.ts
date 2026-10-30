@@ -11,7 +11,7 @@ import { describeOtcPolicy } from './otc-policy.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
 /** Minimal principal — avoid pulling auth/contracts into this suite's graph. */
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -20,6 +20,10 @@ const published: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 
 /** Fresh observed mid — standing in for a live TRADE_OTC_MIDS / feed. */
@@ -35,6 +39,8 @@ describe('OtcDeskService', () => {
 
   it('deskStatus refuse-closed when law blank', () => {
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('0')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: UNPUBLISHED_OTC_DESK_LAW,
     });
     const s = svc.deskStatus();
@@ -47,10 +53,14 @@ describe('OtcDeskService', () => {
   it('quote refuses when desk law blank — never invents spread', async () => {
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: UNPUBLISHED_OTC_DESK_LAW,
       midSource: freshMids(() => now),
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_desk_law_blank',
     });
   });
@@ -58,11 +68,74 @@ describe('OtcDeskService', () => {
   it('quote refuses stake gate when below owner min', async () => {
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('100')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_stake_gate',
+    });
+  });
+
+  describe('desk minimum (CB-otc-07)', () => {
+    /** A store that counts writes, so a refusal is shown to record no quote. */
+    class CountingStore extends MemoryOtcQuoteStore {
+      saved = 0;
+      override async saveOpen(...args: Parameters<MemoryOtcQuoteStore['saveOpen']>) {
+        this.saved += 1;
+        return super.saveOpen(...args);
+      }
+    }
+    const desk = (minNotional: Extract<OtcDeskLaw, { published: true }>['minNotional']) => {
+      const now = new Date('2026-08-07T12:00:00.000Z');
+      const store = new CountingStore();
+      const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+        // The house desk is the one provider these requests ask (CB-otc-01).
+        makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
+        law: { ...published, minNotional },
+        midSource: freshMids(() => now),
+        now: () => now,
+        store,
+      });
+      return { svc, store };
+    };
+
+    it('given notional 500 below a 1000 minimum, refuses trade.rfq_below_minimum naming the minimum, and records nothing', async () => {
+      const { svc, store } = desk({ USDT: parseAmount('1000') });
+      // 2.5 BTC at the mid of 200 is 500 USDT (502.5 with the 50 bps spread).
+      const refused = svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '2.5', makerIds: ['house'] });
+      await expect(refused).rejects.toBeInstanceOf(OtcError);
+      await expect(refused).rejects.toMatchObject({ code: 'trade.rfq_below_minimum', message: 'Below the desk minimum of 1000 USDT' });
+      expect(store.saved).toBe(0);
+    });
+
+    it('holds on what the customer trades: a buy of 1000 at the mid prices, a sell of 1000 at the mid nets 995 and refuses', async () => {
+      const { svc, store } = desk({ USDT: parseAmount('1000') });
+      // 5 BTC at the mid of 200 is 1000 USDT: the buyer pays 1005 after the 50 bps spread, the seller gets 995.
+      const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '5', makerIds: ['house'] });
+      expect(quote.quoteId).toBeTruthy();
+      expect(store.saved).toBe(1);
+      await expect(
+        svc.quote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '5', makerIds: ['house'] }),
+      ).rejects.toMatchObject({
+        code: 'trade.rfq_below_minimum',
+      });
+      expect(store.saved).toBe(1);
+    });
+
+    it('a blank minimum for the quote asset refuses trade.rfq_size_not_set, and records nothing', async () => {
+      for (const minNotional of [null, undefined, { EUR: parseAmount('1') }]) {
+        const { svc, store } = desk(minNotional);
+        await expect(
+          svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '100', makerIds: ['house'] }),
+        ).rejects.toMatchObject({
+          code: 'trade.rfq_size_not_set',
+        });
+        expect(store.saved).toBe(0);
+      }
     });
   });
 
@@ -73,12 +146,14 @@ describe('OtcDeskService', () => {
 
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
       now: () => now,
     });
 
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     expect(quote.counterparty).toBe('platform');
     expect(quote.spreadBps).toBe(50);
     expect(quote.qty).toBe('1');
@@ -102,12 +177,14 @@ describe('OtcDeskService', () => {
   it('a stranger accept matches a missing quote', async () => {
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
       now: () => now,
     });
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
-    const stranger = { userId: '00000000-0000-4000-8000-000000000002' } as import('@intafaced/auth').Principal;
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
+    const stranger = { userId: '00000000-0000-4000-8000-000000000002', tier: 'basic' } as import('@intafaced/auth').Principal;
     const missing = await svc.accept(stranger, { quoteId: '00000000-0000-4000-8000-000000000099' }).then(
       () => null,
       (err: unknown) => err,
@@ -125,11 +202,13 @@ describe('OtcDeskService', () => {
   it('accept after expiry refuses', async () => {
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
       now: () => now,
     });
-    const quote = await svc.quote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'sell', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     now = new Date('2026-08-07T13:00:00.000Z');
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toBeInstanceOf(OtcError);
   });
@@ -144,21 +223,30 @@ describe('OtcDeskService', () => {
    */
   it('refuses when the desk can source no mid — and there is no caller override', async () => {
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       // No midSource → production default → nothing published for any pair.
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
 
     // A pair the ops map does not name refuses too — an empty entry is not zero.
     let now = new Date('2026-08-07T12:00:00.000Z');
     const partial = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
-      law: published,
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
+      // SOL is on the desk's asset list (CB-otc-11), so the refusal is the missing mid, not the list.
+      law: { ...published, assets: ['BTC', 'SOL'] },
       midSource: freshMids(() => now),
       now: () => now,
     });
-    await expect(partial.quote(principal, { side: 'buy', baseAsset: 'SOL', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      partial.quote(principal, { side: 'buy', baseAsset: 'SOL', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
   });
@@ -171,11 +259,15 @@ describe('OtcDeskService', () => {
     const boot = new Date('2026-08-07T12:00:00.000Z');
     const now = new Date('2026-08-07T12:02:00.000Z'); // 120s > 60s law
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: createConfigOtcMidSource('BTC/USDT:200', boot),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
   });
@@ -194,12 +286,14 @@ describe('OtcDeskService', () => {
 
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
       now: () => now,
     });
 
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     await svc.accept(principal, { quoteId: quote.quoteId });
 
     const first = await svc.settle(principal, { quoteId: quote.quoteId });
@@ -231,9 +325,11 @@ describe('OtcDeskService', () => {
       midSource: freshMids(() => now),
       now: () => now,
       store,
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 } as const,
     };
     const first = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), opts);
-    const quote = await first.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await first.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
 
     const afterRestart = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), opts);
     const bound = await afterRestart.accept(principal, { quoteId: quote.quoteId });
@@ -256,12 +352,14 @@ describe('OtcDeskService', () => {
     const store = new MemoryOtcQuoteStore();
     let now = new Date('2026-08-07T12:00:00.000Z');
     const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: freshMids(() => now),
       now: () => now,
       store,
     });
-    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] });
     await svc.accept(principal, { quoteId: quote.quoteId });
     await svc.settle(principal, { quoteId: quote.quoteId });
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({

@@ -8,22 +8,27 @@
  * tolerance, a schedule, a severity or a margin.
  */
 import {
+  RECONCILIATION_LIFECYCLE,
+  RECONCILIATION_LIFECYCLE_MOVES,
   RECONCILIATION_SEVERITIES,
   RECONCILIATION_TEMPLATES,
   defineReconciliationControlInputSchema,
   reconciliationControlListSchema,
+  reconciliationControlRunListSchema,
   reconciliationControlRunSchema,
   reconciliationControlViewSchema,
   reconciliationDecimalSchema,
   updateReconciliationControlInputSchema,
   type DefineReconciliationControlInput,
+  type ReconciliationControlRunList,
   type ReconciliationControlRunView,
   type ReconciliationControlView,
+  type ReconciliationLifecycle,
   type ReconciliationSchedule,
   type UpdateReconciliationControlInput,
 } from '@intafaced/contracts/ledger-reconciliation';
 
-export type { ReconciliationControlRunView, ReconciliationControlView };
+export type { ReconciliationControlRunList, ReconciliationControlRunView, ReconciliationControlView, ReconciliationLifecycle };
 export type ControlTemplate = (typeof RECONCILIATION_TEMPLATES)[number];
 export type ControlSeverity = (typeof RECONCILIATION_SEVERITIES)[number];
 export const CONTROL_TEMPLATES = RECONCILIATION_TEMPLATES;
@@ -49,6 +54,13 @@ export function parseControlRun(raw: unknown): ReconciliationControlRunView | nu
   return parsed.success ? parsed.data : null;
 }
 
+/** svc-ledger's answer for one control's evaluations, or null when it is not exactly that shape or names another control. */
+export function parseControlRunList(raw: unknown, controlId: string): ReconciliationControlRunList | null {
+  const parsed = reconciliationControlRunListSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.controlId !== controlId) return null;
+  return parsed.data.runs.every((run) => run.controlId === controlId) ? parsed.data : null;
+}
+
 /** What a founder types into the define and update form. Every field is text, so a blank is visibly blank. */
 export interface ControlForm {
   readonly template: ControlTemplate;
@@ -67,6 +79,7 @@ export interface ControlForm {
   readonly accountIds: string;
   readonly ownerType: (typeof OWNER_TYPES)[number] | '';
   readonly ownerIdPrefix: string;
+  readonly rail: string;
   readonly accountKind: (typeof ACCOUNT_KINDS)[number] | '';
   readonly purpose: string;
   readonly assetId: string;
@@ -94,6 +107,7 @@ export function emptyControlForm(): ControlForm {
     accountIds: '',
     ownerType: '',
     ownerIdPrefix: '',
+    rail: '',
     accountKind: '',
     purpose: '',
     assetId: '',
@@ -131,6 +145,7 @@ export function formFromControl(view: ReconciliationControlView): ControlForm {
     accountIds: accountSet.mode === 'explicit' ? accountSet.accountIds.join('\n') : '',
     ownerType: accountSet.mode === 'query' ? (accountSet.ownerType ?? '') : '',
     ownerIdPrefix: accountSet.mode === 'query' ? (accountSet.ownerIdPrefix ?? '') : '',
+    rail: accountSet.mode === 'query' ? (accountSet.rail ?? '') : '',
     accountKind: accountSet.mode === 'query' ? (accountSet.kind ?? '') : '',
     purpose: accountSet.mode === 'query' ? (accountSet.purpose ?? '') : '',
     assetId: accountSet.mode === 'query' ? (accountSet.assetId ?? '') : '',
@@ -189,6 +204,7 @@ function accountSetOf(form: ControlForm): DefineReconciliationControlInput['acco
     mode: 'query',
     ...(form.ownerType ? { ownerType: form.ownerType } : {}),
     ...(form.ownerIdPrefix.trim() ? { ownerIdPrefix: form.ownerIdPrefix.trim() } : {}),
+    ...(form.rail.trim() ? { rail: form.rail.trim() } : {}),
     ...(form.accountKind ? { kind: form.accountKind } : {}),
     ...(form.purpose.trim() ? { purpose: form.purpose.trim() } : {}),
     ...(form.assetId.trim() ? { assetId: form.assetId.trim() } : {}),
@@ -242,6 +258,8 @@ function contractWhy(error: {
   if (!issue) return 'The contract refused this control.';
   const where = issue.path.map(String).join('.');
   if (where === 'reason') return 'Write the reason first (12 to 500 characters).';
+  if (where === 'accountSet.rail')
+    return 'Rail boundary names its own accounts: leave owner type and owner id blank, and kind blank or available.';
   if (issue.message === 'ops.control_policy_unset')
     return `${where === 'accountSet' ? 'Account set' : where || 'Policy'}: ops.control_policy_unset. Name at least one account or one account filter.`;
   return `${where || 'Control'}: ${issue.message}`;
@@ -335,6 +353,7 @@ export function describeAccountSet(view: ReconciliationControlView): string {
   const parts = [
     set.ownerType && `owner type ${set.ownerType}`,
     set.ownerIdPrefix && `owner id starts ${set.ownerIdPrefix}`,
+    set.rail && `boundary of rail ${set.rail}`,
     set.kind && `kind ${set.kind}`,
     set.purpose && `purpose ${set.purpose}`,
     set.assetId && `asset ${set.assetId}`,
@@ -357,11 +376,11 @@ export function describeThreshold(view: ReconciliationControlView): string | nul
 export function controlRefusal(code: string | null, status: number): string {
   switch (code) {
     case 'ops.control_policy_unset':
-      return 'The control is missing a policy value (tolerance, schedule and severity; a threshold control also needs a threshold per asset), so it was not activated. A new control asked to activate is not stored at all.';
+      return 'The control is missing a policy value (tolerance, schedule and severity; a threshold control also needs a threshold per asset), so it was not activated or resumed. A new control asked to activate is not stored at all.';
     case 'ops.control_margin_unset':
       return 'A run at a past instant needs a margin: type one, or set it on the control. Typed 0 is accepted.';
     case 'ops.control_state_illegal':
-      return 'Only an active control can run. Activate it first.';
+      return 'The control’s state does not allow this step: only an active control runs, a paused one must be resumed first, and a retired one is final.';
     case 'ops.control_reason_required':
       return 'A reason of 12 to 500 characters is required.';
     case 'ledger.reconcile_asof_invalid':
@@ -406,5 +425,30 @@ export function describeRun(run: ReconciliationControlRunView): string {
     `As of ${run.asOf}; balances read at ${run.readAt}${run.margin.status === 'set' ? ` (margin ${run.margin.value} s)` : ''}.`,
     `Sources: ledger as of ${run.sources.ledger.asOf}; outside ${outside}; parity ${parity}. Outside side: ${run.outsideSide}.`,
     `${run.accounts.length} account${run.accounts.length === 1 ? '' : 's'} and ${run.assets.length} asset${run.assets.length === 1 ? '' : 's'} read.`,
+    ...(run.errorCode.status === 'set'
+      ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
+      : []),
+    ...run.assets.map(describeEvidence),
   ].join(' ');
 }
+
+/** One asset's evidence (OPS-reconciliation-02): what was observed, what was expected, the difference and the tolerance. */
+export function describeEvidence(asset: ReconciliationControlRunView['assets'][number]): string {
+  return `${asset.assetId}: observed ${asset.observed}, expected ${asset.expected}, difference ${asset.difference}, tolerance ${asset.tolerance}.`;
+}
+
+/** What each move is called on screen. Where it may go from, and to, is the contract's one table. */
+export const LIFECYCLE_LABELS: Record<ReconciliationLifecycle, string> = { pause: 'Pause', resume: 'Resume', retire: 'Retire' };
+
+/** The lifecycle moves svc-ledger accepts from a control's state, in the order the console shows them. */
+export function lifecycleMoves(control: ReconciliationControlView): ReconciliationLifecycle[] {
+  if (control.builtin) return [];
+  return RECONCILIATION_LIFECYCLE.filter((move) => RECONCILIATION_LIFECYCLE_MOVES[move].from.includes(control.state));
+}
+
+export const STATE_LABELS: Record<ReconciliationControlView['state'], string> = {
+  draft: 'Draft',
+  active: 'Active',
+  paused: 'Paused',
+  retired: 'Retired',
+};

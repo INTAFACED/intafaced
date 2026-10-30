@@ -37,6 +37,7 @@ import {
   type HomePortfolio,
 } from './deps';
 import { InfoTip } from './InfoTip';
+import { TestBuildTag } from './TestBuildTag';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { proCopy } from './pro-copy';
 import { MarketsTable } from '../trade/markets/MarketsTable';
@@ -55,6 +56,7 @@ import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
 import { HomeNotices } from './Notices';
+import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 
@@ -312,6 +314,7 @@ function Summary({
         {label}
         <div data-testid="hp-total__figure" className="hp-total__figure">
           <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro />
+          <TestBuildTag />
         </div>
         <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" testId="hp-total__note" />
         <div className="hp-total__change">
@@ -625,6 +628,7 @@ export function HomePro() {
     <div data-testid="if-home-pro" className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
+      <HomeInbox />
       {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
       <div className="hp-toolbar">
         <CustomiseHome home={home} mode="pro" />

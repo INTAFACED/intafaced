@@ -123,7 +123,7 @@ function tokenFrom(url: URL, headers: IncomingMessage['headers']): string | null
   return m?.[1] ?? null;
 }
 
-function parseDropCopyChannel(raw: string | null): typeof DROP_COPY_CHANNEL | null {
+export function parseDropCopyChannel(raw: string | null): typeof DROP_COPY_CHANNEL | null {
   if (raw === null || raw === '' || raw === DROP_COPY_CHANNEL) return DROP_COPY_CHANNEL;
   return null;
 }

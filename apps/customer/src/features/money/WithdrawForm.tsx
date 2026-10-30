@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { networkLabel as chainLabel } from '@intafaced/contracts/protocol-blockers';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
+import { useWallet } from '../protocol/wallet/WalletProvider';
 import { date, useBankRead } from './components';
 import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
@@ -26,6 +28,7 @@ import {
 import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
 import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
+import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
 import './bank-depth.css';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
@@ -44,7 +47,28 @@ type Outcome =
  * read may follow a withdrawal svc-pay recorded, so it is never shown as "nothing is held".
  */
 const definite = (failure: Failed) =>
-  failure.status !== undefined && failure.status < 500 && failure.reason !== 'uncertain' && failure.reason !== 'invalid_response';
+  (failure.status === 503 && GUARD_REFUSAL.test(failure.code ?? '')) ||
+  (failure.status !== undefined &&
+    failure.status < 500 &&
+    failure.reason !== 'uncertain' &&
+    failure.reason !== 'invalid_response' &&
+    !MAY_BE_HELD.has(failure.code ?? ''));
+
+/**
+ * svc-pay's guards answer inside the claim's own transaction, before its row is written, so a guard refusal rolls the claim
+ * back: nothing is claimed or held. One that could not decide (no screening list, say) is svc-pay's 503 with its own
+ * `pay.guard_*` code, still a definite no; a 503 without that code may come from anywhere and stays uncertain.
+ */
+const GUARD_REFUSAL = /^pay\.guard_/;
+
+/**
+ * svc-pay answers that leave a claimed withdrawal behind, possibly with its hold: an outcome it does not know yet, or a fee the
+ * ledger refused after the hold was placed. Never shown as "nothing is held"; the reference is kept so it is finished, not resent.
+ */
+const MAY_BE_HELD = new Set(['pay.rail_outcome_unknown', 'pay.ledger_outcome_unknown', 'pay.withdrawal_fee_unbound']);
+
+/** svc-pay's quote refusals at send: it checks the quote only when no withdrawal exists under the reference yet. */
+const NO_CLAIM_UNDER_REFERENCE = /^withdrawal_quote\./;
 
 /** A saved wallet can take money once the bank calls it active and its cooling-off has ended. */
 const ready = (row: Destination, now: number) => shownState(row.state ?? 'pending', coolingOf(row, now).state) === 'active';
@@ -90,17 +114,22 @@ interface OpenOut {
   destinationId: string;
   amount: string;
   clientRef: string;
+  /** The quote the send was made under: svc-pay keeps it with the withdrawal, so finishing it names the same one. */
+  quoteRef: string;
+  /** What that quote takes from the balance, so finishing the send says what it takes, not what a newer quote shows. */
+  totalDebit?: string;
 }
 
 const outKey = (userId: string) => `intafaced:withdraw-out:${userId}`;
-const outTerms = (send: Omit<OpenOut, 'clientRef'>) => JSON.stringify([send.assetId, send.networkId, send.destinationId, send.amount]);
+const outTerms = (send: Omit<OpenOut, 'clientRef' | 'quoteRef'>) =>
+  JSON.stringify([send.assetId, send.networkId, send.destinationId, send.amount]);
 
 function storedOut(userId: string | null): OpenOut | null {
   if (!userId) return null;
   try {
     const raw = sessionStorage.getItem(outKey(userId));
     const kept = raw ? (JSON.parse(raw) as Partial<OpenOut>) : null;
-    const fields = [kept?.assetId, kept?.networkId, kept?.destinationId, kept?.amount, kept?.clientRef];
+    const fields = [kept?.assetId, kept?.networkId, kept?.destinationId, kept?.amount, kept?.clientRef, kept?.quoteRef];
     if (!kept || fields.some((v) => typeof v !== 'string' || v === '')) return null;
     return {
       assetId: kept.assetId!,
@@ -108,6 +137,8 @@ function storedOut(userId: string | null): OpenOut | null {
       destinationId: kept.destinationId!,
       amount: kept.amount!,
       clientRef: kept.clientRef!,
+      quoteRef: kept.quoteRef!,
+      ...(typeof kept.totalDebit === 'string' && kept.totalDebit !== '' ? { totalDebit: kept.totalDebit } : {}),
     };
   } catch {
     return null;
@@ -165,11 +196,16 @@ function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
  * - To another INTAFACED account's address (W-withdraw-14), typed in: it settles inside at once with no fee. Its client
  *   reference and terms are kept while the answer is unknown, in this tab too, so a reload or confirming again finishes the
  *   same withdrawal and never sends twice; the fields stay locked until svc-pay answers.
+ * - With `toWallet` (`/uc/withdraw?to=wallet`, D-bridge-chain-02): the destination is the browser wallet's connected
+ *   account, read-only until Edit, and the network is the one that address is saved on. It is still a send out: it goes
+ *   only to that saved address once it is ready, after the same fee and step-up. With no wallet nothing is filled.
  *
  * Nothing here invents a fee, a limit, a network or a saved address: a blank one refuses in words.
  */
-export function WithdrawForm() {
+export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) {
   const { t } = withdrawalCopy.useCopy();
+  const wallet = useWallet();
+  const fill = walletFill(toWallet, wallet);
   const { hideBalances } = usePreferences();
   const { api, userId } = useSession();
   const held = useHoldings();
@@ -194,11 +230,23 @@ export function WithdrawForm() {
   const [savedId, setSavedId] = useState(() => openOut?.destinationId ?? '');
   const [amount, setAmount] = useState(() => open?.amount ?? openOut?.amount ?? '');
   const [address, setAddress] = useState(() => open?.ref ?? '');
+  // The wallet fill is read-only until the person presses Edit; then the address is theirs to change.
+  const [walletEdited, setWalletEdited] = useState(false);
+  // The wallet that filled the destination went away: the destination is cleared and the form says so.
+  const [walletLost, setWalletLost] = useState(false);
+  const lastFill = useRef<WalletFill>(fill);
   const [quote, setQuote] = useState<
     { status: 'idle' } | { status: 'busy' } | { status: 'ready'; quote: WithdrawQuote } | { status: 'failed'; failure: Failed }
   >({ status: 'idle' });
   const [confirmingInside, setConfirmingInside] = useState(false);
-  const [confirmingOut, setConfirmingOut] = useState<{ send: WithdrawSend; destinationId: string } | null>(null);
+  const [confirmingOut, setConfirmingOut] = useState<{
+    send: WithdrawSend;
+    destinationId: string;
+    fromWallet: boolean;
+    totalDebit: string;
+    why: string;
+  } | null>(null);
+  const sendingOut = useRef(false);
   const [sentInside, setSentInside] = useState<WithdrawalRecord | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -235,14 +283,43 @@ export function WithdrawForm() {
     const timer = setTimeout(() => setNow(Date.now()), Math.min(nextCoolingEnd - Date.now() + 50, 2 ** 31 - 1));
     return () => clearTimeout(timer);
   }, [nextCoolingEnd]);
+  // An unanswered send inside locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
+  // An unanswered send out locks what it sends (asset, network, address, amount) until svc-pay answers for its reference.
+  const resuming = open?.unanswered === true;
+  const resumingOut = openOut !== null;
+  const locked = resuming || resumingOut;
+  // A wallet that disconnects, or switches account, after it filled the destination clears it (the fill follows the
+  // wallet) and refuses `wallet.not_connected`: a confirmation it chose closes before anything is asked for. Once the step-up
+  // has sent the withdrawal, its answer stands.
+  const fillKey = fill.state === 'filled' ? `filled:${fill.address.toLowerCase()}` : fill.state;
+  useEffect(() => {
+    const before = lastFill.current;
+    lastFill.current = fill;
+    if (walletEdited) return;
+    if (fill.state === 'filled') setWalletLost(false);
+    if (!walletGone(before, fill)) return;
+    if (fill.state !== 'filled' && !locked) setWalletLost(true);
+    setConfirmingOut((current) => (current?.fromWallet && !sendingOut.current ? null : current));
+    // `fill` is read through fillKey, so a new object for the same account is not a change.
+  }, [fillKey, walletEdited]);
 
   const asset = assets.some((entry) => entry.assetId === picked) ? picked : (assets[0]?.assetId ?? '');
   const available = assets.find((entry) => entry.assetId === asset)?.available ?? null;
   const catalogue = networks.resource.status === 'ready' ? networks.resource.data.find((entry) => entry.assetId === asset) : undefined;
   const offered = catalogue?.networks ?? [];
-  const network = offered.some((entry) => entry.networkId === pickedNetwork)
-    ? pickedNetwork
-    : (offered.find((entry) => entry.networkId === catalogue?.defaultNetworkId)?.networkId ?? offered[0]?.networkId ?? '');
+  // The wallet's account fills the destination until Edit, unless a send whose answer was lost holds the form on its terms.
+  const walletAddress = fill.state === 'filled' && !walletEdited && !locked ? fill.address : null;
+  const walletLocked = walletAddress !== null;
+  const walletNetwork =
+    walletAddress !== null && book.resource.status === 'ready'
+      ? walletSavedNetwork(book.resource.data, asset, walletAddress, offered)
+      : null;
+  const network =
+    (openOut && offered.some((entry) => entry.networkId === openOut.networkId) ? openOut.networkId : null) ??
+    walletNetwork ??
+    (offered.some((entry) => entry.networkId === pickedNetwork)
+      ? pickedNetwork
+      : (offered.find((entry) => entry.networkId === catalogue?.defaultNetworkId)?.networkId ?? offered[0]?.networkId ?? ''));
   const networkLabel = offered.find((entry) => entry.networkId === network)?.label ?? '';
   const saved =
     book.resource.status === 'ready'
@@ -250,7 +327,11 @@ export function WithdrawForm() {
           (row) => row.kind === 'crypto' && row.assetId === asset && row.network === network && row.state !== 'archived',
         )
       : [];
-  const chosen = saved.find((row) => row.destinationId === savedId && ready(row, now)) ?? null;
+  // While the wallet fills the destination, the saved entry for that address is the one chosen, once it is ready.
+  const chosen =
+    walletAddress !== null
+      ? (saved.find((row) => row.ref.toLowerCase() === walletAddress.toLowerCase() && ready(row, now)) ?? null)
+      : (saved.find((row) => row.destinationId === (openOut?.destinationId ?? savedId) && ready(row, now)) ?? null);
   const limits = useResource(
     async (signal): Promise<ApiResult<WithdrawLimits>> =>
       asset ? createWithdrawSend(api).limits(asset, signal) : { ok: false, reason: 'not_supported', message: '' },
@@ -295,18 +376,14 @@ export function WithdrawForm() {
 
   // Where the typed address leads. Another INTAFACED account's address takes the send inside; any other address is only
   // checked here, because money goes out only to a saved address.
-  const place = useWithdrawDestination(address);
+  const typed = walletAddress ?? (resuming && open ? open.ref : address);
+  const place = useWithdrawDestination(typed);
   const inside = place.state === 'known' && place.kind === 'internal';
-  // An unanswered send inside locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
-  // An unanswered send out locks what it sends (asset, network, address, amount) until svc-pay answers for its reference.
-  const resuming = open?.unanswered === true;
-  const resumingOut = openOut !== null;
-  const locked = resuming || resumingOut;
   const insideNow = inside || resuming;
   const canSendInside = resuming || (inside && check === 'ok' && !overLimit && Boolean(asset));
-  const typedCheck = address.trim() ? checkAddress(address.trim()) : 'empty';
+  const typedCheck = typed.trim() ? checkAddress(typed.trim()) : 'empty';
   const typedSaved =
-    typedCheck === 'ok' && !insideNow ? saved.find((row) => row.ref.toLowerCase() === address.trim().toLowerCase()) : undefined;
+    typedCheck === 'ok' && !insideNow ? saved.find((row) => row.ref.toLowerCase() === typed.trim().toLowerCase()) : undefined;
   const typedSavedLabel = typedSaved ? (typedSaved.label ?? shortenAddress(typedSaved.ref)) : '';
   const typedSavedWords = !typedSaved
     ? ''
@@ -352,7 +429,7 @@ export function WithdrawForm() {
       setOpen({
         assetId: asset,
         amount: amount.trim(),
-        ref: address.trim(),
+        ref: typed.trim(),
         clientRef: `internal-${newRef()}`,
         unanswered: false,
       });
@@ -405,6 +482,18 @@ export function WithdrawForm() {
     return { ...answer, message: said && payCode !== 'pay.rail_outcome_unknown' ? `${said} ${t('sUnknown')}` : t('sUnknown') };
   }
 
+  /** Edit: the wallet's address, its network and the saved entry it chose become the person's own fields to change. */
+  function editWallet() {
+    if (walletAddress === null) return;
+    const keep = { network, savedId: chosen?.destinationId ?? '' };
+    change(() => {
+      setAddress(walletAddress);
+      setPickedNetwork(keep.network);
+      setSavedId(keep.savedId);
+      setWalletEdited(true);
+    });
+  }
+
   /** Opens the confirmation for exactly these terms, unless the quote expired since the page last looked. */
   function reviewOut() {
     if (!chosen || !current) return;
@@ -414,9 +503,27 @@ export function WithdrawForm() {
     }
     const key = outTerms({ assetId: asset, networkId: network, destinationId: chosen.destinationId, amount: amount.trim() });
     if (sendRef.current?.terms !== key) sendRef.current = { terms: key, ref: `withdraw:${newRef()}` };
+    // A send whose answer was lost is finished under the quote it was made with; svc-pay keeps that one, and its fee, with it.
+    // When that is not the quote on the page, the confirmation says what the earlier one takes, not what the page shows.
+    const resumed = openOut?.clientRef === sendRef.current.ref ? openOut : null;
+    const earlier = resumed !== null && resumed.quoteRef !== current.quoteRef;
     setConfirmingOut({
-      send: { assetId: asset, networkId: network, address: chosen.ref, amount: amount.trim(), clientRef: sendRef.current.ref },
+      send: {
+        assetId: asset,
+        networkId: network,
+        address: chosen.ref,
+        amount: amount.trim(),
+        clientRef: sendRef.current.ref,
+        quoteRef: resumed ? resumed.quoteRef : current.quoteRef,
+      },
       destinationId: chosen.destinationId,
+      fromWallet: walletLocked,
+      totalDebit: resumed ? (resumed.totalDebit ?? '') : current.totalDebit,
+      why: !earlier
+        ? t('fConfirmWhy')
+        : resumed.totalDebit
+          ? t('fConfirmResume', { total: shown(resumed.totalDebit), asset })
+          : t('fConfirmResumeUnknown'),
     });
   }
 
@@ -431,7 +538,7 @@ export function WithdrawForm() {
     setQuote(answer.ok ? { status: 'ready', quote: answer.data } : { status: 'failed', failure: answer });
   }
 
-  async function sendOut(input: WithdrawSend, destinationId: string, token: string): Promise<ApiResult<unknown>> {
+  async function sendOut(input: WithdrawSend, destinationId: string, totalDebit: string, token: string): Promise<ApiResult<unknown>> {
     // After an ask whose answer was lost, the earlier send may have been recorded, so no refusal of a retry is final: the
     // reference is kept until svc-pay records that withdrawal.
     const wasUnanswered = openOut !== null;
@@ -441,11 +548,18 @@ export function WithdrawForm() {
       destinationId,
       amount: input.amount,
       clientRef: input.clientRef,
+      quoteRef: input.quoteRef,
+      ...(totalDebit ? { totalDebit } : {}),
     };
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOut(userId, open);
-    const answer = await createWithdrawSend(api).send(input, token);
-    const settled = answer.ok || (definite(answer) && !wasUnanswered);
+    sendingOut.current = true;
+    const answer = await createWithdrawSend(api)
+      .send(input, token)
+      .finally(() => (sendingOut.current = false));
+    // A refusal of the quote proves svc-pay holds no withdrawal under this reference: it reads the quote only for a reference
+    // it has never claimed. So even after a lost answer, such a refusal lets the reference go and the fee can be got afresh.
+    const settled = answer.ok || (definite(answer) && (!wasUnanswered || NO_CLAIM_UNDER_REFERENCE.test(answer.code ?? '')));
     // Only a recorded withdrawal or a definite first refusal lets the reference go, even if the page has gone since.
     if (settled) keepOut(userId, null);
     if (!alive.current) return { ok: true, data: null };
@@ -458,6 +572,7 @@ export function WithdrawForm() {
       setOutcome({ kind: 'sent', record: answer.data });
     } else if (settled) {
       sendRef.current = null;
+      setOpenOut(null);
       setOutcome({ kind: 'refused', failure: answer, asset: input.assetId });
     } else {
       setOpenOut(open);
@@ -505,7 +620,7 @@ export function WithdrawForm() {
               <select
                 value={network}
                 onChange={(event) => change(() => setPickedNetwork(event.target.value))}
-                disabled={offered.length === 0 || insideNow || resumingOut}
+                disabled={offered.length === 0 || insideNow || resumingOut || walletNetwork !== null}
                 aria-describedby="withdraw-network-why"
               >
                 {offered.length === 0 && <option value="">{t('fNetworkNone')}</option>}
@@ -551,6 +666,16 @@ export function WithdrawForm() {
           )}
           <fieldset className="bd-stack">
             <legend className="bd-subhead">{t('fWhere')}</legend>
+            {fill.state !== 'off' && (
+              <WalletChip
+                fill={fill}
+                lost={walletLost}
+                locked={walletLocked}
+                held={locked && !walletEdited}
+                networkFilled={walletNetwork !== null}
+                t={t}
+              />
+            )}
             {book.resource.status === 'failed' ? (
               <Failure result={book.resource.failure} retry={book.reload} />
             ) : (
@@ -559,7 +684,7 @@ export function WithdrawForm() {
                 <select
                   value={chosen?.destinationId ?? ''}
                   onChange={(event) => change(() => setSavedId(event.target.value))}
-                  disabled={saved.length === 0 || insideNow || resumingOut}
+                  disabled={saved.length === 0 || insideNow || resumingOut || walletLocked}
                   aria-describedby="withdraw-saved-why"
                 >
                   <option value="">{saved.length === 0 ? t('fSavedNone') : t('fSavedPick')}</option>
@@ -581,11 +706,11 @@ export function WithdrawForm() {
               </label>
             )}
             <label className="field">
-              <span>{t('fNew')}</span>
+              <span>{walletLocked ? t('wLabel') : t('fNew')}</span>
               <input
-                value={address}
+                value={typed}
                 onChange={(event) => change(() => setAddress(event.target.value))}
-                readOnly={locked}
+                readOnly={locked || walletLocked}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -605,6 +730,18 @@ export function WithdrawForm() {
                       : t('fNewNotSaved')}
               </small>
             </label>
+            {walletLocked && (
+              <div className="actions">
+                <Button variant="secondary" onClick={editWallet}>
+                  {t('wEdit')}
+                </Button>
+                {!typedSaved && typedCheck === 'ok' && !insideNow && (
+                  <a className="text-link" href="/uc/withdraw/address">
+                    {t('wSave')}
+                  </a>
+                )}
+              </div>
+            )}
             {typedSaved && !resumingOut && ready(typedSaved, now) && typedSaved.destinationId !== chosen?.destinationId && (
               <div>
                 <button type="button" className="bd-link" onClick={() => change(() => setSavedId(typedSaved.destinationId))}>
@@ -700,9 +837,9 @@ export function WithdrawForm() {
           </Fact>
           <Fact label={t('rNetwork')}>{insideNow ? t('rInside') : networkLabel || notChosen}</Fact>
           <Fact label={t('rTo')}>
-            {insideNow && address.trim() ? (
+            {insideNow && typed.trim() ? (
               <span lang="und" data-withdrawal-private>
-                {address.trim()}
+                {typed.trim()}
               </span>
             ) : !insideNow && chosen ? (
               <span lang="und" data-withdrawal-private>
@@ -822,12 +959,83 @@ export function WithdrawForm() {
       )}
       {confirmingOut && (
         <WithdrawStepUp
-          why={t('fConfirmWhy')}
-          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, token)}
+          why={confirmingOut.why}
+          run={(token) => sendOut(confirmingOut.send, confirmingOut.destinationId, confirmingOut.totalDebit, token)}
           onDone={() => setConfirmingOut(null)}
           onCancel={() => setConfirmingOut(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The "Withdraw to my Web3 wallet" chip: which wallet filled the destination and on what chain, or, with none connected,
+ * how to connect one. The wallet's chain is named for the person only; it never chooses a withdrawal network, because the
+ * bank's network list does not say which chain each network is.
+ */
+function WalletChip({
+  fill,
+  lost,
+  locked,
+  held,
+  networkFilled,
+  t,
+}: {
+  fill: Exclude<WalletFill, { state: 'off' }>;
+  lost: boolean;
+  locked: boolean;
+  held: boolean;
+  networkFilled: boolean;
+  t: Copy;
+}) {
+  const wallet = useWallet();
+  if (fill.state === 'checking')
+    return (
+      <div className="bd-address" role="status" data-testid="withdraw-wallet" data-state="checking">
+        <strong>{t('wTitle')}</strong>
+        <p>{t('wChecking')}</p>
+      </div>
+    );
+  if (fill.state === 'none')
+    return (
+      <div
+        className={lost ? 'failure' : 'bd-address'}
+        role={lost ? 'alert' : 'status'}
+        data-testid="withdraw-wallet"
+        data-state="none"
+        data-code={fill.code}
+      >
+        <strong>{t('wTitle')}</strong>
+        <p>{lost ? `${t('wGone')} ${t('sReference', { code: WALLET_NOT_CONNECTED })}` : t('wConnect')}</p>
+        {wallet.wallets.length > 0 && (
+          <div className="actions">
+            {wallet.wallets.map((entry) => (
+              <Button key={entry.info.rdns} variant="secondary" onClick={() => void wallet.connect(entry)}>
+                {t('wConnectTo', { name: entry.info.name })}
+              </Button>
+            ))}
+          </div>
+        )}
+        {wallet.problem && <p className="error-text">{wallet.problem}</p>}
+        <a className="text-link" href="/wallet">
+          {t('wOpen')}
+        </a>
+      </div>
+    );
+  const chain = chainLabel(fill.chainId);
+  const state = locked ? 'filled' : held ? 'held' : 'edited';
+  return (
+    <div className="bd-address" role="status" data-testid="withdraw-wallet" data-state={state}>
+      <strong>{t('wTitle')}</strong>
+      <p>{chain.known ? t('wOn', { network: chain.name }) : t(fill.chainId === null ? 'wOnNone' : 'wOnUnknown')}</p>
+      <p>
+        {state === 'filled'
+          ? `${t('wFilled')} ${t(networkFilled ? 'wNetworkSaved' : 'wNetworkPick')}`
+          : state === 'held'
+            ? t('wHeld')
+            : t('wEdited')}
+      </p>
     </div>
   );
 }

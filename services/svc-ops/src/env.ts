@@ -34,6 +34,12 @@ export const opsEnvSchema = baseEnvSchema
       /** svc-ledger base URL for the fee revenue read. Blank → the venue report says ops.fee_revenue_unconfigured and gives no net. */
       LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * The event bus. svc-ops publishes the reconciliation alert events from its outbox and reads
+       * `ledger.reconciliation_run.failed`. Blank: nothing is published (the outbox keeps every event) and /ready says detached.
+       */
+      NATS_URL: blankAsAbsent(z.string().trim().min(1).optional()),
+      NATS_STREAM_PREFIX: z.string().default('INTAFACED'),
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       /** Blank → custody wrap/execute refuse ops.custody_wrap_unset. Never invent a wrap key. */
@@ -83,10 +89,10 @@ export const opsEnvSchema = baseEnvSchema
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),
       /**
-       * Alert source. Blank → alerts.list names ops.alert_source_unconfigured.
-       * A set URL is not probed and acknowledge still refuses.
+       * How often a still-failing reconciliation alert may notify again, in seconds (OPS-reconciliation-03).
+       * Blank → nothing is re-sent and each repeat names ops.alert_repeat_unset; the alert still counts. Never invented.
        */
-      OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
+      OPS_RECON_ALERT_REPEAT_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
       /**
        * How long a recorded heartbeat may age before it is overdue, in seconds.
        * Blank → heartbeatStatus reports ops.heartbeat_window_unset and overdue stays null. Never invented.

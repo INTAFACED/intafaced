@@ -473,7 +473,7 @@ export function createSqlTradeIdentityStore(sql: Sql): TradeIdentityStore {
     },
     async revokeLiveApiKeys(userId) {
       const rows = await sql<Array<{ id: string }>>`
-        UPDATE api_keys SET revoked = true WHERE user_id = ${userId} AND revoked = false RETURNING id
+        UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_closed' WHERE user_id = ${userId} AND revoked = false RETURNING id
       `;
       return rows.length;
     },

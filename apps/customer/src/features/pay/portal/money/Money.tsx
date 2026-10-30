@@ -16,7 +16,8 @@ import { utcDay } from '../model';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { LinkButton, MoneyFailure, TestBanner, payoutName, useTestMode } from './common';
 import { mc } from './copy';
-import { amountFor, bpsPercent, hasHiddenDigits, roundedDecimal } from './model';
+import { amountFor, hasHiddenDigits, roundedDecimal } from './model';
+import { ReserveCard } from './Reserve';
 import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
@@ -33,13 +34,13 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
   const [picked, setAsset] = useUrlParam('asset', '');
   const test = useTestMode();
   const snapshot = useResource((s) => portal.snapshot(merchantId, 'today', s), `money:snapshot:${merchantId}`);
-  const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
+  const reserve = useResource((s) => portal.reserve(merchantId, s), `money:reserve:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   // The same read Settlements and Payouts use, so "ready" and "waiting" are the same figures on every page.
   const picture = usePayoutPicture(portal, merchantId);
   const reload = () => {
     snapshot.reload();
-    control.reload();
+    reserve.reload();
     halts.reload();
     picture.reload();
   };
@@ -47,6 +48,10 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
     <div className="stack mn-page">
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <TestBanner />
+      {/* Outside the balance read, so Top up is reachable before the first payment and while balances cannot be read. */}
+      <div className="pp-actions">
+        <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
+      </div>
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
         {(data) => {
           const assets = data.balances.map((b) => b.assetCode);
@@ -67,8 +72,6 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
             return c.newest ? t('mnCountNewest', { n: c.n }) : String(c.n);
           };
           const approvalMap = pic?.approvals ?? null;
-          const reserveBps = control.resource.status === 'ready' ? (control.resource.data.reserve?.rollingReserveBps ?? null) : null;
-          const reserveDays = control.resource.status === 'ready' ? (control.resource.data.reserve?.holdDays ?? null) : null;
           const capturedToday = amountFor(data.captured, asset);
           const refundedToday = amountFor(data.refunded, asset);
           return (
@@ -93,14 +96,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                     </span>
                   )}
                   <span className="muted">
-                    {t('balPending')} <MoneyText value={balance.clearing} asset={asset} test={test} />
-                    {reserveBps !== null && (
-                      <>
-                        {' · '}
-                        {t('balReserve', { pct: bpsPercent(reserveBps) })}
-                        {reserveDays !== null ? ` ${t('balReserveDays', { days: reserveDays })}` : ''}
-                      </>
-                    )}
+                    {t('balClearing')} <MoneyText value={balance.clearing} asset={asset} test={test} />
                   </span>
                 </div>
               </div>
@@ -114,7 +110,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                     value: <MoneyText value={balance.available} asset={asset} test={test} />,
                   },
                   {
-                    label: t('balPending'),
+                    label: t('balClearing'),
                     period: t('mnPeriodNow'),
                     href: `/pay/money/activity?${q}`,
                     value: <MoneyText value={balance.clearing} asset={asset} test={test} />,
@@ -162,14 +158,14 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   columns={[
                     { header: t('colAsset'), cell: (b) => b.assetCode },
                     { header: t('balAvailable'), cell: (b) => <MoneyText value={b.available} asset={b.assetCode} test={test} /> },
-                    { header: t('balPending'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
+                    { header: t('balClearing'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
                   ]}
                   card={(b) => ({
                     title: b.assetCode,
                     amount: <MoneyText value={b.available} asset={b.assetCode} test={test} />,
                     status: (
                       <span className="muted">
-                        {t('balPending')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
+                        {t('balClearing')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
                       </span>
                     ),
                   })}
@@ -186,6 +182,8 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           );
         }}
       </Gate>
+      {/* The reserve reads apart from the balances, so it shows before a first payment and while balances cannot be read. */}
+      <ReserveCard resource={reserve.resource} retry={reserve.reload} test={test} />
     </div>
   );
 }

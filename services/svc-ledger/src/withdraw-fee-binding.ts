@@ -74,6 +74,7 @@ export async function assertWithdrawFeeBound(ledger: FeeHoldReader, input: WireF
   if (!withdrawalId || input.idempotencyKey !== `withdraw.${step}:${withdrawalId}` || input.meta?.withdrawalId !== withdrawalId) {
     refuse('its key, its meta and the hold it moves do not name one withdrawal');
   }
+  // A retried hold with another fee or rail than the posted one is refused by the engine's own replay (`replayMetaDiffers`).
   if (input.reason === 'withdraw.held') return;
   const hold = await ledger.getTxByKey(`withdraw.hold:${withdrawalId}`);
   const heldFee = hold && hold.module === 'ledger' && hold.reason === 'withdraw.held' ? feeOf(hold.meta) : null;

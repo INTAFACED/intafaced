@@ -16,7 +16,7 @@ import { OtcError } from './errors.js';
 import { createConfigOtcMidSource, createObservedOtcMidSource, NO_OTC_MIDS } from './mid-source.js';
 
 const USER = '00000000-0000-4000-8000-000000000077';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -25,10 +25,14 @@ const published: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 
 function buyBtc() {
-  return { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' };
+  return { side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] };
 }
 
 describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => {
@@ -49,6 +53,8 @@ describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => 
   it('quote refuses when law is omitted (constructor default) even if a mid is present', async () => {
     const now = new Date('2026-08-15T09:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
     });
@@ -58,6 +64,8 @@ describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => 
   it('quote refuses unpublished law even when a live mid is sitting on the desk', async () => {
     const now = new Date('2026-08-15T09:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: UNPUBLISHED_OTC_DESK_LAW,
       midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
       now: () => now,
@@ -68,6 +76,8 @@ describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => 
   it('quote refuses a dark mid — production default sources nothing', async () => {
     const now = new Date('2026-08-15T09:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: NO_OTC_MIDS,
       now: () => now,
@@ -78,6 +88,8 @@ describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => 
   it('quote refuses a blank sourced mid string — never treat empty as zero', async () => {
     const now = new Date('2026-08-15T09:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: () => ({ mid: '   ', asOf: now }),
       now: () => now,
@@ -89,6 +101,8 @@ describe('OTC quote fail-closed pin — blank §8 law or dark/stale mid', () => 
     const boot = new Date('2026-08-15T09:00:00.000Z');
     const now = new Date('2026-08-15T09:02:00.000Z'); // 120s > 60s
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: createConfigOtcMidSource('BTC/USDT:200', boot),
       now: () => now,

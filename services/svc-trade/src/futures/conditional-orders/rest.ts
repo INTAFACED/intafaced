@@ -12,6 +12,7 @@ import { FuturesError } from '../position-service.js';
 import type { ConditionalOrderService } from './service.js';
 import { FUTURES_RESTING_UNSUPPORTED } from './resting.js';
 import type { EdgeTrust } from '../../edge-trust.js';
+import { privateRead, privateWrite } from '../../route-inventory.js';
 
 export const CONDITIONAL_ORDERS_PATH = '/api/v1/futures/conditional-orders';
 export const PROTECTION_PATH = '/api/v1/positions/:id/protection';
@@ -51,7 +52,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     throw err;
   }
 
-  app.post(CONDITIONAL_ORDERS_PATH, async (req, reply) => {
+  app.post(CONDITIONAL_ORDERS_PATH, privateWrite, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -75,7 +76,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     }
   });
 
-  app.get(CONDITIONAL_ORDERS_PATH, async (req, reply) => {
+  app.get(CONDITIONAL_ORDERS_PATH, privateRead, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -86,7 +87,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     }
   });
 
-  app.get<{ Params: { id: string } }>(`${CONDITIONAL_ORDERS_PATH}/:id`, async (req, reply) => {
+  app.get<{ Params: { id: string } }>(`${CONDITIONAL_ORDERS_PATH}/:id`, privateRead, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -97,7 +98,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     }
   });
 
-  app.delete<{ Params: { id: string } }>(`${CONDITIONAL_ORDERS_PATH}/:id`, async (req, reply) => {
+  app.delete<{ Params: { id: string } }>(`${CONDITIONAL_ORDERS_PATH}/:id`, privateWrite, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -108,7 +109,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     }
   });
 
-  app.put<{ Params: { id: string } }>(PROTECTION_PATH, async (req, reply) => {
+  app.put<{ Params: { id: string } }>(PROTECTION_PATH, privateWrite, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -126,7 +127,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
   });
 
   // What each opening order asked to be protected with, and how far its legs have armed.
-  app.get(ENTRY_PROTECTION_PATH, async (req, reply) => {
+  app.get(ENTRY_PROTECTION_PATH, privateRead, async (req, reply) => {
     const principal = principalOf(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
     try {
@@ -161,9 +162,9 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
   }
 
   if (deps.restingRefusal === false) return;
-  app.post(RESTING_ORDERS_PATH, async (req, reply) => refuseResting(req, reply, true));
-  app.get(RESTING_ORDERS_PATH, async (req, reply) => refuseResting(req, reply, false));
-  app.delete<{ Params: { id: string } }>(`${RESTING_ORDERS_PATH}/:id`, async (req, reply) => refuseResting(req, reply, true));
+  app.post(RESTING_ORDERS_PATH, privateWrite, async (req, reply) => refuseResting(req, reply, true));
+  app.get(RESTING_ORDERS_PATH, privateRead, async (req, reply) => refuseResting(req, reply, false));
+  app.delete<{ Params: { id: string } }>(`${RESTING_ORDERS_PATH}/:id`, privateWrite, async (req, reply) => refuseResting(req, reply, true));
 }
 
 export { FUTURES_RESTING_UNSUPPORTED };

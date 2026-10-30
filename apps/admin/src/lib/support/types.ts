@@ -1,4 +1,7 @@
+import type { SupportMacro, SupportSignature } from '@intafaced/contracts/support-macros';
 import type {
+  SupportAccountGrounding,
+  SupportViewList,
   SupportTicketLifecycle,
   SupportTicketProperties,
   SupportCaseFile,
@@ -6,10 +9,12 @@ import type {
   SupportKbArticle,
   SupportTicket,
   SupportTicketEvent,
+  SupportTicketPropertyChange,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
 import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';
+import type { QueueQuery } from './queue-query';
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 
@@ -37,15 +42,45 @@ export interface SupportBulkPolicyView {
   readonly policy: Part<BulkPolicyView>;
 }
 
+/** The saved view a queue read was narrowed by. `mine` is whether this founder owns it (only the owner may change it). */
+export interface QueueViewRef {
+  readonly id: string;
+  readonly name: string;
+  readonly shared: boolean;
+  readonly ownerId: string;
+  readonly mine: boolean;
+}
+
+/** svc-support refused the filter, search or view; the queue beside it is the plain one. */
+export interface QueueRefusal {
+  readonly what: 'filter' | 'search' | 'view';
+  readonly code: string | null;
+  /** The field the filter named, as it was typed. */
+  readonly field: string | null;
+}
+
 export interface SupportQueueView {
   readonly asOf: string;
   readonly queue: Part<QueueRead>;
+  /** What the read was asked to narrow by. Absent on an older answer: the plain queue. */
+  readonly query?: QueueQuery;
+  readonly view?: QueueViewRef | null;
+  readonly refused?: QueueRefusal;
+}
+
+export interface SupportViewsView {
+  readonly asOf: string;
+  readonly meId: string;
+  readonly list: Part<SupportViewList>;
+  readonly counts: Part<readonly { readonly viewId: string; readonly count: number }[]>;
 }
 
 export interface TicketDetail {
   readonly ticket: SupportTicket;
   readonly comments: Part<readonly SupportComment[]>;
   readonly events: Part<readonly SupportTicketEvent[]>;
+  /** Priority, type and label changes from svc-support's staff-only property log. Its own part: a refusal here never hides the trail. */
+  readonly propertyChanges: Part<readonly SupportTicketPropertyChange[]>;
 }
 
 export interface SupportTicketView {
@@ -76,6 +111,12 @@ export interface SupportKbView {
 }
 
 /** Priority, type and labels an agent set on one ticket. Null priority or type means nobody set one. */
+/** The customer card's account read: svc-support's own answer (`read` with the state, or `unread` with why). */
+export interface SupportCustomerView {
+  readonly asOf: string;
+  readonly account: Part<SupportAccountGrounding>;
+}
+
 export interface SupportPropertiesView {
   readonly asOf: string;
   readonly properties: Part<SupportTicketProperties>;
@@ -113,4 +154,11 @@ export interface SupportGroupsView {
   readonly groups: Part<readonly DeskGroupView[]>;
   readonly scope: Part<DeskScopeView>;
   readonly roster: Part<readonly StaffMemberView[]>;
+}
+
+/** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
+export interface SupportMacrosView {
+  readonly asOf: string;
+  readonly macros: Part<readonly SupportMacro[]>;
+  readonly signature: Part<SupportSignature>;
 }

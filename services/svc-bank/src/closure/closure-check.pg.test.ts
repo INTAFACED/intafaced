@@ -42,7 +42,11 @@ retainRawBody(app);
 registerClosureCheck(app, { sql: db.sql, ledger, secret: SECRET });
 
 beforeEach(async () => {
-  await db.truncateAll();
+  // The fraud list's history refuses TRUNCATE (append-only), and nothing here writes it: the reset skips that table.
+  const tables = await db.sql<Array<{ tablename: string }>>`
+    SELECT tablename FROM pg_tables WHERE schemaname = ${db.schema} AND tablename <> 'destination_fraud_list_history'
+  `;
+  await db.sql.unsafe(`TRUNCATE ${tables.map((t) => `"${db.schema}"."${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`);
 });
 afterAll(async () => {
   await app.close();
