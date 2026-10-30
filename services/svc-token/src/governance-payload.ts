@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
+
 /**
- * The action names and fields two founders approve for governance (MC-token-02). Kept free of imports so the founder
+ * The action names and fields two founders approve for governance (MC-token-02). Kept free of service imports so the founder
  * console's hash test pins against this exact code.
  */
 
@@ -27,4 +29,21 @@ export function governanceSettingsPayload(input: {
 /** The fields the founders' role approval binds. A revoke is the empty role. */
 export function governanceRolePayload(input: { userId: string; role: string | null; expectedRevision: number }): Record<string, string> {
   return { userId: input.userId, role: input.role ?? '', expectedRevision: String(input.expectedRevision) };
+}
+
+/** The running founder's same-person step-up for one role move (J-more-catalogue-10 #6). */
+export const GOVERNANCE_ROLE_STEP_UP_SCOPE = 'token.step_up.governance.setRole' as const;
+
+/** The fields the founder confirmed: the account, the role (empty for a revoke) and the role revision. */
+export function governanceRoleStepUpFields(input: {
+  userId: string;
+  role: string | null;
+  expectedRevision: number;
+}): Record<string, string> {
+  return { userId: input.userId, role: input.role ?? '', expectedRevision: String(input.expectedRevision) };
+}
+
+/** One role move's business key: a retry after a lost reply replays at identity instead of asking for a new confirmation. */
+export function governanceRoleStepUpRequestId(input: { userId: string; expectedRevision: number }): string {
+  return `gov.role:${input.expectedRevision}:${createHash('sha256').update(input.userId).digest('hex').slice(0, 32)}`;
 }
