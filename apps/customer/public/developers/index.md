@@ -32,10 +32,10 @@ FIX sessions are not opened from this portal: FIX access waits for its onboardin
 
 ## Embedded
 
-For merchant accounts: payment keys, webhooks and the sandbox are made inside the merchant portal.
+For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.
 
 - Webhooks: /pay/developer/webhooks
-- Sandbox: /pay/developer/sandbox
+- Sandbox: /developers/sandbox
 
 ## Broker
 

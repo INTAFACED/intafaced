@@ -11,6 +11,8 @@ import { SqlSurveyBook } from './survey-settings.js';
 import { SqlHelpCentreBook } from './help-centre.js';
 import { RequestForms, SqlFormsStore } from './request-forms.js';
 import { SqlKbLibraryBook } from './kb-library.js';
+import { KbAuthoring } from './kb-authoring.js';
+import { SqlKbReviewBook } from './kb-review.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlViewBook } from './desk-views.js';
@@ -209,6 +211,7 @@ const appRouter = createSupportRouter(
   new SqlKbLibraryBook(sql),
   new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
   new DeskMacros(new SqlMacroBook(sql), support, env.SUPPORT_MACRO_SHORTCODE_MIN ?? null),
+  new KbAuthoring(store, new SqlKbReviewBook(sql)),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

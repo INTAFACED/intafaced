@@ -74,7 +74,9 @@ export type OwnRefusalCode =
   | 'agents.own.too_many'
   | 'agents.spend.cap_unset'
   | 'agents.spend.above_agent_cap'
-  | 'agents.spend.per_call_above_session';
+  | 'agents.spend.per_call_above_session'
+  | 'agents.usage.limit_invalid'
+  | 'agents.usage.alert_above_limit';
 
 export class OwnAgentRefusal extends Error {
   constructor(

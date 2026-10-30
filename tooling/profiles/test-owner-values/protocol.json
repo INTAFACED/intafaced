@@ -26,6 +26,21 @@
       "value": "1",
       "note": "TEST confirmations before a swap reads filled, on the local TEST chain. Blank in production refuses protocol.swap_settings_unset."
     },
+    "PROTOCOL_GAS_PERCENTILES": {
+      "service": "protocol",
+      "value": "10,50,90",
+      "note": "TEST percentiles of the last blocks' priority fees for the Slow, Normal and Fast network fee levels and the gas tracker. Blank in production refuses protocol.gas_percentiles_unset."
+    },
+    "PROTOCOL_GAS_HISTORY_BLOCKS": {
+      "service": "protocol",
+      "value": "20",
+      "note": "TEST count of recent blocks the fee levels are read from. Blank in production refuses protocol.gas_percentiles_unset."
+    },
+    "PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI": {
+      "service": "protocol",
+      "value": "100000000000",
+      "note": "TEST fee cap (100 gwei per gas) on the local TEST chain: the most any fee level or custom fee may offer. Blank in production refuses protocol.swap_fee_cap_unset."
+    },
     "PROTOCOL_PRICE_USD_TOKENS": {
       "service": "protocol",
       "value": "0x000000000000000000000000000000000000d011",
@@ -40,6 +55,11 @@
       "service": "protocol",
       "value": "0x00000000000000000000000000000000000b0b00",
       "note": "LOCAL TEST ONLY, not an owner decision: TEST Token B on the local TEST chain, the token the token pages state prices and volumes in. Blank in production refuses protocol.tokens_quote_unset."
+    },
+    "PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS": {
+      "service": "protocol",
+      "value": "TEST:300",
+      "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
     }
   }
 }

@@ -424,3 +424,63 @@ describe('participant client', () => {
     expect(String((fetchOk.mock.calls[0] as unknown[])[0])).toBe(`http://identity.test/internal/campaign-participant/${USER}`);
   });
 });
+
+describe('operator lens reads (J-more-catalogue-14)', () => {
+  const reader = () => signed(principal({ scopes: ['admin:read'] }));
+  const lensService = () =>
+    fakeService({
+      listAllEvents: vi.fn(async () => [{ ...OPEN, status: 'draft' as const, state: null }]),
+      getAnyEvent: vi.fn(async () => ({ ...OPEN, status: 'draft' as const, state: null })),
+      listIssuers: vi.fn(async () => [{ id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded' as const, revision: 3 }]),
+      moves: vi.fn(
+        async () =>
+          new Map([
+            [
+              OPEN.id,
+              [
+                {
+                  ordinal: 4,
+                  from: 'open',
+                  to: 'closed',
+                  actorId: USER,
+                  approverId: APPROVER,
+                  cause: 'issuer_suspended',
+                  at: new Date('2026-11-01T03:00:00Z'),
+                },
+              ],
+            ],
+          ]),
+      ),
+    });
+
+  it('need admin:read: a customer and an anonymous caller never reach the service', async () => {
+    const service = lensService();
+    await expect(caller(signed(), service).admin.events({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(anonymous(), service).admin.issuers({ limit: 10 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(signed(), service).admin.moves({ kind: 'event', ids: [OPEN.id] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(service.listAllEvents).not.toHaveBeenCalled();
+    expect(service.moves).not.toHaveBeenCalled();
+  });
+
+  it('list drafts too, and each move with who asked, who approved and why, times as ISO', async () => {
+    const service = lensService();
+    expect((await caller(reader(), service).admin.events({ limit: 10 }))[0]).toMatchObject({ id: OPEN.id, status: 'draft', state: null });
+    expect(await caller(reader(), service).admin.event({ id: OPEN.id })).toMatchObject({ status: 'draft' });
+    expect(await caller(reader(), service).admin.issuers({ limit: 10 })).toEqual([
+      { id: 'test-issuer', name: 'TEST Issuer', state: 'onboarded', revision: 3 },
+    ]);
+    expect(await caller(reader(), service).admin.moves({ kind: 'event', ids: [OPEN.id] })).toEqual({
+      [OPEN.id]: [
+        {
+          ordinal: 4,
+          from: 'open',
+          to: 'closed',
+          actorId: USER,
+          approverId: APPROVER,
+          cause: 'issuer_suspended',
+          at: '2026-11-01T03:00:00.000Z',
+        },
+      ],
+    });
+  });
+});

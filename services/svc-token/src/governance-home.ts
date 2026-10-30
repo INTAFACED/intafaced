@@ -60,12 +60,15 @@ interface ProposalSqlRow {
   snapshot_total?: string | null;
   snapshot_hash?: string | null;
   ranking?: unknown;
+  cancel_reason?: string | null;
+  cancelled_at?: Date | null;
 }
 
 const PROPOSAL_RETURNING = `
   id, kind, body, status, opens_at, closes_at, created_at,
   title, body_md, discussion_link, business_key, author_id, revision,
-  voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking
+  voting_type, choices, snapshot_count, snapshot_total::text AS snapshot_total, snapshot_hash, ranking,
+  cancel_reason, cancelled_at
 `;
 
 function accessError(code: ProposalAccessCode): TokenError {
@@ -294,6 +297,7 @@ export function proposalCard(row: ProposalSqlRow): ProposalRecord {
       snapshot_hash: row.snapshot_hash ?? null,
     }),
     ranking: storedRanking(row.ranking),
+    cancel: row.cancel_reason && row.cancelled_at ? { reason: row.cancel_reason, at: row.cancelled_at } : null,
     counts: {
       votes: asCount(row.votes),
       for: asCount(row.for_n),
@@ -355,6 +359,7 @@ export async function listGovernanceProposals(
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
            p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
+           p.cancel_reason, p.cancelled_at,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
@@ -380,6 +385,7 @@ export async function loadProposalRow(sql: Sql, proposalId: string): Promise<Pro
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
            p.voting_type, p.choices, p.snapshot_count, p.snapshot_total::text AS snapshot_total, p.snapshot_hash, p.ranking,
+           p.cancel_reason, p.cancelled_at,
            COALESCE(c.votes, 0) AS votes,
            COALESCE(c.for_n, 0) AS for_n,
            COALESCE(c.against_n, 0) AS against_n,
@@ -527,8 +533,8 @@ export async function insertGovernanceProposal(
     body: Record<string, unknown>;
     authorId: string;
     asAdmin: boolean;
-    opensAt: Date;
-    closesAt: Date;
+    /** The voting window, decided after the proposer rule passes (a blank setting refuses only an allowed author). */
+    window: (tx: Sql) => Promise<{ opensAt: Date; closesAt: Date }>;
     now: Date;
     handle?: string;
     title?: string;
@@ -586,6 +592,7 @@ export async function insertGovernanceProposal(
         existing: existingCount,
       });
       if (access.code) throw accessError(access.code);
+      const { opensAt, closesAt } = await input.window(tx);
 
       const ordinalRows = await tx<Array<{ n: string | null }>>`
         SELECT (COALESCE(MAX(ordinal), 0) + 1)::text AS n
@@ -596,7 +603,7 @@ export async function insertGovernanceProposal(
       if (ordinal == null || ordinal < 1) throw invalid('Proposal ordinal is missing');
       const id = `gov:proposal:${GOVERNANCE_SPACE_ID}:${input.authorId}:${ordinal}`;
       const status: ProposalStatus =
-        input.opensAt.getTime() <= input.now.getTime() && input.closesAt.getTime() > input.now.getTime() ? 'open' : 'draft';
+        opensAt.getTime() <= input.now.getTime() && closesAt.getTime() > input.now.getTime() ? 'open' : 'draft';
 
       const inserted = await tx<ProposalSqlRow[]>`
         INSERT INTO token.proposals (
@@ -605,7 +612,7 @@ export async function insertGovernanceProposal(
           voting_type, choices
         )
         VALUES (
-          ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${input.opensAt}, ${input.closesAt},
+          ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${opensAt}, ${closesAt},
           ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${id}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID},
           ${input.votingType}, ${input.choices === null ? null : tx.json(input.choices as never)}
         )

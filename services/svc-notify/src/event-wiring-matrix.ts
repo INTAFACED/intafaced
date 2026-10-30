@@ -99,7 +99,7 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     event: 'securityFactorChanged',
     durable: 'notify-security-factor-changed',
     subject: 'intafaced.identity.security_factor.updated',
-    effect: 'Inbox row when a sign-in factor is turned on, off, replaced, added or removed',
+    effect: 'Inbox row when a sign-in factor is turned on, off, replaced, added or removed, or the password is changed',
   },
   {
     event: 'rankUpdated',
@@ -142,6 +142,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-pay-deposit-credit-posted',
     subject: 'intafaced.pay.deposit_credit.posted',
     effect: 'Inbox row bank.deposit.credited for the customer whose crypto deposit the ledger credited, once per deposit',
+  },
+  {
+    event: 'copySkipped',
+    durable: 'notify-copy-skipped',
+    subject: 'intafaced.trade.copy.skipped',
+    effect: 'Inbox row trade.copy.skipped for the follower, the reason in words, once per follow and leader fill',
+  },
+  {
+    event: 'copyStopped',
+    durable: 'notify-copy-stopped',
+    subject: 'intafaced.trade.copy.stopped',
+    effect: 'Inbox row trade.copy.stopped for the follower, the reason in words, once per follow and close-only',
   },
   {
     event: 'bankScheduledReminder',

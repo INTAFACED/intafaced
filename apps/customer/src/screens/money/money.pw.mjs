@@ -499,6 +499,20 @@ test('the bank cannot list accounts: the page carries on without that section', 
   await expect(page.locator('#accounts')).toHaveCount(0);
 });
 
+test('Your spaces lists a named account only while it holds something; the picker still offers every one', async ({ page }) => {
+  const empty = { ...spaces()[0], kind: 'named', id: 'sp-empty-test', name: 'Empty TEST', balance: '0' };
+  const unread = { ...spaces()[0], kind: 'named', id: 'sp-unread-test', name: 'Unread TEST', balance: 'not-a-number' };
+  await mock(page, { bank: { 'spaces.list': () => [...spaces(), empty, unread] } });
+  await open(page);
+  // A known zero is left out; a balance that cannot be read stays listed, shown as unknown.
+  const rows = await texts(page.getByTestId('money-accounts__row'));
+  expect(rows.slice(0, 2)).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
+  expect(rows).toHaveLength(3);
+  expect(rows[2]).toContain('Unread TEST');
+  await expect(page.getByTestId('money-accounts__row').filter({ hasText: 'Empty TEST' })).toHaveCount(0);
+  await expect(page.getByLabel('Accounts shown').locator('option', { hasText: 'Empty TEST' })).toHaveCount(1);
+});
+
 test('hidden balances show bullets, prices and shares stay, and the choice is remembered', async ({ page }) => {
   await simple(page);
   await mock(page);

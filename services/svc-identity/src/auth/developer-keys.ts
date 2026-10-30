@@ -167,7 +167,7 @@ export function checkCreate(input: Omit<ApiKeyCreateInput, 'requestId'>, session
   return { name, scopes, ips, expiresAt, fingerprint };
 }
 
-type KeyRow = {
+export type KeyRow = {
   id: string;
   name: string;
   key_prefix: string;
@@ -185,10 +185,10 @@ type KeyRow = {
 };
 
 /** The columns every key read takes, in the order `KeyRow` names them. Never the hash or a secret. */
-const KEY_COLUMNS =
+export const KEY_COLUMNS =
   'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason';
 
-function toRecord(row: KeyRow): ApiKeyRecord {
+export function toRecord(row: KeyRow): ApiKeyRecord {
   return {
     id: row.id,
     name: row.name,

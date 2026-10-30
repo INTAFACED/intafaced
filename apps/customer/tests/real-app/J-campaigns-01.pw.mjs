@@ -71,6 +71,29 @@ async function liveCampaign(name, over = {}) {
   return live;
 }
 
+/**
+ * The step's starting point, nothing running: founder A ends every TEST campaign that is scheduled, active or paused on
+ * this stack (earlier journeys in the same run leave theirs live), and any older one the customer `who` still sees.
+ * Ending moves nothing and is what an operator does.
+ */
+async function endEveryRunningCampaign(who) {
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const all = data(await ctx.edge.query('campaigns', 'ops.campaigns.list', undefined, a), 'ops.campaigns.list');
+  const running = all.filter((x) => ['scheduled', 'active', 'paused'].includes(x.state));
+  // The ops list is the newest 200; anything older the customer still sees is read by id.
+  for (const { id } of (await catalogueOf(who)).campaigns.filter((x) => !running.some((c) => c.id === x.id))) {
+    running.push(data(await ctx.edge.query('campaigns', 'ops.campaigns.get', { id }, a), `ops.campaigns.get ${id}`));
+  }
+  for (const c of running) {
+    const ended = data(
+      await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: c.id, action: 'end', revision: c.revision }, a),
+      `end ${c.name}`,
+    );
+    expect(ended.state).toBe('ended');
+  }
+}
+
 const person = (handle) => ({
   handle,
   email: `${handle}@local-test.invalid`,
@@ -102,17 +125,16 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
   const me = person(`jc01me${tag}`.slice(0, 20));
   const page = await customer(browser);
   await signUpInBrowser(page, me);
+  await endEveryRunningCampaign(me);
   await openCatalogue(page);
   // The filters and the type list are always laid out.
   await expect(page.getByRole('combobox', { name: 'Type', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State', exact: true })).toBeVisible();
   await expect(page.getByTestId('campaign-types')).toBeVisible();
-  // Whatever the service lists is what the page shows: no invented card. On the fresh stack of a journeys run nothing runs.
-  const listed = (await catalogueOf(me)).campaigns;
-  await expect(page.getByTestId('campaign-card')).toHaveCount(listed.length);
-  if (listed.length === 0) {
-    await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
-  }
+  // Nothing runs, and the page says so honestly: no invented card.
+  expect((await catalogueOf(me)).campaigns).toEqual([]);
+  await expect(page.getByTestId('campaign-card')).toHaveCount(0);
+  await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
   run.write({ me });
 });
 
@@ -188,6 +210,17 @@ test(`${J} #4 an excluded account type sees the typed reason and can ask for one
   await expect(detail.getByTestId('campaign-eligibility')).toHaveAttribute('data-code', 'campaigns.not_eligible', { timeout: 30_000 });
   await detail.getByRole('button', { name: 'Ask for a review' }).click();
   await expect(detail.getByTestId('campaign-review')).toContainText('Review requested');
+  await expect(detail.getByRole('button', { name: 'Ask for a review' })).toHaveCount(0);
+  // One review only: two more requests sent at once, as a retry and another tab would send them, both return the
+  // first, and a fresh load of the page still shows it requested with no button to ask again.
+  const api1 = await api(firm);
+  const [first, second] = await Promise.all(
+    [1, 2].map(() => api1.post('/api/campaigns/trpc/participation.requestReview', { campaignId: excluding.id })),
+  );
+  expect(first.body?.result?.data?.created, JSON.stringify(first.body).slice(0, 300)).toBe(false);
+  expect(second.body?.result?.data, JSON.stringify(second.body).slice(0, 300)).toEqual(first.body.result.data);
+  await page.reload();
+  await expect(detail.getByTestId('campaign-review')).toContainText('Review requested', { timeout: 30_000 });
   await expect(detail.getByRole('button', { name: 'Ask for a review' })).toHaveCount(0);
 });
 

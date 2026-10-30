@@ -90,6 +90,7 @@ const bank = {
     resumePending: async () => [],
   },
   loans: {
+    originationFeeBps: '0',
     accrueAll: async () => ({ results: [], failures: [] }),
     runRiskSweep: async () => ({ marked: 0, called: 0, liquidated: 0, cleared: 0, refused: [] }),
     resumePending: async () => [],

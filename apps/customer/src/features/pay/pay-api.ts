@@ -5,6 +5,7 @@ import { parseAmount } from '../../shared/money';
 import { createMoneyClient } from '../money/client';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
+import { shareCopy } from './personal/p2p-share-copy';
 import {
   isOwnOffer,
   quoteIsConsistent,
@@ -350,6 +351,28 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
 
 /** The most paused ads My offers lists (svc-p2p's page maximum); the room says when there may be more. */
 export const PAUSED_OFFERS_SHOWN = 200;
+/** P-ads-merchant-07: a share token as svc-p2p makes it. */
+const SHARE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+
+/**
+ * P-ads-merchant-07: a private ad without a link, or a link that ended or was withdrawn, in plain words rather than the
+ * service's own reply.
+ */
+function shareLinkRefusal<T>(result: ApiResult<T>): ApiResult<T> {
+  if (result.ok) return result;
+  const key =
+    result.code === 'p2p.offer_private'
+      ? 'linkPrivate'
+      : result.code === 'p2p.share_link_expired'
+        ? 'linkExpired'
+        : result.code === 'p2p.share_link_revoked'
+          ? 'linkRevoked'
+          : null;
+  return key ? { ...result, message: shareCopy.t(key) } : result;
+}
+
+/** P-ads-merchant-06: closed ads My Ads lists, most recently closed first. */
+export const CLOSED_OFFERS_SHOWN = 50;
 
 export function createPersonalPayApi(
   api: ApiClient,
@@ -358,6 +381,12 @@ export function createPersonalPayApi(
   p2pCurrent: () => boolean = () => api.canWrite(),
 ) {
   const signedIn = () => (userId ? null : payRefusal('signInToUseYourOwnPay', { code: 'pay.session_required', reason: 'unauthorized' }));
+  // P-ads-merchant-07: the share link each ad was opened by, so its reads, quotes and take reach a private ad.
+  const shareTokens = new Map<string, string>();
+  const shareOf = (offerId: string) => {
+    const token = shareTokens.get(offerId.toLowerCase());
+    return token ? { shareToken: token } : {};
+  };
   const p2pDeparted = () => payRefusal('p2pViewChanged', { code: 'pay.p2p_view_changed', reason: 'aborted' });
   async function currentTrade(tradeId: string, signal?: AbortSignal) {
     const denied = signedIn();
@@ -392,7 +421,7 @@ export function createPersonalPayApi(
     const denied = signedIn();
     if (denied) return denied;
     if (!p2pCurrent()) return p2pDeparted();
-    const result = await api.query('p2p', 'offers.get', { offerId }, s.offerSchema, { signal });
+    const result = shareLinkRefusal(await api.query('p2p', 'offers.get', { offerId, ...shareOf(offerId) }, s.offerSchema, { signal }));
     if (!p2pCurrent()) return p2pDeparted();
     if (result.ok && result.data.id.toLowerCase() !== offerId.toLowerCase())
       return payRefusal('p2pOfferProjectionMismatch', { code: 'pay.offer_projection_invalid', reason: 'invalid_response' });
@@ -653,6 +682,22 @@ export function createPersonalPayApi(
         s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
       );
     },
+    /**
+     * P-ads-merchant-06: saves an edit of the person's own ad, only the fields that changed. `idempotencyKey` is made once
+     * per edit form, so a second press or a retry is the same edit and counts once against the day's cap. Open orders keep
+     * the terms they were taken on.
+     */
+    updateOffer(offerId: string, changes: s.OfferUpdateInput, idempotencyKey: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.update',
+        { offerId, idempotencyKey, ...changes },
+        s.offerSchema.refine((offer) => offer.makerId === userId && offer.id === offerId.toLowerCase(), 'The edited ad is not this one'),
+      );
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>
@@ -829,7 +874,9 @@ export function createPersonalPayApi(
       if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
       if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.query('p2p', 'trades.quote', request, s.takeQuoteSchema, { signal });
+      const result = shareLinkRefusal(
+        await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema, { signal }),
+      );
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
@@ -852,7 +899,9 @@ export function createPersonalPayApi(
       } catch {
         return takeRefusal('pay.take_quote_invalid', 'not_supported');
       }
-      const result = await api.mutate('p2p', 'trades.lockQuote', { ...request, quoteId }, s.lockedQuoteSchema, { signal });
+      const result = shareLinkRefusal(
+        await api.mutate('p2p', 'trades.lockQuote', { ...request, ...shareOf(offer.id), quoteId }, s.lockedQuoteSchema, { signal }),
+      );
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       // Count down from the time left the service gave, on this device's clock: a device clock that runs fast or slow
@@ -874,7 +923,7 @@ export function createPersonalPayApi(
       const result = await api.query(
         'p2p',
         'trades.quote',
-        { offerId: offer.id.toLowerCase(), fiatAmount: input.fiatAmount, method: input.method },
+        { offerId: offer.id.toLowerCase(), fiatAmount: input.fiatAmount, method: input.method, ...shareOf(offer.id) },
         s.takeQuoteSchema,
         { signal },
       );
@@ -921,7 +970,7 @@ export function createPersonalPayApi(
         if (isOwnOffer(latest.data, me)) return takeRefusal('pay.take_own_offer', 'forbidden');
         if (latest.data.status !== 'active') return takeRefusal('pay.take_offer_unavailable', 'forbidden');
         if (!sameTakeTerms(latest.data, offer)) return takeRefusal('pay.take_terms_changed', 'invalid_response');
-        const again = await api.query('p2p', 'trades.quote', request, s.takeQuoteSchema);
+        const again = await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema);
         if (!current()) return p2pDeparted();
         if (!again.ok) return again;
         if (!quoteIsConsistent(latest.data, request, again.data) || !sameQuoteFigures(again.data, reviewed.quote))
@@ -938,6 +987,7 @@ export function createPersonalPayApi(
             amount: request.amount,
             method: request.method,
             ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+            ...shareOf(offer.id),
             // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
             ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
           },
@@ -945,7 +995,7 @@ export function createPersonalPayApi(
         );
         if (sent.ok)
           return tradeMatchesTake(sent.data, offer, me, request, tradeId) ? sent : takeRefusal('pay.take_unconfirmed', 'uncertain');
-        if (takeRefusalIsDefinite(sent)) return sent;
+        if (takeRefusalIsDefinite(sent)) return shareLinkRefusal(sent);
         // The order may exist. If the service already has it under this id, that is the answer.
         const found = await readOrder(tradeId, request);
         if (found.ok) return found;
@@ -1160,6 +1210,89 @@ export function createPersonalPayApi(
         z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
         { signal },
       );
+    },
+    /**
+     * P-ads-merchant-07: this ad was opened by a share link. Its reads, quotes and take send the token from now on, which
+     * is how a private ad is reached and how an order is marked as shared. A malformed token is not kept.
+     */
+    rememberShare(offerId: string, token: string) {
+      if (s.id.safeParse(offerId).success && SHARE_TOKEN.test(token)) shareTokens.set(offerId.toLowerCase(), token);
+    },
+    /** P-ads-merchant-07: make the person's own ad public (on the board) or private (by its links only). */
+    setOfferVisibility(offerId: string, visibility: 'public' | 'private') {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.setVisibility',
+        { offerId, visibility },
+        s.offerSchema.refine((offer) => offer.makerId === userId && offer.visibility === visibility, 'The ad did not change as asked'),
+      );
+    },
+    /** P-ads-merchant-07: the links to the person's own ad, newest first (never their tokens). */
+    async shareLinks(offerId: string, signal?: AbortSignal): Promise<ApiResult<s.ShareLink[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'offers.shareLinks.list', { offerId }, z.array(s.shareLinkSchema), { signal });
+    },
+    /**
+     * P-ads-merchant-07: a new link to the person's own ad. The token comes back once and is shown in the link; svc-p2p
+     * keeps only its hash, so the link cannot be read again later. `linkId` is made once per press of Make a link.
+     */
+    createShareLink(offerId: string, linkId: string, seconds?: number) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.shareLinks.create',
+        { offerId, linkId, ...(seconds === undefined ? {} : { seconds }) },
+        s.shareLinkSchema.extend({ token: z.string().regex(SHARE_TOKEN) }),
+      );
+    },
+    /** P-ads-merchant-07: withdraw a link at once. */
+    revokeShareLink(linkId: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'offers.shareLinks.revoke', { linkId }, s.shareLinkSchema);
+    },
+    /** P-ads-merchant-06: the person's own closed ads, most recently closed first, each with why it closed. */
+    async closedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'closed', limit: CLOSED_OFFERS_SHOWN },
+        z.array(
+          s.offerSchema.refine(
+            (offer) => offer.makerId === userId && offer.status === 'closed',
+            'An ad in this list is not this account’s',
+          ),
+        ),
+        { signal },
+      );
+    },
+    /** P-ads-merchant-06: the person's ad edits today against the daily cap; blank cap refuses `p2p.config_unset`. */
+    async offerEditQuota(signal?: AbortSignal): Promise<ApiResult<z.infer<typeof s.offerEditQuotaSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'offers.editQuota', undefined, s.offerEditQuotaSchema, { signal });
+    },
+    /**
+     * P-ads-merchant-06: posts a closed ad again as a new ad, through every check a new ad passes. svc-p2p derives the new
+     * ad's id from the closed one, so pressing twice, or a retry after a lost reply, is the same relist.
+     */
+    async relistOffer(offerId: string): Promise<ApiResult<s.Offer>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return guard.run(`${userId}:relist:${offerId}`, () => api.mutate('p2p', 'offers.relist', { offerId }, s.offerSchema));
     },
     /**
      * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its

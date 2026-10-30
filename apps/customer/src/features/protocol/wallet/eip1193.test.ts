@@ -353,3 +353,50 @@ describe('what the sheet shows is what the signature carries', () => {
     ).toEqual([T1, T2]);
   });
 });
+
+describe('a transaction carries the network fee the person chose', () => {
+  const fee = {
+    kind: 'transaction' as const,
+    to: ADDR,
+    data: '0x095ea7b3',
+    maxFeePerGas: '0x77359400',
+    maxPriorityFeePerGas: '0x3b9aca00',
+  };
+
+  it('shows the fee on the sheet and sends it in the same object', () => {
+    expect(refuseReason(fee)).toBeNull();
+    const facts = describeRequest(fee);
+    expect(facts).toContainEqual({ label: 'maxFee', value: '2000000000 wei' });
+    expect(facts).toContainEqual({ label: 'priorityFee', value: '1000000000 wei' });
+    const shown = JSON.parse(payloadText(fee, ADDR, 84532));
+    expect(shown).toMatchObject({ maxFeePerGas: '0x77359400', maxPriorityFeePerGas: '0x3b9aca00' });
+  });
+
+  it('sends the chosen fee to the wallet', async () => {
+    const sent: unknown[] = [];
+    const provider = fake(async (args) => {
+      if (args.method === 'eth_sendTransaction') sent.push((args.params as unknown[])[0]);
+      return `0x${'ab'.repeat(32)}`;
+    });
+    await expect(runSignRequest(provider, ADDR, fee, 1_000)).resolves.toMatchObject({ status: 'sent' });
+    expect(sent[0]).toMatchObject({ maxFeePerGas: '0x77359400', maxPriorityFeePerGas: '0x3b9aca00' });
+  });
+
+  it('leaves the fee to the wallet when none was chosen', () => {
+    const plain = { kind: 'transaction' as const, to: ADDR, data: '0x095ea7b3' };
+    expect(Object.keys(JSON.parse(payloadText(plain, ADDR, 84532)))).not.toContain('maxFeePerGas');
+    expect(describeRequest(plain).map((fact) => fact.label)).not.toContain('maxFee');
+  });
+
+  it.each([
+    ['only one half', { maxFeePerGas: '0x10' }],
+    ['a decimal amount', { maxFeePerGas: '100', maxPriorityFeePerGas: '0x1' }],
+    ['an empty hex', { maxFeePerGas: '0x', maxPriorityFeePerGas: '0x1' }],
+  ])('refuses %s before any sheet', (_name, change) => {
+    expect(refuseReason({ kind: 'transaction', to: ADDR, ...change })).toMatch(/network fee/);
+  });
+
+  it('refuses a priority fee above the most per gas', () => {
+    expect(refuseReason({ kind: 'transaction', to: ADDR, maxFeePerGas: '0x1', maxPriorityFeePerGas: '0x2' })).toMatch(/priority/);
+  });
+});
