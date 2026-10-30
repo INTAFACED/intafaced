@@ -89,6 +89,9 @@ const messages = {
   Closed: 'Closed',
   'Closed pairs': 'Closed pairs',
   Closing: 'Closing',
+  'Confirm it’s you': 'Confirm it’s you',
+  'Confirm it’s you to close your copied positions and leave this leader.':
+    'Confirm it’s you to close your copied positions and leave this leader.',
   'Confirm it’s you to withdraw {amount} {asset}.': 'Confirm it’s you to withdraw {amount} {asset}.',
   'Confirmation ID': 'Confirmation ID',
   Continue: 'Continue',
@@ -559,6 +562,8 @@ const messages = {
   'You had paused this follow': 'You had paused this follow',
   'You had stopped this follow': 'You had stopped this follow',
   'You have already left this leader': 'You have already left this leader',
+  'You have no passkey or authenticator app, so closing everything cannot be confirmed.':
+    'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':
     'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
@@ -567,6 +572,8 @@ const messages = {
   'Your balance did not cover it': 'Your balance did not cover it',
   'Your bot’s reserve was lowered by {amount} {asset}. No money moved.':
     'Your bot’s reserve was lowered by {amount} {asset}. No money moved.',
+  'Your copied positions are closed at the market price, then the follow ends.':
+    'Your copied positions are closed at the market price, then the follow ends.',
   'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.':
     'Your copied positions are closed at the market price, then the follow ends. Prices can move and fees apply.',
   'Your country': 'Your country',

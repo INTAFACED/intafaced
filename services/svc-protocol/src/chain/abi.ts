@@ -290,3 +290,14 @@ export const erc20ApprovalAbi = [
     outputs: [{ type: 'bool' }],
   },
 ] as const;
+
+/** ERC-20 `Approval(owner, spender, value)`: read to find which spenders an owner has approved, never as the amount. */
+export const erc20ApprovalEvent = {
+  type: 'event',
+  name: 'Approval',
+  inputs: [
+    { name: 'owner', type: 'address', indexed: true },
+    { name: 'spender', type: 'address', indexed: true },
+    { name: 'value', type: 'uint256', indexed: false },
+  ],
+} as const;

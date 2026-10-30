@@ -58,6 +58,10 @@ import { macroProcedures } from './desk-macros-router.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
+import { kbReviewProcedures } from './kb-review-router.js';
+import { KbAuthoring } from './kb-authoring.js';
+import { MemoryKbReviewBook } from './kb-review.js';
+import { MemorySupportStore } from './store.js';
 import { kbFeedbackProcedures } from './kb-feedback-router.js';
 import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
@@ -113,6 +117,7 @@ export function mapError(err: unknown): never {
       err.code === 'support.identity_grounding_unwired' ||
       err.code === 'support.order.user_mismatch' ||
       err.code === 'support.settle.refused' ||
+      err.code === 'support.kb_review_required' ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
       err.code === 'support.queue_list_limit_unset' ||
       err.code === 'support.list_all_limit_unset' ||
@@ -212,6 +217,7 @@ export function createSupportRouter(
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
   macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
+  kbAuthoring: KbAuthoring = new KbAuthoring(new MemorySupportStore(), new MemoryKbReviewBook()),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -223,6 +229,7 @@ export function createSupportRouter(
     ...requestFormProcedures(forms, support),
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
     ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
+    ...kbReviewProcedures(kbAuthoring, kbLibrary),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

@@ -2812,7 +2812,9 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
  * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
  * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
  * four-eyes approval over the reason `appeal:<id>`: operator a proposes it, operator b approves it, and identity spends
- * it in the decision. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
+ * it in the decision. A staff freeze's appeal (J-identity-11 #5; `freezeIdentity` runs as founder a) is decided by founder
+ * b, and its lift spends an `identity.account_unfreeze` approval over the same reason that founder b proposes and operator
+ * a approves. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
  */
 export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   if (
@@ -2830,11 +2832,15 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;
   if ([ops.a, ops.b].some((o) => who(o) === null || who(o) === who(founders.a) || who(o) === who(founders.b)) || who(ops.a) === who(ops.b))
     throw new Error('appeal-decide needs two operators who are neither founder: the restrictors cannot decide');
-  // The decider's session carries compliance (the decision) and the trade operator scope (the restore it runs).
-  const deciderToken = await (flag === '--as-restrictor' ? founders.a : ops.a).complianceToken();
-  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, deciderToken));
+  const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, await ops.a.complianceToken()));
   const appeal = queue?.appeals?.find((a) => a.userId.toLowerCase() === user.id.toLowerCase());
   if (!appeal) throw new Error(`appeal-decide: ${handle} has no open appeal (${JSON.stringify(queue)})`);
+  // A staff freeze is set by founder a (stack.mjs `staffFreeze`) and only a live founder restores one, so founder b
+  // decides it; a trading restriction is set by founder a with founder b's approval, so test operator a decides it.
+  // The decider's session carries compliance (the decision) and the operator scope (the restore it runs).
+  const staff = appeal.restriction === 'staff_freeze';
+  const decider = flag === '--as-restrictor' ? founders.a : staff ? founders.b : ops.a;
+  const deciderToken = await decider.complianceToken();
   const ids = { appealId: appeal.id, decision, reasonCode, expectedVersion: appeal.version };
   if (flag === '--as-restrictor') {
     const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, decision: 'uphold' }, deciderToken);
@@ -2845,56 +2851,50 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
     const done = data(res);
     return { handle, decision, ok: done?.status === 'upheld', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
   }
-  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
-  const restrictionVersion = await tradingVersion(ctx, ops, user.id);
+  // A lift spends the restore's four-eyes approval over the reason `appeal:<id>`, at the version the appeal names: the
+  // decider proposes it and someone else approves it (identity spends it only when its requester is the decider).
+  const restrictionVersion = appeal.restrictionVersion;
   const reason = `appeal:${appeal.id.toLowerCase()}`;
-  const payloadHash = founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion);
+  const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
+  const proposal = staff
+    ? {
+        actionType: 'identity.account_unfreeze',
+        payloadHash: identityPayloadHash(user.id, { reason }),
+        proposer: founders.b.approvalToken(),
+        approver: ops.a.approvalToken(),
+      }
+    : {
+        actionType: 'trading.restrict',
+        payloadHash: founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion),
+        proposer: ops.a.tradeOpsToken(),
+        approver: ops.b.tradeOpsToken(),
+      };
   const proposed = await ctx.edge.mutate(
     'identity',
     'actionApproval.propose',
     {
-      actionType: 'trading.restrict',
+      actionType: proposal.actionType,
       targetService: 'svc-identity',
       targetId: user.id,
       expectedVersion: restrictionVersion,
-      payloadHash,
+      payloadHash: proposal.payloadHash,
       policyVersion: MARKERS.policyVersion,
     },
-    await ops.a.tradeOpsToken(),
+    await proposal.proposer,
   );
   const approvalId = data(proposed)?.approvalId;
   if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
   const approved = await ctx.edge.mutate(
     'identity',
     'actionApproval.approve',
-    { approvalId, expectedPayloadHash: payloadHash },
-    await ops.b.tradeOpsToken(),
+    { approvalId, expectedPayloadHash: proposal.payloadHash },
+    await proposal.approver,
   );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
   const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, approvalId, restrictionVersion }, deciderToken);
   const done = data(res);
   return { handle, decision, ok: done?.status === 'lifted', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
-}
-
-/** The trading restriction's current version, read the way `trading-restrict` reads it: a change with no approval refuses with it. */
-async function tradingVersion(ctx, pair, userId) {
-  const probe = data(
-    await ctx.edge.mutate(
-      'identity',
-      'accountControls.change',
-      {
-        requestId: crypto.randomUUID(),
-        target: { area: 'trading', userId },
-        action: 'restore',
-        reason: 'LOCAL TEST probe',
-        expectedVersion: '0',
-      },
-      await pair.a.tradeOpsToken(),
-    ),
-  );
-  if (probe?.current?.version === undefined) throw new Error(`appeal-decide: no current trading state (${JSON.stringify(probe)})`);
-  return probe.current.version;
 }
 
 /** Submit what this stack can submit for itself, then approve everything pending. */

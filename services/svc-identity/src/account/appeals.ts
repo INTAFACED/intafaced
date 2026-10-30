@@ -21,6 +21,7 @@ import {
   type AppealDecideInput,
   type AppealForStaff,
   type AppealsMine,
+  type AppealRestriction,
   type AppealSubmitInput,
   type Context,
   type IdentityAccountControlInput,
@@ -33,12 +34,15 @@ export type AppealErrorCode =
   | 'identity.appeal_no_restriction'
   | 'identity.appeal_open'
   | 'identity.appeal_request_conflict'
+  | 'identity.appeal_not_allowed'
+  | 'identity.appeal_sign_in'
   | 'identity.appeal_reasons_unset'
   | 'identity.appeal_reason_unlisted'
   | 'identity.appeal_not_found'
   | 'identity.appeal_decided'
   | 'identity.appeal_version_conflict'
   | 'identity.appeal_decider_restricted'
+  | 'identity.appeal_setter_unknown'
   | 'identity.appeal_restriction_changed'
   | 'identity.appeal_lift_refused'
   | 'identity.appeal_lift_unconfigured';
@@ -57,7 +61,7 @@ export class AppealError extends Error {
 interface AppealRow {
   id: string;
   user_id: string;
-  restriction: 'trading_restricted';
+  restriction: AppealRestriction;
   restriction_ref: string;
   restricted_by: string | null;
   restriction_approved_by: string | null;
@@ -99,7 +103,34 @@ export function appealLiftRequestId(appealId: string, approvalId: string): strin
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${h.slice(18, 20)}-${h.slice(20, 32)}`;
 }
 
-/** The trading restriction's version an appeal names, from its `restriction_ref`. */
+/** The founder control area each appealable restriction lives in, and the prefix of its `restriction_ref`. */
+const AREA: Readonly<Record<AppealRestriction, 'trading' | 'identity'>> = { trading_restricted: 'trading', staff_freeze: 'identity' };
+const REF_PREFIX: Readonly<Record<AppealRestriction, string>> = { trading_restricted: 'trading', staff_freeze: 'staff_freeze' };
+
+/**
+ * The restriction as it stands: whether it holds, its version and the database clock. A trading restriction is its own
+ * row; a staff freeze is the account's status and control version. `lock` locks the row for an update or shares it (an
+ * uphold only reads it); `none` reads a row the transaction already holds.
+ */
+async function heldNow(
+  tx: Sql | TransactionSql,
+  userId: string,
+  restriction: AppealRestriction,
+  lock: 'update' | 'share' | 'none',
+): Promise<{ restricted: boolean; version: string; now: Date }> {
+  const mode = tx.unsafe(lock === 'update' ? 'FOR UPDATE' : lock === 'share' ? 'FOR SHARE' : '');
+  const [row] =
+    restriction === 'trading_restricted'
+      ? await tx<Array<{ restricted: boolean; version: string; now: Date }>>`
+          SELECT restricted, version::text, clock_timestamp() AS now
+          FROM trading_restrictions WHERE user_id = ${userId} ${mode}`
+      : await tx<Array<{ restricted: boolean; version: string; now: Date }>>`
+          SELECT status = 'frozen' AS restricted, identity_control_version::text AS version, clock_timestamp() AS now
+          FROM users WHERE id = ${userId} ${mode}`;
+  return row ?? { restricted: false, version: '0', now: new Date() };
+}
+
+/** The restriction's version an appeal names, from its `restriction_ref`. */
 function refVersion(ref: string): string {
   return ref.slice(ref.indexOf(':') + 1);
 }
@@ -132,7 +163,13 @@ export class AccountAppeals {
   }
 
   private presentForStaff(row: AppealRow): AppealForStaff {
-    return { ...this.present(row), userId: row.user_id, restrictedBy: row.restricted_by, decidedBy: row.decided_by };
+    return {
+      ...this.present(row),
+      userId: row.user_id,
+      restrictedBy: row.restricted_by,
+      decidedBy: row.decided_by,
+      restrictionVersion: refVersion(row.restriction_ref),
+    };
   }
 
   /** The owner's window, and every appeal this person filed, newest first. */
@@ -151,37 +188,60 @@ export class AccountAppeals {
     return rows.map((r) => this.presentForStaff(r));
   }
 
+  /** A signed-in person's appeal: the trading restriction, from the account status page. */
+  async submit(userId: string, input: AppealSubmitInput): Promise<Appeal> {
+    if (input.restriction !== 'trading_restricted') throw new AppealError('identity.appeal_no_restriction');
+    return this.file(userId, 'trading_restricted', input.text, input.clientRequestId);
+  }
+
+  /**
+   * A staff-frozen person's appeal, filed signed out once the sign-in name and password proved the account (the caller's
+   * part, `AuthService.proveAppellant`). It names the staff freeze. An active account signs in and appeals there; a
+   * closed one is refused, because identity keeps no flag that says a closure is final or open to appeal.
+   */
+  async submitSignedOut(
+    proved: { userId: string; status: 'active' | 'frozen' | 'closed' },
+    input: Pick<AppealSubmitInput, 'text' | 'clientRequestId'>,
+  ): Promise<Appeal> {
+    if (proved.status === 'active') throw new AppealError('identity.appeal_sign_in');
+    if (proved.status === 'closed') throw new AppealError('identity.appeal_not_allowed');
+    return this.file(proved.userId, 'staff_freeze', input.text, input.clientRequestId);
+  }
+
   /**
    * File an appeal. Order: the owner's window must be set; a repeat of the same request returns the appeal it made; the
-   * restriction must hold and have started inside the window; no other appeal may be open for it.
+   * restriction must hold, be one a founder control change set (so its setter is known), and have started inside the
+   * window; no other appeal may be open for it.
    */
-  async submit(userId: string, input: AppealSubmitInput): Promise<Appeal> {
+  private async file(userId: string, restriction: AppealRestriction, text: string, clientRequestId: string): Promise<Appeal> {
     const windowDays = this.options.windowDays;
     if (windowDays === undefined) throw new AppealError('identity.appeal_window_unset');
     return this.sql.begin(async (tx) => {
       await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       const [again] = await tx<AppealRow[]>`
         SELECT ${tx.unsafe(COLUMNS)}
-        FROM account_appeals WHERE user_id = ${userId} AND client_request_id = ${input.clientRequestId}`;
+        FROM account_appeals WHERE user_id = ${userId} AND client_request_id = ${clientRequestId}`;
       if (again) {
-        if (again.restriction !== input.restriction || again.text !== input.text) throw new AppealError('identity.appeal_request_conflict');
+        if (again.restriction !== restriction || again.text !== text) throw new AppealError('identity.appeal_request_conflict');
         return this.present(again);
       }
-      const [held] = await tx<Array<{ restricted: boolean; version: string; since: Date; now: Date }>>`
-        SELECT restricted, version::text, updated_at AS since, clock_timestamp() AS now
-        FROM trading_restrictions WHERE user_id = ${userId} FOR UPDATE`;
-      if (!held?.restricted) throw new AppealError('identity.appeal_no_restriction');
-      const setBy = await restrictionSetBy(tx, userId, held.version);
-      // The window runs from when the restriction was set (its audit row); a later no-op write does not restart it.
-      const since = setBy.at ?? held.since;
-      if (held.now.getTime() > since.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
-      const ref = `trading:${held.version}`;
+      // The users row is locked above; a staff freeze is read from it.
+      const held = await heldNow(tx, userId, restriction, restriction === 'staff_freeze' ? 'none' : 'update');
+      if (!held.restricted) throw new AppealError('identity.appeal_no_restriction');
+      // Appealable only when identity knows who set it: the founder control change that set it at this version. A
+      // restriction with no such record (one set before the audit named it, or a freeze no founder made, such as a
+      // confirmed death notice) is refused here, so no appeal is filed that nobody could decide.
+      const setBy = await restrictionSetBy(tx, userId, restriction, held.version);
+      if (setBy.actor === null || setBy.at === null) throw new AppealError('identity.appeal_setter_unknown');
+      // The window runs from that change; a later write to the row does not restart it.
+      if (held.now.getTime() > setBy.at.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
+      const ref = `${REF_PREFIX[restriction]}:${held.version}`;
       const [open] = await tx<Array<{ id: string }>>`
         SELECT id FROM account_appeals WHERE user_id = ${userId} AND restriction_ref = ${ref} AND status IN ${tx(OPEN)}`;
       if (open) throw new AppealError('identity.appeal_open');
       const [row] = await tx<AppealRow[]>`
         INSERT INTO account_appeals (user_id, restriction, restriction_ref, restricted_by, restriction_approved_by, client_request_id, text)
-        VALUES (${userId}, ${input.restriction}, ${ref}, ${setBy.actor}, ${setBy.approver}, ${input.clientRequestId}, ${input.text})
+        VALUES (${userId}, ${restriction}, ${ref}, ${setBy.actor}, ${setBy.approver}, ${clientRequestId}, ${text})
         RETURNING ${tx.unsafe(COLUMNS)}`;
       await tx`INSERT INTO account_appeal_events (appeal_id, status, actor_id) VALUES (${row!.id}, 'submitted', ${userId})`;
       return this.present(row!);
@@ -213,7 +273,7 @@ export class AccountAppeals {
           if (!controls) throw new AppealError('identity.appeal_lift_unconfigured');
           const result = await controls.change(context, {
             requestId: appealLiftRequestId(row.id, input.approvalId!),
-            target: { area: 'trading', userId: row.user_id },
+            target: { area: AREA[row.restriction], userId: row.user_id },
             action: 'restore',
             reason: appealLiftReason(row.id),
             expectedVersion: input.restrictionVersion,
@@ -228,9 +288,8 @@ export class AccountAppeals {
         }
       } else {
         // An uphold names the restriction it upholds: one lifted or replaced since the appeal was filed is not this one.
-        const [held] = await tx<Array<{ restricted: boolean; version: string }>>`
-          SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${row.user_id} FOR SHARE`;
-        if (!held?.restricted || held.version !== refVersion(row.restriction_ref))
+        const held = await heldNow(tx, row.user_id, row.restriction, 'share');
+        if (!held.restricted || held.version !== refVersion(row.restriction_ref))
           throw new AppealError('identity.appeal_restriction_changed');
       }
       const [done] = await tx<AppealRow[]>`
@@ -271,22 +330,26 @@ export class AccountAppeals {
       .filter((id): id is string => id !== null)
       .map((id) => id.toLowerCase());
     if (deciderId === row.user_id || setters.includes(deciderId)) throw new AppealError('identity.appeal_decider_restricted');
+    // Fail closed: with no record of who set the restriction, nobody can be shown not to be its setter. Filing refuses
+    // such a restriction; this holds for an appeal filed before it did.
+    if (row.restricted_by === null) throw new AppealError('identity.appeal_setter_unknown');
   }
 }
 
 /**
- * Who set the trading restriction now in force, and when: the founder control change that set it at this version, its
+ * Who set the restriction now in force, and when: the founder control change that set it at this version, its
  * actor and its four-eyes approver. Null fields when identity keeps no such row (a restriction set before the audit named
- * it): the decision then still refuses the account holder, and the window runs from the row's last write.
+ * it, or a freeze no founder made): such a restriction cannot be appealed (`identity.appeal_setter_unknown`).
  */
 async function restrictionSetBy(
   tx: Sql | TransactionSql,
   userId: string,
+  restriction: AppealRestriction,
   version: string,
 ): Promise<{ actor: string | null; approver: string | null; at: Date | null }> {
   const [row] = await tx<Array<{ actor_id: string | null; approver: string | null; at: Date }>>`
     SELECT actor_id, result->>'approverUserId' AS approver, created_at AS at FROM founder_control_audit
-    WHERE detail->>'area' = 'trading' AND result->>'outcome' = 'changed'
+    WHERE result->'target'->>'area' = ${AREA[restriction]} AND result->>'outcome' = 'changed'
       AND result->'target'->>'userId' = ${userId} AND result->'after'->>'restricted' = 'true'
       AND result->'after'->>'version' = ${version}
     ORDER BY created_at DESC LIMIT 1`;
@@ -297,7 +360,7 @@ async function restrictionSetBy(
 async function liftedByAppeal(tx: TransactionSql, row: AppealRow): Promise<boolean> {
   const [found] = await tx<Array<{ audit_id: string }>>`
     SELECT audit_id FROM founder_control_audit
-    WHERE detail->>'area' = 'trading' AND result->>'outcome' = 'changed'
+    WHERE result->'target'->>'area' = ${AREA[row.restriction]} AND result->>'outcome' = 'changed'
       AND result->'target'->>'userId' = ${row.user_id} AND result->'after'->>'restricted' = 'false'
       AND result->>'reason' = ${appealLiftReason(row.id)}
     LIMIT 1`;

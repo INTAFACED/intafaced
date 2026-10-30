@@ -1308,34 +1308,9 @@ export class SupportService implements SupportContract {
     if (namesVendor(`${input.title} ${input.body} ${(input.tags ?? []).join(' ')}`)) {
       throw new SupportError('KB text must stay vendor-clean', 'support.kb_vendor_name');
     }
-    const text = { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId };
-    try {
-      return await this.publishKb({
-        id: input.id,
-        titleKey: SUPPORT_KB_STORED_TITLE_KEY,
-        bodyKey: SUPPORT_KB_STORED_BODY_KEY,
-        baseRevision: input.baseRevision,
-        tags: input.tags ?? null,
-        text,
-      });
-    } catch (err) {
-      // A lost reply retried: the head is the version this same publish made from this same base, so it is the answer.
-      if (!(err instanceof SupportError) || err.code !== 'support.kb.revision_stale') throw err;
-      const versions = await this.store.listKbVersions(input.id);
-      const head = versions[versions.length - 1];
-      const tags = [...(input.tags ?? [])].map((tag) => tag.trim()).filter(Boolean);
-      const same =
-        head &&
-        kbVersionOf(head) === input.baseRevision + 1 &&
-        head.title === text.title &&
-        head.body === text.body &&
-        head.language === text.language &&
-        head.sectionId === text.sectionId &&
-        JSON.stringify(head.tags ?? []) === JSON.stringify(tags) &&
-        (await this.store.getPublishedKb(input.id)) !== null;
-      if (same) return toPublicKb({ ...head, published: true });
-      throw err;
-    }
+    // Typed text goes live only through a draft a second operator approved (SP-kb-02): kbSaveDraft, kbSubmitForReview,
+    // kbApprove, kbPublishDraft. The checks above still answer first, so a bad title or body is named as such.
+    throw new SupportError('typed text is published through review', 'support.kb_review_required');
   }
 
   /** Every published article the viewer may read, unpaged: what the library counts and a section page draws from. */

@@ -154,6 +154,10 @@
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
     },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
@@ -253,6 +257,10 @@
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"
+    },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
     },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
