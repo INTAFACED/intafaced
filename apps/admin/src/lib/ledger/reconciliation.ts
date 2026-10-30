@@ -79,6 +79,7 @@ export interface ControlForm {
   readonly accountIds: string;
   readonly ownerType: (typeof OWNER_TYPES)[number] | '';
   readonly ownerIdPrefix: string;
+  readonly rail: string;
   readonly accountKind: (typeof ACCOUNT_KINDS)[number] | '';
   readonly purpose: string;
   readonly assetId: string;
@@ -106,6 +107,7 @@ export function emptyControlForm(): ControlForm {
     accountIds: '',
     ownerType: '',
     ownerIdPrefix: '',
+    rail: '',
     accountKind: '',
     purpose: '',
     assetId: '',
@@ -143,6 +145,7 @@ export function formFromControl(view: ReconciliationControlView): ControlForm {
     accountIds: accountSet.mode === 'explicit' ? accountSet.accountIds.join('\n') : '',
     ownerType: accountSet.mode === 'query' ? (accountSet.ownerType ?? '') : '',
     ownerIdPrefix: accountSet.mode === 'query' ? (accountSet.ownerIdPrefix ?? '') : '',
+    rail: accountSet.mode === 'query' ? (accountSet.rail ?? '') : '',
     accountKind: accountSet.mode === 'query' ? (accountSet.kind ?? '') : '',
     purpose: accountSet.mode === 'query' ? (accountSet.purpose ?? '') : '',
     assetId: accountSet.mode === 'query' ? (accountSet.assetId ?? '') : '',
@@ -201,6 +204,7 @@ function accountSetOf(form: ControlForm): DefineReconciliationControlInput['acco
     mode: 'query',
     ...(form.ownerType ? { ownerType: form.ownerType } : {}),
     ...(form.ownerIdPrefix.trim() ? { ownerIdPrefix: form.ownerIdPrefix.trim() } : {}),
+    ...(form.rail.trim() ? { rail: form.rail.trim() } : {}),
     ...(form.accountKind ? { kind: form.accountKind } : {}),
     ...(form.purpose.trim() ? { purpose: form.purpose.trim() } : {}),
     ...(form.assetId.trim() ? { assetId: form.assetId.trim() } : {}),
@@ -254,6 +258,8 @@ function contractWhy(error: {
   if (!issue) return 'The contract refused this control.';
   const where = issue.path.map(String).join('.');
   if (where === 'reason') return 'Write the reason first (12 to 500 characters).';
+  if (where === 'accountSet.rail')
+    return 'Rail boundary names its own accounts: leave owner type and owner id blank, and kind blank or available.';
   if (issue.message === 'ops.control_policy_unset')
     return `${where === 'accountSet' ? 'Account set' : where || 'Policy'}: ops.control_policy_unset. Name at least one account or one account filter.`;
   return `${where || 'Control'}: ${issue.message}`;
@@ -347,6 +353,7 @@ export function describeAccountSet(view: ReconciliationControlView): string {
   const parts = [
     set.ownerType && `owner type ${set.ownerType}`,
     set.ownerIdPrefix && `owner id starts ${set.ownerIdPrefix}`,
+    set.rail && `boundary of rail ${set.rail}`,
     set.kind && `kind ${set.kind}`,
     set.purpose && `purpose ${set.purpose}`,
     set.assetId && `asset ${set.assetId}`,

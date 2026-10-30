@@ -10,6 +10,7 @@ import {
   payApiOf,
   refusedPayCalls,
   signInWithCode,
+  uuidOf,
   verifiedBusiness,
 } from './merchant.mjs';
 import { tableIn } from './tables.mjs';
@@ -23,7 +24,10 @@ import { tableIn } from './tables.mjs';
 // - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
-//   M-adv-money-out-01); #5: no top-up (M-money-out-02).
+//   M-adv-money-out-01).
+// #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged;
+//   its "with a rail" clause is a second #5 test that stays red, by name, until a top-up rail exists (UNBUILT).
+//   svc-pay has no top-up rail setting to leave blank, so 'no rail' is the only state #5 can show.
 const J = 'J-merchant-07';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -90,16 +94,28 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   const merchantId = await openBusiness(page, owner);
   await verifiedBusiness(page, owner, merchantId);
   run.reset({ owner: saved(owner), merchantId });
-  await signInOwner(page, '/pay/money');
+  // Watched from the first load of Money, so a refused read on that load counts too.
   const refused = refusedPayCalls(page);
+  await signInOwner(page, '/pay/money');
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
   await expect(page.getByText('No money yet')).toBeVisible();
   await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
   // The reserve card is there before the first payment too.
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
 
-  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
+  // The service's own answer for the new business: no asset holds anything yet, and no reserve rule is set. The page
+  // above reads exactly that, not a zero it made up.
   const api = await ownerApi();
+  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
+  // "Zero per asset" for a new business: the service lists no asset at all (it lists only assets the business has
+  // held), so the page shows "No money yet" with no asset row and no figure, never a made-up zero.
+  expect((await snapshot()).balances, 'a new business holds no asset yet').toEqual([]);
+  await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
+  const reserveRead = await api.query('merchantControl.reserve', { merchantId });
+  expect(reserveRead).toMatchObject({ rule: null, holding: 'recorded_not_withheld', payoutsRefused: false, assets: [] });
+  await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('No reserve rule is set for your account.');
+
+  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
   const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
   expect(paid.status).toBe('captured');
   // The balances follow the payment's events, so the page is read again until the payment shows.
@@ -116,27 +132,35 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
   const reserve = page.getByRole('region', { name: 'Reserve' });
   await expect(reserve).toContainText('recorded, not withheld');
+  // The card's "no rule" is the service's: the reserve read still has no rule after the payment.
+  expect((await api.query('merchantControl.reserve', { merchantId })).rule).toBeNull();
   await expect(reserve).toContainText('No reserve rule is set for your account.');
   expect(refused).toEqual([]);
 
   // A balance the page cannot read says so, and never reads as zero: with the ledger stopped the service refuses the
   // read with its code, and the page shows the refusal and no figure. Started again, the same 40.00 is back.
-  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
   expect((await snapshot()).balances).toEqual([
     { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
   ]);
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
     await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
-    await page.reload();
-    // The refusal the page shows is the balance read's own (pay.metrics_balance_unavailable), not some other failure.
+    // The page's own balance read is the one refused, with the balance code, not some other failure.
+    const [pageRead] = await Promise.all([
+      page.waitForResponse((res) => new URL(res.url()).pathname.includes('merchantMetrics.snapshot')),
+      page.reload(),
+    ]);
+    expect(pageRead.status()).toBe(503);
+    const refusal = (await pageRead.json())?.error?.data;
+    expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('pay.metrics_balance_unavailable');
     await expect(page.getByTestId('failure').filter({ hasText: 'We can’t show your balances right now.' })).toHaveCount(1);
     await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
     await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
     await expect(page.getByText('Available to pay out')).toHaveCount(0);
     await expect(page.getByText('No money yet')).toHaveCount(0);
-    await expect(page.locator('main')).not.toContainText(/\b0\.00 USDT/);
+    // No zero in any form: "0 USDT", "0.00 USDT", "Now 0".
+    await expect(page.locator('main')).not.toContainText(/(^|[^\d.,])0(\.0+)?\s*USDT|Now\s*0\b/);
   } finally {
     // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
     tool('local-test-stack.mjs', 'start');
@@ -145,6 +169,11 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     await page.reload();
     await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT', { timeout: 3_000 });
   }).toPass({ timeout: 60_000 });
+  // The same two figures from the service once the ledger is back: the outage moved nothing.
+  expect((await snapshot()).balances).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
@@ -287,13 +316,105 @@ test(`${J} #4 opens the payout schedule and rules: manual by default or the next
   await expect(page.getByRole('region', { name: 'Payout rules' })).toContainText(/Minimum amount/);
 });
 
+/** The tRPC error for one procedure in a response, found by its path when the call went out in a batch. */
+function trpcErrorOf(url, body, procedure) {
+  const paths = new URL(url).pathname.split('/trpc/')[1].split(',');
+  const entry = Array.isArray(body) ? body[paths.indexOf(procedure)] : body;
+  expect(entry, `an answer for ${procedure} in ${paths.join(',')}`).toBeTruthy();
+  return entry.error;
+}
+
+/** The balances as the service reads them (the ledger, through svc-pay), never as the page draws them. */
+const serviceBalances = (api, merchantId) => async () =>
+  (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances;
+/** What #1 left: a captured TEST card payment of 40.00 USDT waiting in clearing, nothing available. */
+const FROM_STEP_1 = [{ assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) }];
+
 test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your account" and Request off; the balance is unchanged`, async ({
   page,
 }) => {
+  const { merchantId } = journey();
+  const api = await ownerApi();
+  const balances = serviceBalances(api, merchantId);
+  const before = await balances();
+  expect(before, 'USDT 40.00 clearing from #1, so "unchanged" compares figures that could move').toEqual(FROM_STEP_1);
+
+  // Top up is reachable from Money.
   await signInOwner(page, '/pay/money');
-  await page.getByRole('link', { name: 'Top up' }).click(UNBUILT);
-  await expect(page.getByText('Top up is not set up for your account')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Request' })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
+  const asked = page.waitForResponse(
+    (res) => new URL(res.url()).pathname.split('/trpc/')[1]?.split(',').includes('merchantControl.topUp.options') ?? false,
+  );
+  await page.getByRole('link', { name: 'Top up' }).click();
+  await expect(page).toHaveURL(/\/pay\/money\/top-up$/);
+  await expect(page.getByRole('heading', { name: 'Top up', level: 1 })).toBeVisible();
+
+  // With no rail the service refuses with its own typed code (the formatter copies it to data.cause.code), and the
+  // room says so.
+  const res = await asked;
+  expect(res.status()).toBe(412);
+  const error = trpcErrorOf(res.url(), await res.json(), 'merchantControl.topUp.options');
+  expect(error.data.code).toBe('PRECONDITION_FAILED');
+  expect(error.data.cause.code).toBe('pay.topup_unconfigured');
+  await expect(page.getByTestId('pfo-soon').filter({ hasText: 'Top up is not set up for your account.' })).toHaveCount(1);
+  await expect(page.getByTestId('failure')).toHaveCount(0);
+  // The same read straight to the service: the same typed code, parsed, not a match on the error text.
+  const direct = await api.answer('merchantControl.topUp.options', { merchantId });
+  expect(direct.status).toBe(412);
+  expect(direct.body.error.data.cause.code).toBe('pay.topup_unconfigured');
+
+  // Only after the refusal: Request and Amount are off because the read refused (TopUpView turns them on only when the
+  // read answers), and the note says why. The form is there, never a "coming soon" page.
+  const request = page.getByRole('button', { name: 'Request', exact: true });
+  await expect(request).toBeVisible();
+  await expect(request).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Amount' })).toBeDisabled();
+  await expect(page.getByRole('note').filter({ hasText: 'Request is off because top up is not set up for your account.' })).toHaveCount(1);
+
+  // The balance is unchanged, read from the service again.
+  expect(await balances()).toEqual(before);
+});
+
+// #5's second clause is blocked, so it is its own red test, named for its blocker. It asks the service for a top-up,
+// so it cannot pass on a page alone, and it ends on a stub that stays red until the landing is real.
+const NO_RAIL =
+  'with a rail: a pending row with the deposit address and reference (unbuilt: no top-up rail; owner.decision top-up rail, M-money-out-02)';
+test(`${J} #5 with a rail: a pending row with the deposit address and reference; the balance is unchanged until it lands (unbuilt: no top-up rail)`, async ({
+  page,
+}) => {
+  const { merchantId } = journey();
+  const api = await ownerApi();
+  const balances = serviceBalances(api, merchantId);
+  const before = await balances();
+  expect(before).toEqual(FROM_STEP_1);
+
+  // A TEST top-up of 25.00 USDT, keyed by business so a retried step finds the same request.
+  const requestId = uuidOf(`${J}:top-up:${merchantId}`);
+  let asked;
+  try {
+    asked = await api.mutate('merchantControl.topUp.request', { merchantId, requestId, assetId: 'USDT', amount: '25.00' });
+  } catch (e) {
+    throw new Error(`${NO_RAIL}: ${e.message}`);
+  }
+  expect(asked.id, NO_RAIL).toBeTruthy();
+
+  // The pending row is the one the service returned, found by its id, with the address and reference it gave.
+  await signInOwner(page, '/pay/money/top-up');
+  const row = page
+    .getByRole('region', { name: 'Pending top-ups' })
+    .getByRole('row')
+    .filter({ has: page.getByText(asked.id, { exact: true }) });
+  await expect(row, NO_RAIL).toHaveCount(1, UNBUILT);
+  await expect(row).toContainText('Pending');
+  await expect(row).toContainText(asked.depositAddress);
+  await expect(row).toContainText(asked.reference);
+
+  // Pending is not landed: the balance the service reads is the same until the rail says the money arrived.
+  expect(await balances()).toEqual(before);
+
+  // When it lands: the balance changes once, by the amount, and a second landing report moves nothing. That needs a
+  // TEST top-up landing on a real rail; until a rail's slice writes it here, this stub keeps the test red.
+  expect(false, 'when it lands: the balance changes once, by 25.00 USDT (unbuilt: no top-up rail to land on; M-money-out-02)').toBe(true);
 });
 
 test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amount box, the destination and the approval rule`, async ({

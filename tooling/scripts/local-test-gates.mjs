@@ -18,6 +18,7 @@
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
@@ -35,6 +36,9 @@
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
  *   5. the two founders who publish which assets and networks are supported (the address book refuses while none are),
  *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   6b. the two founders who turn the platform posting freeze on and off (a journey step: a money call refused
+ *      `posting_frozen` while a read still works). Founders only, never the test operators; neither `on` nor `off`
+ *      adopts or lifts a freeze this tool did not set.
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
@@ -545,20 +549,54 @@ export function nextTotpStep(lastStep, current) {
   return step <= current + TOTP_SKEW_STEPS ? step : null;
 }
 
+/**
+ * The step to count as spent after identity refused a code as `auth.mfa_invalid`: the step sent, or the latest step
+ * identity can have consumed by now (it accepts at most one step past its own clock), whichever is later. A sign-in from
+ * there waits for the next window and cannot replay a step identity holds, whoever spent it (failure it prevents: main
+ * run 833, shard 9, stopped in setup on founder a's refused code and 93 journeys never ran).
+ */
+export function stepAfterRefusal(sentStep, current) {
+  const sent = Number(sentStep ?? 0);
+  return Math.max(Number.isFinite(sent) ? sent : 0, current + TOTP_SKEW_STEPS);
+}
+
+/** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
+const stepOf = (ctx) => (ctx.clock ? Math.floor(ctx.clock() / STEP_MS) : stepNow());
+
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
   let step;
-  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  while ((step = nextTotpStep(op.lastStep, stepOf(ctx))) === null) await (ctx.sleep ?? sleep)(1000);
   op.lastStep = step;
   return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
-async function operatorLogin(ctx, op) {
+const mfaRefused = (res) => res.status === 401 && JSON.stringify(res.json?.error ?? null).includes('auth.mfa_invalid');
+
+/**
+ * Sign an operator or founder in, with a fresh TOTP step when they have a second factor. A code identity refuses as
+ * `auth.mfa_invalid` is tried once more, at a step after any identity can hold (`stepAfterRefusal`), and both steps are
+ * logged; a second refusal stops the run. MFA is not loosened: every code sent is a real, unused step.
+ */
+export async function operatorLogin(ctx, op) {
   const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
-  const res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let retried = '';
+  if (op.totpSecret && !data(res)?.accessToken && mfaRefused(res)) {
+    const refused = op.lastStep;
+    const current = stepOf(ctx);
+    ctx.log(
+      `operator ${op.handle}: identity refused TOTP step ${refused} at step ${current} (auth.mfa_invalid); signing in once more at the next window`,
+    );
+    op.lastStep = stepAfterRefusal(refused, current);
+    input.totpCode = await freshCode(ctx, op);
+    res = await ctx.edge.mutate('identity', 'auth.login', input);
+    retried = ` (retried at TOTP step ${op.lastStep} after step ${refused} was refused)`;
+    if (data(res)?.accessToken) ctx.log(`operator ${op.handle}: signed in at TOTP step ${op.lastStep} on the retry`);
+  }
   const d = data(res);
-  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}`);
+  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}${retried}`);
   op.userId = d.userId;
   op.sessionId = decodeJwtPayload(d.accessToken).sid;
   return d.accessToken;
@@ -664,12 +702,19 @@ export async function approverSessions(ctx) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0) return operatorSessions(ctx);
   return shared(ctx, 'founders', () => {
-    const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-    const steps = readJson(stepsFile, {});
-    const ops = {};
-    for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-    return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+    const { ops, saveSteps } = founderOps(ctx, pair);
+    return signInPair(ctx, ops, saveSteps);
   });
+}
+
+/** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
+function founderOps(ctx, pair) {
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const steps = readJson(stepsFile, {});
+  const ops = {};
+  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+  return { ops, saveSteps };
 }
 
 /**
@@ -708,58 +753,65 @@ export async function founderTotp(ctx, key, secret) {
 
 async function signInPair(ctx, ops, saveSteps) {
   const sessions = {};
-  for (const l of ['a', 'b']) {
-    const op = ops[l];
-    const loginToken = await operatorLogin(ctx, op);
-    saveSteps();
-    sessions[l] = {
-      op,
-      /** Second-factor session token (what a signed-in operator holds). */
-      token: loginToken,
-      /** Same session, plus the operator scope. Short-lived. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /**
-       * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
-       * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
-       * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
-       * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
-       */
-      async approvalToken() {
-        return mintOperatorToken(ctx, op);
-      },
-      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
-      async treasuryToken() {
-        return mintOperatorToken(ctx, op, ['admin:treasury']);
-      },
-      /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
-      async tradeOpsToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
-      },
-      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
-      async complianceToken() {
-        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
-      },
-      /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
-      async crmToken() {
-        return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
-      },
-      /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
-      async campaignsOpsToken() {
-        return mintOperatorToken(ctx, op, ['campaigns:ops']);
-      },
-      /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
-      async supportOpsToken() {
-        return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
-      },
-      /** Same session with the marketplace operator scope svc-market's vendor vetting checks (vet). */
-      async marketOpsToken() {
-        return mintOperatorToken(ctx, op, ['market:ops']);
-      },
-    };
-  }
+  for (const l of ['a', 'b']) sessions[l] = await signInOne(ctx, ops[l], saveSteps);
   return sessions;
+}
+
+/** Sign one operator (or founder) in with their second factor; returns the session with its minted tokens. */
+async function signInOne(ctx, op, saveSteps) {
+  let loginToken;
+  try {
+    loginToken = await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    saveSteps();
+  }
+  return {
+    op,
+    /** Second-factor session token (what a signed-in operator holds). */
+    token: loginToken,
+    /** Same session, plus the operator scope. Short-lived. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /**
+     * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
+     * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
+     * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
+     * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
+     */
+    async approvalToken() {
+      return mintOperatorToken(ctx, op);
+    },
+    /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+    async treasuryToken() {
+      return mintOperatorToken(ctx, op, ['admin:treasury']);
+    },
+    /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
+    async tradeOpsToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
+    },
+    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+    },
+    /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
+    async crmToken() {
+      return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
+    },
+    /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
+    async campaignsOpsToken() {
+      return mintOperatorToken(ctx, op, ['campaigns:ops']);
+    },
+    /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
+    async supportOpsToken() {
+      return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
+    },
+    /** Same session with the marketplace operator scope svc-market's vendor vetting checks (vet). */
+    async marketOpsToken() {
+      return mintOperatorToken(ctx, op, ['market:ops']);
+    },
+  };
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
@@ -996,6 +1048,95 @@ export async function setBookHalt(ctx, symbol, halted) {
     throw new Error(`matching ${action} for ${symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
   ctx.log(`matching ${action} ${symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label})`);
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
+}
+
+// ── The platform posting freeze (svc-ledger, two founders) ─────────────────
+
+/** The reason a LOCAL TEST freeze carries (svc-ledger wants 12 to 500 characters, trimmed). Also how `off` knows it is ours. */
+export const POSTING_FREEZE_REASON = `${MARKERS.label}: platform posting freeze for a journey step`;
+
+/**
+ * The four-eyes proposal for the platform posting freeze or its thaw, as the founders' freeze desk proposes it
+ * (apps/admin/src/lib/desk/approval-hash.ts): bound to the ledger's own version of the freeze row, so a freeze that
+ * moved since the proposal refuses at consume instead of acting on stale intent. svc-ledger hashes
+ * `{ actionType, ...fields }` exactly as matching does (`ledgerActionPayloadHash`), so the matching helper is reused.
+ */
+export function postingFreezeProposal(frozen, version) {
+  if (typeof version !== 'string' || version.length === 0) throw new Error('the ledger did not report the freeze version');
+  const actionType = frozen ? 'ledger.freeze' : 'ledger.unfreeze';
+  return {
+    actionType,
+    targetService: 'svc-ledger',
+    targetId: frozen ? 'posting_freeze' : 'posting_unfreeze',
+    expectedVersion: version,
+    payloadHash: matchingPayloadHash(actionType, frozen ? { reason: POSTING_FREEZE_REASON.trim() } : {}),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * What `posting-freeze on|off` does with the freeze record it read, before anyone else signs in:
+ *   - `skip` when the ledger is already where it was asked to be, by this tool;
+ *   - `refuse` for a freeze this tool did not set, either way: `off` must not lift it and `on` must not report it as
+ *     its own (a reconciliation self-freeze on the stack is a finding), and for a record with no state or no version;
+ *   - otherwise `run`.
+ */
+export function postingFreezePlan(state, frozen) {
+  if (!state || typeof state.frozen !== 'boolean') return { action: 'refuse', why: 'the ledger did not report its freeze state' };
+  if (state.frozen && state.reason !== POSTING_FREEZE_REASON)
+    return {
+      action: 'refuse',
+      why: `the ledger is frozen for another reason (${JSON.stringify(state.reason)}, by ${state.actor ?? 'unknown'}); use the freeze desk`,
+    };
+  if (state.frozen === frozen) return { action: 'skip' };
+  if (typeof state.version !== 'string' || state.version.length === 0)
+    return { action: 'refuse', why: 'the ledger did not report the freeze version an approval is bound to' };
+  return { action: 'run' };
+}
+
+/**
+ * Turn the platform posting freeze on or off on the local stack, through the door the founders use: Edge's
+ * `/admin/ledger/freeze` and `/admin/ledger/unfreeze` (admin:treasury, second factor, live session), with an identity
+ * approval founder A proposes and founder B approves. Both verbs are founder-level in svc-identity
+ * (`FOUNDER_LEVEL_ACTION_TYPES`) and svc-ledger refuses a consume without the founder attestation, so the test
+ * operators cannot stand in: with no enrolled founder pair this refuses before any call (`pnpm local:stack` enrols
+ * it). Founder A reads the record first; founder B signs in only when there is something to approve. svc-ledger
+ * consumes the approval once and writes who moved the switch. Reads keep answering.
+ */
+export async function setPostingFreeze(ctx, frozen) {
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0)
+    throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
+  const { ops, saveSteps } = founderOps(ctx, pair);
+
+  const a = await signInOne(ctx, ops.a, saveSteps);
+  const read = async () => {
+    const res = await ctx.edge.call('GET', '/admin/ledger/freeze', undefined, await a.treasuryToken());
+    if (res.status !== 200 || typeof res.json?.frozen !== 'boolean')
+      throw new Error(`ledger freeze read refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+    return res.json;
+  };
+  const before = await read();
+  const plan = postingFreezePlan(before, frozen);
+  if (plan.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${plan.why}`);
+  if (plan.action === 'skip') return { frozen, changed: false, actor: before.actor };
+
+  const b = await signInOne(ctx, ops.b, saveSteps);
+  const ids = await twoPerson(ctx, { a, b }, postingFreezeProposal(frozen, before.version));
+  const body = frozen
+    ? { reason: POSTING_FREEZE_REASON, approvalId: ids.approvalId, operationId: ids.operationId }
+    : { approvalId: ids.approvalId, operationId: ids.operationId };
+  const res = await ctx.edge.call('POST', `/admin/ledger/${frozen ? 'freeze' : 'unfreeze'}`, body, await a.treasuryToken());
+  if (res.status !== 200 || res.json?.frozen !== frozen)
+    throw new Error(`ledger ${frozen ? 'freeze' : 'unfreeze'} refused (${res.status}): ${String(res.text ?? '').slice(0, 300)}`);
+  // Read back: only the ledger's own record says the switch moved.
+  const after = await read();
+  if (after.frozen !== frozen)
+    throw new Error(`the ledger still reports frozen=${after.frozen} after the ${frozen ? 'freeze' : 'unfreeze'}`);
+  ctx.log(
+    `ledger posting ${frozen ? 'FROZEN' : 'unfrozen'} (founder ${res.json.actor ?? a.op.userId}, confirmed by ${res.json.confirmOperatorId}; ${MARKERS.label})`,
+  );
+  return { frozen, changed: true, actor: after.actor, approvalId: ids.approvalId };
 }
 
 // ── 2c. Supported assets and networks (two-person approval) ─────────────────
@@ -2689,6 +2830,9 @@ export async function scopedConsoleSession(ctx, without) {
 
 async function main() {
   const cmd = process.argv[2] ?? 'status';
+  // Usage first: a typo never signs anyone in or touches the stack.
+  if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
+    die('usage: local-test-gates.mjs posting-freeze on|off', 2);
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
@@ -2799,6 +2943,9 @@ async function main() {
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'posting-freeze') {
+      const r = await setPostingFreeze(ctx, process.argv[3] === 'on');
+      say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
@@ -2840,7 +2987,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }

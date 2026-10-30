@@ -89,6 +89,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { createHandleRouter } from './profile/handle-router.js';
+import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -716,6 +718,7 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,

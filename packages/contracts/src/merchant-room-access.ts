@@ -25,6 +25,7 @@ export const MERCHANT_PORTAL_ROOMS = [
   'invoice',
   'money',
   'money-activity',
+  'money-top-up',
   'reports',
   'report-exports',
   'links',

@@ -66,6 +66,7 @@ import { spendRouter } from './spend/routes.js';
 import { ownRouter } from './own/routes.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
+import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -295,6 +296,8 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 
 export interface AgentsRouterDeps {
   readonly runtime: AgentRuntime;
+  /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
+  readonly opsLog?: OpsLogSettings;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -4197,6 +4200,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     own: ownRouter(sql, { runtime, feeAssetId }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
+    opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
   });
 }
 

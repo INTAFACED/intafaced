@@ -86,7 +86,12 @@ export async function fetchCustodyOps(signal?: AbortSignal): Promise<CustodyOpsR
     const res = await fetch('/api/custody-ops', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.pending) && isRecord(body.recent) && isRecord(body.approvers)
+    return isRecord(body) &&
+      typeof body.asOf === 'string' &&
+      isRecord(body.pending) &&
+      isRecord(body.recent) &&
+      isRecord(body.approvers) &&
+      isRecord(body.openItems)
       ? (body as unknown as CustodyOpsRead)
       : null;
   } catch {

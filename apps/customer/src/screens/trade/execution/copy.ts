@@ -129,8 +129,10 @@ const messages = {
   'Open by id': 'Open by id',
   'Any schedule id you have, for example from another device': 'Any schedule id you have, for example one made on another device.',
   'No schedules known': 'No schedules to show',
-  'No schedules known reason':
-    'The service does not list your schedules, so this page shows the ones made here plus any id you open by hand.',
+  'No schedules known reason': 'The service lists no schedules of yours from the last three months, and none was made here.',
+  'Schedule list window': 'The service lists your newest 50 schedules from the last three months. Open an older one by its id.',
+  'Schedule list unread':
+    'The service did not answer for your list of schedules, so this shows only the ones made here and any id you open.',
   Schedules: 'Schedules',
   'Schedules re-read every 10 s': 'Each schedule is read from the service again every 10 seconds.',
   Total_: 'Total',
@@ -170,7 +172,10 @@ const messages = {
   'Stretch reason user_pause': 'The schedule was paused, so its end moved later by the time it sat paused.',
   'Stretch reason tick_outage': 'The scheduler was down for a while, so the end moved later.',
   'Resume blocked cancel incomplete':
-    'Resume is off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+    'Pause and Resume are off: the last cancel did not finish and some child orders may still be open. Cancel again first.',
+  'Average fill price': 'Average fill price',
+  'Not set': 'Not set',
+  'Average fill price hint': 'The average price of the child orders’ fills. Not set until one fills.',
   'Filled so far': 'Filled so far',
   'Counts only fills of the child orders': 'Counts only fills of its child orders.',
   Created: 'Created',
