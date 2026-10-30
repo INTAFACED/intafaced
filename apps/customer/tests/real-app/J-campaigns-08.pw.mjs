@@ -89,7 +89,9 @@ async function feeSchedule(schedule, reason) {
  */
 async function earnTradeFees(page) {
   const rows = (zeroFee) => [
-    { pairGroup: 'all-others', tierId: 'regular', zeroFee, makerBps: '0', takerBps: zeroFee ? '0' : '10', minFee: null },
+    zeroFee
+      ? { pairGroup: 'all-others', tierId: 'regular', zeroFee: true, minFee: null }
+      : { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '0', takerBps: '10', minFee: null },
   ];
   const base = { defaultPairGroup: 'all-others', pairGroups: {}, perpetual: { makerBps: '0', takerBps: '0' } };
   await feeSchedule({ ...base, rows: rows(false) }, 'taker 0.10% so a TEST trade earns the fees the reward pot is funded from');
