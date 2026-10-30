@@ -2193,7 +2193,7 @@ function cmdExpireStaffHolds(args) {
  * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
  * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
  * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
- * escrow, no event, and it moves no value. The same person and trade id is the same row.
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
  */
 function cmdSeedNotice(args) {
   const [who, tradeId] = args;
@@ -2211,7 +2211,8 @@ function cmdSeedNotice(args) {
                        jsonb_build_object('tradeId', :'tid'::text)),
              '/p2p/trades/' || :'tid', 'action',
              'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
-     ON CONFLICT (user_id, source_subject, source_idempotency_key) DO UPDATE SET href = EXCLUDED.href
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
      RETURNING id::text`,
     { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
   )

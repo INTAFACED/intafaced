@@ -448,10 +448,11 @@ export function FillsTable({
   // Ids are UUIDs, which a stored link may carry in either case.
   const isCurrent = (id: string) => current !== null && id.toLowerCase() === current.toLowerCase();
   const currentRow = useRef<HTMLTableRowElement | null>(null);
-  // Scrolled to once when the link opens, not on every poll's re-render.
+  // Scrolled to once when the link opens, or when its row first arrives with a later poll; not on every re-render.
+  const currentShown = rows.some((fill) => isCurrent(fill.id));
   useEffect(() => {
-    currentRow.current?.scrollIntoView({ block: 'nearest' });
-  }, [current]);
+    if (currentShown) currentRow.current?.scrollIntoView({ block: 'nearest' });
+  }, [current, currentShown]);
   const fillRow = (fill: Trade, of: string | null, typeWord: string | null) => {
     // The sentence in Activity never rounds a fill: it shows the amount's own digits (up to 8). The desk keeps the lot's.
     const amount = fmtAmount(fill.amount, { places: activity ? 8 : precision.lotOf(fill.symbol) });
