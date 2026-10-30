@@ -12,6 +12,7 @@ import {
   RailRecordError,
   readRailRecords,
   recordRailMovement,
+  outsideSnapshot,
   railStatement,
   railTotals,
   readRail,
@@ -237,4 +238,23 @@ test('a rail statement is the per-rail outside body: that rail only, at asOf, ne
   assert.deepEqual(railStatement(fresh(), 'payout-sim', '2026-10-29T11:00:00Z').balances, []);
   assert.throws(() => railStatement(dir, 'local-test', '2026-10-29T11:00:00Z'), /TEST mint/);
   assert.throws(() => railStatement(dir, 'crypto-native', 'now'), RailRecordError);
+});
+
+test("the outside snapshot is the whole book: every rail added up per asset, at asOf, in the ledger's signed form", () => {
+  const dir = fresh();
+  recordRailMovement(dir, move({ key: 'd1', amount: '2400', at: '2026-10-29T10:00:00.000Z' }));
+  recordRailMovement(dir, move({ key: 'w1', direction: 'out', amount: '200', at: '2026-10-29T10:05:00.000Z' }));
+  recordRailMovement(dir, move({ key: 'late', amount: '1', at: '2026-10-29T12:00:00.000Z' }));
+  recordRailMovement(dir, move({ rail: 'payout-sim', key: 'p1', direction: 'out', amount: '160', at: '2026-10-29T10:00:00.000Z' }));
+  recordRailMovement(dir, move({ key: 'e1', assetId: 'ETH', amount: '0.5', at: '2026-10-29T10:00:00.000Z' }));
+  assert.deepEqual(outsideSnapshot(dir, '2026-10-29T11:00:00Z'), {
+    source: 'rail',
+    asOf: '2026-10-29T11:00:00.000Z',
+    balances: [
+      { assetId: 'ETH', amount: '-0.5' },
+      { assetId: 'USDT', amount: '-2040' },
+    ],
+  });
+  assert.deepEqual(outsideSnapshot(fresh(), '2026-10-29T11:00:00Z').balances, []);
+  assert.throws(() => outsideSnapshot(dir, 'now'), RailRecordError);
 });

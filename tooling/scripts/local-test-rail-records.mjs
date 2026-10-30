@@ -216,3 +216,25 @@ export function railStatement(stateDir, rail, asOf) {
       .map(({ assetId, amount }) => ({ assetId, amount })),
   };
 }
+
+/**
+ * The whole outside book at `asOf`, in the body svc-ledger's outside reader takes (railBalanceSnapshotSchema; read with
+ * `GET <LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL>?asOf=<instant>`): per asset, every rail's own total added up, in the ledger's
+ * signed form for the boundaries `rail:<rail>`. Figures come only from the rails' records. The TEST mint (`local-test`) has
+ * no outside party and so no figure here: a control whose set holds `rail:local-test` shows what the mint made as a gap.
+ */
+export function outsideSnapshot(stateDir, asOf) {
+  if (typeof asOf !== 'string' || Number.isNaN(Date.parse(asOf))) throw new RailRecordError(`asOf "${asOf}" is not a time`);
+  const byAsset = new Map();
+  for (const [slot, value] of signedTotals(stateDir, asOf)) {
+    const assetId = slot.split('\u0000')[1];
+    byAsset.set(assetId, (byAsset.get(assetId) ?? 0n) + value);
+  }
+  return {
+    source: 'rail',
+    asOf: new Date(Date.parse(asOf)).toISOString(),
+    balances: [...byAsset.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([assetId, value]) => ({ assetId, amount: formatUnits(value) })),
+  };
+}

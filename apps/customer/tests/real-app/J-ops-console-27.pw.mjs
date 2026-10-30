@@ -567,6 +567,33 @@ async function twoFounderRun(a, b, controlId, tag) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
+/**
+ * svc-ledger restarted reading its outside side from the stack's LOCAL TEST outside source (LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=
+ * rails: the rails' own records, local-test-outside-source.mjs), or back on the stack's default (unset), which
+ * J-ops-console-07 #3 starts from. "Rails" is written to its own state file before the restart, so a run cancelled in
+ * between is put back by the next run's first hook.
+ */
+const outsideSource = journeyState(`${J}-outside`);
+function ledgerOutside(rails) {
+  const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  if (rails) {
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'rails';
+    outsideSource.write({ rails: true });
+  } else delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'ledger');
+    if (!rails) outsideSource.reset({});
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
+  }
+}
+const putOutsideBack = () => {
+  if (outsideSource.read().rails) ledgerOutside(false);
+};
+test.beforeAll(putOutsideBack);
+test.afterEach(putOutsideBack);
+
 test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation PASSes on every asset the customer holds`, async ({
   browser,
 }) => {
@@ -577,6 +604,8 @@ test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation 
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
+  // The outside side is the stack's LOCAL TEST outside source for this step only; afterEach puts the default back.
+  ledgerOutside(true);
   for (const asset of assets) {
     const id = await defineOutside(await openLedger(a), asset, tag);
     const answer = await twoFounderRun(a, b, id, tag);
@@ -587,7 +616,7 @@ test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation 
     const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
     expect(observed, `${asset}: the run names what the rail boundaries hold`).not.toBeNull();
     expect(Number(observed[1]), `${asset}: the rail boundaries the customer's money crossed do not sum to 0`).not.toBe(0);
-    // The outside side is the stack's LOCAL TEST outside source (lane 5, LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL), built from
+    // The outside side is the stack's LOCAL TEST outside source (LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=rails, above), built from
     // the rail stand-ins' own records; with no source the run answers "Outside side: unset", and this clause stays red by name.
     // Soft, so each asset's scope above is proven even while the outside side is missing; the step still fails.
     expect

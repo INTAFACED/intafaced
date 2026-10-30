@@ -66,6 +66,7 @@ import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployme
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
+import { OUTSIDE_SOURCE_PORT, serveOutsideSource } from './local-test-outside-source.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
 import bank from './local-stack-services/bank.mjs';
@@ -1437,6 +1438,20 @@ async function startVideoStore(secrets) {
   await waitHealthy('video-store', url, pid, 20_000);
 }
 
+/**
+ * The LOCAL TEST outside source (local-test-outside-source.mjs): the rails' own records, served for svc-ledger's
+ * reconciliation reader. Started with svc-ledger; svc-ledger reads it only under LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=rails.
+ */
+async function startOutsideSource() {
+  const procs = readProcs();
+  const url = `http://${HOST}:${OUTSIDE_SOURCE_PORT}/health`;
+  if (ownedAlive(procs['outside-source']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(OUTSIDE_SOURCE_PORT))
+    fail(`port ${OUTSIDE_SOURCE_PORT} (outside-source) is in use by a process this script did not start`);
+  const pid = startProc('outside-source', [process.execPath, SCRIPT, '__serve-outside-source'], baseEnv(), REPO);
+  await waitHealthy('outside-source', url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
   const procs = readProcs();
@@ -1711,6 +1726,8 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  // svc-ledger's env can point at the outside source, so `--only ledger` starts it too.
+  if (!only || only.includes('outside-source') || only.includes('ledger')) await startOutsideSource();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices(wanted);
   try {
@@ -1776,7 +1793,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'outside-source', 'video-store', 'nats'];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
@@ -3228,6 +3245,7 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-outside-source') serveOutsideSource({ host: HOST, port: OUTSIDE_SOURCE_PORT, stateDir: STATE });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,

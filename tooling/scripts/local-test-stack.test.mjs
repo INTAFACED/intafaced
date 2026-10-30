@@ -286,13 +286,25 @@ const script = resolve(here, 'local-test-stack.mjs');
     const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
     assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
     assert.deepEqual(rest, unset);
+    // `rails`: the stack's LOCAL TEST outside source, for the whole book and each rail that keeps records, and nothing else.
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'rails';
+    const {
+      LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: snapshot,
+      LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL: chain,
+      LEDGER_RECONCILE_RAIL_PAYOUT_SIM_URL: payout,
+      ...others
+    } = ledgerEnv();
+    assert.equal(snapshot, 'http://127.0.0.1:14534/snapshot');
+    assert.equal(chain, 'http://127.0.0.1:14534/statement');
+    assert.equal(payout, 'http://127.0.0.1:14534/statement');
+    assert.deepEqual(others, unset);
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
     assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
     else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
   }
-  console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
+  console.log("local-test-stack: ledger can start with an unreachable outside snapshot or the stack's TEST outside source");
 }
 
 // `LOCAL_STACK_MINING_POOL_PUBLISHED=off` starts the pool with every LOCAL TEST owner value blank (J-more-catalogue-05 #1, #2),
@@ -772,10 +784,11 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
+  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), and the TEST outside source
+  // (local-test-outside-source.mjs) after svc-ledger, its reader, both before NATS.
   assert.match(
     source,
-    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'nats'\];/,
+    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'outside-source', 'video-store', 'nats'\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
