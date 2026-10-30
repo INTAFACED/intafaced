@@ -35,7 +35,7 @@ export function sqlBusinessDirectory(sql: Sql): BusinessDirectoryStore {
     },
     async findActiveByHandle(handle) {
       const rows = await sql<Array<{ id: string; handle: string }>>`
-        SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1
+        SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' AND handle_discoverable LIMIT 1
       `;
       const row = rows[0];
       return row ? { userId: row.id, handle: row.handle } : null;

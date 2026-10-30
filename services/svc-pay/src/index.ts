@@ -64,6 +64,8 @@ import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
+import { CustodyOpenItems } from './custody/deposits/open-items.js';
+import { registerCustodyOpenItemsRoute } from './custody/deposits/open-items-route.js';
 import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
@@ -754,6 +756,7 @@ export const appRouter = mergeRouters(
     depositSettings: { sql, approvals: actionApprovals },
     depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
     depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
+    depositOpenItems: { sql },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
@@ -838,6 +841,7 @@ retainRawBody(app);
  * Built before the listener opens: a service that cannot authenticate the edge
  * must fail to start, not start and serve every caller as anonymous.
  */
+const custodyOpenItems = new CustodyOpenItems({ sql });
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
@@ -911,6 +915,14 @@ registerPayStepUpGrantRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+/** svc-ledger's per-rail reconciliation read of the open custody items on crypto-native (OPS-reconciliation-04). */
+registerCustodyOpenItemsRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  list: (input) => custodyOpenItems.list(input),
 });
 
 /** svc-identity's sign-in read of the owner's team-wide require-MFA rule (M-plat-org-06). */

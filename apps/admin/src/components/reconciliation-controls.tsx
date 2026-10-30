@@ -609,6 +609,10 @@ function ControlEditor({
               />
             </div>
             <div className="adm-field">
+              <label htmlFor={field('rail')}>Rail boundary</label>
+              <input id={field('rail')} className="adm-input" value={form.rail} onChange={(e) => set('rail', e.target.value)} />
+            </div>
+            <div className="adm-field">
               <label htmlFor={field('purpose')}>Purpose</label>
               <input id={field('purpose')} className="adm-input" value={form.purpose} onChange={(e) => set('purpose', e.target.value)} />
             </div>

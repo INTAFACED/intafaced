@@ -14,6 +14,7 @@ import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import { RiskControl } from './risk/RiskControl';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
+import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
 import './trade.css';
 
 const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
@@ -49,6 +50,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
+  if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
   if (pathname === '/trade/orders') return <OrderHistoryRoom path={path} />;
   const orderMatch = /^\/trade\/orders\/([^/]+)$/.exec(pathname);
   if (orderMatch) return <OrderDetailRoom orderId={decodedSegment(orderMatch[1]!)} />;

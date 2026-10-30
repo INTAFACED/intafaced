@@ -178,7 +178,8 @@ export class OtcDeskService {
     input: { flow: OtcConvertFlow; side: OtcSide; baseAsset: string; quoteAsset: string; qty: string },
   ) {
     // The level comes first, so a caller the desk does not price for never learns the owner's convert bounds.
-    assertDeskLevel(requirePublishedOtcDeskLaw(this.law), principal);
+    const law = requirePublishedOtcDeskLaw(this.law);
+    assertDeskLevel(law, principal);
     if (input.flow === 'oneClickBuy' && input.side !== 'buy') {
       throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
     }
@@ -195,7 +196,9 @@ export class OtcDeskService {
       // (CB-otc-07) and the provider pick (CB-otc-01) are for desk requests only.
       { desk: false },
     );
-    return { flow: input.flow, ...quote };
+    // The owner's settle window, so the room can say how long settlement has once the person confirms; null when it is
+    // blank (no deferral past the quote's expiry).
+    return { flow: input.flow, ...quote, settleWindowMs: law.settleWindowMs ?? null };
   }
 
   async quote(
