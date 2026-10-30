@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, tool, signOutBrowser } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 
@@ -222,6 +223,32 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
 }) => {
   const follower = state('follower');
   const before = (await (await api(follower)).balances()).USDT;
+  const me = await api(follower);
+  // The service itself refuses each amount the screen refuses below, by its typed code, and starts no follow: a zero
+  // fixed amount, one above the most per order, and a total above the free balance.
+  const ask = (over) =>
+    me.post('/api/trade/trpc/copy.follow', {
+      leaderRef: state('spotRef'),
+      region: 'DE',
+      permittedMarkets: ['BTC/USDT'],
+      maxNotionalPerOrder: '50',
+      maxAggregateExposure: '200',
+      fixedOrderSize: '20',
+      expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+      ...over,
+    });
+  for (const [over, code] of [
+    [{ fixedOrderSize: '0' }, 'trade.copy_envelope_invalid'],
+    [{ fixedOrderSize: '60' }, 'trade.copy_fixed_size_above_cap'],
+    [{ maxAggregateExposure: fromUnits(toUnits(before.free) + toUnits('1')) }, 'trade.copy_reserve_exceeds_balance'],
+  ]) {
+    const refused = await ask(over);
+    expect(
+      refused.body?.error?.data?.cause?.code ?? refused.body?.error?.data?.intafacedCode,
+      JSON.stringify(refused.body).slice(0, 300),
+    ).toBe(code);
+  }
+  expect(await myFollows(me), 'no follow was started by a refused request').toEqual([]);
   await signIn(page, follower);
   const wizard = await openWizardAtLimits(page);
 
@@ -253,13 +280,31 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
   await expect(detail).toContainText('200 USDT');
   await expect(detail).toContainText('20 USDT');
 
-  // The reserve is a limit, not a hold: the ledger balance is what it was.
+  // The reserve is a limit, not a hold: the ledger balance is what it was, and svc-trade holds 200 USDT of it for this
+  // follow.
   expect((await (await api(follower)).balances()).USDT).toEqual(before);
+  const [spot] = await myFollows(me);
+  expect(spot.reserve).toEqual({ asset: 'USDT', amount: '200', released: false });
+  // Held from the free balance: a total that fits the free balance but not what is left beside the 200 is refused.
+  const futuresLeaderRef = await futuresRef(me);
+  const tooMuch = await me.post('/api/trade/trpc/copy.follow', {
+    leaderRef: futuresLeaderRef,
+    region: 'DE',
+    permittedMarkets: ['BTC/USDT'],
+    maxNotionalPerOrder: '50',
+    maxAggregateExposure: fromUnits(toUnits(before.free) - toUnits('200') + toUnits('1')),
+    fixedOrderSize: '10',
+    expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+  });
+  expect(
+    tooMuch.body?.error?.data?.cause?.code ?? tooMuch.body?.error?.data?.intafacedCode,
+    JSON.stringify(tooMuch.body).slice(0, 300),
+  ).toBe('trade.copy_reserve_exceeds_balance');
+  expect((await myFollows(me)).map((f) => f.followId)).toEqual([spot.followId]);
 
   // The same request sent twice is one follow (here to the futures leader, by the API the screen uses).
-  const me = await api(follower);
   const request = {
-    leaderRef: await futuresRef(me),
+    leaderRef: futuresLeaderRef,
     region: 'DE',
     permittedMarkets: ['BTC/USDT'],
     maxNotionalPerOrder: '50',
@@ -274,6 +319,19 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
   expect(second.body.result.data.followId).toBe(first.body.result.data.followId);
   expect(second.body.result.data.reserve).toEqual({ asset: 'USDT', amount: '100', released: false });
 });
+
+/** The follower's follows as svc-trade reads them back to their owner. */
+async function myFollows(me) {
+  const res = await me.get(`/api/trade/trpc/copy.listMyFollows?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+// svc-trade's mirror client id `copy-mirror:<follow>:<fill>`, hashed to 64 hex characters only when longer than 64; a
+// fill id shaped as a UUID is lower-cased first.
+const capped = (id) => (id.length <= 64 ? id : createHash('sha256').update(id).digest('hex').slice(0, 64));
+const canonicalFill = (id) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim()) ? id.trim().toLowerCase() : id.trim();
 
 /** The futures leader's public ref, read from the directory the way the screen reads it. */
 async function futuresRef(me) {
@@ -305,7 +363,7 @@ test(`${J} #8 sees the first copied trade: the leader's next buy is copied once 
   await expect(detail.getByText('No copied orders')).toBeVisible();
 
   // The lead buys on the TEST book; the copy driver places the follower's copy at the leader's price, 20 USDT worth.
-  await takeBest(state('leader'), 'buy', '0.001', `${J}-8-buy-${state('tag')}`);
+  const leadBuy = await takeBest(state('leader'), 'buy', '0.001', `${J}-8-buy-${state('tag')}`);
   const copied = detail.getByRole('table', { name: 'Copied orders' }).locator('tbody tr:not([data-slot="table-empty-row"])');
   await expect(async () => {
     await page.reload();
@@ -320,7 +378,32 @@ test(`${J} #8 sees the first copied trade: the leader's next buy is copied once 
   const notional = (await number(2)) * (await number(4));
   expect(notional).toBeGreaterThan(0);
   expect(notional).toBeLessThanOrEqual(20);
-  // The list reads the follower's own order book, so this row is an order placed as them.
+  // As the follower, at the fixed amount: the copy is an order in the follower's own book (read with their own session),
+  // under svc-trade's mirror client id for exactly one of the lead's fills, and its quantity is exactly the fixed 20 USDT
+  // at that fill's price, stepped down to the market's lot.
+  const me = await api(follower);
+  const spot = (await myFollows(me)).find((f) => f.leaderRef === state('spotRef'));
+  expect(spot, 'the spot follow from #7').toBeTruthy();
+  const leader = await api(state('leader'));
+  const fills = await leader.get(`/api/v1/account/trades?symbol=BTC/USDT&limit=100`);
+  expect(fills.status, JSON.stringify(fills.body).slice(0, 300)).toBe(200);
+  const leadFills = fills.body.filter((f) => f.order === leadBuy.id);
+  expect(leadFills.length, `the lead's buy ${leadBuy.id} has no fills listed`).toBeGreaterThan(0);
+  const markets = await me.get('/api/v1/markets?limit=500');
+  const lot = toUnits(markets.body.find((m) => m.symbol === 'BTC/USDT').precision.amount);
+  const mirrored = [];
+  for (const f of leadFills) {
+    const res = await me.get(
+      `/api/v1/orders/by-client-id/${encodeURIComponent(capped(`copy-mirror:${spot.followId}:${canonicalFill(f.id)}`))}?symbol=BTC/USDT`,
+    );
+    expect([200, 404], JSON.stringify(res.body).slice(0, 300)).toContain(res.status);
+    if (res.status === 200) mirrored.push({ fill: f, order: res.body });
+  }
+  expect(mirrored, 'exactly one copied order, for one of the lead fills').toHaveLength(1);
+  const [{ fill, order }] = mirrored;
+  expect(order.side).toBe('buy');
+  const scaled = (toUnits(fill.amount) * toUnits('20')) / toUnits(fill.cost);
+  expect(toUnits(order.amount), `20 USDT at ${fill.price}, stepped to the lot ${fromUnits(lot)}`).toBe(scaled - (scaled % lot));
 
   // A second sweep places nothing more: still one copied order a few seconds later.
   await page.waitForTimeout(5_000);
