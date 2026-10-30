@@ -283,12 +283,109 @@ test('J-p2p-05 #3 a private ad is off the board and reachable by its link until 
   await buyerContext.close();
 });
 
-test('J-p2p-05 #4 operating hours hide ads off hours, and the console to-do list orders trades by deadline', async () => {
-  // P-ads-merchant-08: operating hours and the merchant console to-do list.
+test('J-p2p-05 #4 operating hours hide ads off hours, and the console to-do list orders trades by deadline', async ({ page }) => {
+  // P-ads-merchant-08: presence and operating hours, the console to-do list, and bulk actions on ads.
+  test.setTimeout(300_000);
   const state = journey();
-  const s = p2p(await api(state.seller));
-  const res = await s.raw.query('merchants.todo');
-  expect(res.status, 'merchants.todo (P-ads-merchant-08) is not built').toBe(200);
+  const s = p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
+  const hours = await sellAd(s, state.seller, 'hours', { total: '90' });
+  const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
+  const onBoard = async () =>
+    (await b.query('offers.page', { makerId: hours.makerId, limit: 200 })).offers.map((offer) => offer.id).includes(hours.id);
+  expect(await onBoard()).toBe(true);
+
+  // Hours only tomorrow (UTC), set in the app: the ad leaves the board now, and the page says when it comes back.
+  const now = new Date();
+  const isoDay = (d) => ((d.getUTCDay() + 6) % 7) + 1;
+  const tomorrow = (isoDay(now) % 7) + 1;
+  const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  await signIn(page, state.seller);
+  await page.goto('/uc/ad');
+  const presence = page.getByTestId('merchant-presence');
+  await presence.getByLabel('On a schedule').check();
+  const schedule = presence.getByTestId('presence-schedule');
+  await schedule.getByLabel('Time zone').fill('UTC');
+  const slot = schedule.getByTestId('presence-window').first();
+  await slot.getByLabel('Day').selectOption({ label: DAY_NAMES[tomorrow - 1] });
+  await slot.getByLabel('From').fill('00:00');
+  await slot.getByLabel('To').fill('24:00');
+  await presence.getByRole('button', { name: 'Save' }).click();
+  const presenceState = presence.getByTestId('presence-state');
+  await expect(presenceState).toHaveAttribute('data-on-board', 'false');
+  await expect(presenceState).toContainText('Your ads are off the board. Orders already open carry on.');
+  await expect(presence.getByTestId('presence-next')).toContainText('They come back at');
+  const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString();
+  expect((await s.query('merchants.presence')).nextChangeAt).toBe(midnight);
+  expect(await onBoard()).toBe(false);
+  // A window that is not a valid week refuses by name, and the hours before it stay.
+  const bad = await s.raw.mutate('merchants.setPresence', {
+    mode: 'scheduled',
+    timezone: 'UTC',
+    windows: [{ day: 1, start: '10:00', end: '09:00' }],
+  });
+  expect(refusalCode(bad)).toBe('p2p.schedule_invalid');
+  // In the next window (here: hours that include now), the ad is back.
+  await s.mutate('merchants.setPresence', {
+    mode: 'scheduled',
+    timezone: 'UTC',
+    windows: [{ day: isoDay(now), start: '00:00', end: '24:00' }],
+  });
+  expect(await onBoard()).toBe(true);
+  await page.reload();
+  await expect(presence.getByTestId('presence-state')).toHaveAttribute('data-on-board', 'true');
+  await expect(presence.getByTestId('presence-next')).toContainText('They leave the board at');
+  await s.mutate('merchants.setPresence', { mode: 'online' });
+
+  // Three orders on the ad that wait on someone: two for the buyer to pay, one paid for the seller to release.
+  const first = await b.mutate('trades.take', { offerId: hours.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  const paid = await b.mutate('trades.take', { offerId: hours.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  await b.mutate('trades.markFiatSent', { tradeId: paid.id });
+  const third = await b.mutate('trades.take', { offerId: hours.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  run.write({ buyerPasskey: b.passkey().saved() });
+  const todos = (await s.query('merchants.todos', { limit: 100 })).items;
+  const deadlines = todos.map((item) => (item.deadlineAt ? Date.parse(item.deadlineAt) : Infinity));
+  expect([...deadlines].sort((x, y) => x - y)).toEqual(deadlines);
+  const mine = todos.filter((item) => [first.id, paid.id, third.id].includes(item.tradeId));
+  expect(mine.map((item) => [item.tradeId, item.kind])).toEqual([
+    [first.id, 'counterparty_action'],
+    [third.id, 'counterparty_action'],
+    [paid.id, 'release_required'],
+  ]);
+  // In the app, on the order page: the same order, soonest first, each opening its order.
+  await page.goto('/uc/order');
+  const rows = page.getByTestId('merchant-todos').getByTestId('todo-item');
+  await expect(rows).toHaveCount(todos.length);
+  expect(await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-trade-id')))).toEqual(
+    todos.map((item) => item.tradeId),
+  );
+  await expect(page.locator(`[data-testid="todo-item"][data-trade-id="${paid.id}"]`)).toContainText('Check the payment and release');
+  await page.locator(`[data-testid="todo-item"][data-trade-id="${first.id}"]`).getByRole('link', { name: 'Open the order' }).click();
+  await expect(page).toHaveURL(new RegExp(`/uc/order\\?tradeId=${first.id}$`));
+
+  // A bulk pause of five ads, one already closed: four pause, the closed one reports p2p.offer_closed, and the same key
+  // again changes nothing.
+  const five = [];
+  for (const name of ['bulk-1', 'bulk-2', 'bulk-3', 'bulk-4']) five.push((await sellAd(s, state.seller, name)).id);
+  five.push(state.closedId);
+  const key = `${J}:bulk:${state.seller.handle}`;
+  const bulk = await s.mutate('offers.bulk', { action: 'pause', offerIds: five, idempotencyKey: key });
+  const result = Object.fromEntries(bulk.results.map((r) => [r.offerId, r]));
+  for (const id of five.slice(0, 4)) expect(result[id]).toMatchObject({ ok: true, status: 'paused' });
+  expect(result[state.closedId]).toMatchObject({ ok: false, code: 'p2p.offer_closed' });
+  await s.mutate('offers.resume', { offerId: five[0] });
+  expect(await s.mutate('offers.bulk', { action: 'pause', offerIds: five, idempotencyKey: key })).toEqual({ ...bulk, replayed: true });
+  expect((await s.query('offers.get', { offerId: five[0] })).status).toBe('active');
+  // In the app: pick two ads, confirm the list of affected ads, and read each one's result.
+  await page.goto('/uc/ad');
+  const panel = page.getByTestId('bulk-ads');
+  for (const id of five.slice(0, 2)) await panel.locator(`[data-testid="bulk-ad"][data-offer-id="${id}"]`).getByRole('checkbox').check();
+  await panel.getByRole('button', { name: 'Remove' }).click();
+  const confirm = page.getByTestId('bulk-confirm');
+  await expect(confirm.locator('li[data-offer-id]')).toHaveCount(2);
+  await confirm.getByRole('button', { name: 'Confirm' }).click();
+  const results = page.getByTestId('bulk-result');
+  for (const id of five.slice(0, 2)) await expect(results.locator(`[data-offer-id="${id}"]`)).toHaveAttribute('data-ok', 'true');
+  for (const id of five.slice(0, 2)) expect((await s.query('offers.get', { offerId: id })).status).toBe('closed');
 });
 
 test('J-p2p-05 #5 an ad that hides itself says why, and comes back once the cause is fixed', async () => {
