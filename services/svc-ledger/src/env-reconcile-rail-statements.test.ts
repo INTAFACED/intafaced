@@ -56,3 +56,23 @@ describe('LEDGER_RECONCILE_RAIL_<RAIL>_URL', () => {
       await expect(loadWith(rails)).rejects.toThrow(/LEDGER_RECONCILE_RAIL_/);
   });
 });
+
+describe('LEDGER_RECONCILE_OPEN_ITEMS_<RAIL>_URL', () => {
+  it('maps each rail to its open-items URL, kept apart from the statement URLs', async () => {
+    const { openItemsUrls, railStatementUrls } = await loadWith({
+      LEDGER_RECONCILE_OPEN_ITEMS_CRYPTO_NATIVE_URL: 'http://127.0.0.1:4506/internal/custody/open-items',
+      LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL: 'http://127.0.0.1:4999/rails/statement',
+    });
+    expect([...openItemsUrls.entries()]).toEqual([['crypto-native', 'http://127.0.0.1:4506/internal/custody/open-items']]);
+    expect([...railStatementUrls.entries()]).toEqual([['crypto-native', 'http://127.0.0.1:4999/rails/statement']]);
+  });
+
+  it('leaves a blank rail out and refuses boot for plain http to another host or a name that is not a rail id', async () => {
+    expect((await loadWith({ LEDGER_RECONCILE_OPEN_ITEMS_TEST_URL: '' })).openItemsUrls.size).toBe(0);
+    for (const rails of <Array<Record<string, string>>>[
+      { LEDGER_RECONCILE_OPEN_ITEMS_TEST_URL: 'http://pay.example/items' },
+      { LEDGER_RECONCILE_OPEN_ITEMS_9TEST_URL: 'https://pay.example/items' },
+    ])
+      await expect(loadWith(rails)).rejects.toThrow(/LEDGER_RECONCILE_OPEN_ITEMS_/);
+  });
+});

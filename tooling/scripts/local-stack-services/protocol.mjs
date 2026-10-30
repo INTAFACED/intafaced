@@ -34,6 +34,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_SWAP_SLIPPAGE_BPS: '300',
       PROTOCOL_SWAP_QUOTE_TTL_SECONDS: '30',
       PROTOCOL_SWAP_CONFIRMATIONS: '1',
+      // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
+      // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
+      ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
     };
   },
 });
