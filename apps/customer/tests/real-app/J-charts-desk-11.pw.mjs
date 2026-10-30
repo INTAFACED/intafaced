@@ -32,6 +32,27 @@ async function publicTicker(symbol) {
   return res.json();
 }
 
+/** A market as Edge publishes it: its price step, amount step and minimum amount are the market rules. */
+async function publicMarket(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const market = (Array.isArray(body) ? body : Object.values(body).find(Array.isArray)).find((m) => m.symbol === symbol);
+  expect(market, `${symbol} is published`).toBeTruthy();
+  return market;
+}
+
+/** A dl's terms and definitions as { term: definition }. */
+const definitions = async (list) =>
+  Object.fromEntries(
+    await list
+      .locator('div')
+      .evaluateAll((divs) => divs.map((d) => [d.querySelector('dt')?.textContent ?? '', d.querySelector('dd')?.textContent ?? ''])),
+  );
+
+/** A shown quote as a number ("65,097.91" or "+0.82%" or "-0.10%"). */
+const number = (text) => Number(String(text).replace(/[^0-9.-]/g, ''));
+
 async function addMarket(page, query, symbol) {
   await panel(page).getByRole('searchbox', { name: 'Add a market' }).fill(query);
   await panel(page)
@@ -104,20 +125,40 @@ test(`${J} #2 sorts the list, resizes a column, adds a section and a second name
   await panel(page).getByRole('combobox', { name: 'List' }).selectOption({ label: 'Watchlist' });
   await expect(panel(page).getByRole('button', { name: 'Minimise Layer 2' })).toBeVisible();
   await expect(panel(page).locator('table')).toHaveAttribute('data-sorted', 'last:asc');
+  // The resized column keeps its width, and the second list is still there to pick.
+  const resized = panel(page).getByRole('separator', { name: 'Resize Last column' });
+  expect(await resized.evaluate((el) => el.parentElement.getBoundingClientRect().width)).toBeGreaterThan(before + 40);
+  await expect(panel(page).getByRole('combobox', { name: 'List' }).locator('option', { hasText: 'Alts' })).toHaveCount(1);
 });
 
 test(`${J} #3 shows the last price and change of each row live, from the stack's own quotes`, async ({ page }) => {
   await signIn(page, account());
   await openWorkbench(page);
-  const ticker = await publicTicker('BTC/USDT');
-  await expect(row(page, 'BTC/USDT').locator('td[data-column="last"]')).toHaveAttribute('data-state', 'live');
-  const cellText = row(page, 'BTC/USDT').locator('td[data-column="last"]');
-  await expect(cellText).not.toHaveText('no data');
-  // The page shows the same price Edge serves: within half a percent, since the quote may tick between the two reads.
-  const shown = Number((await cellText.innerText()).replace(/[^0-9.-]/g, ''));
-  const served = Number(ticker.last);
-  expect(served).toBeGreaterThan(0);
-  expect(Math.abs(shown - served) / served).toBeLessThan(0.005);
+  // Every row on the list: its last price and its 24 h change are the ones Edge serves for that market. The quote may
+  // tick between the two reads, so the price is within half a percent and the change within a tenth of a point.
+  const symbols = await panel(page)
+    .locator('tbody tr[data-symbol]')
+    .evaluateAll((rows) => rows.map((r) => r.dataset.symbol));
+  expect(symbols).toEqual(expect.arrayContaining(['ETH/USDT', 'BTC/USDT']));
+  for (const symbol of symbols) {
+    const last = row(page, symbol).locator('td[data-column="last"]');
+    const change = row(page, symbol).locator('td[data-column="change"]');
+    await expect(last).toHaveAttribute('data-state', 'live');
+    await expect(last).not.toHaveText('no data');
+    await expect
+      .poll(
+        async () => {
+          const ticker = await publicTicker(symbol);
+          const [served, servedChange] = [Number(ticker.last), Number(ticker.percentage)];
+          return [
+            served > 0 && Math.abs(number(await last.innerText()) - served) / served < 0.005,
+            Math.abs(number(await change.innerText()) - servedChange) <= 0.1,
+          ];
+        },
+        { message: `${symbol}: last and change agree with Edge` },
+      )
+      .toEqual([true, true]);
+  }
 });
 
 test(`${J} #4 a row click shows that market on the chart at the interval the workbench has; a drag onto the chart does the same`, async ({
@@ -152,7 +193,15 @@ test(`${J} #5 opens a symbol's details: statistics and market rules, with a stat
   const ticker = await publicTicker('BTC/USDT');
   await expect(dialog.getByRole('definition').first()).toHaveText(ticker.last ? ticker.last : 'not served');
   await expect(dialog.locator('dl[aria-label="Statistics"]')).toContainText('not served (spot market)');
-  await expect(dialog.locator('dl[aria-label="Market rules"]')).toContainText('Price step');
+  // The market rules are the service's own: the price step, amount step and minimum amount Edge publishes for BTC/USDT,
+  // and trading open while the market is active.
+  const market = await publicMarket('BTC/USDT');
+  expect(await definitions(dialog.locator('dl[aria-label="Market rules"]'))).toEqual({
+    'Price step': market.precision.price,
+    'Amount step': market.precision.amount,
+    'Minimum amount': market.limits.amount.min,
+    Trading: market.active ? 'Orderable' : 'Not orderable',
+  });
   await page.keyboard.press('Escape');
 });
 
@@ -164,7 +213,19 @@ test(`${J} #6 exports the list as a CSV file, and an import adds only the listed
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^watchlist-.*\.csv$/);
   const exported = readFileSync(await download.path(), 'utf8');
-  expect(exported.split('\n')[0]).toBe('symbol,section,last,change_pct_24h,high_24h,low_24h,volume_24h');
+  const lines = exported.trim().split('\n');
+  expect(lines[0]).toBe('symbol,section,last,change_pct_24h,high_24h,low_24h,volume_24h');
+  // One line per market on the list, in the list's order, each with the price Edge serves for it (within half a percent:
+  // the quote may tick between the export and this read).
+  const listed = await panel(page)
+    .locator('tbody tr[data-symbol]')
+    .evaluateAll((rows) => rows.map((r) => r.dataset.symbol));
+  const body = lines.slice(1).map((line) => line.split(','));
+  expect(body.map((cells) => cells[0])).toEqual(listed);
+  for (const cells of body) {
+    const served = Number((await publicTicker(cells[0])).last);
+    expect(Math.abs(Number(cells[2]) - served) / served, `${cells[0]} last in the CSV`).toBeLessThan(0.005);
+  }
   // Import a file: one listed market already on the list, one listed, one unknown.
   await panel(page)
     .getByLabel('Import CSV file')
