@@ -87,7 +87,8 @@ export type MailPurpose =
   | 'mfa-reset-completed'
   | 'factor-changed'
   | 'support-recovery'
-  | 'support-recovery-used';
+  | 'support-recovery-used'
+  | 'appeal-decided';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

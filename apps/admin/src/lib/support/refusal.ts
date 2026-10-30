@@ -22,6 +22,11 @@ interface Entry {
 }
 
 const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
+  'support.comment_secret_refused': {
+    title: 'The text holds a card number or a recovery phrase',
+    body: 'svc-support stored nothing. A card number or a wallet recovery phrase never goes onto a request.',
+    next: 'Take it out and send again. If the customer shared one, tell them to treat it as exposed.',
+  },
   'support.not_found': {
     title: 'No such ticket',
     body: 'svc-support does not have that ticket.',

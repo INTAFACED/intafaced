@@ -187,6 +187,16 @@
     gap: var(--if-space-2);
   }
 
+  /* Scan to pay (PP-send-request-11): the camera's view, as wide as the card. */
+  .pay-scan-video {
+    display: block;
+    width: 100%;
+    max-height: 20rem;
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+    object-fit: cover;
+  }
+
   /* Receive: handle settings (PP-send-request-03). A text column and its control on one row, wrapping on a phone. */
   .pay-handle-row {
     display: flex;
