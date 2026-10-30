@@ -55,6 +55,11 @@
       "service": "protocol",
       "value": "0x00000000000000000000000000000000000b0b00",
       "note": "LOCAL TEST ONLY, not an owner decision: TEST Token B on the local TEST chain, the token the token pages state prices and volumes in. Blank in production refuses protocol.tokens_quote_unset."
+    },
+    "PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS": {
+      "service": "protocol",
+      "value": "TEST:300",
+      "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
     }
   }
 }

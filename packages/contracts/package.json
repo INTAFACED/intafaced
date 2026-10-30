@@ -214,6 +214,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-usage-limits": {
+      "types": "./dist/agents-usage-limits.d.ts",
+      "default": "./dist/agents-usage-limits.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
@@ -233,6 +237,10 @@
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
+    },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
     },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",

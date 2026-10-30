@@ -132,6 +132,7 @@ export const EVENT_BUS_MATRIX = {
   agentActionCompleted: { kind: 'live' },
   agentActionRejected: { kind: 'live' },
   agentUsageSettled: { kind: 'socket', socketClass: 'A' },
+  agentUsageAlertCrossed: { kind: 'socket', socketClass: 'C' },
   p2pOfferCreated: { kind: 'socket', socketClass: 'A' },
   p2pEscrowLocked: { kind: 'live' },
   p2pEscrowReleased: { kind: 'live' },

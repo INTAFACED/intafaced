@@ -127,3 +127,71 @@ export function createLoanProductProcedure(
       }),
     );
 }
+
+export const SET_LOAN_PRODUCT_RATE_ACTION = 'bank.ops.setLoanProductRate';
+
+const rateInput = z.object({
+  productId: z.string().guid(),
+  /** The rate this change replaces, as the requester read it: the approval is bound to it, so it can't be spent once the rate has moved. */
+  fromAprBps: bps,
+  aprBps: bps,
+  reason: z.string().trim().min(3).max(300),
+});
+
+export type SetLoanProductRateInput = z.infer<typeof rateInput>;
+
+/** The fields the approval is bound to. The client hashes the same strings. */
+export function setLoanProductRateFields(input: SetLoanProductRateInput): Record<string, string> {
+  return {
+    productId: input.productId,
+    fromAprBps: String(input.fromAprBps),
+    aprBps: String(input.aprBps),
+    reason: input.reason.trim(),
+  };
+}
+
+/**
+ * An operator's change to a loan product's rate (BK-loan-02, J-bank-09 #5): treasury with a second person, bound to the
+ * product, the rate it replaces, the new rate and the reason. New loans open at the new rate; an open loan keeps the rate
+ * written on it at open. A retry with an approval already spent on this change reads the recorded change back; otherwise the
+ * change is checked (range, the rate it replaces, a real change) before the approval is spent, and again under the row's
+ * lock when it is made.
+ */
+export function setLoanProductRateProcedure(
+  bank: BankServices,
+  consumeOpsApproval: (
+    input: { approvalId?: string | null; operationId?: string | null },
+    actionType: string,
+    fields: Record<string, string>,
+  ) => Promise<string>,
+  guard: Guard,
+) {
+  return scopedProcedure('admin:treasury')
+    .input(
+      rateInput.extend({
+        approvalId: z.string().max(128).nullish(),
+        operationId: z.string().max(128).nullish(),
+      }),
+    )
+    .output(
+      z.object({
+        productId: z.string().guid(),
+        aprBps: z.number().int(),
+        previousAprBps: z.number().int(),
+        approvedBy: z.string(),
+      }),
+    )
+    .mutation(({ input }) =>
+      guard(async () => {
+        const change = { productId: input.productId, fromAprBps: input.fromAprBps, aprBps: input.aprBps, reason: input.reason };
+        if (input.approvalId) {
+          const recorded = await bank.loans.rateChangeByApproval(input.approvalId, change);
+          if (recorded) return recorded;
+        }
+        await bank.loans.checkRateChange(change);
+        const approvedBy = await consumeOpsApproval(input, SET_LOAN_PRODUCT_RATE_ACTION, setLoanProductRateFields(input));
+        const changed = await bank.loans.setProductRate({ ...change, approvalId: input.approvalId ?? '', approvedBy });
+        return { productId: changed.product.id, aprBps: changed.product.aprBps, previousAprBps: changed.previousAprBps, approvedBy };
+      }),
+    );
+}

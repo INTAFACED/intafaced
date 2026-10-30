@@ -143,7 +143,7 @@ describe('bank operator reads and business gaps', () => {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
       cards: { issuer: cardSim() },
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
       ...extra,
     });
   }
