@@ -275,6 +275,7 @@ describe('p2p export and erasure', () => {
         trades: [],
         disputes: [],
         orderReviews: [],
+        offerEdits: [],
         reputation: null,
         instruments: [],
         riskAcceptances: [],
@@ -370,6 +371,7 @@ describe('p2p export and erasure', () => {
       expect(await sql`SELECT id FROM p2p.offers WHERE id = ${untraded.id}`).toHaveLength(0);
       expect(report.erased).toEqual([
         { category: 'reputation', rows: 1 },
+        { category: 'ad edits counted against the daily cap', rows: 0 },
         { category: 'offers (never traded)', rows: 1 },
         { category: 'ads paused by a removed payment method', rows: 0 },
         { category: 'payment instrument details', rows: 1 },
