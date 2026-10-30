@@ -4,7 +4,8 @@ import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
-import { installTestWallet } from './test-wallet.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 
 // J-more-catalogue-09, in the running app (docs/roadmap/journeys.json): read a governance proposal and cast my vote. One
 // test per step, titled "J-more-catalogue-09 #<n>", run in order. No value moves: staking is TEST IFC funded through the
@@ -439,7 +440,8 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   // reaches a chain. Passkeys belong to the relying party `localhost`, so this page runs on PASSKEY_ORIGIN.
   const page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
   await virtualAuthenticator(page);
-  const wallet = await installTestWallet(page, { chainId: 1 });
+  const walletKey = testWalletKey();
+  const wallet = await installTestWallet(page, { chainId: 1, privateKey: walletKey });
   const client = await api(who);
   const detail = async (proposalId) => {
     const res = await client.get(`/api/token/trpc/getProposal${trpcInput({ proposalId })}`);
@@ -523,6 +525,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await walletsRow.getByRole('button', { name: 'Link a wallet' }).click();
   await methods.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
   await expect(walletsRow.getByTitle(wallet.address)).toBeVisible();
+  run.write({ walletKey });
 
   // A ballot with bad weights is refused: 60 and 50 add up to 110, the panel says so, and the service refuses it.
   ballot = await openBallot('weighted');
@@ -667,6 +670,149 @@ test(`${J} #9 Opens the treasury panel: Each figure equals the token service rea
   await expect(treasury.getByTestId('treasury-burns')).toHaveText('none recorded');
   // Missing figures: no buyback has settled and no yield was paid on this stack, so the service reports none.
   expect(view).toMatchObject({ bought: null, toRewards: null, distributed: null, lastBuyback: null });
+  for (const id of ['treasury-bought', 'treasury-to-rewards', 'treasury-distributed', 'treasury-last-buyback']) {
+    await expect(treasury.getByTestId(id)).toHaveText('not reported');
+  }
+  run.write({ treasury: view });
+});
+
+test(`${J} ends: my vote is recorded once with its power fixed at proposal creation; delegation shows its blocker and the treasury view shows only what the token service reports`, async ({
+  browser,
+}) => {
+  // The re-cast, two concurrent casts, the delegation refusal and the treasury reconcile run in one test.
+  test.setTimeout(180_000);
+  const { who, proposer, nonce, openId, ballots, walletKey, treasury: treasuryAt9 } = run.read();
+  if (!walletKey || !ballots) throw new Error(`${J} #7 linked no wallet, so the end has no signed vote to cast`);
+  if (!treasuryAt9) throw new Error(`${J} #9 recorded no treasury read, so the end has nothing to reconcile`);
+  const client = await api(who);
+  const account = privateKeyToAccount(walletKey);
+  const read = async (path, input) => {
+    const res = await client.get(`/api/token/trpc/${path}${input === undefined ? '' : trpcInput(input)}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return data(res);
+  };
+  // A vote signed by my linked TEST wallet over the service's own message for it.
+  const signedCast = async (vote) => {
+    const { message } = await read('voteMessage', vote);
+    const signature = await account.signMessage({ message });
+    return client.post('/api/token/trpc/castVote', { ...vote, signature });
+  };
+
+  // Power fixed at proposal creation: on the open proposal it is the 100 I had staked when it was created, though
+  // 150 is staked now.
+  const proposal = await read('getProposal', { proposalId: openId });
+  const power = await read('votingPower.ofProposal', { proposalId: openId });
+  expect(power).toMatchObject({ power: '100', reason: null, takenAt: proposal.createdAt });
+  const stakes = await read('listStakes', { limit: 10 });
+  expect(stakes.reduce((sum, s) => sum + units(s.amount), 0n)).toBe(units('150'));
+  expect(proposal.tally).toMatchObject({ voterCount: 0, totalWeight: '0' });
+
+  // Recorded once: the same signed vote sent twice at once is recorded once, at that fixed power; the other is refused.
+  const vote = { proposalId: openId, choice: 'for' };
+  const both = await Promise.all([signedCast(vote), signedCast(vote)]);
+  const recorded = both.filter((r) => r.status === 200);
+  const refused = both.filter((r) => r.status !== 200);
+  expect(recorded, JSON.stringify(both.map((r) => r.body)).slice(0, 600)).toHaveLength(1);
+  expect(recorded[0].body.result.data).toMatchObject({
+    proposalId: openId,
+    weight: '100',
+    choice: 'for',
+    signedBy: account.address.toLowerCase(),
+  });
+  expect(refused).toHaveLength(1);
+  expect(refused[0].status).toBe(403);
+  expect(causeOf(refused[0].body)).toEqual({ code: 'token.already_voted' });
+  const once = (await read('getProposal', { proposalId: openId })).tally;
+  expect(once).toEqual({ forWeight: '100', againstWeight: '0', abstainWeight: '0', totalWeight: '100', voterCount: 1 });
+  // A second vote with another choice is refused too, and the tally is unchanged.
+  const changed = await signedCast({ proposalId: openId, choice: 'against' });
+  expect(changed.status).toBe(403);
+  expect(causeOf(changed.body)).toEqual({ code: 'token.already_voted' });
+  expect((await read('getProposal', { proposalId: openId })).tally).toEqual(once);
+
+  // In the app: the open proposal shows my one vote, and my power on it is the 100 fixed at its creation, not the
+  // 150 staked now.
+  const page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  await installTestWallet(page, { chainId: 1, privateKey: walletKey });
+  const counts = (await read('getProposal', { proposalId: openId })).counts;
+  expect(counts).toEqual({ votes: 1, for: 1, against: 0, abstain: 0 });
+  await openGovernance(page);
+  await search(page).fill(nonce);
+  const openRow = proposals(page).getByRole('row', { name: new RegExp(`TEST ${nonce} open vote`) });
+  await expect(openRow.getByTestId('proposal-votes')).toHaveText('1 votes · 1 for · 0 against · 0 abstain');
+  await openRow.getByRole('button', { name: /^Inspect proposal/ }).click();
+  const powerPanel = page.getByRole('region', { name: 'Your voting power' });
+  // Not followed by a digit, so 1000 cannot pass for 100.
+  await expect(powerPanel).toContainText(/Voting power on this proposal100(?!\d)/);
+  const fixed = new Date(power.takenAt).toISOString().replace('T', ' · ').replace('Z', ' UTC');
+  await expect(powerPanel.getByTestId('voting-power-basis')).toHaveText(
+    `Fixed on ${fixed}, when the proposal was created. Stake you add or remove later does not change it.`,
+  );
+
+  // In the app: casting my weighted ballot from #7 again is refused, and the tally still counts my one vote at 150,
+  // the power fixed when that proposal was created.
+  const weightedBefore = (await read('getProposal', { proposalId: ballots.weighted })).choiceTally;
+  expect(weightedBefore).toMatchObject({ voterCount: 1, totals: ['90', '60'] });
+  expect(await read('votingPower.ofProposal', { proposalId: ballots.weighted })).toMatchObject({ power: '150' });
+  await openGovernance(page);
+  await search(page).fill(nonce);
+  await proposals(page)
+    .getByRole('row', { name: new RegExp(`TEST ${nonce} weighted ballot`) })
+    .getByRole('button', { name: /^Inspect proposal/ })
+    .click();
+  const ballot = page.getByRole('form', { name: 'Your ballot' });
+  await ballot.getByLabel('Weight for TEST alpha (%)').fill('50');
+  await ballot.getByLabel('Weight for TEST beta (%)').fill('50');
+  const answer = page.waitForResponse((r) => r.url().includes('/api/token/trpc/castVote'));
+  await ballot.getByRole('button', { name: 'Sign with wallet and cast' }).click();
+  const again = await answer;
+  expect(again.status()).toBe(403);
+  expect(causeOf(await again.json())).toEqual({ code: 'token.already_voted' });
+  await expect(ballot.getByRole('alert')).toHaveText('Refused: you already voted on this proposal. Nothing was changed.');
+  expect((await read('getProposal', { proposalId: ballots.weighted })).choiceTally).toEqual(weightedBefore);
+  const tally = page.getByRole('region', { name: 'Choice tally', exact: true }).first();
+  await expect(bodyRows(tableIn(tally, 'Choice tally'))).toHaveText(['TEST alpha901', 'TEST beta602']);
+  await expect(tally).toContainText('Voters1');
+
+  // Delegation shows its blocker: the service's answer, the panel's full words for it, and a press refused by its
+  // code with nothing changed.
+  const blockerWords = 'Delegation waits for the INTACHAIN launch: the platform runs no chain service and no on-chain delegate registry.';
+  const delegationState = async () => ({
+    delegation: await read('delegation'),
+    power: await read('votingPower.ofProposal', { proposalId: openId }),
+    history: await read('votingPower.history', { limit: 50 }),
+  });
+  const beforeDelegate = await delegationState();
+  expect(beforeDelegate.delegation).toEqual({ delegateeUserId: null, blocker: 'no_chain_service' });
+  await openGovernance(page);
+  const delegationPanel = page.getByRole('region', { name: 'Delegation' });
+  await expect(delegationPanel.getByTestId('delegation-state')).toHaveText(`You have no delegate. ${blockerWords}`);
+  await delegationPanel.getByLabel('Delegate to (account id)').fill((await api(proposer)).userId);
+  const delegated = page.waitForResponse((r) => r.url().includes('/api/token/trpc/delegate'));
+  await delegationPanel.getByRole('button', { name: 'Delegate' }).click();
+  const delegateAnswer = await delegated;
+  expect(delegateAnswer.status()).toBe(412);
+  expect(causeOf(await delegateAnswer.json())).toEqual({ code: 'token.delegation_unavailable', blocker: 'no_chain_service' });
+  await expect(delegationPanel.getByRole('alert')).toHaveText(`${blockerWords} Nothing was saved.`);
+  expect(await delegationState()).toEqual(beforeDelegate);
+
+  // The treasury view shows only what the token service reports: exactly its six figures, each once. Minted is the
+  // figure #9 reconciled with the ledger's mint, burns are the ledger's burn account, and each missing one says
+  // "not reported".
+  const view = await read('treasury');
+  expect(view).toEqual(treasuryAt9);
+  expect(view.minted).not.toBeNull();
+  expect(view).toMatchObject({ bought: null, toRewards: null, distributed: null, lastBuyback: null });
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  expect(view.burned).toBe(await ledgerBalance(ctx, 'burn'));
+  const treasury = page.getByRole('region', { name: 'Treasury' });
+  const shown = await treasury.locator('[data-testid^="treasury-"]').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(shown.sort()).toEqual(
+    ['treasury-bought', 'treasury-burns', 'treasury-distributed', 'treasury-last-buyback', 'treasury-minted', 'treasury-to-rewards'].sort(),
+  );
+  await expect(treasury.getByTestId('treasury-minted')).toHaveText(view.minted);
+  await expect(treasury.getByTestId('treasury-burns')).toHaveText(units(view.burned) === 0n ? 'none recorded' : view.burned);
   for (const id of ['treasury-bought', 'treasury-to-rewards', 'treasury-distributed', 'treasury-last-buyback']) {
     await expect(treasury.getByTestId(id)).toHaveText('not reported');
   }
