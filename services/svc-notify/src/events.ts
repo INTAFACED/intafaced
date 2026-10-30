@@ -10,6 +10,7 @@ import {
   bankScheduledFailed,
   copySkipped,
   copyStopped,
+  agentUsageAlertCrossed,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -891,6 +892,28 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
+          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // An own agent's monthly spend alert (J-agents-02 #6): svc-agents records it once per agent and UTC month and
+  // publishes it on that business key, so the owner gets one inbox row for it however often it is sent. Email is the
+  // person's choice on the Limits page, which shows that channel's real state; this row is the in-app notice.
+  attachments.push(
+    await attach(bus, 'agentUsageAlertCrossed', agentUsageAlertCrossed.subject, 'notify-agent-usage-alert', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.usage_alert.crossed',
+          titleKey: 'notify.agents.usage_alert.crossed.title',
+          bodyKey: 'notify.agents.usage_alert.crossed.body',
+          params: { spent: payload.spent, alertAt: payload.alertAt, asset: payload.assetId, month: payload.month },
+          href: `/agents/${payload.agentId}`,
+          severity: 'action',
+          sourceSubject: agentUsageAlertCrossed.subject,
+          sourceIdempotencyKey: payload.alertKey,
           outOfApp: false,
         }),
       );
