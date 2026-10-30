@@ -104,7 +104,7 @@ describe('LoanService.repay — settled retry still releases collateral', () => 
 
   it('releases collateral the first post left locked, and does not post the repayment again', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const eventId = randomUUID();

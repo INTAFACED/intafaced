@@ -69,6 +69,57 @@ function Refused({ failure, retry, label }: { failure: Failed; retry: () => void
   );
 }
 
+/** The terms snapshotted on the loan at open (J-bank-09 #5): read from the loan, never from its product. */
+function TermsPanel({ loanId }: { loanId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const terms = useBankRead('loans.terms', { loanId });
+  const threshold = (value: number | null) => (value === null ? t('termsNotWritten') : bps(value));
+  return (
+    <DepthPanel title={t('termsTitle')} lead={t('termsLead')}>
+      {terms.resource.status === 'loading' && <Loading />}
+      {terms.resource.status === 'failed' && <Refused failure={terms.resource.failure} retry={terms.reload} label={t('retry')} />}
+      {terms.resource.status === 'ready' && (
+        <dl
+          className="detail-list"
+          data-testid="loan-terms"
+          data-apr-bps={String(terms.resource.data.aprBps)}
+          data-margin-call-bps={String(terms.resource.data.marginCallLtvBps ?? '')}
+          data-liquidation-bps={String(terms.resource.data.liquidationLtvBps ?? '')}
+        >
+          <div>
+            <dt>{t('termsRate')}</dt>
+            <dd>{bps(terms.resource.data.aprBps)}</dd>
+          </div>
+          <div>
+            <dt>{t('termsMarginCall')}</dt>
+            <dd>{threshold(terms.resource.data.marginCallLtvBps)}</dd>
+          </div>
+          <div>
+            <dt>{t('termsLiquidation')}</dt>
+            <dd>{threshold(terms.resource.data.liquidationLtvBps)}</dd>
+          </div>
+          <div>
+            <dt>{t('termsPrincipal')}</dt>
+            <dd>{amount(terms.resource.data.principal, terms.resource.data.debtAssetId)}</dd>
+          </div>
+          <div>
+            <dt>{t('termsCollateral')}</dt>
+            <dd>
+              {terms.resource.data.openingCollateral === null
+                ? t('termsNotWritten')
+                : amount(terms.resource.data.openingCollateral, terms.resource.data.collateralAssetId)}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('termsOpened')}</dt>
+            <dd>{date(terms.resource.data.openedAt)}</dd>
+          </div>
+        </dl>
+      )}
+    </DepthPanel>
+  );
+}
+
 function QuotePanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
   const quote = useBankRead('loans.payoffQuote', { loanId });
@@ -552,6 +603,7 @@ export function LoanDetail({ loanId }: { loanId: string | null }) {
       <p className="money-caption" lang="und">
         {t('loanRef', { id: loan.id })}
       </p>
+      <TermsPanel loanId={loan.id} />
       <QuotePanel loanId={loan.id} />
       <ProjectionPanel loanId={loan.id} assetId={loan.debtAssetId} />
       <InterestPanel loanId={loan.id} />
