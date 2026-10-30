@@ -4,6 +4,7 @@
  *
  *   node tooling/ci/why-red.mjs 6064            a PR number (its current head)
  *   node tooling/ci/why-red.mjs <40-char sha>   one commit
+ *   node tooling/ci/why-red.mjs --orphans       every open PR nobody has pushed to since its CI run went stale
  *   node tooling/ci/why-red.mjs --self-test
  *
  * Measured on 2026-10-23 across ten thread transcripts: a red CI took 7 to 10 calls and 30-40K characters to explain,
@@ -21,6 +22,10 @@
  * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
  * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
+ *
+ * `--orphans` lists every open PR whose head's newest CI run was made more than three hours ago and has since been
+ * re-run: nobody has pushed to it, and the re-run tests an old merge commit. #6831, #6832 and #6834 sat 10.8 hours like
+ * that after their author sessions ended at the pause; this names them in one call.
  *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
@@ -59,6 +64,45 @@ export function staleLines(runs = {}, checks = []) {
     );
   }
   return out;
+}
+
+/**
+ * One line per open PR whose head's newest pull_request CI run was made more than STALE_MS before `now` and is on a
+ * later attempt: no push since, and a re-run of an old merge commit. `prs` are `{ number, title, headSha }`, `runs` maps
+ * a head sha to its newest CI run (or null when it has none or could not be read).
+ */
+export function orphanLines(prs = [], runs = {}, now = Date.now()) {
+  const out = [];
+  for (const pr of prs) {
+    const r = runs[pr.headSha];
+    if (!r || !(r.run_attempt > 1) || !(now - Date.parse(r.created_at) > STALE_MS)) continue;
+    const hours = ((now - Date.parse(r.created_at)) / 3_600_000).toFixed(1);
+    out.push(
+      `ORPHAN   #${pr.number} no push for ${hours}h (CI run ${r.id} made ${r.created_at}, now attempt ${r.run_attempt}): its owner merges main and pushes, or the lead gives it one. ${pr.title}`.slice(
+        0,
+        WIDTH,
+      ),
+    );
+  }
+  if (out.length === 0) out.push('NO ORPHANS: every open PR was pushed in the last three hours or has not been re-run since.');
+  return out;
+}
+
+/** The open PRs and the newest CI run on each head, read with `gh api` (REST only). */
+export function collectOrphans(gh, repo) {
+  const prs = [];
+  for (let page = 1; ; page++) {
+    const batch = ghJson(gh, ['api', `repos/${repo}/pulls?state=open&per_page=100&page=${page}`]);
+    prs.push(...batch.map((p) => ({ number: p.number, title: p.title, headSha: p.head.sha })));
+    if (batch.length < 100) break;
+  }
+  const runs = {};
+  for (const pr of prs) {
+    const r = gh(['api', `repos/${repo}/actions/runs?head_sha=${pr.headSha}&event=pull_request&per_page=20`], { allowFail: true });
+    const list = r.status === 0 ? (JSON.parse(r.stdout).workflow_runs ?? []) : [];
+    runs[pr.headSha] = list.filter((w) => w.name === 'CI').sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+  }
+  return { prs, runs };
 }
 
 /** One annotation as one short line, or null for runner boilerplate that names nothing. */
@@ -371,6 +415,18 @@ function selfTest() {
   assert(staleLines(at({}), [job(6, SEAL, 1)]).length === 0, "the sign-off workflow's re-run of the seal is not stale");
   assert(staleLines(at({}), [job(5, 'Tests (changed)', 1, 'completed', 'success')]).length === 0, 'a green run needs no advice');
   assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
+  const now = Date.parse('2026-10-30T13:40:00Z');
+  const pr = { number: 6832, title: 'feat: x', headSha: 'b'.repeat(40) };
+  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_attempt: 3 };
+  const orphans = orphanLines([pr], { [pr.headSha]: run }, now);
+  assert(
+    orphans.length === 1 && orphans[0].startsWith('ORPHAN   #6832 no push for 10.9h'),
+    'a PR re-run hours after its last push is an orphan (#6832, 30 Oct)',
+  );
+  const none = (over) => orphanLines([pr], { [pr.headSha]: { ...run, ...over } }, now)[0].startsWith('NO ORPHANS');
+  assert(none({ run_attempt: 1 }), 'an old PR nobody re-ran is not an orphan: it is only waiting');
+  assert(none({ created_at: '2026-10-30T12:00:00Z' }), 'a recent push is not an orphan');
+  assert(orphanLines([pr], { [pr.headSha]: null }, now)[0].startsWith('NO ORPHANS'), 'a head with no CI run says nothing');
   console.log('why-red self-test ok');
 }
 
@@ -378,12 +434,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes('--self-test')) {
     selfTest();
+  } else if (args.includes('--orphans')) {
+    const ri = args.indexOf('--repo');
+    const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+      console.error('usage: why-red.mjs --orphans [--repo owner/name]');
+      process.exit(2);
+    }
+    const { prs, runs } = collectOrphans(makeGh(), repo);
+    for (const line of orphanLines(prs, runs)) console.log(line);
   } else {
     const ri = args.indexOf('--repo');
     const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
     const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
     if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref) || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-      console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --self-test');
+      console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans | --self-test');
       process.exit(2);
     }
     for (const line of summarize(collect(makeGh(), repo, ref))) console.log(line);
