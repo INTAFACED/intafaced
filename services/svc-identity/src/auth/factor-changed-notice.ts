@@ -1,6 +1,7 @@
 /**
- * A notice for each change to a sign-in factor (I-signin-sessions-08; J-identity-05 #6): the authenticator app turned
- * on, off or replaced, a passkey added or removed. The caller queues it inside the transaction that makes the change,
+ * A notice for each change to a sign-in factor (I-signin-sessions-08; J-identity-05 #6, J-identity-03 #6): the
+ * authenticator app turned on, off or replaced, a passkey added or removed, or the password changed or reset (that one
+ * from `queuePasswordChangedNotice`, with `mail: false`: its own notice is the mail). The caller queues it inside the transaction that makes the change,
  * so a rolled-back change leaves nothing and a crash after the commit still sends it. Two rows go in:
  *
  * - a "factor-changed" mail to the account's proved address (none without one), saying what changed and that Support can

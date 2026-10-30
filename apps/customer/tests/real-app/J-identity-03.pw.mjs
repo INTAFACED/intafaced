@@ -164,8 +164,21 @@ test(`${J} #6 a "your password was changed" notice by mail and in the inbox`, as
   const seen = resetCodes(who.email).length;
   await askReset(page, who.email);
   const code = await nextResetCode(who.email, seen);
-  await submitReset(page, code, `TEST-${randomBytes(9).toString('base64url')}-new`);
+  const changed = `TEST-${randomBytes(9).toString('base64url')}-new`;
+  await submitReset(page, code, changed);
   await expect(page.getByRole('status').filter({ hasText: 'Your password has been changed' })).toBeVisible();
   // The security notice (I-signin-sessions-08). Fails fast until it lands.
   await expect.poll(() => mailedLines(who.email, 'password-changed').length, { timeout: 5_000 }).toBeGreaterThan(0);
+  // And in the inbox: signed in with the new password, the security notice names the password change and links to
+  // Security. It follows the event svc-identity's outbox relay publishes within a few seconds: reload until it shows.
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', changed);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+  await expect(async () => {
+    await page.goto('/notifications');
+    await expect(page.getByText('Password changed', { exact: true }).first()).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByText('The password of your account was changed.', { exact: false }).first()).toBeVisible();
 });
