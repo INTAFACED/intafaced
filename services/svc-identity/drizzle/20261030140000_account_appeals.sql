@@ -2,7 +2,7 @@
 -- ('submitted' or 'in_review') per restriction at a time, held by the partial unique index. A decision moves the row by
 -- compare-and-set on `version` and appends to `account_appeal_events`, so the history keeps every step.
 -- `restriction_ref` names the restriction as it stood when the appeal was filed (its kind and version), and
--- `restricted_by` the staff member who set it, so the decision can refuse that person.
+-- `restricted_by` and `restriction_approved_by` the staff who set and approved it, so the decision can refuse both.
 -- Reversal: 20261030140000_account_appeals.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."account_appeals" (
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS "identity"."account_appeals" (
   "restriction" text NOT NULL,
   "restriction_ref" text NOT NULL,
   "restricted_by" uuid,
+  "restriction_approved_by" uuid,
   "client_request_id" text NOT NULL,
   "text" text NOT NULL,
   "status" text NOT NULL DEFAULT 'submitted',

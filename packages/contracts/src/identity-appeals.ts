@@ -8,16 +8,16 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * - One open appeal (`submitted` or `in_review`) per restriction at a time; a second refuses `identity.appeal_open`.
  * - An appeal is allowed only inside the owner's window after the restriction started (`IDENTITY_APPEAL_WINDOW_DAYS`).
  *   Unset, appeals are closed (`identity.appeal_window_unset`) and the page says so; past it, `identity.appeal_window_closed`.
- * - The decision is made by someone other than the person who set the restriction (`identity.appeal_decider_restricted`),
+ * - The decision is made by someone other than the people who set the restriction, its actor and its four-eyes approver
+ *   (`identity.appeal_decider_restricted`),
  *   with a code from the owner's decision reason list (`IDENTITY_APPEAL_DECISION_REASONS`; unset refuses
  *   `identity.appeal_reasons_unset`). Lifting releases the restriction through the existing founder control, with the
  *   appeal as its business key and its four-eyes approval; upholding changes nothing but the appeal.
  * - The customer reads the status and the decision's words; the free text they wrote is theirs and is never shown to
  *   anyone but staff. Staff free text never reaches the customer.
  *
- * Appeals cover the restrictions a signed-in person can reach today: the trading restriction. A staff freeze and a
- * closure refuse signing in, so their appeal path is a later slice; a closure flagged final accepts none
- * (`identity.appeal_not_allowed`).
+ * Appeals cover the restriction a signed-in person can reach today: the trading restriction. A staff freeze and a
+ * closure refuse signing in, so their appeal path, and the refusal of a closure flagged final, are a later slice.
  */
 export const APPEAL_STATUSES = ['submitted', 'in_review', 'upheld', 'lifted', 'withdrawn'] as const;
 export const appealStatusSchema = z.enum(APPEAL_STATUSES);

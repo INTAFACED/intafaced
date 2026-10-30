@@ -19,7 +19,6 @@ const STATUS: Readonly<Record<AppealErrorCode, TRPCError['code']>> = {
   'identity.appeal_no_restriction': 'PRECONDITION_FAILED',
   'identity.appeal_open': 'CONFLICT',
   'identity.appeal_request_conflict': 'CONFLICT',
-  'identity.appeal_not_allowed': 'PRECONDITION_FAILED',
   'identity.appeal_reasons_unset': 'PRECONDITION_FAILED',
   'identity.appeal_reason_unlisted': 'BAD_REQUEST',
   'identity.appeal_not_found': 'NOT_FOUND',

@@ -135,12 +135,12 @@ test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a
   lifts.push(kept.handle);
   const keptClient = await api(kept);
   await fileAppeal(page, 'TEST: please look again.');
-  // The founder who set the restriction cannot decide its appeal: identity refuses that person by name.
+  // The founder who set the restriction cannot decide its appeal: identity refuses that person by name (and its approver).
   expect(tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code, '--as-restrictor')).toMatch(
     /REFUSED .* appeal uphold: .*identity\.appeal_decider_restricted/,
   );
   expect((await readBack(keptClient)).mine.appeals[0]).toMatchObject({ status: 'submitted', decision: null, decidedAt: null });
-  // The other founder decides.
+  // A compliance operator who neither set nor approved the restriction decides.
   expect(tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code)).toMatch(/OK .* appeal uphold: upheld/);
   const upheld = await readBack(keptClient);
   expect(upheld.mine.appeals).toHaveLength(1);

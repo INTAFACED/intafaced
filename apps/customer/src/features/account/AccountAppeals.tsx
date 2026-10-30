@@ -15,7 +15,6 @@ const REFUSALS = new Set([
   'identity.appeal_window_unset',
   'identity.appeal_window_closed',
   'identity.appeal_no_restriction',
-  'identity.appeal_not_allowed',
   'identity.appeal_request_conflict',
 ]);
 
@@ -53,6 +52,8 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
   );
 
   if (resource.status === 'loading') return <Loading />;
+  // An API key or a sub-account cannot appeal for the account, and has nothing to show here.
+  if (resource.status === 'failed' && resource.failure.code === 'identity.delegated_refused') return null;
   if (resource.status === 'failed')
     return (
       <section className="account-appeals" data-testid="account-appeals">
@@ -85,8 +86,9 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
       if (!mounted.current) return;
       if (!answer.ok) {
         setRefusal(answer.code ?? 'unknown');
-        // An unclear answer may hide an appeal that was filed: read the list again rather than offer the form twice.
-        if (!answer.code || !REFUSALS.has(answer.code)) reload();
+        // Read the list again: an unclear answer may hide an appeal that was filed, and a refusal such as an appeal
+        // already open (from another tab) means the list on screen is out of date.
+        reload();
         return;
       }
       requestKey.current = crypto.randomUUID();
@@ -130,7 +132,7 @@ export function AccountAppeals({ restrictions }: { restrictions: readonly Accoun
             aria-invalid={empty || undefined}
           />
           <small id="appeal-text-hint">
-            <Copy k="textHint" />
+            <Copy k="textHint" params={{ max: String(APPEAL_TEXT_MAX) }} />
           </small>
           {empty && (
             <p role="alert">

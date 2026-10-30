@@ -163,9 +163,15 @@ if (!available) {
       expect((await appeals.mine(target)).appeals.map((a) => a.id)).toEqual([first.id]);
     });
 
-    it('refuses once the window after the restriction has passed', async () => {
+    it('counts the window from the change that set the restriction, not from a later write to its row', async () => {
       await restrict();
+      // The audit row says it was set just now, so an old row write does not close the window.
       await db.sql`UPDATE trading_restrictions SET updated_at = now() - interval '8 days' WHERE user_id = ${target}`;
+      expect((await submit(desk(7))).status).toBe('submitted');
+    });
+
+    it('refuses once the window has passed (a restriction with no audit row counts from its row)', async () => {
+      await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version, updated_at) VALUES (${target}, true, 1, now() - interval '8 days')`;
       expect(await codeOf(submit(desk(7)))).toBe('identity.appeal_window_closed');
       expect((await submit(desk(9))).status).toBe('submitted');
     });
@@ -177,6 +183,8 @@ if (!available) {
       const appeal = await submit(desk());
       const uphold = { appealId: appeal.id, decision: 'uphold' as const, reasonCode: 'restriction_stands', expectedVersion: '1' };
       expect(await codeOf(desk().decide(restrictor, uphold))).toBe('identity.appeal_decider_restricted');
+      // The restriction's four-eyes approver set it too.
+      expect(await codeOf(desk().decide(maker, uphold))).toBe('identity.appeal_decider_restricted');
       expect(await codeOf(desk().decide(customer, uphold))).toBe('identity.appeal_decider_restricted');
       expect(await codeOf(desk(30, new Map()).decide(decider, uphold))).toBe('identity.appeal_reasons_unset');
       expect(await codeOf(desk().decide(decider, { ...uphold, reasonCode: 'not_listed' }))).toBe('identity.appeal_reason_unlisted');
@@ -223,7 +231,7 @@ if (!available) {
       expect(await codeOf(desk().decide(decider, { ...lift, restrictionVersion: '0' }))).toBe('identity.appeal_restriction_changed');
       // The crash: the control ran with the appeal's own request key, and the appeal never moved.
       const ran = await controls.change(decider, {
-        requestId: appealLiftRequestId(appeal.id),
+        requestId: appealLiftRequestId(appeal.id, approved.approvalId),
         target: { area: 'trading', userId: target },
         action: 'restore',
         reason: appealLiftReason(appeal.id),
@@ -231,12 +239,16 @@ if (!available) {
         approvalId: approved.approvalId,
       });
       expect(ran.outcome).toBe('changed');
+      // An uphold now refuses: the restriction it names is gone.
+      expect(
+        await codeOf(desk().decide(decider, { appealId: appeal.id, decision: 'uphold', reasonCode: 'restriction_stands', expectedVersion: '1' })),
+      ).toBe('identity.appeal_restriction_changed');
       const done = await desk().decide(decider, lift);
       expect(done).toMatchObject({ status: 'lifted', decision: { outcome: 'lifted', reason: { code: 'review_complete' } } });
       expect(await held()).toEqual({ restricted: false, version: '2' });
       expect(await desk().decide(decider, lift)).toEqual(done);
       expect(await notices()).toEqual([{ purpose: 'appeal-decided', detail: 'lifted' }]);
-      const audits = await db.sql`SELECT audit_id FROM founder_control_audit WHERE request_id = ${appealLiftRequestId(appeal.id)}`;
+      const audits = await db.sql`SELECT audit_id FROM founder_control_audit WHERE request_id = ${appealLiftRequestId(appeal.id, approved.approvalId)}`;
       expect(audits).toHaveLength(1);
     });
 
@@ -258,6 +270,19 @@ if (!available) {
       expect(await held()).toEqual({ restricted: true, version: '1' });
       expect((await desk().mine(target)).appeals[0]).toMatchObject({ status: 'submitted' });
       expect(await notices()).toHaveLength(0);
+      // The refusal does not block a later lift with a bound approval, and another compliance decider may make it.
+      const other = await seed(['identity:read', 'identity:write', 'admin:write', 'admin:compliance']);
+      const good = await mint(other, maker, 'restore', appealLiftReason(appeal.id), '1');
+      const done = await desk().decide(other, {
+        appealId: appeal.id,
+        decision: 'lift',
+        reasonCode: 'review_complete',
+        expectedVersion: '1',
+        approvalId: good.approvalId,
+        restrictionVersion: '1',
+      });
+      expect(done).toMatchObject({ status: 'lifted', decidedBy: other.principal!.userId });
+      expect(await held()).toEqual({ restricted: false, version: '2' });
     });
   });
 }

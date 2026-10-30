@@ -2803,10 +2803,11 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
 }
 
 /**
- * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). The founder who did
- * not restrict decides (`trading-restrict` restricts as founder a, so founder b decides), with a code from the TEST
- * decision reason list. A lift also takes the trading restore's four-eyes approval over the reason `appeal:<id>`:
- * founder b proposes it and founder a approves it, and identity spends it in the decision.
+ * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). Identity refuses the
+ * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
+ * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
+ * four-eyes approval over the reason `appeal:<id>`: operator a proposes it, operator b approves it, and identity spends
+ * it in the decision. `--as-restrictor` asks as founder a instead, to show identity refuses that person.
  */
 export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   if (
@@ -2819,13 +2820,13 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   const { users } = listAccountsAndTiers(ctx.secrets);
   const user = users.find((u) => u.handle === handle);
   if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`appeal-decide: ${handle} is not a journey account`);
-  const pair = await approverSessions(ctx);
+  const founders = await approverSessions(ctx);
+  const ops = await operatorSessions(ctx);
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;
-  if (who(pair.a) === null || who(pair.a) === who(pair.b))
-    throw new Error('appeal-decide needs two different operators: the restrictor and the decider must differ');
+  if ([ops.a, ops.b].some((o) => who(o) === null || who(o) === who(founders.a) || who(o) === who(founders.b)) || who(ops.a) === who(ops.b))
+    throw new Error('appeal-decide needs two operators who are neither founder: the restrictors cannot decide');
   // The decider's session carries compliance (the decision) and the trade operator scope (the restore it runs).
-  // `--as-restrictor` asks as founder a, who restricted, to show identity refuses that person.
-  const deciderToken = await (flag === '--as-restrictor' ? pair.a : pair.b).complianceToken();
+  const deciderToken = await (flag === '--as-restrictor' ? founders.a : ops.a).complianceToken();
   const queue = data(await ctx.edge.query('identity', 'accountAppeal.queue', { limit: 100 }, deciderToken));
   const appeal = queue?.appeals?.find((a) => a.userId.toLowerCase() === user.id.toLowerCase());
   if (!appeal) throw new Error(`appeal-decide: ${handle} has no open appeal (${JSON.stringify(queue)})`);
@@ -2840,7 +2841,7 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
     return { handle, decision, ok: done?.status === 'upheld', why: done ? `${done.status}, appeal ${done.id}` : refusalText(res) };
   }
   const { founderChangeHash } = await load('packages/contracts/dist/founder-change-hash.js');
-  const restrictionVersion = await tradingVersion(ctx, pair, user.id);
+  const restrictionVersion = await tradingVersion(ctx, ops, user.id);
   const reason = `appeal:${appeal.id.toLowerCase()}`;
   const payloadHash = founderChangeHash({ area: 'trading', userId: user.id.toLowerCase(), action: 'restore', reason }, restrictionVersion);
   const proposed = await ctx.edge.mutate(
@@ -2854,7 +2855,7 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
       payloadHash,
       policyVersion: MARKERS.policyVersion,
     },
-    await pair.b.tradeOpsToken(),
+    await ops.a.tradeOpsToken(),
   );
   const approvalId = data(proposed)?.approvalId;
   if (!approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
@@ -2862,7 +2863,7 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
     'identity',
     'actionApproval.approve',
     { approvalId, expectedPayloadHash: payloadHash },
-    await pair.a.tradeOpsToken(),
+    await ops.b.tradeOpsToken(),
   );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);

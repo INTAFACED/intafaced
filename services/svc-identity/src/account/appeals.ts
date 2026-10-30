@@ -33,7 +33,6 @@ export type AppealErrorCode =
   | 'identity.appeal_no_restriction'
   | 'identity.appeal_open'
   | 'identity.appeal_request_conflict'
-  | 'identity.appeal_not_allowed'
   | 'identity.appeal_reasons_unset'
   | 'identity.appeal_reason_unlisted'
   | 'identity.appeal_not_found'
@@ -61,6 +60,7 @@ interface AppealRow {
   restriction: 'trading_restricted';
   restriction_ref: string;
   restricted_by: string | null;
+  restriction_approved_by: string | null;
   client_request_id: string;
   text: string;
   status: Appeal['status'];
@@ -85,11 +85,16 @@ export interface AppealOptions {
 }
 
 const OPEN = ['submitted', 'in_review'] as const;
+const COLUMNS =
+  'id, user_id, restriction, restriction_ref, restricted_by, restriction_approved_by, client_request_id, text, status, decision_reason_code, decided_by, decided_at, version::text, created_at';
 const DAY_MS = 86_400_000;
 
-/** The request id a lift sends the founder control: fixed per appeal, so a retried decision replays the same change. */
-export function appealLiftRequestId(appealId: string): string {
-  const h = createHash('sha256').update(`appeal-lift:${appealId.toLowerCase()}`).digest('hex');
+/**
+ * The request id a lift sends the founder control: fixed per appeal and approval, so a retried decision replays the same
+ * change, and a lift the control refused (a stale or mismatched approval) never blocks a later one with a fresh approval.
+ */
+export function appealLiftRequestId(appealId: string, approvalId: string): string {
+  const h = createHash('sha256').update(`appeal-lift:${appealId.toLowerCase()}:${approvalId}`).digest('hex');
   // A version-5-shaped UUID from the hash: the control's request id is a UUID.
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${h.slice(18, 20)}-${h.slice(20, 32)}`;
 }
@@ -133,8 +138,7 @@ export class AccountAppeals {
   /** The owner's window, and every appeal this person filed, newest first. */
   async mine(userId: string): Promise<AppealsMine> {
     const rows = await this.sql<AppealRow[]>`
-      SELECT id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-        decided_by, decided_at, version::text, created_at
+      SELECT ${this.sql.unsafe(COLUMNS)}
       FROM account_appeals WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT 50`;
     return { windowDays: this.options.windowDays ?? null, appeals: rows.map((r) => this.present(r)) };
   }
@@ -142,8 +146,7 @@ export class AccountAppeals {
   /** Open appeals, oldest first, for compliance. */
   async queue(limit: number): Promise<AppealForStaff[]> {
     const rows = await this.sql<AppealRow[]>`
-      SELECT id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-        decided_by, decided_at, version::text, created_at
+      SELECT ${this.sql.unsafe(COLUMNS)}
       FROM account_appeals WHERE status IN ${this.sql(OPEN)} ORDER BY created_at ASC, id ASC LIMIT ${limit}`;
     return rows.map((r) => this.presentForStaff(r));
   }
@@ -158,8 +161,7 @@ export class AccountAppeals {
     return this.sql.begin(async (tx) => {
       await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       const [again] = await tx<AppealRow[]>`
-        SELECT id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-          decided_by, decided_at, version::text, created_at
+        SELECT ${tx.unsafe(COLUMNS)}
         FROM account_appeals WHERE user_id = ${userId} AND client_request_id = ${input.clientRequestId}`;
       if (again) {
         if (again.restriction !== input.restriction || again.text !== input.text) throw new AppealError('identity.appeal_request_conflict');
@@ -169,17 +171,18 @@ export class AccountAppeals {
         SELECT restricted, version::text, updated_at AS since, clock_timestamp() AS now
         FROM trading_restrictions WHERE user_id = ${userId} FOR UPDATE`;
       if (!held?.restricted) throw new AppealError('identity.appeal_no_restriction');
-      if (held.now.getTime() > held.since.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
+      const setBy = await restrictionSetBy(tx, userId, held.version);
+      // The window runs from when the restriction was set (its audit row); a later no-op write does not restart it.
+      const since = setBy.at ?? held.since;
+      if (held.now.getTime() > since.getTime() + windowDays * DAY_MS) throw new AppealError('identity.appeal_window_closed');
       const ref = `trading:${held.version}`;
       const [open] = await tx<Array<{ id: string }>>`
         SELECT id FROM account_appeals WHERE user_id = ${userId} AND restriction_ref = ${ref} AND status IN ${tx(OPEN)}`;
       if (open) throw new AppealError('identity.appeal_open');
-      const restrictedBy = await restrictionActor(tx, userId, held.version);
       const [row] = await tx<AppealRow[]>`
-        INSERT INTO account_appeals (user_id, restriction, restriction_ref, restricted_by, client_request_id, text)
-        VALUES (${userId}, ${input.restriction}, ${ref}, ${restrictedBy}, ${input.clientRequestId}, ${input.text})
-        RETURNING id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-          decided_by, decided_at, version::text, created_at`;
+        INSERT INTO account_appeals (user_id, restriction, restriction_ref, restricted_by, restriction_approved_by, client_request_id, text)
+        VALUES (${userId}, ${input.restriction}, ${ref}, ${setBy.actor}, ${setBy.approver}, ${input.clientRequestId}, ${input.text})
+        RETURNING ${tx.unsafe(COLUMNS)}`;
       await tx`INSERT INTO account_appeal_events (appeal_id, status, actor_id) VALUES (${row!.id}, 'submitted', ${userId})`;
       return this.present(row!);
     });
@@ -187,44 +190,44 @@ export class AccountAppeals {
 
   /**
    * Decide an open appeal. Order, before anything changes: the reason list is set and holds the code; the appeal is open
-   * at the version read; the decider is neither the person who set the restriction nor the account holder. A repeat of a
-   * decision already recorded by the same person with the same outcome and code returns it unchanged.
+   * at the version read; the decider is neither the account holder nor anyone who set the restriction (who ran it or
+   * approved it). A repeat of a decision already recorded by the same person with the same outcome and code returns it
+   * unchanged. The appeal row stays locked for the whole decision, the lift's control call included, so a lift and an
+   * uphold of one appeal never interleave.
    */
   async decide(context: Context, input: AppealDecideInput): Promise<AppealForStaff> {
     const deciderId = context.principal!.userId.toLowerCase();
     if (this.options.decisionReasons.size === 0) throw new AppealError('identity.appeal_reasons_unset');
     if (!this.options.decisionReasons.has(input.reasonCode)) throw new AppealError('identity.appeal_reason_unlisted');
     const outcome = input.decision === 'lift' ? 'lifted' : 'upheld';
-    const read = await this.read(this.sql, input.appealId);
-    const settled = this.settledRepeat(read, deciderId, outcome, input.reasonCode);
-    if (settled) return settled;
-    this.assertDecidable(read, deciderId, input);
-    if (input.decision === 'lift') {
-      if (input.restrictionVersion !== refVersion(read.restriction_ref)) throw new AppealError('identity.appeal_restriction_changed');
-      const controls = this.options.controls;
-      if (!controls) throw new AppealError('identity.appeal_lift_unconfigured');
-      const result = await controls.change(context, {
-        requestId: appealLiftRequestId(read.id),
-        target: { area: 'trading', userId: read.user_id },
-        action: 'restore',
-        reason: appealLiftReason(read.id),
-        expectedVersion: input.restrictionVersion,
-        approvalId: input.approvalId!,
-      });
-      const released = (result.outcome === 'changed' || result.outcome === 'noop') && result.after?.restricted === false;
-      if (!released)
-        throw new AppealError(
-          'identity.appeal_lift_refused',
-          result.outcome === 'refused' || result.outcome === 'conflict' ? result.code : result.outcome,
-        );
-    }
     return this.sql.begin(async (tx) => {
       const row = await this.read(tx, input.appealId, true);
       const again = this.settledRepeat(row, deciderId, outcome, input.reasonCode);
       if (again) return again;
       this.assertDecidable(row, deciderId, input);
-      // An uphold names the restriction it upholds: one lifted or replaced since the appeal was filed is not this one.
-      if (input.decision === 'uphold') {
+      if (input.decision === 'lift') {
+        if (input.restrictionVersion !== refVersion(row.restriction_ref)) throw new AppealError('identity.appeal_restriction_changed');
+        // A lift this appeal already ran (the process stopped before the appeal moved) is done: never run it twice.
+        if (!(await liftedByAppeal(tx, row))) {
+          const controls = this.options.controls;
+          if (!controls) throw new AppealError('identity.appeal_lift_unconfigured');
+          const result = await controls.change(context, {
+            requestId: appealLiftRequestId(row.id, input.approvalId!),
+            target: { area: 'trading', userId: row.user_id },
+            action: 'restore',
+            reason: appealLiftReason(row.id),
+            expectedVersion: input.restrictionVersion,
+            approvalId: input.approvalId!,
+          });
+          const released = (result.outcome === 'changed' || result.outcome === 'noop') && result.after?.restricted === false;
+          if (!released)
+            throw new AppealError(
+              'identity.appeal_lift_refused',
+              result.outcome === 'refused' || result.outcome === 'conflict' ? result.code : result.outcome,
+            );
+        }
+      } else {
+        // An uphold names the restriction it upholds: one lifted or replaced since the appeal was filed is not this one.
         const [held] = await tx<Array<{ restricted: boolean; version: string }>>`
           SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${row.user_id} FOR SHARE`;
         if (!held?.restricted || held.version !== refVersion(row.restriction_ref))
@@ -234,8 +237,7 @@ export class AccountAppeals {
         UPDATE account_appeals SET status = ${outcome}, decision_reason_code = ${input.reasonCode}, decided_by = ${deciderId},
           decided_at = clock_timestamp(), version = version + 1
         WHERE id = ${row.id} AND version = ${row.version}::bigint
-        RETURNING id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-          decided_by, decided_at, version::text, created_at`;
+        RETURNING ${tx.unsafe(COLUMNS)}`;
       if (!done) throw new AppealError('identity.appeal_version_conflict');
       await tx`INSERT INTO account_appeal_events (appeal_id, status, actor_id, reason_code) VALUES (${done.id}, ${outcome}, ${deciderId}, ${input.reasonCode})`;
       await queueAppealDecidedNotice(tx, { userId: done.user_id, appealId: done.id, outcome, now: done.decided_at! });
@@ -247,12 +249,10 @@ export class AccountAppeals {
     const id = appealId.toLowerCase();
     const [row] = lock
       ? await tx<AppealRow[]>`
-          SELECT id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-            decided_by, decided_at, version::text, created_at
+          SELECT ${tx.unsafe(COLUMNS)}
           FROM account_appeals WHERE id = ${id} FOR UPDATE`
       : await tx<AppealRow[]>`
-          SELECT id, user_id, restriction, restriction_ref, restricted_by, client_request_id, text, status, decision_reason_code,
-            decided_by, decided_at, version::text, created_at
+          SELECT ${tx.unsafe(COLUMNS)}
           FROM account_appeals WHERE id = ${id}`;
     if (!row) throw new AppealError('identity.appeal_not_found');
     return row;
@@ -267,24 +267,39 @@ export class AccountAppeals {
   private assertDecidable(row: AppealRow, deciderId: string, input: AppealDecideInput): void {
     if (!(OPEN as readonly string[]).includes(row.status)) throw new AppealError('identity.appeal_decided');
     if (row.version !== input.expectedVersion) throw new AppealError('identity.appeal_version_conflict');
-    if (deciderId === row.user_id || (row.restricted_by !== null && deciderId === row.restricted_by.toLowerCase()))
-      throw new AppealError('identity.appeal_decider_restricted');
+    const setters = [row.restricted_by, row.restriction_approved_by].filter((id): id is string => id !== null).map((id) => id.toLowerCase());
+    if (deciderId === row.user_id || setters.includes(deciderId)) throw new AppealError('identity.appeal_decider_restricted');
   }
 }
 
 /**
- * Who set the trading restriction now in force: the actor of the founder control change that set it at this version.
- * Null when identity keeps no such row (a restriction set before the audit named it); a decision then refuses no one by
- * this rule, and still refuses the account holder.
+ * Who set the trading restriction now in force, and when: the founder control change that set it at this version, its
+ * actor and its four-eyes approver. Null fields when identity keeps no such row (a restriction set before the audit named
+ * it): the decision then still refuses the account holder, and the window runs from the row's last write.
  */
-async function restrictionActor(tx: Sql | TransactionSql, userId: string, version: string): Promise<string | null> {
-  const [row] = await tx<Array<{ actor_id: string | null }>>`
-    SELECT actor_id FROM founder_control_audit
+async function restrictionSetBy(
+  tx: Sql | TransactionSql,
+  userId: string,
+  version: string,
+): Promise<{ actor: string | null; approver: string | null; at: Date | null }> {
+  const [row] = await tx<Array<{ actor_id: string | null; approver: string | null; at: Date }>>`
+    SELECT actor_id, result->>'approverUserId' AS approver, created_at AS at FROM founder_control_audit
     WHERE detail->>'area' = 'trading' AND result->>'outcome' = 'changed'
       AND result->'target'->>'userId' = ${userId} AND result->'after'->>'restricted' = 'true'
       AND result->'after'->>'version' = ${version}
     ORDER BY created_at DESC LIMIT 1`;
-  return row?.actor_id ?? null;
+  return { actor: row?.actor_id ?? null, approver: row?.approver ?? null, at: row?.at ?? null };
+}
+
+/** Whether a founder control change already released this appeal's restriction with the appeal as its reason. */
+async function liftedByAppeal(tx: TransactionSql, row: AppealRow): Promise<boolean> {
+  const [found] = await tx<Array<{ audit_id: string }>>`
+    SELECT audit_id FROM founder_control_audit
+    WHERE detail->>'area' = 'trading' AND result->>'outcome' = 'changed'
+      AND result->'target'->>'userId' = ${row.user_id} AND result->'after'->>'restricted' = 'false'
+      AND result->>'reason' = ${appealLiftReason(row.id)}
+    LIMIT 1`;
+  return found !== undefined;
 }
 
 /**
