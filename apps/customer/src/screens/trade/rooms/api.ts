@@ -30,6 +30,18 @@ export const algoParentSchema = algoSchema.extend({
     .optional(),
 });
 export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+
+/** `algo.result`: per quote asset, the average price of the real child fills — null while nothing has filled. */
+export const algoResultSchema = z.object({
+  quotes: z.array(z.object({ quoteAsset: z.string(), filledQty: decimalSchema, averageFillPrice: decimalSchema.nullable() })),
+});
+export type AlgoResult = z.infer<typeof algoResultSchema>;
+
+/** `algo.list`: the person's schedules as the service keeps them, newest first, so every browser shows the same list. */
+export const algoListSchema = z.object({ rows: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
+export type AlgoListPage = z.infer<typeof algoListSchema>;
+/** Schedules the room lists at a time. The service refuses a list read without a limit. */
+export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
@@ -178,6 +190,8 @@ export function createRoomApi(api: ApiClient) {
     algoCreate: (input: CreateTwapInput) => api.mutate('trade', 'algo.createTwap', input, algoParentSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoParentSchema, { signal }),
     algoPreviewSizes: (input: PreviewSizesInput) => api.query('trade', 'algo.previewTwapSizes', input, previewSizesSchema),
+    algoResult: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.result', { algoId }, algoResultSchema, { signal }),
+    algoList: (signal?: AbortSignal) => api.query('trade', 'algo.list', { limit: ALGO_LIST_PAGE }, algoListSchema, { signal }),
     algoProgress: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.progress', { algoId }, algoProgressSchema, { signal }),
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),

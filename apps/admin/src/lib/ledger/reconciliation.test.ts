@@ -45,6 +45,15 @@ describe('define body: what the founder typed, and nothing filled in', () => {
     expect(built).toMatchObject({ ok: false });
     expect(!built.ok && built.why).toContain('ops.control_policy_unset');
   });
+  it('a rail boundary is sent as the rail, kept through an edit, and refused beside an owner filter', () => {
+    const built = buildDefineBody(form({ template: 'outside_balance', rail: 'crypto-native', toleranceDefault: '0' }));
+    expect(built.ok && built.body.accountSet).toEqual({ mode: 'query', rail: 'crypto-native', assetId: 'USDT' });
+    const clash = buildDefineBody(form({ rail: 'crypto-native', ownerType: 'user' }));
+    expect(!clash.ok && clash.why).toContain('Rail boundary names its own accounts');
+    const view = controlView({ accountSet: { mode: 'query', rail: 'crypto-native', assetId: 'USDT' } });
+    expect(formFromControl(view).rail).toBe('crypto-native');
+    expect(describeAccountSet(view)).toContain('boundary of rail crypto-native');
+  });
   it('a schedule needs its minute and hour, a threshold needs its bound, and a pair must be ASSET=amount', () => {
     expect(buildDefineBody(form({ cadence: 'daily', minute: '5' }))).toMatchObject({ ok: false });
     expect(buildDefineBody(form({ cadence: 'hourly' }))).toMatchObject({ ok: false });
