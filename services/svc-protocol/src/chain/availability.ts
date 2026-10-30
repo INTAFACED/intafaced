@@ -333,3 +333,10 @@ export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 export function isZeroAddress(address: string): boolean {
   return address.toLowerCase() === ZERO_ADDRESS;
 }
+
+/** Refusal codes that mean the chain itself could not be read: then nothing honest can be listed. */
+const CHAIN_DOWN = new Set(['protocol.chain_unreachable', 'protocol.chain_id_mismatch', 'protocol.chain_not_configured']);
+
+/** True when `reason` is a refusal saying the chain itself is down (unreachable, wrong chain id, not configured). */
+export const chainDown = (reason: unknown): boolean =>
+  typeof reason === 'object' && reason !== null && CHAIN_DOWN.has(String((reason as { code?: unknown }).code));

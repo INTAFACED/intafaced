@@ -3,7 +3,13 @@ import type { Address } from 'viem';
 import { createEdgeContext, type ProtocolSwapPairs } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
 import { ChainUnavailableError } from '../chain/availability.js';
-import { ALLOWANCE_READ_LIMIT, APPROVAL_LOG_BLOCKS, listAllowances, type AllowancesChain } from './allowances.js';
+import {
+  ALLOWANCE_READ_CONCURRENCY,
+  ALLOWANCE_READ_LIMIT,
+  APPROVAL_LOG_BLOCKS,
+  listAllowances,
+  type AllowancesChain,
+} from './allowances.js';
 import { MAX_UINT256 } from './build.js';
 
 const OWNER = '0x1111111111111111111111111111111111111111' as Address;
@@ -104,21 +110,71 @@ describe('listAllowances', () => {
     expect(answer.rows.map((row) => row.spender)).toEqual([ROUTER]);
   });
 
-  it('refuses the whole answer when the chain cannot be read', async () => {
+  it('refuses the whole answer only when no read at all answers because the chain is down', async () => {
     const down = new ChainUnavailableError('protocol.chain_unreachable', 'allowanceAt: no answer');
-    const { reader } = chain({ [key(A, POOL)]: down });
+    const { reader } = chain({ [key(A, POOL)]: down, [key(B, POOL)]: down });
     await expect(listAllowances(reader, PAIRS, OWNER)).rejects.toBe(down);
   });
 
-  it('refuses when the Approval logs cannot be read', async () => {
-    const down = new ChainUnavailableError('protocol.chain_unreachable', 'approvalSpenders: range refused');
+  it('counts one token whose read the client reports as chain_unreachable as unread, and lists the rest', async () => {
+    // The real client tags any failed eth_call (a malformed word, a node 429) as chain_unreachable.
+    const odd = new ChainUnavailableError('protocol.chain_unreachable', 'allowanceAt: AbiDecodingDataSizeTooSmall');
+    const { reader } = chain({ [key(A, POOL)]: odd, [key(B, POOL)]: 7n });
+    const answer = await listAllowances(reader, PAIRS, OWNER);
+    expect(answer.unread).toBe(1);
+    expect(answer.rows.map((row) => [row.token, row.allowance])).toEqual([[B, '7']]);
+  });
+
+  it('a refused Approval log range still checks the pools and says the logs went unread', async () => {
+    const refused = new ChainUnavailableError('protocol.chain_unreachable', 'approvalSpenders: range refused');
+    const reads: string[] = [];
+    const reader: AllowancesChain = {
+      approvalSpenders: async () => {
+        throw refused;
+      },
+      allowanceAt: async (token, _owner, spender) => {
+        reads.push(key(token, spender));
+        return token.toLowerCase() === A.toLowerCase() ? 5n : 0n;
+      },
+    };
+    const answer = await listAllowances(reader, PAIRS, OWNER);
+    expect(answer.approvalLogsUnread).toBe(true);
+    expect(reads.sort()).toEqual([key(A, POOL), key(B, POOL)].sort());
+    expect(answer.rows.map((row) => [row.token, row.spender, row.allowance])).toEqual([[A, POOL, '5']]);
+  });
+
+  it('refuses when the logs and every read fail because the chain is down', async () => {
+    const down = new ChainUnavailableError('protocol.chain_unreachable', 'no answer');
     const reader: AllowancesChain = {
       approvalSpenders: async () => {
         throw down;
       },
-      allowanceAt: async () => 0n,
+      allowanceAt: async () => {
+        throw down;
+      },
     };
     await expect(listAllowances(reader, PAIRS, OWNER)).rejects.toBe(down);
+  });
+
+  it(`never has more than ${ALLOWANCE_READ_CONCURRENCY} allowance reads in flight`, async () => {
+    const spenders = Array.from({ length: 100 }, (_, index) => ({
+      token: A as Address,
+      spender: `0x${(index + 0x100).toString(16).padStart(40, '0')}` as Address,
+    }));
+    let inFlight = 0;
+    let most = 0;
+    const reader: AllowancesChain = {
+      approvalSpenders: async () => spenders,
+      allowanceAt: async () => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight -= 1;
+        return 0n;
+      },
+    };
+    await listAllowances(reader, PAIRS, OWNER);
+    expect(most).toBe(ALLOWANCE_READ_CONCURRENCY);
   });
 
   it('checks at most the read limit and says so', async () => {

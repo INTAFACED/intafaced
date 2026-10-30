@@ -1,5 +1,6 @@
 import type { Address } from 'viem';
 import type { ProtocolAllowanceRow, ProtocolAllowances, ProtocolSwapPairs } from '@intafaced/contracts';
+import { chainDown } from '../chain/availability.js';
 import { MAX_UINT256 } from './build.js';
 
 /** The reads `listAllowances` needs; `ProtocolChain` provides them, tests stand them in. */
@@ -25,15 +26,34 @@ export const APPROVAL_LOG_BLOCKS = 10_000n;
 /** The most (token, spender) candidates one read checks. A read bound, not a product limit: the answer says when it was hit. */
 export const ALLOWANCE_READ_LIMIT = 500;
 
-const CHAIN_DOWN = new Set(['protocol.chain_unreachable', 'protocol.chain_id_mismatch', 'protocol.chain_not_configured']);
-const chainDown = (reason: unknown) =>
-  typeof reason === 'object' && reason !== null && CHAIN_DOWN.has(String((reason as { code?: unknown }).code));
+/** How many `allowance()` reads run at once: one public request must not flood the service's node. */
+export const ALLOWANCE_READ_CONCURRENCY = 16;
+
+/** `Promise.allSettled` over `items`, at most `limit` at a time, results in input order. */
+async function settledInBatches<T, R>(items: readonly T[], limit: number, read: (item: T) => Promise<R>) {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        results[index] = { status: 'fulfilled', value: await read(items[index]!) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 /**
  * The owner's live allowances for the tokens the factory's pools trade (D-swap-09), all read at the pairs' block.
  * Candidates: every listed pool for both its tokens, then every spender the owner's Approval logs name. Only a non-zero
- * `allowance()` becomes a row; an approval since set back to zero is gone. A token that reverts is counted in `unread`,
- * never shown as zero; a chain that cannot be read refuses the whole answer.
+ * `allowance()` becomes a row; an approval since set back to zero is gone. A token that reverts or whose read fails is
+ * counted in `unread`, never shown as zero; only when every read fails with the chain itself down is the whole answer
+ * refused. A node that refuses the Approval log range leaves the pool candidates, and the answer says the logs went
+ * unread.
  */
 export async function listAllowances(chain: AllowancesChain, pairs: ProtocolSwapPairs, owner: Address): Promise<ProtocolAllowances> {
   const block = BigInt(pairs.blockNumber);
@@ -50,13 +70,26 @@ export async function listAllowances(chain: AllowancesChain, pairs: ProtocolSwap
     add(pool.token1 as Address, pool.pool as Address);
   }
   const tokens = pairs.tokens.map((token) => token.address as Address);
-  if (tokens.length > 0) for (const found of await chain.approvalSpenders(tokens, owner, fromBlock, block)) add(found.token, found.spender);
+  let approvalLogsUnread = false;
+  let logsFailure: unknown = null;
+  if (tokens.length > 0) {
+    try {
+      for (const found of await chain.approvalSpenders(tokens, owner, fromBlock, block)) add(found.token, found.spender);
+    } catch (reason) {
+      approvalLogsUnread = true;
+      logsFailure = reason;
+    }
+  }
 
   const all = [...candidates.values()];
   const checked = all.slice(0, ALLOWANCE_READ_LIMIT);
-  const reads = await Promise.allSettled(checked.map((entry) => chain.allowanceAt(entry.token, owner, entry.spender, block)));
-  const down = reads.find((entry) => entry.status === 'rejected' && chainDown(entry.reason));
-  if (down && down.status === 'rejected') throw down.reason;
+  const reads = await settledInBatches(checked, ALLOWANCE_READ_CONCURRENCY, (entry) =>
+    chain.allowanceAt(entry.token, owner, entry.spender, block),
+  );
+  // One token's failed read is that token's; the chain is down only when nothing at all could be read.
+  const failures = reads.filter((entry): entry is PromiseRejectedResult => entry.status === 'rejected');
+  if (failures.length === reads.length && failures.length > 0 && chainDown(failures[0]!.reason)) throw failures[0]!.reason;
+  if (reads.length === 0 && approvalLogsUnread && chainDown(logsFailure)) throw logsFailure;
 
   let unread = 0;
   const rows: ProtocolAllowanceRow[] = [];
@@ -83,6 +116,7 @@ export async function listAllowances(chain: AllowancesChain, pairs: ProtocolSwap
     owner,
     blockNumber: block.toString(),
     logsFromBlock: fromBlock.toString(),
+    approvalLogsUnread,
     tokens: pairs.tokens,
     rows,
     unread,

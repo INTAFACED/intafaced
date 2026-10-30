@@ -57,6 +57,10 @@ const en = {
   approvalsReading: 'Reading the allowances from the chain…',
   approvalsUnread: 'Some allowances could not be read because their token did not answer ({count}), so they are not shown.',
   approvalsTruncated: 'There are more approvals than one read checks, so not all of them are shown.',
+  approvalsLogsUnread:
+    'The network’s node did not answer the approval history, so only the pools were checked: an approval to anyone else may be missing.',
+  approvalsWrongNetwork: 'Your wallet is on another network. Switch it to this network to see its approvals.',
+  revokeNotRead: 'The revoke was mined, but this page could not read the chain at that block yet. Reload to check the row.',
   approvalPool: 'Pool {pair}',
   approvalUnlimited: 'Unlimited',
   hdr_action: 'Action',

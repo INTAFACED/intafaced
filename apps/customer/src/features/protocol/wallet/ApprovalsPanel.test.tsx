@@ -10,22 +10,22 @@ const A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST T
 const B = { address: '0x00000000000000000000000000000000000b0b00', name: 'TEST Token B', symbol: 'TESTB', decimals: 18 };
 const HASH = `0x${'c'.repeat(64)}`;
 const ROW = { token: A.address, spender: POOL, allowance: '10000000', unlimited: false, pool: { token0: A.address, token1: B.address } };
-const answer = (rows: unknown[]) => ({
+const answer = (rows: unknown[], blockNumber = '40') => ({
   ok: true,
-  data: { owner: ME, blockNumber: '40', logsFromBlock: '0', tokens: [A, B], rows, unread: 0, truncated: false },
+  data: { owner: ME, blockNumber, logsFromBlock: '0', approvalLogsUnread: false, tokens: [A, B], rows, unread: 0, truncated: false },
 });
 
 const wallet = {
   status: 'connected',
   address: ME as string | null,
-  guard: { ok: true },
+  guard: { ok: true } as { ok: boolean },
   sendSequence: vi.fn(),
   read: vi.fn(),
 };
 const allowances = vi.fn();
 const buildRevoke = vi.fn();
 const representationStatus = vi.fn();
-vi.mock('./WalletProvider', () => ({ useWallet: () => wallet }));
+vi.mock('./WalletProvider', async (actual) => ({ ...(await actual<typeof import('./WalletProvider')>()), useWallet: () => wallet }));
 vi.mock('../api', () => ({
   createProtocolApi: () => ({ allowances, buildRevoke, representationStatus, representationAccept: vi.fn() }),
 }));
@@ -54,6 +54,7 @@ beforeEach(() => {
   root = createRoot(host);
   wallet.status = 'connected';
   wallet.address = ME;
+  wallet.guard = { ok: true };
   allowances.mockReset().mockResolvedValue(answer([ROW]));
   buildRevoke
     .mockReset()
@@ -81,19 +82,46 @@ describe('Approvals', () => {
 
   it('revokes through the sheet with approve(spender, 0) and drops the row once mined and read again', async () => {
     await mount();
+    // Mined at block 41 (0x29); the service's next read is at that block.
+    allowances.mockResolvedValue(answer([], '41'));
     await act(async () => revokeButton().click());
     expect(buildRevoke).toHaveBeenCalledWith({ token: A.address, spender: POOL });
     const sequence = wallet.sendSequence.mock.calls[0]![0];
     expect(sequence.title).toBe('Revoke steps');
     expect(sequence.steps).toHaveLength(1);
     expect(sequence.steps[0].request).toEqual({ kind: 'transaction', to: A.address, data: `0x095ea7b3${'0'.repeat(128)}` });
-    expect(text()).toContain('Revoking');
-    allowances.mockResolvedValue(answer([]));
     await tick(1_100);
     expect(wallet.read).toHaveBeenCalledWith('eth_getTransactionReceipt', [HASH]);
     expect(allowances).toHaveBeenCalledTimes(2);
     expect(text()).not.toContain('10 TESTA');
     expect(text()).toContain('No live approvals');
+    expect(text()).not.toContain('Revoking');
+  });
+
+  it("reads the list again until the service's node reaches the revoke's block, so a stale row never comes back as live", async () => {
+    await mount();
+    allowances.mockResolvedValueOnce(answer([ROW], '40')).mockResolvedValue(answer([], '41'));
+    await act(async () => revokeButton().click());
+    await tick(100);
+    // The first read after the receipt is a block behind: the row is still there but stays busy, with no Revoke offered.
+    expect(allowances).toHaveBeenCalledTimes(2);
+    expect(text()).toContain('Revoking');
+    expect(revokeButton()).toBeUndefined();
+    await tick(1_100);
+    expect(allowances).toHaveBeenCalledTimes(3);
+    expect(text()).toContain('No live approvals');
+    expect(text()).not.toContain('Revoking');
+  });
+
+  it("says so when the service never reaches the revoke's block", async () => {
+    await mount();
+    allowances.mockResolvedValue(answer([ROW], '40'));
+    await act(async () => revokeButton().click());
+    // Each catch-up read is its own render, so time moves one read at a time.
+    for (let read = 0; read < 32; read += 1) await tick(1_000);
+    expect(allowances.mock.calls.length).toBeGreaterThan(30);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not read the chain at that block yet');
+    expect(revokeButton().disabled).toBe(false);
   });
 
   it('keeps the row and says so when the revoke reverts', async () => {
@@ -158,6 +186,20 @@ describe('Approvals', () => {
     await mount();
     expect(allowances).not.toHaveBeenCalled();
     expect(text()).toContain('Connect a wallet to see this section.');
+  });
+
+  it('names the wrong network instead of asking to connect', async () => {
+    wallet.guard = { ok: false };
+    await mount();
+    expect(allowances).not.toHaveBeenCalled();
+    expect(text()).toContain('Your wallet is on another network.');
+    expect(text()).not.toContain('Connect a wallet');
+  });
+
+  it('says when the approval history went unread and only the pools were checked', async () => {
+    allowances.mockResolvedValue({ ok: true, data: { ...answer([]).data, approvalLogsUnread: true } });
+    await mount();
+    expect(text()).toContain('only the pools were checked');
   });
 
   it('says how many allowances could not be read rather than showing them as zero', async () => {

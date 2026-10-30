@@ -134,7 +134,7 @@ export function SwapForm() {
   // slippage in use, so a person sees a thin pool before they swap. It does not stop the swap.
   const impactNoted = quote !== null && slippageBps !== null && quote.quote.priceImpactBps > slippageBps;
   // The network fee levels are read again with every quote, so they describe the same few blocks.
-  const fees = useResource((signal) => api.feeLevels(signal), `swap:fees:${refresh}`);
+  const fees = useResource((signal) => api.feeLevels(signal), `swap:fees:${refresh}:${quote?.readAt ?? 0}`);
   const feeRead = fees.resource.status === 'ready' ? fees.resource.data : null;
   const fee = feeRead ? chosenFee(feeRead, feeChoice, customFee) : null;
   const feeAlert = feeRefusal(feeRead, fee, customFee, language);

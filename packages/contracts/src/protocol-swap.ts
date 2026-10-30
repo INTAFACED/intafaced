@@ -160,6 +160,8 @@ export const protocolAllowancesOutputSchema = z
     blockNumber: units,
     /** The first block the Approval logs were read from: a read bound, so an older approval to a non-pool spender is not found. */
     logsFromBlock: units,
+    /** The node refused the Approval log read: only the pools were checked, so an approval to another spender may be missing. */
+    approvalLogsUnread: z.boolean(),
     tokens: z.array(protocolSwapTokenSchema),
     rows: z.array(protocolAllowanceRowSchema),
     /** Candidates whose token did not answer `allowance()`: not shown, and counted so the page can say so. */

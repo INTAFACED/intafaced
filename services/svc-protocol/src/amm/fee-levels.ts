@@ -1,5 +1,6 @@
 import { FEE_MARKET_UNREAD, SWAP_FEE_CAP_UNSET, type ProtocolSwapFeeLevel, type ProtocolSwapFees } from '@intafaced/contracts';
 import type { GasPriceQuote } from '../chain/gas-price.js';
+import { MAX_UINT256 } from './build.js';
 
 /**
  * The swap form's network fee levels (D-swap-11). Slow, Normal and Fast are the owner percentiles (low, average, high) of
@@ -21,7 +22,6 @@ export class SwapFeeError extends Error {
 }
 
 /** The largest uint256: no per-gas figure above it can be signed. */
-const MAX_UINT256 = (1n << 256n) - 1n;
 
 /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`: whole wei above zero. Blank or anything else is null, never a default. */
 export function parseFeeCapWei(raw: string | null | undefined): bigint | null {

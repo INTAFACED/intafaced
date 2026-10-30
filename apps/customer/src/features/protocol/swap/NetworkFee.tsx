@@ -1,4 +1,5 @@
 import type { ProtocolSwapFees } from '@intafaced/contracts/protocol-swap';
+import { formatAsOf } from '@intafaced/ui';
 import { Failure, Field } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import type { Resource } from '../../../shared/resource';
@@ -44,7 +45,7 @@ export function NetworkFee({
   const { language } = usePreferences();
   const { t } = swapCopy.forLocale(language);
   const ready = fees.status === 'ready' ? fees.data : null;
-  const time = ready ? new Date(ready.asOf).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+  const time = ready ? (formatAsOf(ready.asOf, { locale: language, now: Date.now() }) ?? ready.asOf) : '';
   return (
     <div data-swap-fee>
       <div role="radiogroup" aria-label={t('networkFee')} className="protocol-actions">
