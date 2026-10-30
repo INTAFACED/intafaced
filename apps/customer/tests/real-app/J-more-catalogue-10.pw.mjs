@@ -250,10 +250,9 @@ test(`${J} #3 A distinct second founder confirms: The settings are stored with a
   test.setTimeout(240_000);
   const { founderA, founderB } = started('nonce', 'founderA', 'founderB');
   const pages = await founders(browser);
-  const before = await pages.a
-    .getByTestId('settings-move')
-    .count()
-    .catch(() => 0);
+  // The audit rows already written (the start may have cleared an earlier run's figures), read on the panel itself.
+  await openPanel(pages.a);
+  const before = await pages.a.getByTestId('settings-move').count();
   const reply = await settingsStep(
     pages,
     '0',
