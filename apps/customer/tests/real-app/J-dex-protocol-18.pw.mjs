@@ -176,7 +176,7 @@ test(`${J} #7 pays with another token: the converted amount stays if the open is
   await expect.poll(held, { timeout: 20_000 }).toBe(before + toUnits('0.01'));
 });
 
-test(`${J} #8 closes 25 percent: exactly a quarter of the size closes at the accepted mark; a caller-supplied price is refused`, async ({
+test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in the book, never past where the margin is gone; a caller-supplied price is refused`, async ({
   page,
 }) => {
   const who = await desk(page);
@@ -189,11 +189,39 @@ test(`${J} #8 closes 25 percent: exactly a quarter of the size closes at the acc
   await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
   const dialog = page.getByRole('dialog', { name: /^Close/ });
   await dialog.getByRole('button', { name: '25%' }).click(UNBUILT);
+  // The close is a reduce-only market order on the futures book (slice 6b retired the at-mark close while matching is
+  // on), for a quarter of the size, on the side that shrinks the position.
+  const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/futures/orders' && r.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Close this size' }).click();
+  const answer = await sent;
+  const asked = answer.request().postDataJSON();
+  const quarter = toUnits(before.contracts) / 4n;
+  expect(asked).toMatchObject({ symbol: SYMBOL, type: 'market', reduceOnly: true, side: before.side === 'long' ? 'sell' : 'buy' });
+  expect(toUnits(asked.amount)).toBe(quarter);
+  expect(asked.price, 'a market close sends no price of its own').toBeUndefined();
+  expect(answer.status(), JSON.stringify(await answer.json())).toBeLessThan(300);
+  const placed = await answer.json();
   // Exactly three quarters stay open: 4 × left = 3 × before, in exact units.
   await expect
     .poll(async () => 4n * toUnits((await positions(who)).find((p) => p.id === before.id)?.contracts ?? '0'), { timeout: 20_000 })
     .toBe(3n * toUnits(before.contracts));
+  // The service's own record of that order: reduce-only on this position, filled in the book for the quarter, at a
+  // worst price inside the band around the mark and never past the bankruptcy price (where the margin is gone).
+  const { status: listed, body: list } = await (
+    await api(who)
+  ).get(`/api/v1/futures/orders?scope=all&limit=50&symbol=${encodeURIComponent(SYMBOL)}`);
+  expect(listed).toBe(200);
+  const rows = Array.isArray(list) ? list : (list.orders ?? list.items ?? []);
+  const order = rows.find((o) => o.orderId === (placed.orderId ?? placed.order?.orderId));
+  expect(order, JSON.stringify(placed).slice(0, 300)).toBeTruthy();
+  expect(order).toMatchObject({ reduceOnly: true, positionId: before.id, status: 'filled', type: 'market' });
+  expect(toUnits(order.filledQty)).toBe(quarter);
+  const limit = toUnits(order.limitPrice);
+  expect(limit).toBeGreaterThanOrEqual(toUnits(order.bandLow));
+  expect(limit).toBeLessThanOrEqual(toUnits(order.bandHigh));
+  expect(order.bankruptcyPrice, 'the bound is recorded').toBeTruthy();
+  if (before.side === 'long') expect(limit).toBeGreaterThanOrEqual(toUnits(order.bankruptcyPrice));
+  else expect(limit).toBeLessThanOrEqual(toUnits(order.bankruptcyPrice));
   // The close door takes no price from the caller: the accepted mark is the only price.
   const { status, body } = await (
     await api(who)
