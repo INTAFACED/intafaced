@@ -31,6 +31,10 @@ export interface BoardOffer {
   status: 'active' | 'paused' | 'closed';
   /** P-ads-merchant-18: the board lists active ads only, so this is null there unless a row says otherwise. */
   pauseReason: 'method_removed' | null;
+  /** P-ads-merchant-06: null on the board, which lists active ads only. */
+  closeReason: 'by_you' | 'sold_out' | null;
+  statusSince: Date;
+  relistedFrom: string | null;
   createdAt: Date;
   /** Postgres `to_char` instant, microsecond precision. Cursor keyset uses this, not a JS Date. */
   createdAtExact: string;
@@ -197,6 +201,9 @@ interface BoardRow {
   accepts_non_instant?: boolean;
   status: 'active' | 'paused' | 'closed';
   pause_reason?: 'method_removed' | null;
+  close_reason?: 'by_you' | 'sold_out' | null;
+  status_since?: Date;
+  relisted_from?: string | null;
   created_at: Date;
   created_at_exact: string;
 }
@@ -220,6 +227,9 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
     acceptsNonInstant: row.accepts_non_instant === true,
     status: row.status,
     pauseReason: row.pause_reason ?? null,
+    closeReason: row.close_reason ?? null,
+    statusSince: row.status_since ?? (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)),
+    relistedFrom: row.relisted_from ?? null,
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     createdAtExact: row.created_at_exact,
   };

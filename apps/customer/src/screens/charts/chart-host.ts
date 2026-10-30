@@ -30,6 +30,9 @@ export interface ChartSeries {
   priceToCoordinate(price: number): number | null;
   coordinateToPrice(y: number): number | null;
   dataByIndex(index: number, mismatchDirection?: number): unknown;
+  seriesType(): string;
+  options(): Record<string, unknown>;
+  data(): readonly unknown[];
 }
 
 export interface ChartApi {
@@ -64,6 +67,7 @@ export interface ChartApi {
   subscribeClick(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   unsubscribeClick(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   applyOptions(options: Record<string, unknown>): void;
+  options(): Record<string, unknown>;
   takeScreenshot(): HTMLCanvasElement;
   remove(): void;
 }

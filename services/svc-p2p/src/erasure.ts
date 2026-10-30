@@ -103,6 +103,8 @@ export interface P2pExport {
   readonly orderReviews: unknown[];
   /** Sensitive payment-note remark cases this person reported or was reported in (P-ads-merchant-19), whole. */
   readonly remarkCases: unknown[];
+  /** The person's ad edits counted against the daily cap (P-ads-merchant-06). */
+  readonly offerEdits: unknown[];
   readonly reputation: unknown | null;
   /**
    * The caller's payment destinations — **headers only, never the values.**
@@ -137,39 +139,42 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances] = await Promise.all([
-        this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
-        this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
-        this.sql`
+      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits] = await Promise.all(
+        [
+          this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
+          this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
+          this.sql`
           SELECT d.* FROM p2p.p2p_disputes d
             JOIN p2p.p2p_trades t ON t.id = d.trade_id
            WHERE t.seller_id = ${userId} OR t.buyer_id = ${userId}
            ORDER BY d.opened_at
         `,
-        this.sql`
+          this.sql`
           SELECT * FROM p2p.order_reviews
            WHERE author_id = ${userId} OR subject_id = ${userId}
            ORDER BY created_at
         `,
-        this.sql`
+          this.sql`
           SELECT * FROM p2p.remark_cases
            WHERE reporter_id = ${userId} OR reported_id = ${userId}
            ORDER BY opened_at
         `,
-        this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
-        // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
-        // cannot quietly start returning `details` the day someone adds a
-        // column. `fingerprint` is out too: it is a hash of the account details,
-        // and a hash handed to a caller is an oracle a guessed account number
-        // can be checked against.
-        this.sql`
+          this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
+          // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
+          // cannot quietly start returning `details` the day someone adds a
+          // column. `fingerprint` is out too: it is a hash of the account details,
+          // and a hash handed to a caller is an oracle a guessed account number
+          // can be checked against.
+          this.sql`
           SELECT id, method_id, country, fiat_currency, label, status, created_at, updated_at, removed_at
             FROM p2p.payment_instruments
            WHERE owner_id = ${userId}
            ORDER BY created_at
         `,
-        this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
-      ]);
+          this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
+          this.sql`SELECT * FROM p2p.offer_edits WHERE maker_id = ${userId} ORDER BY edited_at`,
+        ],
+      );
 
       // The column list above is the export reader. `details` is not selected, so a
       // sealed blob cannot leave as if it were account text. Reveal is the logged
@@ -188,6 +193,7 @@ export class P2pErasure {
         disputes: [...disputes],
         orderReviews: [...orderReviews],
         remarkCases: [...remarkCases],
+        offerEdits: [...offerEdits],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
         riskAcceptances: [...riskAcceptances],
@@ -265,6 +271,10 @@ export class P2pErasure {
           // else needs and referenced by no foreign key. A genuine delete.
           const reputation = await tx`DELETE FROM p2p.p2p_reputation WHERE user_id = ${userId} RETURNING user_id`;
           erased.push({ category: 'reputation', rows: reputation.length });
+
+          // P-ads-merchant-06: the person's ad edits, counted against the daily cap. They name nobody else.
+          const edits = await tx`DELETE FROM p2p.offer_edits WHERE maker_id = ${userId} RETURNING offer_id`;
+          erased.push({ category: 'ad edits counted against the daily cap', rows: edits.length });
 
           // Offers with no trades against them never became part of anyone
           // else's record. Ones that were traded are load-bearing: a trade row

@@ -43,6 +43,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
             '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
+            // M-adv-payments-core-01: the caller's own saved views and one clear payer detail, on the caller's business.
+            'payment\\.(views\\.(list|create|delete)|unmask)$',
             'settlement\\.(list|get|lines|clearing|lifecycle|payout)$',
             'payHalts\\.status$',
             // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
@@ -135,7 +137,18 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchantControl.approvals.decide',
         'merchantControl.approvals.cancel',
       ]),
-      payment: new Set(['payment.list', 'payment.get', 'payment.history', 'payment.refunds.list', 'payment.refunds.get']),
+      payment: new Set([
+        'payment.list',
+        'payment.get',
+        'payment.history',
+        'payment.refunds.list',
+        'payment.refunds.get',
+        // Saved views and one clear payer detail, scoped to the caller's own business (M-adv-payments-core-01).
+        'payment.views.list',
+        'payment.views.create',
+        'payment.views.delete',
+        'payment.unmask',
+      ]),
       settlement: new Set([
         'settlement.list',
         'settlement.get',

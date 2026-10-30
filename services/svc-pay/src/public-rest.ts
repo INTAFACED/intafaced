@@ -8,6 +8,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead } from './merchant-read-access.js';
 import { projectPricingSnapshot } from './team-read-projection.js';
+import { maskRailRef, seesClearRailRef } from './merchant-ops/payment-views.js';
 import type { MerchantTeamRead } from './merchant-team-read.js';
 import { areaForSurface, isPayfacPermissionPort, resolveActorMerchantId, type PayfacPermissionPort } from './payfac-permissions.js';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type PermissionArea } from './submerchants.js';
@@ -629,8 +630,11 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         const audience = await assertPaymentRead(principal.userId, req.params.id, payment.merchantId);
         assertSandboxKeyDoesNotLookLive(principal.key_env, payment.railAdapter);
         const facts = (await deps.pay.paymentFacts?.(payment.id)) ?? { pricingSnapshot: null, failure: null };
+        const body = toPaymentBody(payment);
         return reply.send({
-          ...toPaymentBody(payment),
+          ...body,
+          // A role that cannot unmask reads the rail reference masked, as on the portal's own reads.
+          railRef: seesClearRailRef(audience) ? body.railRef : maskRailRef(body.railRef),
           pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
           failure: facts.failure,
         });
@@ -712,10 +716,12 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           from: req.query.from,
           to: req.query.to,
           railMode: principal.key_env === 'sandbox' ? 'sandbox' : undefined,
+          searchRailRef: seesClearRailRef(audience),
         });
         return reply.send({
           items: page.items.map((row) => ({
             ...toPaymentBody(row),
+            railRef: seesClearRailRef(audience) ? row.railRef : maskRailRef(row.railRef),
             pricingSnapshot: projectPricingSnapshot(row.pricingSnapshot, audience),
             failure: row.failure ?? null,
           })),

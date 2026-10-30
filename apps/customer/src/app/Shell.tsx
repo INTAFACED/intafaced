@@ -8,13 +8,21 @@ import { MobileTabs, TopBar } from './TopBar';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { Button } from '../shared/ui';
+import { currentReturnLocation, navigate } from './location';
 
 /** The signed-in frame (UI-SPEC 3.1): sticky top bar, content, phone tab bar. New screens render straight into `main`; old views are wrapped in `.legacy-room` by their caller. */
 export function Shell({ door, path, children }: { door?: Door; path: string; children: ReactNode }) {
   const { t } = shellCopy.useCopy();
   const { language, hideBalances } = usePreferences();
   const { logout, retryLogout } = useSession();
-  const [logoutNote, setLogoutNote] = useState<'confirmed' | 'not-confirmed' | null>(null);
+  const [logoutNote, setLogoutNote] = useState<'not-confirmed' | null>(null);
+  // A confirmed sign-out leaves the signed-in rooms for the public home (J-home-ia-07 #4), unless the person has already moved
+  // on while the server answered; one the server did not confirm stays here and says so, since its cookie would sign this
+  // browser back in.
+  const afterSignOut = (from: string) => (result: { ok: boolean }) => {
+    if (!result.ok) setLogoutNote('not-confirmed');
+    else if (currentReturnLocation() === from) navigate('/', true);
+  };
   return (
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
@@ -24,25 +32,13 @@ export function Shell({ door, path, children }: { door?: Door; path: string; chi
             <a href="#main" className="skip-link">
               {t('Skip to content')}
             </a>
-            <TopBar
-              door={door}
-              path={path}
-              onSignOut={() => void logout().then((result) => setLogoutNote(result.ok ? 'confirmed' : 'not-confirmed'))}
-            />
+            <TopBar door={door} path={path} onSignOut={() => void logout().then(afterSignOut(currentReturnLocation()))} />
             <main id="main" tabIndex={-1}>
-              {logoutNote === 'confirmed' && (
-                <p className="tb-note" role="status">
-                  {t('Signed out.')}
-                </p>
-              )}
               {logoutNote === 'not-confirmed' && (
                 // The server did not confirm: its cookie still signs this browser in on reload, so do not say "signed out".
                 <p className="tb-note" role="status">
                   {t('Not signed out yet. Reloading would sign you back in.')}{' '}
-                  <Button
-                    variant="secondary"
-                    onClick={() => void retryLogout().then((result) => setLogoutNote(result.ok ? 'confirmed' : 'not-confirmed'))}
-                  >
+                  <Button variant="secondary" onClick={() => void retryLogout().then(afterSignOut(currentReturnLocation()))}>
                     {t('Retry')}
                   </Button>
                 </p>
