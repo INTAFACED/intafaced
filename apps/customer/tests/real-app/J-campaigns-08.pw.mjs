@@ -84,7 +84,10 @@ async function fundPot(reference, amount) {
     ),
     'ops.pot.request',
   );
-  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, await pair.b.campaignsOpsToken()), 'ops.pot.approve');
+  const funded = data(
+    await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, await pair.b.campaignsOpsToken()),
+    'ops.pot.approve',
+  );
   expect(funded.state, JSON.stringify(funded)).toBe('posted');
 }
 
@@ -187,9 +190,9 @@ test(`${J} #4 validates the code: nothing changes, and I see what it would give`
   await expect(result).toContainText('Claim by');
   // Nothing changed: the voucher is still free to claim, and my wallet still holds only the first one.
   expect((await walletOf(me)).map((v) => v.code)).toEqual([codes.cash]);
-  const again = await (await api(me)).get(
-    `/api/campaigns/trpc/vouchers.validate?input=${encodeURIComponent(JSON.stringify({ code: codes.other }))}`,
-  );
+  const again = await (
+    await api(me)
+  ).get(`/api/campaigns/trpc/vouchers.validate?input=${encodeURIComponent(JSON.stringify({ code: codes.other }))}`);
   expect(again.body?.result?.data).toMatchObject({ claimable: true, face: { asset: 'USDT', amount: FACE } });
 });
 
