@@ -59,7 +59,7 @@ export const TOKEN_REFUSAL_COPY = {
   'token.proposal_list_limit_unset': 'The proposal list size is not set.',
   'token.stakes_list_limit_unset': 'The stake list size is not set.',
   'token.governance_quorum_unset': 'The vote threshold is not set.',
-  'token.governance_snapshot_missing': 'This vote has no eligible-stake record, so it cannot be closed.',
+  'token.governance_snapshot_missing': 'This proposal has no voting power record, so it cannot be voted on or closed.',
   'token.governance_execute_unwired': 'This proposal can be counted, but it cannot be carried out yet.',
   'token.staking_asset_unpublished': 'The staking asset is not published.',
   'token.stake_tier_unknown': 'That stake term is not one this service offers.',
@@ -72,12 +72,21 @@ export const TOKEN_REFUSAL_COPY = {
   'token.delegation_delegatee_invalid': 'That delegation target is not a member.',
   'token.delegation_unavailable': 'There is no chain service and no on-chain delegate registry.',
   'token.treasury_figure_unreadable': 'A treasury figure recorded by this service could not be read.',
+  'token.vote_history_unreadable': 'A vote recorded by this service could not be read.',
   'token.proposer_rule_unset': 'Who may open a proposal is not set.',
   'token.proposal_limit_unset': 'The proposal limit is not set.',
   'token.proposal_limit_reached': 'You have reached the proposal limit for this period.',
   'token.proposal_not_editable': 'That proposal can no longer be edited.',
   'token.proposal_title_invalid': 'That proposal title is not valid.',
   'token.proposal_handle_invalid': 'That proposal request is not valid.',
+  'token.ballot_invalid': 'That ballot does not fit this proposal.',
+  'token.voting_type_unsupported': 'That voting type is not supported.',
+  'token.vote_rule_unset': 'Who may vote is not set.',
+  'token.vote_rule_not_met': 'Your voting power for this proposal is below the vote rule.',
+  'token.signed_vote_unavailable':
+    'Your signed vote could not be checked: no wallet is linked to your account, or the check is unavailable. Nothing was saved.',
+  'token.vote_signature_required': 'Sign your vote with the wallet linked to your account. Unsigned votes are not accepted.',
+  'token.vote_signature_invalid': 'That signature is not from a wallet linked to your account, so the vote was not saved.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */

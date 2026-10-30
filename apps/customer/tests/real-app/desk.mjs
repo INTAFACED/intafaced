@@ -61,17 +61,17 @@ async function verifyPending() {
   }
 }
 
-/** The signed-in person asks for full verification; the stack's two TEST operators approve it through identity's own
- * door. The cookies are cleared after, so the next sign-in carries the new tier. */
-export async function verify(page, who) {
+/** The signed-in person asks for a verification level (Full unless named); the stack's two TEST operators approve it
+ * through identity's own door. The cookies are cleared after, so the next sign-in carries the new tier. */
+export async function verify(page, who, level = 'Full') {
   await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
+  await page.getByLabel('Level to request').selectOption({ label: level });
   await page.getByLabel('Country code').fill('DE');
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
   const { accounts, refused } = await verifyPending();
-  expect(accounts.find((a) => a.handle === who.handle)?.tiers, JSON.stringify(refused)).toContain('full');
+  expect(accounts.find((a) => a.handle === who.handle)?.tiers, JSON.stringify(refused)).toContain(level.toLowerCase());
   await signOutBrowser(page.context());
 }
 

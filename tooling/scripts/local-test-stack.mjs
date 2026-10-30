@@ -23,7 +23,8 @@
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
  *   svc-protocol (the Web3 rooms' read side; no chain node) · svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
- *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
+ *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -60,6 +61,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -131,6 +133,8 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  hostReceipt: path.join(STATE, 'host-dispatch.json'),
+  apexDist: path.join(STATE, 'apex-test'),
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -172,6 +176,8 @@ const PORTS = {
   ws: 14523,
   customer: 3210,
   invitation: 3220,
+  // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
+  apex: 3260,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -181,6 +187,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
+const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -1244,6 +1251,32 @@ async function startInvitation() {
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
+/**
+ * LOCAL TEST: the apex host's stand-in, a TEST page and an apex descriptor marked `test` written to the state folder on
+ * every start. The real apex (the marketing site) is built and deployed outside this repo, so this stack has no apex
+ * build to serve; the host check accepts a `test` descriptor only in its LOCAL TEST mode.
+ */
+function writeApexStandIn() {
+  fs.mkdirSync(P.apexDist, { recursive: true });
+  const descriptor = { product: APEX_PRODUCT, schemaVersion: 1, test: true };
+  fs.writeFileSync(path.join(P.apexDist, APEX_DESCRIPTOR_PATH.slice(1)), `${JSON.stringify(descriptor, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(P.apexDist, 'index.html'),
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>TEST apex stand-in</title></head>' +
+      "<body><main><h1>TEST apex stand-in</h1><p>This machine's local test stack. No deployment is shown.</p></main></body></html>\n",
+  );
+}
+
+async function startApex() {
+  const procs = readProcs();
+  const url = `${APEX_ORIGIN}/`;
+  writeApexStandIn();
+  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS.apex)) fail(`port ${PORTS.apex} (apex) is in use by a process this script did not start`);
+  const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
+  await waitHealthy('apex', url, pid, 20_000);
+}
+
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
 function adminEnv(secrets) {
   return {
@@ -1375,6 +1408,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.invitation?.pid ?? '-',
     invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
   ]);
+  const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
+  rows.push([
+    'apex',
+    PORTS.apex,
+    procs.apex?.pid ?? '-',
+    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+  ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
@@ -1392,7 +1432,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1469,6 +1509,8 @@ async function cmdStart(flags) {
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   if (!only || only.includes('invitation')) await startInvitation();
+  if (!only || only.includes('apex')) await startApex();
+  if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1520,8 +1562,10 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
   const only = names.length ? names : null;
+  // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
+  if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
   for (const name of order) {
     if (only && !only.includes(name)) continue;
@@ -1591,7 +1635,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1608,6 +1652,45 @@ const WS_UPSTREAM_REFUSAL = {
   message: 'CUSTOMER_WS_URL is not wired. The Customer server has no WebSocket upstream.',
 };
 const customerWsUpstream = () => (process.env.LOCAL_STACK_WS_UPSTREAM === 'off' ? '' : urlOf('ws'));
+
+// ── LOCAL TEST hosts ────────────────────────────────────────────────────────
+
+/** The sites the host check reads; starting or stopping any of them checks again or drops the receipt. */
+const HOST_SITES = ['customer', 'invitation', 'apex'];
+
+/** Where the Customer app reads the host dispatch receipt (apps/customer/src/features/public/host-dispatch.ts). */
+const HOST_RECEIPT_PATH = '/host-dispatch.json';
+
+/**
+ * The apex, app and join hosts on this machine: TEST stand-ins on loopback, made from this stack's own ports and never
+ * an owner value. The apex is the stack's TEST apex page (writeApexStandIn), the invitation site is the join host and the
+ * Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
+ * journey can see the typed refusal.
+ */
+export function localTestHosts(env = process.env) {
+  if (env.LOCAL_STACK_HOSTS === 'off') return {};
+  return { INTAFACED_APEX_HOST: APEX_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
+}
+
+/**
+ * Runs the deployment's host check against the TEST hosts in its LOCAL TEST mode (APP_ENV test, loopback only) and
+ * keeps its receipt in the state folder, where the Customer server publishes it at /host-dispatch.json. The previous
+ * receipt is removed first, so with the hosts unset nothing is published. A refusal is printed, never fatal.
+ */
+async function checkLocalTestHosts() {
+  fs.rmSync(P.hostReceipt, { force: true });
+  const check = path.join(REPO, 'apps', 'customer', 'deployment', 'host-dispatch.mjs');
+  const env = { PATH: PNPM_PATH, HOME: os.homedir(), APP_ENV: 'test', ...localTestHosts() };
+  const result = await new Promise((done) => {
+    const child = spawn(process.execPath, [check, '--local-test', '--out', P.hostReceipt], { env, cwd: REPO });
+    let out = '';
+    child.stdout.on('data', (chunk) => (out += chunk));
+    child.stderr.on('data', (chunk) => (out += chunk));
+    child.on('close', (status) => done({ status, out }));
+  });
+  for (const line of result.out.trim().split('\n').filter(Boolean)) say(`  ${line}`);
+  if (result.status !== 0) say(`  host dispatch (TEST): exited ${result.status}; the Help room shows no host as served`);
+}
 
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
@@ -1659,10 +1742,14 @@ export function customerSecurityHeaders() {
   return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
 }
 
-/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+/**
+ * The static sites this stack serves. The Customer and invitation sites pass `/api/*` to Edge; the TEST apex page has no
+ * api. Only the Customer site has a folder override.
+ */
 const SITES = {
   customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
   invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
+  apex: { label: 'apex', origin: APEX_ORIGIN, dist: () => ({ dir: P.apexDist, error: null }), headers: () => ({}), noApi: true },
 };
 
 /** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
@@ -1757,7 +1844,8 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       });
       return;
     }
-    if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    if (p === '/api' || p === '/ws' || (site.noApi && p.startsWith('/api/')))
+      return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
       if (!wsUpstream) return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
       const up = http.request(
@@ -1795,6 +1883,13 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       );
     }
     const dist = active.dir;
+
+    // The LOCAL TEST host receipt, from the state folder (checkLocalTestHosts). With none, the build's own file or the index.
+    // The receipt, or a 404 while there is none: never the app's index in its place.
+    if (site === SITES.customer && p === HOST_RECEIPT_PATH) {
+      if (!fs.existsSync(P.hostReceipt)) return send(res, 404, 'text/plain; charset=utf-8', 'no host dispatch receipt');
+      return send(res, 200, MIME['.json'], fs.readFileSync(P.hostReceipt, 'utf8'));
+    }
 
     // Static files; unknown paths fall back to index.html like apps/customer/nginx.conf.
     let decoded;
@@ -2168,9 +2263,11 @@ async function miningPow() {
   }
 }
 
-// One TEST share from a rig, posted to the pool's own share door signed as a service, the way a stratum front would.
-// The window has no published reward or fee, so the share is stored and nothing is ever paid for it. The miner id is the
-// account's own id (what the mining room tells a miner to use); --worker names the rig, absent goes to "default".
+// One TEST share from a TEST rig through the pool's miner door, at the address the mining room shows. The door's window
+// has no published reward or fee, so the share is stored and nothing is ever paid for it. The rig logs in as the
+// account's own id and the published worker name for --worker (what the room copies); no --worker is the default
+// worker. --pool and --login dial and log in with values copied from the room instead. --secret is the miner secret the
+// room issues; without the account's current one the door refuses by name (mining.stratum_secret_invalid).
 async function cmdMiningShare(rawArgs) {
   const args = [...rawArgs];
   const take = (flag) => {
@@ -2183,17 +2280,25 @@ async function cmdMiningShare(rawArgs) {
   };
   const worker = take('--worker');
   const label = take('--share');
+  const pool = take('--pool');
+  const login = take('--login');
+  const secret = take('--secret');
   const invalidAt = args.indexOf('--invalid-pow');
   const invalidPow = invalidAt !== -1;
   if (invalidPow) args.splice(invalidAt, 1);
   const [who] = args;
   if (!who || !label)
     fail(
-      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--invalid-pow]',
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--secret <miner secret>] [--invalid-pow]',
       2,
     );
   if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
   if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
+  if (pool !== undefined && !/^127\.0\.0\.1:\d{1,5}$/.test(pool)) fail('--pool must be 127.0.0.1:<port> (the local stack only)', 2);
+  if (login !== undefined && !/^[0-9a-f-]{36}(\.[A-Za-z0-9_.{}-]{1,80})?$/.test(login))
+    fail('--login must be <account id>[.<worker name>]', 2);
+  if (login !== undefined && worker !== undefined) fail('--login already names the worker; drop --worker', 2);
+  if (secret !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(secret)) fail('--secret must be the miner secret the room shows', 2);
 
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
@@ -2217,60 +2322,55 @@ async function cmdMiningShare(rawArgs) {
   if (found.length > 1) fail(`"${who}" matches more than one user`);
   const [userId] = found;
 
-  let contracts;
-  try {
-    contracts = await import(pathToFileURL(path.join(REPO, 'packages', 'contracts', 'dist', 'index.js')).href);
-  } catch (err) {
-    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
-  }
   const shareId = `LOCAL-TEST-${label}`;
-  const windowId = 'LOCAL-TEST-unpaid-window';
-  // The share carries a nonce found with the TEST proof-of-work parameters against the pool's own header for this window,
-  // account and rig, and no weight (the pool sets it); --invalid-pow sends a nonce that misses the target. A pool started
-  // with LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses work by name (mining.pow_spec_unset).
+  // The rig finds a nonce with the TEST proof-of-work parameters the pool's job names, against the pool's own header for
+  // the door's window, the account and the rig; --invalid-pow sends a nonce that misses the target. A pool started with
+  // LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses the rig by name (mining.pow_spec_unset).
   const pow = await miningPow();
-  const spec = pow.readPowSpec(profileEnvFor('mining-pool', 'dev'));
-  const header = pow.powHeader(windowId, userId, worker ?? 'default');
-  // Each share searches from its own start, derived from its id, so two shares of one rig never send the same work
-  // (the pool refuses repeated work in a window as mining.share_duplicate).
+  const published = profileEnvFor('mining-pool', 'dev');
+  const [host, port] = (pool ?? `${published.MINING_POOL_HOST}:${published.MINING_POOL_PORT}`).split(':');
+  const workerName = worker === undefined ? null : published.MINING_WORKER_NAME_PATTERN.replace('{worker}', worker);
+  // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
+  // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const powNonce = invalidPow ? pow.failingPow(spec, header, start) : pow.grindPow(spec, header, start);
-  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${powNonce}`;
-  const raw = JSON.stringify({
-    windowId,
-    assetId: 'TEST',
-    shares: [{ shareId, minerId: userId, powNonce, ...(worker === undefined ? {} : { workerName: worker }) }],
-  });
-  const res = await fetch(`${urlOf('mining-pool')}/submitShare`, {
-    redirect: 'error',
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-miner', secrets.internal, raw) },
-    body: raw,
-  });
-  const text = await res.text();
-  let body = null;
+  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  let result;
   try {
-    body = JSON.parse(text);
-  } catch {
-    // reported below
+    result = await rigShare({
+      host,
+      port: Number(port),
+      login: login ?? (workerName ? `${userId}.${workerName}` : userId),
+      pow,
+      start,
+      invalid: invalidPow,
+      secret,
+    });
+  } catch (err) {
+    fail(`the TEST rig could not reach the pool's miner door at ${host}:${port}: ${err.message}`);
   }
-  // A share id the pool already holds is refused by name; that is the pool's answer, not a tool failure.
-  if (res.status === 409 && body?.error === 'mining.share_duplicate') {
+  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${result.nonce}`;
+  // The same work again is refused by name; that is the pool's answer, not a tool failure.
+  if (result.code === 'mining.share_duplicate') {
     console.log(`refused mining.share_duplicate: TEST share ${shareId}, or its work, is already stored; nothing new was kept`);
     return;
   }
   // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
-  if (invalidPow && body?.error === 'mining.pow_invalid') {
+  if (invalidPow && result.code === 'mining.pow_invalid') {
     console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
     return;
   }
-  if (body?.error === 'mining.pow_spec_unset') {
+  // A rig without the account's current miner secret is refused by name before the door touches the account.
+  if (result.code === 'mining.stratum_secret_invalid') {
+    console.log(`refused mining.stratum_secret_invalid: the miner secret is missing or wrong, so TEST share ${shareId} was not sent`);
+    return;
+  }
+  if (result.code === 'mining.pow_spec_unset') {
     console.log(`refused mining.pow_spec_unset: the pool has no proof-of-work parameters, so TEST share ${shareId} was not kept`);
     return;
   }
-  if (res.status !== 200 || body?.accepted !== true) fail(`the pool refused the TEST share (${res.status}): ${text.slice(0, 400)}`);
+  if (!result.ok) fail(`the pool refused the TEST share: ${result.code}`);
   console.log(
-    `accepted TEST share ${shareId} for miner ${userId}, worker ${worker ?? 'default'}, ${powNote} (unpaid window, nothing credited)`,
+    `accepted TEST share ${shareId} for miner ${userId}, ${login === undefined ? `worker ${worker ?? 'default'}` : `login ${login}`}, ${powNote} through the miner door at ${host}:${port} (unpaid window, nothing credited)`,
   );
 }
 
@@ -2910,6 +3010,7 @@ async function runCli() {
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
+  else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-video-store')
     serveVideoStore({

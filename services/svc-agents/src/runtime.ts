@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
@@ -81,6 +81,17 @@ export interface AgentRuntimeOptions {
    * not exercise funds; production wires the ledger's balance read.
    */
   readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
+  /**
+   * AGENTS_TRANSCRIPT_RETENTION_DAYS: how many days an executed engine call's prompt text is kept for an operator's
+   * transcript read. Null (blank) or 0 keeps nothing: only the digests are on the action row.
+   */
+  readonly transcriptRetentionDays?: number | null;
+  /**
+   * AGENTS_OVERAGE_GRACE: how much usage a person may leave unpaid and still start a run, in the fee asset. An owner
+   * value. Blank is null: any unpaid window refuses the next run with `agents.overage_grace_unset`, never a grace
+   * nobody published.
+   */
+  readonly overageGrace?: Amount | null;
 }
 
 /** The agent's own stored cap per session, as the spend hold takes it. */
@@ -192,6 +203,8 @@ export class AgentRuntime {
   private readonly meteringEnabled: boolean;
   private readonly spend: SpendGate | null;
   private readonly funds: AgentRuntimeOptions['funds'] | null;
+  private readonly transcriptRetentionDays: number;
+  private readonly overageGrace: Amount | null;
 
   constructor(
     private readonly sql: Sql,
@@ -205,6 +218,13 @@ export class AgentRuntime {
     this.meteringEnabled = options.meteringEnabled ?? false;
     this.spend = options.spend ?? null;
     this.funds = options.funds ?? null;
+    this.transcriptRetentionDays = options.transcriptRetentionDays ?? 0;
+    this.overageGrace = options.overageGrace ?? null;
+  }
+
+  /** The owner's overage grace as the runtime applies it; null is blank, and any unpaid window then refuses runs. */
+  get overageGraceAmount(): Amount | null {
+    return this.overageGrace;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -272,7 +292,25 @@ export class AgentRuntime {
       throw new AgentError(`Agent "${input.agentId}" is disabled`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
     }
 
-    const guardrail = definition.guardrail;
+    return this.insertSession(input.userId, definition.guardrail, input.metered ?? true);
+  }
+
+  /**
+   * Open a session of an agent the person built (AG-builder-01). It has no registered definition: the caller builds
+   * its guardrail from the agent as saved, and it is bound to the session as any other. Its id is `own.<agent id>`,
+   * which no registered agent can take, so `openSession` can never open one and this can open nothing else. Its
+   * spend is held against the caps the person set for that agent (`UserSpendStore.reserve`).
+   */
+  async openOwnSession(input: { userId: string; guardrail: Guardrail }): Promise<SessionRecord> {
+    if (!input.guardrail.agentId.startsWith('own.')) {
+      throw new AgentError(`"${input.guardrail.agentId}" is not an own agent`, 'agents.agent_not_found', 'agents.error.route_not_found', {
+        task: input.guardrail.agentId,
+      });
+    }
+    return this.insertSession(input.userId, input.guardrail, true);
+  }
+
+  private async insertSession(userId: string, guardrail: Guardrail, metered: boolean): Promise<SessionRecord> {
     const snapshot = serialiseGuardrail(guardrail);
 
     return transaction(
@@ -281,8 +319,8 @@ export class AgentRuntime {
         const rows = await tx<SessionRow[]>`
           INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version, metered)
           VALUES (
-            ${input.userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
-            ${guardrail.version}, ${input.metered ?? true}
+            ${userId}, ${guardrail.agentId}, ${tx.json(snapshot as never)},
+            ${guardrail.version}, ${metered}
           )
           RETURNING *
         `;
@@ -470,6 +508,44 @@ export class AgentRuntime {
       throw await this.appendRefusal(session, decision, { kind: 'completion', task: input.task });
     }
 
+    // 2b · Unpaid usage. A window that could not be paid is retried first, on its own charge key, so adding funds is
+    //      all a person does to recover. What still cannot be paid holds the run back unless the owner's grace covers
+    //      it: blank grace refuses outright, and nothing is claimed, held or called.
+    if (shouldMeter) {
+      const owed = await this.retryUnpaidWindows(session.userId);
+      if (owed > 0n && (this.overageGrace === null || owed > this.overageGrace)) {
+        const grace = this.overageGrace;
+        throw await this.appendRefusal(
+          session,
+          grace === null
+            ? {
+                allowed: false,
+                code: 'agents.overage_grace_unset',
+                userMessageKey: 'agents.refused.overage_grace_unset',
+                userMessageParams: { owed: formatAmount(owed), asset: this.feeAssetId },
+              }
+            : {
+                allowed: false,
+                code: 'agents.overage_grace_exceeded',
+                userMessageKey: 'agents.refused.overage_grace_exceeded',
+                userMessageParams: { owed: formatAmount(owed), grace: formatAmount(grace), asset: this.feeAssetId },
+              },
+          { kind: 'completion', task: input.task },
+        );
+      }
+    }
+
+    // 2b' · A sealed window takes no more usage: a run in it would reach the engine and then fail to record, an engine
+    //       call nobody pays for. A session whose current window was sealed (a close the ledger refused for funds, or
+    //       the sweep) refuses before anything is claimed or called; a new session, or the next window, runs.
+    if (shouldMeter && (await this.meter.isSealed(session.id, this.meter.windowFor(new Date())))) {
+      throw await this.appendRefusal(
+        session,
+        { allowed: false, code: 'agents.window_sealed', userMessageKey: 'agents.refused.window_sealed', userMessageParams: {} },
+        { kind: 'completion', task: input.task },
+      );
+    }
+
     // 2a · Funds. A run whose worst case the person's available balance cannot cover does not start (OWNER 107): the
     //      charge settles later, so this check narrows the windows nobody can pay. It reads the balance and holds
     //      nothing in the ledger, so a withdrawal before the window seals can still leave it unpaid (it is then
@@ -489,8 +565,8 @@ export class AgentRuntime {
           session,
           {
             allowed: false,
-            code: 'agents.funds_insufficient',
-            userMessageKey: 'agents.refused.funds_insufficient',
+            code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
+            userMessageKey: available === null ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
             userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
           },
           { kind: 'completion', task: input.task },
@@ -531,6 +607,7 @@ export class AgentRuntime {
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
+          overageGrace: this.overageGrace,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -567,6 +644,7 @@ export class AgentRuntime {
             assetId: this.feeAssetId,
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
+            overageGrace: this.overageGrace,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
@@ -598,12 +676,24 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && err.code === 'agents.funds_insufficient') {
+        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
           throw await this.appendRefusal(
             session,
             {
               allowed: false,
-              code: 'agents.funds_insufficient',
+              code: err.code,
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        if (err instanceof AgentError && (err.code === 'agents.funds_insufficient' || err.code === 'agents.funds_unread')) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: err.code,
               userMessageKey: err.userMessageKey,
               userMessageParams: err.userMessageParams,
             },
@@ -701,6 +791,7 @@ export class AgentRuntime {
         { kind: 'completion', task: input.task },
       );
     }
+    const prompt = canonicalPrompt(input.system, input.messages);
     const committed = await transaction(
       this.sql,
       async (tx) => {
@@ -746,9 +837,11 @@ export class AgentRuntime {
           cost: recorded ? cost : 0n,
           userMessageKey: 'agents.action.completed',
           userMessageParams: { task: input.task },
-          inputDigest: digestOfText(canonicalPrompt(input.system, input.messages)),
+          inputDigest: digestOfText(prompt),
           outputDigest: digestOfText(completion.result.text),
         });
+        // The prompt text whose sha256 is the row's input digest, kept for the owner's retention and no longer.
+        if (this.transcriptRetentionDays > 0) await keepTranscript(tx, row.id, session.userId, prompt, this.transcriptRetentionDays);
 
         if (this.spend && reserved !== null) {
           // The user cap counts this call's cost even when metering is off.
@@ -1039,12 +1132,59 @@ export class AgentRuntime {
     return result;
   }
 
+  /**
+   * Retry the person's sealed, unpaid windows, across their sessions, each on its own charge key, smallest first.
+   * Returns what is still owed. The first window the ledger does not take (short funds, a posting freeze, the ledger
+   * down) stops the retry, and it and every larger one stay unpaid and count: a payment nobody could confirm is owed,
+   * so the run refuses with its typed code (and its log row) unless the owner's grace covers it.
+   */
+  async retryUnpaidWindows(userId: string): Promise<Amount> {
+    let owed = 0n;
+    let stopped = false;
+    for (const window of await this.meter.unpaidWindows(userId)) {
+      if (!stopped) {
+        try {
+          await this.settleWindow(window.sessionId, window.windowId);
+          continue;
+        } catch {
+          stopped = true;
+        }
+      }
+      owed += window.amount;
+    }
+    return owed;
+  }
+
+  /** The usage windows of one agent's sessions of a person's, newest first (see `UsageMeter.windowsOf`). */
+  async usageWindowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
+    return this.meter.windowsOf(userId, agentId, limit);
+  }
+
   /** Settle every open window of a session. Used when a session closes. */
   async settleSession(sessionId: string): Promise<SettlementResult[]> {
     const windows = await this.meter.openWindows(sessionId);
     const results: SettlementResult[] = [];
     for (const windowId of windows) results.push(await this.settleWindow(sessionId, windowId));
     return results;
+  }
+
+  /**
+   * Settle a session's windows, then close it. A window the ledger refuses for funds stays sealed and unpaid on its
+   * charge key and the session stays open, refused `agents.window_unpaid`, so the person sees what they owe; adding
+   * funds and closing again (or starting a run) retries it on that same key.
+   */
+  async closeSettled(sessionId: string): Promise<SessionRecord> {
+    try {
+      await this.settleSession(sessionId);
+    } catch (err) {
+      if (!(err instanceof InsufficientFundsError)) throw err;
+      throw new AgentError(
+        `A usage window of session ${sessionId} could not be paid`,
+        'agents.window_unpaid',
+        'agents.error.window_unpaid',
+      );
+    }
+    return this.closeSession(sessionId);
   }
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
@@ -1184,6 +1324,18 @@ function toSession(row: SessionRow): SessionRecord {
 export function estimateInputTokens(system: string | undefined, messages: readonly { content: string }[]): number {
   const chars = (system?.length ?? 0) + messages.reduce((acc, m) => acc + m.content.length, 0);
   return Math.ceil(chars / 3);
+}
+
+/**
+ * Keeps one executed engine call's prompt text for `days` (AGENTS_TRANSCRIPT_RETENTION_DAYS), inside the transaction that
+ * wrote its action row: the row and its text land together or not at all. The purge is index.ts's timer
+ * (purgeExpiredTranscripts), never this transaction.
+ */
+async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
+  await tx`
+    INSERT INTO agents.agent_transcripts (action_id, user_id, text, expires_at)
+    VALUES (${actionId}, ${userId}, ${text}, now() + make_interval(days => ${days}))
+  `;
 }
 
 function canonicalPrompt(system: string | undefined, messages: readonly { role: string; content: string }[]): string {

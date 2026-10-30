@@ -89,6 +89,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { createHandleRouter } from './profile/handle-router.js';
+import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -716,6 +718,7 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -1065,6 +1068,26 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/**
+ * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/self-freeze/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const state = await auth.selfFreezeState(userId);
+  if (!state) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return state;
 });
 
 /**

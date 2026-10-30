@@ -232,7 +232,7 @@ describe('svc-bank owner lists refuse unset limit', () => {
   it('work sets stay unbounded — not milled as a page of 50', () => {
     const earn = readFileSync(join(ROOT, 'services/svc-bank/src/earn/earn-service.ts'), 'utf8');
     const accrueAll = sliceFn(earn, 'async accrueAll(', 'async interestPaid(');
-    expect(accrueAll).toContain('openPoolsForAccrual');
+    expect(accrueAll).toContain('this.poolsForAccrual()');
     expect(accrueAll).not.toMatch(/this\.listPools\(\)/);
     expect(accrueAll).not.toMatch(/\?\? 50/);
 

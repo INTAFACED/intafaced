@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
 import { s2sFromEnv } from '@intafaced/contracts';
-import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
+import { clockSkewBoundMs, env, idempotencyConflictMode, railStatementUrls } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -51,7 +51,7 @@ const bus = await JetStreamEventBus.connect({
 });
 
 // Blank snapshot URL: an outside-balance control's outside side is unset. Set but unreadable: that run is ERROR.
-const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL);
+const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, railStatementUrls);
 
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,

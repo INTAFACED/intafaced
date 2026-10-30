@@ -87,7 +87,8 @@ const titles: Record<RefusalReason, PlainKey> = {
   uncertain: 'tUncertain',
 };
 
-const codeOf = (result: Failed) => {
+/** The service's `pay.*` code for a refusal, from `cause.code` or, when a gateway dropped it, the message. */
+export const codeOf = (result: Failed) => {
   const raw = result.code ?? '';
   if (raw.startsWith('pay.')) return raw;
   // The service puts the code in the message too; some gateways drop `cause.code`.

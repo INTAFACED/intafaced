@@ -64,6 +64,8 @@ import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
+import { CustodyOpenItems } from './custody/deposits/open-items.js';
+import { registerCustodyOpenItemsRoute } from './custody/deposits/open-items-route.js';
 import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
@@ -74,6 +76,7 @@ import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { SendOutDoor } from './withdrawals/send-out/door.js';
 import { setWithdrawFeeUnboundSink } from './withdrawals/send-out/fee-unbound.js';
 import { assertWithdrawSignerPosture } from './withdrawals/send-out/signer-posture.js';
+import { recordingChainFor } from './rails/recording-chain.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -223,7 +226,10 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const broadcasts = new PostgresBroadcastStore(sql);
 const watcherCursors = new PostgresChainWatcherCursorStore(sql);
 const watcherDeadLetters = new PostgresChainWatcherDeadLetterStore(sql);
-const chain = defaultChainFor(process.env, broadcasts);
+// LOCAL TEST: on a stack that names its records folder, the TEST chain keeps its own record of what it sent (refused at
+// boot anywhere but an explicit dev or test process over a sandbox chain; unset, the chain as it is).
+const bareChain = defaultChainFor(process.env, broadcasts);
+const chain = recordingChainFor(bareChain, process.env);
 
 const cryptoRail = new CryptoNativeAdapter({
   chain,
@@ -741,6 +747,7 @@ export const appRouter = mergeRouters(
     depositSettings: { sql, approvals: actionApprovals },
     depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
     depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
+    depositOpenItems: { sql },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
@@ -825,6 +832,7 @@ retainRawBody(app);
  * Built before the listener opens: a service that cannot authenticate the edge
  * must fail to start, not start and serve every caller as anonymous.
  */
+const custodyOpenItems = new CustodyOpenItems({ sql });
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
@@ -898,6 +906,14 @@ registerPayStepUpGrantRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+/** svc-ledger's per-rail reconciliation read of the open custody items on crypto-native (OPS-reconciliation-04). */
+registerCustodyOpenItemsRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  list: (input) => custodyOpenItems.list(input),
 });
 
 /** svc-identity's sign-in read of the owner's team-wide require-MFA rule (M-plat-org-06). */
@@ -1143,7 +1159,7 @@ await app.register(async (webhookScope) => {
     try {
       const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
       // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
-      if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      if (request.params.railId === cryptoRail.id) await feedSandboxChain(bareChain, cryptoRail.verifyWebhook(delivery));
       // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
       if (bankTransferRail && request.params.railId === bankTransferRail.id)
         bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
