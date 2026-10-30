@@ -24,7 +24,8 @@ import { tableIn } from './tables.mjs';
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
 //   M-adv-money-out-01).
-// #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged.
+// #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged;
+//   its "with a rail" clause is a second #5 test that stays red, by name, until a top-up rail exists (UNBUILT).
 const J = 'J-merchant-07';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -326,6 +327,31 @@ test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your acc
   await expect(page.getByRole('note').filter({ hasText: 'Request is off because top up is not set up for your account.' })).toHaveCount(1);
 
   // The balance is unchanged, read from the service again.
+  expect(await balances()).toEqual(before);
+});
+
+// #5's second clause is blocked, so it is its own red test, named for its blocker, and turns green once a rail exists.
+test(`${J} #5 with a rail: a pending row with the deposit address and reference; the balance is unchanged until it lands (unbuilt: no top-up rail)`, async ({
+  page,
+}) => {
+  const { merchantId } = journey();
+  const api = await ownerApi();
+  const balances = async () =>
+    (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances;
+  const before = await balances();
+  await signInOwner(page, '/pay/money/top-up');
+  await expect(page.getByRole('heading', { name: 'Top up', level: 1 })).toBeVisible();
+  const pending = page
+    .getByRole('region', { name: 'Pending top-ups' })
+    .getByRole('row')
+    .filter({ hasText: /Pending/ });
+  await expect(
+    pending.first(),
+    'with a rail: a pending row with the deposit address and reference (unbuilt: no top-up rail; owner.decision top-up rail, M-money-out-02)',
+  ).toBeVisible(UNBUILT);
+  await expect(pending.first()).toContainText(/Deposit address/);
+  await expect(pending.first()).toContainText(/Reference/);
+  // Pending is not landed: the balance the service reads is the same until the rail says the money arrived.
   expect(await balances()).toEqual(before);
 });
 
