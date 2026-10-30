@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORIGIN, api, tool } from './stack.mjs';
+import { ORIGIN, api, restartWith } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
 // J-academy-08, in the running app (docs/roadmap/journeys.json): ask a question in the course discussion and message the
@@ -65,17 +65,7 @@ async function staff(kind, procedure, input) {
 }
 
 /** Academy restarted with the stack's TEST post and message limits blank (`off`), or back on them. */
-function academyPostLimits(on) {
-  const before = process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
-  if (on) delete process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
-  else process.env.LOCAL_STACK_ACADEMY_POST_LIMITS = 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'academy');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
-    else process.env.LOCAL_STACK_ACADEMY_POST_LIMITS = before;
-  }
-}
+const academyPostLimits = (on) => restartWith('academy', 'LOCAL_STACK_ACADEMY_POST_LIMITS', on);
 
 async function learnerPage(browser, who) {
   const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
