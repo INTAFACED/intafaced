@@ -171,7 +171,9 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
     const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
       SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
     `;
-    if (answer?.engine_left_qty != null) {
+    // A paper market never writes a fill (it is refused before trade.fills), so there is nothing to wait for there.
+    const paper = (await svc.marketById(order.marketId))?.paper === true;
+    if (answer?.engine_left_qty != null && !paper) {
       try {
         await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
       } catch (err) {
