@@ -13,8 +13,9 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 // authenticator code, with a passkey for each fresh step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
-//   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
+// - #8: no test values page or simulated decline yet (DV-sandbox-02). The sandbox store's Fund and Reset are built: the
+//   stack starts with the owner's fund amount and resets per day blank (#4 makes sure of it), and
+//   `local-test-gates.mjs sandbox-funds set` sets TEST values (#5).
 // - #7: no door refuses a sandbox key at the live host with `env.mismatch`.
 const J = 'J-developer-02';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -252,6 +253,8 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
 });
 
 test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal naming the decision, nothing written`, async () => {
+  // A stack an earlier run left with TEST values set starts blank again.
+  tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
