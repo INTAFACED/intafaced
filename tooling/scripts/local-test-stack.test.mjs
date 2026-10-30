@@ -1111,12 +1111,15 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.doesNotMatch(sql, /DROP/, 'the tables and their applied migrations stay');
   assert.throws(() => emptySchemaSql("indexer'; DROP SCHEMA x; --"), /not a schema name/);
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
-  // Only the branch that starts a new anvil forgets the old chain; a running chain's rows stay.
+  assert.match(sql, /tablename <> '__migrations'/, 'the migration journal stays, so migrations never run twice');
+  assert.match(sql, /^SET lock_timeout = '10s';/, 'a held lock fails the start by name instead of hanging it');
+  // Only a new anvil forgets the old chain, and only once it answers and is seeded; a running chain's rows stay.
   assert.match(
     source,
-    /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*stopped = await forgetOldChain\(secrets\);/,
+    /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*renewed = true;/,
   );
-  assert.equal(source.split('await forgetOldChain(secrets)').length - 1, 1, 'one place forgets the old chain');
+  assert.match(source, /if \(seeded\.status !== 0\) fail\([^\n]*\n[\s\S]{0,200}?return renewed \? forgetOldChain\(secrets\) : \[\];/);
+  assert.equal(source.split('forgetOldChain(secrets) : []').length - 1, 1, 'one place forgets the old chain');
   // The stack keeps every service in its one database; svc_indexer is a role, not a database.
   assert.match(source, /psql\(secrets, emptySchemaSql\(schema\), \{ db: DB_NAME \}\)/);
   // What it stopped comes back even under --only.
@@ -1138,11 +1141,16 @@ console.log('local-test-stack: customer folder override checks passed');
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
   assert.match(
     source,
-    /const toStart = wanted\.filter\(\s*\(d\) => !ownedAlive\(readProcs\(\)\[d\.name\]\) \|\| !onCurrentBuild\(readProcs\(\)\[d\.name\], backendBuild\),?\s*\);/,
+    /const toStart = wanted\.filter\(\s*\(d\) => !ownedAlive\(procsNow\[d\.name\]\) \|\| !onCurrentBuild\(procsNow\[d\.name\], backendBuild\),?\s*\);/,
   );
   assert.match(
     source,
     /const extra = renewed\.filter\(\(name\) => !toStart\.some\(\(d\) => d\.name === name\)\);\s*if \(extra\.length\)\s*await migrate\(/,
+  );
+  // The old build stops before its schema is migrated past it.
+  assert.match(
+    source,
+    /for \(const d of toStart\) await stopForNewBuild\(d\.name, procsNow\[d\.name\], backendBuild, PORTS\[d\.name\]\);\s*await migrate\(/,
   );
   console.log('local-test-stack: a service restarted onto a new build, or for a new chain, is migrated first');
 }

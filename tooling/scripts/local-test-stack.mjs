@@ -1352,11 +1352,17 @@ function testChain() {
  */
 export const CHAIN_DERIVED = [{ service: 'indexer', schema: 'indexer' }];
 
-/** SQL that empties every table in `schema` and keeps the tables (and so the service's applied migrations). */
+/**
+ * SQL that empties every table in `schema` but its migration journal (`__migrations`), so the tables and the record of
+ * which migrations ran both stay. It waits at most 10 s for a lock, so a session left holding one fails the start by
+ * name instead of hanging it.
+ */
 export function emptySchemaSql(schema) {
   if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`not a schema name: ${schema}`);
-  return `DO $$ DECLARE t text; BEGIN
-  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO t FROM pg_tables WHERE schemaname = '${schema}';
+  return `SET lock_timeout = '10s';
+DO $$ DECLARE t text; BEGIN
+  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO t FROM pg_tables
+    WHERE schemaname = '${schema}' AND tablename <> '__migrations';
   IF t IS NOT NULL THEN EXECUTE 'TRUNCATE ' || t || ' RESTART IDENTITY CASCADE'; END IF;
 END $$;`;
 }
@@ -1382,12 +1388,12 @@ async function forgetOldChain(secrets) {
 /**
  * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
  * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
- * journeys fail later for a reason the log no longer shows.
+ * journeys fail later for a reason the log no longer shows. Returns the services it stopped for a new chain
+ * (forgetOldChain), which the start brings back even when `--only` leaves them out.
  */
-/** Returns the services it stopped for a new chain, which the start brings back even when `--only` leaves them out. */
 async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
-  let stopped = [];
+  let renewed = false;
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1399,7 +1405,7 @@ async function startTestChain(secrets) {
       }
     }
     say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
-    return stopped;
+    return [];
   }
   if (!ownedAlive(procs.chain)) {
     for (const port of Object.values(CHAIN_PORTS))
@@ -1407,7 +1413,7 @@ async function startTestChain(secrets) {
     // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
     // service stored from it.
     fs.rmSync(chainRecordPath(STATE), { force: true });
-    stopped = await forgetOldChain(secrets);
+    renewed = true;
     startProc(
       'chain',
       [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
@@ -1429,7 +1435,8 @@ async function startTestChain(secrets) {
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
-  return stopped;
+  // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
+  return renewed ? forgetOldChain(secrets) : [];
 }
 
 async function rpcChainId() {
@@ -1897,7 +1904,10 @@ async function cmdStart(flags) {
   // Migrate only what is about to start: a service that is already running on the current build was migrated when it
   // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
   const backendBuild = currentBuild('backendBuild');
-  const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]) || !onCurrentBuild(readProcs()[d.name], backendBuild));
+  const procsNow = readProcs();
+  const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
+  // An old build never serves a schema migrated past it: stop it before its migrations run.
+  for (const d of toStart) await stopForNewBuild(d.name, procsNow[d.name], backendBuild, PORTS[d.name]);
   await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
