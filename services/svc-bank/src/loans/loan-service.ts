@@ -368,8 +368,9 @@ export interface LoanServiceOptions {
    */
   readonly payoffFee?: string | null;
   /**
-   * Owner-published origination fee in whole basis points (`BANK_LOAN_ORIGINATION_FEE_BPS`). Blank is not set: no fee
-   * line. A published non-zero fee refuses `open` with `bank.loan_fee_unwired`, as no ledger leg collects it yet.
+   * Owner-published origination fee in whole basis points (`BANK_LOAN_ORIGINATION_FEE_BPS`). Blank is not set and refuses
+   * `open` with `bank.loan_fee_unset`. `0` is a published zero fee. A published non-zero fee refuses `open` with
+   * `bank.loan_fee_unwired`, as no ledger leg collects it yet.
    */
   readonly originationFeeBps?: string | null;
   /**
@@ -535,10 +536,14 @@ export class LoanService {
     return originationFee(this.options.originationFeeBps);
   }
 
-  /** Whether the fee refuses a new loan: published above zero, with no ledger leg to collect it yet. The one rule open, eligibility and fees read. */
-  originationFeeBlocksOpen(): boolean {
+  /**
+   * Why the fee refuses a new loan, or null when it opens: not set (`bank.loan_fee_unset`), or published above zero with
+   * no ledger leg to collect it yet (`bank.loan_fee_unwired`). The one rule open, eligibility and fees read.
+   */
+  originationFeeRefusal(): 'bank.loan_fee_unset' | 'bank.loan_fee_unwired' | null {
     const fee = this.originationFee();
-    return fee.status === 'published' && fee.bps > 0;
+    if (fee.status === 'not_set') return 'bank.loan_fee_unset';
+    return fee.bps > 0 ? 'bank.loan_fee_unwired' : null;
   }
 
   /**
@@ -834,13 +839,17 @@ export class LoanService {
     // have its own bugs.
     const loanId = input.loanId ?? randomUUID();
 
-    // A published origination fee has no ledger leg to collect it yet, so a new loan refuses before any row or lock. Not
-    // set means no fee line, and a published zero needs no leg. A retry of a loan whose row exists is not a new loan: it
+    // A blank origination fee refuses a new loan before any row or lock, as does a published non-zero fee, which has no
+    // ledger leg to collect it yet. Only a published zero opens. A retry of a loan whose row exists is not a new loan: it
     // replays or finishes below on the terms it opened under, so a fee published since never strands it half-open.
     // The rate the borrower was shown is the one a new loan opens at: a rate changed since then refuses, never opens at a
     // rate they did not see. A retry of an existing loan is held to the terms on its row below.
     const known = input.loanId ? (await this.sql`SELECT 1 FROM bank.loans WHERE id = ${loanId}`).length > 0 : false;
-    if (!known && this.originationFeeBlocksOpen()) {
+    const feeRefusal = known ? null : this.originationFeeRefusal();
+    if (feeRefusal === 'bank.loan_fee_unset') {
+      throw new BankError('The bank has not published its origination fee, so no loan is opened', 'bank.loan_fee_unset');
+    }
+    if (feeRefusal === 'bank.loan_fee_unwired') {
       throw new BankError('An origination fee is published but cannot be collected yet, so no loan is opened', 'bank.loan_fee_unwired');
     }
     if (!known && input.expectedAprBps !== undefined && input.expectedAprBps !== product.aprBps) {

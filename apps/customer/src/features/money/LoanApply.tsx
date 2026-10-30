@@ -25,6 +25,7 @@ export function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>)
     'bank.mark_missing': t('markMissing'),
     'bank.below_minimum': t('belowMinimum'),
     'bank.loan_product_closed': t('productClosed'),
+    'bank.loan_fee_unset': t('feeNotSet'),
     'bank.loan_fee_unwired': t('feeUnwired'),
     'bank.loan_rate_changed': t('rateChanged'),
     'bank.asset_paused': t('borrowPaused'),

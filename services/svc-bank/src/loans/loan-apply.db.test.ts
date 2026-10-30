@@ -56,7 +56,7 @@ describe('the loan application on a real database', () => {
     ledger = new MemoryLedger();
   });
 
-  function services(originationFeeBps: string | null = null) {
+  function services(originationFeeBps: string | null = '0') {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
         priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW),
@@ -86,8 +86,8 @@ describe('the loan application on a real database', () => {
     });
   }
 
-  it('replays a loan opened before a fee was published, and refuses only a new one', async () => {
-    const before = services(null);
+  it('replays a loan opened under a zero fee, and refuses only a new one once the fee is blank or above zero', async () => {
+    const before = services('0');
     const made = await product(before);
     const loanId = randomUUID();
     const terms = { loanId, productId: made.id, userId: BORROWER, collateralAmount: amt('1'), principal: amt('100'), now: NOW };
@@ -104,7 +104,14 @@ describe('the loan application on a real database', () => {
 
     await expect(after.loans.open({ ...terms, loanId: randomUUID() })).rejects.toMatchObject({ code: 'bank.loan_fee_unwired' });
     await expect(after.loans.open({ ...terms, loanId: undefined })).rejects.toMatchObject({ code: 'bank.loan_fee_unwired' });
-    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loans`;
+
+    // The fee left blank: a retry still replays, and a new loan refuses as not set.
+    const blank = services(null);
+    expect((await blank.loans.open(terms)).loan.id).toBe(loanId);
+    await expect(blank.loans.open({ ...terms, loanId: randomUUID() })).rejects.toMatchObject({ code: 'bank.loan_fee_unset' });
+    await expect(blank.loans.open({ ...terms, loanId: undefined })).rejects.toMatchObject({ code: 'bank.loan_fee_unset' });
+    const [row] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loans`;
+    const n = row?.n;
     expect(n, 'no row for a refused new loan').toBe(1);
     expect(ledger.journal().length).toBe(posted);
   });
@@ -167,7 +174,8 @@ describe('the loan application on a real database', () => {
     await expect(bank.loans.checkRateChange({ ...terms, fromAprBps: current, aprBps: 800, reason: ' ' })).rejects.toMatchObject({
       code: 'bank.loan_params_invalid',
     });
-    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loan_product_rate_changes`;
+    const [row] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loan_product_rate_changes`;
+    const n = row?.n;
     expect(n, 'a refused change records nothing').toBe(1);
     await expect(sql`UPDATE bank.loan_product_rate_changes SET reason = 'edited'`).rejects.toThrow(/append-only/);
     await expect(sql`DELETE FROM bank.loan_product_rate_changes`).rejects.toThrow(/append-only/);
@@ -198,7 +206,8 @@ describe('the loan application on a real database', () => {
     ).rejects.toMatchObject({
       code: 'bank.loan_rate_changed',
     });
-    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loans`;
+    const [row] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.loans`;
+    const n = row?.n;
     expect(n).toBe(1);
     expect(ledger.journal().length).toBe(posted);
   });

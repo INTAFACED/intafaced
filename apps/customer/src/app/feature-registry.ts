@@ -197,7 +197,7 @@ export const features: readonly Feature[] = [
     paths: ['/bank/loans/apply'],
     status: 'blocked',
     reason:
-      'Rate tiers, the origination fee table and rules by jurisdiction are owner values: unset, the page says not set and no fee line is charged; a published non-zero fee refuses bank.loan_fee_unwired',
+      'Rate tiers, the origination fee table and rules by jurisdiction are owner values: an unset fee refuses bank.loan_fee_unset and the page says not set; a published non-zero fee refuses bank.loan_fee_unwired',
     unlock: 'J-bank-09 #1 to #5 passing on main',
     tab: 'money',
   },

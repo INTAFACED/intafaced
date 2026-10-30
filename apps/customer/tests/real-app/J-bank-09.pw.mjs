@@ -14,8 +14,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // restarted with BANK_LOANS_ENABLED=false, in a try/finally) the page names it and the bank refuses bank.loans_disabled.
 // Step 2: the calculator's TEST 1000 USDT is the bank's own quote (`loans.quote`), and a TEST product of the journey's
 // own on an asset with no market shows the price as unavailable while open refuses bank.mark_missing. Step 3: each
-// eligibility condition is read back from the bank once; the fee table is not set, so no fee line; with a TEST fee
-// published (restart, try/finally) the fee line shows and open refuses bank.loan_fee_unwired. Step 4 (LOAN-01): the
+// eligibility condition is read back from the bank once; the stack's TEST fee is zero, so the line reads no fee; with the
+// fee left blank (restart, try/finally) the table reads not set and open refuses bank.loan_fee_unset; with a non-zero
+// TEST fee published (restart, try/finally) the fee line shows and open refuses bank.loan_fee_unwired. Step 4 (LOAN-01): the
 // borrower opens from the review with the quote's figures; the collateral is locked once and the payout is exactly the
 // principal; the reply lost and the same request sent again adopts the same loan. A crash between lock and draw is
 // played on a TEST product of the journey's own whose reserve is empty: the loan stays pending with its collateral
@@ -333,7 +334,7 @@ test(`${J} #2 works out TEST 1000 USDT in the calculator: the collateral, starti
   expect(await held(who)).toEqual(before);
 });
 
-test(`${J} #3 reads eligibility and fees: each condition the bank checks, the fee table "not set" with no fee line; a published TEST fee shows its line and open refuses bank.loan_fee_unwired`, async ({
+test(`${J} #3 reads eligibility and fees: each condition the bank checks, the TEST zero fee line; a blank fee reads "not set" and open refuses bank.loan_fee_unset; a published TEST fee shows its line and open refuses bank.loan_fee_unwired`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -361,17 +362,53 @@ test(`${J} #3 reads eligibility and fees: each condition the bank checks, the fe
     code: null,
   });
   await expect(list).toContainText('The bank has published no rules for where you live');
-  // The owner's fee table is blank: no fee line, said in words.
+  expect(eligibility.data.reasons.find((r) => r.key === 'origination_fee')).toEqual({ key: 'origination_fee', state: 'met', code: null });
+  // The stack's TEST fee is zero: its line says no fee, and nothing stops the open.
   const fees = await api.query('loans.fees', { productId, principal: '1000' });
-  expect(fees.data).toEqual({ productId, assetId: 'USDT', origination: { status: 'not_set' } });
+  expect(fees.data).toEqual({ productId, assetId: 'USDT', origination: { status: 'published', bps: 0, amount: '0', collectable: true } });
   await workOut(page, '1000');
   const fee = page.getByTestId('loan-apply-fee');
-  await expect(fee).toHaveAttribute('data-state', 'not_set');
-  await expect(fee).toContainText('no opening fee is charged');
+  await expect(fee).toHaveAttribute('data-state', 'published');
+  await expect(fee).toHaveAttribute('data-bps', '0');
+  await expect(fee).toContainText('No opening fee.');
 
-  // A TEST fee published (restart, put back afterwards): its line shows, and open refuses before anything is locked.
   const before = await held(who);
   const loansBefore = await loansOf(api);
+  // The fee left blank (restart, put back afterwards): the table reads not set, and open refuses before anything is locked.
+  await withBank('LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE', 'off', async () => {
+    const blankApi = await bank(who);
+    const blank = await blankApi.query('loans.fees', { productId, principal: '1000' });
+    expect(blank.data).toEqual({ productId, assetId: 'USDT', origination: { status: 'not_set' } });
+    const blankElig = await blankApi.query('loans.eligibility', { productId });
+    expect(blankElig.data.eligible).toBe(false);
+    expect(blankElig.data.reasons.find((r) => r.key === 'origination_fee')).toEqual({
+      key: 'origination_fee',
+      state: 'unmet',
+      code: 'bank.loan_fee_unset',
+    });
+    await page.goto(applyPage(productId));
+    await workOut(page, '1000');
+    const line = page.getByTestId('loan-apply-fee');
+    await expect(line).toHaveAttribute('data-state', 'not_set', { timeout: 30_000 });
+    await expect(line).toContainText('has not published its fee for opening a loan, so new loans are refused');
+    await expect(page.getByTestId('loan-apply-eligibility').locator('[data-key="origination_fee"]')).toHaveAttribute(
+      'data-code',
+      'bank.loan_fee_unset',
+    );
+    await expect(page.getByRole('button', { name: 'Review and open', exact: true })).toBeDisabled();
+    const quote = await blankApi.query('loans.quote', { productId, principal: '1000' });
+    const refused = await blankApi.mutate('loans.open', {
+      loanId: randomUUID(),
+      productId,
+      principal: '1000',
+      collateralAmount: quote.data.requiredCollateral,
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.loan_fee_unset' });
+    expect(await loansOf(blankApi)).toEqual(loansBefore);
+    expect(await held(who)).toEqual(before);
+  });
+
+  // A non-zero TEST fee published (restart, put back afterwards): its line shows, and open refuses before anything is locked.
   await withBank('LOCAL_STACK_BANK_LOAN_ORIGINATION_FEE', 'published', async () => {
     const feeApi = await bank(who);
     const published = await feeApi.query('loans.fees', { productId, principal: '1000' });

@@ -133,6 +133,22 @@ describe('the origination fee', () => {
     expect(statements.some((s) => /INSERT|UPDATE/i.test(s))).toBe(false);
   });
 
+  it('a blank fee refuses a new loan bank.loan_fee_unset before any row or lock', async () => {
+    for (const blank of [undefined, '', ' ', 'abc']) {
+      const { loans, statements } = service(blank === undefined ? {} : { originationFeeBps: blank });
+      await expect(
+        loans.open({
+          loanId: '22222222-2222-4222-8222-222222222222',
+          productId: PRODUCT_ID,
+          userId: '33333333-3333-4333-8333-333333333333',
+          collateralAmount: parseAmount('1'),
+          principal: parseAmount('1000'),
+        }),
+      ).rejects.toMatchObject({ code: 'bank.loan_fee_unset' });
+      expect(statements.some((s) => /INSERT|UPDATE/i.test(s))).toBe(false);
+    }
+  });
+
   it('a published zero fee does not refuse: the open goes on to its row', async () => {
     const { loans, statements } = service({ originationFeeBps: '0' });
     await loans

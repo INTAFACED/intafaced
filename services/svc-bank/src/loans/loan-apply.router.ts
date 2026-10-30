@@ -88,7 +88,7 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
             if (!(err instanceof BankError)) throw err;
             paused = err.code;
           }
-          const fee = bank.loans.originationFee();
+          const feeRefusal = bank.loans.originationFeeRefusal();
           const reasons: Array<z.infer<typeof reason>> = [
             bank.loans.lendingOpen()
               ? { key: 'lending_policy', state: 'met', code: null }
@@ -97,8 +97,8 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
               ? { key: 'product_open', state: 'met', code: null }
               : { key: 'product_open', state: 'unmet', code: 'bank.loan_product_closed' },
             paused === null ? { key: 'assets_open', state: 'met', code: null } : { key: 'assets_open', state: 'unmet', code: paused },
-            bank.loans.originationFeeBlocksOpen()
-              ? { key: 'origination_fee', state: 'unmet', code: 'bank.loan_fee_unwired' }
+            feeRefusal
+              ? { key: 'origination_fee', state: 'unmet', code: feeRefusal }
               : { key: 'origination_fee', state: 'met', code: null },
             // No owner table of per-jurisdiction rules exists, so none is applied and the page says so.
             { key: 'jurisdiction_rules', state: 'not_set', code: null },
@@ -108,8 +108,9 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
       ),
 
     /**
-     * The owner's fee table for a new loan: the origination fee, or not set (no fee line). `collectable` is false when a
-     * non-zero fee is published, because no ledger leg collects it yet and `open` refuses `bank.loan_fee_unwired`.
+     * The owner's fee table for a new loan: the origination fee, or not set (and `open` refuses `bank.loan_fee_unset`).
+     * `collectable` is false when a non-zero fee is published, because no ledger leg collects it yet and `open` refuses
+     * `bank.loan_fee_unwired`.
      */
     fees: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ productId: z.string().guid(), principal: amountString.optional() }).strict())
@@ -146,7 +147,7 @@ export function loanApplyProcedures(bank: Pick<BankServices, 'loans' | 'assetPau
                     status: 'published' as const,
                     bps: fee.bps,
                     amount: input.principal ? formatAmount(originationFeeOn(parseAmount(input.principal), fee.bps)) : null,
-                    collectable: !bank.loans.originationFeeBlocksOpen(),
+                    collectable: bank.loans.originationFeeRefusal() === null,
                   },
           };
         }),

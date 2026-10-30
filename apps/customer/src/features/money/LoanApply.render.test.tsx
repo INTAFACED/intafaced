@@ -159,7 +159,7 @@ describe('LoanApply', () => {
     expect(list.querySelector('[data-key="jurisdiction_rules"]')?.getAttribute('data-state')).toBe('not_set');
     expect(list.textContent).toContain('The bank has published no rules for where you live');
     expect(testId('loan-apply-fee')?.getAttribute('data-state')).toBe('not_set');
-    expect(testId('loan-apply-fee')?.textContent).toContain('no opening fee is charged');
+    expect(testId('loan-apply-fee')?.textContent).toContain('has not published its fee for opening a loan, so new loans are refused');
   });
 
   it('a policy that is off keeps review off and names the condition and its code', async () => {

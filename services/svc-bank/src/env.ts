@@ -331,8 +331,9 @@ const schema = serviceEnvSchema
       /**
        * Owner-set loan origination fee in whole basis points of the principal (BK-loan-01, J-bank-09 #3), 0 to 10000.
        *
-       * No default. Blank / unset / not a whole number in range → not set: the application shows no fee line. A published
-       * non-zero fee refuses every new loan (`bank.loan_fee_unwired`) until a ledger leg collects it; `0` opens with no fee.
+       * No default. Blank / unset / not a whole number in range → not set: every new loan refuses `bank.loan_fee_unset`. A
+       * published non-zero fee refuses every new loan (`bank.loan_fee_unwired`) until a ledger leg collects it; `0` opens
+       * with no fee.
        */
       BANK_LOAN_ORIGINATION_FEE_BPS: z.string().optional(),
 
