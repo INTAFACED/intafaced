@@ -394,7 +394,7 @@ test(`${J} #8 triggers a simulated decline and resets the balance: the payment e
   const authorized = await call(`/payments/${created.body.id}/authorize`, {
     method: 'POST',
     headers: { 'idempotency-key': `jd02-${RUN}-8-authorize-${who.userId}` },
-    body: JSON.stringify({ merchantId }),
+    body: JSON.stringify({}),
   });
   // The authorize call answers the decline as a typed refusal, and the payment it leaves is failed with the issuer's code.
   expect(authorized.status, JSON.stringify(authorized.body)).toBeGreaterThanOrEqual(400);

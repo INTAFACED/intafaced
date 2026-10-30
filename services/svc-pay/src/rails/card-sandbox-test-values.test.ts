@@ -31,4 +31,20 @@ describe('sandbox card test values match the card-sandbox rail', () => {
       expect(result).toMatchObject({ ok: false, status: 'failed', failureCode });
     },
   );
+
+  it.each(SANDBOX_CARD_TEST_VALUES.filter((value) => value.failureCode === null))(
+    'the $id token authorizes, ending $status as the page says',
+    async ({ token, status }) => {
+      const rail = new CardSandboxAdapter({ secret: 'sandbox-test-values-rail-secret-32-chars', toleranceSeconds: 300 });
+      const result = await rail.authorize({
+        paymentId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e13',
+        merchantId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e12',
+        amount: 10n * 10n ** 18n,
+        assetId: 'USD',
+        method: 'card',
+        instrument: { kind: 'card', token },
+      });
+      expect(result).toMatchObject({ ok: true, status });
+    },
+  );
 });

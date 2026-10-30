@@ -154,7 +154,7 @@ export const sandboxResetOutputSchema = sandboxChangeOutputSchema;
 export const SANDBOX_CARD_TEST_VALUES = [
   { id: 'decline', token: 'tok_decline', status: 'failed', failureCode: 'card.declined' },
   { id: 'acquirer_outage', token: 'tok_rail_error', status: 'failed', failureCode: 'acquirer.unavailable' },
-  { id: 'funds_held', token: 'tok_funds_held', status: 'captured', failureCode: null },
+  { id: 'funds_held', token: 'tok_funds_held', status: 'authorized', failureCode: null },
 ] as const;
 export type SandboxCardTestValue = (typeof SANDBOX_CARD_TEST_VALUES)[number];
 

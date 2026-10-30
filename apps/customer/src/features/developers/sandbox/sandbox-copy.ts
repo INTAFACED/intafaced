@@ -99,7 +99,7 @@ const en = {
   valueApprove: 'Approve',
   resultDecline: 'Ends failed: the issuer declined it.',
   resultOutage: 'Ends failed: the acquirer could not be reached.',
-  resultFundsHeld: 'Is captured, and its funds stay held until the acquirer releases them.',
+  resultFundsHeld: 'Is authorized; once captured, its funds stay held until the acquirer releases them.',
   resultApprove: 'Is authorized.',
   anyOtherToken: 'Any other token',
   newKey: 'Create a sandbox key',
