@@ -544,7 +544,7 @@ test.describe('factor notices', () => {
     )
       await next.fill(await code());
     await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
-    await expect(card.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app turned off');
+    await expect(page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
     await notified('totp_removed', 'Authenticator app turned off');
   });
 });
