@@ -241,6 +241,15 @@ export const supportRecoveryCaseSchema = z
 export type SupportRecoveryCase = z.infer<typeof supportRecoveryCaseSchema>;
 export const supportRecoveryRedeemSchema = z.object({ recovered: z.literal(true) }).strict();
 /**
+ * The freeze link a security notice carries (`freezeLink.redeem`, signed out; I-account-lifecycle-08). `since` is when
+ * the freeze the link made (or found open) began. `firstUse` is false when the link was used before: the answer is then
+ * the result stored at its first use, and nothing changed. `frozenNow` says whether the account is frozen by its owner
+ * right now, so a freeze lifted since never reads as holding.
+ */
+export const freezeLinkRedeemSchema = z
+  .object({ frozen: z.literal(true), since: z.string(), firstUse: z.boolean(), frozenNow: z.boolean() })
+  .strict();
+/**
  * A mail another service asks identity to send to a customer's own proved address (`POST /internal/mail`, service
  * credentials). Identity holds the address, so the caller names the account and never sees or sends one. Each purpose
  * has one link shape that identity builds from `token`, and one caller allowed to ask for it:

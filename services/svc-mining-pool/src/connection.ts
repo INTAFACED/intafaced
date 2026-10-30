@@ -4,20 +4,12 @@ import { CONNECTION_URL_MAX, WORKER_PATTERN_MAX, publishedHost, publishedPort, p
 /** Host or port unpublished or unusable. No port is filled in. */
 export const CONNECTION_UNSET = 'mining.connection_unset';
 
-/**
- * The developer module has not issued a mining token. The copy control is not
- * offered and no password is stored on this read.
- */
-export const CREDENTIAL_NOT_ISSUED = 'mining.credential_not_issued';
-
 export type PoolConnection = {
   readonly host: string;
   readonly port: string;
   readonly secureUrl: string | null;
   readonly accountId: string;
   readonly workerNamePattern: string | null;
-  readonly credentialOffered: false;
-  readonly credentialReason: typeof CREDENTIAL_NOT_ISSUED;
 };
 
 export type ProbeTarget = { readonly host: string; readonly port: number };
@@ -55,7 +47,5 @@ export function readPoolConnection(env: NodeJS.ProcessEnv, accountId: string): P
     secureUrl,
     accountId: id,
     workerNamePattern,
-    credentialOffered: false,
-    credentialReason: CREDENTIAL_NOT_ISSUED,
   };
 }

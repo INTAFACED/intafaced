@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { hostDispatchCopy as copy } from './host-dispatch-copy';
 import { hostDispatchOnce, type HostDispatchView } from './host-dispatch';
 import { usePreferences } from '../../shared/preferences';
+import { StatusTag } from '@intafaced/ui';
 import { stamp } from '../../screens/money/time';
 
 /** The apex, app and join hosts as the deployment's host check left them: served, or the typed code that refused each. */
@@ -18,11 +19,19 @@ export function HostDispatch() {
   }, []);
   return (
     <section className="help__card host-dispatch" data-testid="host-dispatch" aria-labelledby="host-dispatch-title">
-      <h2 id="host-dispatch-title">{t('title')}</h2>
+      <h2 id="host-dispatch-title" className="host-dispatch__title">
+        {t('title')}
+        {view?.test && <StatusTag data-testid="host-dispatch-test" data-status="test" status="pending" label={t('TEST')} />}
+      </h2>
       {!view ? (
         <p className="muted">{t('checking')}</p>
       ) : (
         <>
+          {view.test && (
+            <p className="muted" role="status">
+              {t('testHosts')}
+            </p>
+          )}
           {view.source !== 'receipt' && (
             <p className="muted" role="status">
               {t(view.source)}

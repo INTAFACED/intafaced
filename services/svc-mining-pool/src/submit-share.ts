@@ -10,7 +10,16 @@ import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
 import { createHash } from 'node:crypto';
-import { POW_INVALID, POW_MISSING, POW_SPEC_UNSET, POW_WEIGHT_FROM_CLIENT, powHeader, powValid, publishedPowSpec } from './pow.js';
+import {
+  POW_INVALID,
+  POW_MISSING,
+  POW_SPEC_UNSET,
+  POW_WEIGHT_FROM_CLIENT,
+  hashLengthPrefixed,
+  powHeader,
+  powValid,
+  publishedPowSpec,
+} from './pow.js';
 import { recordShareRejection } from './share-rejections.js';
 import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, workerNameOf, PG_UNAVAILABLE } from './window-store.js';
 
@@ -151,19 +160,49 @@ async function checkedWork(sql: Sql, body: Record<string, unknown>, env: NodeJS.
   return { ...body, shares: checked };
 }
 
+/** One share from a rig through the miner door (`stratum-door.ts`): the account and rig it authorized, its nonce. */
+export type RigShare = {
+  readonly windowId: string;
+  readonly assetId: string;
+  readonly minerId: string;
+  readonly workerName: string;
+  readonly powNonce: unknown;
+};
+
+/**
+ * A rig's share, through the same checks and store as a signed batch: the pool checks the work against its own header
+ * and weighs it 1, a failed check is one rejection row and `mining.pow_invalid`, and the same work again is
+ * `mining.share_duplicate`. The share id is the work itself (window, account, rig and nonce, length-prefixed and
+ * hashed), so the rig never chooses it. With no published proof-of-work parameters it refuses `mining.pow_spec_unset`:
+ * the miner door never takes work it cannot check.
+ */
+export async function ingestRigShare(sql: Sql, env: NodeJS.ProcessEnv, share: RigShare): Promise<void> {
+  // Checked here, not only in checkedWork: with no published parameters a share without a nonce would be kept unchecked.
+  if (publishedPowSpec(env) === null) throw new MiningError('Proof-of-work parameters are not published', POW_SPEC_UNSET);
+  const nonce = typeof share.powNonce === 'string' ? share.powNonce : '';
+  const shareId = `stratum:${prefixedHash([share.windowId, share.minerId, share.workerName, nonce])}`;
+  const body = await checkedWork(
+    sql,
+    {
+      windowId: share.windowId,
+      assetId: share.assetId,
+      shares: [{ shareId, minerId: share.minerId, workerName: share.workerName, powNonce: share.powNonce }],
+    },
+    env,
+  );
+  await persistSubmittedBody(sql, body);
+}
+
+function prefixedHash(parts: readonly string[]): string {
+  return hashLengthPrefixed(createHash('sha256'), parts).digest('hex');
+}
+
 /**
  * The business key of one refused piece of work: the window, the account, the rig and the share, length-prefixed and
  * hashed so any id fits the key column. The same share refused again is the same row.
  */
 function powInvalidKey(windowId: string, minerId: string, workerName: string, shareId: string): string {
-  const hash = createHash('sha256');
-  for (const part of [windowId, minerId, workerName, shareId]) {
-    const bytes = Buffer.from(part, 'utf8');
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(bytes.length);
-    hash.update(length).update(bytes);
-  }
-  return `pow-invalid:${hash.digest('hex')}`;
+  return `pow-invalid:${prefixedHash([windowId, minerId, workerName, shareId])}`;
 }
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {

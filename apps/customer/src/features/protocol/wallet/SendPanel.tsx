@@ -8,7 +8,18 @@ import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
 import { RepresentationPanel } from './RepresentationPanel';
-import { isContractCode, lastFour, nativeCurrency, readDestination, sameAddress, toBaseUnits, toHexValue } from './transfer';
+import { useResource } from '../../../shared/resource';
+import {
+  isContractCode,
+  lastFour,
+  nativeCurrency,
+  readDestination,
+  sameAddress,
+  toBaseUnits,
+  toHexValue,
+  tokenLabel,
+  transferCalldata,
+} from './transfer';
 import { useWallet } from './WalletProvider';
 
 type Contract = 'checking' | 'contract' | 'wallet' | 'unknown';
@@ -36,7 +47,14 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const network = networkLabel(APP_CHAIN_ID).name;
   const native = nativeCurrency(APP_CHAIN_ID);
+  // Tokens come from the pools the network's factory lists; the network's own currency is always there.
+  const pairs = useResource((signal) => api.ammPairs(signal), 'send:pairs');
+  const listed = pairs.resource.status === 'ready' ? pairs.resource.data.tokens : [];
+  const askedListed = askedToken ? listed.find((entry) => entry.address.toLowerCase() === askedToken.toLowerCase()) : undefined;
   const [token, setToken] = useState('');
+  useEffect(() => {
+    if (askedListed) setToken(askedListed.address);
+  }, [askedListed]);
   const [amount, setAmount] = useState('');
   const [to, setTo] = useState(prefilledTo);
   // A new pre-filled address (another scanned code) replaces the old one and closes any review of the old one.
@@ -53,10 +71,17 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const asked = useRef(0);
 
   const destination = readDestination(to);
-  const units = native ? toBaseUnits(amount, native.decimals) : null;
+  const chosen =
+    token === NATIVE && native
+      ? { address: null, label: native.symbol, decimals: native.decimals }
+      : (() => {
+          const found = listed.find((entry) => entry.address === token);
+          return found ? { address: found.address, label: found.name, decimals: found.decimals } : null;
+        })();
+  const units = chosen ? toBaseUnits(amount, chosen.decimals) : null;
   const ready = wallet.status === 'connected' && wallet.address !== null && wallet.guard?.ok === true;
   // A code that asked for a token this list does not hold is never paid in another currency instead.
-  const canReview = ready && destination.kind === 'address' && !askedToken;
+  const canReview = ready && destination.kind === 'address' && (!askedToken || askedListed !== undefined);
   const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
     set(event.target.value);
     setReviewing(false);
@@ -67,8 +92,8 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const review = async () => {
     if (destination.kind !== 'address' || !wallet.address) return;
     if (sameAddress(destination.address, wallet.address)) return setProblem(t('sendSelf'));
-    if (token !== NATIVE || !native) return setProblem(t('sendChooseToken'));
-    if (units === null) return setProblem(t('sendAmountInvalid', { decimals: String(native.decimals) }));
+    if (!chosen) return setProblem(t('sendChooseToken'));
+    if (units === null) return setProblem(t('sendAmountInvalid', { decimals: String(chosen.decimals) }));
     setProblem(null);
     setTyped('');
     setTicked(false);
@@ -100,7 +125,11 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
       return setOutcome({ kind: 'representation', address: wallet.address, status: representation.data });
     }
     setReviewing(false);
-    const result = await wallet.sign({ kind: 'transaction', to: destination.address, value: toHexValue(units) });
+    const result = await wallet.sign(
+      chosen?.address
+        ? { kind: 'transaction', to: chosen.address, data: transferCalldata(destination.address, units) }
+        : { kind: 'transaction', to: destination.address, value: toHexValue(units) },
+    );
     if (result.status === 'sent') setOutcome({ kind: 'sent', hash: result.hash });
     else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
@@ -152,13 +181,26 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             <select
               value={token}
               onChange={edit(setToken)}
+              // A code that asked for one token is paid in that token only.
+              disabled={askedListed !== undefined}
               aria-labelledby="wallet-send-token-label"
               aria-describedby="wallet-send-token-note"
             >
               <option value="">{t('sendTokenChoose')}</option>
               {native && <option value={NATIVE}>{t('sendNative', { symbol: native.symbol })}</option>}
+              {listed.map((entry) => (
+                <option key={entry.address} value={entry.address}>
+                  {tokenLabel(entry, listed)}
+                </option>
+              ))}
             </select>
-            <small id="wallet-send-token-note">{askedToken ? t('sendTokenAsked', { token: askedToken }) : t('sendTokenListNote')}</small>
+            <small id="wallet-send-token-note">
+              {askedToken && !askedListed
+                ? t('sendTokenAsked', { token: askedToken })
+                : pairs.resource.status === 'ready'
+                  ? t('sendTokenListPools')
+                  : t('sendTokenListNote')}
+            </small>
           </label>
           <Field label={t('sendAmount')} hint={t('sendAmountHint')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
           <Field label={t('sendTo')} hint={t('sendToHint')} value={to} onChange={edit(setTo)} autoComplete="off" spellCheck={false} />
@@ -177,7 +219,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         {outcome.kind === 'sent' && <p role="status">{t('sendSent', { hash: outcome.hash })}</p>}
         {outcome.kind === 'refused' && <p role="alert">{outcome.message}</p>}
       </Panel>
-      {reviewing && destination.kind === 'address' && native && (
+      {reviewing && destination.kind === 'address' && chosen && (
         <Dialog title={t('reviewTitle')} onClose={() => setReviewing(false)}>
           <dl className="protocol-facts">
             <div>
@@ -191,9 +233,15 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             <div>
               <dt>{t('reviewAmount')}</dt>
               <dd className="numeric">
-                {amount.trim()} {native.symbol}
+                {amount.trim()} {chosen.label}
               </dd>
             </div>
+            {chosen.address && (
+              <div>
+                <dt>{t('reviewTokenContract')}</dt>
+                <dd className="numeric">{chosen.address}</dd>
+              </div>
+            )}
             <div>
               <dt>{t('reviewNetwork')}</dt>
               <dd>{network}</dd>

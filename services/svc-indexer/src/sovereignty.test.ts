@@ -188,6 +188,8 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
       'book_levels',
       'explorer_block_facts',
       'explorer_tx_logs',
+      'explorer_tokens',
+      'explorer_transfers',
       'explorer_tx_seen',
       'explorer_txs',
       'fills',

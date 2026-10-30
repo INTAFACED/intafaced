@@ -29,3 +29,17 @@
 .protocol-room .explorer-results__value {
   overflow-wrap: anywhere;
 }
+.protocol-room .explorer-raw {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.protocol-room .explorer-logs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--if-space-4);
+}
+.protocol-room .explorer-logs h3 {
+  margin: 0 0 var(--if-space-2);
+}

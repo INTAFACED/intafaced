@@ -208,6 +208,15 @@ export const SUITES = [
     ],
   },
   {
+    name: 'test-chain',
+    expect: 'compiles',
+    /**
+     * The local stack's TEST tokens (tooling/scripts/local-test-chain.mjs): name, symbol and decimals as immutables,
+     * EIP-2612 + EIP-5267. Own suite so it stales nothing else. Not a product token: anyone may mint.
+     */
+    sources: ['test/TestToken.sol'],
+  },
+  {
     name: 'privacy',
     expect: 'compiles',
     /** S-L3 stealth announcement log — no identity fields. */

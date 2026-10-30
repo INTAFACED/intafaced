@@ -13,5 +13,7 @@ export const hostDispatchCopy = defineCopy('public.host-dispatch', {
   'host.receipt_invalid': 'The published host check could not be read, so no host is shown as served.',
   'host.receipt_unreadable': 'The host check could not be fetched, so no host is shown as served.',
   everyHost: 'Refused for every host:',
+  TEST: 'TEST',
+  testHosts: 'TEST · These are this machine’s own local sites, checked by the local test stack. No deployment is shown.',
   lastGood: 'Every host was served at {at}. That check has been out of date since {since}.',
 });
