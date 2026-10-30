@@ -27,6 +27,10 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 **Passkeys (Touch ID): open http://localhost:3210.** A passkey is bound to a hostname, and browsers refuse an IP address as the relying-party ID, so the stack serves the same app on `localhost:3210` too (LOCAL TEST: Identity runs with `WEBAUTHN_ENABLED=true`, relying-party ID `localhost`, origin `http://localhost:3210`; Edge allows both origins). Sessions and passkeys are per origin: a passkey enrolled on `localhost` does not exist on `127.0.0.1`, and you sign in again on each. In Security, add a passkey; later sign in or step up with it.
 
+### Service keys (off by default)
+
+By default the services sign calls to each other with the shared secret only, and svc-ledger counts each post as unbound. The journeys run that way. `LOCAL_STACK_S2S=dual` on a `start` or `restart` gives every service that has an S2S role the same public keyring and its own TEST Ed25519 signing key (`S2S_AUTH_MODE=dual`, `S2S_KEYRING`, `S2S_SIGNING_KID`, `S2S_SIGNING_KEY`). Each service then signs with its key and still accepts the shared secret, and svc-ledger binds a post to the key that signed it and refuses a shared-secret post of a key-only recipe (`services/svc-ledger/CALLER-BINDING.md`). The keys are made once, kept in the state folder's `secrets.json` (mode 600) and valid nowhere else. Set the same value on every `start` and `restart`: a service restarted without it neither signs nor reads key signatures, and the edge then reaches it with a key signature only. `keypair` is refused, because `local:fund` and the seed scripts sign with the shared secret.
+
 ## Ports
 
 Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Mining pool 14518 · Ops 14519 · Customer 3210 · Invitation site (apps/invitation) 3220 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.

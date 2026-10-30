@@ -66,6 +66,74 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
+// shared public keyring and its own matching signing key, and keypair is refused.
+{
+  const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { createPrivateKey, createPublicKey, generateKeyPairSync } = await import('node:crypto');
+  const contractsNames = [
+    ...readFileSync(resolve(here, '../../packages/contracts/src/service-keys.ts'), 'utf8')
+      .match(/export const SERVICE_NAMES = \[([^\]]*)\]/)[1]
+      .matchAll(/'(svc-[a-z0-9-]+)'/g),
+  ].map((m) => m[1]);
+  const stackSvcs = localTestServiceEnvs().map((d) => d.env.SERVICE_NAME);
+  assert.deepEqual(
+    [...S2S_SERVICES].sort(),
+    stackSvcs.filter((n) => contractsNames.includes(n)).sort(),
+    'every stack service that packages/contracts names has a key, and no other',
+  );
+  const s2sKeys = Object.fromEntries(
+    S2S_SERVICES.map((svc) => {
+      const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+      return [
+        svc,
+        {
+          kid: `${svc}.local`,
+          x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+          key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+        },
+      ];
+    }),
+  );
+  const prior = process.env.LOCAL_STACK_S2S;
+  try {
+    delete process.env.LOCAL_STACK_S2S;
+    for (const { name, env } of localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys })) {
+      assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S env by default`);
+    }
+    assert.deepEqual(s2sEnv({ s2sKeys }, 'svc-trade', 'off'), {});
+    process.env.LOCAL_STACK_S2S = 'dual';
+    const keyed = localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys });
+    const rings = new Set();
+    for (const { name, env } of keyed) {
+      const svc = env.SERVICE_NAME;
+      if (!S2S_SERVICES.includes(svc)) {
+        assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S role, no S2S env`);
+        continue;
+      }
+      assert.equal(env.S2S_AUTH_MODE, 'dual', name);
+      assert.equal(env.S2S_SIGNING_KID, `${svc}.local`, name);
+      rings.add(env.S2S_KEYRING);
+      const entry = JSON.parse(env.S2S_KEYRING).keys.find((k) => k.kid === env.S2S_SIGNING_KID);
+      assert.equal(entry.svc, svc, name);
+      const priv = createPrivateKey({ key: Buffer.from(env.S2S_SIGNING_KEY, 'base64url'), format: 'der', type: 'pkcs8' });
+      assert.equal(createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'), entry.x, name);
+    }
+    assert.equal(rings.size, 1, 'one keyring for every service');
+    const ring = JSON.parse([...rings][0]).keys;
+    assert.equal(ring.length, S2S_SERVICES.length);
+    assert.ok(
+      ring.every((k) => Object.keys(k).sort().join() === 'kid,svc,use,x' && k.use === 's2s'),
+      'public keys only',
+    );
+    assert.throws(() => s2sEnv({ s2sKeys }, 'svc-trade', 'keypair'), /off or dual/);
+    assert.throws(() => s2sEnv({}, 'svc-trade', 'dual'), /no stack key for svc-academy/);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_S2S;
+    else process.env.LOCAL_STACK_S2S = prior;
+  }
+}
+
 // inPool runs every item, never more than the limit at once.
 {
   const { inPool } = await import('./local-test-stack.mjs');

@@ -327,8 +327,75 @@ function loadOrCreateSecrets() {
     s.adminSession = crypto.randomBytes(32).toString('base64url');
     changed = true;
   }
+  // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
+  s.s2sKeys ??= {};
+  for (const svc of S2S_SERVICES) {
+    if (!s.s2sKeys[svc]) {
+      s.s2sKeys[svc] = newServiceKey(svc);
+      changed = true;
+    }
+  }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
+}
+
+// ── Service keys (LOCAL_STACK_S2S=dual) ─────────────────────────────────────
+
+/**
+ * The stack's services that speak S2S v3 (packages/contracts SERVICE_NAMES). svc-blueprint and svc-protocol have no
+ * S2S role, and svc-fix is not started here.
+ */
+export const S2S_SERVICES = [
+  'svc-academy',
+  'svc-agents',
+  'svc-bank',
+  'svc-campaigns',
+  'svc-edge',
+  'svc-execution',
+  'svc-identity',
+  'svc-ledger',
+  'svc-market',
+  'svc-matching',
+  'svc-mining-pool',
+  'svc-notify',
+  'svc-ops',
+  'svc-p2p',
+  'svc-pay',
+  'svc-quant',
+  'svc-support',
+  'svc-tax',
+  'svc-token',
+  'svc-trade',
+  'svc-ws',
+];
+
+/** A fresh Ed25519 key in the forms packages/contracts reads: the keyring's raw public key and PKCS8, both base64url. */
+function newServiceKey(svc) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    kid: `${svc}.local`,
+    x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+  };
+}
+
+/**
+ * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
+ * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
+ * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
+ * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * fund and seed scripts sign with the shared secret.
+ */
+export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
+  if (mode === undefined || mode === '' || mode === 'off') return {};
+  if (mode !== 'dual') throw new Error(`LOCAL_STACK_S2S must be off or dual (keypair would refuse the local fund and seed scripts)`);
+  const keys = secrets.s2sKeys ?? {};
+  const missing = S2S_SERVICES.filter((svc) => !keys[svc]);
+  if (missing.length)
+    throw new Error(`LOCAL_STACK_S2S=dual: no stack key for ${missing.join(', ')}; run pnpm local:stack once to create them`);
+  if (!S2S_SERVICES.includes(name)) return {};
+  const keyring = JSON.stringify({ keys: S2S_SERVICES.map((svc) => ({ kid: keys[svc].kid, svc, use: 's2s', x: keys[svc].x })) });
+  return { S2S_AUTH_MODE: 'dual', S2S_KEYRING: keyring, S2S_SIGNING_KID: keys[name].kid, S2S_SIGNING_KEY: keys[name].key };
 }
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
@@ -870,7 +937,7 @@ async function migrate(secrets, schemas = SCHEMAS) {
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
-const PLAN_SECRETS = Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)]));
+export const PLAN_SECRETS = Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)]));
 const UNUSED = `http://${HOST}:1`; // nothing listens; routes to unstarted services fail fast
 
 function commonEnv(secrets, name, port) {
@@ -889,8 +956,9 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
-    // S2S_AUTH_MODE stays unset here: svc-ledger then accepts this shared secret
-    // and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
+    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through
