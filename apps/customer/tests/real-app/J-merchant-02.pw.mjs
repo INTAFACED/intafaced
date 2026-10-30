@@ -648,11 +648,13 @@ test(`${J} #6 reads the verification history and the activation state: append-on
 
   // svc-pay asked straight through Edge as the owner, with the token the room itself sends.
   let ownerToken = '';
-  const ask = async (procedure, input) => {
-    const res = await page.request.get(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
+  const askRaw = (procedure, input) =>
+    page.request.get(`/api/pay/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, {
       headers: { authorization: ownerToken },
     });
-    expect(res.status(), await res.text()).toBe(200);
+  const ask = async (procedure, input) => {
+    const res = await askRaw(procedure, input);
+    expect(res.status()).toBe(200);
     return (await res.json()).result.data;
   };
   const askActivation = () => ask('merchantOps.activation.get', {});
@@ -817,8 +819,11 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   expect(await controlHistory()).toEqual([restricted, ownRefusal]);
   await expect(controlRows).toHaveCount(2);
 
-  // While restricted the service still says unconfirmed, now because the business is not active.
-  expect(await askActivation()).toEqual({ activation: 'unconfirmed', status: 'suspended', activatedAt: null, reason: 'not_active' });
+  // While restricted the service confirms nothing: it refuses the owner's activation read with its typed code, because a
+  // restricted business's owner grant is withdrawn (svc-pay own-merchant-read).
+  const whileRestricted = await askRaw('merchantOps.activation.get', {});
+  expect(whileRestricted.status()).toBe(403);
+  expect((await whileRestricted.json()).error.message).toBe('pay.owner_grant_withdrawn');
 
   const restored = await control('Restore access', 'restore', 'TEST J-merchant-02 #6 restore', restricted.after);
   await expect(desk.getByRole('status')).toContainText('Account restored.');
