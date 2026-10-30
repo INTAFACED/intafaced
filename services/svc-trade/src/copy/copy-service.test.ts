@@ -5,6 +5,7 @@ import { type FollowerFillFee, type LeaderFill, type LookupFollowerFillFeePort, 
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { UNPUBLISHED_COPY_FEE_SHARE_LAW, type CopyFeeShareLaw, type CopyJurisdictionLaw } from './fee-share-law.js';
 import { CopyError } from './errors.js';
+import type { CopiedPosition } from './copied-positions.js';
 
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
 const LEADER = '00000000-0000-4000-8000-000000000002';
@@ -72,6 +73,24 @@ function leaderLookup(
     m.set(fillId.toLowerCase(), row);
   }
   return async (fillId) => m.get(fillId) ?? m.get(fillId.toLowerCase()) ?? null;
+}
+
+/** One copied buy still open in a market, as the copied-positions read answers it. */
+function copiedOpen(symbol: string, open: string): CopiedPosition {
+  const qty = parseAmount(open);
+  return {
+    orderId: `copied-${symbol}`,
+    leaderFillId: `lead-${symbol}`,
+    symbol,
+    marketId: symbol,
+    baseAsset: symbol.split('-')[0]!,
+    lotSize: parseAmount('0.00001'),
+    bought: qty,
+    open: qty,
+    closing: 0n,
+    status: 'open',
+    placedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
 }
 
 describe('CopyService', () => {
@@ -1229,6 +1248,8 @@ describe('CopyService', () => {
       jurisdictionLaw: publishedJur,
       store,
       lookupLeaderFill: async (fillId) => leaderLookup(rows)(fillId),
+      // The copied buy below is open, so the leader's sell has copied coin to close.
+      copiedPositions: async () => [copiedOpen('BTC-USDT', '0.01')],
     });
     const follow = await svc.follow(principal, {
       leaderId: LEADER,

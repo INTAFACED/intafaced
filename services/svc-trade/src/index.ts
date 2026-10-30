@@ -171,6 +171,7 @@ import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
+import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
@@ -383,6 +384,12 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+// The best bid a follower's sell is floored against: top of book, or null when the book has none.
+const copyBestBid = async (marketId: string) => {
+  const depth = await matching.depth(marketId, 1);
+  const best = depth.bids[0];
+  return best ? parseAmount(best[0]) : null;
+};
 const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
@@ -399,11 +406,14 @@ const copy = new CopyService(ledger, {
     placeFollowerOrder,
     slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
     loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: async (marketId) => {
-      const depth = await matching.depth(marketId, 1);
-      const best = depth.bids[0];
-      return best ? parseAmount(best[0]) : null;
-    },
+    bestBid: copyBestBid,
+  }),
+  copyClose: createCopyClosePort({
+    sql,
+    placeFollowerOrder,
+    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+    bestBid: copyBestBid,
   }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);

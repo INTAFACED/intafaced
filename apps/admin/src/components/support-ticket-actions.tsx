@@ -15,6 +15,7 @@ import {
   allowedNextStatuses,
   escalateGate,
   internalNoteGate,
+  noteKeyBlock,
   replyGate,
   statusGate,
   type ActionGate,
@@ -537,6 +538,7 @@ export function TicketActions({
   events,
   userId,
   notesRead,
+  notesCapped = false,
   onDone,
 }: {
   ticket: SupportTicket;
@@ -545,6 +547,8 @@ export function TicketActions({
   userId: string;
   /** The internal notes on the ticket as last read, by anyone; null when the comments could not be read. */
   notesRead: number | null;
+  /** The comments read filled the desk's limit, so later notes may be missing from the count. */
+  notesCapped?: boolean;
   onDone: () => void;
 }) {
   const [form, setForm] = useState<ActionForm>(() => emptyForm(ticket));
@@ -673,11 +677,7 @@ export function TicketActions({
       onMacro={(id) => void applyMacro(id)}
       onMacrosRead={() => setMacrosRead((n) => n + 1)}
       stale={seenNow === null ? [] : newerByOthers(rows, seenNow, userId)}
-      notesUnread={
-        notesBefore === null
-          ? 'The comments on this ticket could not be read, so a note cannot be told apart from one already sent. Read the ticket again first.'
-          : null
-      }
+      notesUnread={noteKeyBlock(notesBefore, notesCapped)}
       trailUnread={
         seenNow === null
           ? 'The ticket history could not be read, so a change by someone else cannot be checked. Read the ticket again first.'

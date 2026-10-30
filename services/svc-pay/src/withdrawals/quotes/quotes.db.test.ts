@@ -79,12 +79,15 @@ describe('withdrawal quotes (real Postgres)', () => {
   }
 
   /** The owner's rules for an asset on a network (W-withdraw-02). The default fits every amount these tests quote. */
-  async function rules(o: { minimum?: string; maximum?: string; step?: string; assetId?: string; networkId?: string } = {}) {
+  async function rules(
+    o: { minimum?: string; maximum?: string; step?: string; assetId?: string; networkId?: string; tag?: 'none' | 'required' } = {},
+  ) {
     await db.sql`
       INSERT INTO pay.withdrawal_network_rules (asset_id, network_id, minimum, maximum, step, tag, set_by)
       VALUES (${o.assetId ?? 'USDT'}, ${o.networkId ?? 'tron-test'}, ${o.minimum ?? '0.000000000000000001'},
-              ${o.maximum ?? '1000000000'}, ${o.step ?? '0.000000000000000001'}, 'none', ${FOUNDER})
-      ON CONFLICT (asset_id, network_id) DO UPDATE SET minimum = EXCLUDED.minimum, maximum = EXCLUDED.maximum, step = EXCLUDED.step`;
+              ${o.maximum ?? '1000000000'}, ${o.step ?? '0.000000000000000001'}, ${o.tag ?? 'none'}, ${FOUNDER})
+      ON CONFLICT (asset_id, network_id) DO UPDATE SET minimum = EXCLUDED.minimum, maximum = EXCLUDED.maximum, step = EXCLUDED.step,
+        tag = EXCLUDED.tag`;
   }
 
   beforeEach(async () => {
@@ -111,6 +114,19 @@ describe('withdrawal quotes (real Postgres)', () => {
     await db.sql`TRUNCATE pay.withdrawal_network_rules`;
     await expect(quotes.quote(USER, ask('q7', '10'))).rejects.toMatchObject({ code: 'withdrawal_network_rules.unset' });
     expect(await rows('pay.withdrawal_quotes')).toBe('3');
+  });
+
+  it('refuses a quote on a network that needs a tag or memo, storing nothing (J-wallet-05 #1)', async () => {
+    await quotes.setPolicy(FOUNDER, { feeMode: 'on_top', ttlSeconds: 300 });
+    await rules({ tag: 'required' });
+    await expect(quotes.quote(USER, ask('q1', '10'))).rejects.toMatchObject({
+      code: 'withdrawal_quote.tag_required',
+      message: expect.stringContaining('tron-test needs a tag or memo'),
+    });
+    expect(await rows('pay.withdrawal_quotes')).toBe('0');
+    // The same pair with no tag rule quotes as before.
+    await rules({ tag: 'none' });
+    expect(await quotes.quote(USER, ask('q1', '10'))).toMatchObject({ amount: '10' });
   });
 
   const ask = (quoteRef: string, amount = '100', extra: Partial<{ assetId: string; networkId: string }> = {}) => ({

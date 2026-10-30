@@ -330,7 +330,11 @@ export function CopyRoom({ path }: { path: string }) {
               />
             )}
             {follows.status === 'ready' && follows.failure ? <RefusalNote failure={follows.failure} retry={follows.reload} /> : null}
-            <InfoNote>{t('Stopping or leaving never sells your positions. Close copied positions is a separate choice.')}</InfoNote>
+            <InfoNote>
+              {t(
+                'Leaving never sells your positions. After a stop, only the leader’s closes close what you copied. Close copied positions is a separate choice.',
+              )}
+            </InfoNote>
           </PageSection>
         </TabsPanel>
 

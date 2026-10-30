@@ -9,9 +9,15 @@ import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
 import {
   ownAgentCatalogueSchema as catalogueSchema,
+  ownAgentLimitsSchema,
+  ownAgentRunResultSchema,
+  ownAgentRunRowSchema,
   ownAgentSchema,
+  ownAgentSessionSchema,
   type OwnAgent,
   type OwnAgentCatalogue,
+  type OwnAgentLimits,
+  type OwnAgentRunResult,
 } from '@intafaced/contracts/agents-own';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
@@ -22,6 +28,7 @@ export const ownAgentId = (path: string): string | null => OWN_AGENT_PATH.exec(p
 
 /** Each refusal and finding code the service sends, with the words for it (the reserved name takes the name). */
 const CODE_WORDS = {
+  'agents.spend.per_call_above_session': 'code_spend_per_call_above_session',
   'agents.own.money_tool': 'code_own_money_tool',
   'agents.own.tool_unknown': 'code_own_tool_unknown',
   'agents.own.name_too_long': 'code_own_name_too_long',
@@ -33,29 +40,65 @@ const CODE_WORDS = {
   'agents.own.too_many': 'code_own_too_many',
   'agents.own.name_unset': 'code_own_name_unset',
   'agents.spend.cap_unset': 'code_spend_cap_unset',
+  'agents.spend.cap_exceeded': 'code_spend_cap_exceeded',
+  'agents.funds_insufficient': 'code_funds_insufficient',
+  'agents.funds_unread': 'code_funds_unread',
+  'agents.price_unset': 'code_price_unset',
+  'agents.spend_limit': 'code_spend_limit',
+  'agents.request_id_replay': 'code_request_id_replay',
+  'agents.session_closed': 'code_session_closed',
+  'agents.session_not_found': 'code_session_not_found',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-/** The service's own refusals arrive as an `agents.` code; anything else (a timeout, a gateway answer) is not a refusal. */
+/**
+ * The service's own refusals arrive as an `agents.` code, whatever the status (a run's refusal is 403, a session of
+ * someone else's is 404); anything else (a timeout, a gateway answer, a write that may have gone through) is not one.
+ */
+const REFUSAL_REASONS: ReadonlySet<Failed['reason']> = new Set(['error', 'forbidden', 'not_mounted']);
 const refusalCode = (failed: Failed): string | null =>
-  failed.reason === 'error' && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
+  REFUSAL_REASONS.has(failed.reason) && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
 
 /** A refusal as words, with its code beside them so support can find it. */
-function Refusal({ code, name = '' }: { code: string; name?: string }) {
+function Refusal({
+  code,
+  name = '',
+  cap = '',
+  asset = '',
+  inline = false,
+}: {
+  code: string;
+  name?: string;
+  cap?: string;
+  asset?: string;
+  /** In a table row: the words without announcing them, since the row is a record, not a fresh refusal. */
+  inline?: boolean;
+}) {
   const { t } = agentBuilderCopy.useCopy();
   const key = wordsKey(code);
-  const words = code === 'agents.own.reserved_name' ? t('code_own_reserved_name', { name }) : key ? t(key) : t('code_other');
-  return (
+  const words =
+    code === 'agents.own.reserved_name'
+      ? t('code_own_reserved_name', { name })
+      : code === 'agents.spend.above_agent_cap'
+        ? t('code_spend_above_agent_cap', { cap, asset })
+        : key
+          ? t(key)
+          : t('code_other');
+  return inline ? (
+    <span>
+      {words} <code lang="zxx">{code}</code>
+    </span>
+  ) : (
     <p role="alert">
       {words} <code lang="zxx">{code}</code>
     </p>
   );
 }
 /** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
-function Answer({ failed, name }: { failed: Failed; name?: string }) {
+function Answer({ failed, ...params }: { failed: Failed; name?: string; cap?: string; asset?: string }) {
   const code = refusalCode(failed);
-  return code ? <Refusal code={code} {...(name === undefined ? {} : { name })} /> : <Failure result={failed} />;
+  return code ? <Refusal code={code} {...params} /> : <Failure result={failed} />;
 }
 /** Tells the page title a draft was saved under a new name. */
 const SAVED_EVENT = 'intafaced:own-agent-saved';
@@ -326,15 +369,248 @@ export function OwnAgentPage({ id }: { id: string }) {
                   <Publish agent={agent} />
                 </Panel>
               </>
+            ) : page === 'Limits' ? (
+              <>
+                <Limits agent={agent} />
+                <Sessions agent={agent} />
+              </>
+            ) : page === 'Test' ? (
+              <Sessions agent={agent} twice />
+            ) : page === 'Runs' ? (
+              <Runs agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
-                <p role="note">{t(`parked_${page as Exclude<(typeof PAGES)[number], 'Build'>}`)}</p>
+                <p role="note">{t(`parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs'>}`)}</p>
               </Panel>
             )}
           </div>
         );
       }}
     </Read>
+  );
+}
+
+/** The amount with its asset, as the service sent it: a decimal string, never re-rounded. */
+const money = (amount: string, asset: string) => `${amount} ${asset}`;
+
+/**
+ * The Limits page: the person's cap per call, per session and per month for this agent (AG-spend-01). All three or
+ * none; a blank stays blank and the agent opens no session. A value above the agent's own cap is refused, not lowered.
+ */
+function Limits({ agent }: { agent: OwnAgent }) {
+  const api = useApi();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.limits.get', { id: agent.id }, ownAgentLimitsSchema, { signal }),
+    `own-limits:${agent.id}`,
+  );
+  return (
+    <Read resource={loaded.resource} retry={loaded.reload}>
+      {(view) => <LimitsForm agent={agent} view={view} />}
+    </Read>
+  );
+}
+
+function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const [current, setCurrent] = useState(view);
+  const [perCall, setPerCall] = useState(view.limits?.perCall ?? '');
+  const [perSession, setPerSession] = useState(view.limits?.perSession ?? '');
+  const [perPeriod, setPerPeriod] = useState(view.limits?.perPeriod ?? '');
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const blankAsNull = (value: string) => (value.trim() ? value.trim() : null);
+  async function save() {
+    setBusy(true);
+    setSaved(false);
+    setRefused(null);
+    const res = await api.mutate(
+      'agents',
+      'own.limits.set',
+      { id: agent.id, perCall: blankAsNull(perCall), perSession: blankAsNull(perSession), perPeriod: blankAsNull(perPeriod) },
+      ownAgentLimitsSchema,
+    );
+    setBusy(false);
+    if (!res.ok) return setRefused(res);
+    setCurrent(res.data);
+    setSaved(true);
+  }
+  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
+    setSaved(false);
+    set(event.target.value);
+  };
+  return (
+    <Panel title={t('limitsTitle')}>
+      <form
+        aria-label={t('limitsTitle')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <p className="muted">{t('limitsIntro', { asset: current.assetId })}</p>
+        <Field label={t('perCall')} inputMode="decimal" value={perCall} onChange={edit(setPerCall)} />
+        <Field label={t('perSession')} inputMode="decimal" value={perSession} onChange={edit(setPerSession)} />
+        <Field label={t('perMonth')} inputMode="decimal" value={perPeriod} onChange={edit(setPerPeriod)} />
+        <p data-testid="agent-cap">
+          {current.agentCap === null ? t('agentCapUnset') : t('agentCap', { cap: money(current.agentCap, current.assetId) })}
+        </p>
+        <p data-testid="effective-per-session">
+          {current.effectivePerSession === null
+            ? t('effectiveUnset')
+            : t('effective', { amount: money(current.effectivePerSession, current.assetId) })}
+        </p>
+        <Button type="submit" disabled={busy}>
+          {t('saveLimits')}
+        </Button>
+        {saved ? <p role="status">{t('limitsSaved')}</p> : null}
+        {refused ? <Answer failed={refused} cap={current.agentCap ?? ''} asset={current.assetId} /> : null}
+      </form>
+    </Panel>
+  );
+}
+
+/** One run's answer: the reply and what it cost. */
+type Ran = OwnAgentRunResult;
+
+/**
+ * A session of the agent and its runs. Each run is held against the agent's caps and the person's balance before the
+ * engine is called; a refused one shows why and costs 0. On the Test page, "Run twice at once" sends two runs together
+ * so the caps can be seen to admit only what fits.
+ */
+function Sessions({ agent, twice = false }: { agent: OwnAgent; twice?: boolean }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [ask, setAsk] = useState('');
+  const [ran, setRan] = useState<Ran | null>(null);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [runsVersion, setRunsVersion] = useState(0);
+  // Each press is its own request: a business key from this visit, the session and a count, so a retried request
+  // (the same key) is one run and one charge, and a new press is a new run.
+  const presses = useRef(0);
+  const visit = useRef(`${Date.now().toString(36)}`);
+  async function open(): Promise<string | null> {
+    setRefused(null);
+    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    if (!res.ok) {
+      setRefused(res);
+      return null;
+    }
+    setSessionId(res.data.sessionId);
+    return res.data.sessionId;
+  }
+  const runOnce = (session: string) => {
+    presses.current += 1;
+    return api.mutate(
+      'agents',
+      'own.run',
+      { id: agent.id, sessionId: session, requestId: `own-run:${session}:${visit.current}:${presses.current}`, ask },
+      ownAgentRunResultSchema,
+    );
+  };
+  async function run(times: number) {
+    setBusy(true);
+    setRan(null);
+    setRefused(null);
+    const session = sessionId ?? (await open());
+    if (session) {
+      const results = await Promise.all(Array.from({ length: times }, () => runOnce(session)));
+      const admitted = results.find((res) => res.ok);
+      const failed = results.find((res) => !res.ok);
+      if (admitted?.ok) setRan(admitted.data);
+      if (failed && !failed.ok) setRefused(failed);
+    }
+    setBusy(false);
+    setRunsVersion((v) => v + 1);
+  }
+  return (
+    <>
+      <Panel title={t('sessionTitle')} role="region" aria-label={t('sessionTitle')}>
+        {sessionId ? (
+          <p>
+            {t('sessionOpen')} <code lang="zxx">{sessionId}</code>
+          </p>
+        ) : (
+          <p className="muted">{t('sessionNone')}</p>
+        )}
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setRan(null);
+            await open();
+            setBusy(false);
+            setRunsVersion((v) => v + 1);
+          }}
+        >
+          {t('openSession')}
+        </Button>
+        <TextArea label={t('ask')} value={ask} onChange={setAsk} maxLength={4000} />
+        <Button disabled={busy || !sessionId || !ask.trim()} onClick={() => void run(1)}>
+          {t('run')}
+        </Button>
+        {twice ? (
+          <Button variant="secondary" disabled={busy || !ask.trim()} onClick={() => void run(2)}>
+            {t('runTwice')}
+          </Button>
+        ) : null}
+        {ran ? (
+          <div role="region" aria-label={t('replyTitle')}>
+            <p>{ran.text}</p>
+            <p>
+              {t('replyCost')} <span data-testid="reply-cost">{money(ran.cost, ran.assetId)}</span>
+            </p>
+          </div>
+        ) : null}
+        {refused ? <Answer failed={refused} /> : null}
+      </Panel>
+      <Runs agent={agent} version={runsVersion} />
+    </>
+  );
+}
+
+/** Every run asked of this agent, newest first: admitted with its exact cost, or refused with its reason and 0. */
+function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const runs = useResource(
+    (signal) => api.query('agents', 'own.runs', { id: agent.id, limit: 50 }, z.array(ownAgentRunRowSchema), { signal }),
+    `own-runs:${agent.id}:${version}`,
+  );
+  return (
+    <Panel title={t('runsTitle')} role="region" aria-label={t('runsTitle')}>
+      <Read resource={runs.resource} retry={runs.reload}>
+        {(rows) => (
+          <>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t('runWhen')}</th>
+                  <th scope="col">{t('runResult')}</th>
+                  <th scope="col">{t('runReason')}</th>
+                  <th scope="col">{t('runCost')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={`${row.sessionId}:${row.sequence}`}>
+                    <td>{new Date(row.occurredAt).toLocaleString()}</td>
+                    <td>{t(`run_${row.status}`)}</td>
+                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} inline /> : null}</td>
+                    <td data-testid="run-cost">{money(row.cost, row.assetId)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
+          </>
+        )}
+      </Read>
+    </Panel>
   );
 }
 

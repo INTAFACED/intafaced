@@ -6,6 +6,40 @@ import { AgentError } from '../errors.js';
 import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
+import { readOwnCaps } from '../own/limits.js';
+
+/** A session of a person's own agent carries `own.<agent id>` as its agent id (see `AgentRuntime.openOwnSession`). */
+const OWN_PREFIX = 'own.';
+
+function ownCapExceeded(cap: Amount, assetId: string, scope: 'call' | 'session' | 'month'): AgentError {
+  return new AgentError(
+    `Own agent ${scope} cap ${canonicalAmount(cap)} ${assetId} would be exceeded`,
+    'agents.spend.cap_exceeded',
+    'agents.refused.spend_cap',
+    { limit: canonicalAmount(cap), asset: assetId, scope },
+  );
+}
+
+/** Held and committed holds on this person's sessions of one own agent since `since`. */
+async function ownAgentUsed(tx: Sql, userId: string, agentId: string, since: Date): Promise<Amount> {
+  const rows = await tx<Array<{ total: string }>>`
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN r.status = 'held' THEN r.amount
+        WHEN r.status = 'committed' THEN r.committed_amount
+        ELSE 0::numeric
+      END
+    ), 0::numeric)::text AS total
+      FROM agents.spend_reservations r
+      JOIN agents.agent_sessions s ON s.id = r.session_id
+     WHERE r.user_id = ${userId}
+       AND s.user_id = ${userId}
+       AND s.agent_id = ${agentId}
+       AND r.created_at >= ${since}
+       AND r.status IN ('held', 'committed')
+  `;
+  return parseAmount(rows[0]?.total ?? '0');
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -287,15 +321,22 @@ export class UserSpendStore implements SpendGate {
       this.sql,
       async (tx) => {
         await lockUser(tx, input.userId);
-        const session = await tx<Array<{ user_id: string }>>`
-          SELECT user_id FROM agents.agent_sessions WHERE id = ${input.sessionId}
+        const session = await tx<Array<{ user_id: string; agent_id: string }>>`
+          SELECT user_id, agent_id FROM agents.agent_sessions WHERE id = ${input.sessionId}
         `;
         if (session[0]?.user_id !== input.userId) {
           throw new AgentError(`No session ${input.sessionId}`, 'agents.session_not_found', 'agents.refused.session_closed');
         }
+        // A session of the person's own agent is held against the caps they set for that agent, read here under the
+        // lock as they stand now. Any of them unset refuses: nothing of an own agent runs uncapped.
+        const ownAgentId = session[0].agent_id.startsWith(OWN_PREFIX) ? session[0].agent_id : null;
+        const own = ownAgentId ? await readOwnCaps(tx, input.userId, ownAgentId.slice(OWN_PREFIX.length)) : null;
+        if (ownAgentId && !own) {
+          throw new AgentError('Own agent caps are unset', 'agents.spend.cap_unset', 'agents.refused.spend_limit_unset');
+        }
         const limit = await readLimit(tx, input.userId);
         const agentCap = input.agentCap ? parseSpendAmount(input.agentCap, 'agent cap') : null;
-        if (!limit && agentCap === null) {
+        if (!limit && agentCap === null && !own) {
           throw new AgentError('User spend limit is unset', 'agents.spend_limit_unset', 'agents.refused.spend_limit_unset');
         }
         if (limit && limit.asset_id !== assetId) {
@@ -341,6 +382,14 @@ export class UserSpendStore implements SpendGate {
           });
           if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
         }
+        if (own && ownAgentId) {
+          // Every hold of the session and of the month counts, held ones included, so two runs at once whose worst
+          // cases together pass a cap cannot both be admitted.
+          if (amount > own.perCall) throw ownCapExceeded(own.perCall, assetId, 'call');
+          if (sessionUsed + amount > own.perSession) throw ownCapExceeded(own.perSession, assetId, 'session');
+          const monthUsed = await ownAgentUsed(tx, input.userId, ownAgentId, periodStart(own.period, now));
+          if (monthUsed + amount > own.perPeriod) throw ownCapExceeded(own.perPeriod, assetId, 'month');
+        }
         if (agentCap !== null && sessionUsed + amount > agentCap) {
           // The agent's cap holds every run of the session, held ones included, so two runs at once cannot both fit
           // under it. It applies whether or not the person set limits of their own: the lower of the two wins.
@@ -358,7 +407,17 @@ export class UserSpendStore implements SpendGate {
           } catch {
             available = null;
           }
-          if (available === null || available - owed < amount) {
+          if (available === null) {
+            // The message key stays the funds one: the run is refused for funds not shown to cover it. The code says
+            // the balance was not read, so the person is told that, not that they are short.
+            throw new AgentError(
+              `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`,
+              'agents.funds_unread',
+              'agents.refused.funds_insufficient',
+              { worstCase: canonicalAmount(amount), asset: assetId },
+            );
+          }
+          if (available - owed < amount) {
             throw new AgentError(
               `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
               'agents.funds_insufficient',
