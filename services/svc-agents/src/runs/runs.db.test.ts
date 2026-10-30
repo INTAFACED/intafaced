@@ -210,7 +210,7 @@ if (!available) {
 
       const mine = await reader.session.mine({ limit: 10 });
       expect(mine.items.map((item) => item.id)).toEqual([session.id]);
-      expect(await reader.run.list({ sessionId: session.id })).toEqual([
+      expect(await reader.run.list({ sessionId: session.id, limit: 10 })).toEqual([
         { runId: ran.runId, requestId: 'runs:db:read', state: 'completed', createdAt: expect.any(String) },
       ]);
 
@@ -260,7 +260,7 @@ if (!available) {
       const page1 = await reader.session.events({ sessionId: session.id, limit: 1 });
       expect(page1.events.map((e) => [e.sequence, e.kind, e.status, e.sessionId])).toEqual([[0, 'session_open', 'executed', session.id]]);
       expect(page1.cursor).toBe('0');
-      const page2 = await reader.session.events({ sessionId: session.id, cursor: page1.cursor, limit: 10 });
+      const page2 = await reader.session.events({ sessionId: session.id, cursor: '0', limit: 10 });
       expect(page2.events.map((e) => [e.sequence, e.kind, e.status, e.sessionId])).toEqual([
         [1, 'completion', 'executed', session.id],
         [2, 'completion', 'executed', session.id],
@@ -303,7 +303,7 @@ if (!available) {
         code: 'NOT_FOUND',
         message: 'agents.run_not_found',
       });
-      await expect(key(OTHER).run.list({ sessionId: session.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(key(OTHER).run.list({ sessionId: session.id, limit: 10 })).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(key(USER, ['trade:read']).run.get({ runId: ran.runId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(key().run.events({ runId: ran.runId, cursor: '-1', limit: 5 })).rejects.toMatchObject({
         code: 'BAD_REQUEST',
@@ -473,6 +473,66 @@ if (!available) {
       expect(await usageCount()).toBe('1');
       expect(await stored(ran.runId)).toMatchObject({ state: 'completed', reply: ran.text });
       expect(await trail(ran.runId)).toHaveLength(3);
+    });
+
+    it('one request id names one request: a retry asking another task is agents.request_id_replay and runs nothing', async () => {
+      const session = await runtime.openSession({ userId: USER, agentId: 'probe' });
+      const real = createRunStore(sql);
+      const crashing: RunStore = { ...real, move: async () => Promise.reject(new Error('crash after admit')) };
+      const input = {
+        userId: USER,
+        sessionId: session.id,
+        agentId: 'probe',
+        requestId: 'runs:db:other-task',
+        task: 'plan',
+        assetId: 'IFC',
+      };
+      let calls = 0;
+      const think = () => {
+        calls += 1;
+        return runtime.think({ sessionId: session.id, requestId: input.requestId, task: input.task, messages: MESSAGES });
+      };
+      await expect(runRecorded(crashing, input, think)).rejects.toThrow('crash after admit');
+      const runId = await runIdOf(input.requestId);
+
+      await expect(runRecorded(real, { ...input, task: 'summary' }, think)).rejects.toMatchObject({
+        code: 'agents.request_id_replay',
+        userMessageKey: 'agents.error.request_id_replay',
+      });
+      expect(calls).toBe(0);
+      expect(await stored(runId)).toMatchObject({ state: 'admitted', reply: null });
+      expect(await trail(runId)).toEqual([{ sequence: 1, state: 'admitted', code: null }]);
+      expect(await usageCount()).toBe('0');
+    });
+
+    it('two retries racing for a running run past its lease: the one that loses the take-over is refused before the engine runs', async () => {
+      const session = await runtime.openSession({ userId: USER, agentId: 'probe' });
+      const real = createRunStore(sql);
+      const stuck: RunStore = {
+        ...real,
+        move: async (runId, to, outcome) => (to === 'running' ? real.move(runId, to, outcome) : Promise.reject(new Error('crash mid-run'))),
+      };
+      const input = { userId: USER, sessionId: session.id, agentId: 'probe', requestId: 'runs:db:lost-race', task: 'plan', assetId: 'IFC' };
+      await expect(runRecorded(stuck, input, () => Promise.reject(new Error('crash mid-run')))).rejects.toThrow('crash mid-run');
+      const runId = await runIdOf(input.requestId);
+      expect(await stored(runId)).toMatchObject({ state: 'running' });
+
+      let calls = 0;
+      const think = () => {
+        calls += 1;
+        return runtime.think({ sessionId: session.id, requestId: input.requestId, task: input.task, messages: MESSAGES });
+      };
+      const lost: RunStore = { ...real, takeOver: async () => null };
+      const later = () => Date.now() + RUN_LEASE_MS + 1;
+      await expect(runRecorded(lost, input, think, later)).rejects.toMatchObject({
+        code: 'agents.run_transition_invalid',
+        from: 'running',
+        to: 'running',
+      });
+      expect(calls).toBe(0);
+      expect(await stored(runId)).toMatchObject({ state: 'running', reply: null });
+      expect(await trail(runId)).toHaveLength(2);
+      expect(await usageCount()).toBe('0');
     });
   });
 }

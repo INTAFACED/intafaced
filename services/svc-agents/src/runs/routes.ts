@@ -159,14 +159,14 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
         ),
       ),
 
-    /** The runs of one of the caller's sessions, oldest first. */
+    /** The runs of one of the caller's sessions, oldest first; `limit` is the caller's page size and is never defaulted. */
     list: scopedProcedure('agents:read', { module: 'agents' })
-      .input(z.object({ sessionId: z.string().guid() }).strict())
+      .input(z.object({ sessionId: z.string().guid(), limit: z.number().int().min(1).max(500) }).strict())
       .output(z.array(z.object({ runId: z.string().guid(), requestId: z.string(), state: runState, createdAt: z.string() })))
       .query(({ ctx, input }) =>
         guard(async () => {
           const session = await ownedSession(input.sessionId, ctx.principal.userId);
-          return (await store().forSession(session.id)).map((run) => ({
+          return (await store().forSession(session.id, input.limit)).map((run) => ({
             runId: run.id,
             requestId: run.requestId,
             state: run.state,

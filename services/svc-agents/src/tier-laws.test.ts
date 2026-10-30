@@ -1,20 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { envTierLaws, NO_TIER_LAWS, parseTierLaws, TierLawsInvalidError } from './tier-laws.js';
+import { NO_TIER_LAWS, parseTierLaws, TierLawsInvalidError } from './tier-laws.js';
 
 describe('stored tier law (AG-sessions-01)', () => {
   it('a blank or unset AGENTS_TIER_LAWS is no published law for any door', () => {
     expect(parseTierLaws(undefined)).toEqual(NO_TIER_LAWS);
     expect(parseTierLaws('  ')).toEqual(NO_TIER_LAWS);
-    expect(envTierLaws({})).toEqual(NO_TIER_LAWS);
   });
 
   it('reads each published door law and leaves a missing door unpublished', () => {
-    const laws = envTierLaws({
-      AGENTS_TIER_LAWS: JSON.stringify({
+    const laws = parseTierLaws(
+      JSON.stringify({
         scanner: { published: true, matrix: { basic: { maxSignals: 5, tools: ['trade.ticker.read'] } } },
         support: { published: false },
       }),
-    });
+    );
     expect(laws).toEqual({
       scanner: { published: true, matrix: { basic: { maxSignals: 5, tools: ['trade.ticker.read'] } } },
       navigator: null,

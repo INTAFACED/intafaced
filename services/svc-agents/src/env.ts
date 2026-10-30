@@ -246,6 +246,12 @@ const schema = serviceEnvSchema
        * `gateway/routing.ts`, which is priced for development, not production.
        */
       AGENTS_ROUTING_TABLE: z.string().optional(),
+
+      /**
+       * Published tier law of the scanner, navigator and support doors, as JSON (`tier-laws.ts`). Blank = no law
+       * published: each door refuses `tier_law_blank`. The tier itself is always the signed principal's.
+       */
+      AGENTS_TIER_LAWS: z.string().optional(),
     }),
   );
 

@@ -58,7 +58,7 @@ import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
-import { envTierLaws, type TierLaws } from './tier-laws.js';
+import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -339,7 +339,7 @@ export interface AgentsRouterDeps {
   readonly navigatorIdentitySessionPort?: NavigatorIdentitySessionPort;
   /** Stored runs (AG-sessions-01). Absent → the Postgres store on `sql`; tests without a database pass one in. */
   readonly runStore?: RunStore;
-  /** Published tier law of the scanner, navigator and support doors. Absent → `AGENTS_TIER_LAWS`; blank → refuse-closed. */
+  /** Published tier law of the scanner, navigator and support doors. Absent or blank → every door refuses closed. */
   readonly tierLaws?: TierLaws;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
@@ -385,7 +385,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     meteringEnabled,
   } = deps;
   // The tier-gated doors read the signed principal's tier and this stored law, never the body (AG-sessions-01).
-  const tierLaws = deps.tierLaws ?? envTierLaws();
+  const tierLaws = deps.tierLaws ?? NO_TIER_LAWS;
 
   function routeEngine(route: RouteDef): { engine: RouteEngine; metered: boolean } {
     const provider = typeof gateway.registeredProvider === 'function' ? gateway.registeredProvider(route.providerId) : undefined;

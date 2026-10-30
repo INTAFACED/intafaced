@@ -54,15 +54,11 @@ export function parseTierLaws(raw: string | undefined): TierLaws {
   } catch (err) {
     throw new TierLawsInvalidError((err as Error).message);
   }
-  const result = tierLawsSchema.safeParse(parsed);
-  if (!result.success) throw new TierLawsInvalidError(result.error.issues.map((issue) => issue.message).join('; '));
+  const checked = tierLawsSchema.safeParse(parsed);
+  if (!checked.success) throw new TierLawsInvalidError(checked.error.issues.map((issue) => issue.message).join('; '));
   return {
-    scanner: result.data.scanner ?? null,
-    navigator: result.data.navigator ?? null,
-    support: result.data.support ?? null,
+    scanner: checked.data.scanner ?? null,
+    navigator: checked.data.navigator ?? null,
+    support: checked.data.support ?? null,
   };
-}
-
-export function envTierLaws(env: NodeJS.ProcessEnv = process.env): TierLaws {
-  return parseTierLaws(env.AGENTS_TIER_LAWS);
 }

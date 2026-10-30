@@ -1,5 +1,6 @@
 import { AgentError } from '../errors.js';
 import { RefusedError, type ThinkResult } from '../runtime.js';
+import { RunTransitionError } from './machine.js';
 import type { RunStore, StoredRun } from './store.js';
 
 /** How long a `running` run is left to its caller before a retry with the same request id may take it over. */
@@ -24,8 +25,9 @@ const ENGINE_FAILURES: ReadonlySet<string> = new Set(['agents.provider_unavailab
  *
  * A second request with the same id while the run is live (`running` inside its lease, or waiting) and a repeat of a
  * `completed` run are not recorded again: the runtime decides that call exactly as before (a metered repeat is refused
- * as a replay), and the stored run stays as it was. Two retries racing for one resumable run: the second is refused
- * with `agents.run_transition_invalid` before it calls anything.
+ * as a replay), and the stored run stays as it was. Two retries racing for one resumable run (an admitted, failed or
+ * refused one, or a running one past its lease): the second is refused with `agents.run_transition_invalid` before it
+ * calls anything. The same request id asked for another agent or task is refused as `agents.request_id_replay`.
  */
 export async function runRecorded(
   store: RunStore,
@@ -33,12 +35,24 @@ export async function runRecorded(
   call: () => Promise<ThinkResult>,
   now: () => number = Date.now,
 ): Promise<{ result: ThinkResult; run: StoredRun }> {
-  const { run } = await store.admit(input);
+  const { run, admitted } = await store.admit(input);
+  // One request id names one request: a stored run asked for another agent or task is a replay, refused before anything
+  // runs, so the stored run never describes a call that was not made.
+  if (!admitted && (run.agentId !== input.agentId || run.task !== input.task)) {
+    throw new AgentError(
+      `Request id "${input.requestId}" already names another request on session ${input.sessionId}`,
+      'agents.request_id_replay',
+      'agents.error.request_id_replay',
+      { requestId: input.requestId },
+    );
+  }
   let running: StoredRun | null;
   if (run.state === 'admitted' || run.state === 'failed' || run.state === 'refused') {
     running = await store.move(run.id, 'running');
   } else if (run.state === 'running' && now() - Date.parse(run.updatedAt) > RUN_LEASE_MS) {
+    // The lease passed; the race for it is the database's, and a loser is refused before it calls anything.
     running = await store.takeOver(run.id, new Date(now() - RUN_LEASE_MS));
+    if (!running) throw new RunTransitionError('running', 'running');
   } else {
     running = null;
   }

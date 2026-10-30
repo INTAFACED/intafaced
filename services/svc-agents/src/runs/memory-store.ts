@@ -81,8 +81,8 @@ export function createMemoryRunStore(now: () => Date = () => new Date()): RunSto
       if (!run || run.userId !== userId) return null;
       return (events.get(runId) ?? []).filter((event) => event.sequence > after).slice(0, limit);
     },
-    async forSession(sessionId) {
-      return [...runs.values()].filter((run) => run.sessionId === sessionId);
+    async forSession(sessionId, limit) {
+      return [...runs.values()].filter((run) => run.sessionId === sessionId).slice(0, limit);
     },
   };
 }

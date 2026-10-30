@@ -24,10 +24,10 @@ CREATE TABLE IF NOT EXISTS "agents"."agent_runs" (
   "action_id"   uuid,
   "created_at"  timestamptz NOT NULL DEFAULT now(),
   "updated_at"  timestamptz NOT NULL DEFAULT now(),
+  -- Also the index behind run.list: one session's runs by session_id.
   UNIQUE ("session_id", "request_id"),
   CONSTRAINT "agent_runs_completed_ck" CHECK (("state" = 'completed') = ("reply" IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS "agent_runs_user_idx" ON "agents"."agent_runs" ("user_id", "created_at");
 
 CREATE TABLE IF NOT EXISTS "agents"."agent_run_events" (
   "run_id"        uuid NOT NULL REFERENCES "agents"."agent_runs" ("id"),

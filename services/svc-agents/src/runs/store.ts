@@ -95,7 +95,7 @@ export interface RunStore {
   takeOver(runId: string, staleBefore: Date): Promise<StoredRun | null>;
   get(runId: string, userId: string): Promise<{ run: StoredRun; refusalCodes: string[] } | null>;
   events(runId: string, userId: string, after: number, limit: number): Promise<RunEvent[] | null>;
-  forSession(sessionId: string): Promise<StoredRun[]>;
+  forSession(sessionId: string, limit: number): Promise<StoredRun[]>;
 }
 
 export function createRunStore(sql: Sql): RunStore {
@@ -215,12 +215,12 @@ export function createRunStore(sql: Sql): RunStore {
       }));
     },
 
-    /** Every run of one session, oldest first. The caller has already proved the session is theirs. */
-    async forSession(sessionId: string): Promise<StoredRun[]> {
+    /** One session's first `limit` runs, oldest first. The caller has already proved the session is theirs. */
+    async forSession(sessionId: string, limit: number): Promise<StoredRun[]> {
       const rows = await sql<RunRow[]>`
         SELECT id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
                metered, action_id, created_at, updated_at
-          FROM agents.agent_runs WHERE session_id = ${sessionId} ORDER BY created_at, id
+          FROM agents.agent_runs WHERE session_id = ${sessionId} ORDER BY created_at, id LIMIT ${limit}
       `;
       return rows.map(toRun);
     },
