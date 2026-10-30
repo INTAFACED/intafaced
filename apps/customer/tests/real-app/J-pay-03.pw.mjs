@@ -138,7 +138,9 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   expect(capped.ok(), 'a fourth change is refused').toBe(false);
   expect(await codeOf(capped)).toBe('identity.handle_change_cap_reached');
   // The refusal carries the count: the changes used, which is the cap the service published.
-  expect((await capped.json()).error?.message).toBe(`You have changed your handle ${first.changeCap} times, the most allowed`);
+  expect((await capped.json()).error?.message).toBe(
+    `You have changed your handle ${first.changeCap} times, the most allowed [identity.handle_change_cap_reached]`,
+  );
   await expect(dialog.getByRole('alert')).toHaveText('You have changed your handle 3 times, the most allowed.');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
