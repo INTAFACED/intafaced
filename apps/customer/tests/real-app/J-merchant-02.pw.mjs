@@ -219,7 +219,9 @@ test(`${J} part of #6 the owner reads the published merchant terms and accepts t
   expect(refused).toEqual([]);
 });
 
-test(`${J} #5 the verified owner saves where payouts go, confirming it with a fresh authenticator code`, async ({ page }) => {
+test(`${J} part of #5 the verified owner saves where payouts go, confirming it with a fresh authenticator code; svc-pay lists that one destination and the Destinations room shows the same one`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const owner = await businessReadyPerson(page, 'mpd', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Payout Ltd');
@@ -249,9 +251,49 @@ test(`${J} #5 the verified owner saves where payouts go, confirming it with a fr
   await page.reload();
   const standing = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Before you go live', level: 2 }) });
   await expect(standing).toContainText('DestinationSaved');
-  await page.goto('/pay/payouts/destinations');
-  await expect(page.getByText('No destinations yet')).toHaveCount(0);
+  // svc-pay's list, as the Destinations room reads it: exactly this one wallet, masked to its end.
+  const listed = async (open) => {
+    const read = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.payoutDestinations.list' && r.request().method() === 'GET',
+    );
+    await open();
+    const res = await read;
+    expect(res.status()).toBe(200);
+    return (await res.json()).result.data.items;
+  };
+  const items = await listed(() => page.goto('/pay/payouts/destinations'));
+  expect(items).toHaveLength(1);
+  const [saved] = items;
+  expect(saved).toMatchObject({ merchantId, kind: 'crypto' });
+  expect(saved.destinationMasked).toMatch(/abab$/);
+  expect(saved.destinationMasked).not.toContain(wallet);
+  const table = page.getByRole('region', { name: 'Saved destinations' });
+  const rows = table.getByRole('row').filter({ hasText: /Wallet / });
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Wallet ${saved.destinationMasked}`);
+  await expect(page.getByText(wallet)).toHaveCount(0);
+  // The service keeps it: the same destination, by id, after a reload.
+  expect(await listed(() => page.reload())).toEqual(items);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(`Wallet ${saved.destinationMasked}`);
   expect(refused).toEqual([]);
+});
+
+test(`${J} #5 a new payout destination reads Unverified and cannot receive a payout; after verifying it is Active after the hold; the same destination appears in both lists (blocked: svc-pay's destination list carries no verified state or hold end, and the stack's PAY_DESTINATION_HOLD_SECONDS is blank, so a change is refused pay.destination_hold_unset)`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mpu', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Payout Hold Ltd');
+  await verifiedBusiness(page, owner, merchantId);
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/payouts/destinations');
+  // What the row asks for: each saved destination shows whether it is verified, and a held one when it becomes Active.
+  // Neither svc-pay's list (merchant.payoutDestinations.list) nor the room has that state today.
+  await expect(
+    page.getByRole('region', { name: 'Saved destinations' }).getByRole('columnheader', { name: 'Status' }),
+    'blocked: the destination list has no verified state or hold end',
+  ).toBeVisible({ timeout: 5_000 });
 });
 
 /** Step 2's business application on the verification page, started for one type and country. */
@@ -274,39 +316,115 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   const owner = await businessReadyPerson(page, 'mkt', '/pay/onboarding');
   await openBusiness(page, owner, 'TEST Entity Ltd');
   const refused = refusedPayCalls(page);
+  // svc-pay's own answer to each application write the room makes, read from the reply the room receives.
+  const reply = (procedure) =>
+    page
+      .waitForResponse((r) => new URL(r.url()).pathname === `/api/pay/trpc/kyb.application.${procedure}` && r.request().method() === 'POST')
+      .then(async (r) => {
+        expect(r.status(), `kyb.application.${procedure}`).toBe(200);
+        return (await r.json()).result.data;
+      });
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const dueBy = (app) => app.locator('dt', { hasText: 'Due by' }).locator('+ dd time');
+  // The application's status fact (document rows also read Pending, so the status is read from its own row).
+  const status = (app) => app.locator('dt', { hasText: /^Application$/ }).locator('+ dd');
 
-  const app = await startApplication(page, 'Private company');
+  // Started as a sole trader: Pending, with every part it needs still listed, and a due date from the service.
+  const started = reply('start');
+  const app = await startApplication(page, 'Sole trader');
+  const view = await started;
+  await expect(status(app)).toHaveText('Pending');
+  expect(view).toMatchObject({ entityType: 'sole_proprietorship', state: 'draft' });
+  expect(view.missing).toEqual(['company_details', 'people', 'documents', 'questionnaires']);
+  // The stack's TEST due date (PAY_KYB_APPLICATION_DUE_DAYS=30) counts from the start.
+  expect(Date.parse(view.dueAt) - Date.parse(view.startedAt)).toBe(30 * DAY_MS);
+  await expect(dueBy(app)).toHaveAttribute('datetime', view.dueAt);
   const needed = app.getByRole('list', { name: 'Still needed' });
-  await expect(needed).toContainText('Company details');
-  await expect(needed).toContainText('People behind the business');
-  await expect(needed).toContainText('Documents: Test certificate of incorporation, Test proof of address');
-  await expect(needed).toContainText('Questions');
-  // The stack's TEST due date is 30 days from the start.
-  await expect(app.locator('dt', { hasText: 'Due by' }).locator('+ dd time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
+  await expect(needed.getByRole('listitem')).toHaveText([
+    'Company details',
+    'People behind the business',
+    'Documents: Test proof of identity, Test proof of address',
+    'Questions',
+  ]);
 
+  // Every part filled in: the application is no longer Pending but ready to send.
   const company = app.getByRole('region', { name: 'Company details' });
   await company.getByLabel('Registered legal name *').fill('TEST Entity Ltd');
   await company.getByLabel('Registered address *').fill('1 Test Street, Berlin');
   await company.getByRole('button', { name: 'Save' }).click();
   await expect(company.getByRole('status')).toHaveText('Saved. This part is done.');
   await expect(needed).not.toContainText('Company details');
+  const people = app.getByRole('region', { name: 'People behind the business' });
+  await people.getByLabel('Full legal name *').fill('TEST Proprietor');
+  await people.getByLabel('Date of birth *').fill('1980-01-02');
+  await people.getByLabel('Nationality (2-letter country code) *').fill('DE');
+  await people.getByRole('button', { name: 'Save' }).click();
+  await expect(people.getByRole('status')).toHaveText('Saved. This part is done.');
+  const questions = app.getByRole('region', { name: 'Questions' });
+  await questions.getByLabel('Test nature of business *').fill('TEST online sales of printed books');
+  await questions.getByRole('button', { name: 'Save' }).click();
+  await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
+  const docs = app.getByRole('region', { name: 'Documents', exact: true });
+  const pdf = (text) => Buffer.from(`%PDF-1.4\n% TEST ${text}\n%%EOF\n`);
+  for (const [key, file] of [
+    ['Test proof of identity', 'identity.pdf'],
+    ['Test proof of address', 'address.pdf'],
+  ]) {
+    const row = docs.getByRole('row', { name: new RegExp(key) });
+    await row.getByLabel(`Choose a file for ${key}`).setInputFiles({ name: file, mimeType: 'application/pdf', buffer: pdf(file) });
+    await row.getByRole('button', { name: 'Send' }).click();
+    await expect(docs.getByRole('row', { name: new RegExp(key) })).toContainText('Pending');
+  }
+  const confirmed = reply('saveSection');
+  await docs.getByRole('button', { name: 'Confirm documents' }).click();
+  expect((await confirmed).missing, 'svc-pay: nothing is missing').toEqual([]);
+  await expect(status(app)).toHaveText('Ready to send');
+  await expect(app.getByText('Nothing. Every part is done.')).toBeVisible();
 
+  // The type changes to a private company: the application returns to Pending, and what the new type needs is listed
+  // again, each part as svc-pay names it, under the same due date.
   const change = app.getByRole('region', { name: 'Change the legal entity type' });
-  await change.getByLabel('Legal entity type *').selectOption({ label: 'Sole trader' });
+  await change.getByLabel('Legal entity type *').selectOption({ label: 'Private company' });
+  const changed = reply('changeType');
   await change.getByRole('button', { name: 'Change type' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Change type' }).click();
+  const after = await changed;
+  expect(after).toMatchObject({
+    applicationId: view.applicationId,
+    entityType: 'private_company',
+    state: 'draft',
+    startedAt: view.startedAt,
+    dueAt: view.dueAt,
+  });
+  expect(after.missing).toEqual(['company_details', 'people', 'documents', 'questionnaires']);
   await expect(change.getByRole('status').filter({ hasText: 'Type changed.' })).toHaveText(
     'Type changed. Fill in each part again for the new type.',
   );
-  await expect(app.getByText('Pending', { exact: true })).toBeVisible();
-  await expect(needed).toContainText('Company details');
-  await expect(needed).toContainText('Documents: Test proof of identity, Test proof of address');
+  await expect(status(app)).toHaveText('Pending');
+  await expect(needed.getByRole('listitem')).toHaveText([
+    'Company details',
+    'People behind the business',
+    'Documents: Test certificate of incorporation, Test proof of address',
+    'Questions',
+  ]);
+  await expect(dueBy(app)).toHaveAttribute('datetime', after.dueAt);
   await expect(app.getByRole('region', { name: 'Company details' })).toContainText('Not started');
-  await expect(app.getByRole('region', { name: 'People behind the business' }).getByLabel('Role *')).toHaveValue('test_proprietor');
 
+  // The service holds it: after a reload the room reads the same from svc-pay.
+  const reread = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/kyb.application.current');
   await page.reload();
-  await expect(app.locator('dd', { hasText: 'Sole trader' })).toBeVisible();
-  await expect(needed).toContainText('Test proof of identity');
+  const current = (await (await reread).json()).result.data;
+  expect(current).toMatchObject({ entityType: 'private_company', state: 'draft', dueAt: view.dueAt });
+  expect(current.missing).toEqual(after.missing);
+  await expect(app.locator('dd', { hasText: 'Private company' })).toBeVisible();
+  await expect(status(app)).toHaveText('Pending');
+  await expect(needed.getByRole('listitem')).toHaveText([
+    'Company details',
+    'People behind the business',
+    'Documents: Test certificate of incorporation, Test proof of address',
+    'Questions',
+  ]);
+  await expect(dueBy(app)).toHaveAttribute('datetime', view.dueAt);
   expect(refused).toEqual([]);
 });
 
