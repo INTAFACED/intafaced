@@ -212,7 +212,11 @@ export class AccountAppeals {
         approvalId: input.approvalId!,
       });
       const released = (result.outcome === 'changed' || result.outcome === 'noop') && result.after?.restricted === false;
-      if (!released) throw new AppealError('identity.appeal_lift_refused', result.outcome === 'refused' || result.outcome === 'conflict' ? result.code : result.outcome);
+      if (!released)
+        throw new AppealError(
+          'identity.appeal_lift_refused',
+          result.outcome === 'refused' || result.outcome === 'conflict' ? result.code : result.outcome,
+        );
     }
     return this.sql.begin(async (tx) => {
       const row = await this.read(tx, input.appealId, true);
@@ -223,7 +227,8 @@ export class AccountAppeals {
       if (input.decision === 'uphold') {
         const [held] = await tx<Array<{ restricted: boolean; version: string }>>`
           SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${row.user_id} FOR SHARE`;
-        if (!held?.restricted || held.version !== refVersion(row.restriction_ref)) throw new AppealError('identity.appeal_restriction_changed');
+        if (!held?.restricted || held.version !== refVersion(row.restriction_ref))
+          throw new AppealError('identity.appeal_restriction_changed');
       }
       const [done] = await tx<AppealRow[]>`
         UPDATE account_appeals SET status = ${outcome}, decision_reason_code = ${input.reasonCode}, decided_by = ${deciderId},
@@ -254,7 +259,9 @@ export class AccountAppeals {
   }
 
   private settledRepeat(row: AppealRow, deciderId: string, outcome: 'lifted' | 'upheld', reasonCode: string): AppealForStaff | null {
-    return row.status === outcome && row.decided_by === deciderId && row.decision_reason_code === reasonCode ? this.presentForStaff(row) : null;
+    return row.status === outcome && row.decided_by === deciderId && row.decision_reason_code === reasonCode
+      ? this.presentForStaff(row)
+      : null;
   }
 
   private assertDecidable(row: AppealRow, deciderId: string, input: AppealDecideInput): void {

@@ -24,7 +24,12 @@ const migrations = readdirSync(migrationDirectory)
   .filter((file) => file.endsWith('.sql') && !file.endsWith('.down.sql'))
   .sort()
   .map((file) => readFileSync(join(migrationDirectory, file), 'utf8'));
-const tokens = { secret: 'an-account-appeals-test-secret-long-enough', issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 900 };
+const tokens = {
+  secret: 'an-account-appeals-test-secret-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
 const available = await postgresAvailable(url);
 const REASONS: KycRejectReasons = new Map([
   ['review_complete', { code: 'review_complete', reason: 'TEST: we reviewed the account', guidance: 'TEST: trade as usual' }],
@@ -102,9 +107,15 @@ if (!available) {
   };
 
   const held = async () =>
-    (await db.sql<Array<{ restricted: boolean; version: string }>>`SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${target}`)[0];
+    (
+      await db.sql<
+        Array<{ restricted: boolean; version: string }>
+      >`SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${target}`
+    )[0];
   const notices = async () =>
-    db.sql<Array<{ purpose: string; detail: string | null }>>`SELECT purpose, detail FROM mail_outbox WHERE user_id = ${target} AND purpose = 'appeal-decided'`;
+    db.sql<
+      Array<{ purpose: string; detail: string | null }>
+    >`SELECT purpose, detail FROM mail_outbox WHERE user_id = ${target} AND purpose = 'appeal-decided'`;
 
   const desk = (windowDays: number | null = 30, decisionReasons: KycRejectReasons = REASONS) =>
     new AccountAppeals(db.sql, { windowDays: windowDays ?? undefined, decisionReasons, controls });
@@ -145,7 +156,9 @@ if (!available) {
       expect(await submit(appeals, key)).toEqual(first);
       expect(await codeOf(submit(appeals))).toBe('identity.appeal_open');
       expect(await codeOf(submit(appeals, key, 'another text'))).toBe('identity.appeal_request_conflict');
-      const rows = await db.sql<Array<{ restricted_by: string; restriction_ref: string }>>`SELECT restricted_by, restriction_ref FROM account_appeals`;
+      const rows = await db.sql<
+        Array<{ restricted_by: string; restriction_ref: string }>
+      >`SELECT restricted_by, restriction_ref FROM account_appeals`;
       expect(rows).toEqual([{ restricted_by: restrictor.principal!.userId, restriction_ref: 'trading:1' }]);
       expect((await appeals.mine(target)).appeals.map((a) => a.id)).toEqual([first.id]);
     });
@@ -187,7 +200,9 @@ if (!available) {
       expect(await desk().decide(decider, uphold)).toEqual(done);
       expect(await codeOf(desk().decide(decider, { ...uphold, reasonCode: 'review_complete' }))).toBe('identity.appeal_decided');
       expect(await notices()).toEqual([{ purpose: 'appeal-decided', detail: 'upheld' }]);
-      const events = await db.sql<Array<{ status: string }>>`SELECT status FROM account_appeal_events WHERE appeal_id = ${appeal.id} ORDER BY id`;
+      const events = await db.sql<
+        Array<{ status: string }>
+      >`SELECT status FROM account_appeal_events WHERE appeal_id = ${appeal.id} ORDER BY id`;
       expect(events.map((e) => e.status)).toEqual(['submitted', 'upheld']);
       // Decided, so the person may appeal the same restriction again.
       expect((await submit(desk())).status).toBe('submitted');
