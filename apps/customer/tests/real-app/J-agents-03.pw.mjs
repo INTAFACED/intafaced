@@ -1,14 +1,20 @@
 import { test, expect } from '@playwright/test';
 import { OWN_AGENT, UNBUILT, agentsRun, openAgents, openOwnAgent } from './agents.mjs';
 import { signIn } from './desk.mjs';
+import { api, tool } from './stack.mjs';
 
 // J-agents-03, in the running app (docs/roadmap/journeys.json): create my own agent from a template, protect it and
 // publish it. One test per step, titled "J-agents-03 #<n>", run in order on one verified TEST account, starting on
 // /agents/new. Creating an agent moves no money. The assistant-drafting panel waits on the owner's model choice
-// (owner.decision) while the rest of the builder works.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - /agents/new answers "Page not found": there is no template picker, builder, validator, protection check, identity
-//   page or publish flow (AG-catalogue-02, AG-builder-01, -03, AG-identity-01, AG-spend-01, AG-tools-01).
+// (owner.decision) while the rest of the builder works. The draft each step leaves is read back from svc-agents
+// (own.* through Edge), not only from the page.
+// A clause the product cannot run yet stays red in a test of its own, named by that clause:
+// - #1 "with no templates only the blank option shows": the template set is fixed in svc-agents, so nothing can leave
+//   it empty (AG-catalogue-02);
+// - #4 "tool shapes": a tool is a name only, with no declared inputs or outputs to set (AG-tools-01);
+// - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
+// The identity page and the publish flow are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
+// at their first missing part, quickly (UNBUILT).
 // Not covered yet: #5's frozen-owner clause (freezing this run's account would stop #6 to #8) and its blank-lifetime
 // clause (it depends on the owner value the stack publishes); both join #5 with the identity page.
 const J = 'J-agents-03';
@@ -21,6 +27,23 @@ const SPARE = 'TEST spare draft';
 const main = (page) => page.getByRole('main');
 const builder = (page) => main(page).getByRole('form', { name: 'Agent builder' });
 const check = (page) => main(page).getByRole('region', { name: 'Protection check' });
+
+/** One of the person's own agents service reads through Edge, on a sign-in of its own: the answer's data. */
+async function ownRead(procedure, input) {
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(agents.account())).get(`/api/agents/trpc/own.${procedure}${query}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** The person's own agents, newest first, as svc-agents holds them. */
+const ownAgents = () => ownRead('list', { limit: 200 });
+/** The journey's own agent, as svc-agents holds it. */
+async function ownAgent() {
+  const named = (await ownAgents()).filter((row) => row.name === OWN_AGENT);
+  expect(named).toHaveLength(1);
+  return ownRead('get', { id: named[0].id });
+}
 
 async function openBuilder(page) {
   await signIn(page, agents.account());
@@ -38,40 +61,124 @@ test(`${J} #1 opens the template picker and chooses the service starter: a draft
   page,
 }) => {
   await openBuilder(page);
+  // The starter's tools, as svc-agents publishes the template.
+  const starter = (await ownRead('catalogue')).templates.filter((row) => row.id === 'service-starter');
+  expect(starter).toHaveLength(1);
+  const starterTools = starter[0].tools;
+  expect(starterTools.length).toBeGreaterThan(0);
+  const before = (await ownAgents()).map((row) => row.id);
   const picker = main(page).getByRole('region', { name: 'Templates' });
   await picker.getByRole('button', { name: 'Use the service starter' }).click();
   await expect(builder(page).getByRole('textbox', { name: /^Spend cap per session/ })).toHaveValue('');
-  await expect(builder(page).getByRole('list', { name: 'Tools' }).getByRole('listitem').first()).toBeVisible();
+  // Exactly the template's tools, each once, in its order.
+  await expect(builder(page).getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code')).toHaveText(starterTools);
   const first = await builder(page).getByTestId('draft-id').innerText();
+  expect(await ownRead('get', { id: first })).toMatchObject({
+    template: 'service-starter',
+    tools: starterTools,
+    perSessionCap: null,
+    state: 'draft',
+    version: 1,
+  });
   await builder(page).getByRole('textbox', { name: /^Name/ }).fill(OWN_AGENT);
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
 
   await page.goto('/agents/new');
   await picker.getByRole('button', { name: 'Use the service starter' }).click();
   const second = await builder(page).getByTestId('draft-id').innerText();
   expect(second).not.toBe(first);
+  // A second draft of the same template, and the next one svc-agents holds: newest first, right after the first.
+  expect((await ownAgents()).map((row) => row.id)).toEqual([second, first, ...before]);
+  expect(await ownRead('get', { id: second })).toMatchObject({
+    template: 'service-starter',
+    tools: starterTools,
+    perSessionCap: null,
+    state: 'draft',
+    version: 1,
+  });
   // Kept as the spare draft #8 deletes.
   await builder(page).getByRole('textbox', { name: /^Name/ }).fill(SPARE);
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+});
+
+test(`${J} #1 with no templates only the blank option shows`, async ({ page }) => {
+  // svc-agents restarted with its template set blank. The set is fixed in the service today (AG-catalogue-02), so the
+  // switch changes nothing yet and the starter still shows: this clause stays red, by name, until it can be blank.
+  test.setTimeout(240_000);
+  process.env.LOCAL_STACK_AGENTS_TEMPLATES = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'agents');
+    await openBuilder(page);
+    const picker = main(page).getByRole('region', { name: 'Templates' });
+    await expect(picker.getByRole('button', { name: 'Start blank' })).toBeVisible();
+    await expect(picker.getByRole('button')).toHaveCount(1);
+    expect((await ownRead('catalogue')).templates.map((row) => row.id)).toEqual(['blank']);
+  } finally {
+    delete process.env.LOCAL_STACK_AGENTS_TEMPLATES;
+    tool('local-test-stack.mjs', 'restart', 'agents');
+  }
 });
 
 test(`${J} #2 edits the name, instructions and tools, adds a tool that moves money: the validator refuses it with its reason; "sessions" is reserved`, async ({
   page,
 }) => {
   await openOwnAgent(page, agents, 'Build');
+  const saved = await ownAgent();
+  const alertWith = (code) =>
+    builder(page)
+      .getByRole('alert')
+      .filter({ has: page.locator('code', { hasText: code }) });
+  const INSTRUCTIONS = 'Answer TEST questions about my orders.';
   await builder(page)
     .getByRole('textbox', { name: /^Instructions/ })
-    .fill('Answer TEST questions about my orders.');
+    .fill(INSTRUCTIONS);
   await builder(page).getByRole('button', { name: 'Add a tool' }).click();
   await page
     .getByRole('dialog', { name: 'Add a tool' })
     .getByRole('option', { name: /ledger\.transfer/ })
     .click();
-  await expect(builder(page).getByRole('alert')).toContainText('A tool that moves money cannot be added to an agent.');
+  const moneyTool = alertWith('agents.own.money_tool');
+  await expect(moneyTool).toContainText('A tool that moves money cannot be added to an agent.');
+  await expect(moneyTool.locator('code')).toHaveText('agents.own.money_tool');
+  await expect(builder(page).getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code')).toHaveText(saved.tools);
+  // The validator in svc-agents refuses it on its own, by the same code, when a save carries it past the page; the
+  // draft it holds is unchanged.
+  const refused = await (
+    await api(agents.account())
+  ).post('/api/agents/trpc/own.save', {
+    id: saved.id,
+    name: saved.name,
+    instructions: INSTRUCTIONS,
+    tools: [...saved.tools, 'ledger.transfer'],
+    perSessionCap: saved.perSessionCap,
+  });
+  expect(refused.status).toBe(400);
+  expect(refused.body.error.message).toBe('agents.own.money_tool');
+  expect(await ownRead('get', { id: saved.id })).toEqual(saved);
+  // "sessions" is reserved: the save is refused by its code and nothing in it is kept.
   await builder(page).getByRole('textbox', { name: /^Name/ }).fill('sessions');
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder(page).getByRole('alert')).toContainText('“sessions” is a reserved name.');
+  const reserved = alertWith('agents.own.reserved_name');
+  await expect(reserved).toContainText('“sessions” is a reserved name.');
+  await expect(reserved.locator('code')).toHaveText('agents.own.reserved_name');
+  expect(await ownRead('get', { id: saved.id })).toEqual(saved);
+  // With its own name back, the edited instructions and an added tool that only reads are saved.
   await builder(page).getByRole('textbox', { name: /^Name/ }).fill(OWN_AGENT);
+  await builder(page).getByRole('button', { name: 'Add a tool' }).click();
+  await page
+    .getByRole('dialog', { name: 'Add a tool' })
+    .getByRole('option', { name: /trade\.quote/ })
+    .click();
+  await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+  expect(await ownRead('get', { id: saved.id })).toMatchObject({
+    name: OWN_AGENT,
+    instructions: INSTRUCTIONS,
+    tools: [...saved.tools, 'trade.quote'],
+    perSessionCap: null,
+  });
 });
 
 test(`${J} #3 reads the protection check: a blocking finding for the missing per-session cap`, async ({ page }) => {
@@ -81,13 +188,29 @@ test(`${J} #3 reads the protection check: a blocking finding for the missing per
 
 test(`${J} #4 sets the cap and tool shapes: the finding clears; publish otherwise refuses with the unset-cap code`, async ({ page }) => {
   await openOwnAgent(page, agents, 'Build');
+  const draft = await ownAgent();
+  expect(draft).toMatchObject({ perSessionCap: null, state: 'draft', version: 1 });
+  expect(draft.findings).toContainEqual({ code: 'agents.spend.cap_unset', blocksPublishing: true });
   await main(page).getByRole('button', { name: 'Publish' }).click(UNBUILT);
-  await expect(main(page).getByRole('alert')).toContainText('agents.spend.cap_unset');
+  await expect(main(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_unset');
+  // Nothing was published: the draft svc-agents holds is unchanged, still version 1 and a draft.
+  await expect(main(page).getByTestId('agent-version')).toHaveText('Version 1 · draft');
+  expect(await ownRead('get', { id: draft.id })).toEqual(draft);
   await builder(page)
     .getByRole('textbox', { name: /^Spend cap per session/ })
     .fill('1');
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
   await expect(check(page).getByRole('listitem').filter({ hasText: 'No spend cap per session' })).toHaveCount(0);
+  await expect(check(page)).toContainText('Nothing blocks publishing this draft.');
+  const capped = await ownRead('get', { id: draft.id });
+  expect(capped).toMatchObject({ perSessionCap: '1', findings: [] });
+});
+
+test(`${J} #4 sets the tool shapes`, async ({ page }) => {
+  // A tool is a name only today, with no declared inputs or outputs to set (AG-tools-01): red, by name, until it is.
+  await openOwnAgent(page, agents, 'Build');
+  await expect(builder(page).getByRole('group', { name: 'Tool shapes' })).toBeVisible(UNBUILT);
 });
 
 test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too`, async ({
@@ -104,12 +227,31 @@ test(`${J} #6 asks the assistant to draft an agent: with the model unset the own
   page,
 }) => {
   await openBuilder(page);
+  const before = await ownAgents();
   const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
-  await expect(assistant.getByRole('note')).toContainText('owner.decision');
+  await expect(assistant.getByRole('note').locator('code')).toHaveText('owner.decision');
   await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeDisabled();
-  // The rest of the builder still works without it.
+  // The panel drafted and saved nothing.
+  expect(await ownAgents()).toEqual(before);
+  // The rest of the builder still works without it: a blank draft is made, held by svc-agents, and edits save.
   await main(page).getByRole('region', { name: 'Templates' }).getByRole('button', { name: 'Start blank' }).click();
-  await expect(builder(page).getByRole('textbox', { name: /^Name/ })).toBeEditable();
+  const id = await builder(page).getByTestId('draft-id').innerText();
+  const after = await ownAgents();
+  expect(after.map((row) => row.id)).toEqual([id, ...before.map((row) => row.id)]);
+  expect(after[0]).toMatchObject({ template: 'blank', tools: [], state: 'draft' });
+  await builder(page).getByRole('textbox', { name: /^Name/ }).fill('TEST blank draft');
+  await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+  expect(await ownRead('get', { id })).toMatchObject({ name: 'TEST blank draft', template: 'blank' });
+});
+
+test(`${J} #6 once the model choice is set a draft appears whose tools passed the validator; nothing is saved until accepted`, async ({
+  page,
+}) => {
+  // The assistant waits on the owner's choice of model (owner.decision): red, by name, until the owner makes it.
+  await openBuilder(page);
+  const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
+  await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeEnabled(UNBUILT);
 });
 
 test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version`, async ({
