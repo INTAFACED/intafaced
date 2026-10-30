@@ -534,15 +534,16 @@ if (!available) {
       const call = await runtime.think({ sessionId: session.id, requestId: 'r-a', task: 'plan', messages: MESSAGES });
       await runtime.settleWindow(session.id, call.windowId!);
 
-      // Same window (the clock has not moved an hour), already settled.
-      await expect(runtime.think({ sessionId: session.id, requestId: 'r-late', task: 'plan', messages: MESSAGES })).rejects.toMatchObject({
-        code: 'agents.window_sealed',
-      });
+      // Same window (the clock has not moved an hour), already settled: refused before anything is claimed or called.
+      const err = await runtime.think({ sessionId: session.id, requestId: 'r-late', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(err).toBeInstanceOf(RefusedError);
+      expect((err as RefusedError).refusal.code).toBe('agents.window_sealed');
 
-      // The house was not paid twice, and the attempt is in the log.
+      // The house was not paid twice, the engine answered once, and the refusal is in the log.
       expect(await houseOf()).toBe(formatAmount((await runtime.settleWindow(session.id, call.windowId!)).amount));
       const log = await runtime.sessionLog(session.id, 500);
-      expect(log.some((a) => a.status === 'failed')).toBe(true);
+      expect(log.filter((a) => a.kind === 'completion' && a.status === 'executed')).toHaveLength(1);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.window_sealed' });
     });
 
     it('charges nothing for a session on the included allowance', async () => {
@@ -2135,6 +2136,31 @@ if (!available) {
       expect(gate.calls()).toBe(1);
     });
 
+    it('with a spend gate, a balance that cannot be read refuses as unread before the hold and the engine, and bills 0', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'unread-gate', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'unread-gate' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread-gate-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
+      expect(gate.calls()).toBe(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`).toHaveLength(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.funds_unread' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
     it('refuses when the balance cannot be read: an unknown balance is not a covered one', async () => {
       const gate = counting(gateway);
       const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
@@ -2148,7 +2174,8 @@ if (!available) {
       });
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
-      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
       expect(gate.calls()).toBe(0);
     });
 

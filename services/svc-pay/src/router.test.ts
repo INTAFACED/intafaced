@@ -1673,8 +1673,13 @@ describe('withdrawal.create is the interactive, 2FA-backed path off the platform
 
   it('takes the account from the token — there is no userId to tamper with', async () => {
     const api = await caller(['trade:withdraw'], { tier: 'basic' });
-    await api.withdrawal.create({ ...body, userId: '66666666-6666-4666-8666-666666666667' } as never);
+    // The input is strict: a userId is refused as a bad request, so it can never name another account.
+    await expect(api.withdrawal.create({ ...body, userId: '66666666-6666-4666-8666-666666666667' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(money.calls.filter((c) => c.method === 'withdraw')).toHaveLength(0);
 
+    await api.withdrawal.create(body);
     const call = money.calls.find((c) => c.method === 'withdraw')!;
     expect((call.args[0] as { userId: string }).userId).toBe(USER);
   });

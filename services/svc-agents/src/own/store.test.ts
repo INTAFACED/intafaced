@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
@@ -69,22 +69,30 @@ if (!available) {
   const other = router.createCaller(callerFor(OTHER, ['agents:read', 'identity:write']));
   const balance = async () => (await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM agents.usage_windows`)[0]!.n;
 
+  // Other test files truncate these tables too, so each test holds the lock while it runs.
+  let lock: Awaited<ReturnType<typeof sql.reserve>>;
+
   beforeAll(async () => {
-    const lock = await sql.reserve();
+    lock = await sql.reserve();
     await lock`select pg_advisory_lock(842671)`;
     try {
       for (const migration of migrations) await sql.unsafe(migration);
     } finally {
       await lock`select pg_advisory_unlock(842671)`;
-      lock.release();
     }
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE agents.own_agents`;
+    await lock`select pg_advisory_lock(842671)`;
+    await sql`TRUNCATE agents.own_agent_limits, agents.own_agents`;
+  });
+
+  afterEach(async () => {
+    await lock`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {
+    lock.release();
     await sql.end({ timeout: 5 });
   });
 

@@ -8,6 +8,14 @@ function testValue(name) {
   return entry.value;
 }
 
+/** The staking risk wording (BK-earn-04): the profile's TEST wording, or blank when the stack is asked to show it unset. */
+function earnRiskWording() {
+  const asked = process.env.LOCAL_STACK_BANK_EARN_RISK_WORDING;
+  if (asked === undefined || asked === '') return { BANK_EARN_RISK_WORDING_JSON: testValue('BANK_EARN_RISK_WORDING_JSON') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_EARN_RISK_WORDING is "${asked}"; leave it unset for the TEST wording, or set it to off.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -116,6 +124,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
     BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
     BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
+    // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
+    // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
+    ...earnRiskWording(),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.
