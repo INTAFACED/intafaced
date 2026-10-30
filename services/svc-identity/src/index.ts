@@ -89,6 +89,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { createHandleRouter } from './profile/handle-router.js';
+import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -261,6 +263,11 @@ await sql`SELECT consumed_by_service, consumed_by_principal, consumed_request_id
 await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
   );
 });
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
@@ -446,8 +453,10 @@ auth.useNewDevicePolicy({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const tradingRestrictionReasons = parseKycRejectReasons(env.IDENTITY_TRADING_RESTRICTION_REASONS, 'IDENTITY_TRADING_RESTRICTION_REASONS');
 const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+  tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
@@ -721,6 +730,7 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -749,7 +759,15 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
+  createAccountStatusRouter(
+    new AccountStatusDesk(
+      sql,
+      env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS,
+      kycCapabilityReasons,
+      kycCapabilityMap,
+      tradingRestrictionReasons,
+    ),
+  ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createFreezeLinkRouter(auth),

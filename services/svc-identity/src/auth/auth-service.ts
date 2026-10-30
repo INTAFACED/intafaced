@@ -84,6 +84,7 @@ import {
   type LoginCodeDeps,
   type LoginCodePolicy,
 } from './login-code.js';
+import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-settings.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
@@ -1212,6 +1213,10 @@ export class AuthService {
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
   private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
+    // a handle change, so the check below sees settled rows.
+    await lockHandleClaim(tx, input.handle);
+    if (await handleRetiredByOther(tx, input.handle, null)) throw new AuthError('That handle is taken', 'auth.handle_taken');
     const clash = await tx<
       Array<{ handle: string; email: string }>
     >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
@@ -2799,13 +2804,15 @@ export class AuthService {
    *
    * Only `active` accounts come back. Frozen, closed and missing rows are the
    * same null: the caller must not learn which handles belong to restricted
-   * accounts. Returns the stored handle and nothing else about the account.
+   * accounts. Returns the stored handle and whether its owner lets people find
+   * them by it (PP-send-request-03); the caller hides an undiscoverable one
+   * from everyone but its owner.
    */
-  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string } | null> {
-    const rows = await this.sql<Array<{ id: string; handle: string }>>`
-      SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
+      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
-    return row ? { userId: row.id, handle: row.handle } : null;
+    return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
   }
 
   /**
