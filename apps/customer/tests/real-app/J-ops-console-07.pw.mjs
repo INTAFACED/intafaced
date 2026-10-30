@@ -149,6 +149,30 @@ async function consoleStep(page, endpoint, packetText, step, confirm) {
   );
 }
 
+/**
+ * A lifecycle request sent to the console's route as A, approved by B and run by A, without the desk: returns the first
+ * refusal (whichever step gives it) or the run's answer.
+ */
+async function retireAnyway(a, b, request, confirm) {
+  const send = (page, body) =>
+    page.evaluate(async (payload) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch('/api/ledger-reconciliation/lifecycle', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      return res.json();
+    }, body);
+  const proposed = await send(a, { step: 'propose', request, confirm });
+  if (!proposed.ok) return proposed;
+  const packet = JSON.parse(Buffer.from(proposed.packet.slice('ifa1.'.length), 'base64url').toString('utf8'));
+  const approved = await send(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  if (!approved.ok) return approved;
+  return send(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+}
+
 /** A runs an approved request on their run desk and returns the service's answer as the desk shows it. */
 async function runApproved(desk, phrase) {
   await desk.getByLabel(/to approve or run it$/).fill(phrase);
@@ -467,13 +491,48 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(active).toContainText('warning');
     await expect(active).toContainText('Every account with asset USDT, matched at each run');
 
-    // The three built-in controls offer no change form, only a run.
+    // The three built-in controls offer no change form and cannot be removed: no pause or retire step is offered, the
+    // lifecycle desk names the ledger's code and its request button stays off; only a run is left.
     const builtins = section.getByTestId('rc-row').filter({ hasText: 'Built-in' });
-    for (const id of await builtins.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-control-id')))) {
+    await expect(builtins).toHaveCount(3);
+    const builtinIds = await builtins.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-control-id')));
+    for (const id of builtinIds) {
       await choose(section, id);
-      await expect(section.getByTestId('rc-builtin')).toBeVisible();
+      await expect(section.getByTestId('rc-builtin')).toContainText('cannot be changed or removed');
       await expect(section.getByTestId('rc-form-update')).toHaveCount(0);
+      const desk = section.getByTestId('rc-lifecycle');
+      await expect(desk.getByTestId('rc-lifecycle-move')).toHaveCount(0);
+      await expect(desk.getByTestId('rc-lifecycle-why')).toHaveText(
+        'A built-in control cannot be paused or retired (ledger.reconcile_builtin_immutable).',
+      );
+      const live = await desk
+        .locator('button')
+        .evaluateAll((all) =>
+          all.filter((b) => !b.disabled && /ask a second founder|retire|pause/i.test(b.textContent)).map((b) => b.textContent.trim()),
+        );
+      expect(live, `built-in ${id}: no retire or pause request can be sent from the desk`).toEqual([]);
     }
+
+    // A retire sent anyway, with two founders, is refused by the ledger with its code, and the control stays as it was.
+    const { b } = await founders(browser);
+    const target = builtinIds[0];
+    const listed = await a.evaluate(async () => (await (await fetch('/api/ledger-reconciliation', { cache: 'no-store' })).json()).controls);
+    const control = listed.find((c) => c.id === target);
+    expect(control, `built-in ${target} is in the console's list`).toMatchObject({ builtin: true });
+    const retire = {
+      kind: 'ledger.reconciliation_control.lifecycle',
+      controlId: target,
+      version: String(control.version),
+      lifecycle: 'retire',
+      reason: `LOCAL TEST J-ops-console-07 retire a built-in ${tag}`,
+    };
+    const refused = await retireAnyway(a, b, retire, `RETIRE CONTROL ${target.slice(0, 8)}`);
+    expect(refused, JSON.stringify(refused).slice(0, 400)).toMatchObject({
+      ok: false,
+      refusal: { code: 'ledger.reconcile_builtin_immutable' },
+    });
+    const after = await a.evaluate(async () => (await (await fetch('/api/ledger-reconciliation', { cache: 'no-store' })).json()).controls);
+    expect(after.find((c) => c.id === target)).toMatchObject({ builtin: true, state: control.state, version: control.version });
   });
 
   test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser }) => {
