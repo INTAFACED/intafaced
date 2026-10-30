@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LedgerEntry } from '../../../features/trade/trade-api';
-import { dayStart, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
+import { dayStart, ledgerKindKey, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 
 function entry(currency: string, direction: 'in' | 'out', amount: string): LedgerEntry {
   return {
@@ -87,5 +87,18 @@ describe('statementRange', () => {
 describe('sha256Hex', () => {
   it('is the SHA-256 of the text', async () => {
     expect(await sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  });
+});
+
+describe('ledgerKindKey', () => {
+  it('names every fill kind a fill, a sale to the token buyback included', () => {
+    for (const type of ['trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback'])
+      expect(ledgerKindKey({ type })).toBe('Ledger kind fill');
+  });
+
+  it('reads deposits and withdrawals by prefix, and anything else as other', () => {
+    expect(ledgerKindKey({ type: 'deposit.credited' })).toBe('Ledger kind deposit');
+    expect(ledgerKindKey({ type: 'withdraw.settled' })).toBe('Ledger kind withdrawal');
+    expect(ledgerKindKey({ type: 'brand.new.reason' })).toBe('Ledger kind other');
   });
 });
