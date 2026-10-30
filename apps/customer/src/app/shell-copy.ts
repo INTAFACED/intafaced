@@ -27,7 +27,6 @@ const messages = {
   'View and language': 'View and language',
   Promotions: 'Promotions',
   'Dividend records': 'Dividend records',
-  'Signed out.': 'Signed out.',
   'Not signed out yet. Reloading would sign you back in.': 'Not signed out yet. Reloading would sign you back in.',
   Retry: 'Retry',
   'You were signed out because your sign-in was used elsewhere.': 'You were signed out because your sign-in was used elsewhere.',
@@ -144,7 +143,6 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     'View and language': 'Vista e idioma',
     Promotions: 'Promociones',
     'Dividend records': 'Registros de dividendos',
-    'Signed out.': 'Sesión cerrada.',
     'Not signed out yet. Reloading would sign you back in.': 'Aún no se cerró la sesión. Si recargas, volverás a entrar.',
     Retry: 'Reintentar',
     'You were signed out because your sign-in was used elsewhere.': 'Se cerró tu sesión porque tu inicio de sesión se usó en otro lugar.',
@@ -196,7 +194,6 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     'View and language': 'Affichage et langue',
     Promotions: 'Promotions',
     'Dividend records': 'Registres de dividendes',
-    'Signed out.': 'Déconnecté.',
     'Not signed out yet. Reloading would sign you back in.': 'Vous n’êtes pas encore déconnecté. Recharger la page vous reconnecterait.',
     Retry: 'Réessayer',
     'You were signed out because your sign-in was used elsewhere.':

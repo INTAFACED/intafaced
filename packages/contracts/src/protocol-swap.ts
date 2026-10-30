@@ -95,6 +95,83 @@ export const protocolApprovalCheckOutputSchema = z.object({
 });
 export type ProtocolApprovalCheck = z.infer<typeof protocolApprovalCheckOutputSchema>;
 
+/** A blank `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`: no fee level is offered and Swap stays off. */
+export const SWAP_FEE_CAP_UNSET = 'protocol.swap_fee_cap_unset' as const;
+/** The node reports no base fee or no priority-fee history (no EIP-1559 fee market), so no level can be priced. */
+export const FEE_MARKET_UNREAD = 'protocol.fee_market_unread' as const;
+
+/** One network fee level: what the wallet is asked to offer per unit of gas, in wei. */
+export const protocolSwapFeeLevelSchema = z
+  .object({
+    maxFeePerGasWei: units,
+    maxPriorityFeePerGasWei: units,
+    /** The level's most per gas is above the owner's fee cap: it cannot be chosen. */
+    overCap: z.boolean(),
+  })
+  .strict();
+export type ProtocolSwapFeeLevel = z.infer<typeof protocolSwapFeeLevelSchema>;
+
+const percentile = z.number().int().min(0).max(100);
+
+/**
+ * `protocol.amm.feeLevels` (D-swap-11): Slow, Normal and Fast from the owner percentiles of the last blocks' priority
+ * fees, the next block's base fee, and the owner's fee cap. A blank cap or percentile setting refuses; nothing defaults.
+ */
+export const protocolSwapFeesOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    chainId: z.number().int().positive(),
+    /** How many recent blocks the levels are read from, and at which percentiles (owner settings). */
+    blocks: z.number().int().positive(),
+    percentiles: z.tuple([percentile, percentile, percentile]),
+    /** The base fee of the next block, as the node reports it. */
+    baseFeePerGasWei: units,
+    /** The most per gas any level or custom fee may offer (owner setting). */
+    feeCapWei: units,
+    levels: z.object({ slow: protocolSwapFeeLevelSchema, normal: protocolSwapFeeLevelSchema, fast: protocolSwapFeeLevelSchema }).strict(),
+    /** True only when a paymaster pays the fee for the person. None is wired here, so the person pays. */
+    sponsored: z.boolean(),
+  })
+  .strict();
+export type ProtocolSwapFees = z.infer<typeof protocolSwapFeesOutputSchema>;
+
+/** One live allowance the owner has given: `spender` may move up to `allowance` base units of `token`. */
+export const protocolAllowanceRowSchema = z
+  .object({
+    token: address,
+    spender: address,
+    allowance: units,
+    /** The allowance is the largest possible amount (an "unlimited" approval). */
+    unlimited: z.boolean(),
+    /** Set when the spender is a pool the factory lists, with the pair it trades. */
+    pool: z.object({ token0: address, token1: address }).strict().nullable(),
+  })
+  .strict();
+export type ProtocolAllowanceRow = z.infer<typeof protocolAllowanceRowSchema>;
+
+/**
+ * `protocol.amm.allowances`: the owner's live allowances for the tokens the factory's pools trade, every value read at
+ * one block. Candidates are each listed pool (for both its tokens) and every spender named in the owner's Approval logs
+ * from `logsFromBlock`; only a non-zero `allowance()` read at `blockNumber` becomes a row. Nothing is listed from config.
+ */
+export const protocolAllowancesOutputSchema = z
+  .object({
+    owner: address,
+    blockNumber: units,
+    /** The first block the Approval logs were read from: a read bound, so an older approval to a non-pool spender is not found. */
+    logsFromBlock: units,
+    /** The node refused the Approval log read: only the pools were checked, so an approval to another spender may be missing. */
+    approvalLogsUnread: z.boolean(),
+    tokens: z.array(protocolSwapTokenSchema),
+    rows: z.array(protocolAllowanceRowSchema),
+    /** Candidates whose token did not answer `allowance()`: not shown, and counted so the page can say so. */
+    unread: z.number().int().nonnegative(),
+    /** More candidates than one read checks: the rest are not shown. */
+    truncated: z.boolean(),
+  })
+  .strict();
+export type ProtocolAllowances = z.infer<typeof protocolAllowancesOutputSchema>;
+
 export const PRICE_SETTINGS_UNSET = 'protocol.price_settings_unset' as const;
 
 /** One token's USD price from the pools, or why it has none. `usd` is a decimal string, never a number. */

@@ -21,8 +21,7 @@ import { bodyRows, tableIn } from './tables.mjs';
 // iceberg on /execution. One test per step, titled "J-copy-bots-otc-23 #<n>", run in order. The trader starts signed
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT): #5, the order form
-// offers no Chase.
+// #5 and #7 build their own book on the unquoted TEST market IFC/USDC, where the other trader moves the price.
 // #8 stops the stack's matching engine for a moment (local-test-stack.mjs stop matching), so a child cancel fails the
 // way it would with the engine unreachable, and restarts it before the step ends.
 const J = 'J-copy-bots-otc-23';
@@ -339,56 +338,192 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   for (let i = 1; i < all.length; i++) expect(all[i] - all[i - 1]).toBeGreaterThanOrEqual(back.sliceIntervalMs);
 });
 
-test(`${J} #5 places a chase limit order with a maximum distance: re-priced with the book inside the distance, stopped beyond it, blank refused`, async ({
+/** The chase's form: Chase on IFC/USDC, `side`, `total` over `seconds`, and the maximum distance as typed (blank allowed). */
+async function fillChase(page, { side = 'Buy', total, seconds, distance }) {
+  const box = form(page);
+  await pick(page, 'Market', UNQUOTED);
+  await box.getByRole('button', { name: side, exact: true }).click(UNBUILT);
+  await pick(page, 'Kind', 'Chase');
+  await box.getByLabel('Total size (IFC)').fill(total);
+  await pick(page, 'Duration', 'Custom');
+  await box.getByLabel('Custom duration, in seconds').fill(String(seconds));
+  await box.getByLabel('Maximum chase distance, %').fill(distance);
+}
+
+/** The value cell of one line of the schedule detail, found by its label. */
+const detailValue = (page, label) =>
+  detail(page)
+    .locator('[data-slot="key-value-row"]')
+    .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) })
+    .locator('dd');
+
+/** A child order as the trader's own order read reports it. */
+/** The order ids of a schedule's cancel execution reports from the service, oldest first, one entry per report. */
+async function cancelReports(who, algoId) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.reports?input=${encodeURIComponent(JSON.stringify({ algoId, limit: 100 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.result.data.nextCursor).toBeNull();
+  return body.result.data.rows.filter((r) => r.kind === 'cancel').map((r) => r.orderId);
+}
+
+/** Waits `ms` while the scheduler ticks (about once a second), so a chase that would act has had many chances to. */
+const ticks = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test(`${J} #5 places a chase limit order with a maximum distance: it re-prices once per book move without passing the distance; beyond it the chase stops with that reason and cancels once; a blank distance refuses`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const trader = state('trader');
+  const tag = state('tag');
+  const maker = otherTrader();
+  const other = await api(maker);
+  expect(fund(maker.email, 'USDC', '1000').tx).toBeTruthy();
+  expect(fund(maker.email, 'IFC', '1000').tx).toBeTruthy();
+  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  await clearIfc(maker);
+  await clearIfc(trader);
+  // A run stopped before its clean-up can leave an earlier trader's orders resting, which no account here can cancel: the
+  // other trader trades them out, then cancels what of its own orders is left, so both sides start empty.
+  for (const [levels, side] of [
+    [(await ifcBook()).asks, 'buy'],
+    [(await ifcBook()).bids, 'sell'],
+  ]) {
+    if (levels.length === 0) continue;
+    const size = levels.reduce((sum, [, qty]) => sum + toUnits(qty), 0n);
+    const sweep = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side,
+      amount: fromUnits(size),
+      price: levels.at(-1)[0],
+      clientOrderId: `${J}-5-sweep-${side}-${tag}`,
+    });
+    // Set-up, not a clause: a refused sweep stops the step here rather than asserting under a condition.
+    if (sweep.status >= 300) throw new Error(`sweeping a stale IFC/USDC ${side} was refused: ${JSON.stringify(sweep.body).slice(0, 300)}`);
+    await clearIfc(maker);
+  }
+  const empty = await ifcBook();
+  expect([empty.bids, empty.asks]).toEqual([[], []]);
+
+  // The other trader rests the best bid the chase will join, and a far ask so the market has a two-sided mark (a schedule
+  // is refused without one). The ask at 2.00 stays above every price the chase may reach.
+  const rest = async (price, amount, n, side = 'buy') => {
+    const res = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      clientOrderId: `${J}-5-${side}${n}-${tag}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  };
+  await rest('0.99', '10', 0);
+  await rest('2.00', '1', 0, 'sell');
+
+  // A blank distance refuses: in the room the field names the refusal and Review stays off; the service refuses the same
+  // request with its typed code. No schedule is written and nothing is held.
+  const rowsBefore = (await algoRows(trader)).map((row) => row.id);
+  // The list read is the trader's whole set (fewer rows than the page holds), so a row written by the refusal would show.
+  expect(rowsBefore.length).toBeLessThan(20);
+  const before = await (await api(trader)).balances();
   await signIn(page, trader);
   await page.goto('/execution');
-  const box = form(page);
-  await pick(page, 'Kind', 'Chase');
-  await box.getByRole('button', { name: 'Buy', exact: true }).click();
-  await box.getByLabel('Total size (BTC)').fill('0.001');
+  const creates = [];
+  const countCreate = (req) => {
+    if (req.url().includes('algo.createTwap')) creates.push(req.url());
+  };
+  page.on('request', countCreate);
+  await fillChase(page, { total: '5', seconds: 600, distance: '' });
+  await expect(form(page).getByText('Enter a maximum chase distance, from 0.01 to 100 percent.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
+  // The room sends nothing while the distance is blank.
+  expect(creates).toEqual([]);
+  page.off('request', countCreate);
+  const blank = await (
+    await api(trader)
+  ).post('/api/trade/trpc/algo.createTwap', {
+    symbol: UNQUOTED,
+    side: 'buy',
+    totalQty: '5',
+    durationMs: 600_000,
+    sliceIntervalMs: 600_000,
+    kind: 'chase',
+    clientAlgoId: `j23-chase-blank-${tag}`,
+  });
+  expect(blank.status).toBe(400);
+  expect(codeOf(blank.body)).toBe('trade.algo_chase_distance_required');
+  expect((await algoRows(trader)).map((row) => row.id)).toEqual(rowsBefore);
+  const after = await (await api(trader)).balances();
+  expect(free(after, 'USDC')).toBe(free(before, 'USDC'));
+  expect(held(after, 'USDC')).toBe(held(before, 'USDC'));
 
-  // A blank distance refuses before anything is sent.
-  await expect(box.getByText('Enter a maximum chase distance.')).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByRole('button', { name: 'Review chase' })).toBeDisabled();
+  // A chase buy with a 2% distance joins the best bid, 0.99; it may follow the bid up to 0.99 × 1.02 = 1.0098.
+  await form(page).getByLabel('Maximum chase distance, %').fill('2');
+  const id = await confirmSchedule(page);
+  try {
+    const created = await parentOf(trader, id);
+    expect(created.kind).toBe('chase');
+    expect(created.chaseMaxDistanceBps).toBe(200);
+    expect(toUnits(created.chaseStartPrice)).toBe(toUnits('0.99'));
+    await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 30_000 }).toBe(1);
+    const joined = (await parentOf(trader, id)).children[0];
+    expect(toUnits(joined.price)).toBe(toUnits('0.99'));
+    const joinedOrder = await orderOf(trader, joined.orderId);
+    expect([joinedOrder.type, joinedOrder.status, toUnits(joinedOrder.price)]).toEqual(['limit', 'open', toUnits('0.99')]);
 
-  await box.getByLabel('Maximum chase distance, %').fill('0.5');
-  const created = page.waitForResponse((res) => res.url().includes('algo.createChase'));
-  await page.getByRole('button', { name: 'Review chase' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Start chase' }).click();
-  const answer = await created;
-  expect(answer.status(), (await answer.text()).slice(0, 300)).toBe(200);
-  const id = (await answer.json()).result.data.id;
+    // No book move, no re-price: many ticks later it is still the one order.
+    await ticks(8_000);
+    expect((await parentOf(trader, id)).children).toHaveLength(1);
 
-  // It rests at the best bid and follows it; every price it used stays inside 0.5% of where it started.
-  const chase = await parentOf(trader, id);
-  expect(chase.kind).toBe('chase');
-  await expect.poll(async () => (await parentOf(trader, id)).repriceCount ?? 0, { timeout: 90_000 }).toBeGreaterThan(0);
-  const now = await parentOf(trader, id);
-  const start = toUnits(now.chaseStartPrice);
-  for (const p of now.chasePrices) expect(toUnits(p) - start).toBeLessThanOrEqual((start * 5n) / 1000n);
-  if (now.status !== 'completed') {
-    await page
-      .getByRole('grid', { name: 'Schedules' })
-      .getByRole('button', { name: `Cancel ${id}` })
-      .click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
-  }
+    // Each book move inside the distance is one re-price: the chase cancels its order once and rests the rest as a limit
+    // order at the new best, then stays there while the book holds still. The last move lands exactly on the distance.
+    const moves = ['1.00', '1.005', '1.0098'];
+    for (const [n, price] of moves.entries()) {
+      await rest(price, '1', n + 1);
+      await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 30_000 }).toBe(n + 2);
+      await ticks(6_000);
+      const moved = await parentOf(trader, id);
+      expect(moved.children).toHaveLength(n + 2);
+      expect(moved.chaseReprices).toBe(n + 1);
+      expect(moved.status).toBe('active');
+      expect(moved.children.map((c) => toUnits(c.price))).toEqual(['0.99', ...moves.slice(0, n + 1)].map(toUnits));
+      const newest = await orderOf(trader, moved.children.at(-1).orderId);
+      expect([newest.type, newest.status, toUnits(newest.price)]).toEqual(['limit', 'open', toUnits(price)]);
+      for (const c of moved.children.slice(0, -1)) expect((await orderOf(trader, c.orderId)).status).toBe('canceled');
+      expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toEqual([moved.children.at(-1).orderId]);
+      // Cancelled once: the service's execution reports hold one cancel for each replaced child and none for the new one.
+      expect(await cancelReports(trader, id)).toEqual(moved.children.slice(0, -1).map((c) => c.orderId));
+    }
+    // Never past the distance: 0.99 × 1.02 = 1.0098 is the furthest any child rests.
+    const atCap = await parentOf(trader, id);
+    expect(atCap.children).toHaveLength(moves.length + 1);
+    for (const c of atCap.children) expect(toUnits(c.price)).toBeLessThanOrEqual(toUnits('1.0098'));
+    // The detail reads the same numbers back.
+    await expect(detailValue(page, 'Start price')).toHaveText(/^0\.990*$/, { timeout: 15_000 });
+    await expect(detailValue(page, 'Current price')).toHaveText(/^1\.00980*$/, { timeout: 15_000 });
+    await expect(detailValue(page, 'Re-prices')).toHaveText('3');
 
-  // A distance smaller than one book move: the chase stops with that reason and cancels its order once.
-  await box.getByLabel('Maximum chase distance, %').fill('0.01');
-  const tight = page.waitForResponse((res) => res.url().includes('algo.createChase'));
-  await page.getByRole('button', { name: 'Review chase' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Start chase' }).click();
-  const tightId = (await (await tight).json()).result.data.id;
-  await expect.poll(async () => (await parentOf(trader, tightId)).stopReason, { timeout: 120_000 }).toMatch(/max_distance|filled/);
-  const stopped = await parentOf(trader, tightId);
-  if (stopped.stopReason === 'max_distance') {
-    expect(stopped.cancels).toBe(1);
-    await expect(detail(page).getByText('Stopped: the best price moved past the maximum distance')).toBeVisible();
+    // A move past the distance by one tick: the bid goes to 1.0099. The chase stops with that reason, cancels its order
+    // once, and places nothing more however long it is left.
+    await rest('1.0099', '1', moves.length + 1);
+    await expect.poll(async () => (await parentOf(trader, id)).status, { timeout: 30_000 }).toBe('halted');
+    await ticks(8_000);
+    const stopped = await parentOf(trader, id);
+    expect(stopped.haltReason).toBe('chase_max_distance');
+    expect(stopped.children.map((c) => c.orderId)).toEqual(atCap.children.map((c) => c.orderId));
+    expect(stopped.chaseReprices).toBe(3);
+    for (const c of stopped.children) expect((await orderOf(trader, c.orderId)).status).toBe('canceled');
+    // The stop cancelled its resting order once: every child has exactly one cancel report, in the order they were placed.
+    expect(await cancelReports(trader, id)).toEqual(stopped.children.map((c) => c.orderId));
+    expect(await openOrders(trader, UNQUOTED)).toEqual([]);
+    await expect(detailValue(page, 'Halt reason')).toContainText('Maximum chase distance reached', { timeout: 15_000 });
+  } finally {
+    await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
+    await clearIfc(maker);
+    await clearIfc(trader);
   }
 });
 

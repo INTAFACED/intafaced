@@ -1260,6 +1260,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
   },
+  'academy.key_fix_invalid': {
+    title: 'That is not a key fix',
+    body: 'A key fix changes only the answer keys of a published quiz: every question stays, with its wording, choices and points.',
+    next: 'Change only keys, or make a new quiz for other changes. Nothing was changed.',
+  },
   'academy.grade_invalid': {
     title: 'That score is above the points',
     body: 'A score runs from 0 to the assignment’s points, with at most two decimals.',
