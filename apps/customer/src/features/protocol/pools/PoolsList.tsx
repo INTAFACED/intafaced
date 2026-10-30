@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
 import { networkLabel } from '../blockers';
-import { BlockerNote, NoteRow, refusalWords, useChainRef } from '../explorer/parts';
+import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
 import { usePools } from './usePools';
@@ -25,7 +25,7 @@ export function PoolsList() {
     `pools:list:${chainId ?? 'none'}${cursor ? `:${cursor.height}:${cursor.index}:${cursor.logIndex}` : ''}`,
   );
   const network = networkLabel(chainId).name;
-  const headers = [t('hdrPool'), t('hdrFee'), t('hdrReserves'), t('hdrCreated')];
+  const headers = [t('hdrPool'), t('hdrContracts'), t('hdrFee'), t('hdrReserves'), t('hdrCreated')];
   const { resource } = pools;
   let body: ReactNode;
   if (chain.status === 'failed')
@@ -64,6 +64,7 @@ export function PoolsList() {
   return (
     <Panel title={t('poolsTitle')}>
       <p className="muted">{t('poolsNote', { network })}</p>
+      <p className="muted">{t('symbolsNote')}</p>
       <DataTable label={t('poolsTitle')} headers={headers}>
         {body}
       </DataTable>
@@ -85,6 +86,10 @@ function PoolRow({ pool }: { pool: Pool }) {
           {pairName(pool.token0, pool.token1, t)}
         </a>
       </th>
+      <td>
+        <code title={pool.token0.address}>{short(pool.token0.address)}</code> /{' '}
+        <code title={pool.token1.address}>{short(pool.token1.address)}</code>
+      </td>
       <td>{t('feePercent', { percent: bpsPercent(pool.feeBps) })}</td>
       <td>{reservesWords(pool, t)}</td>
       <td>{pool.createdHeight}</td>

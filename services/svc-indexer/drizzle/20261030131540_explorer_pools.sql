@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS "indexer"."explorer_swaps" (
   "amount1_in"   numeric(78, 0) NOT NULL,
   "amount0_out"  numeric(78, 0) NOT NULL,
   "amount1_out"  numeric(78, 0) NOT NULL,
+  -- The log's place and time, copied from its block so a pool's newest rows and its last day come straight off an index.
+  "height"       bigint      NOT NULL,
+  "tx_index"     integer     NOT NULL,
+  "block_time"   timestamptz NOT NULL,
   PRIMARY KEY ("chain_id", "tx_hash", "log_index"),
   CONSTRAINT "explorer_swaps_log_fk" FOREIGN KEY ("chain_id", "tx_hash", "log_index")
     REFERENCES "indexer"."explorer_tx_logs" ("chain_id", "tx_hash", "log_index") ON DELETE CASCADE,
@@ -46,7 +50,9 @@ CREATE TABLE IF NOT EXISTS "indexer"."explorer_swaps" (
   )
 );
 
-CREATE INDEX IF NOT EXISTS "explorer_swaps_pool" ON "indexer"."explorer_swaps" ("chain_id", "pool");
+CREATE INDEX IF NOT EXISTS "explorer_swaps_pool_order"
+  ON "indexer"."explorer_swaps" ("chain_id", "pool", "height" DESC, "tx_index" DESC, "log_index" DESC);
+CREATE INDEX IF NOT EXISTS "explorer_swaps_pool_time" ON "indexer"."explorer_swaps" ("chain_id", "pool", "block_time");
 
 -- One row per Sync(uint112 reserve0, uint112 reserve1): the pool's reserves after that log.
 CREATE TABLE IF NOT EXISTS "indexer"."explorer_syncs" (
@@ -56,13 +62,18 @@ CREATE TABLE IF NOT EXISTS "indexer"."explorer_syncs" (
   "pool"       text    NOT NULL,
   "reserve0"   numeric(78, 0) NOT NULL,
   "reserve1"   numeric(78, 0) NOT NULL,
+  "height"     bigint      NOT NULL,
+  "tx_index"   integer     NOT NULL,
+  "block_time" timestamptz NOT NULL,
   PRIMARY KEY ("chain_id", "tx_hash", "log_index"),
   CONSTRAINT "explorer_syncs_log_fk" FOREIGN KEY ("chain_id", "tx_hash", "log_index")
     REFERENCES "indexer"."explorer_tx_logs" ("chain_id", "tx_hash", "log_index") ON DELETE CASCADE,
   CONSTRAINT "explorer_syncs_pool_ck" CHECK ("pool" ~ '^0x[0-9a-f]{40}$')
 );
 
-CREATE INDEX IF NOT EXISTS "explorer_syncs_pool" ON "indexer"."explorer_syncs" ("chain_id", "pool");
+CREATE INDEX IF NOT EXISTS "explorer_syncs_pool_order"
+  ON "indexer"."explorer_syncs" ("chain_id", "pool", "height" DESC, "tx_index" DESC, "log_index" DESC);
+CREATE INDEX IF NOT EXISTS "explorer_syncs_pool_time" ON "indexer"."explorer_syncs" ("chain_id", "pool", "block_time");
 
 -- Rows for logs already stored before this migration. A uint256 is read from 64 hex digits eight 32-bit words at a
 -- time, as 0003 does (Postgres has no wider bit cast); word w of the data starts at character 3 + 64 * w.
@@ -89,14 +100,18 @@ WHERE jsonb_array_length(l."topics"::jsonb) = 3
 ON CONFLICT DO NOTHING;
 
 INSERT INTO "indexer"."explorer_swaps" (
-  "chain_id", "tx_hash", "log_index", "pool", "sender", "recipient", "amount0_in", "amount1_in", "amount0_out", "amount1_out"
+  "chain_id", "tx_hash", "log_index", "pool", "sender", "recipient", "amount0_in", "amount1_in", "amount0_out", "amount1_out",
+  "height", "tx_index", "block_time"
 )
 SELECT l."chain_id", l."tx_hash", l."log_index", l."address",
        '0x' || substr(l."topics"::jsonb ->> 1, 27),
        '0x' || substr(l."topics"::jsonb ->> 2, 27),
        "indexer"."explorer_word_uint"(l."data", 0), "indexer"."explorer_word_uint"(l."data", 1),
-       "indexer"."explorer_word_uint"(l."data", 2), "indexer"."explorer_word_uint"(l."data", 3)
+       "indexer"."explorer_word_uint"(l."data", 2), "indexer"."explorer_word_uint"(l."data", 3),
+       b."height", t."tx_index", b."block_time"
 FROM "indexer"."explorer_tx_logs" l
+JOIN "indexer"."explorer_txs" t ON t."chain_id" = l."chain_id" AND t."hash" = l."tx_hash"
+JOIN "indexer"."blocks" b ON b."chain_id" = t."chain_id" AND b."hash" = t."block_hash"
 WHERE jsonb_array_length(l."topics"::jsonb) = 3
   AND l."topics"::jsonb ->> 0 = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822'
   AND length(l."data") = 258 AND l."data" ~ '^0x[0-9a-fA-F]+$'
@@ -104,10 +119,13 @@ WHERE jsonb_array_length(l."topics"::jsonb) = 3
   AND l."topics"::jsonb ->> 2 ~ '^0x0{24}[0-9a-f]{40}$'
 ON CONFLICT DO NOTHING;
 
-INSERT INTO "indexer"."explorer_syncs" ("chain_id", "tx_hash", "log_index", "pool", "reserve0", "reserve1")
+INSERT INTO "indexer"."explorer_syncs" ("chain_id", "tx_hash", "log_index", "pool", "reserve0", "reserve1", "height", "tx_index", "block_time")
 SELECT l."chain_id", l."tx_hash", l."log_index", l."address",
-       "indexer"."explorer_word_uint"(l."data", 0), "indexer"."explorer_word_uint"(l."data", 1)
+       "indexer"."explorer_word_uint"(l."data", 0), "indexer"."explorer_word_uint"(l."data", 1),
+       b."height", t."tx_index", b."block_time"
 FROM "indexer"."explorer_tx_logs" l
+JOIN "indexer"."explorer_txs" t ON t."chain_id" = l."chain_id" AND t."hash" = l."tx_hash"
+JOIN "indexer"."blocks" b ON b."chain_id" = t."chain_id" AND b."hash" = t."block_hash"
 WHERE jsonb_array_length(l."topics"::jsonb) = 1
   AND l."topics"::jsonb ->> 0 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1'
   AND length(l."data") = 130 AND l."data" ~ '^0x[0-9a-fA-F]+$'

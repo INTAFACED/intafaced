@@ -411,7 +411,12 @@ function ownerLimit(explorer: ExplorerBlocksSource): number {
 
 const addressInput = z.object({ chainId: z.number().int(), address: addressSchema });
 
-const poolCursorSchema = z.object({ height: z.number().int().min(0), index: z.number().int().min(0), logIndex: z.number().int().min(0) });
+// Bounded so an out-of-range cursor is a typed BAD_REQUEST, never a database cast error.
+const poolCursorSchema = z.object({
+  height: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  index: z.number().int().min(0).max(2_147_483_647),
+  logIndex: z.number().int().min(0).max(2_147_483_647),
+});
 
 const poolSchema = z.object({
   chainId: z.number().int(),

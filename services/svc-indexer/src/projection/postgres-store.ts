@@ -339,12 +339,12 @@ export class PostgresProjectionStore implements ProjectionStore {
       LEFT JOIN explorer_tokens t0 ON t0.chain_id = p.chain_id AND t0.address = p.token0
       LEFT JOIN explorer_tokens t1 ON t1.chain_id = p.chain_id AND t1.address = p.token1
       LEFT JOIN LATERAL (
-        SELECT s.reserve0, s.reserve1, sb.height
+        SELECT s.reserve0, s.reserve1, s.height
         FROM explorer_syncs s
         JOIN explorer_txs st ON st.chain_id = s.chain_id AND st.hash = s.tx_hash
         JOIN blocks sb ON sb.chain_id = st.chain_id AND sb.hash = st.block_hash AND sb.status = 'canonical'
         WHERE s.chain_id = p.chain_id AND s.pool = p.pool
-        ORDER BY sb.height DESC, st.tx_index DESC, s.log_index DESC
+        ORDER BY s.height DESC, s.tx_index DESC, s.log_index DESC
         LIMIT 1
       ) r ON TRUE
     `;
@@ -353,15 +353,15 @@ export class PostgresProjectionStore implements ProjectionStore {
   /** The pool's swaps in canonical blocks, newest first, keyset-paged. */
   async explorerPoolSwaps(q: { pool: string; cursor?: SwapCursor; limit: number }): Promise<PoolSwapFact[]> {
     const rows = await this.sql<PoolSwapRow[]>`
-      SELECT s.tx_hash, b.height, t.tx_index, s.log_index, b.block_time, s.sender, s.recipient,
+      SELECT s.tx_hash, s.height, s.tx_index, s.log_index, s.block_time, s.sender, s.recipient,
              s.amount0_in::text AS amount0_in, s.amount1_in::text AS amount1_in,
              s.amount0_out::text AS amount0_out, s.amount1_out::text AS amount1_out
       FROM explorer_swaps s
       JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
       JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
       WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()}
-        ${q.cursor === undefined ? this.sql`` : this.sql`AND (b.height, t.tx_index, s.log_index) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.logIndex})`}
-      ORDER BY b.height DESC, t.tx_index DESC, s.log_index DESC
+        ${q.cursor === undefined ? this.sql`` : this.sql`AND (s.height, s.tx_index, s.log_index) < (${q.cursor.height}, ${q.cursor.index}, ${q.cursor.logIndex})`}
+      ORDER BY s.height DESC, s.tx_index DESC, s.log_index DESC
       LIMIT ${q.limit + 1}
     `;
     return rows.map((r) => ({
@@ -386,7 +386,7 @@ export class PostgresProjectionStore implements ProjectionStore {
       FROM explorer_swaps s
       JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
       JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
-      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND b.block_time >= ${q.since.toISOString()}::timestamptz
+      WHERE s.chain_id = ${this.chainId} AND s.pool = ${q.pool.toLowerCase()} AND s.block_time >= ${q.since.toISOString()}::timestamptz
     `;
     return { volume1: BigInt(row?.volume1 ?? '0'), swaps: Number(row?.swaps ?? '0') };
   }
@@ -401,13 +401,13 @@ export class PostgresProjectionStore implements ProjectionStore {
     const pool = q.pool.toLowerCase();
     const rows = await this.sql<CandleRow[]>`
       WITH priced AS (
-        SELECT b.height, t.tx_index, s.log_index,
+        SELECT s.height, s.tx_index, s.log_index,
                s.reserve1::numeric * ${q.scale}::numeric / s.reserve0 AS price,
-               date_bin(make_interval(secs => ${q.seconds}), b.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket
+               date_bin(make_interval(secs => ${q.seconds}), s.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket
         FROM explorer_syncs s
         JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
         JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
-        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND b.block_time >= ${q.since.toISOString()}::timestamptz AND s.reserve0 > 0
+        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND s.block_time >= ${q.since.toISOString()}::timestamptz AND s.reserve0 > 0
       ),
       prices AS (
         SELECT bucket,
@@ -419,13 +419,13 @@ export class PostgresProjectionStore implements ProjectionStore {
         GROUP BY bucket
       ),
       traded AS (
-        SELECT date_bin(make_interval(secs => ${q.seconds}), b.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket,
+        SELECT date_bin(make_interval(secs => ${q.seconds}), s.block_time, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket,
                sum(s.amount1_in + s.amount1_out) AS volume1,
                count(*) AS swaps
         FROM explorer_swaps s
         JOIN explorer_txs t ON t.chain_id = s.chain_id AND t.hash = s.tx_hash
         JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash AND b.status = 'canonical'
-        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND b.block_time >= ${q.since.toISOString()}::timestamptz
+        WHERE s.chain_id = ${this.chainId} AND s.pool = ${pool} AND s.block_time >= ${q.since.toISOString()}::timestamptz
         GROUP BY 1
       )
       SELECT p.bucket, trim_scale(p.open)::text AS open, trim_scale(p.high)::text AS high, trim_scale(p.low)::text AS low,
@@ -1325,20 +1325,22 @@ async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: Cha
       if (swap) {
         await sql`
           INSERT INTO explorer_swaps (
-            chain_id, tx_hash, log_index, pool, sender, recipient, amount0_in, amount1_in, amount0_out, amount1_out
+            chain_id, tx_hash, log_index, pool, sender, recipient, amount0_in, amount1_in, amount0_out, amount1_out,
+            height, tx_index, block_time
           ) VALUES (
             ${chainId}, ${row.hash.toLowerCase()}, ${swap.logIndex}, ${swap.pool}, ${swap.sender}, ${swap.recipient},
-            ${swap.amount0In.toString()}, ${swap.amount1In.toString()}, ${swap.amount0Out.toString()}, ${swap.amount1Out.toString()}
+            ${swap.amount0In.toString()}, ${swap.amount1In.toString()}, ${swap.amount0Out.toString()}, ${swap.amount1Out.toString()},
+            ${block.height}, ${row.index}, ${blockTimeForWrite(block.timestamp)}
           )
         `;
       }
       const synced = syncOf(log);
       if (synced) {
         await sql`
-          INSERT INTO explorer_syncs (chain_id, tx_hash, log_index, pool, reserve0, reserve1)
+          INSERT INTO explorer_syncs (chain_id, tx_hash, log_index, pool, reserve0, reserve1, height, tx_index, block_time)
           VALUES (
             ${chainId}, ${row.hash.toLowerCase()}, ${synced.logIndex}, ${synced.pool}, ${synced.reserve0.toString()},
-            ${synced.reserve1.toString()}
+            ${synced.reserve1.toString()}, ${block.height}, ${row.index}, ${blockTimeForWrite(block.timestamp)}
           )
         `;
       }

@@ -261,6 +261,15 @@ describe('D-explorer-05 indexer.explorer.pools', () => {
     expect(r.asked).toEqual([]);
   });
 
+  it('an out-of-range cursor is a typed BAD_REQUEST, never a database cast error', async () => {
+    await expect(
+      (await caller()).explorer.pools.swaps({ chainId: CHAIN_ID, address: POOL, cursor: { height: 2 ** 60, index: 0, logIndex: 0 } }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      (await caller()).explorer.pools.list({ chainId: CHAIN_ID, cursor: { height: 1, index: 2 ** 31, logIndex: 0 } }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
   it('swaps read newest first, labelled buy or sell, owner-paged with a cursor', async () => {
     const out = await (await caller()).explorer.pools.swaps({ chainId: CHAIN_ID, address: POOL });
     expect(out.rows.map((row) => [row.blockHeight, row.side])).toEqual([

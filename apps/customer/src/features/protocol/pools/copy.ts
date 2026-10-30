@@ -15,6 +15,9 @@ const en = {
   hdrFee: 'Fee',
   hdrReserves: 'Reserves',
   hdrCreated: 'Created at block',
+  hdrContracts: 'Token contracts',
+  symbolsNote:
+    'Each name and symbol is what the token contract says about itself, and anyone can deploy a token with any name. Check the contract address.',
   pairName: '{token0} / {token1}',
   reservesPair: '{amount0} {symbol0} · {amount1} {symbol1}',
   reservesNone: 'No reserves recorded',

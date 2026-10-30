@@ -59,6 +59,9 @@ describe('Pools list', () => {
     await show(<PoolsList />);
     const link = host.querySelector(`a[href="/dex/pools/${POOL}"]`);
     expect(link?.textContent).toBe('TESTA / TESTB');
+    // A symbol alone can be anyone's: each token's contract address is shown beside it.
+    expect(text()).toContain('0xaaaaaaaa…aaaaaa / 0xbbbbbbbb…bbbbbb');
+    expect(text()).toContain('Check the contract address.');
     expect(text()).toContain('0.30%');
     expect(text()).toContain('1000 TESTA · 2000 TESTB');
     expect(calls.find((call) => call.procedure === 'explorer.pools.list')?.input).toEqual({ chainId: 84532 });

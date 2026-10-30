@@ -155,6 +155,7 @@ function PoolFacts({ pool, t }: { pool: Pool; t: PoolsTranslate }) {
       </span>,
     ],
     [t('poolFee'), t('feePercent', { percent: bpsPercent(pool.feeBps) })],
+    [t('hdrContracts'), t('symbolsNote')],
     [pool.reserves ? t('poolReservesAt', { height: String(pool.reserves.height) }) : t('hdrReserves'), reservesWords(pool, t)],
     [
       t('poolCreatedAt', { height: String(pool.createdHeight) }),
