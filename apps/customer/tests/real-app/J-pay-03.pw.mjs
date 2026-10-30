@@ -71,26 +71,53 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   test.setTimeout(120_000);
   const { me } = people();
   await signIn(page, me);
-  await page.goto('/pay/receive');
+  // The handle settings as svc-identity answers handle.get on a load of Receive: the handle, the cap and the count.
+  const settingsOn = async (load) => {
+    const [answer] = await Promise.all([
+      page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/handle.get') && res.request().method() === 'GET'),
+      load(),
+    ]);
+    expect(answer.ok(), 'handle.get answers').toBe(true);
+    const body = await answer.json();
+    return body?.result?.data?.json ?? body?.result?.data;
+  };
+  const first = await settingsOn(() => page.goto('/pay/receive'));
   const changesLeft = page.getByTestId('handle-changes-left');
-  // The stack's TEST cap is 3 changes in the life of an account (tooling/profiles/test-owner-values/identity.json).
-  await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
+  // The stack's TEST cap is 3 changes in the life of an account (tooling/profiles/test-owner-values/identity.json),
+  // read back from the service, and the card's count is the service's.
+  expect(first).toMatchObject({ handle: me.handle, changeCap: 3, changesUsed: 0, changesLeft: 3 });
+  await expect(changesLeft).toHaveText(`You can change your handle ${first.changesLeft} more times.`);
   const dialog = page.getByRole('dialog', { name: 'Change your handle' });
+  // Each Save is one handle.change call; its answer is returned so the refusal's typed code is checked, not only its copy.
   const attempt = async (handle) => {
     if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Change handle' }).click(UNBUILT);
     await dialog.getByRole('textbox', { name: 'New handle' }).fill(handle);
-    await dialog.getByRole('button', { name: 'Save' }).click();
+    const [answer] = await Promise.all([
+      page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/handle.change') && res.request().method() === 'POST'),
+      dialog.getByRole('button', { name: 'Save' }).click(),
+    ]);
+    return answer;
+  };
+  // The refusal's code as the customer app reads it (apps/customer/src/shared/api.ts): the domain code first.
+  const codeOf = async (answer) => {
+    const body = await answer.json().catch(() => ({}));
+    const data = body?.error?.data;
+    return data?.intafacedCode ?? body?.intafacedCode ?? data?.cause?.code ?? data?.code ?? body?.code;
   };
   // A rule refusal names the rule, and spends no change.
-  await attempt('no spaces-allowed!');
+  const characters = await attempt('no spaces-allowed!');
+  expect(characters.ok(), 'a handle with a space is refused').toBe(false);
+  expect(await codeOf(characters)).toBe('identity.handle_characters');
   await expect(dialog.getByRole('alert')).toHaveText('A handle uses only letters, digits and underscore.');
-  await attempt('ab');
+  const length = await attempt('ab');
+  expect(length.ok(), 'a two-letter handle is refused').toBe(false);
+  expect(await codeOf(length)).toBe('identity.handle_length');
   await expect(dialog.getByRole('alert')).toHaveText('A handle has 3 to 32 characters.');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
   // From the service, not the page: after a reload the handle is the same and no change was spent.
-  await page.reload();
+  expect(await settingsOn(() => page.reload())).toMatchObject({ handle: me.handle, changesUsed: 0, changesLeft: first.changeCap });
   await expect(page.getByTestId('receive-value')).toHaveText(`@${me.handle}`);
   await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
 
@@ -100,18 +127,23 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   let handle = me.handle;
   for (const n of [1, 2, 3]) {
     handle = `${base}_${n}`;
-    await attempt(handle);
+    expect((await attempt(handle)).ok(), `change ${n} is taken`).toBe(true);
     await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
     await expect(dialog).toBeHidden();
     if (n < 3) await expect(changesLeft).toHaveText(left[n - 1]);
   }
   run.write({ me: { ...me, handle } });
   // The fourth is refused with the count, and the handle stays.
-  await attempt(`${base}_4`);
+  const capped = await attempt(`${base}_4`);
+  expect(capped.ok(), 'a fourth change is refused').toBe(false);
+  expect(await codeOf(capped)).toBe('identity.handle_change_cap_reached');
+  // The refusal carries the count: the changes used, which is the cap the service published.
+  expect((await capped.json()).error?.message).toBe(`You have changed your handle ${first.changeCap} times, the most allowed`);
   await expect(dialog.getByRole('alert')).toHaveText('You have changed your handle 3 times, the most allowed.');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  await page.reload();
+  // Re-read from the service: the refused fourth change left the handle and the count where they were.
+  expect(await settingsOn(() => page.reload())).toMatchObject({ handle, changesUsed: first.changeCap, changesLeft: 0 });
   await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
   await expect(changesLeft).toHaveText('You have changed your handle 3 times, the most allowed.');
 });
