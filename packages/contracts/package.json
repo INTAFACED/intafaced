@@ -202,6 +202,10 @@
       "types": "./dist/bank-value-history.d.ts",
       "default": "./dist/bank-value-history.js"
     },
+    "./agents-own": {
+      "types": "./dist/agents-own.d.ts",
+      "default": "./dist/agents-own.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
@@ -226,6 +230,10 @@
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"
     },
+    "./ops-reconciliation-alerts": {
+      "types": "./dist/ops-reconciliation-alerts.d.ts",
+      "default": "./dist/ops-reconciliation-alerts.js"
+    },
     "./watchlists-preferences": {
       "types": "./dist/watchlists-preferences.d.ts",
       "default": "./dist/watchlists-preferences.js"
@@ -233,6 +241,10 @@
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
+    },
+    "./trade-errors": {
+      "types": "./dist/trade-errors.d.ts",
+      "default": "./dist/trade-errors.js"
     },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
@@ -313,6 +325,10 @@
     "./merchant-checkout-methods": {
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
+    },
+    "./merchant-activation": {
+      "types": "./dist/merchant-activation.d.ts",
+      "default": "./dist/merchant-activation.js"
     },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",

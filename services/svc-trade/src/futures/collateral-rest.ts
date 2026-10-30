@@ -5,6 +5,7 @@ import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { EdgeTrust } from '../edge-trust.js';
 import { HAIRCUT_UNSET } from './haircut-credit.js';
 import { checkCollateralClassForMargin, COLLATERAL_CLASSES, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
+import { privateRead } from '../route-inventory.js';
 
 export interface CollateralFigures {
   free: Amount;
@@ -38,7 +39,7 @@ const fmt = (value: Amount | null): string | null => (value === null ? null : fo
 export function registerCollateralRest(app: FastifyInstance, deps: CollateralRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
-  app.get('/api/v1/futures/collateral', async (req, reply) => {
+  app.get('/api/v1/futures/collateral', privateRead, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
     const principal = edgeContext(edgeReq).principal;
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');

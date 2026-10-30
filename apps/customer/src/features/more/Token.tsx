@@ -11,6 +11,19 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
+import { BuybackRuns } from './BuybackRuns';
+import { buybackRunsCopy } from './buyback-runs-copy';
+import {
+  ChoiceBallot,
+  ChoiceTallyView,
+  VOTING_TYPES,
+  VotingPower,
+  choiceTallySchema,
+  powerSchema,
+  signVote,
+  type BallotOutcome,
+  type ProposalPower,
+} from './TokenVoting';
 import './token-governance.css';
 const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
@@ -34,12 +47,14 @@ const proposalSchema = z.object({
   id: proposalIdSchema,
   kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
   body: z.record(z.string(), z.unknown()),
-  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']),
+  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']),
   opensAt: z.string(),
   closesAt: z.string(),
   createdAt: z.string(),
   title: z.string().nullable().optional(),
   authorId: z.string().nullable().optional(),
+  votingType: z.enum(VOTING_TYPES).default('basic'),
+  choices: z.array(z.string()).nullable().default(null),
 });
 const tally = z.object({
   forWeight: decimalSchema,
@@ -190,7 +205,7 @@ function proposalTerms(value: unknown): string {
 function reviewedProposal(p: z.infer<typeof governanceProposal>) {
   return JSON.stringify([p.id, p.kind, proposalTerms(p.body), Date.parse(p.opensAt), Date.parse(p.closesAt)]);
 }
-type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage';
+type RefusalKey = 'changed' | 'inactive' | 'noWeight' | 'storage' | 'receiptStorage' | 'walletNone' | 'walletRejected' | 'walletFailed';
 function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['reason'], key: RefusalKey) {
   return presentActionFailure({ ok: false as const, reason, message: G.t(key) }, (locale) => ({
     message: G.forLocale(locale).t(key),
@@ -198,8 +213,11 @@ function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['rea
   }));
 }
 function proposalDetailSchema(id: string) {
-  return governanceProposal.extend({ tally }).refine((p) => {
+  return governanceProposal.extend({ tally, choiceTally: choiceTallySchema.nullable().default(null) }).refine((p) => {
     try {
+      // A multi-choice proposal has no for/against: its weight is in the choice tally.
+      if (p.votingType !== 'basic')
+        return p.id === id && Date.parse(p.closesAt) > Date.parse(p.opensAt) && p.choices !== null && p.choiceTally !== null;
       return (
         p.id === id &&
         Date.parse(p.closesAt) > Date.parse(p.opensAt) &&
@@ -211,8 +229,8 @@ function proposalDetailSchema(id: string) {
     }
   });
 }
-export type TokenTab = 'Staking' | 'Governance' | 'Economy';
-/** `tab`: the section an address such as /token/economy opens on. */
+export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
+/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
 export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const { hideBalances } = usePreferences();
   const api = useApi(),
@@ -250,8 +268,13 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   return (
     <div className="more-grid">
       <Tabs
-        items={['Staking', 'Governance', 'Economy']}
-        labels={{ Staking: copyText('token.staking'), Governance: copyText('token.governance'), Economy: copyText('token.economy') }}
+        items={['Staking', 'Governance', 'Economy', 'Burn']}
+        labels={{
+          Staking: copyText('token.staking'),
+          Governance: copyText('token.governance'),
+          Economy: copyText('token.economy'),
+          Burn: buybackRunsCopy.t('tab'),
+        }}
         value={tab}
         onChange={(value) => setTab(value as TokenTab)}
         label={copyText('token.token.sections')}
@@ -360,7 +383,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
           <GovernanceDelegation />
           <GovernanceTreasury />
         </div>
-      ) : (
+      ) : tab === 'Burn' ? (
         <div className="more-columns">
           <Panel title={copyText('token.recorded.burn')}>
             <Read resource={burned.resource} retry={burned.reload}>
@@ -373,6 +396,10 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </Read>
           </Panel>
+          <BuybackRuns />
+        </div>
+      ) : (
+        <div className="more-columns">
           <EmissionEpoch />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
@@ -441,11 +468,12 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
 function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeof useAction>; ballot: SavedBallot }) {
   const api = useApi(),
     { userId } = useSession();
-  const { hideBalances } = usePreferences();
   const [now, setNow] = useState(Date.now);
+  const [version, setVersion] = useState(0);
+  const [ballotOutcome, setBallotOutcome] = useState<BallotOutcome>(null);
   const [preflight, setPreflight] = useState<{
     detail: Resource<z.infer<ReturnType<typeof proposalDetailSchema>>>;
-    stake: Resource<{ staked: string }>;
+    power: Resource<ProposalPower>;
   } | null>(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -455,17 +483,20 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     (signal) => api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id), { signal }),
     `proposal:${userId}:${id}`,
   );
-  const stake = useResource(
-    (signal) => api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema }), { signal }),
-    `vote-stake:${userId}:${id}`,
+  // Votes weigh the power fixed at creation, never today's stake.
+  const power = useResource(
+    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema, { signal }),
+    `voting-power:${userId}:${id}`,
   );
   const blocked = ballot.status === 'unreadable' || (ballot.status === 'ready' && ballot.data.status === 'unknown');
   const detailView = preflight?.detail ?? detail.resource,
-    stakeView = preflight?.stake ?? stake.resource;
+    powerView = preflight?.power ?? power.resource;
+  const canWeigh = powerView.status === 'ready' && parseAmount(powerView.data.power) > 0n;
   function refresh() {
     setPreflight(null);
+    setVersion((n) => n + 1);
     detail.reload();
-    stake.reload();
+    power.reload();
   }
   function stageVote(p: z.infer<ReturnType<typeof proposalDetailSchema>>, choice: VoteChoice) {
     if (
@@ -473,12 +504,12 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
       action.disabled ||
       blocked ||
       !activeWindow(p, Date.now()) ||
-      stakeView.status !== 'ready' ||
-      parseAmount(stakeView.data.staked) <= 0n
+      powerView.status !== 'ready' ||
+      parseAmount(powerView.data.power) <= 0n
     )
       return;
     const actor = userId,
-      estimate = stakeView.data.staked;
+      weight = powerView.data.power;
     const body = JSON.stringify(p.body, null, 2);
     const reviewed = reviewedProposal(p);
     action.stage({
@@ -505,7 +536,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   {timeValue(p.closesAt)}
                 </time>,
               ],
-              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(estimate)],
+              [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(weight)],
             ]}
           />
           <p className="muted">
@@ -541,26 +572,34 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
           }
           return result;
         };
-        setPreflight({ detail: { status: 'loading' }, stake: { status: 'loading' } });
-        const [fresh, currentStake] = await Promise.all([
+        setPreflight({ detail: { status: 'loading' }, power: { status: 'loading' } });
+        const [fresh, currentPower] = await Promise.all([
           api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id)),
-          api.query('token', 'stakeOf', undefined, z.object({ staked: decimalSchema })),
+          api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema),
         ]);
         if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         setPreflight({
           detail: fresh.ok ? { status: 'ready', data: fresh.data } : { status: 'failed', failure: fresh },
-          stake: currentStake.ok ? { status: 'ready', data: currentStake.data } : { status: 'failed', failure: currentStake },
+          power: currentPower.ok ? { status: 'ready', data: currentPower.data } : { status: 'failed', failure: currentPower },
         });
         if (!fresh.ok) return refuseBeforeDispatch(fresh);
-        if (!currentStake.ok) return refuseBeforeDispatch(currentStake);
+        if (!currentPower.ok) return refuseBeforeDispatch(currentPower);
         if (!activeWindow(fresh.data, Date.now())) return refuseBeforeDispatch(governanceRefusal('error', 'inactive'));
         if (reviewedProposal(fresh.data) !== reviewed) return refuseBeforeDispatch(governanceRefusal('error', 'changed'));
-        if (parseAmount(currentStake.data.staked) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        if (parseAmount(currentPower.data.power) <= 0n) return refuseBeforeDispatch(governanceRefusal('forbidden', 'noWeight'));
+        // Every vote carries a linked wallet's signature over the service's own message for it.
+        const signed = await signVote(api, { proposalId: id, choice });
+        if (!signed.ok) {
+          if ('failure' in signed) return refuseBeforeDispatch(signed.failure);
+          const key = signed.wallet === 'none' ? 'walletNone' : signed.wallet === 'rejected' ? 'walletRejected' : 'walletFailed';
+          return refuseBeforeDispatch(governanceRefusal('error', key));
+        }
+        if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         // No await separates the final identity guard and dispatch.
         const result = await api.mutate(
           'token',
           'castVote',
-          { proposalId: id, choice },
+          { proposalId: id, choice, signature: signed.signature },
           voteSchema.refine((vote) => vote.proposalId === id && vote.userId === actor && vote.choice === choice),
         );
         try {
@@ -618,7 +657,11 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                 {JSON.stringify(p.body, null, 2)}
               </pre>
             </section>
-            <section className="token-proposal-section">
+            <VotingPower power={power} version={version} />
+            {p.votingType !== 'basic' && p.choices && p.choiceTally && (
+              <ChoiceTallyView choices={p.choices} tally={p.choiceTally} closedRanked={p.status === 'closed_ranked'} />
+            )}
+            <section className="token-proposal-section" hidden={p.votingType !== 'basic'}>
               <h3>{G.t('tally')}</h3>
               <dl className="token-tally">
                 {[
@@ -637,38 +680,38 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
               <p className="muted">{G.t('aggregate')}</p>
             </section>
             <section className="token-proposal-section">
-              <Read resource={stakeView} retry={refresh}>
-                {(s) => (
-                  <>
-                    <Details items={[[G.t('stakeEstimate'), hideBalances ? G.t('hidden') : displayAmount(s.staked)]]} />
-                    <p className="muted">
-                      {G.t('unit')} {G.t('weightBoundary')}
-                    </p>
-                  </>
-                )}
-              </Read>
+              <p className="muted">
+                {G.t('unit')} {G.t('weightBoundary')}
+              </p>
               {!activeWindow(p, now) && (
                 <p role="status" className="muted">
                   {G.t('inactive')}
                 </p>
               )}
-              {stakeView.status === 'ready' && parseAmount(stakeView.data.staked) === 0n && (
+              {powerView.status === 'ready' && !canWeigh && (
                 <p role="status" className="muted">
                   {G.t('noWeight')}
                 </p>
               )}
+              {p.votingType !== 'basic' && p.choices && (
+                <ChoiceBallot
+                  key={`${id}:${p.votingType}`}
+                  proposalId={id}
+                  votingType={p.votingType}
+                  choices={p.choices}
+                  open={activeWindow(p, now) && !action.disabled && !blocked && canWeigh}
+                  power={power}
+                  outcome={ballotOutcome}
+                  onOutcome={setBallotOutcome}
+                  onCast={refresh}
+                />
+              )}
               <div className="actions">
-                {choiceSchema.options.map((choice) => (
+                {(p.votingType === 'basic' ? choiceSchema.options : []).map((choice) => (
                   <Button
                     key={choice}
                     variant="secondary"
-                    disabled={
-                      action.disabled ||
-                      blocked ||
-                      !activeWindow(p, now) ||
-                      stakeView.status !== 'ready' ||
-                      parseAmount(stakeView.data.staked) <= 0n
-                    }
+                    disabled={action.disabled || blocked || !activeWindow(p, now) || !canWeigh}
                     onClick={() => stageVote(p, choice)}
                   >
                     {G.t(choice === 'for' ? 'reviewFor' : choice === 'against' ? 'reviewAgainst' : 'reviewAbstain')}

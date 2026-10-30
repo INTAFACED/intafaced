@@ -17,6 +17,11 @@ export const LEDGER_RECONCILE_ASOF_INVALID = 'ledger.reconcile_asof_invalid' as 
 export const LEDGER_RECONCILE_SOURCE_UNAVAILABLE = 'ledger.reconcile_source_unavailable' as const;
 export const LEDGER_RECONCILE_BUILTIN_IMMUTABLE = 'ledger.reconcile_builtin_immutable' as const;
 export const LEDGER_RECONCILE_CONTROL_NOT_FOUND = 'ledger.reconcile_control_not_found' as const;
+/** A control names a rail whose outside statement URL is blank: the outside side is unset, never zero. */
+export const LEDGER_RECONCILE_RAIL_SOURCE_UNSET = 'ledger.reconcile_rail_source_unset' as const;
+
+/** A rail id as the ledger's boundary accounts carry it (`rail:<id>`), and as its statement env name is derived from. */
+export const reconciliationRailSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
 
 export const RECONCILIATION_TEMPLATES = ['ledger_invariant', 'outside_balance', 'threshold', 'source_parity'] as const;
 export const RECONCILIATION_SEVERITIES = ['info', 'warning', 'critical'] as const;
@@ -102,13 +107,25 @@ const queryAccountSetSchema = z
     mode: z.literal('query'),
     ownerType: ownerTypeSchema.optional(),
     ownerIdPrefix: z.string().trim().min(1).max(128).optional(),
+    /**
+     * One rail's boundary: treasury accounts whose owner id is exactly `rail:<rail>`. Excludes ownerType and ownerIdPrefix,
+     * and a kind other than `available` (a boundary account is always `available`).
+     */
+    rail: reconciliationRailSchema.optional(),
     kind: accountKindSchema.optional(),
     purpose: z.string().max(128).optional(),
     assetId: assetIdSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (
+      value.rail !== undefined &&
+      (value.ownerType !== undefined || value.ownerIdPrefix !== undefined || (value.kind !== undefined && value.kind !== 'available'))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['rail'] });
+    }
     const predicated =
+      value.rail !== undefined ||
       value.ownerType !== undefined ||
       value.ownerIdPrefix !== undefined ||
       value.kind !== undefined ||
@@ -201,7 +218,7 @@ export type RunReconciliationControlInput = z.infer<typeof runReconciliationCont
 const unsetSchema = z.object({ status: z.literal('unset') }).strict();
 
 /** A control's severity: set to one of the severities, or blank. */
-const reconciliationSeveritySetSchema = z.union([
+export const reconciliationSeveritySetSchema = z.union([
   unsetSchema,
   z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict(),
 ]);
@@ -355,6 +372,24 @@ export const reconciliationEvaluationFeedSchema = z
   .strict();
 export type ReconciliationEvaluationFeed = z.infer<typeof reconciliationEvaluationFeedSchema>;
 
+/**
+ * OPS-reconciliation-04: which of a few ledger transaction ids exist, for svc-ops resolving an alert as fixed with the
+ * corrective transactions an operator names. A service door (svc-ops alone). It answers ids only: no amounts, accounts
+ * or entries, so it is not a ledger read of balances or history.
+ */
+export const LEDGER_TRANSACTIONS_EXIST_MAX = 20;
+export const ledgerTransactionsExistInputSchema = z
+  .object({ txIds: z.array(z.string().guid()).min(1).max(LEDGER_TRANSACTIONS_EXIST_MAX) })
+  .strict();
+export type LedgerTransactionsExistInput = z.infer<typeof ledgerTransactionsExistInputSchema>;
+export const ledgerTransactionsExistSchema = z
+  .object({
+    /** The asked ids that name a booked transaction, in the order asked, each once. */
+    found: z.array(z.string().guid()),
+  })
+  .strict();
+export type LedgerTransactionsExist = z.infer<typeof ledgerTransactionsExistSchema>;
+
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z
   .object({
@@ -371,3 +406,24 @@ export const railBalanceSnapshotSchema = z
   })
   .strict();
 export type RailBalanceSnapshot = z.infer<typeof railBalanceSnapshotSchema>;
+
+/**
+ * One rail's outside statement (OPS-reconciliation-04 per-rail controls): a rail snapshot that names its rail. Amounts are in
+ * the ledger's signed form for that rail's boundary account (`rail:<rail>`), never flipped by the reader.
+ */
+export const railStatementSchema = z
+  .object({
+    source: z.literal('rail'),
+    rail: reconciliationRailSchema,
+    asOf: z.string().datetime({ offset: true }),
+    balances: z.array(
+      z
+        .object({
+          assetId: assetIdSchema,
+          amount: reconciliationSignedDecimalSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type RailStatement = z.infer<typeof railStatementSchema>;

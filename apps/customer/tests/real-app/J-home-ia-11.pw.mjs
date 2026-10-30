@@ -1,29 +1,36 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
+import { founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
+import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
-import { EDGE, ROOT } from './stack.mjs';
+import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
+import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
 // profile; the real-app run starts the same services with `pnpm local:stack`, so the steps read the compose files for the
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
+// #5 runs on the stack's LOCAL TEST hosts (local-test-stack.mjs localTestHosts: its own loopback sites, labelled TEST),
+// never on an owner's hosts: no deployment is named on this stack. The apex there is a TEST stand-in the stack writes
+// (the real apex is built outside this repo), so it proves the check, not the apex's build; the app and join hosts serve
+// this repo's own builds. The deployed hosts are their own #5 test, red by name (BLOCKED deployed_hosts) until a
+// deployment names the hosts; in that mode the check refuses a TEST apex, so only the real apex can turn it green.
 const J = 'J-home-ia-11';
-const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
 const OUTBOX = path.join(STATE, OUTBOX_NAME);
+// The stack's TEST apex stand-in (not the real apex build), its invitation site (the join host) and the Customer server (the app host): localTestHosts.
+const APEX = 'http://127.0.0.1:3260';
+const INVITATION = 'http://127.0.0.1:3220';
 
 test.describe.configure({ mode: 'default' });
 
@@ -38,28 +45,32 @@ function seedService() {
   return null;
 }
 
-/** A seed script run as the seed service runs it; returns { status, out } instead of throwing on a refusal. */
-function run(script, args, env) {
+/**
+ * A seed script run as the seed service runs it: { status, out }, with out holding both streams, instead of throwing on a
+ * refusal. `timeout` caps the run (2 minutes by default); a killed run has no status and counts as failed.
+ */
+function run(script, args, env, { timeout = 120_000 } = {}) {
   const base = { ...process.env };
   delete base.APP_ENV;
   delete base.NODE_ENV;
-  try {
-    const out = execFileSync(process.execPath, [path.join(ROOT, script), ...args], {
-      cwd: ROOT,
-      env: { ...base, ...env },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-    });
-    return { status: 0, out };
-  } catch (error) {
-    return { status: error.status ?? 1, out: `${error.stdout ?? ''}${error.stderr ?? ''}` };
-  }
+  const res = spawnSync(process.execPath, [path.join(ROOT, script), ...args], {
+    cwd: ROOT,
+    env: { ...base, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout,
+  });
+  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
+  return { status: res.status ?? 1, out };
 }
 
+/** The steps the seed service's command names (its compose `command` list), in order. */
+const composeSteps = (block) => [...block.matchAll(/'(local-[a-z-]+\.mjs [a-z]+)'/g)].map((m) => m[1]);
+
 /** The documented tester step (tooling/scripts/local-test-entry.mjs) for founder a: the one value it prints after `label`. */
+const ENTRY_SCRIPT = 'tooling/scripts/local-test-entry.mjs';
 function entry(cmd, label) {
-  const done = run('tooling/scripts/local-test-entry.mjs', [cmd, 'a'], { LOCAL_TEST: '1' });
+  const done = run(ENTRY_SCRIPT, [cmd, 'a'], { LOCAL_TEST: '1' });
   expect(done.status, done.out).toBe(0);
   const value = new RegExp(`${label}: (\\d{6})`).exec(done.out)?.[1];
   expect(value, done.out).toBeTruthy();
@@ -70,6 +81,17 @@ function entry(cmd, label) {
 const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
 
 /** What the test-content seed says it has made on this stack. */
+// The sections `status` prints, one per room the seed fills, in its order.
+const SEEDED_ROOMS = ['pools', 'products', 'house', 'method', 'home'];
+const sections = (out) => [...out.matchAll(/^([a-z]+):$/gm)].map((m) => m[1]);
+const withoutClock = (out) => out.replace(/^as of .*$/m, '');
+/** What the seed made, read back by `status` (which must exit 0 with its header), without its clock line. */
+function content() {
+  const read = seedStatus();
+  expect(read.status, read.out).toBe(0);
+  expect(read.out).toMatch(/^LOCAL TEST content$/m);
+  return withoutClock(read.out);
+}
 const seedStatus = () => run('tooling/scripts/local-test-seed.mjs', ['status', '--state', STATE], { LOCAL_TEST: '1' });
 
 /** The founder vault on this stack (founders.json): the founders' sign-in details, which no page may show. */
@@ -77,36 +99,115 @@ function vault() {
   return JSON.parse(readFileSync(path.join(STATE, FOUNDER_VAULT_NAME), 'utf8'));
 }
 
+// The seed service's own entrypoint (local-tester-seed.mjs), run with the TEST content steps its compose command names
+// (apply, home, status), on a test build, with its compose environment's LOCAL_STACK_STATE and NODE_ENV. Its founder
+// steps (init, enrol) are not run here: the journeys stack enrols its
+// founder pair itself (local-test-stack.mjs, through the founder seed's own enrolment), and `init` refuses a machine that
+// already has founder files, so #1 reads the pair back instead. The journeys stack loads the TEST content with `apply`
+// alone, which makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the
+// notice is open for NOTICE_MINUTES rather than the tester's 30 days, inside the NOTICE_DRAIN_MINUTES that J-home-ia-06
+// waits for leftover notices, so in either order in a shard it waits this one out. The seed publishes it last, after the
+// deposit and its inbox row. The run may take as long as `home`'s own waits (150 s each for the credit and the row).
+const NOTICE_MINUTES = String(NOTICE_DRAIN_MINUTES - 2);
+const SEED_ENTRY = 'tooling/scripts/local-tester-seed.mjs';
+let contentSteps;
+let seedRun;
+test.beforeAll(() => {
+  test.setTimeout(8 * 60_000);
+  const seed = seedService();
+  contentSteps = seed ? composeSteps(seed.block).filter((step) => step.startsWith('local-test-seed.mjs ')) : [];
+  // As the service runs it: the state folder from LOCAL_STACK_STATE and NODE_ENV development (its compose environment).
+  seedRun = run(
+    SEED_ENTRY,
+    [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
+    { APP_ENV: 'test', NODE_ENV: 'development', LOCAL_STACK_STATE: STATE },
+    { timeout: 7 * 60_000 },
+  );
+});
+
 test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async () => {
+  test.setTimeout(8 * 60_000);
   // Every service the stack started answers, and Edge routes to them.
   const ready = await fetch(`${EDGE}/ready`).then((res) => res.json());
   expect(ready.ready).toBe(true);
+  // Each service the stack started, one row each in its own health table, answers its health check.
+  const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
+  expect(table.status, table.out).toBe(0);
+  const rows = [...table.out.matchAll(/^ {2}(\S+) +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  const names = rows.map(([name]) => name);
+  expect(new Set(names).size, 'one row per service').toBe(names.length);
+  // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
+  const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
+  const PLAIN = ['postgres', 'nats', 'video-store', 'customer', 'invitation', 'apex', 'admin'];
+  const started = Object.keys(marker.ports)
+    .filter((name) => name !== 'natsMonitor')
+    .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
+  expect([...names].sort()).toEqual([...started].sort());
+  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
-  // seed (apply), in that order, and refuses any APP_ENV but dev or test.
+  // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   expect(seed.block).toMatch(/profiles:\s*\[?\s*['"]?tester['"]?/);
-  // Once: it is never restarted after it exits.
+  // Configured to run once: never restarted after it exits (the compose_seed test below counts its one container).
   expect(seed.block).toMatch(/^ {4}restart: 'no'$/m);
-  const order = ['local-founder-seed.mjs init', 'local-founder-seed.mjs enrol', 'local-test-seed.mjs apply'].map((step) =>
-    seed.block.indexOf(step),
-  );
-  expect(
-    order.every((at) => at >= 0),
-    `the seed service runs ${order}`,
-  ).toBe(true);
-  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  expect(seed.block).toContain(`'node',\n        '${SEED_ENTRY}',`);
+  expect(composeSteps(seed.block)).toEqual([
+    'local-founder-seed.mjs init',
+    'local-founder-seed.mjs enrol',
+    'local-test-seed.mjs apply',
+    'local-test-seed.mjs home',
+    'local-test-seed.mjs status',
+  ]);
+
+  // The founder steps' result on this stack: both founders have an account and a confirmed second factor.
+  expect(foundersEnrolled(vault())).toBe(true);
+
+  // The entrypoint (run above) ran each content step once, in the command's order, and ended with what it made.
+  expect(seedRun.status, seedRun.out).toBe(0);
+  const ran = [...seedRun.out.matchAll(/^seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
+  expect(ran).toEqual(['local-test-seed.mjs apply', 'local-test-seed.mjs home', 'local-test-seed.mjs status']);
+  expect(seedRun.out).toMatch(/^seed: done \(3 steps\)$/m);
+  const founder = vault().founders[0].handle;
+  expect(seedRun.out).toContain(`home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST `);
+  // The notice ran on this run: published by it, not skipped as already open.
+  expect(seedRun.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
+  expect(seedRun.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  // Its closing `status` step reports the same three things.
+  expect(seedRun.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
+  expect(seedRun.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
 
   // What it made: Home's TEST deposit, TEST notice and inbox row, beside the Earn, Loans, Convert and P2P content.
   const report = seedStatus();
   expect(report.status).toBe(0);
   // Read back from the services for founder a: exactly one credited TEST deposit (status refuses on a second record for
   // the seeded transfer), the published TEST notice, and exactly one deposit-credited inbox row.
-  const founder = vault().founders[0].handle;
   expect(report.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  ${founder}`);
   expect(report.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
   expect(report.out).toContain(`  inbox  1 deposit-credited row  ${founder}`);
+  // The rooms the seed fills, each once: Earn's pools, Loans' products, the house inventory, the P2P method and Home.
+  expect(sections(report.out)).toEqual(SEEDED_ROOMS);
+  const before = withoutClock(report.out);
+
+  // A second run of the same entrypoint makes nothing new in any seeded room: apply creates no pool or product, the house
+  // postings and the deposit are keyed on their business keys, and the notice is still open, so `home` skips it. status
+  // then reads every room exactly as before (it refuses on a second deposit record for the seeded transfer).
+  const again = run(
+    SEED_ENTRY,
+    [...contentSteps, '--notice-minutes', NOTICE_MINUTES],
+    { APP_ENV: 'test', NODE_ENV: 'development', LOCAL_STACK_STATE: STATE },
+    { timeout: 7 * 60_000 },
+  );
+  expect(again.status, again.out).toBe(0);
+  expect(again.out).toMatch(/^earn pools: created 0, skipped \d+$/m);
+  expect(again.out).toMatch(/^loan products: created 0, skipped \d+$/m);
+  expect(again.out).toContain(`home notice: ${HOME_NOTICE_TITLE} skipped`);
+  expect(again.out).toContain(`home inbox: 1 deposit-credited row for ${founder}`);
+  const after = seedStatus();
+  expect(after.status, after.out).toBe(0);
+  expect(sections(after.out)).toEqual(SEEDED_ROOMS);
+  expect(withoutClock(after.out)).toBe(before);
 });
 
 test(`${J} #2 the documented sign-in steps get the founder in with founder scopes, and the founder console opens`, async ({ page }) => {
@@ -114,10 +215,16 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   // one-time code. It never shows a password, a second-factor secret or a code.
   await page.goto('/login');
   const panel = page.getByRole('region', { name: 'Tester build' });
-  await expect(panel).toBeVisible(UNBUILT);
+  await expect(panel).toBeVisible();
   await expect(panel).toContainText(FOUNDER_VAULT_NAME);
   await expect(panel).toContainText(/one-time code/i);
   const text = await panel.innerText();
+  // The panel's steps are the ones this test then follows: the console's /login, the handle and password from the vault,
+  // the one-time code command, and the device code command when the console asks to authorise the browser.
+  expect(text).toMatch(/founder console[^\n]*at \/login/);
+  expect(text).toContain(`handle and password from ${FOUNDER_VAULT_NAME}`);
+  expect(text).toContain(`node ${ENTRY_SCRIPT} code a`);
+  expect(text).toContain(`node ${ENTRY_SCRIPT} device a`);
   for (const founder of vault().founders) {
     for (const secret of [founder.password, founder.totpSecret].filter(Boolean)) expect(text).not.toContain(secret);
   }
@@ -148,9 +255,35 @@ test(`${J} #2 the documented sign-in steps get the founder in with founder scope
   // session's ops scopes, and its session bar names this founder by the directory's own name.
   const owners = await page.request.get(`${ADMIN}/api/crm?view=owners`);
   expect(owners.status()).toBe(200);
+  // The same door with no founder session refuses with its one typed code, so the 200 above is this session's.
+  const unsigned = await fetch(`${ADMIN}/api/crm?view=owners`);
+  expect(unsigned.status).toBe(401);
+  expect((await unsigned.json()).code).toBe('admin.session_required');
   const name = (await owners.json()).owners.find((owner) => owner.userId === founder.userId)?.displayName;
   expect(name).toMatch(/^(Nitro|Phantom)$/);
   await expect(page.locator(`.adm-session > span[title="${founder.userId}"]`)).toHaveText(name);
+
+  // The founder scopes read back from identity itself: the same founder, signed in with the same password and second
+  // factor as the console's server signs in, gets an access token from identity carrying every founder scope this stack
+  // configures (local-stack-services/identity.mjs), with the second factor recorded.
+  const ctx = await makeContext({ log: () => {} });
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      identifier: founder.handle,
+      password: founder.password,
+      deviceKey: LOCAL_TEST_DEVICE_KEY,
+      totpCode: await founderTotp(ctx, 'a', founder.totpSecret),
+    }),
+  });
+  expect(login.status).toBe(200);
+  const accessToken = (await login.json())?.result?.data?.accessToken;
+  expect(typeof accessToken).toBe('string');
+  const claims = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8'));
+  expect(claims.sub).toBe(founder.userId);
+  expect(claims.mfa).toBe(true);
+  expect(claims.scopes).toEqual(expect.arrayContaining(await stackFounderScopes(ctx.paths.stateDir)));
 });
 
 test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notice and one inbox row, each labelled TEST`, async ({
@@ -166,6 +299,7 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   await expect(page).toHaveURL(/\/home$/);
 
   // What the seed made for founder a, read back from the services (status writes nothing).
+  expect(seedRun.status, seedRun.out).toBe(0);
   const status = seedStatus();
   expect(status.status, status.out).toBe(0);
   const made = /^ {2}deposit {2}(\S+) (\S+) credited {2}(\S+)$/m.exec(status.out);
@@ -184,32 +318,47 @@ test(`${J} #3 the founder's Home shows a TEST deposit in the total, a TEST notic
   // The deposit itself is on Home, once.
   await expect(page.getByTestId('home-activity__row').filter({ hasText: `+${amount} ${asset}` })).toHaveCount(1);
   // One TEST notice, the one the seed published (drafted by one founder and published by the other).
-  await expect(page.getByTestId('home-notice').filter({ hasText: notice })).toHaveCount(1);
+  const shown = page.getByTestId('home-notice').filter({ hasText: notice });
+  await expect(shown).toHaveCount(1);
   expect(notice).toContain('TEST');
-  // One inbox row for that deposit, filed by the real deposit-credit consumer, and it says TEST beside the amount.
-  await page.goto('/notifications');
-  const row = page.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
+  await expect(shown.locator('.home-notice__title')).toContainText('TEST');
+  // One inbox row on Home, the one the real deposit-credit consumer filed for that deposit, and it says TEST beside the amount.
+  const inbox = page.getByTestId('home-inbox');
+  await expect(inbox.getByTestId('nf-row')).toHaveCount(1);
+  const row = inbox.getByTestId('nf-row').filter({ hasText: `${amount} ${asset}` });
   await expect(row).toHaveCount(1);
   await expect(row.getByTestId('nf-test')).toHaveText('TEST');
+  // Home shows only the newest row, so the inbox's own count is read from the services: exactly one row for that deposit.
+  expect(status.out).toContain(`  inbox  1 deposit-credited row  ${founder.handle}`);
 });
 
 test(`${J} #4 the same image started as staging or production: the seed service exits with an error and creates nothing`, async () => {
   const secrets = path.join(ROOT, '.env.founder-secrets.local');
-  const secretsBefore = existsSync(secrets) ? statSync(secrets).mtimeMs : null;
-  const contentBefore = seedStatus().out.replace(/^as of .*$/m, '');
+  const secretsAt = () => (existsSync(secrets) ? statSync(secrets).mtimeMs : null);
+  const founderVault = path.join(STATE, FOUNDER_VAULT_NAME);
+  const vaultText = () => (existsSync(founderVault) ? readFileSync(founderVault, 'utf8') : null);
+  const secretsBefore = secretsAt();
+  const vaultBefore = vaultText();
+  expect(vaultBefore, `${founderVault} is the enrolled founder vault`).not.toBeNull();
+  const contentBefore = content();
 
   for (const appEnv of ['staging', 'production']) {
-    // The founder seed refuses before reading or writing anything.
+    // The founder seed refuses before reading or writing anything, with its own refusal exit, 1 (local-founder-seed.test.mjs).
     const founders = run('tooling/scripts/local-founder-seed.mjs', ['init'], { INTAFACED_LOCAL_FOUNDER: '1', APP_ENV: appEnv });
-    expect(founders.status, founders.out).not.toBe(0);
-    expect(founders.out).toContain(`APP_ENV is "${appEnv}"`);
+    expect(founders.status, founders.out).toBe(1);
+    expect(founders.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
     // The test-content seed refuses before any database or ledger call.
     const content = run('tooling/scripts/local-test-seed.mjs', ['apply', '--state', STATE], { LOCAL_TEST: '1', APP_ENV: appEnv });
-    expect(content.status, content.out).not.toBe(0);
-    expect(content.out).toContain(`APP_ENV is "${appEnv}"`);
+    expect(content.status, content.out).toBe(2);
+    expect(content.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
+    // So does its Home step, which the seed service runs after apply.
+    const home = run('tooling/scripts/local-test-seed.mjs', ['home', '--state', STATE], { LOCAL_TEST: '1', APP_ENV: appEnv });
+    expect(home.status, home.out).toBe(2);
+    expect(home.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
   }
-  expect(existsSync(secrets) ? statSync(secrets).mtimeMs : null).toBe(secretsBefore);
-  expect(seedStatus().out.replace(/^as of .*$/m, '')).toBe(contentBefore);
+  expect(secretsAt()).toBe(secretsBefore);
+  expect(vaultText()).toBe(vaultBefore);
+  expect(content()).toBe(contentBefore);
 
   // The seed service itself refuses to start: its entrypoint, run with that APP_ENV, exits non-zero.
   const seed = seedService();
@@ -219,18 +368,41 @@ test(`${J} #4 the same image started as staging or production: the seed service 
   for (const appEnv of ['staging', 'production']) {
     const started = run(entry, [], { APP_ENV: appEnv });
     expect(started.status, started.out).toBe(2);
-    expect(started.out).toContain(`refusing: APP_ENV is "${appEnv}"`);
+    expect(started.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
   }
-  expect(seedStatus().out.replace(/^as of .*$/m, '')).toBe(contentBefore);
+  // Its default steps start with the founder seed's init, so the founder files are re-read too.
+  expect(secretsAt()).toBe(secretsBefore);
+  expect(vaultText()).toBe(vaultBefore);
+  expect(content()).toBe(contentBefore);
 });
+
+/** `pnpm local:stack restart customer`, with `env` on top; the stack re-runs its LOCAL TEST host check as it starts. */
+const restartCustomer = (env = {}) =>
+  run('tooling/scripts/local-test-stack.mjs', ['restart', 'customer'], { LOCAL_STACK_HOSTS: '', ...env });
+const HOST_RECEIPT = path.join(STATE, 'host-dispatch.json');
+// The host check's build id: the first 16 hex of the sha256 of what the host served (host-dispatch.mjs).
+const buildIdOf = (body) => createHash('sha256').update(body).digest('hex').slice(0, 16);
+/** The Customer build the stack serves: a saved folder override (customer-dist), else this checkout's own build. */
+function customerDist() {
+  const saved = path.join(STATE, 'customer-dist.json');
+  return existsSync(saved) ? JSON.parse(readFileSync(saved, 'utf8')).path : path.join(ROOT, 'apps', 'customer', 'dist');
+}
+
+/** The receipt the Customer server publishes at /host-dispatch.json, or null when it answers with anything but JSON. */
+async function publishedReceipt(page) {
+  const published = await page.request.get('/host-dispatch.json');
+  const isReceipt = published.ok() && (published.headers()['content-type'] ?? '').includes('application/json');
+  return isReceipt ? await published.json() : null;
+}
 
 test(`${J} #5 the apex, app and join hosts are checked: a receipt of three served hosts, or a typed refusal naming the host`, async ({
   page,
 }) => {
+  test.setTimeout(6 * 60_000);
   const check = 'apps/customer/deployment/host-dispatch.mjs';
   const out = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
 
-  // A blank host setting is refused by name and nothing is fetched.
+  // The deployment check: a blank host setting is refused by name and nothing is fetched.
   const blank = run(check, ['--out', out], { INTAFACED_APEX_HOST: '', INTAFACED_APP_HOST: '', INTAFACED_JOIN_HOST: '' });
   expect(blank.status).toBe(1);
   for (const role of ['apex', 'app', 'join']) expect(blank.out).toContain(`host.${role}_unset`);
@@ -251,9 +423,184 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     ['join', 'https://127.0.0.1:9', 'host.not_served'],
   ]);
 
-  // The Help room reads the deployment's receipt and shows each host as served or with its named blocker.
+  // Its LOCAL TEST mode refuses anything but a dev or test APP_ENV, and writes nothing.
+  const local = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
+  for (const appEnv of ['staging', 'production']) {
+    const refused = run(check, ['--local-test', '--out', local], {
+      APP_ENV: appEnv,
+      INTAFACED_APEX_HOST: APEX,
+      INTAFACED_APP_HOST: CUSTOMER,
+      INTAFACED_JOIN_HOST: INVITATION,
+    });
+    expect(refused.status, refused.out).toBe(2);
+    expect(refused.out).toContain('host dispatch (TEST): all (not checked) host.local_test_refused');
+    expect(existsSync(local)).toBe(false);
+  }
+
+  // On the stack's own sites: one host dark and two served names only the dark one; a host serving another site's build
+  // is that host's wrong build, not served.
+  const oneOff = [
+    [{ INTAFACED_APEX_HOST: 'http://127.0.0.1:9' }, ['host.not_served', 'served', 'served']],
+    [{ INTAFACED_APP_HOST: 'http://127.0.0.1:9' }, ['served', 'host.not_served', 'served']],
+    [{ INTAFACED_JOIN_HOST: 'http://127.0.0.1:9' }, ['served', 'served', 'host.not_served']],
+    [{ INTAFACED_APEX_HOST: INVITATION }, ['host.apex_wrong_build', 'served', 'served']],
+    [{ INTAFACED_APP_HOST: INVITATION }, ['served', 'host.app_wrong_build', 'served']],
+    [{ INTAFACED_JOIN_HOST: CUSTOMER }, ['served', 'served', 'host.join_wrong_build']],
+  ];
+  for (const [change, results] of oneOff) {
+    const hosts = { INTAFACED_APEX_HOST: APEX, INTAFACED_APP_HOST: CUSTOMER, INTAFACED_JOIN_HOST: INVITATION, ...change };
+    const checked = run(check, ['--local-test', '--out', local], { APP_ENV: 'test', ...hosts });
+    expect(checked.status, checked.out).toBe(1);
+    const got = JSON.parse(readFileSync(local, 'utf8'));
+    expect(got).toMatchObject({ status: 'refused', test: true });
+    expect(got.hosts.map((host) => [host.role, host.host, host.result])).toEqual([
+      ['apex', hosts.INTAFACED_APEX_HOST, results[0]],
+      ['app', hosts.INTAFACED_APP_HOST, results[1]],
+      ['join', hosts.INTAFACED_JOIN_HOST, results[2]],
+    ]);
+  }
+
+  // The blank case on the stack: restarted with its TEST hosts unset, the check names each host's typed refusal, the
+  // receipt is gone, and the Help room shows no host as served. The finally puts the TEST hosts back.
+  let restored;
+  try {
+    const unset = restartCustomer({ LOCAL_STACK_HOSTS: 'off' });
+    expect(unset.status, unset.out).toBe(0);
+    for (const role of ['apex', 'app', 'join'])
+      expect(unset.out).toContain(`host dispatch (TEST): ${role} (not checked) host.${role}_unset`);
+    expect(unset.out).toContain('host dispatch (TEST): no receipt written');
+    expect(existsSync(HOST_RECEIPT)).toBe(false);
+    expect(await publishedReceipt(page)).toBeNull();
+    expect((await page.request.get('/host-dispatch.json')).status(), 'no receipt is published').toBe(404);
+    await page.goto('/help');
+    await expect(page.getByTestId('host-dispatch')).toBeVisible();
+    for (const role of ['apex', 'app', 'join'])
+      await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'host.receipt_missing');
+    await expect(page.getByTestId('host-dispatch-test')).toHaveCount(0);
+  } finally {
+    restored = restartCustomer();
+  }
+  // Asserted after the finally, so a failure above is the one reported.
+  expect(restored.status, restored.out).toBe(0);
+  expect(restored.out).toContain('host dispatch (TEST): receipt ');
+
+  // The pass: a TEST receipt in which the apex, app and join hosts are each served, read back from what the Customer
+  // server publishes and from the Help room, row by row, with its TEST label.
+  const want = { apex: APEX, app: CUSTOMER, join: INVITATION };
+  const served = await publishedReceipt(page);
+  expect(served, 'the Customer server published no host dispatch receipt').not.toBeNull();
+  expect(served).toMatchObject({ schemaVersion: 1, status: 'served', test: true });
+  expect(served.hosts.map((host) => [host.role, host.host, host.result])).toEqual(
+    Object.entries(want).map(([role, host]) => [role, host, 'served']),
+  );
+  expect(JSON.parse(readFileSync(HOST_RECEIPT, 'utf8'))).toEqual(served);
+  // Each build id is the stack's own build: the apex stand-in's descriptor and the Customer descriptor as built on disk,
+  // and the invitation index as served at /join, which loads the invitation build's own assets.
+  const buildIds = Object.fromEntries(served.hosts.map((host) => [host.role, host.buildId]));
+  expect(buildIds.apex).toBe(buildIdOf(readFileSync(path.join(STATE, 'apex-test', 'apex-deployment.json'))));
+  expect(buildIds.app).toBe(buildIdOf(readFileSync(path.join(customerDist(), 'customer-deployment.json'))));
+  const join = await page.request.get(`${INVITATION}/join`);
+  const joinBody = await join.text();
+  expect(buildIds.join).toBe(buildIdOf(joinBody));
+  const builtAssets = readFileSync(path.join(ROOT, 'apps', 'invitation', 'dist', 'index.html'), 'utf8').match(/\/assets\/[^"']+/g);
+  expect(builtAssets?.length, 'the invitation build references its assets').toBeGreaterThan(0);
+  for (const asset of builtAssets) expect(joinBody).toContain(asset);
+  expect(new Set(Object.values(buildIds)).size, 'three distinct builds').toBe(3);
   await page.goto('/help');
-  const hosts = page.getByTestId('host-dispatch');
-  await expect(hosts).toBeVisible(UNBUILT);
-  for (const role of ['apex', 'app', 'join']) await expect(hosts).toContainText(new RegExp(`${role}[\\s\\S]*(served|host\\.)`, 'i'));
+  await expect(page.getByTestId('host-dispatch')).toBeVisible();
+  await expect(page.getByTestId('host-dispatch-test')).toHaveText('TEST');
+  for (const [role, host] of Object.entries(want)) {
+    const row = page.getByTestId(`host-dispatch-${role}`);
+    await expect(row).toHaveAttribute('data-result', 'served');
+    await expect(row).toContainText(host);
+    // The row names its loopback TEST host and no other host.
+    const hosts = (await row.innerText()).match(/[a-z][a-z0-9+.-]*:\/\/[^\s/]+/gi) ?? [];
+    expect(hosts.length, `${role} row names its host`).toBeGreaterThan(0);
+    for (const named of hosts) expect(new URL(named).hostname, `${role} row names ${named}`).toBe('127.0.0.1');
+  }
+});
+
+// The one clause the stack cannot give: the deployment's own apex, app and join hosts, over HTTPS, each serving its build.
+// The check runs in its deployment mode with the hosts the run is given (none on the stack), so this stays red by name
+// until a deployment names the hosts.
+test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a deployment names the hosts)`, () => {
+  const out = path.join(mkdtempSync(path.join(tmpdir(), 'host-dispatch-')), 'host-dispatch.json');
+  const hosts = Object.fromEntries(
+    ['INTAFACED_APEX_HOST', 'INTAFACED_APP_HOST', 'INTAFACED_JOIN_HOST'].map((name) => [name, process.env[name] ?? '']),
+  );
+  const deployed = run('apps/customer/deployment/host-dispatch.mjs', ['--out', out], hosts);
+  const receipt = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
+  // Red only for this clause: a failure here is the check's own typed host refusal (a blank host, a dark one, the wrong
+  // build, each with its detail), never a crash. This test also carries the apex's own build: the real apex is built
+  // outside this repo, so the stack's TEST stand-in in the test above proves the check, never the apex's build.
+  if (deployed.status !== 0)
+    expect(deployed.out).toMatch(/^host dispatch: (apex|app|join) (\(not checked\)|\S+) host\.[a-z_]+( \(.*\))?$/m);
+  expect(
+    deployed.status === 0 && receipt?.status === 'served' && receipt.test === undefined,
+    `BLOCKED deployed_hosts: until a deployment names the hosts and serves them, the deployment check refuses:\n${deployed.out}`,
+  ).toBe(true);
+  expect(receipt.hosts.map((host) => [host.role, host.result])).toEqual([
+    ['apex', 'served'],
+    ['app', 'served'],
+    ['join', 'served'],
+  ]);
+});
+
+/** `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. */
+function compose(args, env, { timeout = 120_000 } = {}) {
+  const files = COMPOSE.flatMap((name) => ['-f', name]);
+  const res = spawnSync(
+    'docker',
+    ['compose', '-p', 'intafaced-tester-journey', '--env-file', '.env.example', ...files, '--profile', 'tester', ...args],
+    { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout },
+  );
+  const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
+  return { status: res.status ?? 1, out };
+}
+
+// The step's own start: a fresh compose up with the tester profile, from the documented example env as a test build, on a
+// state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
+// stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
+test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
+  test.setTimeout(30 * 60_000);
+  const state = mkdtempSync(path.join(tmpdir(), 'compose-tester-'));
+  const env = { APP_ENV: 'test', LOCAL_STACK_STATE: state };
+  const seed = seedService();
+  expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
+  try {
+    const config = compose(['config', '--quiet'], env);
+    // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
+    if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
+    expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
+    const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
+      timeout: 25 * 60_000,
+    });
+    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${up.out}`).toBe(0);
+    const ran = [...up.out.matchAll(/seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
+    expect(ran).toEqual(composeSteps(seed.block));
+    expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
+    // What it made, as its run reports it and its closing status reads it back from the compose stack's services.
+    expect(up.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
+    expect(up.out).toMatch(new RegExp(`home inbox: 1 deposit-credited row for \\S+$`, 'm'));
+    expect(up.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  `);
+    expect(up.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
+    expect(up.out).toContain(`  inbox  1 deposit-credited row  `);
+    // Once: the seed service has exactly one container, exited 0.
+    const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
+    expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);
+    // The same image, started as staging or production, exits 2 with the typed refusal and seeds nothing.
+    for (const appEnv of ['staging', 'production']) {
+      const refused = compose(['run', '--rm', '-e', `APP_ENV=${appEnv}`, 'seed'], env);
+      expect(refused.status, refused.out).toBe(2);
+      expect(refused.out).toContain(`refusing [seed.app_env_not_local]: APP_ENV is "${appEnv}"`);
+    }
+  } finally {
+    compose(['down', '--volumes', '--remove-orphans'], env);
+    // The seed container writes into the folder as its own user; a folder left behind must not hide the step's result.
+    try {
+      rmSync(state, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`compose state ${state} not removed: ${error.message}`);
+    }
+  }
 });

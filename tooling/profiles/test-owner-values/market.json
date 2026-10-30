@@ -1,0 +1,30 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "MARKET_HOUSE_COMMISSION_BPS": {
+      "service": "market",
+      "value": "100",
+      "note": "TEST house commission of 1% on a Market sale, so a journey can list and buy, and the commission leg posts. Blank in production refuses market.commission_not_configured."
+    },
+    "MARKET_PURCHASE_HOLD": {
+      "service": "market",
+      "value": "on",
+      "note": "TEST: a Market purchase is held in the buyer's pot until its refund window ends (MC-market-02), so a journey can ask for a refund and see a release. The owner has not decided; production leaves it unset and every purchase pays through."
+    },
+    "MARKET_REFUND_WINDOW_SECONDS": {
+      "service": "market",
+      "value": "120",
+      "note": "TEST refund window of two minutes, short so one journey run sees both a refund inside it and a release after it. Blank with the hold switch on refuses every purchase (market.refund_window_unset)."
+    },
+    "MARKET_RELEASE_SWEEP_SECONDS": {
+      "service": "market",
+      "value": "5",
+      "note": "TEST: the release sweep runs every 5 seconds. Blank, no sweep runs and held purchases stay held."
+    },
+    "MARKET_REFUND_POLICY": {
+      "service": "market",
+      "value": "seller_full",
+      "note": "TEST refund policy: the seller may refund a held purchase in full, so a journey can see a refund move money once. The owner has not decided; blank, every refund request and refund refuses owner.decision and the purchase stays held."
+    }
+  }
+}

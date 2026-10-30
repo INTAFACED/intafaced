@@ -360,6 +360,9 @@ export function createMoneyMock(ctx) {
               : [],
             readAt: iso(Date.now()),
           });
+        case 'merchantControl.topUp.options':
+          // No top-up rail is wired, as on the real service.
+          return refuse(route, 412, 'pay.topup_unconfigured');
         case 'merchantControl.usage':
           return ok(route, usageNow());
         case 'merchantControl.pricing.preview': {
@@ -570,6 +573,17 @@ export function createMoneyMock(ctx) {
                       archetype: 'standard',
                       caps: control.caps,
                       reserve: control.reserve,
+                      // Its own fees are the tier-layer rules the profile resolves; payouts are published as not charged.
+                      fees: control.pricing.map(({ assetCode, bands, spreadBps, roundingBeneficiary }) => ({
+                        assetCode,
+                        bands,
+                        spreadBps,
+                        roundingBeneficiary,
+                        minFee: null,
+                        maxFee: null,
+                        version: '1',
+                      })),
+                      payoutFee: { kind: 'not_charged' },
                       version: 'v1',
                     },
                     {
@@ -584,6 +598,9 @@ export function createMoneyMock(ctx) {
                         { kind: 'beneficiaries_per_day', limit: 10 },
                       ],
                       reserve: { rollingReserveBps: 300, holdDays: 5 },
+                      // A tier with no fee and no payout fee of its own: the page reads "Not set" for both.
+                      fees: [],
+                      payoutFee: null,
                       version: 'v1',
                     },
                     {

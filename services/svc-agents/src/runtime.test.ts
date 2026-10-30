@@ -1,15 +1,17 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, houseFees, userAvailable } from '@intafaced/ledger-client';
 import { ModelGateway } from './gateway/gateway.js';
-import { parseRoutingTable, type RoutingTable } from './gateway/routing.js';
+import { parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { UsageMeter, chargeKeyFor } from './metering/meter.js';
 import { usageCost, windowCost } from './metering/pricing.js';
 import { MockModelProvider, mockUsage } from './providers/mock.js';
@@ -21,6 +23,7 @@ import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
+import { actionsCsv, logReadKey, purgeExpiredTranscripts, type OpsLogSettings } from './oplog/routes.js';
 
 /**
  * svc-agents — the fleet runtime end to end.
@@ -360,7 +363,7 @@ if (!available) {
       expect(result.metered).toBe(true);
 
       const expected = windowCost([
-        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: route.price },
+        { inputTokens: BigInt(usage.inputTokens), outputTokens: BigInt(usage.outputTokens), price: route.price! },
       ]);
       expect(expected).toBeGreaterThan(0n);
 
@@ -386,7 +389,7 @@ if (!available) {
         messages: [{ role: 'user', content: 'And how do I unstake?' }],
       });
 
-      const price = a.route.price;
+      const price = a.route.price!;
       const expected = windowCost([
         {
           inputTokens: BigInt(a.usage.inputTokens + b.usage.inputTokens),
@@ -420,7 +423,7 @@ if (!available) {
       expect(rows).toHaveLength(1);
 
       const settlement = await runtime.settleWindow(session.id, first.windowId!);
-      expect(settlement.amount).toBe(usageCost(first.usage, first.route.price));
+      expect(settlement.amount).toBe(usageCost(first.usage, first.route.price!));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
@@ -430,7 +433,7 @@ if (!available) {
       const gate = gateComplete(gateway, 'first');
       const local = meteredRuntime(gate.gateway);
       const { route, usage } = expectedUsage('plan');
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
 
       const first = local.think({ sessionId: session.id, requestId: 'overlap-same', task: 'plan', messages: MESSAGES });
@@ -481,7 +484,7 @@ if (!available) {
 
       // Manually seal with a known positive amount and NO charge_tx_id — the
       // state a process death between seal and post produces.
-      const expected = usageCost(call.usage, call.route.price);
+      const expected = usageCost(call.usage, call.route.price!);
       expect(expected).toBeGreaterThan(0n);
       await sql`
         UPDATE agents.usage_windows
@@ -533,15 +536,16 @@ if (!available) {
       const call = await runtime.think({ sessionId: session.id, requestId: 'r-a', task: 'plan', messages: MESSAGES });
       await runtime.settleWindow(session.id, call.windowId!);
 
-      // Same window (the clock has not moved an hour), already settled.
-      await expect(runtime.think({ sessionId: session.id, requestId: 'r-late', task: 'plan', messages: MESSAGES })).rejects.toMatchObject({
-        code: 'agents.window_sealed',
-      });
+      // Same window (the clock has not moved an hour), already settled: refused before anything is claimed or called.
+      const err = await runtime.think({ sessionId: session.id, requestId: 'r-late', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(err).toBeInstanceOf(RefusedError);
+      expect((err as RefusedError).refusal.code).toBe('agents.window_sealed');
 
-      // The house was not paid twice, and the attempt is in the log.
+      // The house was not paid twice, the engine answered once, and the refusal is in the log.
       expect(await houseOf()).toBe(formatAmount((await runtime.settleWindow(session.id, call.windowId!)).amount));
       const log = await runtime.sessionLog(session.id, 500);
-      expect(log.some((a) => a.status === 'failed')).toBe(true);
+      expect(log.filter((a) => a.kind === 'completion' && a.status === 'executed')).toHaveLength(1);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.window_sealed' });
     });
 
     it('charges nothing for a session on the included allowance', async () => {
@@ -987,7 +991,7 @@ if (!available) {
 
     it('a charge that lands exactly on the ceiling commits its real cost', async () => {
       const { route, usage } = expectedUsage('quick', MESSAGES, 1);
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
       await runtime.registerAgent({
         ...PROBE,
@@ -1014,7 +1018,7 @@ if (!available) {
 
     it('overlapping thinks that each fit alone do not both commit past the ceiling', async () => {
       const { route, usage } = expectedUsage('quick', MESSAGES, 1);
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
       expect(expected).toBeGreaterThan(0n);
       await runtime.registerAgent({
         ...PROBE,
@@ -1065,7 +1069,7 @@ if (!available) {
       const gate = gateComplete(gateway, 'both');
       const local = meteredRuntime(gate.gateway);
       const { route, usage } = expectedUsage('plan');
-      const expected = usageCost(usage, route.price);
+      const expected = usageCost(usage, route.price!);
 
       const left = local.think({ sessionId: session.id, requestId: 'null-a', task: 'plan', messages: MESSAGES });
       const right = local.think({ sessionId: session.id, requestId: 'null-b', task: 'plan', messages: MESSAGES });
@@ -1103,7 +1107,7 @@ if (!available) {
     it('holds the route worst case, commits the real cost once, and refuses a second call that would pass the cap', async () => {
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'quick')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1146,10 +1150,10 @@ if (!available) {
       // claim stuck, so the same request id can never be retired.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
       const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
-      const inflated = usageCost(inflatedUsage, route.price);
+      const inflated = usageCost(inflatedUsage, route.price!);
       expect(inflated).toBeGreaterThan(worst);
       const cap = formatAmount(worst);
       await store.set({
@@ -1201,7 +1205,7 @@ if (!available) {
 
     function overCapGateway(): { gateway: ModelGateway; worst: bigint; cap: string } {
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
       const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
       const wrapped = Object.create(gateway) as ModelGateway;
@@ -1337,9 +1341,9 @@ if (!available) {
       // call still fits under a cap that the first call already spent.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const { usage } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       expect(cost).toBeGreaterThan(0n);
       expect(cost).toBeLessThan(worst);
       await store.set({
@@ -1386,7 +1390,7 @@ if (!available) {
       // The next call needs its own hold, decided against the committed total.
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1422,7 +1426,7 @@ if (!available) {
       ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
       expect(provider.callCount).toBe(before + 1);
       const { usage } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       const rows = await sql<Array<{ status: string; committed: string | null }>>`
         SELECT status, committed_amount::text AS committed
           FROM agents.spend_reservations
@@ -1473,7 +1477,7 @@ if (!available) {
       expect(second.cost).toBe(0n);
       expect(provider.callCount).toBe(before + 2);
       const { usage, route } = expectedUsage('plan');
-      const cost = usageCost(usage, route.price);
+      const cost = usageCost(usage, route.price!);
       const rows = await sql<Array<{ reservation_key: string; status: string; committed: string | null }>>`
         SELECT reservation_key, status, committed_amount::text AS committed
           FROM agents.spend_reservations
@@ -1491,7 +1495,7 @@ if (!available) {
     it('an in-flight hold does not authorize another provider call when a new one does not fit', async () => {
       const store = new UserSpendStore(sql);
       const route = TABLE.routes.find((row) => row.task === 'plan')!;
-      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
       const cap = formatAmount(worst);
       await store.set({
         userId: USER_A,
@@ -1891,7 +1895,7 @@ if (!available) {
       const ok = await flakyRuntime.think({ sessionId: session.id, requestId: 'same-request', task: 'plan', messages: MESSAGES });
       const settlement = await flakyRuntime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price!));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -1918,7 +1922,7 @@ if (!available) {
       const ok = await runtime.think({ sessionId: session.id, requestId: 'r-2', task: 'plan', messages: MESSAGES });
       const settlement = await runtime.settleWindow(session.id, ok.windowId!);
 
-      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price));
+      expect(settlement.amount).toBe(usageCost(ok.usage, ok.route.price!));
       expect(ledger.totalsByAsset().IFC).toBe('0');
     });
   });
@@ -1978,9 +1982,10 @@ if (!available) {
       } as Principal;
     }
 
-    function doorsSigned(p: Principal = doorsPrincipal()) {
+    /** The person's own request; `asService` adds the svc-agents caller name the settle doors require. Run doors refuse a service (OWNER 107). */
+    function doorsSigned(p: Principal = doorsPrincipal(), asService = false) {
       const raw = encodePrincipal(p);
-      return {
+      const signed = {
         ...doorsEdge({
           headers: {
             'x-intafaced-principal': raw,
@@ -1989,8 +1994,8 @@ if (!available) {
           },
           id: 'req-doors',
         }),
-        service: 'svc-agents' as const,
       };
+      return asService ? { ...signed, service: 'svc-agents' as const } : signed;
     }
 
     function routerDeps(rt: AgentRuntime): AgentsRouterDeps {
@@ -2055,7 +2060,8 @@ if (!available) {
       expect(call.windowId).not.toBeNull();
 
       const off = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: false });
-      const caller = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned());
+      const caller = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned(doorsPrincipal(), true));
+      const person = createAgentsRouter(routerDeps(off)).createCaller(doorsSigned());
 
       const settle = await caller.usage.settle({ sessionId: session.id, windowId: call.windowId! });
       expect(settle).toMatchObject({ amount: '0', settled: false, assetId: 'IFC' });
@@ -2063,13 +2069,770 @@ if (!available) {
       const settleAll = await caller.usage.settleSession({ sessionId: session.id });
       expect(settleAll.settlements.every((s) => s.settled === false && s.amount === '0')).toBe(true);
 
-      const closed = await caller.session.close({ sessionId: session.id });
+      const closed = await person.session.close({ sessionId: session.id });
       expect(closed.status).toBe('closed');
 
       expect(await balanceOf(USER_A)).toBe('1000');
       expect(await houseOf()).toBe('0');
       const stillOpen = await meter.openWindows(session.id);
       expect(stillOpen).toContain(call.windowId!);
+    });
+  });
+
+  describe('OWNER 107 — a run starts only when it can be paid for, priced and run by the person', () => {
+    /** Counts how often the engine is reached through a gateway. */
+    function counting(inner: ModelGateway) {
+      let calls = 0;
+      const wrapped = Object.create(inner) as ModelGateway;
+      wrapped.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
+        calls += 1;
+        return inner.complete(task, request);
+      };
+      return { gateway: wrapped, calls: () => calls };
+    }
+    const refusalCode = (err: unknown) => (err instanceof RefusedError ? err.refusal.code : String(err));
+
+    it('refuses a task with no published rate before the engine, and logs the refusal', async () => {
+      const blank = counting(new ModelGateway([provider], unpricedTable(TABLE)));
+      const rt = new AgentRuntime(sql, blank.gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'blank-rate', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.price_unset');
+      expect(blank.calls()).toBe(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.price_unset' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
+    it('refuses a run whose worst case the available balance cannot cover, before the hold and the engine', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const gate = counting(gateway);
+      const spend = new UserSpendStore(sql);
+      const below = formatAmount(worst - 1n);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => amt(below) },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'capped', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'capped' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'poor-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(0);
+      const holds = await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`;
+      expect(holds).toHaveLength(0);
+      const usage = await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usage).toHaveLength(0);
+
+      // Exactly the worst case is enough.
+      const enough = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => worst },
+      });
+      const ok = await enough.think({ sessionId: session.id, requestId: 'poor-2', task: 'plan', messages: MESSAGES });
+      expect(ok.metered).toBe(true);
+      expect(gate.calls()).toBe(1);
+    });
+
+    it('with a spend gate, a balance that cannot be read refuses as unread before the hold and the engine, and bills 0', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'unread-gate', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'unread-gate' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread-gate-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
+      expect(gate.calls()).toBe(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`).toHaveLength(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.funds_unread' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
+    it('refuses when the balance cannot be read: an unknown balance is not a covered one', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect((err as RefusedError).refusal.userMessageKey).toBe('agents.refused.funds_unread');
+      expect(gate.calls()).toBe(0);
+    });
+
+    it('a person with no limits of their own runs under the agent’s cap, held across runs at once', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      // A cap that one worst case fits under and two do not.
+      const cap = formatAmount(worst + worst / 2n);
+      await runtime.registerAgent({ ...PROBE, agentId: 'pair', limits: { ...PROBE.limits, maxSpendPerSession: cap } });
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'pair' });
+      const first = await spend.reserve({
+        userId: USER_A,
+        sessionId: session.id,
+        reservationKey: 'pair-1',
+        assetId: 'IFC',
+        amount: formatAmount(worst),
+        agentCap: cap,
+      });
+      expect(first.status).toBe('held');
+      await expect(
+        spend.reserve({
+          userId: USER_A,
+          sessionId: session.id,
+          reservationKey: 'pair-2',
+          assetId: 'IFC',
+          amount: formatAmount(worst),
+          agentCap: cap,
+        }),
+      ).rejects.toMatchObject({ code: 'agents.spend_limit' });
+      // Without the agent's cap, a person with no limits is refused as before.
+      await expect(
+        spend.reserve({ userId: USER_A, sessionId: session.id, reservationKey: 'pair-3', assetId: 'IFC', amount: '0.000001' }),
+      ).rejects.toMatchObject({ code: 'agents.spend_limit_unset' });
+
+      const rt = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, spend });
+      const freshSession = await rt.openSession({ userId: USER_B, agentId: 'pair' });
+      const ran = await rt.think({ sessionId: freshSession.id, requestId: 'pair-run', task: 'plan', messages: MESSAGES });
+      expect(ran.metered).toBe(true);
+    });
+
+    it('counts usage not yet charged against the balance: a run the balance covers only before that debt does not start', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      let available = worst * 10n;
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => available },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'owed', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'owed' });
+      await rt.think({ sessionId: session.id, requestId: 'owed-1', task: 'plan', messages: MESSAGES });
+      const owed = await meter.sessionSpend(session.id);
+      expect(owed > 0n).toBe(true);
+
+      // The ledger still shows the whole balance: the window is open, nothing is charged yet.
+      available = worst + owed - 1n;
+      const err = await rt.think({ sessionId: session.id, requestId: 'owed-2', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(1);
+      const holds = await sql`SELECT status FROM agents.spend_reservations WHERE session_id = ${session.id} AND reservation_key = 'owed-2'`;
+      expect(holds).toHaveLength(0);
+      expect(await meter.sessionSpend(session.id)).toBe(owed);
+
+      available = worst + owed;
+      await rt.think({ sessionId: session.id, requestId: 'owed-3', task: 'plan', messages: MESSAGES });
+      expect(gate.calls()).toBe(2);
+    });
+
+    it('two runs at once whose worst cases together exceed the balance: exactly one starts, the other bills 0 and holds nothing', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => worst + worst / 2n },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'twin', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      // Two sessions, so the agent's per-session cap is not what decides.
+      const one = await rt.openSession({ userId: USER_A, agentId: 'twin' });
+      const two = await rt.openSession({ userId: USER_A, agentId: 'twin' });
+      const results = await Promise.allSettled([
+        rt.think({ sessionId: one.id, requestId: 'twin-1', task: 'plan', messages: MESSAGES }),
+        rt.think({ sessionId: two.id, requestId: 'twin-2', task: 'plan', messages: MESSAGES }),
+      ]);
+      const admitted = results.filter((r) => r.status === 'fulfilled');
+      const refused = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(admitted).toHaveLength(1);
+      expect(refused).toHaveLength(1);
+      expect(refusalCode(refused[0]!.reason)).toBe('agents.funds_insufficient');
+      expect(gate.calls()).toBe(1);
+      const refusedSession = results[0]!.status === 'rejected' ? one.id : two.id;
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${refusedSession}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${refusedSession}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE status = 'held'`).toHaveLength(0);
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
+    it('the agent’s cap applies even when the person’s own limit is higher: the lower of the two wins', async () => {
+      const route = TABLE.routes.find((r) => r.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price!);
+      const spend = new UserSpendStore(sql);
+      await spend.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '100',
+        perSession: '100',
+        perPeriod: '100',
+        period: 'month',
+        idempotencyKey: 'own-high',
+      });
+      const cap = formatAmount(worst + worst / 2n);
+      await runtime.registerAgent({ ...PROBE, agentId: 'lower', limits: { ...PROBE.limits, maxSpendPerSession: cap } });
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'lower' });
+      const reserve = (key: string) =>
+        spend.reserve({
+          userId: USER_A,
+          sessionId: session.id,
+          reservationKey: key,
+          assetId: 'IFC',
+          amount: formatAmount(worst),
+          agentCap: cap,
+        });
+      expect((await reserve('lower-1')).status).toBe('held');
+      await expect(reserve('lower-2')).rejects.toMatchObject({ code: 'agents.spend_limit' });
+      const rows = await sql<
+        Array<{ reservation_key: string }>
+      >`SELECT reservation_key FROM agents.spend_reservations WHERE session_id = ${session.id}`;
+      expect(rows.map((r) => r.reservation_key)).toEqual(['lower-1']);
+    });
+
+    it('a replayed request id reads as a replay even when the balance is now short, and the engine is not called again', async () => {
+      const spend = new UserSpendStore(sql);
+      let available = amt('1000');
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend,
+        funds: { available: async () => available },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'again', limits: { ...PROBE.limits, maxSpendPerSession: '1000' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'again' });
+      await rt.think({ sessionId: session.id, requestId: 'again-1', task: 'plan', messages: MESSAGES });
+      available = 0n;
+      await expect(rt.think({ sessionId: session.id, requestId: 'again-1', task: 'plan', messages: MESSAGES })).rejects.toMatchObject({
+        code: 'agents.request_id_replay',
+      });
+      expect(gate.calls()).toBe(1);
+    });
+
+    it('session.detail shows each usage window: open while running, settled once with its charge after close; never another person’s', async () => {
+      const SECRET = 'an-agents-owner-107-session-detail-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const as = (userId: string) => {
+        const raw = encodePrincipal({
+          sub: userId,
+          userId,
+          sid: '44444444-4444-4444-8444-444444444444',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-detail',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql });
+      const person = router.createCaller(as(USER_A));
+      const session = await person.session.open({ agentId: 'probe' });
+      const ran = await person.run.complete({ sessionId: session.id, requestId: 'detail-1', task: 'plan', messages: MESSAGES });
+      const before = await person.session.detail({ sessionId: session.id });
+      expect(before.windows).toEqual([expect.objectContaining({ state: 'open', amount: null, chargeKey: null })]);
+
+      await person.session.close({ sessionId: session.id });
+      const after = await person.session.detail({ sessionId: session.id });
+      expect(after.session.status).toBe('closed');
+      expect(after.windows).toHaveLength(1);
+      expect(after.windows[0]).toMatchObject({ state: 'settled', amount: ran.cost });
+      expect(after.windows[0]!.chargeKey).toMatch(/^agent\.usage:/);
+      expect(await balanceOf(USER_A)).toBe(formatAmount(amt('1000') - amt(ran.cost)));
+
+      await expect(router.createCaller(as(USER_B)).session.detail({ sessionId: session.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('session.detail lists a run as running while the engine has not answered, then completed; a replay is still one run', async () => {
+      const SECRET = 'an-agents-session-detail-runs-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const raw = encodePrincipal({
+        sub: USER_A,
+        userId: USER_A,
+        sid: '44444444-4444-4444-8444-444444444445',
+        scopes: ['agents:read', 'agents:execute'],
+        tier: 'none',
+        mfa: false,
+        expiresAt: new Date(Date.now() + 60_000),
+      } as Principal);
+      const ctx = edge({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-detail-runs',
+      });
+      const dir = mkdtempSync(join(tmpdir(), 'agents-hold-'));
+      const hold = join(dir, 'engine.hold');
+      const held = new MockModelProvider({ id: 'primary', holdFile: hold });
+      const heldRuntime = new AgentRuntime(sql, new ModelGateway([held], TABLE), meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+      const person = createAgentsRouter({ runtime: heldRuntime, gateway, meter, feeAssetId: 'IFC', sql }).createCaller(ctx);
+      const session = await person.session.open({ agentId: 'probe' });
+      try {
+        writeFileSync(hold, 'held');
+        let failed: unknown = null;
+        const running = person.run.complete({ sessionId: session.id, requestId: 'detail-runs-1', task: 'plan', messages: MESSAGES });
+        running.catch((err: unknown) => (failed = err));
+        await vi.waitFor(
+          () => {
+            expect(failed).toBeNull();
+            expect(existsSync(`${hold}.held`)).toBe(true);
+          },
+          { timeout: 5_000 },
+        );
+        // The engine is parked at its door and has not answered: the run is already on record, and nothing is used yet.
+        expect(held.callCount).toBe(1);
+        const during = await person.session.detail({ sessionId: session.id });
+        expect(during.runs).toEqual([{ requestId: 'detail-runs-1', startedAt: expect.any(String), state: 'running' }]);
+        expect(await meter.hasRequest(session.id, 'detail-runs-1')).toBe(false);
+        rmSync(hold);
+        await running;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      const after = await person.session.detail({ sessionId: session.id });
+      expect(after.runs).toEqual([{ requestId: 'detail-runs-1', startedAt: expect.any(String), state: 'completed' }]);
+      await expect(
+        person.run.complete({ sessionId: session.id, requestId: 'detail-runs-1', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect((await person.session.detail({ sessionId: session.id })).runs).toEqual(after.runs);
+      expect(held.callCount).toBe(1);
+    }, 20_000);
+
+    it('session.select keeps the selected session for the person on any device; another person’s session is not found and changes nothing', async () => {
+      const SECRET = 'an-agents-selected-session-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const as = (userId: string, sid: string) => {
+        const raw = encodePrincipal({
+          sub: userId,
+          userId,
+          sid,
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-select',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql });
+      // Two sign-ins of the same person: two devices.
+      const phone = router.createCaller(as(USER_A, '55555555-5555-4555-8555-555555555555'));
+      const laptop = router.createCaller(as(USER_A, '66666666-6666-4666-8666-666666666666'));
+      expect(await laptop.session.selected()).toBeNull();
+      const older = await phone.session.open({ agentId: 'probe' });
+      await phone.session.open({ agentId: 'probe' });
+      expect(await phone.session.select({ sessionId: older.id })).toEqual({ sessionId: older.id, agentId: 'probe' });
+      expect(await laptop.session.selected()).toEqual({ sessionId: older.id, agentId: 'probe' });
+
+      const other = router.createCaller(as(USER_B, '77777777-7777-4777-8777-777777777777'));
+      const theirs = await other.session.open({ agentId: 'probe' });
+      await expect(phone.session.select({ sessionId: theirs.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(await laptop.session.selected()).toEqual({ sessionId: older.id, agentId: 'probe' });
+      expect(await other.session.selected()).toBeNull();
+    });
+
+    it('the run doors take only the person: a delegated token or a service on the request is refused', async () => {
+      const SECRET = 'an-agents-owner-107-person-doors-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const signed = (extra: Partial<Principal> = {}) => {
+        const raw = encodePrincipal({
+          sub: USER_A,
+          userId: USER_A,
+          sid: '33333333-3333-4333-8333-333333333333',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+          ...extra,
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-owner-107',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC' });
+      expect((await router.createCaller(signed()).session.open({ agentId: 'probe' })).status).toBe('open');
+      for (const ctx of [
+        signed({ kid: '66666666-6666-4666-8666-666666666666' }),
+        signed({ sub_account: '77777777-7777-4777-8777-777777777777' }),
+        { ...signed(), service: 'svc-trade' as const },
+      ]) {
+        await expect(router.createCaller(ctx as ReturnType<typeof signed>).session.open({ agentId: 'probe' })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
+    });
+
+    it('only the person selects which session their history shows: a key, a sub-account or a service is refused and changes nothing', async () => {
+      const SECRET = 'an-agents-select-person-only-secret';
+      const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+      const signed = (extra: Partial<Principal> = {}) => {
+        const raw = encodePrincipal({
+          sub: USER_A,
+          userId: USER_A,
+          sid: '33333333-3333-4333-8333-333333333333',
+          scopes: ['agents:read', 'agents:execute'],
+          tier: 'none',
+          mfa: false,
+          expiresAt: new Date(Date.now() + 60_000),
+          ...extra,
+        } as Principal);
+        return edge({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-select-person',
+        });
+      };
+      const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql });
+      const person = router.createCaller(signed());
+      const first = await person.session.open({ agentId: 'probe' });
+      const second = await person.session.open({ agentId: 'probe' });
+      expect(await person.session.select({ sessionId: first.id })).toEqual({ sessionId: first.id, agentId: 'probe' });
+      for (const ctx of [
+        signed({ kid: '66666666-6666-4666-8666-666666666666' }),
+        signed({ sub_account: '77777777-7777-4777-8777-777777777777' }),
+        { ...signed(), service: 'svc-trade' as const },
+      ]) {
+        await expect(router.createCaller(ctx as ReturnType<typeof signed>).session.select({ sessionId: second.id })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
+      expect(await person.session.selected()).toEqual({ sessionId: first.id, agentId: 'probe' });
+    });
+  });
+
+  // ── The operator's agent log and the kept transcript (AG-audit-01, AG-audit-02) ──
+  // Lives here so TRUNCATE stays single-owner with this Postgres suite.
+
+  describe('operator agent log (opsLog) and kept transcripts', () => {
+    const SECRET = 'an-agents-operator-log-test-secret-32';
+    const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
+    const OPERATOR = '44444444-4444-4444-8444-444444444444';
+    const REASONS = ['TEST customer complaint', 'TEST incident review'];
+    const SETTINGS: OpsLogSettings = { reasons: REASONS, limit: 50, retentionDays: 1 };
+    const operatorCtx = (scopes = ['admin:read'], extra: Partial<Principal> = {}) => {
+      const raw = encodePrincipal({
+        ...extra,
+        sub: OPERATOR,
+        userId: OPERATOR,
+        sid: '55555555-5555-4555-8555-555555555555',
+        scopes,
+        tier: 'none',
+        mfa: true,
+        expiresAt: new Date(Date.now() + 60_000),
+      } as Principal);
+      return edge({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-ops-log',
+      });
+    };
+    const opsLog = (settings: Partial<OpsLogSettings> = {}) =>
+      createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: { ...SETTINGS, ...settings } }).createCaller(
+        operatorCtx(),
+      ).opsLog;
+    const reads = async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_log_reads`)[0]!.n;
+    const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+    const kept = () => new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, transcriptRetentionDays: 1 });
+
+    beforeEach(async () => {
+      await sql`TRUNCATE agents.agent_log_reads, agents.agent_transcripts`;
+    });
+
+    /** One executed engine call and one refused task for USER_A, run with retention on. */
+    async function history() {
+      const rt = kept();
+      const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
+      const ran = await rt.think({ sessionId: session.id, requestId: 'ops-log-ran', task: 'plan', messages: MESSAGES });
+      await expect(
+        rt.think({ sessionId: session.id, requestId: 'ops-log-refused', task: 'vectors', messages: MESSAGES }),
+      ).rejects.toBeInstanceOf(RefusedError);
+      const [refused] = await sql<{ id: string; refusal_code: string }[]>`
+        SELECT id, refusal_code FROM agents.agent_actions WHERE session_id = ${session.id} AND status = 'refused'
+      `;
+      return { session, ranId: ran.action.id, refused: refused! };
+    }
+
+    it('keeps an engine call’s prompt text while retention is on, its sha256 the row’s input digest; with retention 0 keeps none', async () => {
+      const { ranId } = await history();
+      const [row] = await sql<{ text: string; user_id: string; days: number }[]>`
+        SELECT text, user_id, extract(epoch FROM expires_at - stored_at)::int / 86400 AS days FROM agents.agent_transcripts WHERE action_id = ${ranId}
+      `;
+      const [action] = await sql<{ input_digest: string }[]>`SELECT input_digest FROM agents.agent_actions WHERE id = ${ranId}`;
+      expect(row).toMatchObject({ user_id: USER_A, days: 1 });
+      expect(row!.text).toContain('Where do I stake?');
+      expect(sha256(row!.text)).toBe(action!.input_digest);
+      // The refused call ran nothing and keeps nothing.
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(1);
+
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'probe' });
+      const unkept = await runtime.think({ sessionId: session.id, requestId: 'ops-log-unkept', task: 'plan', messages: MESSAGES });
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts WHERE action_id = ${unkept.action.id}`).length).toBe(0);
+    });
+
+    it('refuses every read by its code while the owner’s reasons are blank, a missing or unlisted reason, or a blank limit, and writes no audit row', async () => {
+      const read = { userId: USER_A, requestId: 'ops-log:refuse:1' };
+      await expect(opsLog({ reasons: null }).reasons()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'agents.log_read_reason_unset',
+      });
+      for (const door of ['actions', 'export'] as const) {
+        await expect(opsLog({ reasons: null })[door]({ ...read, reason: REASONS[0] })).rejects.toMatchObject({
+          message: 'agents.log_read_reason_unset',
+        });
+        await expect(opsLog()[door](read)).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'agents.log_read_reason_required' });
+        await expect(opsLog()[door]({ ...read, reason: 'curiosity' })).rejects.toMatchObject({ message: 'agents.log_read_reason_unknown' });
+        await expect(opsLog({ limit: null })[door]({ ...read, reason: REASONS[0] })).rejects.toMatchObject({
+          code: 'PRECONDITION_FAILED',
+          message: 'agents.ops_actions_limit_unset',
+        });
+      }
+      await expect(
+        opsLog({ reasons: null }).transcript({ actionId: USER_B, reason: REASONS[0], requestId: 'ops-log:t:1' }),
+      ).rejects.toMatchObject({
+        message: 'agents.log_read_reason_unset',
+      });
+      expect(await opsLog().reasons()).toEqual({ reasons: REASONS });
+      expect(await reads()).toBe(0);
+    });
+
+    it('lists one customer’s actions with tool and refusal code and no prompt text, writing one audit row per read, once per request id', async () => {
+      const { ranId, refused } = await history();
+      const read = { userId: USER_A, reason: REASONS[1], requestId: 'ops-log:actions:1' };
+      const page = await opsLog().actions(read);
+      expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1, subjectReads: 1 });
+      expect(page.items.find((i) => i.id === ranId)).toMatchObject({
+        kind: 'completion',
+        tool: 'plan',
+        outcome: 'executed',
+        refusalCode: null,
+      });
+      expect(page.items.find((i) => i.id === refused.id)).toMatchObject({
+        tool: 'vectors',
+        outcome: 'refused',
+        refusalCode: refused.refusal_code,
+      });
+      expect(page.tools).toEqual(expect.arrayContaining(['plan', 'vectors']));
+      expect(JSON.stringify(page)).not.toContain('Where do I stake?');
+      // The retried request writes no second row; a new request writes its own.
+      expect((await opsLog().actions(read)).auditRows).toBe(1);
+      expect(await reads()).toBe(1);
+      const [audit] = await sql`SELECT operator_id, subject_id, kind, reason, filter, action_id, row_count FROM agents.agent_log_reads`;
+      expect(audit).toMatchObject({
+        operator_id: OPERATOR,
+        subject_id: USER_A,
+        kind: 'actions',
+        reason: REASONS[1],
+        filter: {},
+        action_id: null,
+        row_count: page.items.length,
+      });
+      expect(await opsLog().actions({ ...read, requestId: 'ops-log:actions:2' })).toMatchObject({ auditRows: 1, subjectReads: 2 });
+      expect(await reads()).toBe(2);
+      // Another customer's rows are not in this one's read, and their reads are counted apart.
+      expect(await opsLog().actions({ ...read, userId: USER_B, requestId: 'ops-log:actions:3' })).toMatchObject({
+        items: [],
+        subjectReads: 1,
+      });
+    });
+
+    it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
+      const { refused } = await history();
+      const read = { userId: USER_A, reason: REASONS[0], outcome: 'refused' as const, tool: 'vectors' };
+      const page = await opsLog().actions({ ...read, requestId: 'ops-log:filter:1' });
+      expect(page.items.map((i) => i.id)).toEqual([refused.id]);
+      const file = await opsLog().export({ ...read, requestId: 'ops-log:export:1' });
+      expect(file).toMatchObject({ rows: 1, more: false, auditRows: 1 });
+      const [header, ...lines] = file.csv.trim().split('\n');
+      expect(header).toBe('Time,Tool,Outcome,Refusal code,Input digest,Action id');
+      expect(lines).toEqual([`${page.items[0]!.occurredAt},vectors,Refused,${refused.refusal_code},,${refused.id}`]);
+      const [audit] = await sql`SELECT kind, filter, row_count FROM agents.agent_log_reads WHERE kind = 'export'`;
+      expect(audit).toMatchObject({ kind: 'export', filter: { outcome: 'refused', tool: 'vectors' }, row_count: 1 });
+      const capped = await opsLog({ limit: 1 }).actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:capped:1' });
+      expect(capped).toMatchObject({ more: true, limit: 1 });
+      expect(capped.items).toHaveLength(1);
+    });
+
+    it('opens a kept transcript for a reason, with the digest computed from its text; refuses blank or zero retention, an unknown action and an unkept call', async () => {
+      const { ranId, refused } = await history();
+      const open = (actionId: string, requestId: string, settings = {}) =>
+        opsLog(settings).transcript({ actionId, reason: REASONS[0], requestId });
+      await expect(open(ranId, 'ops-log:t:unset', { retentionDays: null })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'agents.transcript_retention_unset',
+      });
+      await expect(open(ranId, 'ops-log:t:zero', { retentionDays: 0 })).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      await expect(open('99999999-9999-4999-8999-999999999999', 'ops-log:t:none')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'agents.action_not_found',
+      });
+      await expect(open(refused.id, 'ops-log:t:refused')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      await expect(opsLog().transcript({ actionId: ranId, requestId: 'ops-log:t:noreason' })).rejects.toMatchObject({
+        message: 'agents.log_read_reason_required',
+      });
+      expect(await reads()).toBe(0);
+
+      const shown = await open(ranId, 'ops-log:t:ok');
+      const [action] = await sql<{ input_digest: string }[]>`SELECT input_digest FROM agents.agent_actions WHERE id = ${ranId}`;
+      expect(shown).toMatchObject({ actionId: ranId, userId: USER_A, auditRows: 1, inputDigest: action!.input_digest });
+      expect(shown.digest).toBe(sha256(shown.text));
+      expect(shown.digest).toBe(action!.input_digest);
+      const [audit] = await sql`SELECT kind, action_id, subject_id, row_count FROM agents.agent_log_reads`;
+      expect(audit).toMatchObject({ kind: 'transcript', action_id: ranId, subject_id: USER_A, row_count: 1 });
+
+      // Kept under a longer retention than today's, the text is not read past today's retention.
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() + interval '1 day' WHERE action_id = ${ranId}`;
+      await expect(open(ranId, 'ops-log:t:shortened')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+      expect((await open(ranId, 'ops-log:t:longer', { retentionDays: 3 })).digest).toBe(action!.input_digest);
+
+      // Past its expiry the text is never read.
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
+      await expect(open(ranId, 'ops-log:t:expired')).rejects.toMatchObject({ message: 'agents.transcript_not_kept' });
+    });
+
+    it('refuses a request id reused for another customer, reason or filter, and returns nothing for it', async () => {
+      await history();
+      const read = { userId: USER_A, reason: REASONS[0], requestId: 'ops-log:reuse:1' };
+      await opsLog().actions(read);
+      for (const reused of [{ userId: USER_B }, { reason: REASONS[1] }, { outcome: 'refused' as const }]) {
+        await expect(opsLog().actions({ ...read, ...reused })).rejects.toMatchObject({
+          code: 'CONFLICT',
+          message: 'agents.log_read_request_reused',
+        });
+      }
+      // The same read retried is still the one row.
+      expect((await opsLog().actions(read)).auditRows).toBe(1);
+      const audit = await sql`SELECT subject_id, reason FROM agents.agent_log_reads`;
+      expect(audit).toEqual([{ subject_id: USER_A, reason: REASONS[0] }]);
+
+      // Past the retry window the same request id is refused: a fresh read needs its own row.
+      const stale = { ...read, requestId: 'ops-log:reuse:stale' };
+      await sql`
+        INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, row_count, read_at)
+        VALUES (${logReadKey('actions', OPERATOR, stale.requestId)}, ${OPERATOR}, ${USER_A}, 'actions', ${REASONS[0]!}, 1,
+                now() - interval '6 minutes')
+      `;
+      await expect(opsLog().actions(stale)).rejects.toMatchObject({ code: 'CONFLICT', message: 'agents.log_read_request_reused' });
+      expect(await reads()).toBe(2);
+    });
+
+    it('writes a cell a spreadsheet would run as a formula as text in the export', () => {
+      const row = { occurredAt: '2026-10-29T00:00:00.000Z', kind: 'completion', outcome: 'refused' as const, inputDigest: null, id: 'a' };
+      const csv = actionsCsv([
+        { ...row, tool: '=HYPERLINK("https://example.invalid","x")', refusalCode: 'agents.refused.task_not_allowed' },
+        { ...row, tool: '+1', refusalCode: '@x' },
+      ]);
+      expect(csv.split('\n').slice(1, 3)).toEqual([
+        `2026-10-29T00:00:00.000Z,"'=HYPERLINK(""https://example.invalid"",""x"")",Refused,agents.refused.task_not_allowed,,a`,
+        `2026-10-29T00:00:00.000Z,'+1,Refused,'@x,,a`,
+      ]);
+    });
+
+    it('purges every kept transcript past its expiry or older than today’s retention, on its own; 0 keeps none and blank deletes nothing', async () => {
+      const { ranId } = await history();
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = ${ranId}`;
+      // An engine call with retention 0 keeps nothing and leaves the purge to the timer.
+      const session = await runtime.openSession({ userId: USER_A, agentId: 'probe' });
+      await runtime.think({ sessionId: session.id, requestId: 'ops-log-purge', task: 'plan', messages: MESSAGES });
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(1);
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(1);
+      expect((await sql`SELECT 1 FROM agents.agent_transcripts`).length).toBe(0);
+
+      // Kept under a longer retention, a row older than today's goes before its own expiry.
+      const longer = (await history()).ranId;
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() + interval '1 day' WHERE action_id = ${longer}`;
+      expect(await purgeExpiredTranscripts(sql, 3)).toBe(0);
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(1);
+
+      // Retention 0 keeps none: every kept row goes, however fresh.
+      await history();
+      expect(await purgeExpiredTranscripts(sql, 1)).toBe(0);
+      expect(await purgeExpiredTranscripts(sql, 0)).toBe(1);
+
+      // A blank retention is not a value: it deletes nothing, a fresh row or one past its own expiry.
+      const fresh = (await history()).ranId;
+      const old = (await history()).ranId;
+      await sql`UPDATE agents.agent_transcripts SET stored_at = now() - interval '9 days', expires_at = now() - interval '1 day' WHERE action_id = ${old}`;
+      expect(await purgeExpiredTranscripts(sql, null)).toBe(0);
+      const left = await sql<{ action_id: string }[]>`SELECT action_id FROM agents.agent_transcripts ORDER BY action_id`;
+      expect(left.map((r) => r.action_id).sort()).toEqual([fresh, old].sort());
+    });
+
+    it('needs admin:read, and an audit row is never rewritten', async () => {
+      const customer = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: SETTINGS }).createCaller(
+        operatorCtx(['agents:read', 'agents:execute']),
+      );
+      await expect(customer.opsLog.actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:scope:1' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      // Only an operator's own session reads: never a sub-account or an API key.
+      for (const extra of [{ sub_account: '66666666-6666-4666-8666-666666666666' }, { kid: 'key-ops-log' }]) {
+        const via = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'IFC', sql, opsLog: SETTINGS }).createCaller(
+          operatorCtx(['admin:read'], extra),
+        );
+        await expect(via.opsLog.actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:person:1' })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+      }
+      expect(await reads()).toBe(0);
+      await opsLog().actions({ userId: USER_A, reason: REASONS[0], requestId: 'ops-log:append:1' });
+      await expect(sql`UPDATE agents.agent_log_reads SET reason = 'TEST other'`).rejects.toThrow(/append-only/);
+      await expect(sql`DELETE FROM agents.agent_log_reads`).rejects.toThrow(/append-only/);
+      expect(await reads()).toBe(1);
     });
   });
 }

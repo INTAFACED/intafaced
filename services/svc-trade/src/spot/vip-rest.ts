@@ -21,6 +21,7 @@ import {
   type VipApplicationRules,
   type VipApplicationStore,
 } from './vip-applications.js';
+import { privateRead, privateWrite } from '../route-inventory.js';
 
 export const VIP_APPLICATIONS_PATH = '/api/v1/vip/applications';
 
@@ -67,7 +68,7 @@ export function registerVipRest(app: FastifyInstance, deps: VipRestDeps): void {
     return { userId: principal.userId };
   };
 
-  app.get(VIP_APPLICATIONS_PATH, async (req, reply) => {
+  app.get(VIP_APPLICATIONS_PATH, privateRead, async (req, reply) => {
     const who = principalOf(req, 'trade:read');
     if (who.refused) return reply.code(who.refused.status).send({ code: who.refused.code, message: who.refused.message });
     const { rules } = await rulesNow(deps);
@@ -75,7 +76,7 @@ export function registerVipRest(app: FastifyInstance, deps: VipRestDeps): void {
     return reply.code(200).send({ rules: closed ? null : rules, closed, applications: await deps.store.listOwn(who.userId) });
   });
 
-  app.post(VIP_APPLICATIONS_PATH, { bodyLimit: VIP_APPLICATION_BODY_LIMIT }, async (req, reply) => {
+  app.post(VIP_APPLICATIONS_PATH, { ...privateWrite, bodyLimit: VIP_APPLICATION_BODY_LIMIT }, async (req, reply) => {
     const who = principalOf(req, 'trade:write');
     if (who.refused) return reply.code(who.refused.status).send({ code: who.refused.code, message: who.refused.message });
     const body = bodySchema.safeParse(req.body);

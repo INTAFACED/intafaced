@@ -1,18 +1,35 @@
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
-import { free, fundedTrader, held, signIn, signUp } from './desk.mjs';
-import { tableIn } from './tables.mjs';
+import {
+  EDGE,
+  ORIGIN,
+  api,
+  bestPrices,
+  fund,
+  fromUnits,
+  json,
+  journeyState,
+  otherTrader,
+  signOutBrowser,
+  times,
+  tool,
+  toUnits,
+} from './stack.mjs';
+import { free, fundedTrader, held, openOrders, signIn, signUp } from './desk.mjs';
+import { bodyRows, tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
 // iceberg on /execution. One test per step, titled "J-copy-bots-otc-23 #<n>", run in order. The trader starts signed
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3: the New schedule form has no random sizes, seed or trigger; #5: the order form offers no Chase; #6: no
-//   iceberg symbol cap or refill; #7: no participation basis; #8: the list and blotter do not read the service.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT): #5, the order form
+// offers no Chase.
+// #8 stops the stack's matching engine for a moment (local-test-stack.mjs stop matching), so a child cancel fails the
+// way it would with the engine unreachable, and restarts it before the step ends.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
+/** The TEST spot market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`). */
+const UNQUOTED = 'IFC/USDC';
 
 test.describe.configure({ mode: 'default' });
 
@@ -179,9 +196,11 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   }
 });
 
-test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price: sizes sum to the total, the same seed gives the same sizes, and it waits`, async ({
+test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger price: slice sizes sum to the total to the decimal, a restart gives the same sizes, and the parent waits for the trigger`, async ({
   page,
 }) => {
+  // It watches one whole slice interval pass while the schedule waits, then restarts the trade service.
+  test.setTimeout(180_000);
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto('/execution');
@@ -210,6 +229,39 @@ test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price
   expect(parent.triggerPrice).toBe(trigger);
   await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
   expect(parent.children).toHaveLength(0);
+  // Random: the sizes are not all the same.
+  expect(new Set(sizes).size).toBeGreaterThan(1);
+
+  // The same seed gives the same sizes; another seed gives other sizes.
+  const preview = async (randomSeed) => {
+    const input = { symbol: 'BTC/USDT', totalQty: '0.003', durationMs: 300_000, sliceIntervalMs: 30_000, randomSeed };
+    const { status, body } = await (
+      await api(trader)
+    ).get(`/api/trade/trpc/algo.previewTwapSizes?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.result.data.sliceQtys.map((q) => toUnits(q));
+  };
+  expect(await preview(2310)).toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+  expect(await preview(2311)).not.toEqual(parent.plannedSliceQtys.map((q) => toUnits(q)));
+
+  // It waits: after more than one slice interval it is still active, awaiting the trigger, with no slice placed or missed.
+  await page.waitForTimeout(31_000);
+  const later = await parentOf(trader, id);
+  expect(later.status).toBe('active');
+  expect(later.awaitingTrigger).toBe(true);
+  expect(later.triggeredAt).toBeNull();
+  expect(later.children).toHaveLength(0);
+  expect(later.misses).toHaveLength(0);
+  await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
+
+  // A restart of the trade service gives the same sizes, and the schedule still waits.
+  tool('local-test-stack.mjs', 'restart', 'trade');
+  const restarted = await parentOf(trader, id);
+  expect(restarted.plannedSliceQtys.map((q) => toUnits(q))).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(await preview(2310)).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
+  expect(restarted.status).toBe('active');
+  expect(restarted.awaitingTrigger).toBe(true);
+  expect(restarted.children).toHaveLength(0);
   run.write({ triggered: id });
 });
 
@@ -235,7 +287,8 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   expect(toUnits(partial.filledQty)).toBeGreaterThan(0n);
   expect(toUnits(partial.filledQty)).toBeLessThan(toUnits(partial.totalQty));
   const list = schedules(page);
-  await expect(list.getByText('Active')).toBeVisible();
+  // The list holds every schedule the service keeps for the account; this one's row says Active.
+  await expect(list.getByRole('row', { name: new RegExp(id) }).getByText('Active', { exact: true })).toBeVisible();
 
   await list.getByRole('button', { name: `Pause ${id}` }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Pause schedule' }).click();
@@ -339,101 +392,429 @@ test(`${J} #5 places a chase limit order with a maximum distance: re-priced with
   }
 });
 
-test(`${J} #6 places an iceberg: display equal to total refused; a valid one rests with its display and refills; a second on the symbol refused; the live door names the venue port`, async ({
+/** The order as the service reports it now. */
+async function orderOf(who, id) {
+  const { status, body } = await (await api(who)).get(`/api/v1/orders/${id}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/** Size resting at exactly `price` on the BTC/USDT bid side, in units (0 when no level is there). */
+async function bidAt(price) {
+  const { body } = await bestPrices('BTC/USDT', 200);
+  const level = body.bids.find(([p]) => toUnits(p) === toUnits(price));
+  return level ? toUnits(level[1]) : 0n;
+}
+
+test(`${J} #6 places an iceberg with the display quantity equal to the total: refused; a valid iceberg rests with the displayed quantity and refills; a second iceberg on the symbol is refused; the live door shows the venue-submit notice`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const trader = state('trader');
+  const me = await api(trader);
+  const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
+  const { bid, ask } = await bestPrices();
+  // A whole-USDT buy a quarter of the way into the spread: the best bid, so a sell reaches it, far from the ask.
+  const one = toUnits('1');
+  const price = fromUnits(((toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n) / one) * one);
+  expect(toUnits(price)).toBeGreaterThan(toUnits(bid));
+  expect(toUnits(price)).toBeLessThan(toUnits(ask));
+  const iceberg = (clientOrderId, displayQty) =>
+    me.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      amount: '0.003',
+      price,
+      timeInForce: 'GTC',
+      clientOrderId,
+      displayQty,
+    });
+
+  // Display equal to the total: the service refuses it by code, and nothing rests or is held.
+  const before = { open: await openOrders(trader), funds: await funds(trader) };
+  const equal = await iceberg(`${tag}-equal`, '0.003');
+  expect(equal.status, JSON.stringify(equal.body).slice(0, 300)).toBe(400);
+  expect(equal.body.intafacedCode).toBe('trade.iceberg_display_invalid');
+  expect((await openOrders(trader)).map((o) => o.id)).toEqual(before.open.map((o) => o.id));
+  expect(await funds(trader)).toEqual(before.funds);
+
+  // The room refuses the same numbers before sending anything.
   await signIn(page, trader);
   await page.goto('/execution');
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click(UNBUILT);
+  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
   const box = page.getByRole('region', { name: 'New iceberg' });
-  const { bid } = await bestPrices();
-  // A resting buy 2% under the best bid, so it shows on the book without filling.
-  const price = String((toUnits(bid) * 98n) / 100n / toUnits('1'));
+  await box.getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: /^BTC\/USDT(?:,|$)/ }).click();
   await box.getByLabel('Total size (BTC)').fill('0.003');
   await box.getByLabel('Display size (BTC)').fill('0.003');
   await box.getByLabel('Limit price').fill(price);
   await expect(box.getByText('The display size must be smaller than the total.')).toBeVisible();
-  await expect(box.getByRole('button', { name: 'Place iceberg' })).toBeDisabled();
+  await expect(box.getByRole('button', { name: 'Review iceberg' })).toBeDisabled();
 
+  // A valid iceberg, placed from the room: the book shows only the display, the hold is the whole order.
   await box.getByLabel('Display size (BTC)').fill('0.001');
-  const placed = page.waitForResponse((res) => res.url().endsWith('/api/v1/orders') && res.request().method() === 'POST');
-  await box.getByRole('button', { name: 'Place iceberg' }).click({ timeout: 5_000 });
+  const placed = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
+  await box.getByRole('button', { name: 'Review iceberg' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
   const answer = await placed;
-  expect(answer.status(), (await answer.text()).slice(0, 300)).toBeLessThan(300);
+  expect(answer.status(), (await answer.text()).slice(0, 300)).toBe(201);
   const order = await answer.json();
-  run.write({ iceberg: order.id });
+  expect(order.displayQty).toBe('0.001');
+  await expect(box.getByText('Iceberg placed. It rests on the house order book.')).toBeVisible();
+  const other = await api(otherTrader());
+  try {
+    expect(await bidAt(price)).toBe(toUnits('0.001'));
+    const rested = await funds(trader);
+    expect(rested.USDT.held - before.funds.USDT.held).toBe(times(price, '0.003'));
 
-  // The book shows only the display size at that price; the hold is the whole order.
-  const { body } = await bestPrices('BTC/USDT', 200);
-  const level = body.bids.find(([p]) => toUnits(p) === toUnits(price));
-  expect(level, `no bid at ${price}`).toBeTruthy();
-  expect(toUnits(level[1])).toBeLessThan(toUnits('0.003'));
-  const balances = await (await api(trader)).balances();
-  expect(toUnits(balances.USDT.used)).toBeGreaterThanOrEqual(times(price, '0.003'));
+    // A second iceberg on the symbol is refused by code; nothing more rests or is held.
+    await box.getByRole('button', { name: 'Review iceberg' }).click();
+    const second = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
+    expect((await second).status()).toBe(409);
+    await expect(box.getByText('trade.iceberg_symbol_cap', { exact: true })).toBeVisible();
+    expect((await openOrders(trader)).map((o) => o.id).sort()).toEqual([...before.open.map((o) => o.id), order.id].sort());
+    expect(await funds(trader)).toEqual(rested);
 
-  // A second iceberg on the same symbol is refused by name.
-  const second = page.waitForResponse((res) => res.url().endsWith('/api/v1/orders') && res.request().method() === 'POST');
-  await box.getByRole('button', { name: 'Place iceberg' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg' }).click();
-  expect((await second).status()).toBeGreaterThanOrEqual(400);
-  await expect(page.getByText('trade.iceberg_symbol_cap', { exact: true })).toBeVisible();
+    // Refill: another trader sells exactly the display into it. One display fills, and the same size shows again.
+    const { body: book } = await bestPrices('BTC/USDT', 200);
+    const ahead = book.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    expect(ahead).toBe(0n);
+    const sell = await other.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'sell',
+      amount: '0.001',
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: `${tag}-sell`,
+    });
+    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+    await expect.poll(async () => (await orderOf(trader, order.id)).filled, { timeout: 15_000 }).toBe('0.001');
+    const after = await orderOf(trader, order.id);
+    expect(after.status).toBe('open');
+    expect(after.remaining).toBe('0.002');
+    await expect.poll(() => bidAt(price), { timeout: 15_000 }).toBe(toUnits('0.001'));
 
-  // The live venue door stays off while its port is unset, and says so.
-  await expect(page.getByText('Needs the venue submit port; switched off in this build')).toBeVisible();
+    // The live venue door stays off while its port is unset, and says so.
+    await expect(box.getByRole('button', { name: 'Send to a live venue' })).toBeDisabled();
+    await expect(
+      box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
+    ).toBeVisible();
+  } finally {
+    await me.delete(`/api/v1/orders/${order.id}`);
+  }
 });
 
-test(`${J} #7 chooses POV on opposite-side liquidity with an empty opposite book: refused as volume immature`, async ({ page }) => {
+/** IFC/USDC's book as the public depth route reports it: `[price, size]` levels a side. */
+async function ifcBook() {
+  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(UNQUOTED)}?limit=50`, {
+    headers: { origin: ORIGIN },
+  }).then(json);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
+/** Cancels every open order `who` has on IFC/USDC, so the book holds only what this step rests. */
+async function clearIfc(who) {
+  const client = await api(who);
+  for (const order of await openOrders(who, UNQUOTED)) {
+    const { status } = await client.delete(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent(UNQUOTED)}`);
+    expect(status).toBeLessThan(300);
+  }
+}
+
+test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book: refused as volume immature; participation is applied to the book size`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const trader = state('trader');
+  const tag = state('tag');
+  const maker = otherTrader();
+  const other = await api(maker);
+  expect(fund(maker.email, 'USDC', '1000').tx).toBeTruthy();
+  expect(fund(maker.email, 'IFC', '1000').tx).toBeTruthy();
+  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  expect(fund(trader.email, 'IFC', '100').tx).toBeTruthy();
+  await clearIfc(maker);
+  await clearIfc(trader);
+  // A run stopped before its clean-up can leave an earlier trader's sell resting, which no account here can cancel: the
+  // other trader buys it out, then cancels what of that buy is left, so the ask side starts empty.
+  const leftover = (await ifcBook()).asks;
+  if (leftover.length > 0) {
+    const size = leftover.reduce((sum, [, qty]) => sum + toUnits(qty), 0n);
+    const sweep = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side: 'buy',
+      amount: fromUnits(size),
+      price: leftover.at(-1)[0],
+      clientOrderId: `${J}-7-sweep-${tag}`,
+    });
+    // Set-up, not a clause: a refused sweep stops the step here rather than asserting under a condition.
+    if (sweep.status >= 300) throw new Error(`sweeping a stale IFC/USDC ask was refused: ${JSON.stringify(sweep.body).slice(0, 300)}`);
+    await clearIfc(maker);
+  }
+
+  // The other trader rests one bid on IFC/USDC, which the market maker never quotes: the book has bids and no asks.
+  const bid = await other.post('/api/v1/orders', {
+    symbol: UNQUOTED,
+    type: 'limit',
+    side: 'buy',
+    amount: '40',
+    price: '0.99',
+    clientOrderId: `${J}-7-bid-${tag}`,
+  });
+  expect(bid.status, JSON.stringify(bid.body).slice(0, 300)).toBeLessThan(300);
+  const oneSided = await ifcBook();
+  expect(oneSided.asks).toEqual([]);
+  expect(oneSided.bids.map(([price, size]) => [toUnits(price), toUnits(size)])).toEqual([[toUnits('0.99'), toUnits('40')]]);
+
+  // A POV buy on opposite-side liquidity: the side it would take from (asks) is empty, so the service refuses it as
+  // volume immature, and nothing is written or held.
+  const rowsBefore = (await algoRows(trader)).map((row) => row.id);
+  const before = await (await api(trader)).balances();
   await signIn(page, trader);
   await page.goto('/execution');
-  // IFC/USDT is a TEST market the market maker does not quote, so its ask side is empty.
-  await fillSchedule(page, { market: 'IFC/USDT', kind: 'POV', total: '1', seconds: 120, every: 30 });
+  await fillSchedule(page, { market: UNQUOTED, kind: 'POV', total: '10', seconds: 120, every: 15 });
   await pick(page, 'Participation basis', 'Opposite-side liquidity');
   await form(page).getByLabel('Participation, in basis points').fill('1000');
   const answer = page.waitForResponse((res) => res.url().includes('algo.createTwap'));
   await page.getByRole('button', { name: 'Review schedule' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Create schedule' }).click();
-  expect((await answer).status()).toBeGreaterThanOrEqual(400);
+  const refused = await answer;
+  expect(refused.status()).toBe(400);
+  expect(codeOf(await refused.json())).toBe('trade.algo_volume_immature');
   await expect(page.getByText('trade.algo_volume_immature', { exact: true })).toBeVisible();
+  expect((await algoRows(trader)).map((row) => row.id)).toEqual(rowsBefore);
+  const after = await (await api(trader)).balances();
+  for (const asset of ['USDC', 'IFC']) {
+    expect(free(after, asset)).toBe(free(before, asset));
+    expect(held(after, asset)).toBe(held(before, asset));
+  }
+
+  // With an ask resting too, a POV sell on opposite-side liquidity takes from the bids: its first child is the
+  // participation rate applied to the size resting on the bid side, floored to the lot (0.01), as the service records.
+  const ask = await other.post('/api/v1/orders', {
+    symbol: UNQUOTED,
+    type: 'limit',
+    side: 'sell',
+    amount: '50',
+    price: '1.01',
+    clientOrderId: `${J}-7-ask-${tag}`,
+  });
+  expect(ask.status, JSON.stringify(ask.body).slice(0, 300)).toBeLessThan(300);
+  const twoSided = await ifcBook();
+  const bidSize = twoSided.bids.reduce((sum, [, size]) => sum + toUnits(size), 0n);
+  expect(bidSize).toBe(toUnits('40'));
+
+  await page.goto('/execution');
+  await fillSchedule(page, { market: UNQUOTED, side: 'Sell', kind: 'POV', total: '10', seconds: 120, every: 15 });
+  await pick(page, 'Participation basis', 'Opposite-side liquidity');
+  await form(page).getByLabel('Participation, in basis points').fill('1000');
+  await form(page).getByLabel('Limit price (optional)').fill('0.99');
+  const id = await confirmSchedule(page);
+  try {
+    const created = await parentOf(trader, id);
+    expect(created.kind).toBe('pov');
+    expect(created.povBasis).toBe('opposite_liquidity');
+    expect(created.participationBps).toBe(1000);
+
+    await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 60_000 }).toBeGreaterThan(0);
+    const first = (await parentOf(trader, id)).children[0];
+    // The book size it read is the bid side above: 40 × 1000 bps = 4, under the 10 remaining.
+    expect(first.basisQty).toBe('40');
+    expect(toUnits(first.qty)).toBe(toUnits('4'));
+    // The detail names the newest child, and a second one may land while it loads (the first fills 4 of the 40, so the
+    // next reads 36): the line must be a child the service recorded, in its own numbers.
+    const line = detail(page).getByText(/ resting on the opposite side$/);
+    await expect
+      .poll(
+        async () => {
+          const text = (await line.textContent({ timeout: 2_000 }).catch(() => null)) ?? '';
+          const m = /^([\d.]+) of ([\d.]+) resting on the opposite side$/.exec(text.trim());
+          if (!m) return false;
+          const kids = (await parentOf(trader, id)).children;
+          return kids.some((c) => toUnits(c.qty) === toUnits(m[1]) && toUnits(c.basisQty) === toUnits(m[2]));
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+  } finally {
+    await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
+    await clearIfc(maker);
+    await clearIfc(trader);
+  }
 });
 
-test(`${J} #8 opens the algo list and blotter, and cancels with a child failing: statuses, average fill price, cancel incomplete, halt and resume refused`, async ({
+const STATUS_WORD = { active: 'Active', paused: 'Paused', halted: 'Halted', completed: 'Completed', cancelled: 'Cancelled' };
+
+/** The schedule's average fill price as the service reports it (null while nothing has filled). */
+async function averageOf(who, algoId) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.result?input=${encodeURIComponent(JSON.stringify({ algoId }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data.quotes.find((q) => q.averageFillPrice !== null)?.averageFillPrice ?? null;
+}
+
+/** A pause or resume sent straight to the service: its typed refusal code, or null when it was accepted. */
+async function actionCode(who, action, algoId) {
+  const { status, body } = await (await api(who)).post(`/api/trade/trpc/algo.${action}`, { algoId });
+  return status < 300 ? null : (codeOf(body) ?? `${status} ${JSON.stringify(body).slice(0, 300)}`);
+}
+
+function stack(...args) {
+  return tool('local-test-stack.mjs', ...args);
+}
+
+test(`${J} #8 opens the algo list and blotter and cancels with one child failing: rows with statuses and an average fill price ("Not set" with zero fills); the cancel is reported incomplete and halt and resume are refused`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const trader = state('trader');
   await signIn(page, trader);
   // A new browser: the list comes from the service, not from ids this device remembered.
   await page.evaluate(() => localStorage.clear());
   await page.goto('/execution');
   const list = schedules(page);
-  for (const id of [state('running'), state('triggered')]) await expect(list.getByRole('row', { name: new RegExp(id) })).toBeVisible();
-  // The waiting schedule has no fills, so its average price is not a number.
+  await expect(list.getByRole('columnheader', { name: 'Average fill price' })).toBeVisible();
+  const headers = await list.getByRole('columnheader').allInnerTexts();
+  const averageColumn = headers.findIndex((h) => h.trim() === 'Average fill price');
+  expect(averageColumn).toBeGreaterThan(-1);
+  const cellOf = (id, column) =>
+    list
+      .getByRole('row', { name: new RegExp(id) })
+      .getByRole('gridcell')
+      .nth(column);
+
+  // Each row carries the service's status. The schedule that ran (#4) shows the average price of its real fills; the
+  // one still waiting for its trigger (#3) has no fills, so its average is "Not set".
+  // The service and the room are read again together until they agree, so a fill or status change landing between the
+  // two reads cannot fail it.
+  for (const id of [state('running'), state('triggered')]) {
+    await expect(async () => {
+      const parent = await parentOf(trader, id);
+      await expect(list.getByRole('row', { name: new RegExp(id) }).getByText(STATUS_WORD[parent.status], { exact: true })).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 30_000 });
+  }
+  // The cell shows the service's average rounded to the digits it draws (a mean of several fill prices can run long):
+  // it is within half of its last digit of the service's number.
+  await expect(async () => {
+    const ranAverage = await averageOf(trader, state('running'));
+    expect(ranAverage).not.toBeNull();
+    const shown = (await cellOf(state('running'), averageColumn).innerText()).replace(/,/g, '').trim();
+    expect(shown).toMatch(/^\d+(\.\d+)?$/);
+    const digits = shown.split('.')[1]?.length ?? 0;
+    const step = toUnits(digits ? `0.${'0'.repeat(digits - 1)}1` : '1');
+    const gap = toUnits(shown) - toUnits(ranAverage);
+    expect((gap < 0n ? -gap : gap) * 2n).toBeLessThanOrEqual(step);
+  }).toPass({ timeout: 30_000 });
+  expect(await averageOf(trader, state('triggered'))).toBeNull();
+  await expect(cellOf(state('triggered'), averageColumn)).toHaveText('Not set');
   await list.getByRole('row', { name: new RegExp(state('triggered')) }).click();
-  await expect(detail(page).getByText(/Average fill price\s*Not set/)).toBeVisible();
+  await expect(
+    detail(page)
+      .getByRole('definition')
+      .filter({ hasText: /^\s*Not set/ }),
+  ).toBeVisible();
 
-  // The blotter links each child to its parent.
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
-  await pick(page, 'Parent', state('running'));
-  const blotter = page.getByRole('grid', { name: 'Orders and fills' });
-  await expect(blotter.getByRole('row').nth(1)).toBeVisible();
+  // The blotter opens with the account's child orders and fills.
+  const tabs = page.getByRole('tablist', { name: 'Execution sections' });
+  await tabs.getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
+  await expect(bodyRows(tableIn(page, 'Orders and fills')).first()).toBeVisible();
 
-  // A limit TWAP whose resting child cannot be cancelled (the stack's TEST cancel fault on this parent): the cancel is
-  // reported incomplete, the parent halts, and resume is refused.
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Algo orders', exact: true }).click();
-  const { bid } = await bestPrices();
-  await fillSchedule(page, { total: '0.002', seconds: 120, every: 15 });
-  await form(page)
-    .getByLabel('Limit price')
-    .fill(String((toUnits(bid) * 97n) / 100n / toUnits('1')));
+  // A TWAP buy on the unquoted TEST book, where the other trader rests a bid and a small ask: its first child (1 IFC at
+  // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is five minutes away, so
+  // nothing else is placed while the matching engine is stopped: the child cancel fails for real.
+  const maker = otherTrader();
+  const other = await api(maker);
+  expect(fund(maker.email, 'USDC', '100').tx).toBeTruthy();
+  expect(fund(maker.email, 'IFC', '100').tx).toBeTruthy();
+  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  await clearIfc(maker);
+  await clearIfc(trader);
+  const tag = state('tag');
+  for (const [side, amount, price] of [
+    ['buy', '1', '0.99'],
+    ['sell', '0.5', '1.01'],
+  ]) {
+    const rest = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      clientOrderId: `${J}-8-${side}-${tag}`,
+    });
+    expect(rest.status, JSON.stringify(rest.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await expect
+    .poll(async () => (await ifcBook()).asks.map(([price, size]) => [toUnits(price), toUnits(size)]), { timeout: 15_000 })
+    .toEqual([[toUnits('1.01'), toUnits('0.5')]]);
+  await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
+  await fillSchedule(page, { market: UNQUOTED, total: '2', seconds: 600, every: 300 });
+  await form(page).getByLabel('Limit price (optional)').fill('1.01');
   const id = await confirmSchedule(page);
-  await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBeGreaterThan(0);
-  tool('local-test-gates.mjs', 'fail-cancel', (await parentOf(trader, id)).children[0].orderId);
-  await list.getByRole('button', { name: `Cancel ${id}` }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
-  await expect(page.getByText('trade.algo_cancel_incomplete', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(list.getByRole('row', { name: new RegExp(id) }).getByText('Halted')).toBeVisible();
-  await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+  let stopped = false;
+  try {
+    await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBe(1);
+    const child = (await parentOf(trader, id)).children[0].orderId;
+    await expect.poll(async () => (await openOrders(trader, UNQUOTED)).map((o) => o.id), { timeout: 15_000 }).toContain(child);
+    // Marked first, so a stop that times out after its signal still brings the engine back.
+    stopped = true;
+    stack('stop', 'matching');
+    await list.getByRole('button', { name: `Cancel ${id}` }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
+    await expect(page.getByText('trade.algo_child_cancel_failed', { exact: true })).toBeVisible({ timeout: 30_000 });
+    // Reported incomplete: parked, not cancelled, with the cancel-incomplete reason.
+    const parked = await parentOf(trader, id);
+    expect(parked.status).toBe('paused');
+    expect(parked.haltReason).toBe('cancel_incomplete');
+    await list.getByRole('row', { name: new RegExp(id) }).click();
+    await expect(detail(page).getByText('Cancel only partly done: some child orders may still be open.', { exact: false })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The room offers neither halt (pause) nor resume.
+    await expect(list.getByRole('button', { name: `Pause ${id}` })).toBeDisabled();
+    await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+
+    // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
+    // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and
+    // nothing about it changes (its child is still open).
+    stack('start', '--only', 'matching');
+    stopped = false;
+    await expect
+      .poll(async () => actionCode(trader, 'pause', id), { timeout: 60_000, intervals: [2_000] })
+      .toBe('trade.algo_cancel_incomplete');
+    expect(await actionCode(trader, 'resume', id)).toBe('trade.algo_cancel_incomplete');
+    const after = await parentOf(trader, id);
+    expect(after.status).toBe('paused');
+    expect(after.haltReason).toBe('cancel_incomplete');
+    expect(after.children.map((c) => c.orderId)).toEqual([child]);
+    expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toContain(child);
+
+    // Cancelling again finishes: the schedule is cancelled and its child is no longer open.
+    await expect.poll(async () => actionCode(trader, 'cancel', id), { timeout: 60_000, intervals: [2_000] }).toBeNull();
+    expect((await parentOf(trader, id)).status).toBe('cancelled');
+    expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).not.toContain(child);
+  } finally {
+    // The engine comes back before anything else, and a failed restart still lets the rest of the clean-up run.
+    let restart = null;
+    if (stopped) {
+      try {
+        stack('start', '--only', 'matching');
+      } catch (err) {
+        restart = err;
+      }
+    }
+    await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
+    await clearIfc(maker);
+    await clearIfc(trader);
+    if (restart) throw restart;
+  }
 });

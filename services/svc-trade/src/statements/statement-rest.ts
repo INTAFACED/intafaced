@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { LEDGER_PAGE_MAX, presentLedgerLine, type LedgerPages } from './ledger-history.js';
 import { StatementError, type StatementExports, type StatementRequest } from './statement-export.js';
+import { privateRead, privateWrite } from '../route-inventory.js';
 
 /**
  * The person's ledger history and statement export over REST (J-cex-spot-07 #5 and #6):
@@ -47,7 +48,7 @@ export function attachStatementRoutes(
     return null;
   }
 
-  app.get<{ Querystring: { limit?: string; code?: string; cursor?: string } }>('/api/v1/ledger', async (req, reply) => {
+  app.get<{ Querystring: { limit?: string; code?: string; cursor?: string } }>('/api/v1/ledger', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps) return unmounted(reply, 'ledger history');
@@ -82,7 +83,7 @@ export function attachStatementRoutes(
     }
   });
 
-  app.post<{ Body: StatementRequest }>('/api/v1/statements', async (req, reply) => {
+  app.post<{ Body: StatementRequest }>('/api/v1/statements', privateWrite, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps) return unmounted(reply, 'statement export');
@@ -97,7 +98,7 @@ export function attachStatementRoutes(
     }
   });
 
-  app.get<{ Params: { id: string } }>('/api/v1/statements/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/api/v1/statements/:id', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps) return unmounted(reply, 'statement export');
@@ -110,7 +111,7 @@ export function attachStatementRoutes(
     }
   });
 
-  app.get<{ Params: { id: string }; Querystring: { as?: string } }>('/api/v1/statements/:id/file', async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { as?: string } }>('/api/v1/statements/:id/file', privateRead, async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps) return unmounted(reply, 'statement export');

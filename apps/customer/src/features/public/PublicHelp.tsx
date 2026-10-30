@@ -9,6 +9,7 @@ import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
 import { HelpFeedback } from './HelpFeedback';
+import { HostDispatch } from './HostDispatch';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
@@ -217,6 +218,7 @@ export function PublicHelp() {
   const support = (articleRecovery = false) => (
     <div className="help__side">
       <ContactSupport />
+      <HostDispatch />
       {articleRecovery && (
         <a href="/findPwd" className="help__link text-link">
           {t('recovery')}

@@ -258,6 +258,12 @@ const schema = serviceEnvSchema
       BANK_PAYOUT_PARTNER: z.enum(PAYOUT_PARTNER_SETTINGS).default('none'),
       /** The payout stand-in's TEST catalogue (assets, pay currency, rate, fee). Read only with `payout-sim`. */
       BANK_PAYOUT_SIM_JSON: z.string().optional(),
+      /**
+       * LOCAL TEST: the stack's records folder, where the payout stand-in keeps its own record of rail `payout-sim`
+       * (`cash-out/rail-records.ts`). Unset or blank, nothing is written. Set in a process whose raw `APP_ENV` is not
+       * exactly `dev` or `test`, or not absolute, the service refuses to start.
+       */
+      BANK_PAYOUT_SIM_RECORDS_DIR: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.
@@ -397,6 +403,13 @@ const schema = serviceEnvSchema
        * panel refuses `bank.account_terms_unset` and never claims a fee-free account. Boot stays up; the read is the refuse.
        */
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
+       * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
+       * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
+       */
+      BANK_EARN_RISK_WORDING_JSON: z.string().optional(),
 
       /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /

@@ -924,7 +924,19 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                       <p className="money-caption">
                         {earnCopy.t('position')} · {position.id}
                       </p>
-                      {maturityAllowsReview(position.maturesAt) ? (
+                      {/* A staking-style saving waits through unbonding, which its pool's own page shows and starts (BK-earn-04). */}
+                      {position.unbondsAt !== null || position.unbondingDays !== null ? (
+                        <p className="money-caption" data-testid="earn-position-staking">
+                          {position.unbondsAt !== null && position.staking === 'unbonding'
+                            ? earnCopy.t('unbondingOnPool', { date: date(position.unbondsAt) })
+                            : position.staking === 'unbonded'
+                              ? earnCopy.t('unbondedOnPool')
+                              : earnCopy.t('stakingOnPool')}{' '}
+                          <a className="text-link" href={poolHref(position.poolId)}>
+                            {earnCopy.t('openPool')}
+                          </a>
+                        </p>
+                      ) : maturityAllowsReview(position.maturesAt) ? (
                         <Button
                           variant="secondary"
                           onClick={() =>
@@ -937,7 +949,9 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                               verifyOutcome: (data) => {
                                 const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
                                 return (
-                                  returned.positionId === position.id && parseAmount(returned.principal) === parseAmount(position.principal)
+                                  returned.positionId === position.id &&
+                                  returned.status === 'closed' &&
+                                  parseAmount(returned.principal) === parseAmount(position.principal)
                                 );
                               },
                               facts: [

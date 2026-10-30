@@ -161,6 +161,17 @@ const schema = serviceEnvSchema
        */
       API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
       /**
+       * The owner's request-signing timestamp window, whole seconds from 1 to 3600 (DV-auth-01): how far a signed
+       * request's time may be from the server's, either way. Blank = unset: every signed request refuses
+       * `auth.request_window_unset` and the published policy shows the window as not set.
+       */
+      IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
+      /**
+       * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
+       * with a fresh factor. Blank (or anything else): signing stays required on such a key.
+       */
+      API_KEY_SIGNING_OPTIONAL: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
@@ -366,6 +377,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published lifetime cap on handle changes per account (PP-send-request-03). Blank / unset → unpublished;
+       * every handle change refuses (`identity.handle_change_cap_unset`). Never invent a default: the stack sets a
+       * labelled TEST value only.
+       */
+      IDENTITY_HANDLE_CHANGE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
       /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.

@@ -752,6 +752,7 @@ services:
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
+      TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
       TRADE_OTC_VENUE_SYMBOLS: ${TRADE_OTC_VENUE_SYMBOLS:-}
       # Spot candle materialization (A-TRADE-SPOT-1). Default OFF — same shape as
@@ -1339,6 +1340,12 @@ services:
       AGENTS_UPSTREAM_COMPLETIONS_PATH:
       AGENTS_UPSTREAM_EMBEDDINGS_PATH:
       AGENTS_ROUTING_TABLE:
+      # The operator agent log's owner values (pass-through form, as above: an
+      # empty string would be a present value). Unset refuses every log read,
+      # and keeps no transcript.
+      AGENTS_LOG_READ_REASONS:
+      AGENTS_OPS_ACTIONS_LIMIT:
+      AGENTS_TRANSCRIPT_RETENTION_DAYS:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -1654,8 +1661,9 @@ services:
       IDENTITY_URL: http://svc-identity:4002
       BANK_URL: http://svc-bank:4009
       PAY_URL: http://svc-pay:4006
-      # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
-      OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
+      # Reconciliation alerts read the ledger's settled evaluations through LEDGER_URL. Blank repeat → a repeat failure
+      # still counts and its notice reads ops.alert_repeat_unset.
+      OPS_RECON_ALERT_REPEAT_SECONDS: ${OPS_RECON_ALERT_REPEAT_SECONDS:-}
     expose: ['4022']
     healthcheck: *healthcheck
     depends_on:
@@ -2172,6 +2180,7 @@ services:
         'local-founder-seed.mjs init',
         'local-founder-seed.mjs enrol',
         'local-test-seed.mjs apply',
+        'local-test-seed.mjs home',
         'local-test-seed.mjs status',
       ]
     environment:

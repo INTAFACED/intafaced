@@ -42,11 +42,26 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
 | `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
 | `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
+| `session.detail`      | `agents:read`    | `{ sessionId }`                            | the caller's own session and each usage window, exact       |
+| `session.selected`    | `agents:read`    | —                                          | the session the person last selected, or null               |
+| `session.select`      | `agents:read`    | `{ sessionId }`                            | keeps that choice; the person only, never a key or service  |
 | `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
 | `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
 | `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
 | `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
 | `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
+
+### Agents a person builds (AG-builder-01)
+
+| Procedure       | Scope                 | Input                                              | Output                                                    |
+| --------------- | --------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `own.catalogue` | `agents:read`         | —                                                  | the templates and the addable tools, money tools marked   |
+| `own.create`    | `agents:read`, person | `{ template, createKey }`                          | a new draft; a retried `createKey` returns the same draft |
+| `own.save`      | `agents:read`, person | `{ id, name, instructions, tools, perSessionCap }` | the draft, or a refusal code (`agents.own.*`)             |
+| `own.get`       | `agents:read`, person | `{ id }`                                           | the caller's own draft and what blocks publishing it      |
+| `own.list`      | `agents:read`, person | `{ limit }`                                        | the caller's own agents, newest first                     |
+
+"Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored, and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
 
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 
@@ -209,6 +224,10 @@ Two properties worth stating:
 
 **Content is stored as digests, never text.** A prompt is exactly the kind of thing a user did not consent to have retained (§10). A SHA-256 still proves what was sent — replay it, hash it, compare — without this table becoming a transcript archive.
 
+**The kept transcript is the owner's call, and expires.** Only while `AGENTS_TRANSCRIPT_RETENTION_DAYS` is above zero, an executed engine call's canonical prompt text goes to `agent_transcripts`, in the same transaction as its action row, until `expires_at`. Its SHA-256 is the row's `input_digest`. Blank or `0` keeps nothing, which is today's default.
+
+**The operator's read (`opsLog.*`, `admin:read`).** An operator reads one customer's actions (`opsLog.actions`), exports the same filter as CSV (`opsLog.export`) or opens one kept transcript (`opsLog.transcript`), each for a reason from the owner's list (`AGENTS_LOG_READ_REASONS`). Each read writes one append-only `agent_log_reads` row in the same transaction, keyed `agents:logread:<kind>:<operator>:<request id>`, so a retry writes no second row. The list and the export never carry prompt text. A blank reason list, row limit or retention refuses by its code (`agents.log_read_reason_unset`, `agents.ops_actions_limit_unset`, `agents.transcript_retention_unset`). The founder console's desk is `/more-ops/agents/log`.
+
 **Every log line is an i18n key plus parameters**, never rendered prose (§14 DoD 4). Storing English would freeze one locale into the audit trail and would be the one place an upstream's error text could reach a screen unnoticed. The catalogue is `src/copy.ts`.
 
 ---
@@ -217,16 +236,17 @@ Two properties worth stating:
 
 The service checks these; the database enforces them regardless.
 
-| Constraint                               | What it catches                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------ |
-| `agent_actions_no_update` / `_no_delete` | **the audit trail being rewritten by the thing it is a log of**    |
-| `usage_records_no_late_usage`            | usage landing in a period that has already been billed             |
-| `usage_records_request_idx` (unique)     | a retried completion billed twice                                  |
-| `usage_windows_seal_once`                | a settled window re-settled, breaking the ledger reconciliation    |
-| `usage_windows_seal_complete_ck`         | a sealed window with no amount or key — unreconcilable             |
-| `agent_actions_refusal_coded_ck`         | a refusal nobody can explain afterwards                            |
-| `agent_actions_refusal_free_ck`          | a refused action carrying token usage — a bill for work never done |
-| `agent_definitions_guardrail_shape_ck`   | a hand-written `INSERT` creating an agent with no declared limits  |
+| Constraint                                 | What it catches                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| `agent_actions_no_update` / `_no_delete`   | **the audit trail being rewritten by the thing it is a log of**    |
+| `agent_log_reads_no_update` / `_no_delete` | an operator's read of a customer's log being rewritten or erased   |
+| `usage_records_no_late_usage`              | usage landing in a period that has already been billed             |
+| `usage_records_request_idx` (unique)       | a retried completion billed twice                                  |
+| `usage_windows_seal_once`                  | a settled window re-settled, breaking the ledger reconciliation    |
+| `usage_windows_seal_complete_ck`           | a sealed window with no amount or key — unreconcilable             |
+| `agent_actions_refusal_coded_ck`           | a refusal nobody can explain afterwards                            |
+| `agent_actions_refusal_free_ck`            | a refused action carrying token usage — a bill for work never done |
+| `agent_definitions_guardrail_shape_ck`     | a hand-written `INSERT` creating an agent with no declared limits  |
 
 ---
 
@@ -248,6 +268,9 @@ AGENTS_FEE_ASSET_ID=IFC
 AGENTS_USAGE_WINDOW_MINUTES=60           # required; blank refuses; must divide 1440
 AGENTS_METERING_ENABLED=true
 ACADEMY_URL=http://svc-academy:4016      # coach spine; blank = empty catalog refuse
+AGENTS_LOG_READ_REASONS=                 # owner's comma-separated reasons for an operator log read; blank refuses every read
+AGENTS_OPS_ACTIONS_LIMIT=                # rows one operator read shows (1-500); blank refuses
+AGENTS_TRANSCRIPT_RETENTION_DAYS=        # days a prompt text is kept (0-3650); blank refuses a transcript read, 0 keeps none
 
 # Only when AGENTS_PROVIDER=upstream. Secrets come from vault in prod (§9).
 AGENTS_UPSTREAM_BASE_URL=https://…

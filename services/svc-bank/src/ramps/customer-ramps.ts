@@ -561,6 +561,8 @@ export async function destinationReadiness(
     throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
   }
   const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null };
+  // The owner's self-freeze reads as `locked` with no end: a send is refused either way, and svc-pay's door refuses it.
+  if (lock.selfFrozen) return { ...base, state: 'locked' };
   if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
   // Listed as fraud after it was saved: nothing may be sent to it. An entry with no network matches a listing on any network.
