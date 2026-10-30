@@ -404,6 +404,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
       await page.goto(`/help/section/j01-${RUN}-st1`);
       await expect(main.getByTestId('help__row').locator('h2')).toHaveText([made.sibling.title]);
       await expect(main.getByText(word)).toHaveCount(0);
+      await page.goto('/help');
       await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
       await main.getByRole('button', { name: 'Search', exact: true }).click();
       await expect(main.getByText('No matches')).toBeVisible();
