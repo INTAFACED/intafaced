@@ -13,7 +13,7 @@ import { welcomeChecklistCopy } from './welcome-checklist-copy';
 import { timeLeft } from './time-left';
 
 /**
- * The welcome checklist on /uc/promotion and /uc/promotion/welcome (CM-rewards-hub-03, J-campaigns-04): the account's
+ * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
  * welcome window and each task, ticked by svc-campaigns from real events (verified, a crypto deposit credited, a spot
  * fill), with its reward ("not set" when blank) and a claim per task. Everything is read from svc-campaigns; after any
  * claim answer, or none, the list is read again, so a lost reply never sends a second claim.
@@ -199,11 +199,6 @@ function Tasks({
           );
         })}
       </DataTable>
-      <p>
-        <a className="text-link" href="/uc/promotion">
-          {t('rewards')}
-        </a>
-      </p>
     </>
   );
 }

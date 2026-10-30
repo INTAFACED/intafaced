@@ -114,7 +114,7 @@ async function waitForTask(who, event, taskState) {
   await expect.poll(async () => taskOf(await checklistOf(who), event)?.state, { timeout: 60_000 }).toBe(taskState);
 }
 
-async function openChecklist(page, path = '/uc/promotion/welcome') {
+async function openChecklist(page, path = '/uc/promotion') {
   await page.goto(path);
   const list = page.getByTestId('welcome-checklist');
   await expect(list).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
@@ -220,7 +220,6 @@ test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time 
   await expect(mine.getByTestId('welcome-campaign')).toHaveText(full.name);
   await expect(mine.getByTestId('welcome-window')).toHaveAttribute('data-state', 'open');
   await expect(row(page, 'pay.deposit').getByTestId('welcome-reward')).toHaveText('0.02 USDT');
-  await expect(page.getByRole('link', { name: 'Welcome checklist' })).toHaveAttribute('aria-current', 'page');
   run.write({ early, me, shortId: short.id, fullId: full.id });
 });
 

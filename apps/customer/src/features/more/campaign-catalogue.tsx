@@ -326,7 +326,7 @@ function CampaignBody({
       <Panel title={t('joinShort')}>
         {c.type === 'welcome' ? (
           <p data-testid="campaign-welcome">
-            <a className="text-link" href="/uc/promotion/welcome">
+            <a className="text-link" href="/uc/promotion">
               {t('welcomeLink')}
             </a>
           </p>
