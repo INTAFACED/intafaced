@@ -81,6 +81,7 @@ import {
   type TwapParentStore,
 } from '../algo/index.js';
 import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
+import type { PovBasis } from '../algo/types.js';
 import { assertSmallestSliceTradable } from '../algo/create-gate.js';
 import { assertQty, assertSpotSurface, assertTradable } from './risk.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
@@ -834,6 +835,10 @@ export class TradeService {
           };
         },
         intervalTakerVolume: async (marketId, from, to) => queryTakerVolumeFromFills(this.sql, { marketId, from, to }),
+        oppositeBookQty: async (marketId, side, limitPrice) => {
+          const depth = await this.matching.depth(marketId, twap.OPPOSITE_BOOK_LEVELS);
+          return twap.sideQty(side === 'buy' ? depth.asks : depth.bids, side, limitPrice);
+        },
       },
       {
         onChange: (parent, plan) => this.algoStore.save({ parent, plan }),
@@ -1741,6 +1746,8 @@ export class TradeService {
       /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
       kind?: string;
       participationBps?: number;
+      /** POV only: `traded_volume` (default) or `opposite_liquidity`. */
+      povBasis?: PovBasis;
       randomSeed?: number;
       triggerPrice?: Amount;
     },
