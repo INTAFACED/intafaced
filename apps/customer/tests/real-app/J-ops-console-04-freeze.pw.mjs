@@ -43,17 +43,21 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   const { page: stale } = await inspected();
 
   const reason = `LOCAL TEST J-ops-console-04 freeze ${tag}`;
-  await page.getByLabel('Reason').fill(reason);
+  await page.getByRole('textbox', { name: 'Reason', exact: true }).fill(reason);
   await page.getByLabel(/I reviewed this account/).check();
   await page.getByRole('button', { name: 'Restrict access' }).click();
   await expect(page.getByRole('status')).toContainText('Account restricted.');
   await expect(page.getByRole('heading', { name: 'Restricted' })).toBeVisible();
 
   // The version check: the stale page sends the version it read, and identity refuses it because the account changed since.
-  await stale.getByLabel('Reason').fill(`LOCAL TEST stale restrict ${tag}`);
+  await stale.getByRole('textbox', { name: 'Reason', exact: true }).fill(`LOCAL TEST stale restrict ${tag}`);
   await stale.getByLabel(/I reviewed this account/).check();
   await stale.getByRole('button', { name: 'Restrict access' }).click();
-  await expect(stale.getByRole('status')).toContainText('The account changed since inspection. Review the current state.');
+  await expect(stale.getByRole('alert').filter({ hasText: 'The account changed since inspection. Review the current state.' })).toHaveCount(
+    1,
+  );
+  // The stale page then reads the account again and shows it restricted, by the first request.
+  await expect(stale.getByRole('heading', { name: 'Restricted' })).toBeVisible();
 
   // The history is identity's own record of the attempt: who did it, what, and why.
   const row = page.locator('table tbody tr').filter({ hasText: reason });

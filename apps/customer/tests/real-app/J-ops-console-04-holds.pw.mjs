@@ -73,6 +73,36 @@ const step = (page, body) =>
 
 const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
 
+/** One step of a two-founder posting freeze or unfreeze, as the signed-in founder in `page` (as J-ops-console-03 does it). */
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+/** A asks, B approves, A runs: svc-ledger's platform-wide posting freeze on (`frozen`) or off. */
+async function setPostingFreeze(a, b, frozen, why) {
+  const record = await a.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: why, version: record.state.version }
+    : { kind: 'ledger.unfreeze', version: record.state.version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+}
+
 const row = (holds, holdNo) => holds.locator(`[data-testid=hold-row][data-hold-no="${holdNo}"]`);
 
 /** A asks on one of the hold's two desks; returns the packet text. */
@@ -155,11 +185,15 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
   await holds.getByLabel(/^Expires in hours/).fill('25');
   await expect(holds.getByTestId('hold-place-why')).toContainText('at most 24 hours');
 
-  // The stored expiry is moved to just past while svc-ledger is down: svc-ops' worker checks it against its own clock, stores
-  // release 1 and cannot post it, so the release waits with its number. When the ledger is back the worker sends it again
-  // under that same number and key, and it posts once.
+  // The stored expiry is moved to just past while svc-ledger's posting freeze is on: svc-ops' worker checks it against its
+  // own clock, stores release 1 and the ledger refuses it (ledger.frozen), so the release waits with its number. When the
+  // freeze is lifted the worker sends it again under that same number and key, and it posts once.
   const releaseKey = `ops:hold-release:${holdNo}:1`;
-  tool('local-test-stack.mjs', 'stop', 'ledger');
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(b, 'b');
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await setPostingFreeze(a, b, true, `LOCAL TEST J-ops-console-04 #3 retried release ${tag}`);
   let failure = null;
   try {
     tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
@@ -171,20 +205,17 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
             .nth(1);
           return (await movement.count()) ? movement.innerText() : '';
         },
-        { timeout: 90_000, message: 'the expiry worker stored release 1 and could not post it while the ledger was down' },
+        { timeout: 90_000, message: 'the expiry worker stored release 1 and could not post it while posting was frozen' },
       )
-      .toMatch(
-        new RegExp(
-          `^Release 1: 10, the expiry, no approver, (waiting to be sent again|waiting for the ledger’s answer) · key ${releaseKey}$`,
-        ),
-      );
+      .toMatch(new RegExp(`^Release 1: 10, the expiry, no approver, waiting to be sent again \\(ledger\\.frozen\\) · key ${releaseKey}$`));
   } catch (error) {
     failure = error;
   }
+  // Lift the freeze for the journeys after this one; a failure to lift it never hides the release's own failure.
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'ledger');
-  } catch (restart) {
-    failure ??= restart;
+    await setPostingFreeze(a, b, false);
+  } catch (unfreeze) {
+    failure ??= unfreeze;
   }
   if (failure) throw failure;
   await expect.poll(async () => (await usdt(who)).free, { timeout: 120_000, message: 'the retried release posted the 10' }).toBe('60');
