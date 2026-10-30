@@ -347,6 +347,24 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const tipAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+
+  // A link the owner turned off: created with a fixed amount, then deactivated on its own page.
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill('TEST Retired print');
+  await page.getByLabel('Fixed amount', { exact: true }).fill('7');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const offAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const offId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
+  expect(offId, 'the new link has an id').toBeTruthy();
+  await page.goto(`/pay/links/${offId}`);
+  await page.getByLabel('Message for customers').fill('TEST This print is retired');
+  await page.getByRole('button', { name: 'Deactivate link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Deactivate link' }).click();
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST This print is retired');
+  await expect(page.getByText('Deactivated').first()).toBeVisible();
   expect(refused).toEqual([]);
 
   const payer = await browser.newContext();
@@ -382,6 +400,14 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
       await payerPage.goto(flashAddress);
       await expect(payerPage.getByRole('heading', { name: 'Link expired' })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
+    await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
+
+    // A link that is off opens a plain state with the merchant's words: no amount, no payment form, no Continue.
+    const offOpened = await payerPage.goto(offAddress);
+    expect(offOpened.status()).toBe(404);
+    await expect(payerPage.getByRole('heading', { level: 1 })).toHaveText('TEST This print is retired');
+    await expect(payerPage.locator('.amount')).toHaveCount(0);
+    await expect(payerPage.locator('form')).toHaveCount(0);
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
 
     // With no amount on the link, the payer is asked for one, and the payment is for what they named.
