@@ -40,7 +40,8 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
       </div>
     );
   if (desk.status === 'empty') return <p className="m-0 text-sm text-fg-2">{t('Desk status empty')}</p>;
-  const { published, makerRouting, midFeed } = desk.data;
+  const { published, makerRouting, midFeed, assets, minTier } = desk.data;
+  const level = minTier === 'basic' || minTier === 'full' || minTier === 'institutional' ? minTier : null;
   return (
     <section aria-label={t('Desk status')} className="flex flex-wrap gap-x-8 gap-y-3 rounded-md border border-line bg-panel p-3">
       <Item
@@ -64,6 +65,32 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
         offWord={t('Not wired')}
         why={midFeed?.published ? t('Mid feed on') : t('Mid feed off')}
       />
+      <Item
+        label={t('Verification level')}
+        on={level != null}
+        onWord={level ? t(`Level ${level}`) : ''}
+        offWord={t('Not set')}
+        why={level ? t('Level on reason') : t('Level off reason')}
+      />
+      <section aria-label={t('Assets on the desk')} className="flex min-w-0 flex-col gap-0.5">
+        <div className="text-sm text-fg-2">{t('Assets on the desk')}</div>
+        {assets?.length ? (
+          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+            {assets.map((asset) => (
+              <li key={asset}>
+                <Badge tone="neutral" variant="outline" density="dense">
+                  {asset}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Badge tone="warn" variant="outline" density="dense" icon={<CircleSlash size={12} />}>
+            {t('Not set')}
+          </Badge>
+        )}
+        <p className="m-0 max-w-[48ch] text-xs text-fg-2">{assets?.length ? t('Assets on reason') : t('Assets off reason')}</p>
+      </section>
     </section>
   );
 }

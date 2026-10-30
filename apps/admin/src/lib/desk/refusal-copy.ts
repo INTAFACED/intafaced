@@ -67,6 +67,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The ledger refused: the customer does not have that much available. Nothing was moved.',
     next: 'Read the customer’s balance and ask for less.',
   },
+  'ops.alert_not_found': {
+    title: 'No such alert',
+    body: 'svc-ops has no reconciliation alert with that id. Nothing was changed.',
+    next: 'Go back to the alerts and open it again.',
+  },
+  'ops.alert_state_illegal': {
+    title: 'The alert cannot take that now',
+    body: 'The alert is no longer open or acknowledged, or it is a run that could not finish, which has no discrepancy to accept. Nothing was changed and the approval was not spent.',
+    next: 'Read the alert again.',
+  },
+  'ops.resolve_note_required': {
+    title: 'An acceptance needs a note',
+    body: 'Accepting a discrepancy is recorded with a note that says why. No approval was asked for or spent, and nothing was changed.',
+    next: 'Write the note (12 to 500 characters), then ask again.',
+  },
+  'ops.resolve_transaction_not_found': {
+    title: 'The ledger never booked that transaction',
+    body: 'At least one corrective transaction id is not in the ledger, so the alert was not resolved. Nothing was changed.',
+    next: 'Copy the corrective transaction id from the ledger and try again.',
+  },
+  'ops.resolve_ledger_unavailable': {
+    title: 'svc-ops could not ask the ledger',
+    body: 'svc-ops could not check that the corrective transactions exist, so it resolved nothing. Nothing was changed.',
+    next: 'Try again once the ledger answers.',
+  },
+  'action_approval.wrong_action': {
+    title: 'The approval is for something else',
+    body: 'The approval does not bind this exact request: another target, another note, or evidence that has changed since it was approved. Nothing was changed.',
+    next: 'Read the current state and start a new request.',
+  },
+  'action_approval.not_founders': {
+    title: 'Both people must be founders',
+    body: 'This change needs two different founders, and the approval was not made by two. Nothing was changed.',
+    next: 'Ask a second founder to approve a new request.',
+  },
   'ops.console_read_only': {
     title: 'The console is in maintenance mode',
     body: 'Two founders turned on maintenance mode, so this console takes no writes. Reads still work, and so do the halts. Nothing was sent.',
@@ -588,6 +623,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Its stored contents do not open with the vault’s key, so nothing is shown. The approval may have been spent.',
     next: 'Tell engineering: the vault key or the stored document is damaged.',
     changed: 'unknown',
+  },
+  'kyc.selfie_unconfigured': {
+    title: 'Identity’s selfie step is switched off',
+    body: 'The selfie step is not configured on this deployment, so no selfie can be taken, listed or decided. Nothing was changed.',
+    next: 'Ask engineering to switch on identity’s selfie step.',
+  },
+  'kyc.selfie_unknown': {
+    title: 'Identity holds no such selfie',
+    body: 'The selfie is not there any more: the person may have taken a new one, which replaces a selfie nobody has decided. Nothing was decided.',
+    next: 'Read the account’s selfies again and decide the one that waits; that needs a new request.',
+  },
+  'kyc.selfie_decided': {
+    title: 'This selfie was already decided',
+    body: 'A selfie is decided once. Identity kept the decision it already holds and refused this one.',
+    next: 'Read the account’s selfies again to see the decision on record.',
+  },
+  'auth.kyc_self_review': {
+    title: 'Nobody may decide their own verification',
+    body: 'Identity refused because you, or a founder on the approval, are the person this verification belongs to. Nothing was decided.',
+    next: 'Two other founders ask for and approve the decision.',
   },
   'action_approval.consume_failed': {
     title: 'Identity refused to release the approval',

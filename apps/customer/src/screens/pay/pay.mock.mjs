@@ -1,6 +1,9 @@
 // Answers the calls the Pay screen makes, for the Playwright tests. No service is contacted.
 //  - /api/identity/trpc/me                    (GET)   caller's own handle        [backend PR #4688]
 //  - /api/identity/trpc/users.resolveHandle   (GET)   exact @handle lookup       [backend PR #4688]
+//  - /api/identity/trpc/handle.get            (GET)   own handle settings        [PP-send-request-03]
+//  - /api/identity/trpc/handle.change         (POST)  change own handle (TEST cap below)
+//  - /api/identity/trpc/handle.setDiscoverable (POST) findable by handle or not
 //  - /api/bank/trpc/spaces.list               (GET)   the customer's own balances
 //  - /api/bank/trpc/transfers.quote           (GET)   published limits and fee (TEST figures below)
 //  - /api/bank/trpc/transfers.toUser          (POST)  the payment
@@ -43,7 +46,14 @@ const refusal = (status, message, code) => ({ status, json: { error: { message, 
 export { refusal };
 
 export async function mock(page, overrides = {}) {
-  const world = { balances: startingBalances(), sent: new Map(), counter: 0 };
+  // TEST cap of 3 handle changes: a harness figure, not an owner value.
+  const world = {
+    balances: startingBalances(),
+    sent: new Map(),
+    counter: 0,
+    handle: { handle: 'harness_me', discoverable: true, changesUsed: 0, changeCap: 3 },
+  };
+  const handleView = () => ({ ...world.handle, changesLeft: world.handle.changeCap - world.handle.changesUsed });
   const calls = [];
   const held = [];
   const answer = async (route, value, request) => {
@@ -61,6 +71,21 @@ export async function mock(page, overrides = {}) {
       if (handle === 'maya_test') return trpc({ found: true, userId: MAYA.userId, handle: MAYA.handle, self: false });
       if (handle === 'harness_me') return trpc({ found: true, userId: ME, handle: 'harness_me', self: true });
       return trpc({ found: false });
+    },
+    handleGet: () => trpc(handleView()),
+    handleChange: ({ body }) => {
+      const next = String(body.handle).trim().replace(/^@/, '');
+      if (!/^[a-zA-Z0-9_]*$/.test(next))
+        return refusal(400, 'A handle uses only letters, digits and underscore', 'identity.handle_characters');
+      if (next.length < 3 || next.length > 32) return refusal(400, 'A handle has 3 to 32 characters', 'identity.handle_length');
+      if (world.handle.changesUsed >= world.handle.changeCap)
+        return refusal(412, 'You have changed your handle 3 times, the most allowed', 'identity.handle_change_cap_reached');
+      world.handle = { ...world.handle, handle: next, changesUsed: world.handle.changesUsed + 1 };
+      return trpc(handleView());
+    },
+    handleDiscoverable: ({ body }) => {
+      world.handle = { ...world.handle, discoverable: Boolean(body.discoverable) };
+      return trpc(handleView());
     },
     spaces: () => trpc(spacesFor(world.balances)),
     // TEST limits, wide enough that only the balance ever stops a harness payment. No fee.
@@ -104,6 +129,9 @@ export async function mock(page, overrides = {}) {
     const name = {
       me: 'me',
       'users.resolveHandle': 'resolve',
+      'handle.get': 'handleGet',
+      'handle.change': 'handleChange',
+      'handle.setDiscoverable': 'handleDiscoverable',
       'spaces.list': 'spaces',
       'transfers.quote': 'quote',
       'transfers.toUser': 'toUser',

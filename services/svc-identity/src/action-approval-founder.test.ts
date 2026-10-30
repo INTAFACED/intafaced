@@ -181,6 +181,7 @@ describe('audience table: what each registered approval type needs', () => {
       'kyc.doc.store',
       'kyc.doc.get',
       'kyc.doc.bind',
+      'kyc.selfie.decide',
       'affiliates.freeze',
       'affiliates.unfreeze',
     ].map((t) => T(t, 'svc-identity', t, 'operator')),

@@ -52,13 +52,17 @@ function forged(p: Principal = principal()) {
 
 function reads(): MiningReads & { myWorkers: ReturnType<typeof vi.fn> } {
   return {
-    myWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', windowMinutes: 60, workers: [] })),
+    myWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', windowMinutes: 60, workers: [], nextCursor: null })),
+    setWorkerDifficulty: vi.fn(),
+    setWorkerMode: vi.fn(),
     listWorkers: vi.fn(async () => ({ asOf: '2026-01-01T00:00:00.000Z', workers: [], nextCursor: null })),
     myShares: vi.fn(),
     opsShares: vi.fn(),
     opsWindows: vi.fn(),
     pending: vi.fn(),
     myPayouts: vi.fn(),
+    minerSecretStatus: vi.fn(async () => ({ issuedAt: null })),
+    issueMinerSecret: vi.fn(async () => ({ secret: `msk_${'A'.repeat(43)}`, issuedAt: '2026-10-29T00:00:00.000Z' })),
   };
 }
 
@@ -80,7 +84,28 @@ describe('mining tRPC mount', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.denied' } });
     expect(store.myWorkers).not.toHaveBeenCalled();
     await expect(router.createCaller(signed()).workers.mine({ windowMinutes: 60 })).resolves.toMatchObject({ workers: [] });
-    expect(store.myWorkers).toHaveBeenCalledWith(USER, 60);
+    expect(store.myWorkers).toHaveBeenCalledWith(USER, 60, {});
+  });
+
+  it('the miner secret is the caller own: issuing needs trade:write, the status needs ledger:read, and neither takes an account id', async () => {
+    const store = reads();
+    const router = createMiningRouter(store);
+    await expect(router.createCaller(anonymous()).minerSecret.issue()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(router.createCaller(signed()).minerSecret.issue()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'scope.denied' },
+    });
+    expect(store.issueMinerSecret).not.toHaveBeenCalled();
+    await expect(router.createCaller(signed(principal({ scopes: ['trade:write'] }))).minerSecret.issue()).resolves.toEqual({
+      secret: `msk_${'A'.repeat(43)}`,
+      issuedAt: '2026-10-29T00:00:00.000Z',
+    });
+    expect(store.issueMinerSecret).toHaveBeenCalledWith(USER);
+    await expect(router.createCaller(signed(principal({ scopes: ['identity:read'] }))).minerSecret.status()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(router.createCaller(signed()).minerSecret.status()).resolves.toEqual({ issuedAt: null });
+    expect(store.minerSecretStatus).toHaveBeenCalledWith(USER);
   });
 
   it('refuses operator reads without admin:read', async () => {
@@ -151,7 +176,7 @@ describe('mining tRPC mount', () => {
       host: 'pool.test',
       port: '3999',
       accountId: USER,
-      credentialOffered: false,
+      workerNamePattern: null,
     });
     const blank = createMiningRouter(store, undefined, { env: {} });
     await expect(blank.createCaller(signed()).overview()).rejects.toMatchObject({

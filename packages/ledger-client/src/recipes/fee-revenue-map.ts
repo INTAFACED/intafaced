@@ -66,6 +66,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'MM maker fill fees → houseFees(trade).',
   },
+  'trade.spot.buyback_maker_fee': {
+    kind: 'recipe',
+    recipe: 'buybackTakerFill',
+    feeModule: 'trade',
+    note: 'The customer maker fee on a token buyback IOC fill, in quote → houseFees(trade). The house buys as taker and pays no taker fee to itself.',
+  },
   'trade.futures.fill_fee': {
     kind: 'recipe',
     recipe: 'futuresOrderMarginApply',
@@ -206,6 +212,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'market',
     note: 'Listing commission → houseFees(market); blank bps refused upstream.',
   },
+  'market.commerce_commission_held': {
+    kind: 'recipe',
+    recipe: 'marketPurchaseRelease',
+    feeModule: 'market',
+    note: 'The same listing commission, taken when a held purchase is released after its refund window; blank bps refused upstream.',
+  },
   'market.listing_fee': {
     kind: 'recipe',
     recipe: 'marketListingFee',
@@ -268,6 +280,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'loanReserveFund',
   'earnPoolFund',
   'marketPurchase',
+  'marketPurchaseRelease',
+  'buybackTakerFill',
   'marketListingFee',
   'marketPremiumPlacement',
 ] as const satisfies readonly RecipeName[];

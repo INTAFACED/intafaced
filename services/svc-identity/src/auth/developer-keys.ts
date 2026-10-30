@@ -9,16 +9,35 @@
  *
  * The request id is the business key. A repeat answers with the stored record and no secret, with no second factor
  * (it reveals only what the list already shows); the same id with a different key asked for refuses.
+ *
+ * A key that may place orders (`trade:write`) signs every request by default (DV-auth-01): it is minted with
+ * `require_signature` on and a signing secret sealed at rest, in the same transaction, and the secret is shown once
+ * beside the key. With no sealing key configured such a create refuses `identity.key_signing_unset` before the factor
+ * is spent; there is never a moment the key exists unsigned.
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { FOUNDER_DESK_SCOPES, INTERACTIVE_ONLY_SCOPES, SCOPES, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
-import type { ApiKeyCreateInput, ApiKeyCreateOutput, ApiKeyList, ApiKeyRecord, ApiKeyScopeEntry } from '@intafaced/contracts/api-keys';
-import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
+import { FOUNDER_DESK_SCOPES, SCOPES, isKeyForbiddenScope, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
+import type {
+  ApiKeyCreateInput,
+  ApiKeyCreateOutput,
+  ApiKeyDetail,
+  ApiKeyList,
+  ApiKeyRecord,
+  ApiKeyRevokedBy,
+  ApiKeyRevokeInput,
+  ApiKeyRevokeOutput,
+  ApiKeyScopeEntry,
+  ApiKeySetExpiryInput,
+} from '@intafaced/contracts/api-keys';
+import { API_KEY_NAME_MAX, API_KEY_REVOKE_REASON_MAX, API_KEY_REVOKED_BY } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
+import { issueSigningSecret, sealSigningSecret } from './api-key-request-sign.js';
+import { signsByDefault } from './api-key-signs-by-default.js';
+import { expireApiKey, ExpireApiKeyError } from './expire-api-key.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
 export type DeveloperKeyRefusal =
@@ -32,7 +51,11 @@ export type DeveloperKeyRefusal =
   | 'identity.key_expiry_invalid'
   | 'identity.key_cap_unset'
   | 'identity.key_cap_reached'
-  | 'identity.key_request_conflict';
+  | 'identity.key_request_conflict'
+  | 'identity.key_signing_unset'
+  | 'identity.key_not_found'
+  | 'identity.key_not_live'
+  | 'identity.key_revoke_reason_invalid';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -65,9 +88,22 @@ export function parseApiKeyCapByTier(raw: string | undefined): ReadonlyMap<KycTi
   return caps;
 }
 
+/**
+ * `IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS`: the owner's idle period, whole seconds a key may go unused before the dormant
+ * sweep ends it (ENGINE KS-7). Blank: null, shown as `not set`, and nothing is ever ended for being idle. A value that
+ * is not a positive whole number throws, so the service does not start on a period it cannot read.
+ */
+export function parseApiKeyIdleExpirySeconds(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = raw.trim();
+  if (!/^[1-9]\d{0,9}$/.test(value)) throw new Error('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS must be a whole number of seconds above zero');
+  return Number(value);
+}
+
 /** Why a scope the session holds cannot sit on a key, or null when it can. */
 function blockOf(scope: Scope): ApiKeyScopeEntry['blockedBy'] {
-  if ((INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(scope)) return 'interactive_only';
+  // Interactive-only and person-only alike (agents:execute spends the person's own money, OWNER 107).
+  if (isKeyForbiddenScope(scope)) return 'interactive_only';
   if ((FOUNDER_DESK_SCOPES as readonly string[]).includes(scope)) return 'operator_only';
   if (isPayStepUpScope(scope)) return 'step_up_only';
   return null;
@@ -143,7 +179,14 @@ type KeyRow = {
   expires_at: Date | null;
   last_used_at: Date | null;
   revoked: boolean;
+  revoked_at: Date | null;
+  revoked_cause: string | null;
+  revoke_reason: string | null;
 };
+
+/** The columns every key read takes, in the order `KeyRow` names them. Never the hash or a secret. */
+const KEY_COLUMNS =
+  'id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked, revoked_at, revoked_cause, revoke_reason';
 
 function toRecord(row: KeyRow): ApiKeyRecord {
   return {
@@ -158,6 +201,12 @@ function toRecord(row: KeyRow): ApiKeyRecord {
     expiresAt: row.expires_at?.toISOString() ?? null,
     lastUsedAt: row.last_used_at?.toISOString() ?? null,
     revoked: row.revoked,
+    revokedAt: row.revoked ? (row.revoked_at?.toISOString() ?? null) : null,
+    revokedBy:
+      row.revoked && (API_KEY_REVOKED_BY as readonly string[]).includes(row.revoked_cause ?? '')
+        ? (row.revoked_cause as ApiKeyRevokedBy)
+        : null,
+    revokeReason: row.revoked && row.revoked_cause === 'owner' ? row.revoke_reason : null,
   };
 }
 
@@ -180,8 +229,16 @@ export type DeveloperKeysDeps = {
    * verifies the passkey on its way in); the mint itself checks it again.
    */
   mayMint?: (userId: string, factor: 'passkey' | 'other' | 'none') => Promise<void>;
+  /** Seals a signing key's secret at rest (`API_KEY_SIGNING_ENC_KEY`). Null or absent: a signing key refuses. */
+  signingEncKey?: Buffer | null;
+  /** The owner's request-signing window (`IDENTITY_REQUEST_SIGN_WINDOW_SECONDS`). Null or absent: a signing key refuses, as it could never be used. */
+  signingWindowSeconds?: number | null;
+  /** The owner's idle period (`parseApiKeyIdleExpirySeconds`); null is `not set`. Shown on the detail, never defaulted. */
+  idleExpirySeconds?: number | null;
   now?: () => Date;
 };
+
+export { signsByDefault };
 
 type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
 
@@ -193,7 +250,7 @@ async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promis
 async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint: string): Promise<ApiKeyCreateOutput | null> {
   const rows = await sql<Array<KeyRow & { fingerprint: string }>>`
     SELECT r.fingerprint, k.id, k.name, k.key_prefix, k.mode, k.scopes, k.ip_allowlist, k.require_signature,
-           k.created_at, k.expires_at, k.last_used_at, k.revoked
+           k.created_at, k.expires_at, k.last_used_at, k.revoked, k.revoked_at, k.revoked_cause, k.revoke_reason
     FROM api_key_create_requests r JOIN api_keys k ON k.id = r.key_id AND k.user_id = r.user_id
     WHERE r.user_id = ${userId} AND r.request_id = ${requestId}
   `;
@@ -202,7 +259,7 @@ async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint
   if (row.fingerprint !== fingerprint) {
     throw new DeveloperKeyError('This request id was already used for a different key', 'identity.key_request_conflict');
   }
-  return { record: toRecord(row), key: null, replayed: true };
+  return { record: toRecord(row), key: null, signingSecret: null, replayed: true };
 }
 
 class SameRequestRace extends Error {}
@@ -244,6 +301,10 @@ export async function createDeveloperKey(
     if (twin) return twin;
     throw err;
   }
+  const signs = signsByDefault(checked.scopes);
+  if (signs && (!deps.signingEncKey || deps.signingWindowSeconds == null)) {
+    throw new DeveloperKeyError('Keys that place orders sign every request, and signing is not set up', 'identity.key_signing_unset');
+  }
   await deps.mayMint?.(caller.userId, !input.factorProof ? 'none' : 'webauthn' in input.factorProof ? 'passkey' : 'other');
   try {
     return await guardedApiKeyAction(
@@ -269,6 +330,15 @@ export async function createDeveloperKey(
           mode: 'live',
         });
         if (checked.ips.length > 0) await bindApiKeyIpAllowlist(tx, caller.userId, minted.id, checked.ips);
+        let signingSecret: string | null = null;
+        if (signs) {
+          signingSecret = issueSigningSecret();
+          await tx`
+            UPDATE api_keys
+            SET require_signature = true, request_signing_secret = ${sealSigningSecret(deps.signingEncKey ?? null, signingSecret)}
+            WHERE id = ${minted.id} AND user_id = ${caller.userId}
+          `;
+        }
         const recorded = await tx<Array<{ key_id: string }>>`
           INSERT INTO api_key_create_requests (user_id, request_id, key_id, fingerprint)
           VALUES (${caller.userId}, ${input.requestId}, ${minted.id}, ${checked.fingerprint})
@@ -277,11 +347,8 @@ export async function createDeveloperKey(
         `;
         // The same request id committed first from another call: undo this key and answer with that one.
         if (!recorded[0]) throw new SameRequestRace();
-        const rows = await tx<KeyRow[]>`
-          SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
-          FROM api_keys WHERE id = ${minted.id}
-        `;
-        return { record: toRecord(rows[0]!), key: minted.key, replayed: false };
+        const rows = await tx<KeyRow[]>`SELECT ${tx.unsafe(KEY_COLUMNS)} FROM api_keys WHERE id = ${minted.id}`;
+        return { record: toRecord(rows[0]!), key: minted.key, signingSecret, replayed: false };
       },
     );
   } catch (err) {
@@ -313,11 +380,112 @@ export function passkeyMintRule(sql: Sql): NonNullable<DeveloperKeysDeps['mayMin
 /** The account's keys, newest first, with the cap and how many keys count against it. Never a secret or a hash. */
 export async function listDeveloperKeys(deps: DeveloperKeysDeps, userId: string, limit: number): Promise<ApiKeyList> {
   const rows = await deps.sql<KeyRow[]>`
-    SELECT id, name, key_prefix, mode, scopes, ip_allowlist, require_signature, created_at, expires_at, last_used_at, revoked
+    SELECT ${deps.sql.unsafe(KEY_COLUMNS)}
     FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT ${limit}
   `;
   return {
     keys: rows.map(toRecord),
     cap: { limit: await capFor(deps, userId, deps.sql), live: await liveKeyCount(deps.sql, userId) },
   };
+}
+
+const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
+
+async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
+  // Another account's key and a missing key answer the same: not found.
+  const rows = await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
+    SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId}
+  `;
+  if (!rows[0]) throw notFound();
+  return rows[0];
+}
+
+/** One key of the account with its IP policy and the owner's idle period. Never a secret or a hash. */
+export async function getDeveloperKey(deps: DeveloperKeysDeps, userId: string, keyId: string): Promise<ApiKeyDetail> {
+  const row = await ownKey(deps.sql, userId, keyId);
+  return {
+    key: toRecord(row),
+    requireNonEmptyIpAllowlist: row.require_non_empty_ip_allowlist === true,
+    idleExpirySeconds: deps.idleExpirySeconds ?? null,
+  };
+}
+
+/**
+ * Code points a reason may not hold: control characters and invisible format characters (`\p{Cf}`: bidi overrides and
+ * isolates, zero-width spaces, byte-order marks, direction marks, tag characters), which could make the list show a
+ * reason other than the one stored. The zero-width joiner and non-joiner stay, so emoji sequences and Persian words are
+ * whole, and so do variation selectors (`\p{Mn}`) and the tag characters of a subdivision flag (`TAG_FLAG`); a tag
+ * character anywhere else could carry hidden text and refuses.
+ */
+const REASON_FORBIDDEN = /(?![‌‍])[\p{Cc}\p{Cf}]/u;
+/** A subdivision flag (black flag, 1 to 6 tag letters or digits, cancel tag): the only place tag characters may stand. */
+const TAG_FLAG = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,6}\u{E007F}/gu;
+/** At least one code point a reader can see: not whitespace, a joiner or a mark on its own. */
+const REASON_VISIBLE = /[^\s‌‍\p{Mn}\p{Me}]/u;
+
+/**
+ * The person's reason, trimmed. Blank is no reason, and so is a reason of only invisible characters (joiners,
+ * selectors, hidden format characters, spaces): nothing a reader could see is stored, and the revoke goes ahead. Over
+ * 200 code points (as the contract's schema and the database check count) or a forbidden character among visible text
+ * refuses.
+ */
+export function checkRevokeReason(raw: string | undefined): string | null {
+  const reason = raw?.trim() ?? '';
+  if (!REASON_VISIBLE.test(reason.replace(new RegExp(REASON_FORBIDDEN.source, 'gu'), ''))) return null;
+  if ([...reason].length > API_KEY_REVOKE_REASON_MAX || REASON_FORBIDDEN.test(reason.replace(TAG_FLAG, ''))) {
+    throw new DeveloperKeyError(
+      `Use a reason of at most ${API_KEY_REVOKE_REASON_MAX} visible characters, with no control or hidden characters`,
+      'identity.key_revoke_reason_invalid',
+    );
+  }
+  return reason;
+}
+
+/**
+ * The person's own revoke from the developer room. No second factor: switching a key off must always work. The first
+ * revoke records `owner`, the time and the reason; a repeat on a revoked key changes nothing (its first cause stays,
+ * whoever revoked it) and answers with the record as it stands.
+ */
+export async function revokeDeveloperKey(deps: DeveloperKeysDeps, userId: string, input: ApiKeyRevokeInput): Promise<ApiKeyRevokeOutput> {
+  const current = await ownKey(deps.sql, userId, input.keyId);
+  if (current.revoked) return { record: toRecord(current), changed: false };
+  const reason = checkRevokeReason(input.reason);
+  const updated = await deps.sql<KeyRow[]>`
+    UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner', revoke_reason = ${reason}
+    WHERE id = ${input.keyId} AND user_id = ${userId} AND revoked = false
+    RETURNING ${deps.sql.unsafe(KEY_COLUMNS)}
+  `;
+  if (updated[0]) return { record: toRecord(updated[0]), changed: true };
+  return { record: toRecord(await ownKey(deps.sql, userId, input.keyId)), changed: false };
+}
+
+/**
+ * A new end date for a live key, through the one end-date writer (`expireApiKey`): the instant must be in the future;
+ * an earlier end (or a first one) narrows the key and needs no factor, a later one takes a fresh second factor in one
+ * transaction with its audit row, as create does; a revoked or ended key never changes.
+ */
+export async function setDeveloperKeyExpiry(
+  deps: DeveloperKeysDeps,
+  caller: Caller,
+  input: ApiKeySetExpiryInput & { factorProof?: PayStepUpFactorProof | undefined },
+): Promise<{ record: ApiKeyRecord }> {
+  const now = deps.now?.() ?? new Date();
+  const at = new Date(input.expiresAt);
+  if (!(at.getTime() > now.getTime())) throw new DeveloperKeyError('Choose an end date in the future', 'identity.key_expiry_invalid');
+  try {
+    await expireApiKey(
+      { sql: deps.sql, gate: deps.gate, ...(deps.now ? { now: deps.now } : {}) },
+      caller,
+      input.keyId,
+      at,
+      input.factorProof,
+    );
+  } catch (err) {
+    if (err instanceof ExpireApiKeyError && err.code === 'identity.key_not_live') {
+      throw new DeveloperKeyError('This key is revoked or has ended; make a new key instead', 'identity.key_not_live');
+    }
+    if (err instanceof ExpireApiKeyError) throw notFound();
+    throw err;
+  }
+  return { record: toRecord(await ownKey(deps.sql, caller.userId, input.keyId)) };
 }

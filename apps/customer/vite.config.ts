@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite';
+import { existsSync, readFileSync } from 'node:fs';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { homeBoot } from './src/app/boot';
 
@@ -30,11 +31,38 @@ export function assetsInlineLimit(filePath: string): boolean | undefined {
   return FONT_FILE.test(filePath) ? false : undefined;
 }
 
+function isLocalTestReceipt(source: string): boolean {
+  try {
+    return (JSON.parse(source) as { test?: unknown } | null)?.test === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Publishes the host dispatch receipt (`deployment/host-dispatch.json`, written by `deployment/host-dispatch.mjs`) at
+ * `/host-dispatch.json`, beside `customer-deployment.json`, when the check has been run before the build. The Help room
+ * reads it; with no receipt it shows every host as `host.receipt_missing`, never as served.
+ */
+export function hostDispatchReceipt(file = new URL('./deployment/host-dispatch.json', import.meta.url)): Plugin {
+  return {
+    name: 'intafaced-host-dispatch-receipt',
+    apply: 'build',
+    generateBundle() {
+      if (!existsSync(file)) return;
+      const source = readFileSync(file, 'utf8');
+      // A LOCAL TEST receipt (loopback hosts, `test: true`) is served by the local stack itself and never built in.
+      if (isLocalTestReceipt(source)) this.error('deployment/host-dispatch.json is a LOCAL TEST receipt; a build never publishes one');
+      this.emitFile({ type: 'asset', fileName: 'host-dispatch.json', source });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss(), homeBoot()],
+    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },

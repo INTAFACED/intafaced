@@ -47,6 +47,7 @@ const detail = (t = ticket()): SupportTicketView => ({
             ticketId: T1,
             authorId: U,
             authorRole: 'user',
+            visibility: 'public',
             body: 'any update?',
             createdAt: '2026-10-17T01:00:00.000Z',
           },
@@ -66,6 +67,21 @@ const detail = (t = ticket()): SupportTicketView => ({
             toStatus: null,
             note: null,
             occurredAt: '2026-10-17T00:00:00.000Z',
+          },
+        ],
+      },
+      propertyChanges: {
+        kind: 'ok',
+        data: [
+          {
+            logId: '7',
+            ticketId: T1,
+            setBy: ME,
+            reason: 'deadline',
+            setAt: '2026-10-17T02:00:00.000Z',
+            field: 'labels',
+            from: [],
+            to: ['vip', 'chargeback'],
           },
         ],
       },
@@ -90,6 +106,9 @@ const base: DeskViewProps = {
   onClose: () => undefined,
   onArm: () => undefined,
   onClaim: () => undefined,
+  onClaimNext: () => undefined,
+  claimingNext: false,
+  nextReply: null,
 };
 const render = (over: Partial<DeskViewProps> = {}) => renderToStaticMarkup(<SupportDeskView {...base} {...over} />);
 
@@ -156,6 +175,43 @@ describe('a ticket', () => {
     expect(html).toContain('opened');
     expect(html).toContain('Nobody yet');
   });
+  it('the history shows each priority, type or label change as its own row, after the trail event before it', () => {
+    const html = open();
+    expect(html).toContain('labels none → vip, chargeback');
+    expect(html).toContain('deadline');
+    expect(html.indexOf('opened')).toBeLessThan(html.indexOf('labels none → vip, chargeback'));
+  });
+  it('a failed part of the history says so and never hides the part that was read', () => {
+    const d = detail();
+    if (d.detail.kind !== 'ok') throw new Error('fixture');
+    const down = { kind: 'failed', message: 'down', code: null, notBuilt: false, forbidden: false } as const;
+    const trailDown = open({ ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, events: down } } } });
+    expect(trailDown).toContain('History unavailable');
+    expect(trailDown).toContain('labels none → vip, chargeback');
+    expect(trailDown).not.toContain('No events recorded');
+    const logDown = open({ ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, propertyChanges: down } } } });
+    expect(logDown).toContain('Priority, type and label changes unavailable');
+    expect(logDown).toContain('opened');
+  });
+  it('marks an internal note as staff only, apart from the replies', () => {
+    const d = detail();
+    if (d.detail.kind !== 'ok' || d.detail.data.comments.kind !== 'ok') throw new Error('fixture');
+    const reply = d.detail.data.comments.data[0]!;
+    const note = {
+      ...reply,
+      id: '66666666-6666-4666-8666-666666666666',
+      authorRole: 'operator' as const,
+      visibility: 'internal' as const,
+      body: 'TEST checked it',
+    };
+    const html = open({
+      ticket: { ...d, detail: { kind: 'ok', data: { ...d.detail.data, comments: { kind: 'ok', data: [reply, note] } } } },
+    });
+    expect(html).toMatch(
+      /<li[^>]*data-visibility="internal"[^>]*><strong>Internal note · [^<]*<\/strong><span[^>]*>Staff only · the customer does not see this<\/span><p[^>]*>TEST checked it<\/p>/,
+    );
+    expect(html).toMatch(/<li[^>]*data-visibility="public"[^>]*><strong>Customer · [^<]*<\/strong><p[^>]*>any update\?<\/p>/);
+  });
   it('labels the customer as an account id and says why no handle is shown', () => {
     const html = open();
     expect(html).toContain('<dt>Customer account id</dt>');
@@ -164,7 +220,7 @@ describe('a ticket', () => {
   it('an unowned ticket can be claimed, after a second click that says there is no release', () => {
     expect(open()).toContain('Claim this ticket');
     const armed = open({ arming: true });
-    expect(armed).toContain('svc-support has no release or reassign');
+    expect(armed).toContain('until you unclaim it or a lead gives it to someone else');
     expect(armed).toContain('Yes, claim it');
   });
   it('a ticket someone else owns cannot be claimed, and says why', () => {
@@ -212,5 +268,30 @@ describe('a ticket', () => {
       },
     });
     expect(no).toContain('This ticket is already claimed');
+  });
+});
+
+describe('claim the next request', () => {
+  it('is on the queue page, and a refusal shows its code', () => {
+    expect(render()).toContain('Claim the next request');
+    const refused = render({
+      nextReply: {
+        ok: false,
+        refusal: { title: 'No request is waiting to be claimed', body: 'b', next: 'n', code: 'support.claim.queue_empty', changed: 'no' },
+      },
+    });
+    expect(refused).toContain('data-code="support.claim.queue_empty"');
+    expect(refused).toContain('No request is waiting to be claimed');
+  });
+});
+
+describe('the address names the open request', () => {
+  it('reads the request id from /support/<id>, and nothing from the desk itself or another path', async () => {
+    const { addressTicketId } = await import('./support-desk');
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(addressTicketId(`/support/${id}`)).toBe(id);
+    expect(addressTicketId('/support')).toBeNull();
+    expect(addressTicketId('/support/not-a-request')).toBeNull();
+    expect(addressTicketId(`/crm/${id}`)).toBeNull();
   });
 });

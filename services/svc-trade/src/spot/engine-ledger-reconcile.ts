@@ -9,7 +9,7 @@
  * ── What this does ──────────────────────────────────────────────────────────
  *
  * 1. Load open/pending rows from `trade.orders`.
- * 2. Read each order's real ledger hold (`orderHoldAccount`) — never the
+ * 2. Read each order's real ledger hold (`holdAccountOf`) — never the
  *    row's remembered `hold_amount`.
  * 3. Map to `CounterpartOrder[]` and POST matching `/reconcile`.
  * 4. **Refuse findings write nothing** — log / metrics / alert only.
@@ -34,7 +34,8 @@
  * Job host: `engine-ledger-reconcile-jobs.ts` · default OFF.
  */
 import type { Sql } from 'postgres';
-import { formatAmount, orderHoldAccount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { holdAccountOf } from './buyback-order.js';
 import type { CounterpartOrder, EngineMarketList, ReconcileFinding, ReconcileReport } from './matching-client.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import type { OrderStatus } from './types.js';
@@ -222,7 +223,7 @@ export async function loadTradeOrderClaims(
     const qty = parseAmount(row.qty);
     const filled = parseAmount(row.filled_qty);
     const remainingAmt = qty > filled ? qty - filled : 0n;
-    const hold = (await ledger.balance(orderHoldAccount(row.user_id, row.hold_asset, row.id))).amount;
+    const hold = (await ledger.balance(holdAccountOf({ id: row.id, userId: row.user_id, holdAsset: row.hold_asset }))).amount;
 
     claims.push({
       orderId: row.id,

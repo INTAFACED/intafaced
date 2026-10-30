@@ -4,6 +4,7 @@
  * Invalid IPs refuse before create — no leftover unbound key.
  */
 import type { Sql } from 'postgres';
+import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 
@@ -18,7 +19,8 @@ export type ApiKeyMinter = {
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
   }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox' }>;
-  revokeApiKey(userId: string, keyId: string): Promise<boolean>;
+  /** `cause` is `system` when undoing a key that was never handed over; the person's own revoke leaves it out. */
+  revokeApiKey(userId: string, keyId: string, cause?: ApiKeyRevokedBy): Promise<boolean>;
 };
 
 export async function mintApiKeyWithIpAllowlist(
@@ -58,7 +60,7 @@ export async function mintApiKeyWithIpAllowlist(
     const bound = await bindApiKeyIpAllowlist(sql, input.userId, minted.id, next);
     return { ...minted, ipAllowlist: bound.ipAllowlist };
   } catch (err) {
-    await minter.revokeApiKey(input.userId, minted.id);
+    await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;
   }
 }

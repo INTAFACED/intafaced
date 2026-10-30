@@ -8,8 +8,34 @@ export const EMISSION_UNPUBLISHED = 'mining.emission_unpublished';
 export const PG_UNAVAILABLE = 'mining.pg_unavailable';
 export const WINDOW_PAID = 'mining.window_paid';
 export const WINDOW_CONFLICT = 'mining.window_conflict';
+export const SHARE_DUPLICATE = 'mining.share_duplicate';
+export const WORKER_NAME_INVALID = 'mining.worker_name_invalid';
+/** The worker a share with no name goes to. */
+export const DEFAULT_WORKER = 'default';
+export const WORKER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
-export type BlankRewardShare = { readonly shareId: string; readonly minerId: string; readonly weight: bigint | null };
+/** A rig name as sent: absent is the default worker; anything outside letters, digits, dash and underscore is refused. */
+export function workerNameOf(value: unknown): string {
+  if (value === undefined || value === null) return DEFAULT_WORKER;
+  if (typeof value !== 'string' || !WORKER_NAME.test(value)) throw new Error(WORKER_NAME_INVALID);
+  return value;
+}
+
+/** One worker per account and name. The name has no colon, so two different (account, name) pairs never share an id. */
+export function workerIdOf(minerId: string, name: string): string {
+  return `worker:${minerId}:${name}`;
+}
+
+export type BlankRewardShare = {
+  readonly shareId: string;
+  readonly minerId: string;
+  readonly weight: bigint | null;
+  readonly workerName?: string;
+  /** The checked proof-of-work nonce. One nonce counts once per worker and window: the same work again is a duplicate. */
+  readonly powNonce?: string;
+  /** Checked under a testnet proof-of-work set: its window earns no credit. */
+  readonly testnet?: boolean;
+};
 type StoredWindowInput = {
   readonly windowId: string;
   readonly assetId: string;
@@ -28,6 +54,14 @@ export async function readStoredEpoch(sql: Sql, windowId: string): Promise<numbe
   return row.epoch;
 }
 
+/** Rows per multi-row insert: eight columns a row stays far under Postgres's 65535 bind parameters. */
+const INSERT_ROWS = 1000;
+function chunks<T>(rows: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let at = 0; at < rows.length; at += INSERT_ROWS) out.push(rows.slice(at, at + INSERT_ROWS));
+  return out;
+}
+
 /** Conflict checking and share appends hold the same window lock and transaction. */
 async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> {
   if (!sql) throw new Error(PG_UNAVAILABLE);
@@ -35,11 +69,17 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
   if (input.epoch !== null && (!Number.isInteger(input.epoch) || input.epoch < 0 || input.epoch > 2_147_483_647))
     throw new Error(EPOCH_UNSET);
   if (input.shares.length === 0) throw new Error('shares_empty');
-  for (const share of input.shares) {
+  const named = input.shares.map((share) => {
     if (!share.shareId.trim() || !share.minerId.trim()) throw new Error('mining.share_malformed');
     if (share.weight !== null && (typeof share.weight !== 'bigint' || share.weight <= 0n || share.weight >= 10n ** 38n))
       throw new Error('mining.weight_not_integer');
-  }
+    return { ...share, name: workerNameOf(share.workerName) };
+  });
+  // One row per (account, name), in one fixed order, so two batches that create the same workers take their locks in the
+  // same order and never wait on each other in a cycle.
+  const pairs = [...new Map(named.map((share) => [`${share.minerId}\n${share.name}`, share])).values()]
+    .map((share) => ({ id: workerIdOf(share.minerId, share.name), user_id: share.minerId, name: share.name }))
+    .sort((a, b) => (a.user_id < b.user_id ? -1 : a.user_id > b.user_id ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   await transaction(sql, async (tx) => {
     const written = await tx<{ window_id: string }[]>`
       INSERT INTO mining_pool.windows (window_id, epoch, asset_id, reward, fee_bps, status)
@@ -58,11 +98,45 @@ async function persistShares(sql: Sql, input: StoredWindowInput): Promise<void> 
       if (row.status !== 'open') throw new Error(WINDOW_PAID);
       throw new Error(WINDOW_CONFLICT);
     }
-    for (const share of input.shares) {
-      await tx`
-        INSERT INTO mining_pool.shares (share_id, window_id, miner_id, weight)
-        VALUES (${share.shareId}, ${input.windowId}, ${share.minerId}, ${share.weight === null ? null : share.weight.toString()})
+    // The worker only labels the rig: miner_id stays the account the payout credits.
+    for (const part of chunks(pairs)) {
+      await tx`INSERT INTO mining_pool.workers ${tx(part, 'id', 'user_id', 'name')} ON CONFLICT DO NOTHING`;
+    }
+    // Locked in the same fixed order, so a mode change (workers.setMode) waits for this batch, or this batch for it:
+    // a share is filed under the mode its worker has when it is stored.
+    const workers = await tx<{ id: string; user_id: string; name: string; mode: string }[]>`
+      SELECT w.id, w.user_id, w.name, w.mode
+      FROM mining_pool.workers w
+      JOIN unnest(${tx.array(pairs.map((pair) => pair.user_id))}::text[], ${tx.array(pairs.map((pair) => pair.name))}::text[])
+        AS p(user_id, name) ON w.user_id = p.user_id AND w.name = p.name
+      ORDER BY w.user_id, w.name
+      FOR UPDATE OF w
+    `;
+    const workerOf = new Map(workers.map((row) => [`${row.user_id}\n${row.name}`, row]));
+    const rows = named.map((share) => {
+      const worker = workerOf.get(`${share.minerId}\n${share.name}`);
+      if (!worker) throw new Error(PG_UNAVAILABLE);
+      return {
+        share_id: share.shareId,
+        window_id: input.windowId,
+        miner_id: share.minerId,
+        weight: share.weight === null ? null : share.weight.toString(),
+        worker_id: worker.id,
+        pow_nonce: share.powNonce ?? null,
+        // A solo worker's share is kept out of the pooled (PPLNS) split.
+        solo: worker.mode === 'solo',
+        testnet: share.testnet === true,
+      };
+    });
+    // A share id already stored, or twice in this batch, refuses the whole batch, a byte-identical redelivery included:
+    // one share, one worker. The same work (window, worker and nonce) under a new share id is the same duplicate.
+    for (const part of chunks(rows)) {
+      const inserted = await tx<{ share_id: string }[]>`
+        INSERT INTO mining_pool.shares ${tx(part, 'share_id', 'window_id', 'miner_id', 'weight', 'worker_id', 'pow_nonce', 'solo', 'testnet')}
+        ON CONFLICT DO NOTHING
+        RETURNING share_id
       `;
+      if (inserted.length !== part.length) throw new Error(SHARE_DUPLICATE);
     }
   });
 }

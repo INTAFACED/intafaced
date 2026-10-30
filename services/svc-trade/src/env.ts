@@ -756,6 +756,33 @@ const schema = serviceEnvSchema
        */
       TRADE_FEE_SCHEDULE: z.string().default(''),
 
+      /**
+       * The API hosts the developer portal publishes (developer-portal-rest.ts). JSON or empty, for example
+       * {"rest":{"production":"api.example.test","sandbox":"…"},"fix":{"production":"fix.example.test:9878"}}.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/hosts refuses trade.developer_hosts_unset and every host reads
+       * "host not set". A host left out reads "host not set" on its own. Malformed refuses boot. Never invent a host.
+       */
+      TRADE_DEVELOPER_HOSTS: z.string().default(''),
+
+      /**
+       * The market data terms per product the developer portal publishes (developer-portal-rest.ts). JSON or empty:
+       * {"ticker":{"entitlement":"…","redistribution":"…","retention":"…","privacy":"…","commercial":"…"},…}.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/data-terms refuses trade.developer_data_terms_unset and every term
+       * reads "not set". A product left out reads "not set". Malformed refuses boot. The text is owner content.
+       */
+      TRADE_DEVELOPER_DATA_TERMS: z.string().default(''),
+
+      /**
+       * The rule for the regional hosts the developer portal states under its base-address table (developer-portal-rest.ts):
+       * plain text, who may use a regional host and when.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/regional-rule refuses trade.developer_regional_rule_unset and the page says
+       * the rule waits for the owner. Longer than 1000 characters refuses boot. The text is owner content.
+       */
+      TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),

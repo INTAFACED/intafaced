@@ -42,6 +42,13 @@ const app = router({
       cause: new FakeAuthError('kyc.attempts_exhausted', { retryAfterSeconds: 3599.2 }),
     });
   }),
+  liftTooSoon: publicProcedure.query(() => {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'x',
+      cause: { code: 'identity.self_freeze_lift_too_soon', availableAt: '2026-10-29T16:00:00.000Z', details: { retryAfterSeconds: 29.4 } },
+    });
+  }),
   otherWithDetails: publicProcedure.query(() => {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
@@ -79,6 +86,12 @@ describe('errorFormatter retryAfterSeconds', () => {
     const data = await wireData('kycLockedOut');
     expect(data.retryAfterSeconds).toBe(3600);
     expect(data.cause).toEqual({ code: 'kyc.attempts_exhausted' });
+  });
+
+  it('reaches the client for identity.self_freeze_lift_too_soon, rounded up to whole seconds', async () => {
+    const data = await wireData('liftTooSoon');
+    expect(data.retryAfterSeconds).toBe(30);
+    expect(data.cause).toEqual({ code: 'identity.self_freeze_lift_too_soon' });
   });
 
   it('is not added to any other error, even one that carries the same field', async () => {

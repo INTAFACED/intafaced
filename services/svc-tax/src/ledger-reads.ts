@@ -297,8 +297,11 @@ function lineOf(e: PageEntry): AccountLine {
 
 /** Entries per ledger page (the door's maximum). */
 const PAGE_LIMIT = 200;
-/** Ledger reasons for a customer's side of a spot, convert or OTC fill (the second is a fill against a house quote). */
-const FILL_REASONS: ReadonlySet<string> = new Set(['trade.fill', 'trade.fill.mm_maker']);
+/**
+ * Ledger reasons for a customer's side of a spot, convert or OTC fill: the second is a fill against a house quote, the
+ * third a customer maker's sale to the token buyback (`recipes.buybackTakerFill`).
+ */
+const FILL_REASONS: ReadonlySet<string> = new Set(['trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback']);
 /** Reasons that put the customer's own coins back on available (a released hold, a reversed withdrawal): not new coins. */
 const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   'order.hold.released',

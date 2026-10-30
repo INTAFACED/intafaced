@@ -161,6 +161,17 @@ const schema = serviceEnvSchema
        */
       API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
       /**
+       * The owner's request-signing timestamp window, whole seconds from 1 to 3600 (DV-auth-01): how far a signed
+       * request's time may be from the server's, either way. Blank = unset: every signed request refuses
+       * `auth.request_window_unset` and the published policy shows the window as not set.
+       */
+      IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
+      /**
+       * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
+       * with a fresh factor. Blank (or anything else): signing stays required on such a key.
+       */
+      API_KEY_SIGNING_OPTIONAL: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
@@ -220,6 +231,13 @@ const schema = serviceEnvSchema
        * Never git-default. Parsed at start by `parseApiKeyCapByTier`; a malformed value stops the service.
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
+      /**
+       * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
+       * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
+       * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;
+       * a value that is not a positive whole number stops the service.
+       */
+      IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
@@ -288,6 +306,13 @@ const schema = serviceEnvSchema
       IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
       IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
       /**
+       * Owner settings (I-kyc-compliance-09), NO DEFAULT. How many seconds a phone hand-off link for the selfie lasts
+       * (60 to 3600; unset refuses every hand-off `kyc.handoff_unset`), and the comma-separated actions that ask for a
+       * liveness re-check (unset is none). Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_HANDOFF_TTL_SECONDS: z.string().optional(),
+      IDENTITY_KYC_LIVENESS_RECHECK_FOR: z.string().optional(),
+      /**
        * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
        * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new
        * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.
@@ -352,6 +377,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published lifetime cap on handle changes per account (PP-send-request-03). Blank / unset → unpublished;
+       * every handle change refuses (`identity.handle_change_cap_unset`). Never invent a default: the stack sets a
+       * labelled TEST value only.
+       */
+      IDENTITY_HANDLE_CHANGE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
       /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.

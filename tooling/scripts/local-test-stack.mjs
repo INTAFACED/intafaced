@@ -22,8 +22,10 @@
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
  *   svc-protocol (the Web3 rooms' read side) · a LOCAL TEST chain (anvil, chain id 84532) when anvil is installed ·
+ *   svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
- *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
+ *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -37,6 +39,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
+ *   node tooling/scripts/local-test-stack.mjs token-params   TEST fixture: svc-token's blank emission settings get the TEST profile values
  *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>] [--failure-code <code>]   TEST fixture: a withdrawal in that state, sent and failed included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
@@ -59,6 +62,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -68,7 +72,7 @@ import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
-import identity from './local-stack-services/identity.mjs';
+import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
 import indexer from './local-stack-services/indexer.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
@@ -83,6 +87,7 @@ import quant from './local-stack-services/quant.mjs';
 import support from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
 import campaigns from './local-stack-services/campaigns.mjs';
+import ws from './local-stack-services/ws.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
 import {
@@ -97,6 +102,8 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { RailRecordError, readRail, recordRailMovement } from './local-test-rail-records.mjs';
+import { loadProfile, profileEnvFor } from './owner-settings.mjs';
 import {
   localStackState,
   localPgBin,
@@ -129,6 +136,8 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  hostReceipt: path.join(STATE, 'host-dispatch.json'),
+  apexDist: path.join(STATE, 'apex-test'),
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -168,8 +177,12 @@ const PORTS = {
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
   campaigns: 14522,
+  // The live market-data and private streams the Customer app opens through /ws.
+  ws: 14523,
   customer: 3210,
   invitation: 3220,
+  // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
+  apex: 3260,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -179,6 +192,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
+const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -301,6 +315,7 @@ const SECRET_NAMES = [
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
   'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
+  'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
@@ -603,6 +618,7 @@ const BACKEND_PKGS = [
   'svc-protocol',
   'svc-indexer',
   'svc-campaigns',
+  'svc-ws',
 ];
 
 function gitHead() {
@@ -610,15 +626,56 @@ function gitHead() {
   return r.stdout.trim();
 }
 
-function runPnpm(args, label, extraEnv = {}) {
+/** Runs `pnpm args` with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
+function pnpmRun(spawner, args, label, extraEnv) {
   const logPath = path.join(P.logs, `${label}.log`);
   const fd = fs.openSync(logPath, 'w', 0o600);
-  const r = spawnSync('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
-  fs.closeSync(fd);
-  if (r.status !== 0) {
+  const result = spawner('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const failed = (status) => {
     const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
-    fail(`${label} failed (exit ${r.status}). Log: ${logPath}\n${tail}`);
-  }
+    fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
+  };
+  return { fd, result, failed };
+}
+
+function runPnpm(args, label, extraEnv = {}) {
+  const { fd, result: r, failed } = pnpmRun(spawnSync, args, label, extraEnv);
+  fs.closeSync(fd);
+  if (r.status !== 0) failed(r.status);
+}
+
+// pnpm runs still going when the script exits early (one side-by-side run failed): stopped with it, never orphaned.
+const livePnpm = new Set();
+process.on('exit', () => {
+  for (const child of livePnpm) child.kill('SIGTERM');
+});
+
+/** runPnpm without blocking, so several can run side by side. */
+function runPnpmAsync(args, label, extraEnv = {}) {
+  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv);
+  livePnpm.add(child);
+  return new Promise((resolve) => {
+    let finished = false;
+    const done = (status) => {
+      if (finished) return;
+      finished = true;
+      livePnpm.delete(child);
+      fs.closeSync(fd);
+      if (status !== 0) failed(status);
+      resolve();
+    };
+    child.on('error', () => done(-1));
+    child.on('exit', (code, signal) => done(signal ? -1 : code));
+  });
+}
+
+/** Run `task` on every item, at most `limit` at a time. */
+export async function inPool(items, limit, task) {
+  const queue = [...items];
+  const lane = async () => {
+    while (queue.length) await task(queue.shift());
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, lane));
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
@@ -813,12 +870,14 @@ function ensureBuilt(rebuild) {
   ensureAdminBuilt(rebuild);
 }
 
-function migrate(secrets, schemas = SCHEMAS) {
-  for (const s of schemas) {
-    runPnpm(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+// Each schema migrates as its own role inside its own schema and reads no build output, so they run side by side,
+// one per core (they were 19 runs of about a second each, one after another).
+async function migrate(secrets, schemas = SCHEMAS) {
+  await inPool(schemas, os.availableParallelism(), (s) =>
+    runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
       DATABASE_URL: dbUrl(`svc_${s}`, secrets),
-    });
-  }
+    }),
+  );
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
 
@@ -898,9 +957,10 @@ const EDGE_ABSENT = {
 };
 
 /**
- * The services the stack starts, in start order. Each service's env lives in its own file,
- * tooling/scripts/local-stack-services/<name>.mjs, so a slice changes only its service's file.
- * Every file gets the same wiring helpers below; a new service adds its file and one line here.
+ * The services the stack starts. A service listed before one it calls starts first (startDependencies); the order
+ * says nothing else. Each service's env lives in its own file, tooling/scripts/local-stack-services/<name>.mjs, so a
+ * slice changes only its service's file. Every file gets the same wiring helpers below; a new service adds its file
+ * and one line here.
  */
 const SERVICES = [
   ledger,
@@ -929,8 +989,40 @@ const SERVICES = [
   protocol,
   indexer,
   campaigns,
+  ws,
   edge,
 ];
+
+/**
+ * Which services `def` waits for: every service before it in `defs` (SERVICES order) whose port its env names. One by
+ * one, each service started only once every service before it answered; it still starts only once those it calls
+ * answer, and the rest start side by side (one after another they took about 36 seconds). A service named later in
+ * SERVICES was never up when it booted, and still is not waited for.
+ */
+export function startDependencies(defs, def, envOf = (d) => d.env()) {
+  const port = (d) => String(envOf(d).HTTP_PORT);
+  const values = Object.values(envOf(def)).map(String);
+  const before = defs.slice(0, defs.indexOf(def));
+  return before.filter((d) => {
+    const named = new RegExp(`:${port(d)}(?![0-9])`);
+    return values.some((v) => named.test(v));
+  });
+}
+
+/** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
+async function startServices(defs) {
+  const envs = new Map(defs.map((d) => [d, d.env()]));
+  const envOf = (d) => envs.get(d);
+  const started = new Map();
+  for (const def of defs) {
+    const waits = startDependencies(defs, def, envOf).map((d) => started.get(d));
+    started.set(
+      def,
+      Promise.all(waits).then(() => startNodeService(def)),
+    );
+  }
+  await Promise.all(started.values());
+}
 
 function serviceDefs(secrets) {
   const ctx = {
@@ -1196,6 +1288,7 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
+  await confirmLocalFounderEmails({ STATE, marker, edgeUrl, say });
 }
 
 /** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
@@ -1213,7 +1306,8 @@ async function startCustomer() {
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
-  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], baseEnv(), REPO);
+  const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
+  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO);
   await waitHealthy('customer', url, pid, 20_000);
 }
 
@@ -1238,6 +1332,32 @@ async function startInvitation() {
   if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
   const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
   await waitHealthy('invitation', url, pid, 20_000);
+}
+
+/**
+ * LOCAL TEST: the apex host's stand-in, a TEST page and an apex descriptor marked `test` written to the state folder on
+ * every start. The real apex (the marketing site) is built and deployed outside this repo, so this stack has no apex
+ * build to serve; the host check accepts a `test` descriptor only in its LOCAL TEST mode.
+ */
+function writeApexStandIn() {
+  fs.mkdirSync(P.apexDist, { recursive: true });
+  const descriptor = { product: APEX_PRODUCT, schemaVersion: 1, test: true };
+  fs.writeFileSync(path.join(P.apexDist, APEX_DESCRIPTOR_PATH.slice(1)), `${JSON.stringify(descriptor, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(P.apexDist, 'index.html'),
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>TEST apex stand-in</title></head>' +
+      "<body><main><h1>TEST apex stand-in</h1><p>This machine's local test stack. No deployment is shown.</p></main></body></html>\n",
+  );
+}
+
+async function startApex() {
+  const procs = readProcs();
+  const url = `${APEX_ORIGIN}/`;
+  writeApexStandIn();
+  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS.apex)) fail(`port ${PORTS.apex} (apex) is in use by a process this script did not start`);
+  const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
+  await waitHealthy('apex', url, pid, 20_000);
 }
 
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
@@ -1320,7 +1440,7 @@ async function serveAdmin(port = PORTS.admin) {
   server.listen(port, HOST);
 }
 
-/** Every Node service this script runs, in start order (Edge last). */
+/** Every Node service this script runs, in SERVICES order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
@@ -1385,6 +1505,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.invitation?.pid ?? '-',
     invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
   ]);
+  const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
+  rows.push([
+    'apex',
+    PORTS.apex,
+    procs.apex?.pid ?? '-',
+    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+  ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
@@ -1402,7 +1529,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1453,7 +1580,7 @@ async function cmdStart(flags) {
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
   // Migrate only what is about to start: a service that is already running was migrated when it started.
   const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
-  migrate(
+  await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
@@ -1469,7 +1596,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
-  for (const def of wanted) await startNodeService(def);
+  await startServices(wanted);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
@@ -1480,6 +1607,8 @@ async function cmdStart(flags) {
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
   if (!only || only.includes('invitation')) await startInvitation();
+  if (!only || only.includes('apex')) await startApex();
+  if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1531,8 +1660,10 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
   const only = names.length ? names : null;
+  // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
+  if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
   for (const name of order) {
     if (only && !only.includes(name)) continue;
@@ -1602,7 +1733,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'apex', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1610,14 +1741,54 @@ async function cmdRestart(names) {
   await cmdStart([]);
 }
 
-// The local customer server does not start svc-ws and does not read
-// CUSTOMER_WS_URL into a proxy. The typed refusal names that key. Wiring the
-// upstream is the local-stack owner's job; this default stays a refusal.
+// The Customer server proxies /ws/* to CUSTOMER_WS_URL with the /ws prefix stripped, as apps/customer/nginx.conf
+// does to svc-ws. The stack sets it to its own svc-ws (startCustomer); blank, every /ws request is this typed refusal.
+// `LOCAL_STACK_WS_UPSTREAM=off` on a start or restart of customer leaves it blank, so a journey can see the refusal.
 const WS_UPSTREAM_REFUSAL = {
   code: 'ws.upstream_unset',
   key: 'CUSTOMER_WS_URL',
-  message: 'CUSTOMER_WS_URL is not wired. The local test stack has no WebSocket upstream and does not start svc-ws.',
+  message: 'CUSTOMER_WS_URL is not wired. The Customer server has no WebSocket upstream.',
 };
+const customerWsUpstream = () => (process.env.LOCAL_STACK_WS_UPSTREAM === 'off' ? '' : urlOf('ws'));
+
+// ── LOCAL TEST hosts ────────────────────────────────────────────────────────
+
+/** The sites the host check reads; starting or stopping any of them checks again or drops the receipt. */
+const HOST_SITES = ['customer', 'invitation', 'apex'];
+
+/** Where the Customer app reads the host dispatch receipt (apps/customer/src/features/public/host-dispatch.ts). */
+const HOST_RECEIPT_PATH = '/host-dispatch.json';
+
+/**
+ * The apex, app and join hosts on this machine: TEST stand-ins on loopback, made from this stack's own ports and never
+ * an owner value. The apex is the stack's TEST apex page (writeApexStandIn), the invitation site is the join host and the
+ * Customer server is the app host. `LOCAL_STACK_HOSTS=off` on a start or restart leaves all three unset, so a
+ * journey can see the typed refusal.
+ */
+export function localTestHosts(env = process.env) {
+  if (env.LOCAL_STACK_HOSTS === 'off') return {};
+  return { INTAFACED_APEX_HOST: APEX_ORIGIN, INTAFACED_APP_HOST: CUSTOMER_ORIGIN, INTAFACED_JOIN_HOST: INVITATION_ORIGIN };
+}
+
+/**
+ * Runs the deployment's host check against the TEST hosts in its LOCAL TEST mode (APP_ENV test, loopback only) and
+ * keeps its receipt in the state folder, where the Customer server publishes it at /host-dispatch.json. The previous
+ * receipt is removed first, so with the hosts unset nothing is published. A refusal is printed, never fatal.
+ */
+async function checkLocalTestHosts() {
+  fs.rmSync(P.hostReceipt, { force: true });
+  const check = path.join(REPO, 'apps', 'customer', 'deployment', 'host-dispatch.mjs');
+  const env = { PATH: PNPM_PATH, HOME: os.homedir(), APP_ENV: 'test', ...localTestHosts() };
+  const result = await new Promise((done) => {
+    const child = spawn(process.execPath, [check, '--local-test', '--out', P.hostReceipt], { env, cwd: REPO });
+    let out = '';
+    child.stdout.on('data', (chunk) => (out += chunk));
+    child.stderr.on('data', (chunk) => (out += chunk));
+    child.on('close', (status) => done({ status, out }));
+  });
+  for (const line of result.out.trim().split('\n').filter(Boolean)) say(`  ${line}`);
+  if (result.status !== 0) say(`  host dispatch (TEST): exited ${result.status}; the Help room shows no host as served`);
+}
 
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
@@ -1669,10 +1840,14 @@ export function customerSecurityHeaders() {
   return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
 }
 
-/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+/**
+ * The static sites this stack serves. The Customer and invitation sites pass `/api/*` to Edge; the TEST apex page has no
+ * api. Only the Customer site has a folder override.
+ */
 const SITES = {
   customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
   invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
+  apex: { label: 'apex', origin: APEX_ORIGIN, dist: () => ({ dir: P.apexDist, error: null }), headers: () => ({}), noApi: true },
 };
 
 /** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
@@ -1701,8 +1876,26 @@ export function cspReportRows(body, at = new Date().toISOString()) {
     }));
 }
 
+/** Request headers to forward upstream: no hop-by-hop headers, and none only Edge may mint. */
+function proxyHeaders(req, { upgrade = false } = {}) {
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    const lk = k.toLowerCase();
+    if (['connection', 'keep-alive', 'transfer-encoding', 'upgrade'].includes(lk) && !upgrade) continue;
+    if (lk.startsWith('x-intafaced-') || lk.startsWith('x-service-')) continue; // only Edge may mint these
+    headers[k] = v;
+  }
+  headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
+  headers['x-forwarded-proto'] = 'http';
+  return headers;
+}
+
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   const edge = { host: HOST, port: PORTS.edge };
+  // The invitation site serves no /ws. Customer: the stack's svc-ws, or blank (the typed refusal).
+  const wsRaw = site === SITES.customer ? (process.env.CUSTOMER_WS_URL ?? '').trim() : '';
+  const wsUrl = wsRaw ? new URL(wsRaw) : null;
+  const wsUpstream = wsUrl ? { host: wsUrl.hostname, port: Number(wsUrl.port) || 80 } : null;
   // nginx sets these on every response (`always`), errors included.
   const security = site.headers();
   const send = (res, status, type, body, extra = {}) => {
@@ -1749,21 +1942,24 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       });
       return;
     }
-    if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
+    if (p === '/api' || p === '/ws' || (site.noApi && p.startsWith('/api/')))
+      return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
-      return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
+      if (!wsUpstream) return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
+      const up = http.request(
+        { ...wsUpstream, method: req.method, path: req.url.slice('/ws'.length), headers: proxyHeaders(req) },
+        (ur) => {
+          res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
+          ur.pipe(res);
+        },
+      );
+      up.on('error', () =>
+        res.headersSent ? res.destroy() : send(res, 502, 'application/json', JSON.stringify({ error: 'ws_unreachable' })),
+      );
+      return void req.pipe(up);
     }
     if (p.startsWith('/api/')) {
-      const headers = {};
-      for (const [k, v] of Object.entries(req.headers)) {
-        const lk = k.toLowerCase();
-        if (['connection', 'keep-alive', 'transfer-encoding', 'upgrade'].includes(lk)) continue;
-        if (lk.startsWith('x-intafaced-') || lk.startsWith('x-service-')) continue; // only Edge may mint these
-        headers[k] = v;
-      }
-      headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
-      headers['x-forwarded-proto'] = 'http';
-      const up = http.request({ ...edge, method: req.method, path: req.url, headers }, (ur) => {
+      const up = http.request({ ...edge, method: req.method, path: req.url, headers: proxyHeaders(req) }, (ur) => {
         res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
         ur.pipe(res);
       });
@@ -1785,6 +1981,13 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       );
     }
     const dist = active.dir;
+
+    // The LOCAL TEST host receipt, from the state folder (checkLocalTestHosts). With none, the build's own file or the index.
+    // The receipt, or a 404 while there is none: never the app's index in its place.
+    if (site === SITES.customer && p === HOST_RECEIPT_PATH) {
+      if (!fs.existsSync(P.hostReceipt)) return send(res, 404, 'text/plain; charset=utf-8', 'no host dispatch receipt');
+      return send(res, 200, MIME['.json'], fs.readFileSync(P.hostReceipt, 'utf8'));
+    }
 
     // Static files; unknown paths fall back to index.html like apps/customer/nginx.conf.
     let decoded;
@@ -1834,13 +2037,52 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
-  // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
-  // does not start svc-ws or proxy when that key is set.
-  server.on('upgrade', (req, socket) => {
-    const body = JSON.stringify(WS_UPSTREAM_REFUSAL);
-    socket.end(
-      `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
-    );
+  // A WebSocket upgrade under /ws/ goes to the same upstream; blank, or any other path, it is refused, never dropped.
+  server.on('upgrade', (req, socket, head) => {
+    const refuse = (status, reason, payload) => {
+      const body = JSON.stringify(payload);
+      socket.end(
+        `HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+      );
+    };
+    const host = req.headers.host ?? '';
+    if (host !== `${HOST}:${port}` && host !== `localhost:${port}`) return refuse(403, 'Forbidden', { error: 'foreign_host' });
+    if (!wsUpstream) return refuse(503, 'Service Unavailable', WS_UPSTREAM_REFUSAL);
+    if (!req.url.startsWith('/ws/')) return refuse(404, 'Not Found', { error: 'not_found' });
+    const up = http.request({
+      ...wsUpstream,
+      method: req.method,
+      path: req.url.slice('/ws'.length),
+      headers: proxyHeaders(req, { upgrade: true }),
+    });
+    up.on('upgrade', (ur, upSocket, upHead) => {
+      const lines = [`HTTP/1.1 ${ur.statusCode} ${ur.statusMessage}`];
+      for (let i = 0; i < ur.rawHeaders.length; i += 2) lines.push(`${ur.rawHeaders[i]}: ${ur.rawHeaders[i + 1]}`);
+      socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+      if (upHead.length) socket.write(upHead);
+      if (head.length) upSocket.write(head);
+      upSocket.pipe(socket).pipe(upSocket);
+      upSocket.on('error', () => socket.destroy());
+      socket.on('error', () => upSocket.destroy());
+    });
+    // The upstream answered without upgrading (a 400 for an unknown channel, a 503 refusal): pass that answer on.
+    up.on('response', (ur) => {
+      // Node has already de-chunked the body, so it goes out whole with its own length, never as a stale chunked frame.
+      const chunks = [];
+      ur.on('data', (chunk) => chunks.push(chunk));
+      ur.on('end', () => {
+        const body = Buffer.concat(chunks);
+        const lines = [`HTTP/1.1 ${ur.statusCode} ${ur.statusMessage}`];
+        for (let i = 0; i < ur.rawHeaders.length; i += 2) {
+          if (/^(transfer-encoding|content-length|connection)$/i.test(ur.rawHeaders[i])) continue;
+          lines.push(`${ur.rawHeaders[i]}: ${ur.rawHeaders[i + 1]}`);
+        }
+        lines.push(`Content-Length: ${body.length}`, 'Connection: close');
+        socket.end(Buffer.concat([Buffer.from(`${lines.join('\r\n')}\r\n\r\n`), body]));
+      });
+    });
+    up.on('error', () => refuse(502, 'Bad Gateway', { error: 'ws_unreachable' }));
+    up.end();
   });
   server.listen(port, HOST);
 }
@@ -1906,7 +2148,8 @@ const AMOUNT_RE = /^\d+(\.\d+)?$/;
  * The running local stack's own database and one TEST person on it, for the fixtures below. Refuses anything but this
  * stack's database.
  */
-function localFixturePerson(who) {
+/** The running local stack's secrets, after the same marker, port and Postgres checks every fixture makes. */
+function localFixtureSecrets() {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
   if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
@@ -1914,6 +2157,11 @@ function localFixturePerson(who) {
   if (String(marker.ports?.postgres) !== String(PORTS.postgres)) fail('refusing: database is not on the local test stack port');
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   assertActiveLocalStack({ stateDir: STATE });
+  return secrets;
+}
+
+function localFixturePerson(who) {
+  const secrets = localFixtureSecrets();
   const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
     db: DB_NAME,
     user: 'svc_identity',
@@ -1926,6 +2174,47 @@ function localFixturePerson(who) {
     .filter(Boolean);
   if (found.length !== 1) fail(`no single user "${who}" in the local identity database`);
   return { secrets, userId: found[0] };
+}
+
+/**
+ * `token-params`: svc-token's emission settings get the labelled TEST values from
+ * tooling/profiles/test-owner-values/token.json (total supply, halving interval, first-epoch reward), so a journey can
+ * mint one TEST epoch through the job door and read the treasury back against the ledger (J-more-catalogue-09 #9). Only a
+ * blank column is written; a value already there is left alone. It moves no value itself: the mint is the job door's,
+ * through the ledger recipe.
+ */
+function cmdTokenParams() {
+  const secrets = localFixtureSecrets();
+  const v = (name) => {
+    const entry = loadProfile().values[name];
+    if (!entry) fail(`${name} is missing from tooling/profiles/test-owner-values/token.json`);
+    return entry.value;
+  };
+  const row = psql(
+    secrets,
+    `UPDATE token.token_params
+        SET total_supply = COALESCE(total_supply, :'supply'::numeric),
+            halving_interval = COALESCE(halving_interval, :'halving'::int),
+            emission_curve = COALESCE(emission_curve, jsonb_build_object('initialEpochReward', :'reward'::text)),
+            updated_at = now()
+      WHERE id = true
+      RETURNING total_supply::text || ' ' || halving_interval || ' ' || (emission_curve->>'initialEpochReward')`,
+    {
+      db: DB_NAME,
+      user: 'svc_token',
+      password: secrets.pgService,
+      vars: {
+        supply: v('TOKEN_PARAMS_TOTAL_SUPPLY'),
+        halving: v('TOKEN_PARAMS_HALVING_INTERVAL'),
+        reward: v('TOKEN_PARAMS_INITIAL_EPOCH_REWARD'),
+      },
+      tuples: true,
+    },
+  )
+    .trim()
+    .split('\n')[0];
+  if (!row) fail('token.token_params has no row; svc-token has not migrated yet');
+  say(`  token_params (supply, halving interval, first-epoch reward): ${row} (LOCAL TEST fixture)`);
 }
 
 function cmdAgeLinkedAccounts(args) {
@@ -2061,6 +2350,126 @@ function cmdExpireAddressApprovals(args) {
     .split('\n')
     .filter((line) => /^[0-9a-f-]{36}$/.test(line));
   say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
+}
+
+// The pool's own reference check, from its build, so a TEST nonce is found exactly as the pool verifies it.
+async function miningPow() {
+  try {
+    return await import(pathToFileURL(path.join(REPO, 'services', 'svc-mining-pool', 'dist', 'pow.js')).href);
+  } catch (err) {
+    fail(`svc-mining-pool is not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+}
+
+// One TEST share from a TEST rig through the pool's miner door, at the address the mining room shows. The door's window
+// has no published reward or fee, so the share is stored and nothing is ever paid for it. The rig logs in as the
+// account's own id and the published worker name for --worker (what the room copies); no --worker is the default
+// worker. --pool and --login dial and log in with values copied from the room instead. --secret is the miner secret the
+// room issues; without the account's current one the door refuses by name (mining.stratum_secret_invalid).
+async function cmdMiningShare(rawArgs) {
+  const args = [...rawArgs];
+  const take = (flag) => {
+    const at = args.indexOf(flag);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (value === undefined) fail(`${flag} needs a value`, 2);
+    return value;
+  };
+  const worker = take('--worker');
+  const label = take('--share');
+  const pool = take('--pool');
+  const login = take('--login');
+  const secret = take('--secret');
+  const invalidAt = args.indexOf('--invalid-pow');
+  const invalidPow = invalidAt !== -1;
+  if (invalidPow) args.splice(invalidAt, 1);
+  const [who] = args;
+  if (!who || !label)
+    fail(
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--secret <miner secret>] [--invalid-pow]',
+      2,
+    );
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
+  if (worker !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(worker)) fail('--worker must be 1-64 letters, digits, dash or underscore', 2);
+  if (pool !== undefined && !/^127\.0\.0\.1:\d{1,5}$/.test(pool)) fail('--pool must be 127.0.0.1:<port> (the local stack only)', 2);
+  if (login !== undefined && !/^[0-9a-f-]{36}(\.[A-Za-z0-9_.{}-]{1,80})?$/.test(login))
+    fail('--login must be <account id>[.<worker name>]', 2);
+  if (login !== undefined && worker !== undefined) fail('--login already names the worker; drop --worker', 2);
+  if (secret !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(secret)) fail('--secret must be the miner secret the room shows', 2);
+
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  const secrets = readJson(P.secrets);
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  if (!ownedAlive(readProcs()['mining-pool'])) fail('refusing: the local stack mining pool is not running. Run: pnpm local:stack');
+  // The pool starts from server.js, which the ownership check does not model; the owned-process check above covers it.
+  assertActiveLocalStack({ stateDir: STATE });
+  const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length === 0) fail(`no user "${who}" in the local identity database. Register at ${CUSTOMER_ORIGIN} first.`);
+  if (found.length > 1) fail(`"${who}" matches more than one user`);
+  const [userId] = found;
+
+  const shareId = `LOCAL-TEST-${label}`;
+  // The rig finds a nonce with the TEST proof-of-work parameters the pool's job names, against the pool's own header for
+  // the door's window, the account and the rig; --invalid-pow sends a nonce that misses the target. A pool started with
+  // LOCAL_STACK_MINING_POOL_POW=off has no parameters and refuses the rig by name (mining.pow_spec_unset).
+  const pow = await miningPow();
+  const published = profileEnvFor('mining-pool', 'dev');
+  const [host, port] = (pool ?? `${published.MINING_POOL_HOST}:${published.MINING_POOL_PORT}`).split(':');
+  const workerName = worker === undefined ? null : published.MINING_WORKER_NAME_PATTERN.replace('{worker}', worker);
+  // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
+  // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
+  const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
+  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  let result;
+  try {
+    result = await rigShare({
+      host,
+      port: Number(port),
+      login: login ?? (workerName ? `${userId}.${workerName}` : userId),
+      pow,
+      start,
+      invalid: invalidPow,
+      secret,
+    });
+  } catch (err) {
+    fail(`the TEST rig could not reach the pool's miner door at ${host}:${port}: ${err.message}`);
+  }
+  const powNote = `TEST testnet proof of work, ${invalidPow ? 'invalid' : 'valid'} nonce ${result.nonce}`;
+  // The same work again is refused by name; that is the pool's answer, not a tool failure.
+  if (result.code === 'mining.share_duplicate') {
+    console.log(`refused mining.share_duplicate: TEST share ${shareId}, or its work, is already stored; nothing new was kept`);
+    return;
+  }
+  // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
+  if (invalidPow && result.code === 'mining.pow_invalid') {
+    console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
+    return;
+  }
+  // A rig without the account's current miner secret is refused by name before the door touches the account.
+  if (result.code === 'mining.stratum_secret_invalid') {
+    console.log(`refused mining.stratum_secret_invalid: the miner secret is missing or wrong, so TEST share ${shareId} was not sent`);
+    return;
+  }
+  if (result.code === 'mining.pow_spec_unset') {
+    console.log(`refused mining.pow_spec_unset: the pool has no proof-of-work parameters, so TEST share ${shareId} was not kept`);
+    return;
+  }
+  if (!result.ok) fail(`the pool refused the TEST share: ${result.code}`);
+  console.log(
+    `accepted TEST share ${shareId} for miner ${userId}, ${login === undefined ? `worker ${worker ?? 'default'}` : `login ${login}`}, ${powNote} through the miner door at ${host}:${port} (unpaid window, nothing credited)`,
+  );
 }
 
 async function cmdFund(rawArgs) {
@@ -2358,6 +2767,12 @@ async function cmdSeedWithdrawal(rawArgs) {
     const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
     if (outcome !== 'accepted')
       fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not sent; use a new --ref`, 2);
+    chainRecord({
+      key: `withdrawal:${id}:0`,
+      direction: 'out',
+      assetId: asset,
+      amount: ledgerClient.formatAmount(ledgerClient.parseAmount(amountStr)),
+    });
     await post('withdrawSettle', 'LOCAL TEST withdrawal settle, not real money');
     asPay(`UPDATE pay.withdrawals SET status = 'sent', rail_ref = :'tx', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
       id,
@@ -2410,6 +2825,10 @@ async function cmdChainDeposit(rawArgs) {
 
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  // Only a transfer into the stack's own custody counts on its statement: an address svc-pay issued, once the chain holds it final.
+  if (Number(confirmationsStr) >= TEST_CHAIN_FINALITY && custodyAddress(address))
+    chainRecord({ key: `${txHash}:${logIndex}`, direction: 'in', assetId: asset, amount: canonicalAmount(amountStr) });
   const text = await deliverChainEvent({
     id: `chain:${txHash}:${address}:${logIndex}`,
     type: 'captured',
@@ -2450,19 +2869,73 @@ function chainArgs(rawArgs) {
 }
 
 /** The TEST transaction hash of `label` to `address`: the same label to the same address is the same transfer, another address another one. */
-function chainTxHash(address, label) {
+export function chainTxHash(address, label) {
   return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
-/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
-async function deliverChainEvent(event) {
-  // Guards: this only ever talks to the local stack's own svc-pay.
+/**
+ * Confirmations at which the TEST chain holds a transfer final on its own statement. It is the chain's own rule, not read from
+ * svc-pay: if the platform ever credits below it, a run shows that credit as a gap, which is what it is.
+ */
+const TEST_CHAIN_FINALITY = 6;
+
+/** `amount` as the ledger writes it (no leading or trailing zeros), so a repeat of one transfer is recorded with the same facts. */
+function canonicalAmount(amount) {
+  const [whole, frac = ''] = amount.split('.');
+  const digits = frac.replace(/0+$/, '');
+  return `${BigInt(whole)}${digits ? `.${digits}` : ''}`;
+}
+
+/** Whether svc-pay issued `address` as a deposit address: the custodian's own list of its addresses, not a ledger figure. */
+function custodyAddress(address) {
+  const secrets = readJson(P.secrets);
+  const found = psql(secrets, `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address') LIMIT 1`, {
+    db: DB_NAME,
+    user: 'svc_pay',
+    password: secrets.pgService,
+    vars: { address },
+    tuples: true,
+  });
+  return found.trim() === '1';
+}
+
+/** The TEST chain's records so far, refused by name when the file cannot be read. */
+function chainRecords() {
+  try {
+    return readRail(STATE, 'crypto-native');
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/**
+ * The TEST chain's own record of a movement on rail crypto-native (local-test-rail-records.mjs), written before svc-pay or the
+ * ledger hears of it, so the stack's outside source reads what the chain did, never the ledger.
+ */
+function chainRecord(movement) {
+  try {
+    recordRailMovement(STATE, { rail: 'crypto-native', ...movement });
+  } catch (err) {
+    if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
+    throw err;
+  }
+}
+
+/** Guards: a chain event only ever goes to the local stack's own svc-pay. Returns the stack's crypto webhook secret. */
+function assertChainDelivery() {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
   if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
   assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
   const secret = readJson(P.secrets).payCryptoWebhook;
   if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+  return secret;
+}
+
+/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
+async function deliverChainEvent(event) {
+  const secret = assertChainDelivery();
   const body = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
@@ -2491,6 +2964,9 @@ async function cmdChainReorg(rawArgs) {
   if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
   const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
+  assertChainDelivery();
+  const final = chainRecords().find((row) => row.key === `${txHash}:${logIndex}`);
+  if (final) chainRecord({ key: `reorg:${txHash}:${logIndex}`, direction: 'out', assetId: final.assetId, amount: final.amount });
   const text = await deliverChainEvent({
     id: `reorg:${txHash}:${address}:${logIndex}`,
     type: 'chain.reorged',
@@ -2632,6 +3108,7 @@ async function runCli() {
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
+  else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-video-store')
     serveVideoStore({
@@ -2648,11 +3125,13 @@ async function runCli() {
   else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'mining-share') await cmdMiningShare(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
+  else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);

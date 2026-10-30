@@ -165,6 +165,17 @@ export const limitOpenSchema = z.discriminatedUnion('status', [
 export type LimitOpen = z.infer<typeof limitOpenSchema>;
 export const limitIncreaseResultSchema = limitRequest.extend({ outcome: z.enum(['stored', 'already_open']) });
 export const limitWithdrawResultSchema = z.object({ requestId: z.string(), status: z.string() });
+const band = z.object({ fromAmount: amount, feeBps: z.number(), flatFee: amount.nullable().optional() });
+/** A tier's own processing fee for one asset: the live rule of the tier pricing layer. Read tolerantly; the page shows what came. */
+const tierFee = z.object({
+  assetCode: asset,
+  bands: z.array(band),
+  spreadBps: z.number().int().nullable().optional(),
+  minFee: amount.nullable().optional(),
+  maxFee: amount.nullable().optional(),
+  version: z.string().optional(),
+});
+export type TierFee = z.infer<typeof tierFee>;
 /**
  * The tier ladder (merchantControl.tiers.list, #4919): every tier INTAFACED shows merchants, with its commercial terms.
  * `ownTierId` is null when this merchant is on none of the listed tiers.
@@ -182,13 +193,16 @@ export const tierListSchema = z.discriminatedUnion('status', [
         caps: z.array(capSchema),
         reserve: z.object({ rollingReserveBps: z.number().nullable(), holdDays: z.number().nullable() }).nullable().optional(),
         version: z.string().optional(),
+        /** The tier's processing fees. Missing (an older service) or empty reads "Not set", never free. */
+        fees: z.array(tierFee).optional(),
+        /** The published payout fee. Null or missing is "Not set"; only `not_charged` reads "Not charged". */
+        payoutFee: z.object({ kind: z.string() }).nullable().optional(),
       }),
     ),
   }),
 ]);
 export type TierList = z.infer<typeof tierListSchema>;
 export type TierSummary = Extract<TierList, { status: 'configured' }>['tiers'][number];
-const band = z.object({ fromAmount: amount, feeBps: z.number(), flatFee: amount.nullable().optional() });
 export const pricingHistorySchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_configured'), events: z.array(z.unknown()) }),
   z.object({
@@ -260,3 +274,21 @@ export const exportStartedSchema = z.object({
 
 /** What `settlement.payout` and `settlement.release` answer. */
 export const payoutDoneSchema = z.object({ id: z.string(), status: z.string() });
+
+/** merchantControl.reserve (M-money-out-01): the reserve rule and what is recorded against it. Nothing is withheld. */
+export const reserveViewSchema = z.object({
+  rule: z.object({ rollingReserveBps: z.number().int().min(0), holdDays: z.number().int().min(0) }).nullable(),
+  holding: z.literal('recorded_not_withheld'),
+  payoutsRefused: z.boolean(),
+  assets: z.array(
+    z.object({
+      assetCode: asset,
+      recordedAmount: amount,
+      entries: z.number().int().min(0),
+      nextReleaseAt: timestamp.nullable(),
+      lastReleaseAt: timestamp.nullable(),
+    }),
+  ),
+  readAt: timestamp,
+});
+export type ReserveView = z.infer<typeof reserveViewSchema>;
