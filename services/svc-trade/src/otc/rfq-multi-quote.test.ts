@@ -54,7 +54,7 @@ class CountingStore extends MemoryOtcQuoteStore {
   }
 }
 
-function desk(makers: Record<string, unknown>[], law: Partial<typeof LAW> = {}) {
+function desk(makers: Record<string, unknown>[], law: Partial<typeof LAW> = {}, extra: { accountAdmission?: TradingAdmissionPort } = {}) {
   const store = new CountingStore();
   const svc = new OtcDeskService(
     new MemoryLedger(),
@@ -65,6 +65,7 @@ function desk(makers: Record<string, unknown>[], law: Partial<typeof LAW> = {}) 
       makerDirectory: directory(makers),
       store,
       now,
+      ...extra,
     },
   );
   return { svc, store };
@@ -251,36 +252,33 @@ describe('a request takes one provider’s price (#5)', () => {
     await expect(store.saveBound(other!.quote, secondBound)).rejects.toMatchObject({ code: 'trade.rfq_other_quote_accepted' });
   });
 
-  it('a sibling of a bound quote refuses before admission: no admission is recorded for it', async () => {
+  it('a sibling of a bound quote refuses before admission: no admission is read or recorded for it', async () => {
+    const asked: string[] = [];
     const admitted: string[] = [];
     const base = readyTestAdmission();
     const accountAdmission: TradingAdmissionPort = {
       ...base,
-      admit: async (who, kind, businessId, payload) => {
+      original: (userId, businessId) => {
+        asked.push(businessId);
+        return base.original(userId, businessId);
+      },
+      admit: (who, kind, businessId, payload) => {
         admitted.push(businessId);
         return base.admit(who, kind, businessId, payload);
       },
     };
-    const store = new CountingStore();
-    const svc = new OtcDeskService(
-      new MemoryLedger(),
-      { stakeOf: async () => parseAmount('9999') },
-      {
-        law: LAW,
-        midSource: createObservedOtcMidSource('BTC/USDT:65000', now),
-        makerDirectory: directory([HOUSE, LP1]),
-        store,
-        now,
-        accountAdmission,
-      },
-    );
+    const { svc, store } = desk([HOUSE, LP1], {}, { accountAdmission });
     const rfq = await svc.rfqQuote(principal, ask(['house', 'test-lp-1']));
     const [best, other] = rfq.quotes;
     await svc.accept(principal, { quoteId: best!.quoteId });
+    expect(asked).toEqual([`otc:${best!.quoteId}`]);
     expect(admitted).toEqual([`otc:${best!.quoteId}`]);
     await expect(svc.accept(principal, { quoteId: other!.quoteId })).rejects.toMatchObject({ code: 'trade.rfq_other_quote_accepted' });
-    // The store's unique index would refuse too, but only after admitting the attempt; the service check comes first.
+    // The store's unique index would refuse too, but only after the admission was read and recorded: the service
+    // check comes first, so neither happens for the sibling, and the sibling stays open.
+    expect(asked).toEqual([`otc:${best!.quoteId}`]);
     expect(admitted).toEqual([`otc:${best!.quoteId}`]);
+    expect((await store.load(other!.quoteId))?.lifecycle).toBe('open');
   });
 });
 
