@@ -275,6 +275,7 @@ describe('p2p export and erasure', () => {
         trades: [],
         disputes: [],
         orderReviews: [],
+        offerEdits: [],
         reputation: null,
         instruments: [],
         riskAcceptances: [],

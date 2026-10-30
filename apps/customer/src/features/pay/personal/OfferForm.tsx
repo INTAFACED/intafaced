@@ -232,10 +232,11 @@ function EditLive({ pay, userId, offerId }: { pay: PersonalPayApi; userId: strin
   );
 }
 
-/** The changed editable fields of an ad, as `offers.update` takes them. Coin, currency and side stay as posted. */
+/** The changed editable fields of an ad, as `offers.update` takes them. Side, coin, currency and price type stay as posted. */
 function updateInput(before: OfferFormValues, after: OfferFormValues): OfferUpdateInput | 'pairFixed' | null {
   const changed = offerChanges(before, after);
-  if (changed.includes('asset') || changed.includes('fiatCurrency')) return 'pairFixed';
+  if (changed.includes('asset') || changed.includes('fiatCurrency') || before.side !== after.side || before.priceType !== after.priceType)
+    return 'pairFixed';
   if (changed.length === 0) return null;
   const input = postInput(after);
   return {
@@ -248,12 +249,19 @@ function updateInput(before: OfferFormValues, after: OfferFormValues): OfferUpda
   };
 }
 
-/** P-ads-merchant-06: edit a published ad and save it, once per press, under one key for this form. */
+/**
+ * One edit's key: the ad and this edit's own id, made when the form opens and again after each save. A second press or a
+ * retry of the same edit sends the same key, so svc-p2p applies and counts it once. An edit moves no value.
+ */
+const editKey = (offerId: string) => `p2p:offer-edit:${offerId}:${crypto.randomUUID()}`;
+
+/** P-ads-merchant-06: edit a published ad and save it, once per press, under one key per edit. */
 function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
   const { t } = p2pDepth.useCopy();
   const myAds = myAdsCopy.useCopy();
-  const baseline = useMemo(() => offerToForm(live), [live]);
-  const [key] = useState(() => `p2p:offer-edit:${live.id}:${crypto.randomUUID()}`);
+  // After a save the saved ad is the new starting point, and the next save is a new edit under a new key.
+  const [baseline, setBaseline] = useState(() => offerToForm(live));
+  const [key, setKey] = useState(() => editKey(live.id));
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<ApiResult<Offer> | 'pairFixed' | 'unchanged' | null>(null);
   const inFlight = useRef(false);
@@ -270,6 +278,10 @@ function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
     inFlight.current = false;
     setSaving(false);
     setResult(outcome);
+    if (outcome.ok) {
+      setBaseline(offerToForm(outcome.data));
+      setKey(editKey(live.id));
+    }
   };
   return (
     <>

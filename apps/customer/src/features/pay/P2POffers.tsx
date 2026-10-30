@@ -485,6 +485,10 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               userId={userId}
               revision={pausedRevision}
               choose={choose}
+              onChanged={() => {
+                list.reload();
+                setPausedRevision((n) => n + 1);
+              }}
               side={(offer) => <OfferSide offer={offer} own />}
             />
           ) : null}

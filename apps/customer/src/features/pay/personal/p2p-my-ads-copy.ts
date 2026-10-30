@@ -6,7 +6,7 @@ const en = {
   editSaving: 'Saving…',
   editSaved: 'Saved. Orders already open keep the terms they were taken on.',
   editBack: 'Back to your ads',
-  editPairFixed: 'The coin and currency stay as posted. To trade another pair, post a new ad.',
+  editPairFixed: 'Buy or sell, the coin, the currency and fixed or floating price stay as posted. To change them, post a new ad.',
   editSpentAt: 'You have made all {limit} ad edits for today. Editing opens again at',
   listedSince: 'Listed since',
   pausedSince: 'Paused since',
@@ -33,7 +33,8 @@ const es = {
   editSaving: 'Guardando…',
   editSaved: 'Guardado. Los pedidos ya abiertos conservan las condiciones con que se tomaron.',
   editBack: 'Volver a tus anuncios',
-  editPairFixed: 'La criptomoneda y la moneda quedan como se publicaron. Para otro par, publica un anuncio nuevo.',
+  editPairFixed:
+    'Comprar o vender, la criptomoneda, la moneda y el precio fijo o variable quedan como se publicaron. Para cambiarlos, publica un anuncio nuevo.',
   editSpentAt: 'Has hecho las {limit} ediciones de anuncios de hoy. Podrás editar de nuevo a las',
   listedSince: 'Publicado desde',
   pausedSince: 'En pausa desde',
@@ -61,7 +62,8 @@ const fr = {
   editSaving: 'Enregistrement…',
   editSaved: 'Enregistré. Les commandes déjà ouvertes gardent les conditions auxquelles elles ont été prises.',
   editBack: 'Retour à vos annonces',
-  editPairFixed: 'La cryptomonnaie et la monnaie restent celles de la publication. Pour une autre paire, publiez une nouvelle annonce.',
+  editPairFixed:
+    'Achat ou vente, la cryptomonnaie, la monnaie et le prix fixe ou variable restent ceux de la publication. Pour les changer, publiez une nouvelle annonce.',
   editSpentAt: 'Vous avez fait les {limit} modifications d’annonces d’aujourd’hui. Vous pourrez modifier à nouveau à',
   listedSince: 'Publiée depuis',
   pausedSince: 'En pause depuis',

@@ -17,6 +17,7 @@ export function MyAdsLifecycle({
   revision,
   choose,
   side,
+  onChanged,
 }: {
   pay: PersonalPayApi;
   userId: string | null;
@@ -24,11 +25,13 @@ export function MyAdsLifecycle({
   choose: (id: string, from: HTMLElement) => void;
   /** How the board writes an ad's side, coin and price line, so a closed ad reads like the ones above it. */
   side: (offer: Offer) => React.ReactNode;
+  /** A relist posted a new ad: the board and these lists read again. */
+  onChanged: () => void;
 }) {
   return (
     <>
       <EditQuota pay={pay} userId={userId} revision={revision} />
-      <ClosedOffers pay={pay} userId={userId} revision={revision} choose={choose} side={side} />
+      <ClosedOffers pay={pay} userId={userId} revision={revision} choose={choose} side={side} onChanged={onChanged} />
     </>
   );
 }
@@ -78,12 +81,14 @@ function ClosedOffers({
   revision,
   choose,
   side,
+  onChanged,
 }: {
   pay: PersonalPayApi;
   userId: string | null;
   revision: number;
   choose: (id: string, from: HTMLElement) => void;
   side: (offer: Offer) => React.ReactNode;
+  onChanged: () => void;
 }) {
   const { Copy, t } = myAdsCopy.useCopy();
   const closed = useResource((signal) => pay.closedOffers(signal), `pay:closed-offers:${userId}:${revision}`);
@@ -100,7 +105,7 @@ function ClosedOffers({
             ) : null}
             <ul className="p2p-offer-list">
               {offers.map((offer) => (
-                <ClosedOffer key={offer.id} offer={offer} pay={pay} choose={choose} side={side} />
+                <ClosedOffer key={offer.id} offer={offer} pay={pay} choose={choose} side={side} onChanged={onChanged} />
               ))}
             </ul>
           </>
@@ -115,20 +120,26 @@ function ClosedOffer({
   pay,
   choose,
   side,
+  onChanged,
 }: {
   offer: Offer;
   pay: PersonalPayApi;
   choose: (id: string, from: HTMLElement) => void;
   side: (offer: Offer) => React.ReactNode;
+  onChanged: () => void;
 }) {
   const { Copy } = myAdsCopy.useCopy();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<Offer> | null>(null);
+  // Relisted already (here or earlier): the ad it became, and no second Relist.
+  const relistedAs = result?.ok ? result.data.id : (offer.relistedAs ?? null);
   async function relist() {
     if (busy) return;
     setBusy(true);
     try {
-      setResult(await pay.relistOffer(offer.id));
+      const outcome = await pay.relistOffer(offer.id);
+      setResult(outcome);
+      if (outcome.ok) onChanged();
     } finally {
       setBusy(false);
     }
@@ -143,10 +154,10 @@ function ClosedOffer({
         <Copy k={offer.closeReason === 'by_you' ? 'closedByYou' : offer.closeReason === 'sold_out' ? 'closedSoldOut' : 'closedPlain'} />
       </p>
       <StateSince offer={offer} />
-      {result?.ok ? (
-        <p role="status" data-testid="relisted" data-new-offer-id={result.data.id}>
+      {relistedAs ? (
+        <p role="status" data-testid="relisted" data-new-offer-id={relistedAs}>
           <Copy k="relisted" />{' '}
-          <Button variant="secondary" onClick={(event) => choose(result.data.id, event.currentTarget)}>
+          <Button variant="secondary" onClick={(event) => choose(relistedAs, event.currentTarget)}>
             <Copy k="openRelisted" />
           </Button>
         </p>

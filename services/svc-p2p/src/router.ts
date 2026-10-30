@@ -221,6 +221,8 @@ const offerOutput = z.object({
   statusSince: z.string(),
   /** P-ads-merchant-06: the closed ad this one relisted, or null. */
   relistedFrom: z.string().guid().nullable(),
+  /** P-ads-merchant-06: `offers.mine` only, the ad a closed one was relisted as, or null. Absent elsewhere. */
+  relistedAs: z.string().guid().nullable().optional(),
   createdAt: z.string(),
 });
 
@@ -3141,6 +3143,8 @@ export function createP2pRouter(
             /** Reviews this person wrote or received, including hidden ones. They are still held. */
             orderReviews: z.array(z.unknown()),
             remarkCases: z.array(z.unknown()),
+            /** P-ads-merchant-06: the person's ad edits counted against the daily cap. */
+            offerEdits: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which
@@ -3899,6 +3903,7 @@ function toOfferOut(
     closeReason: offer.closeReason ?? null,
     statusSince: offer.statusSince.toISOString(),
     relistedFrom: offer.relistedFrom ?? null,
+    ...(offer.relistedAs === undefined ? {} : { relistedAs: offer.relistedAs }),
     createdAt: offer.createdAt.toISOString(),
   };
 }

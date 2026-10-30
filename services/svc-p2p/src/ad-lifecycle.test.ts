@@ -255,6 +255,29 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
     expect(await p2p.closeOffer(offer.id, MAKER)).toMatchObject({ status: 'closed', closeReason: 'sold_out' });
   });
 
+  it('a refund that leaves the ad under a minimum raised meanwhile closes it as sold out', async () => {
+    const offer = await sellOffer('25', '10', '20');
+    // 10 sold for real: 15 left.
+    const sold = await take(offer.id, '10');
+    await p2p.markFiatSent(sold.id, TAKER);
+    await p2p.confirmFiatReceived(sold.id, MAKER);
+    // Another 10 taken (5 left), and the maker raises the minimum to 20 while it is open: the edit cannot close it.
+    const open = await take(offer.id, '10');
+    await p2p.updateOffer({ offerId: offer.id, makerId: MAKER, idempotencyKey: 'edit-key-min', minAmt: parseAmount('20') });
+    expect((await p2p.getOffer(offer.id, MAKER)).status).toBe('active');
+    // The refund brings 15 back, under the new minimum, with nothing open: it closes as sold out.
+    await p2p.cancelTrade(open.id, TAKER);
+    expect(await p2p.getOffer(offer.id, MAKER)).toMatchObject({ status: 'closed', closeReason: 'sold_out' });
+  });
+
+  it('editing a closed ad says it is closed, even when the day’s edits are spent', async () => {
+    const offer = await sellOffer();
+    for (const n of [1, 2, 3]) await edit(offer.id, `edit-key-${n}`, `0.9${n}`);
+    await p2p.closeOffer(offer.id, MAKER);
+    expect((await refusal(edit(offer.id, 'edit-key-4', '0.99'))).code).toBe('p2p.offer_not_active');
+    expect((await refusal(edit(offer.id, 'edit-key-5', '0.99', OTHER))).code).toBe('p2p.not_a_party');
+  });
+
   it('a cancelled order gives the amount back, so the ad does not close', async () => {
     const offer = await sellOffer('25', '10', '20');
     const a = await take(offer.id, '20');

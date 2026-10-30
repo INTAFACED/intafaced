@@ -1,4 +1,18 @@
-import { bigint, boolean, index, integer, jsonb, numeric, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  type AnyPgColumn,
+  bigint,
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgSchema,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -102,8 +116,8 @@ export const offers = p2p.table(
     closeReason: text('close_reason'),
     /** P-ads-merchant-06: when it came into its present status (set by a trigger on every status change). */
     statusSince: tstz('status_since').notNull().defaultNow(),
-    /** P-ads-merchant-06: the closed ad this one relisted (one relist per closed ad). */
-    relistedFrom: uuid('relisted_from'),
+    /** P-ads-merchant-06: the closed ad this one relisted (one relist per closed ad; null once an erase deletes it). */
+    relistedFrom: uuid('relisted_from').references((): AnyPgColumn => offers.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -542,3 +556,21 @@ export const schema = {
   instrumentAccessLog,
   blockQuotes,
 };
+
+/**
+ * P-ads-merchant-06: one accepted ad edit, counted against the owner's daily cap. Keyed by the edit's own idempotency
+ * key, so a retried edit counts once. Goes with its ad when an erase deletes it.
+ */
+export const offerEdits = p2p.table(
+  'offer_edits',
+  {
+    makerId: text('maker_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    offerId: uuid('offer_id')
+      .notNull()
+      .references(() => offers.id, { onDelete: 'cascade' }),
+    editDay: date('edit_day').notNull(),
+    editedAt: tstz('edited_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.makerId, t.idempotencyKey] }), index('offer_edits_day_idx').on(t.makerId, t.editDay)],
+);

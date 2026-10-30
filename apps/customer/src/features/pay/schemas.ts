@@ -73,6 +73,8 @@ export const offerSchema = z.object({
   statusSince: z.string().optional(),
   /** P-ads-merchant-06: the closed ad this one relisted. */
   relistedFrom: id.nullable().optional(),
+  /** P-ads-merchant-06: on My Ads' closed list, the ad this closed one was relisted as. */
+  relistedAs: id.nullable().optional(),
   createdAt: z.string(),
   /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
   referencePrice: amount.nullable().optional(),
