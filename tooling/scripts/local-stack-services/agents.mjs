@@ -13,6 +13,9 @@ function testValue(name) {
  * start or restart leaves the Coach with no model, so its "engine unavailable" refusal can be seen.
  * `LOCAL_STACK_AGENTS_RATES=off` leaves the table blank instead.
  */
+/** The routing table as the service's env entry, or nothing when the stack's TEST rates are off. */
+const withRoutingTable = (table) => (table === undefined ? {} : { AGENTS_ROUTING_TABLE: table });
+
 function routingTable() {
   // `LOCAL_STACK_AGENTS_RATES=off` publishes no routing table, as production runs until the owner sets the rates: the
   // service serves its default routes priced at nothing, and every run refuses agents.price_unset (J-agents-02 #7).
@@ -39,7 +42,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     AGENTS_FEE_ASSET_ID: testValue('AGENTS_FEE_ASSET_ID'),
     AGENTS_USAGE_WINDOW_MINUTES: testValue('AGENTS_USAGE_WINDOW_MINUTES'),
     AGENTS_METERING_ENABLED: testValue('AGENTS_METERING_ENABLED'),
-    ...(routingTable() === undefined ? {} : { AGENTS_ROUTING_TABLE: routingTable() }),
+    ...withRoutingTable(routingTable()),
     // The service's deterministic stand-in engine, which /ready and every route report as "sandbox": no model
     // provider is connected on a test stack and no real inference runs.
     AGENTS_PROVIDER: 'mock',

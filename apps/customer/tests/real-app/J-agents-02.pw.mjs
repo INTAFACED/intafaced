@@ -472,7 +472,14 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
+// Set while svc-agents runs with its rates blank, so a test that times out before its finally still restores them.
+let ratesBlank = false;
+test.afterEach(() => {
+  if (ratesBlank) blankRates(false);
+});
+
 function blankRates(blank) {
+  ratesBlank = blank;
   const before = process.env.LOCAL_STACK_AGENTS_RATES;
   if (blank) process.env.LOCAL_STACK_AGENTS_RATES = 'off';
   else delete process.env.LOCAL_STACK_AGENTS_RATES;
@@ -528,7 +535,7 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
     const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
     await expect(mine).toHaveCount(1);
-    // The day is the UTC day the service sealed the agent's window in (its window id starts with it), not the test's clock.
+    // The day is the UTC day the agent's window opened on (its window id starts with it), not the test's clock.
     const [agent] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === name);
     const held = await ownRead(user, 'usage', { id: agent.id, limit: 50 });
     expect(held).toHaveLength(1);
@@ -560,8 +567,8 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   // A blank rate: svc-agents restarted with no rates published. The service lists the agents' task with no rate, the
   // run refuses with that rate named and its exact code before any reply, and nothing runs free.
   test.setTimeout(420_000);
-  blankRates(true);
   try {
+    blankRates(true);
     const routes = await (await api(user)).get('/api/agents/trpc/routes.list');
     expect(routes.status).toBe(200);
     const ownRun = routes.body.result.data.filter((row) => row.task === 'own.run');
