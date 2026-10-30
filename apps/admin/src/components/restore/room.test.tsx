@@ -43,7 +43,7 @@ const room = (over: Partial<Room> = {}): Room =>
 
 describe('restore room', () => {
   it('says no backup, stamp or run exists, with the reason, and never a number', () => {
-    const html = renderToStaticMarkup(<RestoreRoom room={room()} runNo={null} />);
+    const html = renderToStaticMarkup(<RestoreRoom room={room()} runNo={null} userId="u-1" />);
     expect(html).toContain('data-testid="backups-empty"');
     expect(html).toContain('No joint-restore archive is configured');
     expect(html).toContain('data-testid="stamps-empty"');
@@ -53,7 +53,7 @@ describe('restore room', () => {
 
   it('says an archive that could not be read lists no backup, and never says it is not probed', () => {
     const backups = { kind: 'ok', data: { reason: 'ops.restore_archive_unprobed', backups: [] } } as Room['backups'];
-    const html = renderToStaticMarkup(<RestoreRoom room={room({ backups })} runNo={null} />);
+    const html = renderToStaticMarkup(<RestoreRoom room={room({ backups })} runNo={null} userId="u-1" />);
     expect(html).toContain('data-testid="backups-empty"');
     expect(html).toContain('An archive is configured but it could not be read, or did not answer with a backup list');
     expect(html).not.toContain('not probed');
@@ -61,7 +61,9 @@ describe('restore room', () => {
   });
 
   it('shows a failed part as a failure, not as empty', () => {
-    const html = renderToStaticMarkup(<RestoreRoom room={room({ runs: failed, stamps: failed, backups: failed })} runNo={null} />);
+    const html = renderToStaticMarkup(
+      <RestoreRoom room={room({ runs: failed, stamps: failed, backups: failed })} runNo={null} userId="u-1" />,
+    );
     expect(html).toContain('data-testid="runs-failed"');
     expect(html).toContain('data-testid="stamps-failed"');
     expect(html).toContain('data-testid="backups-failed"');
@@ -69,7 +71,7 @@ describe('restore room', () => {
   });
 
   it('names each disagreeing service and why, and offers only the next step', () => {
-    const html = renderToStaticMarkup(<RestoreRoom room={room({ run: { kind: 'ok', data: detail() } })} runNo="R-1" />);
+    const html = renderToStaticMarkup(<RestoreRoom room={room({ run: { kind: 'ok', data: detail() } })} runNo="R-1" userId="u-1" />);
     expect(html).toContain('The service reports a different position than its stamp.');
     expect(html).toContain('The service could not be read, so its position is unknown.');
     expect(html).toContain('No stamp has been recorded for this service.');
@@ -81,12 +83,20 @@ describe('restore room', () => {
 
   it('parks finalize with its blocker until svc-ops offers it, then shows the approval form', () => {
     const parked = renderToStaticMarkup(
-      <RestoreRoom room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: false }) } })} runNo="R-1" />,
+      <RestoreRoom
+        room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: false }) } })}
+        runNo="R-1"
+        userId="u-1"
+      />,
     );
     expect(parked).toContain('data-testid="finalize-parked"');
     expect(parked).not.toContain('data-testid="finalize-form"');
     const offered = renderToStaticMarkup(
-      <RestoreRoom room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: true }) } })} runNo="R-1" />,
+      <RestoreRoom
+        room={room({ run: { kind: 'ok', data: detail({ next: 'finalize', finalizeOffered: true }) } })}
+        runNo="R-1"
+        userId="u-1"
+      />,
     );
     expect(offered).toContain('data-testid="finalize-form"');
   });
