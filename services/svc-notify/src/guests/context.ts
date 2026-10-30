@@ -1,6 +1,8 @@
 import {
   createEdgeContext,
   inboundRawBodyOf,
+  S2S_KID_HEADER,
+  S2S_SIGNATURE_HEADER,
   verifyServiceHeaders,
   verifyServiceRequest,
   type Context,
@@ -50,7 +52,9 @@ export function createGuestIngressContext(config: {
     // svc-support, and svc-support's own secret names svc-support only. (`verifyServiceRequest` answers once per request,
     // so the second secret is checked on the headers directly.)
     if (auth?.service && !(auth.service === 'svc-support' && auth.scheme === 'shared')) return { ...context, service: auth.service };
-    if (config.supportSecret && config.s2s?.mode !== 'keypair') {
+    // A call that tried a per-service key and failed never falls back to a pairwise secret.
+    const triedKey = req.headers[S2S_KID_HEADER] !== undefined || req.headers[S2S_SIGNATURE_HEADER] !== undefined;
+    if (config.supportSecret && config.s2s?.mode !== 'keypair' && !(triedKey && auth?.rejected)) {
       const support = verifyServiceHeaders(req.headers, config.supportSecret, { rawBody: inboundRawBodyOf(req), mode: 'require' });
       if (support.service === 'svc-support') return { ...context, service: support.service };
     }

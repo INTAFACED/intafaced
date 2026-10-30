@@ -20,7 +20,7 @@ export type StatusMail = {
   readonly text: string;
   /** Business key: `<event>:<subscriber>:email`. A transport that honours it sends once. */
   readonly key: string;
-  /** What the mail is for, as the local outbox labels it. Status mail when absent; `guest-verify` for the guest door. */
+  /** What the mail is for, as the LOCAL TEST outbox labels it. Status mail when absent; `guest-verify` for the guest door. */
   readonly purpose?: 'status' | 'guest-verify';
 };
 
@@ -74,16 +74,15 @@ export class GatewayMailer implements StatusMailer {
     readonly origin: string,
   ) {}
   async send(mail: StatusMail): Promise<MailOutcome> {
-    const guest = mail.purpose === 'guest-verify';
     try {
       await this.channel.deliver({
         notificationId: mail.key,
-        userId: guest ? 'support-guest' : 'status-subscriber',
+        userId: 'status-subscriber',
         channel: 'email',
-        kind: guest ? 'support.guest_verify' : 'status.subscription',
+        kind: 'status.subscription',
         severity: 'info',
-        titleKey: guest ? 'notify.support.guest_verify.title' : 'status.subscription.title',
-        bodyKey: guest ? 'notify.support.guest_verify.body' : 'status.subscription.body',
+        titleKey: 'status.subscription.title',
+        bodyKey: 'status.subscription.body',
         title: mail.subject,
         body: mail.text,
         href: null,
