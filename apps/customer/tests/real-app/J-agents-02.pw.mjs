@@ -445,7 +445,7 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   expect((await ledgerTrace(browser, ledgerKey)).transaction.txId).toBe(booked.transaction.txId);
 });
 
-test(`${J} #6 sets a soft alert and a hard limit for the month: the alert is recorded once and runs go on; the hard limit refuses new runs while runs already started finish`, async ({
+test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at the alert; push or email shows its vendor notice; the hard limit refuses new runs`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -497,17 +497,17 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: the alert is rec
   expect(afterAlert.alert).toEqual(crossed.alert);
   expect(toUnits(afterAlert.spent)).toBeGreaterThan(toUnits(first));
 
-  // The hard limit, set just above this month's spend: the next run is still admitted. Two runs started together are
-  // both admitted below it; the first to finish takes the spend past it, and the other, already started, still
-  // finishes and is charged.
+  // The hard limit, set just above this month's spend: the next run is still admitted, and once started it finishes
+  // and is charged even though its cost takes the month past the limit. Held runs count at their worst case, so a
+  // second run started beside it would be refused at admission: the month passes the limit by at most one run.
   const hardLimit = fromUnits(toUnits(afterAlert.spent) + 1n);
   await field(/^Hard limit for the month/).fill(hardLimit);
   await alertForm.getByRole('button', { name: 'Save alert and limit' }).click();
   await expect(alertForm.getByRole('status')).toHaveText('Alert and limit saved.');
   await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText('The hard limit is not reached.');
-  await ask.fill('TEST question twice');
-  await session(page).getByRole('button', { name: 'Run twice at once' }).click();
-  await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(4);
+  await ask.fill('TEST question at the limit');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);
   expect(await ownRuns('refused')).toHaveLength(0);
   await expect.poll(async () => (await usageLimits()).hardLimitReached, { timeout: 20_000 }).toBe(true);
   const reached = await usageLimits();
@@ -522,14 +522,14 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: the alert is rec
   await expect(refusal).toContainText('This agent reached your hard limit for the month, so this run did not start. Nothing was charged.');
   expect(await ledgerBalances(capped)).toEqual(before);
 
-  // Read again from the service after a reload: one refused run, the hard limit's, at 0; the four runs before it
+  // Read again from the service after a reload: one refused run, the hard limit's, at 0; the three runs before it
   // charged; the spend unchanged by the refusal; the alert still the one record.
   await page.reload();
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
   const refusedRuns = await ownRuns('refused');
   expect(refusedRuns).toHaveLength(1);
   expect(refusedRuns[0].refusalCode).toBe('agents.usage.hard_limit_reached');
-  expect(await ownRuns('executed')).toHaveLength(4);
+  expect(await ownRuns('executed')).toHaveLength(3);
   const refusedRow = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
   await expect(refusedRow).toHaveCount(1);
   await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
@@ -541,6 +541,13 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: the alert is rec
   await expect(alertForm.getByTestId('usage-alert-state')).toHaveText(
     `This month’s alert was recorded once, at ${first} USDT. Runs go on.`,
   );
+
+  // The step's inbox row: exactly one, written whatever the email vendor does. svc-notify writes it from
+  // intafaced.agents.usage_alert.crossed; until its consumer lands (the next PR) this is where the step stays red.
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1, {
+    timeout: 20_000,
+  });
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
