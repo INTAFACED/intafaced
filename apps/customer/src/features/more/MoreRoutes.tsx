@@ -190,7 +190,7 @@ const section = (path: string) => (path.split(/[?#]/)[0] ?? '').split('/')[2] ??
 /** The tab each section's own address opens its room on, so /mining/workers is not the same page as /mining (Phantom 24 Oct). */
 export const SECTION_TABS: { launch: Record<string, LaunchTab>; token: Record<string, TokenTab>; mining: Record<string, MiningTab> } = {
   launch: { new: 'Journey', check: 'Check', requirements: 'Requirements' },
-  token: { governance: 'Governance', economy: 'Economy' },
+  token: { governance: 'Governance', economy: 'Economy', burn: 'Burn' },
   mining: { workers: 'Workers', shares: 'Shares', rewards: 'Rewards', status: 'Status' },
 };
 

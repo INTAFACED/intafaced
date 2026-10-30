@@ -3,7 +3,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { CopyError } from './errors.js';
 import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
-import { followRelationshipState, parseCopyRelationshipState } from './copy-lifecycle.js';
+import { followRelationshipState, parseCopyRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
 import { copyReserveKey, type CopyCursor, type CopyFollow } from './follows.js';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import { dropFollowSessionKey, overlayFollowSessionKey, persistFollowSessionKey } from './session-key.js';
@@ -219,8 +219,11 @@ export interface CopyFollowStore {
   deleteFollow(followId: string): Promise<void>;
   /** All follows (hydrate / ops). Product desk uses listFollowsByFollower. */
   listFollows(): Promise<CopyFollow[]>;
-  /** Follows the copy driver may place for: ACTIVE, unexpired, with an unrevoked session key and a place grant. */
-  listCopyingFollows(now: Date): Promise<CopyFollow[]>;
+  /**
+   * Follows the copy driver may act for: unexpired, with an unrevoked session key and a place grant, in one of `states`
+   * (ACTIVE when left out).
+   */
+  listCopyingFollows(now: Date, states?: readonly CopyRelationshipState[]): Promise<CopyFollow[]>;
   /**
    * Move the follow's copy cursor. `forward` never moves it back (a slower sweep cannot undo a later one); `reset`
    * sets it outright, when copying is turned on. Only this writes the cursor: saving a follow leaves it alone.
@@ -396,10 +399,10 @@ function pendingFeeShareClaim(followId: string, fillId: string, leaderId: string
   };
 }
 
-/** A stopped or detached follow places no new copies, so its reserve is released. */
+/** A stopped (close-only too) or detached follow places no new copies, so its reserve is released. */
 function reserveEnds(follow: CopyFollow): boolean {
   const state = followRelationshipState(follow);
-  return state === 'STOPPING' || state === 'DETACHED';
+  return state === 'STOPPING' || state === 'CLOSE_ONLY' || state === 'DETACHED';
 }
 
 /** In-memory store — default for unit tests and single-process dev. */
@@ -478,8 +481,8 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     return [...this.follows.values()].map(overlayFollowSessionKey);
   }
 
-  async listCopyingFollows(now: Date): Promise<CopyFollow[]> {
-    return (await this.listFollows()).filter((f) => isCopying(f, now));
+  async listCopyingFollows(now: Date, states: readonly CopyRelationshipState[] = ['ACTIVE']): Promise<CopyFollow[]> {
+    return (await this.listFollows()).filter((f) => isCopying(f, now, states));
   }
 
   async setCopyCursor(followId: string, cursor: CopyCursor, mode: 'forward' | 'reset'): Promise<void> {
@@ -754,13 +757,16 @@ export function compareCopyCursor(a: CopyCursor, b: CopyCursor): number {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-/** Whether the copy driver may place for this follow now. */
-export function isCopying(follow: CopyFollow, now: Date): boolean {
+/**
+ * Whether the copy driver may act for this follow now. By default only an ACTIVE follow; the driver also visits PAUSED
+ * follows (to log what it skipped) and CLOSE_ONLY follows (to mirror the leader's closes) by naming those states.
+ */
+export function isCopying(follow: CopyFollow, now: Date, states: readonly CopyRelationshipState[] = ['ACTIVE']): boolean {
   return (
     follow.placeGrant !== undefined &&
     Boolean(follow.sessionKeyHash) &&
     follow.sessionKeyRevoked !== true &&
-    followRelationshipState(follow) === 'ACTIVE' &&
+    states.includes(followRelationshipState(follow)) &&
     follow.envelope.expiresAt.getTime() > now.getTime() &&
     follow.copyCursor !== undefined
   );
@@ -1083,7 +1089,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         FROM copy_follow_reserves r
         JOIN copy_follows f ON f.follow_id = r.follow_id
        WHERE r.follower_id = ${followerId} AND r.asset = ${asset} AND r.released_at IS NULL
-         AND coalesce(f.relationship_state, 'ACTIVE') NOT IN ('STOPPING', 'DETACHED')
+         AND coalesce(f.relationship_state, 'ACTIVE') NOT IN ('STOPPING', 'CLOSE_ONLY', 'DETACHED')
          AND f.expires_at > now()
     `;
     return row?.total ? parseAmount(row.total) : 0n;
@@ -1125,15 +1131,15 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     return rows.map(followFromRow);
   }
 
-  async listCopyingFollows(now: Date): Promise<CopyFollow[]> {
+  async listCopyingFollows(now: Date, states: readonly CopyRelationshipState[] = ['ACTIVE']): Promise<CopyFollow[]> {
     const rows = await this.sql<FollowRow[]>`
       SELECT follow_id, follower_id, leader_id, region, permitted_markets,
              ${this.followColumns()}
         FROM copy_follows
        WHERE place_grant IS NOT NULL AND session_key_hash IS NOT NULL AND NOT session_key_revoked
-         AND coalesce(relationship_state, 'ACTIVE') = 'ACTIVE' AND expires_at > ${now} AND copy_cursor_at IS NOT NULL
+         AND coalesce(relationship_state, 'ACTIVE') IN ${this.sql([...states])} AND expires_at > ${now} AND copy_cursor_at IS NOT NULL
     `;
-    return rows.map(followFromRow).filter((f) => isCopying(f, now));
+    return rows.map(followFromRow).filter((f) => isCopying(f, now, states));
   }
 
   async setCopyCursor(followId: string, cursor: CopyCursor, mode: 'forward' | 'reset'): Promise<void> {

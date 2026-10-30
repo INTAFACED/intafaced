@@ -373,3 +373,22 @@ export const isLive = (order: Order): boolean => order.status === 'open' || orde
 export function wholeNumber(text: string): number | null {
   return /^\d{1,7}$/.test(text.trim()) ? parseInt(text.trim(), 10) : null;
 }
+
+/** Largest seed the service accepts: an unsigned 32-bit integer. */
+export const MAX_SEED = 4_294_967_295;
+
+/** A seed typed in the form, or null when it is not a whole number from 0 to `MAX_SEED`. */
+export function parseSeed(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,10}$/.test(trimmed)) return null;
+  const seed = Number(trimmed);
+  return seed <= MAX_SEED ? seed : null;
+}
+
+/** A trigger price typed in the form: blank is no trigger, anything else must be a decimal above zero. */
+export function triggerProblem(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === '') return false;
+  const value = dec(trimmed);
+  return value === null || value <= 0n;
+}

@@ -10,6 +10,8 @@ export type WithdrawalQuoteErrorCode =
   | 'withdrawal_quote.below_minimum'
   | 'withdrawal_quote.above_maximum'
   | 'withdrawal_quote.off_step'
+  /** The network's rules require a tag or memo, and no send carries one (J-wallet-05 #1): nothing is quoted, so nothing is sent. */
+  | 'withdrawal_quote.tag_required'
   | 'withdrawal_quote.amount_invalid'
   | 'withdrawal_quote.fee_exceeds_amount'
   | 'withdrawal_quote.quote_differs'
@@ -35,6 +37,7 @@ const KIND: Record<WithdrawalQuoteErrorCode, TRPCError['code']> = {
   'withdrawal_quote.below_minimum': 'BAD_REQUEST',
   'withdrawal_quote.above_maximum': 'BAD_REQUEST',
   'withdrawal_quote.off_step': 'BAD_REQUEST',
+  'withdrawal_quote.tag_required': 'PRECONDITION_FAILED',
   'withdrawal_quote.amount_invalid': 'BAD_REQUEST',
   'withdrawal_quote.fee_exceeds_amount': 'BAD_REQUEST',
   'withdrawal_quote.quote_differs': 'CONFLICT',
