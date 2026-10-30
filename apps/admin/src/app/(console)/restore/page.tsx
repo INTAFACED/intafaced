@@ -22,7 +22,7 @@ export default async function RestorePage({ searchParams }: { searchParams: Prom
       <p>
         <Link href="/ledger">Ledger ops</Link>
       </p>
-      <RestoreRoom room={room} runNo={runNo} />
+      <RestoreRoom room={room} runNo={runNo} userId={founder.session.userId} />
     </main>
   );
 }

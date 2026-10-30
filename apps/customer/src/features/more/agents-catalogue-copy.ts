@@ -123,6 +123,7 @@ const en = {
   historyNotLoaded: 'No run of this task is in the loaded part of your log, so no expected range is shown.',
   refusal_place_key_conflict: 'That request key already belongs to another order',
   refusal_task_not_allowed: 'This agent may not run that task',
+  'refusal_copy_intel.returns_board_refused': 'Copy intelligence never ranks leaders by returns; nothing was run or charged',
   refusal_output_limit: 'It asked for more output than allowed',
   refusal_spend_limit: 'Its worst case would pass the spend cap',
   rateBlank: 'No rate published',
@@ -287,6 +288,8 @@ const es = {
   historyNotLoaded: 'No hay ninguna ejecución de esta tarea en la parte cargada de tu registro, así que no se muestra un rango esperado.',
   refusal_place_key_conflict: 'Esa clave de solicitud ya pertenece a otra orden',
   refusal_task_not_allowed: 'Este agente no puede ejecutar esa tarea',
+  'refusal_copy_intel.returns_board_refused':
+    'Copy intelligence nunca clasifica a los líderes por rentabilidad; no se ejecutó ni se cobró nada',
   refusal_output_limit: 'Pidió más salida de la permitida',
   refusal_spend_limit: 'Su peor caso superaría el límite de gasto',
   rateBlank: 'Sin tarifa publicada',
@@ -452,6 +455,8 @@ const fr = {
     'Aucune exécution de cette tâche n’est dans la partie chargée de votre journal, aucune fourchette attendue n’est donc affichée.',
   refusal_place_key_conflict: 'Cette clé de requête appartient déjà à un autre ordre',
   refusal_task_not_allowed: 'Cet agent ne peut pas exécuter cette tâche',
+  'refusal_copy_intel.returns_board_refused':
+    'Copy intelligence ne classe jamais les leaders par rendement ; rien n’a été exécuté ni facturé',
   refusal_output_limit: 'Il a demandé plus de sortie que permis',
   refusal_spend_limit: 'Son pire cas dépasserait le plafond de dépense',
   rateBlank: 'Aucun tarif publié',

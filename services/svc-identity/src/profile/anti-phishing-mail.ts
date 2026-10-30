@@ -35,6 +35,7 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'factor-changed',
   'support-recovery',
   'support-recovery-used',
+  'appeal-decided',
 ]);
 
 /** The code set on the account (by id, else by its address), or null (no account, no code, no key, or unreadable). */

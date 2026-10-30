@@ -40,6 +40,13 @@ export const rooms: readonly Room[] = [
   { path: '/confirm-email', title: 'Confirm email', description: 'Prove your email address', area: 'public', hidden: true },
   { path: '/cannot-sign-in', title: 'Cannot sign in', description: 'Ask Support to recover your account', area: 'public', hidden: true },
   { path: '/recover-account', title: 'Recover account', description: 'Use the recovery link Support sent', area: 'public', hidden: true },
+  {
+    path: '/freeze/confirm',
+    title: 'Freeze account',
+    description: 'Use the freeze link from a security notice',
+    area: 'public',
+    hidden: true,
+  },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
@@ -65,6 +72,8 @@ export const rooms: readonly Room[] = [
   { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
+  // A backtest result shared by link (AL-report-03): public, as the service returns only the simulated result.
+  { path: '/quant/share/:token', title: 'Shared backtest', description: 'A backtest result shared by link', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
   { path: '/announcement/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/about-us', title: 'About Intafaced', description: 'One account, connected experiences', area: 'public' },
@@ -869,8 +878,10 @@ export const rooms: readonly Room[] = [
     [
       ['academy', 'Academy', 'Rooms, learning and certifications'],
       ['agents', 'Agents', 'Your agent fleet'],
+      ['agents/team', 'Agents team', 'Roles, a shared pool and project limits for your business'],
       ['quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
+      ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['launch', 'Launch', 'Issue and list an asset'],

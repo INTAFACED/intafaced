@@ -71,6 +71,11 @@
       "value": "full",
       "note": "TEST verification level for creating a bot: full, the level the journeys verify to, so an unverified account is refused (trade.bots_verification_insufficient)."
     },
+    "TRADE_OPS_METRICS_WINDOW_SECONDS": {
+      "service": "trade",
+      "value": "86400",
+      "note": "TEST window for the operator module counts of quotes requested and settled. Blank refuses trade.ops_metrics_window_not_set."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"], \"minTier\": \"full\"}",
@@ -78,8 +83,8 @@
     },
     "TRADE_OTC_MAKER_DIRECTORY": {
       "service": "trade",
-      "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\"}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\"}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\"}]}",
-      "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, which refuse by name until outside routing exists, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused). Not real providers."
+      "value": "{\"selectCap\": 3, \"makers\": [{\"id\": \"house\", \"name\": \"House desk (TEST)\", \"route\": \"platform\"}, {\"id\": \"test-lp-1\", \"name\": \"TEST provider 1\", \"route\": \"outside\", \"spreadBps\": 10}, {\"id\": \"test-lp-2\", \"name\": \"TEST provider 2\", \"route\": \"outside\", \"spreadBps\": 30}, {\"id\": \"test-lp-3\", \"name\": \"TEST provider 3\", \"route\": \"outside\", \"spreadBps\": 10}]}",
+      "note": "TEST provider list for the quote desk: the house desk (the platform prices it) and three TEST outside providers, each with a LOCAL TEST spread (10, 30 and 10 bps; refused unless APP_ENV is dev or test) so one request collects one TEST-labelled quote per provider, settled against the house inventory with no outside routing, with at most 3 picked per request (J-copy-bots-otc-24 #2 picks four and is refused; #5 ranks the quotes). Not real providers and not real spreads."
     },
     "TRADE_OTC_CONVERT_BOUNDS": {
       "service": "trade",
@@ -105,6 +110,11 @@
       "service": "trade",
       "value": "1000",
       "note": "TEST distance each grid bound may sit from the market price when a bot is created: 1000 bps (10%), so the journeys' ranges about 5% from the TEST mid are accepted and a bound beyond 10% is refused (trade.bots_grid_bounds_out_of_band)."
+    },
+    "TRADE_BOTS_WITHDRAW_DAILY_CAP": {
+      "service": "trade",
+      "value": "{\"USDT\":\"0.50\"}",
+      "note": "TEST daily cap on grid bot profit withdrawals per account: 0.50 USDT a UTC day, so J-copy-bots-otc-14 #7 sees 1.00 refused (trade.bots_withdraw_cap_exceeded) and a smaller withdrawal pass."
     },
     "TRADE_DEVELOPER_HOSTS": {
       "service": "trade",

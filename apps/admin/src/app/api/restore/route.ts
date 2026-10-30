@@ -3,10 +3,11 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { founderCall } from '@/lib/desk/founder-call';
-import { RESTORE_NO, finalizeKey, refusalWords, startKey, stepKey } from '@/lib/restore/model';
+import { RESTORE_NO, refusalWords, startKey, stepKey } from '@/lib/restore/model';
 
 /**
- * Restore desk writes as the signed-in founder: start a run, record a step, finalize (svc-ops `restore.*`). The keys are business
+ * Restore desk writes as the signed-in founder: start a run, record a step (svc-ops `restore.*`). Stamps and finalize need a
+ * second founder, so they go through `/api/restore/approvals`. The keys are business
  * keys built here from the restore number and step, so a repeated press or a retry returns the stored row. svc-ops decides the
  * order, the joint check and the second founder; this route only carries the call and says what came back. A reply that never
  * arrived is reported as unknown, never as failed, and is never sent again on its own.
@@ -18,8 +19,7 @@ const NO_STORE = { 'cache-control': 'no-store' } as const;
 
 type Body =
   | { action: 'start'; restoreNo: string; cutOff: string }
-  | { action: 'step'; restoreNo: string; step: 'restore_clean' | 'validate' | 'preview' }
-  | { action: 'finalize'; restoreNo: string; approvalId: string; operationId: string };
+  | { action: 'step'; restoreNo: string; step: 'restore_clean' | 'validate' | 'preview' };
 
 const text = (v: unknown, max: number): string | null =>
   typeof v === 'string' && v.trim() !== '' && v.trim().length <= max ? v.trim() : null;
@@ -35,11 +35,6 @@ function parseBody(raw: Record<string, unknown>): Body | null {
     return raw.step === 'restore_clean' || raw.step === 'validate' || raw.step === 'preview'
       ? { action: 'step', restoreNo, step: raw.step }
       : null;
-  }
-  if (raw.action === 'finalize') {
-    const approvalId = text(raw.approvalId, 128);
-    const operationId = text(raw.operationId, 128);
-    return approvalId && operationId ? { action: 'finalize', restoreNo, approvalId, operationId } : null;
   }
   return null;
 }
@@ -75,28 +70,14 @@ export async function POST(request: Request) {
           { restoreNo: input.restoreNo, cutOff: input.cutOff, idempotencyKey: startKey(input.restoreNo) },
           accepted,
         )
-      : input.action === 'step'
-        ? await founderCall(
-            session,
-            'ops',
-            'restore.step',
-            'POST',
-            { restoreNo: input.restoreNo, step: input.step, idempotencyKey: stepKey(input.restoreNo, input.step) },
-            accepted,
-          )
-        : await founderCall(
-            session,
-            'ops',
-            'restore.finalize',
-            'POST',
-            {
-              restoreNo: input.restoreNo,
-              idempotencyKey: finalizeKey(input.restoreNo),
-              approvalId: input.approvalId,
-              operationId: input.operationId,
-            },
-            accepted,
-          );
+      : await founderCall(
+          session,
+          'ops',
+          'restore.step',
+          'POST',
+          { restoreNo: input.restoreNo, step: input.step, idempotencyKey: stepKey(input.restoreNo, input.step) },
+          accepted,
+        );
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true }, 200);

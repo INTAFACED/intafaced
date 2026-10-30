@@ -16,8 +16,9 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
+import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel/returns-board-refuse.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
@@ -126,6 +127,16 @@ class SessionSpendCeilingError extends Error {
   }
 }
 
+/** A team run's hold refusals (team/hold.ts), recorded as refusals like the own-agent caps. */
+const TEAM_HOLD_REFUSALS = [
+  'agents.team.allocation_exceeded',
+  'agents.team.project_limit_exceeded',
+  'agents.team.pool_exceeded',
+  'agents.team.allocation_unset',
+] as const;
+const isTeamHoldRefusal = (code: string): code is (typeof TEAM_HOLD_REFUSALS)[number] =>
+  (TEAM_HOLD_REFUSALS as readonly string[]).includes(code);
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -150,6 +161,12 @@ export interface ThinkInput {
   readonly messages: readonly { role: 'user' | 'assistant'; content: string }[];
   readonly maxOutputTokens?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Set only by the team run route (team/runs.ts), after it read the member's business membership and runner role. A
+   * team session's hold refuses without it, so no other route can run on a team session, whatever request id it sends.
+   * Never taken from a request body.
+   */
+  readonly teamRun?: boolean;
 }
 
 export interface ThinkResult {
@@ -464,6 +481,24 @@ export class AgentRuntime {
       throw err;
     }
 
+    // 1b · Copy-Intel never builds a returns board (D26-P1-A5). A request for one is refused before the price, the hold
+    //      and the engine, so it charges nothing, and the refusal is logged for the person to read.
+    if (
+      session.agentId === COPY_INTEL_SESSION_AGENT_ID &&
+      input.messages.some((m) => m.role === 'user' && asksForReturnsRanking(m.content))
+    ) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.copy_intel.returns_board_refused',
+          userMessageKey: 'agents.refused.copy_intel.returns_board_refused',
+          userMessageParams: {},
+        },
+        { kind: 'completion', task: input.task },
+      );
+    }
+
     const maxOutputTokens =
       input.maxOutputTokens === undefined ? route.maxOutputTokens : Math.min(input.maxOutputTokens, route.maxOutputTokens);
     // A route with no published rate never runs: nothing invents a price (OWNER 107). Refused before the guardrail, the
@@ -603,6 +638,7 @@ export class AgentRuntime {
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
           overageGrace: this.overageGrace,
+          teamRun: input.teamRun === true,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -640,6 +676,7 @@ export class AgentRuntime {
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
             overageGrace: this.overageGrace,
+            teamRun: input.teamRun === true,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }
@@ -671,7 +708,10 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset' || isTeamHoldRefusal(err.code))
+        ) {
           throw await this.appendRefusal(
             session,
             {
@@ -1153,6 +1193,10 @@ export class AgentRuntime {
   /** The usage windows of one agent's sessions of a person's, newest first (see `UsageMeter.windowsOf`). */
   async usageWindowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
     return this.meter.windowsOf(userId, agentId, limit);
+  }
+
+  async usageByDayOf(userId: string, agentIds: readonly string[]): Promise<UsageDayView[]> {
+    return this.meter.usageByDay(userId, agentIds);
   }
 
   /** Settle every open window of a session. Used when a session closes. */
