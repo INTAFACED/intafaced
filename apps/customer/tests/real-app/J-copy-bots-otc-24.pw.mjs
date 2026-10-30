@@ -15,8 +15,8 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: no RFQ board grouped by status (CB-otc-02).
+// #5 asks three TEST outside providers at once; each is priced at its LOCAL TEST spread against the house inventory
+// (no outside routing), and the board ranks the quotes the desk collected.
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -554,12 +554,202 @@ test(`${J} #4 minimum unpublished: refused trade.rfq_size_not_set, no quote is k
   expect(toUnits(await publishedMinimum(me, 'USDT'))).toBeGreaterThan(0n);
 });
 
-test(`${J} #5 board of requests: status groups, counts and quote ranking`, async ({ page }) => {
+/** The caller's board of requests as the desk groups it (`rfq.board`), over a window around now. */
+async function rfqBoard(client) {
+  const window = { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date(Date.now() + 60_000).toISOString(), limit: 50 };
+  const read = await client.get(`/api/trade/trpc/rfq.board?input=${encodeURIComponent(JSON.stringify(window))}`);
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data;
+}
+
+/** The board region of the room. */
+const board = (page) => page.getByRole('region', { name: 'Your requests' });
+
+/** The board as the room shows it: each group's heading and its requests, each with its quote ids in the order shown. */
+async function shownBoard(page) {
+  return board(page)
+    .getByTestId('board-group')
+    .evaluateAll((groups) =>
+      groups.map((group) => ({
+        status: group.getAttribute('data-status'),
+        heading: group.querySelector('h3')?.textContent,
+        requests: [...group.querySelectorAll('[data-testid="board-request"]')].map((request) => ({
+          rfqId: request.getAttribute('data-rfq-id'),
+          quotes: [...request.querySelectorAll('[data-testid="board-quote"]')].map((quote) => ({
+            quoteId: quote.getAttribute('data-quote-id'),
+            line: quote.querySelector('[data-testid="board-quote-line"]')?.textContent,
+            badges: [...quote.children]
+              .filter((child) => child.getAttribute('data-testid') !== 'board-quote-line')
+              .map((badge) => badge.textContent),
+          })),
+        })),
+      })),
+    );
+}
+
+/**
+ * Asks for a price on `quantity` BTC against USDT from the providers named, ticked in that order, and returns the
+ * desk's answer to `rfq.quote` (the request's best quote) once its card is up.
+ */
+async function askFrom(page, quantity, providers) {
+  const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
+  await request(page).getByRole('combobox', { name: 'Pair' }).click();
+  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
+  await pickProviders(page, providers);
+  await page.getByRole('button', { name: 'Request price' }).click();
+  const body = [await (await answer).json()].flat()[0];
+  expect(body.error, JSON.stringify(body.error ?? null).slice(0, 300)).toBeUndefined();
+  await expect(card(page)).toHaveAttribute('data-quote-id', body.result.data.quoteId);
+  return body.result.data;
+}
+
+const BOARD_LABEL = { open: 'Open', accepted: 'Accepted', settled: 'Settled', expired: 'Expired' };
+
+/** A request's status from its quotes as rfq.get reads each one: settled, then accepted, then open, then expired. */
+function statusFromQuotes(lifecycles) {
+  if (lifecycles.includes('settled')) return 'settled';
+  if (lifecycles.includes('bound')) return 'accepted';
+  if (lifecycles.includes('open')) return 'open';
+  return 'expired';
+}
+
+test(`${J} #5 board of requests: one quote per provider asked, grouped by status with counts, best on top, ties to the earlier`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  // The owner's LOCAL TEST spread for each provider, read back from the desk's own provider list.
+  const listed = await listedMakers(me);
+  const spreadOf = Object.fromEntries(listed.makers.map((m) => [m.name, m.spreadBps]));
+  const idOf = Object.fromEntries(listed.makers.map((m) => [m.name, m.id]));
+  const asked = ['TEST provider 2', 'TEST provider 1', 'TEST provider 3'];
+  for (const name of asked) expect(Number.isInteger(spreadOf[name]), `${name} has a spread`).toBe(true);
+  // Two of the providers share a spread, so the ranking has a tie to break.
+  expect(spreadOf['TEST provider 1']).toBe(spreadOf['TEST provider 3']);
+  expect(spreadOf['TEST provider 2']).not.toBe(spreadOf['TEST provider 1']);
+
+  // One request in each status, driven through the room: expired (left to run out), accepted, settled, and open.
   await openOtc(page);
-  const board = page.getByRole('region', { name: 'Your requests' });
-  for (const group of ['Open', 'Accepted', 'Settled', 'Expired']) {
-    await expect(board.getByRole('heading', { name: new RegExp(`^${group} \\(\\d+\\)$`) })).toBeVisible(UNBUILT);
+  const expiring = await (await ask(page, '0.02')).getAttribute('data-quote-id');
+  await page.goto('/otc');
+  const acceptedCard = await ask(page, '0.02');
+  const acceptedId = await acceptedCard.getAttribute('data-quote-id');
+  await accept(page, acceptedCard);
+  await page.goto('/otc');
+  const settledCard = await ask(page, '0.02');
+  const settledId = await settledCard.getAttribute('data-quote-id');
+  await accept(page, settledCard);
+  await settledCard.getByRole('button', { name: 'Settle', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Settle now' }).click();
+  await expect(settledCard.getByTestId('phase-line')).toContainText('Settled. The trade is complete.');
+  await page.waitForTimeout(Math.max(0, Date.parse((await rfq(expiring)).expiresAt) - Date.now()) + 1_000);
+
+  // One request to three providers, ticked in this order.
+  await page.goto('/otc');
+  const best = await askFrom(page, '0.02', asked);
+  const rfqId = best.rfqId;
+  expect(typeof rfqId).toBe('string');
+
+  // The desk's own board: the request collected exactly one quote per provider asked, in the order asked, each priced
+  // at that provider's spread and labelled TEST.
+  const desk = await rfqBoard(me);
+  expect(desk.more).toBe(false);
+  expect(desk.groups.map((g) => g.status)).toEqual(['open', 'accepted', 'settled', 'expired']);
+  const all = desk.groups.flatMap((g) => g.requests.map((r) => ({ ...r, group: g.status })));
+  const mine = all.filter((r) => r.rfqId === rfqId);
+  expect(mine).toHaveLength(1);
+  const request = mine[0];
+  expect(request.group).toBe('open');
+  expect([request.side, request.baseAsset, request.quoteAsset, request.qty]).toEqual(['buy', 'BTC', 'USDT', '0.02']);
+  expect([...request.quotes].sort((a, b) => a.rfqSeq - b.rfqSeq).map((q) => [q.rfqSeq, q.makerId, q.spreadBps, q.test])).toEqual(
+    asked.map((name, i) => [i + 1, idOf[name], spreadOf[name], true]),
+  );
+  // Each quote is the service's own record (rfq.get), open at the price the board shows.
+  for (const q of request.quotes) {
+    const record = await rfq(q.quoteId);
+    expect([record.lifecycle, record.quotedPrice]).toEqual(['open', q.quotedPrice]);
   }
+  // Best on top: a buy ranks the lowest price first, and equal prices go to the quote asked earlier.
+  const expected = [...request.quotes].sort((a, b) => {
+    const diff = units(a.quotedPrice) - units(b.quotedPrice);
+    return diff !== 0n ? (diff < 0n ? -1 : 1) : a.rfqSeq - b.rfqSeq;
+  });
+  expect(request.quotes.map((q) => q.quoteId)).toEqual(expected.map((q) => q.quoteId));
+  expect(request.quotes.map((q) => [q.rank, q.best])).toEqual([
+    [1, true],
+    [2, false],
+    [3, false],
+  ]);
+  const tied = request.quotes.filter((q) => q.makerId === idOf['TEST provider 1'] || q.makerId === idOf['TEST provider 3']);
+  expect(tied[0].quotedPrice).toBe(tied[1].quotedPrice);
+  expect(tied.map((q) => q.makerId)).toEqual([idOf['TEST provider 1'], idOf['TEST provider 3']]);
+  expect(request.quotes[0].quoteId).toBe(best.quoteId);
+
+  // Every request on the board sits in the group its quotes' own records say, exactly once, and each status group
+  // holds one of the requests driven above.
+  expect(new Set(all.map((r) => r.rfqId)).size).toBe(all.length);
+  for (const r of all) {
+    const lifecycles = await Promise.all(r.quotes.map(async (q) => (await rfq(q.quoteId)).lifecycle));
+    expect(statusFromQuotes(lifecycles), r.rfqId).toBe(r.group);
+  }
+  const groupOf = (quoteId) => all.find((r) => r.quotes.some((q) => q.quoteId === quoteId))?.group;
+  expect([groupOf(expiring), groupOf(acceptedId), groupOf(settledId), groupOf(best.quoteId)]).toEqual([
+    'expired',
+    'accepted',
+    'settled',
+    'open',
+  ]);
+  for (const g of desk.groups) expect(g.count, g.status).toBe(g.requests.length);
+
+  // The room shows that board: each group under "<Status> (<count>)" with the desk's count, its requests in the
+  // desk's order, and each request's quotes best first, with only the first marked Best and each TEST quote labelled.
+  await page.reload();
+  await expect(board(page)).toBeVisible();
+  await expect(async () => {
+    const now = await rfqBoard(me);
+    const shown = await shownBoard(page);
+    expect(shown.map((g) => [g.status, g.heading])).toEqual(now.groups.map((g) => [g.status, `${BOARD_LABEL[g.status]} (${g.count})`]));
+    expect(shown.map((g) => g.requests.map((r) => [r.rfqId, r.quotes.map((q) => q.quoteId)]))).toEqual(
+      now.groups.map((g) => g.requests.map((r) => [r.rfqId, r.quotes.map((q) => q.quoteId)])),
+    );
+  }).toPass({ timeout: 20_000 });
+  const shownRequest = (await shownBoard(page)).flatMap((g) => g.requests).find((r) => r.rfqId === rfqId);
+  expect(shownRequest.quotes.map((q) => q.badges)).toEqual([['Best', 'TEST'], ['TEST'], ['TEST']]);
+  const nameOf = Object.fromEntries(listed.makers.map((m) => [m.id, m.name]));
+  expect(shownRequest.quotes.map((q) => q.line.split(':')[0])).toEqual(request.quotes.map((q) => nameOf[q.makerId]));
+});
+
+test(`${J} #5 blank provider spread: asking that provider refuses trade.otc_provider_spread_unset, nothing kept`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', false);
+    // Read back blank: no outside provider carries a spread.
+    const listed = await listedMakers(me);
+    const outside = listed.makers.filter((m) => m.route === 'outside');
+    expect(outside.map((m) => m.name)).toEqual(['TEST provider 1', 'TEST provider 2', 'TEST provider 3']);
+    for (const m of outside) expect(m, m.name).not.toHaveProperty('spreadBps');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    const boardBefore = await rfqBoard(me);
+    await openOtc(page);
+    // With the house desk in the same request: the whole request refuses, so no provider's quote is kept.
+    expect(await askRefused(page, '0.02', [HOUSE, 'TEST provider 1'])).toBe('trade.otc_provider_spread_unset');
+    await expect(page.getByText('trade.otc_provider_spread_unset')).toBeVisible();
+    await expect(page.getByText('The spread for provider test-lp-1 is not set', { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    // Re-read after the refusal: no quote was recorded, the board is the same, and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect((await rfqBoard(me)).groups.map((g) => g.requests.map((r) => r.rfqId))).toEqual(
+      boardBefore.groups.map((g) => g.requests.map((r) => r.rfqId)),
+    );
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', true);
+  }
+  const restored = await listedMakers(me);
+  for (const m of restored.makers.filter((m) => m.route === 'outside')) expect(Number.isInteger(m.spreadBps), m.name).toBe(true);
 });
 
 test(`${J} #6 accept binds the quoted price; naming a different price refuses as last look`, async ({ page }) => {

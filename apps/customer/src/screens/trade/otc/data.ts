@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import type { DeskStatus, OtcMakers, RfqQuote, RoomApi } from '../rooms/api';
+import type { DeskStatus, OtcMakers, RfqBoard, RfqQuote, RoomApi } from '../rooms/api';
 import { ROOM_INTERVALS, usePrivateRead, usePublicRead } from '../rooms/read';
 import { roomWords, type Words } from '../rooms/refusals';
 import { forgetId, readIds, rememberId } from '../rooms/store';
@@ -18,6 +18,27 @@ export function useDeskStatus(api: RoomApi): Loadable<DeskStatus> {
 /** The owner's provider list (CB-otc-01); blank is an honest "No providers set", never a sample provider. */
 export function useOtcMakers(api: RoomApi): Loadable<OtcMakers> {
   return usePrivateRead<OtcMakers>('otc-makers', (signal) => api.otcMakers(signal), ROOM_INTERVALS.deskStatus);
+}
+
+/** How far back the board reads, and how many requests it shows; the service refuses a blank window or limit. */
+const BOARD_LOOKBACK_MS = 24 * 3_600_000;
+const BOARD_LIMIT = 50;
+
+/** The caller's requests, grouped by status with counts and each with its quotes ranked (CB-otc-02), re-read like a quote. */
+export function useRfqBoard(api: RoomApi): Loadable<RfqBoard> {
+  return usePrivateRead<RfqBoard>(
+    'otc-rfq-board',
+    (signal) => {
+      const now = Date.now();
+      const window = {
+        from: new Date(now - BOARD_LOOKBACK_MS).toISOString(),
+        to: new Date(now + 60_000).toISOString(),
+        limit: BOARD_LIMIT,
+      };
+      return api.rfqBoard(window, signal);
+    },
+    ROOM_INTERVALS.quote,
+  );
 }
 
 export interface PairOption {
