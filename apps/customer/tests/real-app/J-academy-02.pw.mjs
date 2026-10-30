@@ -87,6 +87,10 @@ test(`${J} #2 pressing Enrol now twice with the reply lost sends one request, re
   await page.reload();
   await expect(enrolBlock(page).getByText(/^You are enrolled on the Free track since /)).toBeVisible();
   expect(sent).toHaveLength(1);
+  // One receipt: the progress page holds exactly one free access record for the course.
+  await page.goto('/academy/progress');
+  await expect(page.locator(`[data-access-grant="${second}"]`)).toHaveCount(1);
+  expect(sent).toHaveLength(1);
 });
 
 /** The courses' first items, as their public course pages list them. */
@@ -98,6 +102,17 @@ async function syllabus(slug) {
   expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body.result.data.syllabus.map((row) => row.slug);
 }
+
+/** The course's items with their real types, as its public course page lists them. */
+async function syllabusKinds(slug) {
+  const res = await fetch(`${EDGE}/api/academy/trpc/publicCourse?input=${encodeURIComponent(JSON.stringify({ slug }))}`, {
+    headers: { origin: ORIGIN },
+  });
+  const body = await res.json();
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return new Map(body.result.data.syllabus.map((row) => [row.slug, row.kind]));
+}
+const KIND_LABEL = { playbook: 'Playbook', workbook: 'Workbook', lesson: 'Lesson' };
 
 const myCourse = (page, slug) => page.locator(`[data-my-learning-section] [data-my-course="${slug}"]`);
 
@@ -199,9 +214,12 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     const outline = page.locator(`[data-academy-outline="${second}"]`);
     await expect(outline.locator('[data-outline-item]')).toHaveCount(items.length);
     await expect(outline.locator(`[data-outline-item="${items[0]}"] a`)).toHaveAttribute('aria-current', 'page');
-    await expect(outline.locator(`[data-outline-item="${items[0]}"] [data-testid="academy-lms-meta"]`)).toContainText(
-      /Playbook|Workbook|Lesson/,
-    );
+    // Each item is typed as what it is, not one of several labels.
+    const kinds = await syllabusKinds(second);
+    for (const slug of items)
+      await expect(outline.locator(`[data-outline-item="${slug}"] [data-testid="academy-lms-meta"]`)).toContainText(
+        KIND_LABEL[kinds.get(slug)],
+      );
     const locked = outline.locator(`[data-outline-item="${items[2]}"]`);
     await expect(locked).toHaveAttribute('data-outline-state', 'locked');
     await expect(locked.getByRole('link')).toHaveCount(0);
