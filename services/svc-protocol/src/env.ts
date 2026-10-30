@@ -1,5 +1,17 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+
+/** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
+function parseWhole(raw: string): number | null {
+  const text = raw.trim();
+  if (!/^\d{1,9}$/.test(text)) return null;
+  return Number(text);
+}
+/** A whole number above 0, or null. */
+function parsePositiveWhole(raw: string): number | null {
+  const n = parseWhole(raw);
+  return n !== null && n > 0 ? n : null;
+}
 import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
@@ -126,6 +138,16 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * 10_000 bps would make the floor 0. Never invent 50.
      */
     PROTOCOL_SWAP_SLIPPAGE_BPS: z.string().default('').transform(parseSwapSlippageBps),
+    /**
+     * How long the swap form may use one quote before it must read the pool again, in whole seconds (D-swap-02).
+     * NO DEFAULT: blank or not a positive integer is null and `amm.swapSettings` refuses `protocol.swap_settings_unset`.
+     */
+    PROTOCOL_SWAP_QUOTE_TTL_SECONDS: z.string().default('').transform(parsePositiveWhole),
+    /**
+     * Blocks on top of a swap's own block before the form calls it filled (D-swap-01). 0 means its own block is enough.
+     * NO DEFAULT: blank refuses `protocol.swap_settings_unset`, like the quote lifetime.
+     */
+    PROTOCOL_SWAP_CONFIRMATIONS: z.string().default('').transform(parseWhole),
     /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *

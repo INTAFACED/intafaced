@@ -20,6 +20,7 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  copyCursorRewindSql,
   fraudListingFields,
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
@@ -50,6 +51,8 @@ import {
   chartDataClassPayloadHash,
   chartDataClassProposal,
   nextTotpStep,
+  operatorLogin,
+  stepAfterRefusal,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
   POSTING_FREEZE_REASON,
@@ -573,6 +576,79 @@ assert.equal(nextTotpStep(101, 100), null, 'both spent: wait for the clock');
 assert.equal(nextTotpStep(105, 100), null);
 assert.equal(nextTotpStep(undefined, 100), 100);
 assert.equal(nextTotpStep('not a step', 100), 100, 'an unreadable last step never waits forever');
+
+// A refused code (auth.mfa_invalid) at the window edge: the retry counts as spent every step identity can hold by now
+// (one past its clock), so it waits for the next window and never sends a step identity may already have consumed.
+assert.equal(stepAfterRefusal(101, 100), 101, 'the step after the current one was refused: it stays the floor');
+assert.equal(stepAfterRefusal(100, 100), 101, 'the current step was refused: the one after it may be spent too');
+assert.equal(stepAfterRefusal(99, 100), 101, 'the clock moved on: anything up to the step after it may be spent');
+assert.equal(stepAfterRefusal('not a step', 100), 101);
+assert.equal(nextTotpStep(stepAfterRefusal(101, 100), 100), null, 'no fresh step left in this window: wait');
+assert.equal(nextTotpStep(stepAfterRefusal(101, 100), 101), 102, 'the next window gives a step identity cannot hold');
+
+// operatorLogin on a fake clock: run 833 shard 9's shape, founder a's code for the step after the current one refused
+// as auth.mfa_invalid 0.98 s into a window. One retry, logged with both steps, at a step only the next window opens.
+{
+  const STEP = 30_000;
+  const refusal = { status: 401, json: { error: { message: 'auth.mfa_invalid', data: { code: 'UNAUTHORIZED' } } }, text: '' };
+  const signedIn = (sid) => ({
+    status: 200,
+    json: { result: { data: { userId: 'u-a', accessToken: `h.${Buffer.from(JSON.stringify({ sid })).toString('base64url')}.s` } } },
+  });
+  const fakeCtx = (answers) => {
+    let now = 55 * STEP + 980;
+    const ctx = {
+      sent: [],
+      logs: [],
+      clock: () => now,
+      sleep: async (ms) => void (now += ms),
+      log: (line) => ctx.logs.push(line),
+      totp: { totp: (_secret, { at }) => `code@${at.getTime() / STEP}` },
+      edge: {
+        mutate: async (_svc, proc, input) => {
+          ctx.sent.push({ proc, code: input.totpCode, step: Math.floor(now / STEP) });
+          return answers.shift();
+        },
+      },
+    };
+    return ctx;
+  };
+
+  const op = { handle: 'local_test_founder_a', email: 'a@local.test', password: 'p', totpSecret: 'S', lastStep: 55 };
+  const ok = fakeCtx([refusal, signedIn('sess-2')]);
+  assert.match(await operatorLogin(ok, op), /^h\./);
+  assert.deepEqual(
+    ok.sent.map((s) => [s.code, s.step]),
+    [
+      ['code@56', 55],
+      ['code@57', 56],
+    ],
+    'the retry waits for the next window and sends a step after any identity can hold',
+  );
+  assert.equal(op.lastStep, 57, 'the step the retry spent is the one recorded for the next tool');
+  assert.equal(op.sessionId, 'sess-2');
+  assert.deepEqual(ok.logs, [
+    'operator local_test_founder_a: identity refused TOTP step 56 at step 55 (auth.mfa_invalid); signing in once more at the next window',
+    'operator local_test_founder_a: signed in at TOTP step 57 on the retry',
+  ]);
+
+  const twice = fakeCtx([refusal, refusal]);
+  await assert.rejects(
+    operatorLogin(twice, { ...op, lastStep: 55 }),
+    /login refused \(401\): auth\.mfa_invalid \[UNAUTHORIZED\] \(retried at TOTP step 57 after step 56 was refused\)/,
+    'a second refusal stops the run, naming both steps',
+  );
+  assert.equal(twice.sent.length, 2, 'one retry, never a loop');
+
+  const wrongPassword = { status: 401, json: { error: { message: 'auth.invalid_credentials', data: { code: 'UNAUTHORIZED' } } } };
+  const other = fakeCtx([wrongPassword, signedIn('never')]);
+  await assert.rejects(operatorLogin(other, { ...op, lastStep: 55 }), /auth\.invalid_credentials/);
+  assert.equal(other.sent.length, 1, 'only auth.mfa_invalid is retried');
+
+  const noFactor = fakeCtx([refusal]);
+  await assert.rejects(operatorLogin(noFactor, { handle: 'op', password: 'p', totpSecret: null, lastStep: 0 }), /auth\.mfa_invalid/);
+  assert.equal(noFactor.sent.length, 1, 'an account without a second factor is never retried');
+}
 for (let last = 95; last <= 102; last += 1) {
   const step = nextTotpStep(last, 100);
   if (step !== null) assert.ok(step > last && step >= 100 && step <= 100 + TOTP_SKEW_STEPS, `last ${last} gave ${step}`);
@@ -665,6 +741,25 @@ for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
     'a misspelt scope never passes as left out',
   );
 }
+// copy-rewind moves only the named follow of the fill's leader, to just before that fill; anything else is refused.
+{
+  const fill = '0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b';
+  const sql = copyCursorRewindSql('follow-1', fill.toUpperCase());
+  assert.ok(sql.includes(`WHERE id = '${fill}'::uuid`), 'the fill id is matched lowercased');
+  assert.ok(sql.includes("c.follow_id = 'follow-1' AND c.leader_id = f.leader"), "only that follow, and only of the fill's leader");
+  assert.ok(sql.includes("date_trunc('milliseconds', created_at)"), "the driver's own millisecond order");
+  assert.ok(sql.includes('p.id::text < f.id::text'), 'the cursor lands just before the fill, so the fill is tried again');
+  for (const [followId, fillId] of [
+    ["x'; DROP TABLE trade.copy_follows; --", fill],
+    ['follow-1', "0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b' OR '1'='1"],
+    ['follow-1', 'not-a-fill'],
+    ['', fill],
+    [undefined, undefined],
+  ]) {
+    assert.throws(() => copyCursorRewindSql(followId, fillId), /usage: local-test-gates.mjs copy-rewind/);
+  }
+}
+
 // The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.
 {
   const key = Buffer.alloc(32, 7);

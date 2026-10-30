@@ -9,14 +9,13 @@ import { api, toUnits, tool } from './stack.mjs';
 // TEST USDT and an agent of the person's own. Per-call, per-session and per-period caps reserve before the engine is
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
-// #1-#5 run on the agent's Limits, Test and Usage pages (AG-spend-01). Still unbuilt, failing at their first missing
-// part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6), and usage by agent, day and task
-// (AG-usage-02, #7).
+// #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02). Still unbuilt, failing at its
+// first missing part within UNBUILT: usage alerts and the hard monthly limit (AG-usage-03, #6).
 // Numbers: the agent's own cap is 1 USDT per session; the person sets 0.012 per call, 0.02 per session and 5 a month.
 // One run's worst case on the stack's test engine is just over 0.01024 USDT (2048 output tokens at 5 per million, plus
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
-// Not checkable on this stack yet: #7's blank-rate refusal, since the stack publishes a rate for every task; it can be
-// once the founder console can change a route's rate (J-agents-20).
+// #7's blank rate: svc-agents is restarted with the stack's LOCAL TEST rates off (LOCAL_STACK_AGENTS_RATES=off) in a
+// try/finally, so the refusal runs in the app with the rate named.
 const J = 'J-agents-02';
 const agents = agentsRun(J);
 
@@ -97,7 +96,8 @@ async function ledgerTrace(browser, businessKey) {
 
 /** One of the person's own agents service reads through Edge, on a sign-in of its own: the answer's data. */
 async function ownRead(who, procedure, input) {
-  const res = await (await api(who)).get(`/api/agents/trpc/own.${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(who)).get(`/api/agents/trpc/own.${procedure}${query}`);
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -131,6 +131,10 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   page,
 }) => {
   await openOwnAgent(page, agents, 'Limits');
+  const [agent] = (await ownRead(agents.account(), 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
+  const stored = async () => ownRead(agents.account(), 'limits.get', { id: agent.id });
+  const ownRuns = async (status) =>
+    (await ownRead(agents.account(), 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === status);
   const field = (name) => limits(page).getByRole('textbox', { name });
   await field(/^Per call/).fill('0.012');
   await field(/^Per session/).fill('0.02');
@@ -140,12 +144,21 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   // The agent's own stored cap is 1 per session; the person's 0.02 is lower, so 0.02 applies.
   await expect(limits(page).getByTestId('agent-cap')).toHaveText('The agent’s own cap per session: 1 USDT.');
   await expect(limits(page).getByTestId('effective-per-session')).toHaveText('0.02 USDT applies');
+  // svc-agents holds the three caps as set, the agent's own 1, and 0.02 as the one that applies.
+  const saved = await stored();
+  expect(saved).toMatchObject({
+    limits: { perCall: '0.012', perSession: '0.02', perPeriod: '5', period: 'month' },
+    agentCap: '1',
+    effectivePerSession: '0.02',
+    assetId: 'USDT',
+  });
   // A user value above the stored cap is refused rather than raised, and the saved caps are unchanged.
   await field(/^Per session/).fill('3');
   await limits(page).getByRole('button', { name: 'Save limits' }).click();
   const refusal = limits(page).getByRole('alert');
   await expect(refusal).toContainText('That is above the agent’s own cap of 1 USDT.');
   await expect(refusal.locator('code')).toHaveText('agents.spend.above_agent_cap');
+  expect(await stored()).toEqual(saved);
   await page.reload();
   await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Limits', exact: true }).click();
   await expect(field(/^Per call/)).toHaveValue('0.012');
@@ -158,6 +171,8 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   await expect(limits(page).getByTestId('agent-cap')).toHaveText('The agent’s own cap per session: 0.01 USDT.');
   await expect(limits(page).getByTestId('effective-per-session')).toHaveText('0.01 USDT applies');
   await expect(field(/^Per session/)).toHaveValue('0.02');
+  expect(await stored()).toMatchObject({ limits: saved.limits, agentCap: '0.01', effectivePerSession: '0.01' });
+  const refusedBefore = await ownRuns('refused');
   const before = await ledgerBalances(agents.account());
   await session(page).getByRole('button', { name: 'Open a session' }).click();
   await expect(session(page).getByText('Session open:')).toBeVisible();
@@ -171,10 +186,34 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   await expect(refusedRow).toHaveCount(1);
   await expect(refusedRow.locator('code')).toHaveText('agents.spend_limit');
   await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
+  // svc-agents recorded exactly one new run, refused by that code, costing 0.
+  const refusedAfter = await ownRuns('refused');
+  expect(refusedAfter).toHaveLength(refusedBefore.length + 1);
+  expect(refusedAfter.filter((row) => row.refusalCode === 'agents.spend_limit')).toEqual([
+    expect.objectContaining({ cost: '0', assetId: 'USDT' }),
+  ]);
   expect(await ledgerBalances(agents.account())).toEqual(before);
-  // Raised back to 1, the person's 0.02 is the lower again.
+  // Raised back to 1, the person's 0.02 is the lower again, and a run whose worst case is within it is admitted.
   await setAgentCap(page, '1');
   await expect(limits(page).getByTestId('effective-per-session')).toHaveText('0.02 USDT applies');
+  expect(await stored()).toMatchObject({ limits: saved.limits, agentCap: '1', effectivePerSession: '0.02' });
+  const executed = () => ownRuns('executed');
+  const executedBefore = await executed();
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await expect(session(page).getByRole('alert')).toHaveCount(0);
+  const replyCost = (await session(page).getByTestId('reply-cost').innerText()).replace(/ USDT$/, '');
+  const executedAfter = await executed();
+  expect(executedAfter).toHaveLength(executedBefore.length + 1);
+  const ran = executedAfter.find((row) => !executedBefore.some((old) => old.sessionId === row.sessionId && old.sequence === row.sequence));
+  expect(ran).toMatchObject({ refusalCode: null, cost: replyCost, assetId: 'USDT' });
+  expect(toUnits(ran.cost)).toBeGreaterThan(0n);
+  expect(toUnits(ran.cost)).toBeLessThanOrEqual(toUnits('0.02'));
 });
 
 test(`${J} #3 starts two runs together whose worst cases are each more than half the cap: exactly one is admitted, the other refused before the engine and bills 0`, async ({
@@ -191,31 +230,37 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   const [agent] = (await ownRead(agents.account(), 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
   const ownRuns = async (status) =>
     (await ownRead(agents.account(), 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === status);
+  const executed = () => ownRuns('executed');
   const refusedBefore = await ownRuns('refused');
-  const executedBefore = await ownRuns('executed');
+  const executedBefore = await executed();
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length);
+  await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length);
   const before = await ledgerBalances(agents.account());
   await session(page).getByRole('button', { name: 'Run twice at once' }).click();
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_exceeded');
-  const admitted = runs.getByRole('row').filter({ hasText: 'Admitted' });
-  await expect(admitted).toHaveCount(1);
-  // One more refused row than before (#2 left one of its own), and it is this cap's.
+  // One more admitted and one more refused row than before (#2 left one of each), and the refused one is this cap's.
+  await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length + 1);
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length + 1);
-  // svc-agents holds exactly one new refused run, this cap's, and exactly one new executed run.
+  // svc-agents holds exactly one new refused run, this cap's.
   const refusedAfter = await ownRuns('refused');
   expect(refusedAfter).toHaveLength(refusedBefore.length + 1);
-  expect(refusedAfter.filter((row) => row.refusalCode === 'agents.spend.cap_exceeded')).toHaveLength(1);
-  expect(await ownRuns('executed')).toHaveLength(executedBefore.length + 1);
+  expect(refusedAfter.filter((row) => row.refusalCode === 'agents.spend.cap_exceeded')).toEqual([
+    expect.objectContaining({ cost: '0', assetId: 'USDT' }),
+  ]);
   const refused = runs.getByRole('row').filter({ hasText: 'agents.spend.cap_exceeded' });
   await expect(refused).toHaveCount(1);
   await expect(refused).toContainText('Refused');
   await expect(refused.getByTestId('run-cost')).toHaveText('0 USDT');
-  // The admitted run's exact cost is the one its reply showed, above 0 and within the per-call cap.
-  const cost = (await admitted.getByTestId('run-cost').innerText()).replace(/ USDT$/, '');
-  await expect(session(page).getByTestId('reply-cost')).toHaveText(`${cost} USDT`);
-  expect(toUnits(cost)).toBeGreaterThan(0n);
-  expect(toUnits(cost)).toBeLessThanOrEqual(toUnits('0.012'));
+  // The admitted run, read back from svc-agents, is the one new executed run; its exact cost is the one its reply
+  // showed, above 0 and within the per-call cap.
+  const executedAfter = await executed();
+  expect(executedAfter).toHaveLength(executedBefore.length + 1);
+  const ran = executedAfter.find((row) => !executedBefore.some((old) => old.sessionId === row.sessionId && old.sequence === row.sequence));
+  await expect(session(page).getByTestId('reply-cost')).toHaveText(`${ran.cost} USDT`);
+  expect(ran).toMatchObject({ refusalCode: null, assetId: 'USDT' });
+  expect(toUnits(ran.cost)).toBeGreaterThan(0n);
+  expect(toUnits(ran.cost)).toBeLessThanOrEqual(toUnits('0.012'));
   // Nothing is billed and nothing is held in the ledger: every balance, free and used, is as it was before the two
   // runs (the admitted run is charged only when its window seals).
   expect(await ledgerBalances(agents.account())).toEqual(before);
@@ -426,15 +471,149 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(main(page).getByRole('alert')).toContainText('agents.usage.hard_limit_reached');
 });
 
-test(`${J} #7 opens usage by agent, day and task: totals match the sum of the sealed windows; a blank rate refuses the run with the rate named`, async ({
+/** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
+// Set from the moment svc-agents may run with its rates blank until a restore has succeeded, so a test that times out
+// before its finally, or a restore that throws, is restored again after the test.
+let ratesBlank = false;
+test.afterEach(() => {
+  if (ratesBlank) blankRates(false);
+});
+
+function blankRates(blank) {
+  if (blank) ratesBlank = true;
+  const before = process.env.LOCAL_STACK_AGENTS_RATES;
+  if (blank) process.env.LOCAL_STACK_AGENTS_RATES = 'off';
+  else delete process.env.LOCAL_STACK_AGENTS_RATES;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'agents');
+    if (!blank) ratesBlank = false;
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_AGENTS_RATES;
+    else process.env.LOCAL_STACK_AGENTS_RATES = before;
+  }
+}
+
+test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed windows; a blank rate refuses the run with the rate named`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Usage');
-  const usage = tableIn(main(page), 'Usage by day and task');
-  await expect(usage).toBeVisible(UNBUILT);
-  const sealed = tableIn(main(page), 'Usage windows');
+  test.setTimeout(240_000);
+  // A fourth TEST person with 1 USDT and two agents of their own, each run once in a session that is then closed.
+  const user = await fundedTrader(page, 'ag02d', '1');
+  const funded = await ledgerBalances(user);
+  const SECOND = 'TEST second helper';
+  await ownAgentWithLimits(page, user);
+  await runAndClose(page);
+  await createOwnAgent(page, { name: SECOND });
+  await page.goto('/agents');
+  await main(page).getByRole('link', { name: SECOND, exact: true }).click();
+  await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+  await limits(page)
+    .getByRole('textbox', { name: /^Per call/ })
+    .fill('0.012');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per session/ })
+    .fill('0.02');
+  await limits(page)
+    .getByRole('textbox', { name: /^Per month/ })
+    .fill('5');
+  await limits(page).getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits(page).getByRole('status')).toHaveText('Limits saved.');
+  await runAndClose(page);
+
   // Exact sums in scaled units, never floats: each cell is a decimal string such as "0.00012345 USDT".
-  const sum = async (table, id) =>
-    (await table.getByTestId(id).allInnerTexts()).reduce((total, text) => total + toUnits(text.replace(/ USDT$/, '')), 0n);
-  expect(await sum(usage, 'usage-cost')).toBe(await sum(sealed, 'window-cost'));
+  const units = (text) => toUnits(text.replace(/ USDT$/, ''));
+  const sum = async (cells) => (await cells.allInnerTexts()).reduce((total, text) => total + units(text), 0n);
+  let total = 0n;
+  for (const name of [OWN_AGENT, SECOND]) {
+    await page.goto('/agents');
+    await main(page).getByRole('link', { name, exact: true }).click();
+    await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
+    const sealed = tableIn(main(page), 'Usage windows');
+    await expect(sealed.getByRole('row')).toHaveCount(2);
+    await expect(sealed).toContainText('Settled');
+    const usage = tableIn(main(page), 'Usage by agent, day and task');
+    // The usage view lists every agent the person built, by name, and nothing else.
+    const rows = usage.locator('tbody tr');
+    expect(new Set(await rows.locator('td:nth-child(1)').allInnerTexts())).toEqual(new Set([OWN_AGENT, SECOND]));
+    const mine = rows.filter({ has: page.getByRole('cell', { name, exact: true }) });
+    await expect(mine).toHaveCount(1);
+    // The day is the UTC day the agent's window opened on (its window id starts with it), not the test's clock.
+    const [agent] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === name);
+    const held = await ownRead(user, 'usage', { id: agent.id, limit: 50 });
+    expect(held).toHaveLength(1);
+    expect(held[0].state).toBe('settled');
+    await expect(mine.getByRole('cell').nth(1)).toHaveText(held[0].windowId.slice(0, 10));
+    await expect(mine.getByRole('cell').nth(2)).toHaveText('own.run');
+    await expect(mine.getByRole('cell').nth(3)).toHaveText('1');
+    // This agent's row is exactly the sum of its sealed windows, and is more than nothing.
+    const windows = await sum(sealed.getByTestId('window-cost'));
+    expect(windows).toBeGreaterThan(0n);
+    // The page's window cost is the amount svc-agents sealed and settled.
+    expect(held[0]).toMatchObject({ assetId: 'USDT' });
+    expect(toUnits(held[0].amount)).toBe(windows);
+    expect(await sum(mine.getByTestId('usage-cost'))).toBe(windows);
+    total += windows;
+  }
+  // Together the rows are exactly what the two agents' sealed windows add up to.
+  expect(await sum(tableIn(main(page), 'Usage by agent, day and task').getByTestId('usage-cost'))).toBe(total);
+  // What the usage view adds up to is what the ledger charged the person: the funded balance less the two windows.
+  const after = await ledgerBalances(user);
+  expect(toUnits(funded.USDT.total) - toUnits(after.USDT.total)).toBe(total);
+  expect(toUnits(funded.USDT.free) - toUnits(after.USDT.free)).toBe(total);
+  const byDay = await ownRead(user, 'usageByDay', undefined);
+  const [second] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === SECOND);
+  const secondRuns = async (status) => (await ownRead(user, 'runs', { id: second.id, limit: 50 })).filter((row) => row.status === status);
+  const executedBefore = await secondRuns('executed');
+  expect(executedBefore).toHaveLength(1);
+
+  // A blank rate: svc-agents restarted with no rates published. The service lists the agents' task with no rate, the
+  // run refuses with that rate named and its exact code before any reply, and nothing runs free.
+  try {
+    blankRates(true);
+    const routes = await (await api(user)).get('/api/agents/trpc/routes.list');
+    expect(routes.status).toBe(200);
+    const ownRun = routes.body.result.data.filter((row) => row.task === 'own.run');
+    expect(ownRun).toHaveLength(1);
+    expect(ownRun[0]).toMatchObject({ inputPerMillion: null, outputPerMillion: null });
+    await page.goto('/agents');
+    await main(page).getByRole('link', { name: SECOND, exact: true }).click();
+    await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
+    await session(page).getByRole('button', { name: 'Open a session' }).click();
+    await session(page)
+      .getByRole('textbox', { name: /^Ask the agent/ })
+      .fill('TEST question');
+    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+    const refusal = session(page).getByRole('alert');
+    await expect(refusal.locator('code')).toHaveText('agents.price_unset');
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+    // Read back after the refusal: one refused run at 0 under that code, logged under the task whose rate is blank;
+    // the page names the rate as svc-agents logged it, in the alert and in the run's row.
+    const refused = await secondRuns('refused');
+    expect(refused).toHaveLength(1);
+    expect(refused[0].task).toBe('own.run');
+    const named = `No rate is published for ${refused[0].task}, the rate this run is billed at, so it does not run. Nothing runs free.`;
+    await expect(refusal).toHaveText(`${named} agents.price_unset`);
+    await expect(tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.price_unset' })).toContainText(named);
+    // Nothing ran free: no new executed run, and no failed one either.
+    expect(await secondRuns('executed')).toEqual(executedBefore);
+    expect(await secondRuns('failed')).toEqual([]);
+    expect(refused[0]).toMatchObject({ refusalCode: 'agents.price_unset', cost: '0' });
+    expect(await ownRead(user, 'usageByDay', undefined)).toEqual(byDay);
+    expect(await ledgerBalances(user)).toEqual(after);
+  } finally {
+    blankRates(false);
+  }
 });
+
+/** Opens a session on the agent's page, runs it once and closes it, so its one window seals and is charged. */
+async function runAndClose(page) {
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await session(page).getByRole('button', { name: 'Close session' }).click();
+  await expect(session(page).getByText('Session closed. Its usage is paid.')).toBeVisible();
+}

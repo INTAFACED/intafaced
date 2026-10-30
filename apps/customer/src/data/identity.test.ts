@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../shared/api';
-import { cleanHandle, fetchMe, resolveHandle } from './identity';
+import { cleanHandle, fetchMe, fetchMyPayQr, resolveHandle, resolvePayQr } from './identity';
 
 const ID = '1f985d42-852d-4b50-a4d9-bdfa0384027c';
 const trpc = (data: unknown) => new Response(JSON.stringify({ result: { data } }), { status: 200 });
@@ -84,5 +84,27 @@ describe('resolveHandle', () => {
   });
   it('a malformed answer is a failure', async () => {
     expect(await resolveHandle(client(() => trpc({ found: true, handle: 'abc' })).api, 'abc')).toEqual({ kind: 'failed' });
+  });
+});
+
+describe('signed pay codes', () => {
+  const refused = (code: string, status = 400) => error(status, { error: { message: 'x', data: { cause: { code } } } });
+
+  it('reads the caller’s own code, and says when no signing key is set', async () => {
+    const { api, urls } = client(() => trpc({ payload: `v1.${ID}.sig` }));
+    expect(await fetchMyPayQr(api)).toEqual({ kind: 'ok', payload: `v1.${ID}.sig` });
+    expect(urls[0]).toBe('/api/identity/trpc/qr.mine');
+    expect(await fetchMyPayQr(client(() => refused('identity.qr_key_unset', 412)).api)).toEqual({ kind: 'unset' });
+    expect(await fetchMyPayQr(client(() => error(500)).api)).toEqual({ kind: 'failed' });
+  });
+
+  it('resolves a scanned code to its payee, and names each refusal', async () => {
+    const { api, urls } = client(() => trpc({ userId: ID, handle: 'test_friend', self: false }));
+    expect(await resolvePayQr(api, `v1.${ID}.sig`)).toEqual({ kind: 'found', userId: ID, handle: 'test_friend', self: false });
+    expect(decodeURIComponent(urls[0] ?? '')).toContain(`qr.resolve?input={"payload":"v1.${ID}.sig"}`);
+    expect(await resolvePayQr(client(() => refused('identity.qr_invalid')).api, 'x')).toEqual({ kind: 'invalid' });
+    expect(await resolvePayQr(client(() => refused('identity.qr_payee_unavailable', 404)).api, 'x')).toEqual({ kind: 'payeeUnavailable' });
+    expect(await resolvePayQr(client(() => refused('identity.qr_key_unset', 412)).api, 'x')).toEqual({ kind: 'unset' });
+    expect(await resolvePayQr(client(() => error(500)).api, 'x')).toEqual({ kind: 'failed' });
   });
 });

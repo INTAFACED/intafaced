@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { scanQr } from './qr-read.mjs';
 
 // J-pay-03, in the running app (docs/roadmap/journeys.json): pick a handle, choose who can find it, and receive a payment.
 // One test per step, titled "J-pay-03 #<n>", run in order on two TEST accounts: A receives, B is a stranger who pays.
@@ -8,9 +9,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3's QR clause: the QR code carries the handle, so with finding by handle off a scan misses too (PP-send-request-11).
+// - #4's camera-denied clause: Scan to pay has no image upload yet (PP-send-request-11).
 // - #5, #6: no stranger rule and no receive-by email or phone (PP-money-balance-05).
-// - #4: no QR scan that opens Send prefilled, and no tampered-code refusal (PP-send-request-11).
+// A refusal is matched by the typed code identity sent the page (`answer`), and after it the record and balances are
+// read again unchanged.
 const J = 'J-pay-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -25,6 +27,43 @@ function people() {
 
 const usdt = async (who) => (await (await api(who)).balances()).USDT ?? { free: '0', used: '0' };
 
+/** The person's own record as identity answers it to them. */
+async function record(who) {
+  const res = await (await api(who)).get('/api/identity/trpc/me');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** Whether identity says the person can be found by their handle, read through their own API. */
+async function findable(who) {
+  const res = await (await api(who)).get('/api/identity/trpc/handle.get');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.discoverable;
+}
+
+/** Identity's answer when `who` looks up `handle`, through their own API. */
+async function lookUp(who, handle) {
+  const input = encodeURIComponent(JSON.stringify({ handle }));
+  const res = await (await api(who)).get(`/api/identity/trpc/users.resolveHandle?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** Both people's TEST USDT, read through their own API. */
+async function balances(me, stranger) {
+  return { me: (await usdt(me)).free, stranger: (await usdt(stranger)).free };
+}
+
+/** Runs `go` and returns identity's answer to the page for `procedure`: its data, or the typed refusal code it sent. */
+async function answer(page, procedure, go) {
+  const res = page.waitForResponse((r) => r.url().includes(`/api/identity/trpc/${procedure}`));
+  res.catch(() => {}); // when `go` fails first, its own error is the one reported
+  await go();
+  const got = await res;
+  const body = await got.json();
+  return { status: got.status(), data: body.result?.data, code: body.error?.data?.cause?.code };
+}
+
 /** B sends A `amount` USDT by A's handle, through Pay's own Send, and returns the outcome text. */
 async function strangerPays(page, handle, amount) {
   const { stranger } = people();
@@ -35,7 +74,7 @@ async function strangerPays(page, handle, amount) {
   await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
   await page.getByLabel(/Amount/).fill(amount);
   await page.getByRole('button', { name: 'Review' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
   // A refusal is an alert: the send went through only if none shows.
   await expect(page.getByRole('alert')).toHaveCount(0);
@@ -156,40 +195,58 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
   const discoverable = () => page.getByRole('switch', { name: 'Let people find me by my handle' });
   await signIn(page, me);
   await page.goto('/pay/receive');
-  // The handle the stranger looks for is this account's current one (#2 changed it).
-  await expect(page.getByTestId('receive-value')).toHaveText(`@${me.handle}`);
-  // What the QR code encodes is the link printed under it.
+  // The handle the stranger looks for is this account's current one (#2 changed it), read back from identity.
+  const mine = await record(me);
+  await expect(page.getByTestId('receive-value')).toHaveText(`@${mine.handle}`);
+  // The stranger's camera reads the QR code drawn on Receive: it encodes the link printed under it, to Send.
   const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
+  expect(await scanQr(page.getByTestId('pay-qr')), 'the drawn QR code scans to the printed link').toBe(link);
   expect(new URL(link).pathname, 'the QR code opens Send for this account').toBe('/pay/send');
-  await discoverable().click(UNBUILT);
+  // While findable, the same handle search finds this account, so the miss below is the switch's doing.
+  expect(await findable(me)).toBe(true);
+  expect(await lookUp(stranger, mine.handle)).toEqual({ found: true, userId: mine.userId, handle: mine.handle, self: false });
+  await discoverable().click();
   await expect(discoverable()).not.toBeChecked();
+  await page.reload();
+  await expect(discoverable(), 'the switch stays off after a reload').not.toBeChecked();
+  expect(await findable(me), 'identity stores the switch off').toBe(false);
+  const hidden = await record(me);
   try {
     await signOutBrowser(page.context());
     await signIn(page, stranger);
     await page.goto('/pay/send');
-    await page.getByRole('textbox', { name: 'Handle' }).fill(me.handle);
-    await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
-    await expect(page.getByRole('alert')).toHaveText(`No one with this handle. We couldn’t find @${me.handle}. Check the spelling.`);
+    const search = await answer(page, 'users.resolveHandle', async () => {
+      await page.getByRole('textbox', { name: 'Handle' }).fill(mine.handle);
+      await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
+    });
+    expect(search, 'identity answers not found to others').toEqual({ status: 200, data: { found: false }, code: undefined });
+    await expect(page.getByRole('alert')).toHaveText(`No one with this handle. We couldn’t find @${mine.handle}. Check the spelling.`);
+    expect(await record(me)).toEqual(hidden);
 
-    // The stranger scans the QR code: Send opens on this account and the payment lands in its balance.
+    // The stranger scans the QR code: Send opens on this account and the payment lands once: this account's balance
+    // rises by exactly 1 TEST USDT and the stranger's falls by exactly 1, both read from the service.
     const before = toUnits((await usdt(me)).free);
+    const spending = toUnits((await usdt(stranger)).free);
     const url = new URL(link);
-    await page.goto(`${url.pathname}${url.search}`);
-    // The payee is looked up once the link fills it in; a miss is an alert, and the scan must not miss.
-    await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(me.handle);
-    await expect(page.locator('#pay-to-status')).not.toBeEmpty();
-    // UNBUILT until PP-send-request-11: the QR code carries the handle, not a signed payee, so with finding by
-    // handle off the scan misses too. This assertion is the one that turns green when that slice lands.
-    await expect(
-      page.getByRole('alert'),
-      'the QR link opens Send on this account (unbuilt: needs the signed QR code of PP-send-request-11)',
-    ).toHaveCount(0, UNBUILT);
+    const scanned = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
+    expect(scanned, 'the QR code resolves to this account by its id').toEqual({
+      status: 200,
+      data: { userId: mine.userId, handle: mine.handle, self: false },
+      code: undefined,
+    });
+    await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);
+    await expect(page.getByTestId('recipient-found')).toContainText(`@${mine.handle}`);
+    await expect(page.getByRole('alert'), 'the QR link opens Send on this account').toHaveCount(0);
     await page.getByLabel(/Amount/).fill('1');
     await page.getByRole('button', { name: 'Review' }).click({ timeout: 15_000 });
-    await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
+    await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });
     await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
+    await expect.poll(async () => spending - toUnits((await usdt(stranger)).free), { timeout: 30_000 }).toBe(toUnits('1'));
+    // Once: a fresh read of both still shows exactly one payment.
+    expect(toUnits((await usdt(me)).free) - before).toBe(toUnits('1'));
+    expect(spending - toUnits((await usdt(stranger)).free)).toBe(toUnits('1'));
   } finally {
     // Back on, so #5 can be paid by handle.
     await signOutBrowser(page.context());
@@ -197,23 +254,69 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await page.goto('/pay/receive');
     if (!(await discoverable().isChecked())) await discoverable().click();
     await expect(discoverable()).toBeChecked();
+    expect(await findable(me)).toBe(true);
+    expect(await lookUp(stranger, mine.handle), 'found again once back on').toEqual({
+      found: true,
+      userId: mine.userId,
+      handle: mine.handle,
+      self: false,
+    });
   }
 });
 
 test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a payee preview; a tampered code is refused; with the camera denied an image upload works`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const { me, stranger } = people();
   await signIn(page, me);
   await page.goto('/pay/receive');
-  const link = await page.getByTestId('receive-qr-link').textContent(UNBUILT);
-  expect(link).toMatch(/\/pay\/send\?/);
+  const mine = await record(me);
+  await expect(page.getByTestId('pay-qr')).toBeVisible();
+  const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
+  expect(await scanQr(page.getByTestId('pay-qr')), 'the drawn QR code scans to the printed link').toBe(link);
+  // The image the friend will upload is the QR code exactly as Receive draws it.
+  const picture = await page.getByTestId('pay-qr').screenshot();
+  const url = new URL(link);
+  const code = url.searchParams.get('qr') ?? '';
+  expect(code, 'the QR code carries a signed pay code').toMatch(/^v1\./);
+
+  // The friend opens what the QR code scanned to: Send prefilled with the payee preview identity resolved.
   await signOutBrowser(page.context());
   await signIn(page, stranger);
-  await page.goto(link ?? '/');
-  await expect(page.getByTestId('send-payee-preview')).toContainText(me.handle);
-  await page.goto(`${link}x`);
+  const scanned = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
+  expect(scanned).toEqual({ status: 200, data: { userId: mine.userId, handle: mine.handle, self: false }, code: undefined });
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);
+  await expect(page.getByTestId('recipient-found')).toContainText(`@${mine.handle}`);
+
+  // A tampered code (its last character changed) refuses identity.qr_invalid, and nothing moves.
+  const held = await balances(me, stranger);
+  const tampered = new URL(link);
+  tampered.searchParams.set('qr', `${code.slice(0, -1)}${code.endsWith('A') ? 'B' : 'A'}`);
+  const refused = await answer(page, 'qr.resolve', () => page.goto(`${tampered.pathname}${tampered.search}`));
+  expect(refused).toEqual({ status: 400, data: undefined, code: 'identity.qr_invalid' });
   await expect(page.getByRole('alert')).toContainText('This code is not valid');
+  await expect(page.getByTestId('recipient-found')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue('');
+  expect(await record(me)).toEqual(mine);
+  expect(await balances(me, stranger)).toEqual(held);
+
+  // With the camera denied, an image of the QR code opens Send on the payee. UNBUILT: Scan to pay has no image upload.
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+  });
+  await page.goto('/pay/scan');
+  const uploaded = await answer(page, 'qr.resolve', () =>
+    page
+      .getByLabel('Choose an image of a QR code')
+      .setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }, UNBUILT)
+      .catch((err) => {
+        throw new Error(`with the camera denied an image upload works (unbuilt: PP-send-request-11): ${err.message}`);
+      }),
+  );
+  expect(uploaded).toEqual({ status: 200, data: { userId: mine.userId, handle: mine.handle, self: false }, code: undefined });
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);
+  await expect(page.getByTestId('recipient-found')).toContainText(`@${mine.handle}`);
 });
 
 test(`${J} #5 sets how to treat payments from people not in contacts: a stranger's payment waits, and can be accepted or denied`, async ({
