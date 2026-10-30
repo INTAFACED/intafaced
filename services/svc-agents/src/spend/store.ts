@@ -406,13 +406,14 @@ export class UserSpendStore implements SpendGate {
           if (!decision.ok) throw spendLimit(decision.cap, assetId, decision.scope);
         }
         if (own && ownAgentId) {
-          // The month's hard limit refuses a new run once the agent's runs reached it, held ones counted at their worst
-          // case; a run already held is not checked again at commit, so it finishes.
+          // The month's hard limit admits a run only when its worst case fits beside the agent's runs, held ones counted
+          // at their worst case, so the month never passes it; a run already held is not checked again at commit.
           await assertBelowHardLimit(tx, {
             userId: input.userId,
             agentId: ownAgentId.slice(OWN_PREFIX.length),
             assetId,
             used: await ownAgentUsed(tx, input.userId, ownAgentId, periodStart('month', now)),
+            amount,
             now,
           });
           // Every hold of the session and of the month counts, held ones included, so two runs at once whose worst

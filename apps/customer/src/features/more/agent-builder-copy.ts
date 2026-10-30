@@ -130,7 +130,8 @@ const en = {
   usageSpent: 'Spent by this agent in {month}: {amount}.',
   alertCrossed: 'This month’s alert was recorded once, at {amount}. Runs go on.',
   alertNotCrossed: 'This month’s alert has not been reached.',
-  hardLimitReached: 'The hard limit is reached: new runs are refused until next month or until you raise it.',
+  hardLimitReached:
+    'The hard limit is reached: less than one run at this agent’s per-call cap fits this month, so a run that does not fit is refused until next month or until you raise it.',
   hardLimitNotReached: 'The hard limit is not reached.',
   saveUsageLimits: 'Save alert and limit',
   usageLimitsSaved: 'Alert and limit saved.',
@@ -322,7 +323,8 @@ const es = {
   usageSpent: 'Gastado por este agente en {month}: {amount}.',
   alertCrossed: 'La alerta de este mes se registró una vez, con {amount}. Las ejecuciones siguen.',
   alertNotCrossed: 'No se ha alcanzado la alerta de este mes.',
-  hardLimitReached: 'Se alcanzó el límite máximo: se rechazan ejecuciones nuevas hasta el mes que viene o hasta que lo subas.',
+  hardLimitReached:
+    'Se alcanzó el límite máximo: este mes ya no cabe una ejecución al tope por llamada de este agente, así que se rechaza la que no quepa hasta el mes que viene o hasta que lo subas.',
   hardLimitNotReached: 'No se ha alcanzado el límite máximo.',
   saveUsageLimits: 'Guardar alerta y límite',
   usageLimitsSaved: 'Alerta y límite guardados.',
@@ -515,7 +517,7 @@ const fr = {
   alertCrossed: 'L’alerte de ce mois a été enregistrée une fois, à {amount}. Les exécutions continuent.',
   alertNotCrossed: 'L’alerte de ce mois n’a pas été atteinte.',
   hardLimitReached:
-    'La limite ferme est atteinte : les nouvelles exécutions sont refusées jusqu’au mois prochain ou jusqu’à ce que vous la releviez.',
+    'La limite ferme est atteinte : ce mois-ci, une exécution au plafond par appel de cet agent ne tient plus, donc celle qui ne tient pas est refusée jusqu’au mois prochain ou jusqu’à ce que vous la releviez.',
   hardLimitNotReached: 'La limite ferme n’est pas atteinte.',
   saveUsageLimits: 'Enregistrer l’alerte et la limite',
   usageLimitsSaved: 'Alerte et limite enregistrées.',

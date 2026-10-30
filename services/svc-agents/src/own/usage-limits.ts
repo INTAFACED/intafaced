@@ -5,6 +5,7 @@ import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/l
 import { AgentError } from '../errors.js';
 import { periodStart } from '../spend/limits.js';
 import { OwnAgentRefusal } from './catalog.js';
+import { readOwnCaps } from './limits.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OWN_PREFIX = 'own.';
@@ -104,12 +105,14 @@ export async function ownAgentSpent(
  */
 export async function assertBelowHardLimit(
   tx: Sql,
-  input: { userId: string; agentId: string; assetId: string; used: Amount; now: Date },
+  input: { userId: string; agentId: string; assetId: string; used: Amount; amount: Amount; now: Date },
 ): Promise<void> {
-  const { userId, agentId, assetId, used, now } = input;
+  const { userId, agentId, assetId, used, amount, now } = input;
   const limits = await readOwnUsageLimits(tx, userId, agentId);
   if (!limits?.hardLimit) return;
-  if (used >= limits.hardLimit) {
+  // Strict: the run is admitted only when its worst case fits under the limit beside everything already spent or held,
+  // so the month's spend never passes the limit, not even by one run.
+  if (used + amount > limits.hardLimit) {
     throw new AgentError(
       `Own agent hard limit ${formatAmount(limits.hardLimit)} ${assetId} for ${usageMonth(now)} is reached`,
       'agents.usage.hard_limit_reached',
@@ -286,6 +289,7 @@ export class OwnUsageLimitsStore {
     const spent = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now));
     // The same measure the hard limit admits runs against: what was spent plus every run still held at its worst case.
     const used = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now), { held: true });
+    const caps = await readOwnCaps(sql, ownerId, agentId);
     const alerts = await sql<Array<{ alert_key: string; spent: string }>>`
       SELECT alert_key, spent::text FROM agents.own_agent_usage_alerts WHERE alert_key = ${usageAlertKey(agentId, month)}
     `;
@@ -298,7 +302,8 @@ export class OwnUsageLimitsStore {
       spent: formatAmount(spent),
       alertCrossed: alert !== undefined,
       alert: alert ? { key: alert.alert_key, spent: formatAmount(parseAmount(alert.spent)) } : null,
-      hardLimitReached: limits?.hardLimit != null && used >= limits.hardLimit,
+      // A run's worst case is at most the agent's per-call cap, so while one more at that cap fits, every run is admitted.
+      hardLimitReached: limits?.hardLimit != null && used + (caps?.perCall ?? 0n) > limits.hardLimit,
     };
   }
 }
