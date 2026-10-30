@@ -873,7 +873,8 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
       const parent = await parentOf(trader, id);
       const progress = await progressOf(trader, id);
       const text = async (name) => (await cellOf(id, name).innerText()).replace(/,/g, '').trim();
-      expect(await text('Market')).toBe(parent.symbol);
+      // The market cell also holds the row's hidden "Schedule <id>" label, on its own line.
+      expect((await text('Market')).split('\n')[0]).toBe(parent.symbol);
       expect(await text('Side')).toBe(parent.side === 'buy' ? 'Buy' : 'Sell');
       expect(await text('Kind')).toBe(parent.kind.toUpperCase());
       expect(toUnits(await text('Total'))).toBe(toUnits(parent.totalQty));
@@ -886,7 +887,8 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
       expect(await text('Misses')).toBe(String(progress.missesRecorded));
       expect(await text('Status')).toContain(STATUS_WORD[progress.status]);
       const next = await text('Next slice');
-      if (progress.status !== 'active') expect(next).toBe('');
+      // A schedule that is not running has no next slice: the cell draws its blank as a dash.
+      if (progress.status !== 'active') expect(next).toBe('—');
       else if (parent.awaitingTrigger) expect(next).toBe('After the trigger price is reached');
       else expect(next).not.toBe('');
     }).toPass({ timeout: 30_000 });
@@ -910,7 +912,26 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
   expect((await progressOf(trader, state('triggered'))).filledQty).toMatch(/^0(\.0+)?$/);
   await expect(cellOf(state('triggered'), 'Average fill price')).toHaveText('Not set');
   await rowOf(state('triggered')).click();
-  await expect(detailValue(page, 'Average fill price')).toHaveText('Not set');
+  // The value comes first; the line's explanation follows it in the same cell.
+  await expect(detailValue(page, 'Average fill price')).toHaveText(/^Not set(?![\d.])/);
+
+  // Pause and resume from a row, each through its confirm, on #3's schedule: it waits for its trigger, so neither places
+  // a slice (a resume re-spaces from that instant, which would place the next slice of a running schedule at once).
+  const waiting = state('triggered');
+  for (const [action, word, after] of [
+    ['Pause', 'Pause schedule', 'paused'],
+    ['Resume', 'Resume schedule', 'active'],
+  ]) {
+    await rowOf(waiting)
+      .getByRole('button', { name: `${action} ${waiting}` })
+      .click();
+    await page.getByRole('alertdialog').getByRole('button', { name: word }).click();
+    await expect.poll(async () => (await parentOf(trader, waiting)).status, { timeout: 15_000 }).toBe(after);
+    await expect(cellOf(waiting, 'Status')).toContainText(STATUS_WORD[after], { timeout: 15_000 });
+  }
+  const resumed = await parentOf(trader, waiting);
+  expect(resumed.awaitingTrigger).toBe(true);
+  expect(resumed.children).toEqual([]);
 
   // A TWAP buy on the unquoted TEST book, where the other trader rests a bid and a small ask: its first child (1 IFC at
   // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is five minutes away, so
@@ -950,19 +971,6 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     const child = (await parentOf(trader, id)).children[0].orderId;
     await expect.poll(async () => (await openOrders(trader, UNQUOTED)).map((o) => o.id), { timeout: 15_000 }).toContain(child);
     await expect.poll(async () => (await progressOf(trader, id)).filledQty, { timeout: 15_000 }).toBe('0.5');
-
-    // Pause and resume from the row, each through its confirm.
-    for (const [action, word, after] of [
-      ['Pause', 'Pause schedule', 'paused'],
-      ['Resume', 'Resume schedule', 'active'],
-    ]) {
-      await rowOf(id)
-        .getByRole('button', { name: `${action} ${id}` })
-        .click();
-      await page.getByRole('alertdialog').getByRole('button', { name: word }).click();
-      await expect.poll(async () => (await parentOf(trader, id)).status, { timeout: 15_000 }).toBe(after);
-      await expect(cellOf(id, 'Status')).toContainText(STATUS_WORD[after], { timeout: 15_000 });
-    }
 
     // The blotter filtered by this schedule shows only its child and that child's fill; filtered by #4's, only #4's
     // children, and never this child.
