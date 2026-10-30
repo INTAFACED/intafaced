@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,
 // titled "J-dex-protocol-02 #<n>", run in order with one TEST wallet on Base Sepolia holding TEST token A and no
@@ -48,6 +47,12 @@ async function quoteAB(page, amount = '10') {
 test(`${J} starts: a TEST wallet on Base Sepolia holding TEST token A and no allowance`, async ({ page }) => {
   dex.start();
   await openSwap(page);
+  // A swap is a signing action, so a new wallet accepts the representation once (J-dex-protocol-01 #8). The swap's own
+  // sheet that follows is cancelled: nothing is approved or sent, so the run starts with no allowance.
+  await quoteAB(page, '1');
+  await swapButton(page).click();
+  await acceptRepresentation(page);
+  await page.locator('[data-sheet="sequence"]').getByRole('button', { name: 'Cancel' }).click();
 });
 
 test(`${J} #1 opens the swap form as a new viewer: Simple mode, no advanced controls; Manual shows its notice once and is remembered; blocked storage still works`, async ({
@@ -185,7 +190,8 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   for (const term of ['You paid', 'You received', 'Network fee'])
     await expect(card.getByRole('term').filter({ hasText: term })).toBeVisible();
   await expect(card.getByRole('link', { name: 'Swap event' })).toBeVisible();
-  expect(wallet.requests.length).toBeGreaterThan(0);
+  // The swap was sent by the wallet itself (the TEST wallet keeps sent transactions in `sends`, signatures in `requests`).
+  expect(wallet.sends.length).toBeGreaterThan(0);
 });
 
 test(`${J} #9 retries after the price moved: failed with the reason in a sentence, no automatic retry, a new quote needed`, async ({
@@ -200,16 +206,18 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
     .fill('0.1');
   await swapButton(page).click();
 
-  // Before this swap is signed, another TEST wallet swaps a large amount in the same pool and moves the price.
+  // Before this swap is signed, another TEST wallet (funded on the TEST chain like this run's) swaps a large amount in the
+  // same pool and moves the price. It is new too, so it accepts the representation first.
   const other = await browser.newContext();
   try {
     const mover = await other.newPage();
-    await installTestWallet(mover, { chainId: CHAIN_ID, tokens: [TOKEN_A, TOKEN_B] });
-    await mover.goto('/wallet');
-    await mover.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+    const moverDex = dexRun(`${J}-mover`);
+    moverDex.start();
+    await connectWallet(mover, moverDex, { tokens: [TOKEN_A, TOKEN_B] });
     await mover.goto('/dex');
     await quoteAB(mover, '1000');
     await swapButton(mover).click();
+    await acceptRepresentation(mover);
     await mover.getByRole('button', { name: 'Continue in wallet' }).click();
     await expect(mover.getByRole('region', { name: 'Swap status' }).getByRole('status')).toHaveText('Filled', { timeout: 60_000 });
   } finally {

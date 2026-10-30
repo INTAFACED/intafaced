@@ -1,10 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-01, in the running app (docs/roadmap/journeys.json): open the Web3 side, read the honest labels and
 // connect a wallet. One test per step, titled "J-dex-protocol-01 #<n>". Every step is signed out: the Protocol rooms are
 // public and read only. The stack runs svc-protocol on the app's network, Base Sepolia (84532), with no node published
-// to it (tooling/scripts/local-stack-services/protocol.mjs), so every chain read refuses as unreachable. The person's own
+// to it (tooling/scripts/local-stack-services/protocol.mjs), so every chain read refuses as unreachable. Where the stack
+// runs its LOCAL TEST chain (tooling/scripts/local-test-chain.mjs) this journey closes that chain's gate before its first
+// step and opens it again after its last, so svc-protocol sees no node, exactly as on a stack without one; the hooks
+// run after a failed step too, so the next journey finds the gate open. The person's own
 // browser wallet is the TEST wallet in test-wallet.mjs. No money moves in this journey.
 // Step 9 signs an EIP-2612 permit for a TEST token that only the TEST wallet answers for (its stand-in for a node).
 // Step 8: before a wallet's first signing action it accepts the representation (the stack's TEST text and version from
@@ -12,6 +16,14 @@ import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 // blocked-region run of step 8 needs a trusted region header on the test stack and is added with it.
 const J = 'J-dex-protocol-01';
 const SHORT = /^0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/;
+
+// The gate is shared stack state: shut for this journey only. afterAll runs when the worker ends, after a failure too.
+test.beforeAll(() => {
+  tool('local-test-chain.mjs', 'gate', 'closed');
+});
+test.afterAll(() => {
+  tool('local-test-chain.mjs', 'gate', 'open');
+});
 
 const networkChip = (page) => page.locator('[data-chip="network"]');
 const walletChip = (page) => page.locator('[data-chip="wallet"]');
@@ -39,7 +51,8 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   await page.goto('/chain/blocks/123');
   await expect(page.locator('main h1')).toHaveText('Block 123');
   await expect(page.locator('main [data-blocker="indexer"]')).toBeVisible();
-  await expect(page.locator('main')).toContainText('The indexer reader for this page is not built in this build.');
+  // The indexer reads blocks now; with this journey's node gated off it names why this one could not be read.
+  await expect(page.locator('main')).toContainText('This block could not be read: indexer.chain_unreachable');
   await expect(page.locator('main table th').first()).toBeVisible();
 
   await page.goto('/chain/blocks/abc');
@@ -61,13 +74,13 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
   await expect(listed.first()).toContainText('The chain is unreachable');
-  // The indexer is not started on this stack: the venue and finality checks both wait on it, and the list says so once
-  // (no reply, or still checking while the room asks again).
+  // The venue and finality checks wait on the indexer. Not answering, the list says so once (no reply, or still checking
+  // while the room asks again); answering with the node gated off, it names both: no live venue, height behind unknown.
   const order = await listed.evaluateAll((items) => items.map((item) => item.getAttribute('data-blocker')));
-  expect(order).toHaveLength(5);
   expect(order[0]).toBe('chain_unreachable');
-  expect(['source_no_reply', 'source_checking']).toContain(order[1]);
-  expect(order.slice(2)).toEqual(['no_execution_path', 'not_audited', 'network_label']);
+  const indexerSaid = order.slice(1, -3);
+  expect([['source_no_reply'], ['source_checking'], ['venue_not_live', 'behind_unknown']]).toContainEqual(indexerSaid);
+  expect(order.slice(-3)).toEqual(['no_execution_path', 'not_audited', 'network_label']);
   await expect(listed.last()).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(swap).not.toContainText(/INTACHAIN mainnet/i);
 });

@@ -65,6 +65,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'Surveillance',
     job: 'Spoofing and layering cases; no automatic sanctions.',
   },
+  {
+    id: 'copy-bots-otc',
+    href: '/trade-ops/copy-bots-otc',
+    label: 'Copy, bots and OTC',
+    job: 'Module numbers; one customer’s follows, bots and quotes; the quote desk and its settlement exceptions.',
+  },
   { id: 'exports', href: '/trade-ops/exports', label: 'Exports', job: 'Save order, fill and audit records as CSV.' },
   { id: 'audit', href: '/trade-ops/audit', label: 'Audit', job: 'Who changed what: kill switches, restrictions, approvals.' },
 ];
