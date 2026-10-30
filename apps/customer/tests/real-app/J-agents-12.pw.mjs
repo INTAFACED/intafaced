@@ -146,6 +146,14 @@ async function agentsProcedures() {
   }));
 }
 
+/** The developer room's procedures (`developerKeys.*` in svc-identity), from its built router: where its webhooks land. */
+async function developerProcedures() {
+  const { createDeveloperKeysRouter } = await import(
+    new URL('../../../../services/svc-identity/dist/developer-keys-router.js', import.meta.url).href
+  );
+  return Object.keys(createDeveloperKeysRouter({})._def.procedures);
+}
+
 /** Creates a key on the API keys page with the passkey's fresh step-up and returns its secret, shown once. */
 async function createKey(page, name, scope) {
   await page.goto('/uc/safe/api-keys/new');
@@ -383,6 +391,7 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
       expect(toUnits(posting.amount)).toBe(toUnits(amount));
     }
     expect(booked.transaction.postings.map(({ side }) => side).sort()).toEqual(['destination', 'source']);
+    // The accounts are the lookup's opaque ids; the person's side is proven by the exact balance drop at close above.
   }
 
   const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
@@ -615,7 +624,10 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
 test(`${J} #5 registers a webhook: one delivery per finished run`, async () => {
   // Webhook signing and delivery belong to the developer module (developer-webhooks-001), not on main. Red by name only
   // while the register endpoint is absent: once it answers, this step no longer proves anything and must be rewritten.
-  const procedures = (await agentsProcedures()).filter(({ path }) => /webhook/i.test(path));
+  // Both the agents service and the developer room (where developer-webhooks-001 lands) are probed.
+  const procedures = [...(await agentsProcedures()).map(({ path }) => path), ...(await developerProcedures())].filter((path) =>
+    /webhook/i.test(path),
+  );
   const register = await call(kept('onKey'), 'webhook.register', { url: 'http://127.0.0.1:9/agents-hook' }, 'POST');
   const absent = procedures.length === 0 && register.status === 404 && register.body.error?.data?.code === 'NOT_FOUND';
   if (!absent) {
@@ -665,7 +677,7 @@ test(`${J} outside: run notices by email, SMS or push show their vendor notice a
     ok(await notifyCall('notify.list', { limit: 100 })).items.filter(
       ({ kind, params }) => kind === 'agents.run.completed' && params.runId === runId,
     );
-  await expect.poll(async () => (await ofRun()).length, { message: `${name}: exactly one inbox row`, timeout: 20_000 }).toBe(1);
+  await expect.poll(async () => (await ofRun()).length, { message: `${name}: exactly one inbox row` }).toBe(1);
   const [notice] = await ofRun();
   const deliveries = ok(await notifyCall('notify.deliveries', { notificationId: notice.id }));
   for (const channel of CHANNELS) {

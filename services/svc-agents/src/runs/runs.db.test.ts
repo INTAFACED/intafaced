@@ -402,7 +402,7 @@ if (!available) {
       expect(await usageCount()).toBe('1');
     });
 
-    it('a crash after the engine answered: inside the lease the retry changes nothing; past it the replay ends the run refused, billed once', async () => {
+    it('a crash after the engine answered: inside the lease the retry changes nothing; past it the retry adopts the run as completed and metered, billed once', async () => {
       const session = await runtime.openSession({ userId: USER, agentId: 'probe' });
       const real = createRunStore(sql);
       const lostMark: RunStore = {
@@ -436,11 +436,49 @@ if (!available) {
 
       const later = () => Date.now() + RUN_LEASE_MS + 1;
       await expect(runRecorded(real, input, think, later)).rejects.toMatchObject({ code: 'agents.request_id_replay' });
-      expect(await stored(first.run.id)).toMatchObject({ state: 'refused', reply: null });
-      expect((await trail(first.run.id)).at(-1)).toEqual({ sequence: 3, state: 'refused', code: 'agents.request_id_replay' });
+      // The call was charged once into the window, so the run is that charged call, never a refusal that billed nothing.
+      expect(await stored(first.run.id)).toEqual({ state: 'completed', reply: '', cost: null, metered: true });
+      expect((await trail(first.run.id)).at(-1)).toEqual({ sequence: 3, state: 'completed', code: 'agents.request_id_replay' });
       expect(await usageCount()).toBe('1');
       expect(await balance()).toBe(charged);
-      expect((await key().run.get({ runId: first.run.id })).refusalCodes).toEqual(['agents.request_id_replay']);
+      expect((await key().run.get({ runId: first.run.id })).refusalCodes).toEqual([]);
+      // Completed is final: a later retry is refused and the run stays as it is.
+      await expect(runRecorded(real, input, think, later)).rejects.toMatchObject({ code: 'agents.request_id_replay' });
+      expect(await trail(first.run.id)).toHaveLength(3);
+      expect(await usageCount()).toBe('1');
+    });
+
+    it('a crash after the claim and before the meter: past the lease the replay ends the run refused, billed nothing', async () => {
+      const session = await runtime.openSession({ userId: USER, agentId: 'probe' });
+      const input = {
+        userId: USER,
+        sessionId: session.id,
+        agentId: 'probe',
+        requestId: 'runs:db:crash-claim',
+        task: 'plan',
+        assetId: 'IFC',
+      };
+      const real = createRunStore(sql);
+      const before = await balance();
+      // The process died inside the call: the claim committed, the engine never returned, nothing was metered.
+      const died: RunStore = {
+        ...real,
+        move: async (runId, to, outcome) => (to === 'running' ? real.move(runId, to, outcome) : Promise.reject(new Error('died'))),
+      };
+      await expect(
+        runRecorded(died, input, async () => {
+          await meter.claimRequest(session.id, 'runs:db:crash-claim');
+          throw new Error('died inside the engine call');
+        }),
+      ).rejects.toThrow('died inside the engine call');
+      const think = () => runtime.think({ sessionId: session.id, requestId: 'runs:db:crash-claim', task: 'plan', messages: MESSAGES });
+      const later = () => Date.now() + RUN_LEASE_MS + 1;
+      await expect(runRecorded(real, input, think, later)).rejects.toMatchObject({ code: 'agents.request_id_replay' });
+      const [run] = await sql<Array<{ id: string }>>`SELECT id FROM agents.agent_runs WHERE request_id = 'runs:db:crash-claim'`;
+      expect(await stored(run!.id)).toEqual({ state: 'refused', reply: null, cost: null, metered: null });
+      expect((await trail(run!.id)).at(-1)).toEqual({ sequence: 3, state: 'refused', code: 'agents.request_id_replay' });
+      expect(await usageCount()).toBe('0');
+      expect(await balance()).toBe(before);
     });
 
     it('a move RS-2 does not allow is agents.run_transition_invalid and leaves the run as it was', async () => {
