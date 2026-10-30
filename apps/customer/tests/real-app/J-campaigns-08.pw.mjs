@@ -263,12 +263,15 @@ test(`${J} #7 lets a voucher expire: it expires once, and a late redemption refu
   const voucher = (await claimed).body?.result?.data;
   expect(voucher, JSON.stringify((await claimed).body).slice(0, 300)).toMatchObject({ state: 'claimed' });
   // The use-by date passes; the sweep marks it expired once, however many passes run.
-  await expect.poll(async () => (await walletOf(me)).find((v) => v.id === voucher.id).state, { timeout: 90_000 }).toBe('expired');
+  await expect.poll(async () => (await walletOf(me)).find((v) => v.id === voucher.id).expiredAt, { timeout: 90_000 }).toBeTruthy();
+  const marked = (await walletOf(me)).find((v) => v.id === voucher.id);
+  expect(marked.state).toBe('expired');
   const late = await client.post('/api/campaigns/trpc/vouchers.redeem', { voucherId: voucher.id, amount: '0.001', sequence: 1 });
   expect(late.body?.error?.message ?? '').toContain('[campaigns.voucher_expired]');
   const [v] = (await walletOf(me)).filter((x) => x.id === voucher.id);
   expect(v.redemptions).toEqual([]);
-  expect(v.expiredAt).toBeTruthy();
+  // Expired once: a later pass leaves the first mark as it was.
+  expect(v.expiredAt).toBe(marked.expiredAt);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
   await openWallet(page);

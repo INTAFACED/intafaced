@@ -107,7 +107,6 @@ export function MyVouchers() {
     void check();
   };
 
-  const state = wallet.resource.status === 'ready' ? 'ready' : wallet.resource.status;
   return (
     <Panel title={t('title')}>
       <form aria-label={t('formLabel')} onSubmit={onSubmit}>
@@ -134,7 +133,7 @@ export function MyVouchers() {
         </p>
       ) : null}
       {refusal ? <Refusal result={refusal} /> : null}
-      <div data-testid="my-vouchers" data-state={state}>
+      <div data-testid="my-vouchers" data-state={wallet.resource.status}>
         {wallet.resource.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : wallet.resource.status === 'failed' ? (

@@ -243,8 +243,10 @@ if (!db) {
         vouchers.redeem({ voucherId: v.id, amount: '2.5', sequence: 1, accountId: ME }),
       ]);
       expect([one.created, two.created].sort()).toEqual([false, true]);
+      // Both answers name the one redemption; the duplicate may be read before the first one's post lands.
       expect(one.redemption.reward.rewardKey).toBe(rewardKeyOf(c.id, ME, `voucher:${v.id}:1`));
-      expect(one.redemption.reward.state).toBe('posted');
+      expect(two.redemption.reward.rewardKey).toBe(one.redemption.reward.rewardKey);
+      expect([one, two].find((r) => r.created)!.redemption.reward.state).toBe('posted');
       expect(await free(ME)).toBe(parseAmount('2.5'));
       expect(await code(vouchers.redeem({ voucherId: v.id, amount: '3', sequence: 1, accountId: ME }))).toBe(
         'campaigns.voucher_sequence_invalid',
@@ -304,6 +306,9 @@ if (!db) {
       clock = new Date(Date.now() + 49 * HOUR);
       // Before any sweep, the use-by alone refuses.
       expect(await code(vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 2, accountId: ME }))).toBe('campaigns.voucher_expired');
+      // A read already shows it expired, and writes nothing: the sweep marks it.
+      const [read] = (await vouchers.mine({ accountId: ME })).vouchers;
+      expect(read).toMatchObject({ state: 'expired', expiredAt: null });
       expect(await vouchers.expire()).toBe(1);
       expect(await vouchers.expire()).toBe(0);
       const [mine] = (await vouchers.mine({ accountId: ME })).vouchers;
@@ -315,6 +320,22 @@ if (!db) {
       expect(await code(vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 2, accountId: ME }))).toBe('campaigns.voucher_expired');
       // The first redemption, asked again, still returns its answer.
       expect((await vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 1, accountId: ME })).created).toBe(false);
+      await reconciles(parseAmount('50'));
+    });
+
+    it('a paused campaign pays nothing; resumed, the voucher redeems', async () => {
+      await fundPot('50');
+      const c = await live();
+      await campaigns().issueVoucher({ campaignId: c.id, code: 'TEST-PAUSE', actor: A });
+      const v = await vouchers.claim({ code: 'TEST-PAUSE', accountId: ME });
+      await campaigns().transition({ id: c.id, action: 'pause', revision: c.revision, actor: A });
+      expect(await code(vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 1, accountId: ME }))).toBe('campaign.not_active');
+      await campaigns()
+        .issueVoucher({ campaignId: c.id, code: 'TEST-PAUSE2', actor: A })
+        .catch(() => undefined);
+      expect(await code(vouchers.claim({ code: 'TEST-PAUSE2', accountId: YOU }))).toBe('campaigns.voucher_invalid');
+      await campaigns().transition({ id: c.id, action: 'resume', revision: c.revision, actor: A });
+      expect((await vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 1, accountId: ME })).redemption.reward.state).toBe('posted');
       await reconciles(parseAmount('50'));
     });
 

@@ -413,11 +413,8 @@ export const campaignSchema = z.object({
   reward: campaignRewardSchema.nullable(),
   /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
   tasks: campaignTasksSchema.nullable(),
-  /** A voucher campaign's claim-by and use-by times; null for any other campaign. */
-  vouchers: z
-    .lazy(() => voucherWindowSchema)
-    .nullable()
-    .default(null),
+  /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
+  vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
   earning: z.array(earningRuleSchema).default([]),
   createdBy: z.string(),
