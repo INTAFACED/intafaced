@@ -1,10 +1,12 @@
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react';
+import { navigate } from '../../../../app/location';
 import { Button, StateBlock } from '@intafaced/ui';
 import { createActivityFeed, fmtAmount, refusalCopy } from '../../../../data';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
 import { useSession } from '../../../session/session';
 import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
+import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
 
@@ -327,17 +329,127 @@ function PreferencesRoom({ slice }: { slice: string }) {
   );
 }
 
+/** How often a camera frame is read for a code. */
+const FRAME_MS = 250;
+
 function ScanRoom({ slice }: { slice: string }) {
   const { t } = roomsCopy.useCopy();
+  const [refusal, setRefusal] = useState<ScanRefusal | null>(null);
+  const [reading, setReading] = useState(false);
+  const [camera, setCamera] = useState(false);
+  const video = useRef<HTMLVideoElement>(null);
+
+  const open = (text: string) => {
+    try {
+      navigate(payTarget(text, window.location.origin));
+    } catch (err) {
+      setRefusal(err instanceof ScanError ? err.code : 'scan.not_pay_code');
+    }
+  };
+
+  const picked = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    setCamera(false);
+    setRefusal(null);
+    setReading(true);
+    try {
+      navigate(await scanImage(file, window.location.origin));
+    } catch (err) {
+      setRefusal(err instanceof ScanError ? err.code : 'scan.unreadable');
+    } finally {
+      setReading(false);
+      // The same image chosen again after a refusal is read again.
+      input.value = '';
+    }
+  };
+
+  useEffect(() => {
+    if (!camera) return;
+    let stream: MediaStream | null = null;
+    let stopped = false;
+    void (async () => {
+      try {
+        if (typeof navigator.mediaDevices?.getUserMedia !== 'function') throw new Error('no camera');
+        const opened = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        stream = opened;
+        // Stopped while the browser was still asking: release the camera it just gave.
+        if (stopped || !video.current) return opened.getTracks().forEach((track) => track.stop());
+        video.current.srcObject = opened;
+        await video.current.play();
+        while (!stopped && video.current) {
+          const frame = video.current;
+          const text = frame.videoWidth > 0 ? await readCode(frame, frame.videoWidth, frame.videoHeight) : null;
+          if (stopped) return;
+          if (text) {
+            setCamera(false);
+            open(text);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, FRAME_MS));
+        }
+      } catch (err) {
+        if (stopped) return;
+        setCamera(false);
+        setRefusal(cameraRefusal(err));
+      }
+    })();
+    return () => {
+      stopped = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+    // `open` only reads the current origin and navigates, so the camera loop needs no newer copy of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera]);
+
   return (
     <Frame title={t('scanTitle')} line={t('scanLine')}>
       <div className="pay-row-actions">
-        <Off describedBy="pay-room-reason">{t('scanCamera')}</Off>
-        <Off describedBy="pay-room-reason">{t('scanFile')}</Off>
+        <Button
+          type="button"
+          variant="secondary"
+          size={40}
+          disabled={reading}
+          onClick={() => {
+            setRefusal(null);
+            setCamera(!camera);
+          }}
+        >
+          {camera ? t('scanCameraStop') : t('scanCamera')}
+        </Button>
         <Button variant="secondary" size={40} nativeButton={false} render={<a href="/pay/receive" />}>
           {t('scanShow')}
         </Button>
       </div>
+      {camera && (
+        <>
+          <video ref={video} className="pay-scan-video" muted playsInline aria-label={t('scanCameraLabel')} />
+          <p className="pay-hint" role="status">
+            {t('scanLooking')}
+          </p>
+        </>
+      )}
+      <div className="pay-field">
+        <label className="pay-field__label" htmlFor="pay-scan-file">
+          {t('scanFile')}
+        </label>
+        <input
+          id="pay-scan-file"
+          className="pay-text"
+          type="file"
+          accept="image/*"
+          disabled={reading}
+          onChange={(event) => void picked(event)}
+          data-testid="pay-scan-file"
+        />
+      </div>
+      {reading && (
+        <p className="pay-hint" role="status">
+          {t('scanReading')}
+        </p>
+      )}
+      {refusal && <StateBlock kind="refused" title={t('scanRefusedTitle')} body={t(refusal)} code={refusal} />}
       <Blocked slice={slice}>{t('scanReason')}</Blocked>
     </Frame>
   );
