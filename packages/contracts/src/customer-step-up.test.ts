@@ -65,6 +65,22 @@ describe('customer step-up binding', () => {
     }
     const fields = { userId: 'acct-1', role: 'moderator', expectedRevision: '0' };
     expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: 'acct-2', fields }).ok).toBe(false);
+    // Only bytes svc-token rebuilds are bound: one of its roles, its revision as a plain number, its account id shape.
+    for (const over of [
+      { role: 'Moderator' },
+      { role: 'moderator ' },
+      { role: 'owner' },
+      { expectedRevision: '00' },
+      { expectedRevision: '-1' },
+      { expectedRevision: ' 1' },
+      { expectedRevision: '' },
+      { userId: 'acct 1' },
+      { userId: '' },
+    ]) {
+      const sent = { ...fields, ...over };
+      const bound = bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: sent.userId, fields: sent });
+      expect(bound.ok, JSON.stringify(over)).toBe(false);
+    }
     expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'governance.setRole', target: '', fields: { ...fields, userId: '' } }).ok).toBe(
       false,
     );
