@@ -248,6 +248,51 @@ if (!available) {
       expect(await reader.run.events({ runId: ran.runId, cursor: page2.cursor, limit: 2 })).toEqual({ events: [], cursor: '3' });
     });
 
+    it('session.events from a cursor: only the session’s later actions, only for the caller', async () => {
+      const caller = person();
+      const session = await caller.session.open({ agentId: 'probe' });
+      const elsewhere = await caller.session.open({ agentId: 'probe' });
+      const first = await complete(caller, session.id, 'runs:db:events:1');
+      await complete(caller, elsewhere.id, 'runs:db:events:elsewhere');
+      const next = await complete(caller, session.id, 'runs:db:events:2');
+      const reader = key();
+
+      const page1 = await reader.session.events({ sessionId: session.id, limit: 1 });
+      expect(page1.events.map((e) => [e.sequence, e.kind, e.status, e.sessionId])).toEqual([[0, 'session_open', 'executed', session.id]]);
+      expect(page1.cursor).toBe('0');
+      const page2 = await reader.session.events({ sessionId: session.id, cursor: page1.cursor, limit: 10 });
+      expect(page2.events.map((e) => [e.sequence, e.kind, e.status, e.sessionId])).toEqual([
+        [1, 'completion', 'executed', session.id],
+        [2, 'completion', 'executed', session.id],
+      ]);
+      expect(page2.events.map((e) => e.cost)).toEqual([first.cost, next.cost]);
+      expect(page2.cursor).toBe('2');
+      expect(await reader.session.events({ sessionId: session.id, cursor: '2', limit: 10 })).toEqual({ events: [], cursor: '2' });
+
+      // A later action is the only thing the saved cursor returns, and it is this session's, not the other one's.
+      const later = await complete(caller, session.id, 'runs:db:events:3');
+      const page3 = await reader.session.events({ sessionId: session.id, cursor: '2', limit: 10 });
+      expect(page3.events.map((e) => [e.sequence, e.kind, e.sessionId])).toEqual([[3, 'completion', session.id]]);
+      expect(page3.events[0]!.cost).toBe(later.cost);
+      expect(page3.cursor).toBe('3');
+      // The same actions as the owner's own session log, by id.
+      const log = await caller.session.log({ sessionId: session.id, limit: 50 });
+      expect([...page1.events, ...page2.events, ...page3.events].map((e) => e.id)).toEqual(log.map((e) => e.id));
+      expect(JSON.stringify(page3)).not.toContain(MESSAGES[0]!.content);
+
+      await expect(key(OTHER).session.events({ sessionId: session.id, limit: 10 })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'agents.refused.session_closed',
+      });
+      await expect(key(USER, ['trade:read']).session.events({ sessionId: session.id, limit: 10 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(reader.session.events({ sessionId: session.id, cursor: 'x', limit: 10 })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: 'agents.refused.cursor_invalid',
+      });
+    });
+
     it('reads stay the owner’s: another person’s key gets agents.run_not_found, a key without agents:read is forbidden, a bad cursor is typed', async () => {
       const caller = person();
       const session = await caller.session.open({ agentId: 'probe' });

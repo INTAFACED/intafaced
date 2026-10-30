@@ -56,6 +56,7 @@ import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
+import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { envTierLaws, type TierLaws } from './tier-laws.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
@@ -848,6 +849,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             };
           }),
         ),
+
+      events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
     run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
