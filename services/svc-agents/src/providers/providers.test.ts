@@ -195,6 +195,14 @@ describe('MockModelProvider — determinism is the feature', () => {
       await vi.waitFor(() => expect(readFileSync(`${hold}.calls`, 'utf8').trim().split('\n')).toHaveLength(2));
       rmSync(hold);
       await both;
+      // Once the hold is lifted nothing more is counted, and a completion that fails on arrival is still counted.
+      await provider.complete(request());
+      expect(readFileSync(`${hold}.calls`, 'utf8').trim().split('\n')).toHaveLength(2);
+      writeFileSync(hold, 'held');
+      const broken = new MockModelProvider({ holdFile: hold, failFirst: 1 });
+      await expect(broken.complete(request())).rejects.toThrow();
+      expect(readFileSync(`${hold}.calls`, 'utf8').trim().split('\n')).toHaveLength(3);
+      rmSync(hold);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

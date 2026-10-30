@@ -172,13 +172,15 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
   const routes = await agentsCall('routes.list', undefined, 'GET');
   expect(routes.status).toBe(200);
   const route = routes.body.result.data.find((row) => row.task === 'navigator.plan' && row.capability === 'complete');
-  expect(route?.inputPerMillion, 'the stack publishes a navigator.plan rate').toBeTruthy();
-  await expect(
-    rates
-      .getByRole('row')
-      .filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) })
-      .getByRole('cell'),
-  ).toHaveText(['navigator.plan', 'complete', `${route.inputPerMillion} ${route.assetId}`, `${route.outputPerMillion} ${route.assetId}`]);
+  expect(route?.inputPerMillion && route?.outputPerMillion, 'the stack publishes both navigator.plan rates').toBeTruthy();
+  const rateRow = rates.getByRole('row').filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) });
+  await expect(rateRow).toHaveCount(1);
+  await expect(rateRow.getByRole('cell')).toHaveText([
+    'navigator.plan',
+    'complete',
+    `${route.inputPerMillion} ${route.assetId}`,
+    `${route.outputPerMillion} ${route.assetId}`,
+  ]);
   await main(page).getByRole('button', { name: 'Estimate the cost' }).click(UNBUILT);
   const estimate = main(page).getByRole('region', { name: 'Cost estimate' });
   // The worst case is the figure the cap check holds a run against: the stored guardrail's session spend cap, which the

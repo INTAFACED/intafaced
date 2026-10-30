@@ -32,7 +32,14 @@ async function withEngineHeld(fn) {
     return await fn(engineCalls);
   } finally {
     rmSync(hold, { force: true });
+    rmSync(calls, { force: true });
   }
+}
+
+/** Still `expected` after longer than the stand-in engine's answer delay (0.8 s), so a late call would have shown. */
+async function stillCalls(engineCalls, expected) {
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  expect(engineCalls()).toBe(expected);
 }
 
 const J = 'J-agents-02';
@@ -264,7 +271,7 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
     await expect
       .poll(async () => (await ownRuns('refused')).length, { message: 'the refused run is recorded while the engine is held' })
       .toBe(refusedBefore.length + 1);
-    expect(engineCalls()).toBe(1);
+    await stillCalls(engineCalls, 1);
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
@@ -316,7 +323,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
     await session(page).getByRole('button', { name: 'Run', exact: true }).click();
     await expect(refusal).toContainText('Your available balance is below this run’s worst case, so it did not start.');
     await expect(refusal.locator('code')).toHaveText('agents.funds_insufficient');
-    expect(engineCalls()).toBe(0);
+    await stillCalls(engineCalls, 0);
   });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   const runs = tableIn(main(page), 'Runs').getByRole('row');
@@ -337,7 +344,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
         timeout: 20_000,
       });
       await expect(unread.locator('code')).toHaveText('agents.funds_unread');
-      expect(engineCalls()).toBe(0);
+      await stillCalls(engineCalls, 0);
     });
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
     await expect(runs).toHaveCount(3);
