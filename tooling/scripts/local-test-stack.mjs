@@ -172,7 +172,7 @@ const PORTS = {
   // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
   protocol: 14520,
   // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
-  indexer: 14523,
+  indexer: 14524,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
