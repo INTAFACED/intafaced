@@ -45,3 +45,24 @@
   display: flex;
   gap: var(--if-space-3);
 }
+.tokens-room .tokens-candles {
+  inline-size: 100%;
+  block-size: auto;
+}
+.tokens-room .tokens-candles .up {
+  stroke: var(--if-up);
+  fill: var(--if-up);
+}
+.tokens-room .tokens-candles .down {
+  stroke: var(--if-down);
+  fill: var(--if-down);
+}
+.tokens-room .tokens-plain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tokens-room .tokens-alert {
+  color: var(--if-danger);
+  font-weight: 600;
+}

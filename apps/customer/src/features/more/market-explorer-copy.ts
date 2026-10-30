@@ -1,10 +1,10 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   search: 'Search listings',
-  offer: 'Offer type',
-  offerAll: 'All offers',
-  offerOneTime: 'One-time',
-  offerSubscription: 'Subscription',
+  offer: 'Listing type',
+  offerAll: 'All listings',
+  offerOneTime: 'Access listing',
+  offerSubscription: 'Strategy subscription',
   asset: 'Priced in',
   assetAll: 'Any asset',
   sort: 'Sort by',
@@ -49,10 +49,10 @@ const en = {
 } as const;
 const es = {
   search: 'Buscar listados',
-  offer: 'Tipo de oferta',
-  offerAll: 'Todas las ofertas',
-  offerOneTime: 'Pago único',
-  offerSubscription: 'Suscripción',
+  offer: 'Tipo de listado',
+  offerAll: 'Todos los listados',
+  offerOneTime: 'Listado de acceso',
+  offerSubscription: 'Suscripción a una estrategia',
   asset: 'Precio en',
   assetAll: 'Cualquier activo',
   sort: 'Ordenar por',
@@ -97,10 +97,10 @@ const es = {
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   search: 'Rechercher des annonces',
-  offer: 'Type d’offre',
-  offerAll: 'Toutes les offres',
-  offerOneTime: 'Achat unique',
-  offerSubscription: 'Abonnement',
+  offer: 'Type d’annonce',
+  offerAll: 'Toutes les annonces',
+  offerOneTime: 'Annonce d’accès',
+  offerSubscription: 'Abonnement à une stratégie',
   asset: 'Prix en',
   assetAll: 'Tout actif',
   sort: 'Trier par',

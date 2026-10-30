@@ -52,7 +52,7 @@ updates:
       # BOTH svc-indexer and svc-protocol, and `contract-sources.mjs` fails the
       # build when the two disagree: "two compilers in one repo produce two
       # bytecodes". A patch bump here is a bytecode change to deployed contracts,
-      # which is Shehzad's plane and never a bot's call.
+      # which is a deliberate change to both services together and never a bot's call.
       #
       # This rule exists because the bot's first development-group PR bumped it
       # to 0.8.36 while svc-protocol stayed on 0.8.28, and the guard caught it.

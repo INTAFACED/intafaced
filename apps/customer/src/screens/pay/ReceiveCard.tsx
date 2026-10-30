@@ -1,16 +1,19 @@
 import { useRef, useState } from 'react';
 import { Copy, Link2, Share2 } from 'lucide-react';
-import { Button, requestPath, Skeleton, StateBlock, useSession, useToast } from './deps';
+import { Button, PAY_QR_KEY_UNSET, requestPath, Skeleton, StateBlock, useSession, useToast } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
 import { HandleSettings } from './HandleSettings';
-import type { IdentityState } from './identity-state';
+import { usePayQr, type IdentityState, type PayQrState } from './identity-state';
 
 /** Receive (UI-SPEC 5.10): the customer's @handle to share, or their Account ID until handles are live, with a QR code and a link. */
-export function ReceiveCard({ identity }: { identity: IdentityState }) {
-  const { userId } = useSession();
+export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQr?: PayQrState }) {
+  const { api, userId } = useSession();
+  // A caller that already holds the code passes it in, and nothing is fetched twice.
+  const read = usePayQr(api, payQr ? null : userId, identity.status === 'handles' ? identity.handle : '');
+  const qr = payQr ?? read;
   const toast = useToast();
   const [failed, setFailed] = useState<'value' | 'link' | null>(null);
   const attempt = useRef(0);
@@ -31,7 +34,8 @@ export function ReceiveCard({ identity }: { identity: IdentityState }) {
 
   const byHandle = identity.status === 'handles';
   const shown = byHandle ? `@${identity.handle}` : (userId ?? '');
-  const link = absoluteLink(requestPath({ to: byHandle ? identity.handle : (userId ?? '') }));
+  // The link and the QR code carry the signed pay code, so a scan pays this account even when its handle can't be found.
+  const link = absoluteLink(requestPath({ to: byHandle ? identity.handle : (userId ?? ''), qr: qr.kind === 'ok' ? qr.payload : null }));
 
   async function copy(what: 'value' | 'link') {
     const mine = ++attempt.current;
@@ -69,10 +73,25 @@ export function ReceiveCard({ identity }: { identity: IdentityState }) {
 
       <div className="pay-block" data-testid="receive-link">
         <h3 className="pay-section-title">{t('scanToPay')}</h3>
-        <QrCode value={link} />
-        <p className="pay-link" data-testid="receive-link-value" aria-label={t('yourLink')}>
-          {link}
-        </p>
+        {qr.kind === 'loading' ? (
+          <div aria-busy="true" data-testid="receive-qr-loading">
+            <Skeleton height="10rem" width="10rem" />
+            <Skeleton height="1.25rem" />
+          </div>
+        ) : (
+          <>
+            {qr.kind === 'ok' ? (
+              <QrCode value={link} />
+            ) : qr.kind === 'unset' ? (
+              <StateBlock kind="refused" title={t('qrUnsetTitle')} body={t('qrUnsetBody')} code={PAY_QR_KEY_UNSET} />
+            ) : (
+              <StateBlock kind="error" title={t('qrLoadFailed')} onRetry={qr.retry} retryLabel={payCopy.t('Retry')} />
+            )}
+            <p className="pay-link" data-testid="receive-link-value" aria-label={t('yourLink')}>
+              {link}
+            </p>
+          </>
+        )}
         <p className="pay-hint">{t('receiveLinkHint')}</p>
         {failed === 'link' ? (
           <p className="pay-problem" role="alert">
@@ -80,12 +99,12 @@ export function ReceiveCard({ identity }: { identity: IdentityState }) {
           </p>
         ) : null}
         <div className="pay-row-actions">
-          <Button variant="secondary" size={40} onClick={() => void copy('link')}>
+          <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void copy('link')}>
             <Link2 size={16} aria-hidden="true" />
             {t('copyLink')}
           </Button>
           {canShare() ? (
-            <Button variant="secondary" size={40} onClick={() => void share()}>
+            <Button variant="secondary" size={40} disabled={qr.kind === 'loading'} onClick={() => void share()}>
               <Share2 size={16} aria-hidden="true" />
               {t('share')}
             </Button>

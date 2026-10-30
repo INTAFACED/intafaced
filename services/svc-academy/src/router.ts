@@ -141,6 +141,8 @@ import {
   academyGradingQueueSchema,
   academyOpenGradingInputSchema,
   academyGradeSubmissionInputSchema,
+  academyBulkGradeInputSchema,
+  academyBulkGradeResultSchema,
   academyMarkFeedbackReadInputSchema,
   academyPeerReviewFileInputSchema,
   academyPeerReviewFileSchema,
@@ -1063,6 +1065,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
     case 'academy.grade_invalid':
+    case 'academy.bulk_file_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -3473,6 +3476,12 @@ export function createAcademyRouter(
         .input(academyGradeSubmissionInputSchema)
         .output(academyGradingQueueSchema)
         .mutation(({ input, ctx }) => guard(() => academy.gradeSubmission({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: a CSV of grades by alias; good rows apply, bad rows are listed, the same file changes nothing. */
+      bulkGrade: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyBulkGradeInputSchema)
+        .output(academyBulkGradeResultSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.bulkGrade({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
       saveReviewSteps: scopedProcedure('admin:write', { module: 'academy' })

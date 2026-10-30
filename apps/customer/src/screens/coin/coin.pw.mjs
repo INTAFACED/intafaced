@@ -102,7 +102,7 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await expect(page.getByTestId('change')).toContainText('▲');
 
   // Range pills: five, in order, 1D pressed; each loads the candles the spec names.
-  expect(await texts(page.getByTestId('coin-ranges').locator('button'))).toEqual(['1D', '1W', '1M', '1Y', 'All']);
+  expect(await texts(page.getByTestId('coin-ranges').locator('button'))).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   await expect(page.getByTestId('coin-ranges').locator('button', { hasText: '1D' })).toHaveAttribute('aria-pressed', 'true');
 
   // Line chart present, with the attribution the licence asks for, no volume pane (one canvas pair for the pane).
@@ -118,9 +118,13 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await expect(page.getByTestId('stat-volume')).toContainText('24h volume (BTC)');
   await expect(page.getByTestId('stat-balance')).toContainText('0.25 BTC');
   await expect(page.getByTestId('stat-balance')).toContainText('$16,953.10');
-  expect(await page.getByTestId('coin-stats').getByTestId('coin-term').count()).toBe(4);
+  expect(await page.getByTestId('coin-stats').getByTestId('coin-term').count()).toBe(6);
   expect(Math.round((await box(page.getByTestId('stat-high'))).height)).toBe(49);
-  await expect(page.getByTestId('coin-stats')).not.toContainText(/market cap|supply|rating/i);
+  // No supply figure is published for any coin, so market cap says so; the networks are the registry's (J-portfolio-10 #3).
+  await expect(page.getByTestId('stat-market-cap')).toContainText('Market cap');
+  await expect(page.getByTestId('stat-market-cap')).toContainText('not published');
+  await expect(page.getByTestId('coin-network')).toContainText('Bitcoin');
+  await expect(page.getByTestId('coin-stats')).not.toContainText(/rating|rank/i);
 
   // Your BTC: only because it is held. Amount, value, available, in orders, Send and Convert.
   const yours = page.getByTestId('your-coin');
@@ -131,6 +135,12 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await expect(yours).toContainText('In orders');
   await expect(yours.locator('a', { hasText: 'Send' })).toHaveAttribute('href', '/pay/send');
   await expect(yours.locator('a', { hasText: 'Convert' })).toHaveAttribute('href', '/trade/convert?from=BTC');
+  // Your position, from the lot book: 0.25 BTC that cost $15,000.00, so $60,000.00 a coin; worth $16,953.10 now.
+  const position = yours.getByTestId('coin-position');
+  await expect(position.locator('[data-figure="quantity"]')).toContainText('0.25 BTC');
+  await expect(position.locator('[data-figure="average-price"]')).toHaveText('$60,000.00');
+  await expect(position.locator('[data-figure="cost-basis"]')).toHaveText('$15,000.00');
+  await expect(position.locator('[data-figure="result"]')).toHaveText('+$1,953.10');
 
   // About: plain sentences, no price claim.
   await expect(page.locator('#coin-about h2')).toHaveText('About Bitcoin');
@@ -258,6 +268,8 @@ test('range pills are a ToggleGroup: arrow keys move between them, Enter picks, 
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('change')).toContainText('Past month');
+  await pill('6M').click();
+  await expect(page.getByTestId('change')).toContainText('Past six months');
   await pill('1Y').click();
   await expect(page.getByTestId('change')).toContainText('Past year');
   await pill('All').click();
@@ -267,6 +279,7 @@ test('range pills are a ToggleGroup: arrow keys move between them, Enter picks, 
   expect(has('5m', 288)).toBe(true);
   expect(has('1h', 168)).toBe(true);
   expect(has('4h', 180)).toBe(true);
+  expect(has('1d', 180)).toBe(true);
   expect(has('1d', 365)).toBe(true);
   expect(has('1w', 260)).toBe(true);
   await shot(page, 'simple-range-all');

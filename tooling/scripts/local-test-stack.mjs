@@ -21,7 +21,8 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
- *   svc-protocol (the Web3 rooms' read side; no chain node) · svc-ws (the streams behind /ws) ·
+ *   svc-protocol (the Web3 rooms' read side) · a LOCAL TEST chain (anvil, chain id 84532) when anvil is installed ·
+ *   svc-ws (the streams behind /ws) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
  *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · a TEST apex stand-in page on
  *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
@@ -62,6 +63,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
+import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -71,6 +73,7 @@ import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
 import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
+import indexer from './local-stack-services/indexer.mjs';
 import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
@@ -120,6 +123,7 @@ const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
   procs: path.join(STATE, 'run', 'processes.json'),
+  s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
@@ -166,8 +170,10 @@ const PORTS = {
   'mining-pool': 14518,
   // The outreach intake behind the invitation site, and the founders' CRM.
   ops: 14519,
-  // The Web3 rooms' read side (no chain node on this stack).
+  // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
   protocol: 14520,
+  // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
+  indexer: 14524,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -211,6 +217,7 @@ const SCHEMAS = [
   'mining_pool',
   'ops',
   'protocol',
+  'indexer',
   'campaigns',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
@@ -311,6 +318,7 @@ const SECRET_NAMES = [
   'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
   'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
+  'identityPayQr', // identity's TEST pay QR signing key (IDENTITY_PAY_QR_KEY carries it after `local-test:`); this stack's own, valid nowhere else
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
@@ -334,8 +342,90 @@ function loadOrCreateSecrets() {
     s.adminSession = crypto.randomBytes(32).toString('base64url');
     changed = true;
   }
+  // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
+  s.s2sKeys ??= {};
+  for (const svc of S2S_SERVICES) {
+    if (!serviceKeyMatches(svc, s.s2sKeys[svc])) {
+      s.s2sKeys[svc] = newServiceKey(svc);
+      changed = true;
+    }
+  }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
+}
+
+// ── Service keys (LOCAL_STACK_S2S=dual) ─────────────────────────────────────
+
+/**
+ * The stack's services that speak S2S v3 (packages/contracts SERVICE_NAMES). svc-blueprint and svc-protocol have no
+ * S2S role, and svc-fix is not started here.
+ */
+export const S2S_SERVICES = [
+  'svc-academy',
+  'svc-agents',
+  'svc-bank',
+  'svc-campaigns',
+  'svc-edge',
+  'svc-execution',
+  'svc-identity',
+  'svc-ledger',
+  'svc-market',
+  'svc-matching',
+  'svc-mining-pool',
+  'svc-notify',
+  'svc-ops',
+  'svc-p2p',
+  'svc-pay',
+  'svc-quant',
+  'svc-support',
+  'svc-tax',
+  'svc-token',
+  'svc-trade',
+  'svc-ws',
+];
+
+/** A fresh Ed25519 key in the forms packages/contracts reads: the keyring's raw public key and PKCS8, both base64url. */
+export function newServiceKey(svc) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    kid: `${svc}.local`,
+    x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+  };
+}
+
+/** True when a stored key has this service's kid and its private key gives its public x (else it is made afresh). */
+export function serviceKeyMatches(svc, k) {
+  if (k?.kid !== `${svc}.local` || typeof k.key !== 'string' || typeof k.x !== 'string') return false;
+  try {
+    const priv = crypto.createPrivateKey({ key: Buffer.from(k.key, 'base64url'), format: 'der', type: 'pkcs8' });
+    return crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url') === k.x;
+  } catch {
+    return false;
+  }
+}
+
+const keyrings = new WeakMap();
+
+/**
+ * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
+ * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
+ * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
+ * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * fund and seed scripts sign with the shared secret.
+ */
+export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
+  if (mode === undefined || mode === '' || mode === 'off') return {};
+  if (mode !== 'dual') throw new Error(`LOCAL_STACK_S2S must be off or dual (keypair would refuse the local fund and seed scripts)`);
+  const keys = secrets.s2sKeys ?? {};
+  const missing = S2S_SERVICES.filter((svc) => !keys[svc]);
+  if (missing.length)
+    throw new Error(`LOCAL_STACK_S2S=dual: no stack key for ${missing.join(', ')}; run pnpm local:stack once to create them`);
+  if (!S2S_SERVICES.includes(name)) return {};
+  if (!keyrings.has(keys))
+    keyrings.set(keys, JSON.stringify({ keys: S2S_SERVICES.map((svc) => ({ kid: keys[svc].kid, svc, use: 's2s', x: keys[svc].x })) }));
+  const keyring = keyrings.get(keys);
+  return { S2S_AUTH_MODE: 'dual', S2S_KEYRING: keyring, S2S_SIGNING_KID: keys[name].kid, S2S_SIGNING_KEY: keys[name].key };
 }
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
@@ -610,6 +700,7 @@ const BACKEND_PKGS = [
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
+  'svc-indexer',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -877,7 +968,36 @@ async function migrate(secrets, schemas = SCHEMAS) {
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
-const PLAN_SECRETS = Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)]));
+export const PLAN_SECRETS = {
+  ...Object.fromEntries(SECRET_NAMES.map((n) => [n, 'x'.repeat(64)])),
+  // Placeholders, so `plan` under LOCAL_STACK_S2S=dual shows the keyed env without reading secrets.json.
+  s2sKeys: Object.fromEntries(S2S_SERVICES.map((svc) => [svc, { kid: `${svc}.local`, x: 'x'.repeat(43), key: 'x' }])),
+};
+
+/**
+ * LOCAL_STACK_S2S for a start or restart, checked before anything is stopped or started. A stack whose services are
+ * running with another value is refused: start and restart leave a running service alone, so it would mix modes.
+ */
+function validS2sMode() {
+  const raw = process.env.LOCAL_STACK_S2S;
+  const mode = raw === undefined || raw === '' ? 'off' : raw;
+  if (mode !== 'off' && mode !== 'dual')
+    fail(`LOCAL_STACK_S2S must be off or dual, not "${raw}" (keypair would refuse the local fund and seed scripts)`, 2);
+  return mode;
+}
+
+function checkedS2sMode() {
+  const mode = validS2sMode();
+  const procs = readProcs();
+  const running = serviceNames().filter((n) => ownedAlive(procs[n]));
+  const was = fs.existsSync(P.s2sMode) ? fs.readFileSync(P.s2sMode, 'utf8').trim() : 'off';
+  if (running.length && was !== mode)
+    fail(
+      `this stack's services run with LOCAL_STACK_S2S=${was} (${running.join(', ')}); set the same value, or stop the stack first (pnpm local:stack:stop)`,
+      2,
+    );
+  return mode;
+}
 const UNUSED = `http://${HOST}:1`; // nothing listens; routes to unstarted services fail fast
 
 function commonEnv(secrets, name, port) {
@@ -896,8 +1016,9 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
-    // S2S_AUTH_MODE stays unset here: svc-ledger then accepts this shared secret
-    // and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
+    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through
@@ -939,13 +1060,13 @@ const EDGE_UPSTREAMS = {
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
+  INDEXER_URL: 'indexer',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
   DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -980,6 +1101,7 @@ const SERVICES = [
   tax,
   miningPool,
   protocol,
+  indexer,
   campaigns,
   ws,
   edge,
@@ -1036,6 +1158,7 @@ function serviceDefs(secrets) {
     TEST_FUTURES_LADDER_POLICY,
     EDGE_UPSTREAMS,
     EDGE_ABSENT,
+    testChain,
   };
   return SERVICES.map((service) => service(ctx));
 }
@@ -1090,6 +1213,80 @@ async function startNats() {
   );
   const pid = startProc('nats', [P.nats, '-c', P.natsConf], baseEnv(), STATE);
   await waitHealthy('nats', `http://${HOST}:${PORTS.natsMonitor}/healthz`, pid, 30_000);
+}
+
+// ── The LOCAL TEST chain (local-test-chain.mjs) ─────────────────────────────
+
+/**
+ * What the TEST chain holds, read when a service's env is built: `{ rpcUrl, factory, router }` while the `chain`
+ * process this script started is alive and seeded, else null (svc-protocol then keeps PROTOCOL_RPC_URL=UNUSED).
+ */
+function testChain() {
+  if (!ownedAlive(readProcs().chain) || !fs.existsSync(chainRecordPath(STATE))) return null;
+  const record = readJson(chainRecordPath(STATE));
+  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router };
+}
+
+/**
+ * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
+ * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
+ * journeys fail later for a reason the log no longer shows.
+ */
+async function startTestChain() {
+  const bin = anvilBin(process.env);
+  const procs = readProcs();
+  if (!bin) {
+    if (!ownedAlive(procs.chain)) {
+      fs.rmSync(chainRecordPath(STATE), { force: true });
+      // A chain an earlier start ran is not this stack's any more: no health row for it.
+      if (procs.chain) {
+        delete procs.chain;
+        writeProcs(procs);
+      }
+    }
+    say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
+    return;
+  }
+  if (!ownedAlive(procs.chain)) {
+    for (const port of Object.values(CHAIN_PORTS))
+      if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    fs.rmSync(chainRecordPath(STATE), { force: true });
+    startProc(
+      'chain',
+      [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
+      {
+        ...baseEnv(),
+        LOCAL_STACK_ANVIL_BIN: bin,
+      },
+      REPO,
+    );
+  }
+  const want = `0x${TEST_CHAIN_ID.toString(16)}`;
+  for (let i = 0; i < 60; i++) {
+    const answer = await rpcChainId();
+    if (answer === want) break;
+    if (i === 59) fail(`the TEST chain never answered chain id ${want} on ${GATE_URL} (see ${path.join(P.logs, 'chain.log')})`);
+    await sleep(500);
+  }
+  if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
+  say(`  chain: ${seeded.output.split('\n').pop()}`);
+  if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+}
+
+async function rpcChainId() {
+  try {
+    const res = await fetch(GATE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return (await res.json()).result;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1387,6 +1584,20 @@ async function healthTable({ gateMarket = false } = {}) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
   }
+  if (procs.chain) {
+    const status = await chainStatus();
+    const answer = await rpcChainId();
+    rows.push([
+      'chain (TEST)',
+      `${CHAIN_PORTS.gate}`,
+      procs.chain.pid ?? '-',
+      answer === `0x${TEST_CHAIN_ID.toString(16)}`
+        ? `ok (anvil ${TEST_CHAIN_ID}, gate open)`
+        : status.gate === 'closed'
+          ? 'ok (gate closed by a journey)'
+          : 'DOWN',
+    ]);
+  }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
   rows.push([
     'video-store',
@@ -1440,6 +1651,7 @@ function onlyFlag(flags) {
 }
 
 async function cmdStart(flags) {
+  const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
@@ -1489,6 +1701,7 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
+  if (!only || only.includes('protocol')) await startTestChain();
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1498,6 +1711,7 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  writePrivate(P.s2sMode, `${s2sMode}\n`);
   await startServices(wanted);
   try {
     await ensureLocalTestFounders();
@@ -1562,7 +1776,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'nats'];
   const only = names.length ? names : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
@@ -1597,6 +1811,7 @@ async function cmdStop(names = []) {
 
 /** Read-only: what this script would run and where Edge would send every route. Touches nothing. */
 function cmdPlan(flags) {
+  validS2sMode();
   const defs = serviceDefs(PLAN_SECRETS);
   const procs = fs.existsSync(P.procs) ? readProcs() : {};
   const services = defs.map((d) => ({
@@ -1639,6 +1854,7 @@ async function cmdRestart(names) {
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
+  checkedS2sMode();
   await cmdStop(names);
   await cmdStart([]);
 }
@@ -2190,6 +2406,40 @@ function cmdExpireStaffHolds(args) {
 }
 
 /**
+ * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
+ * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
+ * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ */
+function cmdSeedNotice(args) {
+  const [who, tradeId] = args;
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const id = psql(
+    secrets,
+    `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+     VALUES (:'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+             coalesce((SELECT params FROM notify.notifications
+                        WHERE user_id = :'uid' AND kind = 'p2p.escrow.locked' AND params->>'tradeId' = :'tid'
+                          AND source_idempotency_key NOT LIKE 'local-test-old-link:%'
+                        ORDER BY created_at LIMIT 1),
+                       jsonb_build_object('tradeId', :'tid'::text)),
+             '/p2p/trades/' || :'tid', 'action',
+             'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+     RETURNING id::text`,
+    { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9a-f-]{36}$/.test(line.trim()));
+  if (!id) fail(`no notice was stored for ${who}`);
+  say(`  notice ${id.trim()} for ${who} links /p2p/trades/${tradeId}, as stored before PR 5435 (LOCAL TEST fixture)`);
+}
+
+/**
  * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
  * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
  * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
@@ -2333,7 +2583,7 @@ async function cmdMiningShare(rawArgs) {
   // Each share searches from its own start, derived from its label, so two shares of one rig never send the same work,
   // and one label sent again sends the same work (the pool refuses repeated work in a window as mining.share_duplicate).
   const start = Number.parseInt(crypto.createHash('sha256').update(shareId).digest('hex').slice(0, 12), 16);
-  const { rigShare } = await import('./local-stack-services/mining-rig.mjs');
+  const { rigShare } = await import('./local-test-mining-rig.mjs');
   let result;
   try {
     result = await rigShare({
@@ -3090,6 +3340,7 @@ async function runCli() {
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
@@ -3099,7 +3350,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
@@ -433,15 +433,26 @@ export function FillsTable({
   precision,
   layout = 'desk',
   orders,
+  current = null,
 }: {
   rows: Trade[];
   precision: Precision;
   layout?: 'desk' | 'activity';
   orders?: ReadonlyMap<string, Order>;
+  /** The fill a link opened on: marked current and scrolled into view. */
+  current?: string | null;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const activity = layout === 'activity';
+  // Ids are UUIDs, which a stored link may carry in either case.
+  const isCurrent = (id: string) => current !== null && id.toLowerCase() === current.toLowerCase();
+  const currentRow = useRef<HTMLTableRowElement | null>(null);
+  // Scrolled to once when the link opens, or when its row first arrives with a later poll; not on every re-render.
+  const currentShown = rows.some((fill) => isCurrent(fill.id));
+  useEffect(() => {
+    if (currentShown) currentRow.current?.scrollIntoView({ block: 'nearest' });
+  }, [current, currentShown]);
   const fillRow = (fill: Trade, of: string | null, typeWord: string | null) => {
     // The sentence in Activity never rounds a fill: it shows the amount's own digits (up to 8). The desk keeps the lot's.
     const amount = fmtAmount(fill.amount, { places: activity ? 8 : precision.lotOf(fill.symbol) });
@@ -450,7 +461,14 @@ export function FillsTable({
     const rate = fillFeeRate(fill);
     const rebate = fillRebate(fill);
     return (
-      <tr key={fill.id} data-fill={fill.id} data-of={of ?? undefined} className={of ? 'dk-fill-part' : undefined}>
+      <tr
+        key={fill.id}
+        data-fill={fill.id}
+        data-of={of ?? undefined}
+        className={of ? 'dk-fill-part' : undefined}
+        aria-current={isCurrent(fill.id) ? 'true' : undefined}
+        ref={isCurrent(fill.id) ? currentRow : undefined}
+      >
         <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>
