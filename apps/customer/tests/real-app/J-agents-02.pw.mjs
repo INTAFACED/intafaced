@@ -95,6 +95,13 @@ async function ledgerTrace(browser, businessKey) {
   }
 }
 
+/** One of the person's own agents service reads through Edge, on a sign-in of its own: the answer's data. */
+async function ownRead(who, procedure, input) {
+  const res = await (await api(who)).get(`/api/agents/trpc/own.${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 test(`${J} starts: a verified TEST account funded with TEST USDT and an agent of the person's own`, async ({ page }) => {
   test.setTimeout(240_000);
   await agents.start(page, 'ag02', '20');
@@ -258,6 +265,15 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(limits(page).getByTestId('overage-grace')).toHaveText(
     'Allowed unpaid before runs stop: not set. While any usage is unpaid, no run starts.',
   );
+  // The service, not the page: the stack's owner values carry no overage grace, and svc-agents answers it blank.
+  const [agent] = (await ownRead(owes, 'list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
+  expect(await ownRead(owes, 'limits.get', { id: agent.id })).toMatchObject({ overageGrace: null });
+  /** The session's usage window, as svc-agents holds it. */
+  const windowOf = async (sessionId) => {
+    const rows = (await ownRead(owes, 'usage', { id: agent.id, limit: 50 })).filter((row) => row.sessionId === sessionId);
+    expect(rows).toHaveLength(1);
+    return rows[0];
+  };
 
   // One admitted run: its usage sits on the session's open window, not yet charged.
   await session(page).getByRole('button', { name: 'Open a session' }).click();
@@ -277,7 +293,8 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   const pot = await bank.pot('Agents TEST pot');
   await bank.move(`${J}#5:out:${pot.id}`, home.id, pot.id, '1');
   const drained = await ledgerBalances(owes);
-  expect(toUnits(drained.USDT?.free ?? '0')).toBe(0n);
+  expect(drained.USDT).toBeDefined();
+  expect(toUnits(drained.USDT.free)).toBe(0n);
 
   // A window earlier could not be paid: the close is refused and says so; the session stays open; nothing moved.
   await session(page).getByRole('button', { name: 'Close session' }).click();
@@ -298,9 +315,13 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   // The ledger, not the page: nothing is booked under that key while the window is unpaid.
   const ledgerKey = `fee:agents:${key}`;
   expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
+  // And svc-agents holds the same: the window sealed unpaid at the run's cost, on that charge key.
+  const unpaid = await windowOf(first);
+  expect(unpaid).toMatchObject({ state: 'unpaid', chargeKey: key, assetId: 'USDT' });
+  expect(toUnits(unpaid.amount)).toBe(toUnits(cost));
   await expect(main(page).getByRole('alert')).toHaveText('A usage window is unpaid. Add funds and it is retried on the same charge.');
 
-  // With the grace blank, the next run refuses with recovery text, before the engine, and bills 0.
+  // With the grace blank, the next run refuses with recovery text and bills 0.
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
   await session(page).getByRole('button', { name: 'Open a session' }).click();
   const second = session(page).getByText('Session open:').locator('code');
@@ -320,10 +341,20 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(refusedRow).toContainText('Refused');
   await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
   expect(await ledgerBalances(owes)).toEqual(drained);
+  // Read back from the service after the refusal: one refused run at 0 under that code, and the window unchanged,
+  // still unpaid on its key with nothing booked under it.
+  const refusedRuns = (await ownRead(owes, 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === 'refused');
+  expect(refusedRuns).toHaveLength(1);
+  expect(refusedRuns[0]).toMatchObject({ refusalCode: 'agents.overage_grace_unset', cost: '0' });
+  expect(await windowOf(first)).toEqual(unpaid);
+  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
 
   // Funds back: the next run first retries the unpaid window on its same charge key, which now pays it once, then runs.
   await bank.move(`${J}#5:back:${pot.id}`, pot.id, home.id, '1');
   expect(await ledgerBalances(owes)).toEqual(funded);
+  // Funds alone pay nothing: until the next run, the window is still unpaid and the ledger holds nothing under its key.
+  expect(await windowOf(first)).toEqual(unpaid);
+  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   const paid = await ledgerBalances(owes);
@@ -335,16 +366,23 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(windows.getByTestId('charge-key')).toHaveText(key);
   await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   await expect(main(page).getByRole('alert')).toHaveCount(0);
-  // The ledger booked the retry under that same key: one transaction, the window's exact cost from the person's USDT
-  // to the house's agents fees, and nothing else.
+  expect(await windowOf(first)).toEqual({ ...unpaid, state: 'settled' });
+  // The ledger booked the retry under that same key: one transaction of two postings for the window's exact cost. Its
+  // source is the person's available USDT, which it took from the funded balance to the paid one; its destination
+  // gained exactly that cost.
   const booked = await ledgerTrace(browser, ledgerKey);
   expect(booked.found).toBe(true);
   expect(booked.transaction).toMatchObject({ businessKey: ledgerKey, module: 'agents' });
   expect(booked.transaction.postings).toHaveLength(2);
-  expect(booked.transaction.postings.map((p) => [p.side, p.assetId, toUnits(p.amount)]).sort()).toEqual([
-    ['destination', 'USDT', toUnits(cost)],
-    ['source', 'USDT', toUnits(cost)],
-  ]);
+  const source = booked.transaction.postings.find((p) => p.side === 'source');
+  const destination = booked.transaction.postings.find((p) => p.side === 'destination');
+  for (const posting of [source, destination]) {
+    expect(posting).toMatchObject({ assetId: 'USDT' });
+    expect(toUnits(posting.amount)).toBe(toUnits(cost));
+  }
+  expect([toUnits(source.balanceBefore), toUnits(source.balanceAfter)]).toEqual([toUnits(funded.USDT.free), toUnits(paid.USDT.free)]);
+  expect(toUnits(destination.balanceAfter) - toUnits(destination.balanceBefore)).toBe(toUnits(cost));
+  expect(destination.accountId).not.toBe(source.accountId);
   // Paid once: reading the page again charges nothing more, and the key still names that one transaction.
   expect(await ledgerBalances(owes)).toEqual(paid);
   expect((await ledgerTrace(browser, ledgerKey)).transaction.txId).toBe(booked.transaction.txId);
