@@ -1149,7 +1149,6 @@ interface CandleRow {
   swaps: string;
 }
 
-
 interface ExplorerTxRow {
   hash: string;
   tx_index: number;
