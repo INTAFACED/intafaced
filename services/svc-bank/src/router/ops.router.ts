@@ -846,7 +846,8 @@ export function createOpsRouter(c: BankRouterContext) {
           outstandingPrincipal: amountString,
           badDebt: amountString,
           funded: amountString,
-          drift: amountString,
+          /** funded − badDebt − reserve − outstanding: a signed residual, negative when the reserve holds more than was recorded as funded. */
+          drift: signedAmountString,
           /** False until funded is journal-independent; do not treat drift 0 as green. */
           independent: z.boolean(),
           insuranceCapacity: amountString,
