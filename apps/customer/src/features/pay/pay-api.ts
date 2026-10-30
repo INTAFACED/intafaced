@@ -372,6 +372,8 @@ function shareLinkRefusal<T>(result: ApiResult<T>): ApiResult<T> {
 }
 
 /** P-ads-merchant-06: closed ads My Ads lists, most recently closed first. */
+/** P-ads-merchant-08: how many to-do items the console reads at once (svc-p2p's most is 200). */
+export const TODOS_SHOWN = 100;
 export const CLOSED_OFFERS_SHOWN = 50;
 
 export function createPersonalPayApi(
@@ -1198,6 +1200,19 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /** P-ads-merchant-08: the person's own active ads, for a bulk action (the board pages them with everyone else's). */
+    async activeOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'active', limit: PAUSED_OFFERS_SHOWN },
+        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
+        { signal },
+      );
+    },
     /** The person's own paused ads (the board lists active ads only), newest first. */
     async pausedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
       const denied = signedIn();
@@ -1258,6 +1273,38 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
       return api.mutate('p2p', 'offers.shareLinks.revoke', { linkId }, s.shareLinkSchema);
+    },
+    /** P-ads-merchant-08: the person's presence: online, offline, or a weekly schedule; and whether their ads are on the board. */
+    async presence(signal?: AbortSignal): Promise<ApiResult<s.Presence>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'merchants.presence', undefined, s.presenceSchema, { signal });
+    },
+    /** P-ads-merchant-08: sets online, offline or a schedule; a week that is not valid refuses `p2p.schedule_invalid`. */
+    setPresence(input: { mode: s.Presence['mode']; timezone?: string; windows?: s.PresenceWindow[] }): Promise<ApiResult<s.Presence>> {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'merchants.setPresence', input, s.presenceSchema);
+    },
+    /** P-ads-merchant-08: the person's open orders that wait on someone, soonest deadline first. */
+    async todos(signal?: AbortSignal): Promise<ApiResult<s.TodoItem[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query('p2p', 'merchants.todos', { limit: TODOS_SHOWN }, s.todosSchema, { signal });
+      return result.ok ? { ok: true, data: result.data.items } : result;
+    },
+    /**
+     * P-ads-merchant-08: pauses, resumes or removes the named ads, each answering for itself. The key names this one
+     * request: a retry after a lost reply sends the same key and svc-p2p answers the same results, changing nothing.
+     */
+    bulkOffers(input: { action: s.BulkOutcome['action']; offerIds: string[]; idempotencyKey: string }): Promise<ApiResult<s.BulkOutcome>> {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'offers.bulk', input, s.bulkOutcomeSchema);
     },
     /** P-ads-merchant-06: the person's own closed ads, most recently closed first, each with why it closed. */
     async closedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
