@@ -204,6 +204,28 @@ export const en = {
   'notify.pay.transfer_received.body': 'You received {amount} {assetId}.',
   'notify.pay.transfer_sent.title': 'Payment sent',
   'notify.pay.transfer_sent.body': 'You sent {amount} {assetId}.',
+  // Copy trading (J-copy-bots-otc-03 #6): why a follow skipped a copy or stopped, and what the person can do. No raw code.
+  'notify.trade.copy_skipped.title': 'A follow skipped a copy',
+  'notify.trade.copy_skipped.body.lead_stopped':
+    'The leader was suspended, so their trade was not copied for you. You can stop this follow or choose another leader.',
+  'notify.trade.copy_skipped.body.risk_control':
+    'One of your limits held back a copy of the leader’s trade. You can check your limits on the follow.',
+  'notify.trade.copy_skipped.body.insufficient_funds':
+    'Your balance did not cover a copy of the leader’s trade. You can add funds or lower the copy size.',
+  'notify.trade.copy_skipped.body.max_copy_total':
+    'A copy would have gone past your per-order or total limit, so it was skipped. You can raise the limit on the follow.',
+  'notify.trade.copy_skipped.body.copy_slippage_exceeded':
+    'The price had moved past your slippage limit, so a copy was skipped. You can widen the limit on the follow.',
+  'notify.trade.copy_skipped.body.position_closed':
+    'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
+  'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
+  'notify.trade.copy_stopped.title': 'Your follow stopped copying',
+  'notify.trade.copy_stopped.body.follower': 'You stopped this follow. No new trades are copied for you. You can follow again any time.',
+  'notify.trade.copy_stopped.body.follower_close_only':
+    'You stopped this follow. Only the leader’s closes of what you hold are still copied. You can leave the leader any time.',
+  'notify.trade.copy_stopped.body.lead_stopped': 'The leader was suspended, so this follow stopped copying. You can choose another leader.',
+  'notify.trade.copy_stopped.body.risk_control': 'One of your risk limits stopped this follow. You can check your limits and follow again.',
+  'notify.trade.copy_stopped.body.permission_ended': 'The copy permission for this follow ended. You can grant it again on the follow.',
   'notify.bank.scheduled_reminder.title': 'Standing order coming up',
   'notify.bank.scheduled_reminder.body': 'Your standing order of {amount} {assetId} runs on {dueDate} (UTC). Make sure the money is there.',
   'notify.bank.scheduled_failed.title': 'Standing order did not go through',

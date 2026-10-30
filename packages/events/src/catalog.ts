@@ -2578,13 +2578,6 @@ export const WIRING_SOCKETS = [
       'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the skip row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
   },
   {
-    event: 'copySkipped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
-  },
-  {
     event: 'copyFailed',
     missing: 'publisher',
     class: 'A',
@@ -2604,13 +2597,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the stop row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'copyStopped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). Until then no publisher exists either, so no user is promised a notice.',
   },
   {
     event: 'payCustodyAuditCreated',
