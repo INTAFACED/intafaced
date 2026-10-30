@@ -12,7 +12,9 @@ const session = {
 vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => session.api }));
 import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';
 import { TokenPage } from './TokenPage';
-import { STABLECOINS_UNSET, STOCKS_BLOCKER, TokensRoom } from './TokensRoom';
+import type { TokenListRow } from '@intafaced/contracts/protocol-tokens';
+import { exactUnits, isoTime, percentFromBps, shortAddress } from './format';
+import { compareDecimal, rowsFor, STABLECOINS_UNSET, STOCKS_BLOCKER, TokensRoom } from './TokensRoom';
 
 const TOKEN = '0x4200000000000000000000000000000000000006';
 
@@ -74,16 +76,17 @@ describe('Tokens room storage', () => {
 });
 
 describe('Tokens room', () => {
-  it('opens on Trending with every tab, the formula link and a token table that names its blocker, with no rows', () => {
+  it('opens on Trending with every tab, the window, the formula and a token table that is reading, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokensRoom />);
     expect(html).toContain('<h1>Tokens</h1>');
     for (const tab of ['Trending', 'Top traded', 'New listings', 'Market brief', 'Stablecoins', 'Leaderboard', 'Stocks'])
       expect(html).toMatch(new RegExp(`role="tab"[^>]*>${tab}</button>`));
     expect(html).toContain('aria-selected="true"');
-    expect(html).toContain('How trending is worked out');
+    expect(html).toContain('href="#how-trending"');
+    expect(html).toMatch(/id="how-trending"[\s\S]*data-testid="trending-formula"/);
     expect(html).toContain('aria-label="Tokens"');
-    expect(html).toContain('data-blocker="indexer"');
+    expect(html).toContain('Reading the pools');
     expect(html).not.toContain('data-testid="token-growth"');
     expect(html).not.toMatch(/\$\d/);
     expect(html).toMatch(/<label[^>]*><span>Window<\/span><select/);
@@ -93,17 +96,70 @@ describe('Tokens room', () => {
   });
 });
 
+const row = (address: string, name: string, symbol: string, fields: Partial<TokenListRow>): TokenListRow => ({
+  token: { address, name, symbol, decimals: 18 } as TokenListRow['token'],
+  price: null,
+  growthBps: null,
+  volume: '0',
+  trades: 0,
+  listedAt: 0,
+  lookalikeOf: null,
+  ...fields,
+});
+
+describe('Token lists', () => {
+  const one = row('0x' + '1'.repeat(40), 'Alpha', 'ALP', { price: '2', growthBps: 500, volume: '10.5', listedAt: 30 });
+  const two = row('0x' + '2'.repeat(40), 'Beta', 'BET', { price: '1', growthBps: -200, volume: '100', listedAt: 10 });
+  const three = row('0x' + 'a'.repeat(40), 'Gamma', '', { volume: '10.49', listedAt: 20 });
+  const all = [three, two, one];
+
+  it('ranks Trending by growth, high first, and leaves out a token with no growth', () => {
+    expect(rowsFor('trending', all, '').map((r) => r.token.name)).toEqual(['Alpha', 'Beta']);
+  });
+  it('ranks Top traded by volume as decimals and New listings by listing time, newest first', () => {
+    expect(rowsFor('top', all, '').map((r) => r.token.name)).toEqual(['Beta', 'Alpha', 'Gamma']);
+    expect(rowsFor('new', all, '').map((r) => r.token.name)).toEqual(['Alpha', 'Gamma', 'Beta']);
+  });
+  it('finds a token by name, symbol or address, ignoring case', () => {
+    expect(rowsFor('new', all, 'gam').map((r) => r.token.name)).toEqual(['Gamma']);
+    expect(rowsFor('new', all, 'bet').map((r) => r.token.name)).toEqual(['Beta']);
+    expect(rowsFor('new', all, 'AAAA').map((r) => r.token.name)).toEqual(['Gamma']);
+    expect(rowsFor('new', all, 'nothing')).toEqual([]);
+  });
+  it('compares decimal strings exactly, with signs and unequal fractions', () => {
+    expect(compareDecimal('10.5', '10.49')).toBe(1);
+    expect(compareDecimal('100', '99.999999999999999999')).toBe(1);
+    expect(compareDecimal('-1', '0')).toBe(-1);
+    expect(compareDecimal('-2', '-1.5')).toBe(-1);
+    expect(compareDecimal('1.50', '1.5')).toBe(0);
+  });
+});
+
+describe('Token figures', () => {
+  it("shows base units in full at the token's decimals", () => {
+    expect(exactUnits('40000000', 6)).toBe('40');
+    expect(exactUnits('1', 18)).toBe('0.000000000000000001');
+    expect(exactUnits('123456789012345678901', 18)).toBe('123.456789012345678901');
+    expect(exactUnits('-1500', 3)).toBe('-1.5');
+    expect(exactUnits('7', 0)).toBe('7');
+  });
+  it('shows basis points as a signed percent and a chain time as an ISO instant', () => {
+    expect(percentFromBps(5000)).toBe('+50.00%');
+    expect(percentFromBps(-7)).toBe('-0.07%');
+    expect(percentFromBps(0)).toBe('0.00%');
+    expect(isoTime(60)).toBe('1970-01-01T00:01:00.000Z');
+    expect(shortAddress(TOKEN)).toBe('0x4200…0006');
+  });
+});
+
 describe('Token page', () => {
-  it('shows facts as Not available, the trust tier unknown and the score Not scored, and the three detail tabs', () => {
+  it('reads the token before it shows any fact, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokenPage address={TOKEN} />);
     expect(html).toContain(`<h1>Token ${TOKEN}</h1>`);
-    expect(html).toContain('aria-label="Token facts"');
-    expect(html.match(/>Not available</g)).toHaveLength(5);
-    expect(html).toMatch(/data-testid="token-trust-tier"[^>]*>unknown</);
-    expect(html).toMatch(/data-testid="token-organic-score"[^>]*>Not scored</);
-    for (const tab of ['Pairs', 'Holders', 'Trades']) expect(html).toMatch(new RegExp(`role="tab"[^>]*>${tab}</button>`));
+    expect(html).toContain('Reading the pools');
     expect(html).toContain('Add to watchlist');
+    expect(html).not.toContain('data-testid="token-price"');
     expect(html).not.toMatch(/\$\d/);
   });
   it('answers a malformed address with not found and looks nothing up', () => {

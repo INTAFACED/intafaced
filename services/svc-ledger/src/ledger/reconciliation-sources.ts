@@ -1,5 +1,24 @@
-import { railBalanceSnapshotSchema, railStatementSchema } from '@intafaced/contracts/ledger-reconciliation';
-import { type ReconciliationSources, type SnapshotRead, unsetReconciliationSources } from './reconciliation-controls.js';
+import {
+  PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT,
+  payCustodyOpenItemsReplySchema,
+  payCustodyRailOpenItemsInputSchema,
+  type PayCustodyRailOpenItemsInput,
+  type ServiceCallRequest,
+} from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client';
+import {
+  RECONCILIATION_ITEMS_MAX,
+  railBalanceSnapshotSchema,
+  railStatementSchema,
+  reconciliationReconcilingItemSchema,
+} from '@intafaced/contracts/ledger-reconciliation';
+import {
+  type OpenItem,
+  type OpenItemsRead,
+  type ReconciliationSources,
+  type SnapshotRead,
+  unsetReconciliationSources,
+} from './reconciliation-controls.js';
 
 /** How long one outside read may take before the run records the source as unavailable. */
 export const OUTSIDE_SNAPSHOT_TIMEOUT_MS = 10_000;
@@ -50,10 +69,17 @@ export function reconciliationSourcesFrom(
   railStatementUrls: ReadonlyMap<string, string> = new Map(),
   fetchImpl: typeof fetch = fetch,
   timeoutMs = OUTSIDE_SNAPSHOT_TIMEOUT_MS,
+  openItems?: OpenItemsSource,
 ): ReconciliationSources {
   const unset = unsetReconciliationSources();
   return {
     parity: unset.parity,
+    hasOpenItems: (rail: string): boolean => openItems?.urls.has(rail) === true,
+    openItems: async (rail: string): Promise<OpenItemsRead> => {
+      const url = openItems?.urls.get(rail);
+      if (!openItems || !url) return { kind: 'unset' };
+      return readOpenItems(url, rail, openItems.sign, fetchImpl, timeoutMs);
+    },
     outsideBalance: async (readAt: Date): Promise<SnapshotRead> => {
       if (!outsideSnapshotUrl) return { kind: 'unset' };
       return readOutside(
@@ -84,4 +110,114 @@ export function reconciliationSourcesFrom(
       );
     },
   };
+}
+
+/** Signs one call to svc-pay as svc-ledger (`serviceCallSigner`). */
+export type OpenItemsSigner = (payload: string, request: ServiceCallRequest) => Record<string, string>;
+
+export interface OpenItemsSource {
+  /** `LEDGER_RECONCILE_OPEN_ITEMS_<RAIL>_URL`, per rail. A rail with none has no open items source: `unset`. */
+  readonly urls: ReadonlyMap<string, string>;
+  readonly sign: OpenItemsSigner;
+}
+
+/** svc-pay's own page cap for the door, so the fewest calls read the list. */
+const OPEN_ITEMS_PAGE = PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT;
+
+/** Adds one kind's amount and count under `key` (`<kind>:<asset>`, and `#<kind>:<asset>` for the count). */
+function tally(into: Map<string, bigint>, key: string, amount: bigint, count: bigint): void {
+  if (amount === 0n && count === 0n) return;
+  into.set(key, (into.get(key) ?? 0n) + amount);
+  into.set(`#${key}`, (into.get(`#${key}`) ?? 0n) + count);
+}
+
+/**
+ * Every open item svc-pay lists for one rail (`POST <url>` signed as svc-ledger, `{ rail, offset, limit }`), page by page,
+ * within one deadline of `timeoutMs` for the whole read. Each page is its own snapshot, so every page must carry the same
+ * `total` and `sums`, and the items must add up to those sums per asset and kind by kind, in amount and in count; anything
+ * else (a write between pages, a refused or failed call, a body the schema refuses, an item with the wrong sign for its
+ * kind, more than RECONCILIATION_ITEMS_MAX items) is `unavailable`, never a partial list. Amounts are the rail-minus-ledger
+ * signed amounts; each item keeps when svc-pay saw it, so the run can leave out what its statement could not hold.
+ */
+async function readOpenItems(
+  url: string,
+  rail: string,
+  sign: OpenItemsSigner,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<OpenItemsRead> {
+  const items: OpenItem[] = [];
+  let first: string | null = null;
+  let total = 0;
+  const net = new Map<string, bigint>();
+  const byKind = new Map<string, bigint>();
+  const deadline = AbortSignal.timeout(timeoutMs);
+  try {
+    for (let offset = 0; offset === 0 || offset < total; offset += OPEN_ITEMS_PAGE) {
+      const body: PayCustodyRailOpenItemsInput = { rail, offset, limit: OPEN_ITEMS_PAGE };
+      // The door's own schema: a body it would refuse is never sent, so a refusal can't read as svc-pay being down.
+      if (!payCustodyRailOpenItemsInputSchema.safeParse(body).success) return { kind: 'unavailable' };
+      const payload = JSON.stringify(body);
+      const headers = sign(payload, { method: 'POST', url: new URL(url), contentType: 'application/json' });
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: payload,
+        signal: deadline,
+        redirect: 'error',
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel();
+        return { kind: 'unavailable' };
+      }
+      const page = payCustodyOpenItemsReplySchema.safeParse(await res.json());
+      if (!page.success) return { kind: 'unavailable' };
+      const shape = JSON.stringify({ total: page.data.total, sums: page.data.sums });
+      if (first === null) {
+        first = shape;
+        total = page.data.total;
+        for (const sum of page.data.sums) {
+          net.set(sum.assetId, (net.get(sum.assetId) ?? 0n) + parseAmount(sum.net));
+          tally(byKind, `held:${sum.assetId}`, parseAmount(sum.held), BigInt(sum.heldCount));
+          tally(byKind, `reversal_unfunded:${sum.assetId}`, parseAmount(sum.reversalUnfunded), BigInt(sum.reversalUnfundedCount));
+        }
+      } else if (shape !== first) return { kind: 'unavailable' };
+      if (total > RECONCILIATION_ITEMS_MAX) return { kind: 'unavailable' };
+      for (const item of page.data.items) {
+        // Each item carries its kind's sign: held is rail-over-ledger (+amount), an uncovered reversal ledger-over-rail
+        // (-amount).
+        const signed = item.kind === 'held' ? item.amount : `-${item.amount}`;
+        if (item.signedAmount !== signed || parseAmount(item.amount) <= 0n) return { kind: 'unavailable' };
+        const named = reconciliationReconcilingItemSchema.safeParse({
+          source: 'svc-pay',
+          id: item.depositId,
+          kind: item.kind,
+          assetId: item.assetId,
+          amount: item.signedAmount,
+        });
+        if (!named.success) return { kind: 'unavailable' };
+        items.push({ item: named.data, seenAt: Date.parse(item.detectedAt) });
+      }
+      if (page.data.items.length === 0) break;
+    }
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  if (items.length !== total || new Set(items.map(({ item }) => item.id)).size !== total) return { kind: 'unavailable' };
+  const added = new Map<string, bigint>();
+  const listed = new Map<string, bigint>();
+  for (const { item } of items) {
+    const amount = parseAmount(item.amount);
+    added.set(item.assetId, (added.get(item.assetId) ?? 0n) + amount);
+    // Kind by kind, in amount and in count, so two kinds can never swap behind a net that still adds up.
+    tally(listed, `${item.kind}:${item.assetId}`, amount < 0n ? -amount : amount, 1n);
+  }
+  // The named items must add up to the sums svc-pay stated, asset by asset, or the list is not the whole of them.
+  for (const assetId of new Set([...added.keys(), ...net.keys()])) {
+    if ((added.get(assetId) ?? 0n) !== (net.get(assetId) ?? 0n)) return { kind: 'unavailable' };
+  }
+  for (const key of new Set([...listed.keys(), ...byKind.keys()])) {
+    if ((listed.get(key) ?? 0n) !== (byKind.get(key) ?? 0n)) return { kind: 'unavailable' };
+  }
+  return { kind: 'items', items };
 }

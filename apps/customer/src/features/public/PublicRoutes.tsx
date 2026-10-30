@@ -6,6 +6,7 @@ import { SignUp } from './SignUp';
 import { CannotSignIn } from './CannotSignIn';
 import { ConfirmEmail } from './ConfirmEmail';
 import { RecoverAccount } from './RecoverAccount';
+import { FreezeConfirm } from './FreezeConfirm';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -80,6 +81,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <CannotSignIn />
         ) : path === '/recover-account' ? (
           <RecoverAccount />
+        ) : path === '/freeze/confirm' ? (
+          <FreezeConfirm />
         ) : auth ? (
           <AuthForm register={false} />
         ) : path === '/invite' ? (

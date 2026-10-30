@@ -21,7 +21,7 @@ function people() {
 
 /** Types a handle in To and leaves the field, which is when Send looks it up. */
 async function lookUp(page, handle) {
-  const to = page.getByLabel('Handle');
+  const to = page.getByRole('textbox', { name: 'Handle', exact: true });
   await to.fill(handle);
   await to.press('Tab');
 }
@@ -54,7 +54,7 @@ test(`${J} #1 opens Pay from the navigation and lands on Send`, async ({ page })
   await page.goto('/');
   await page.getByRole('link', { name: 'Pay', exact: true }).first().click();
   await expect(page).toHaveURL(/\/pay(\/send)?(\?|$)/);
-  await expect(page.getByLabel('Handle')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Handle', exact: true })).toBeVisible();
   await expect(page.getByText(/not found/i)).toHaveCount(0);
   // The other personal rooms are listed beside Send.
   for (const room of ['Request', 'Receive']) await expect(page.getByRole('link', { name: room }).first()).toBeVisible();

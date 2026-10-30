@@ -148,6 +148,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
+    // LOCAL TEST ONLY: the pay QR signing key (PP-send-request-11), made on this machine (secrets.json) and labelled with the
+    // `local-test:` marker, which identity refuses at boot unless APP_ENV is exactly dev or test. Not an owner key.
+    // `LOCAL_STACK_IDENTITY_PAY_QR_KEY=off` on a start or restart leaves it blank, as production is until the owner sets
+    // one, so a journey can see codes refused with identity.qr_key_unset.
+    ...(process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY === 'off' ? {} : { IDENTITY_PAY_QR_KEY: `local-test:${secrets.identityPayQr}` }),
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance), svc-market's vendor desk (market:ops), every svc-support operator door
