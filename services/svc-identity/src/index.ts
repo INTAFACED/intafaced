@@ -90,6 +90,8 @@ import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createHandleRouter } from './profile/handle-router.js';
+import { createPayQrRouter } from './profile/pay-qr-router.js';
+import { PayQrService, payQrKeyFromEnv } from './profile/pay-qr.js';
 import { HandleSettingsService } from './profile/handle-settings.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
@@ -106,6 +108,8 @@ import { createAccountStatusRouter } from './account/account-status-router.js';
 import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createFreezeLinkRouter } from './freeze-link-router.js';
+import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
@@ -263,6 +267,11 @@ await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`
     'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
   );
 });
+await sql`SELECT reason_code FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions.reason_code is missing — apply drizzle/20261030013000_trading_restriction_reason.sql before starting svc-identity',
+  );
+});
 await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: profiles.version is missing — apply drizzle/0042_profile_version.sql before starting svc-identity',
@@ -379,7 +388,10 @@ const transportMail = openIdentityMail({
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
-const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
+// Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
+const mail =
+  transportMail &&
+  withAntiPhishingCode(withFreezeLink(transportMail, sql, { warn: (obj, msg) => app.log.warn(obj, msg) }), sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
 auth.useKycCapabilities(kycCapabilityMap);
@@ -443,8 +455,10 @@ auth.useNewDevicePolicy({
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
+const tradingRestrictionReasons = parseKycRejectReasons(env.IDENTITY_TRADING_RESTRICTION_REASONS, 'IDENTITY_TRADING_RESTRICTION_REASONS');
 const founderControls = new FounderControls(sql, founderPair, {
   tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+  tradingRestrictionReasons,
 });
 await founderControls.bootstrap();
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
@@ -719,6 +733,7 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
+  createPayQrRouter(new PayQrService(sql, payQrKeyFromEnv(env.IDENTITY_PAY_QR_KEY, process.env.APP_ENV))),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -747,9 +762,18 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
-  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS, kycCapabilityReasons, kycCapabilityMap)),
+  createAccountStatusRouter(
+    new AccountStatusDesk(
+      sql,
+      env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS,
+      kycCapabilityReasons,
+      kycCapabilityMap,
+      tradingRestrictionReasons,
+    ),
+  ),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
+  createFreezeLinkRouter(auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),

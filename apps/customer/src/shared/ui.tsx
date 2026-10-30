@@ -100,6 +100,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'marketLimitOnly',
   'optionUnsupported',
   'accountOnHold',
+  'tradingOnHold',
   'notFound',
   'notSetUp',
   'feeScheduleUnset',

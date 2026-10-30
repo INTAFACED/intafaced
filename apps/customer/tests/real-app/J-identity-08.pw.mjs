@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { chromium, test, expect } from '@playwright/test';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
+import { confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
 import { api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -13,6 +14,16 @@ const J = 'J-identity-08';
 const UNBUILT = { timeout: 5_000 };
 const LEVELS = ['none', 'basic', 'full', 'institutional'];
 const GATED = ['deposit', 'withdraw', 'trade', 'card', 'earn'];
+/** The stack's one TEST reason from an owner reason list in identity's TEST owner values, as account status returns it. */
+function ownerReason(setting) {
+  const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
+  const [listed] = JSON.parse(raw.values[setting].value);
+  return { code: listed.code, text: listed.reason, guidance: listed.guidance };
+}
+/** IDENTITY_TRADING_RESTRICTION_REASONS: why staff restricted trading. */
+const TRADING_REASON = ownerReason('IDENTITY_TRADING_RESTRICTION_REASONS');
+/** IDENTITY_KYC_CAPABILITY_REASONS: why compliance switched a capability off. */
+const CAPABILITY_REASON = ownerReason('IDENTITY_KYC_CAPABILITY_REASONS');
 
 function person(prefix = 'kv') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -521,15 +532,22 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
 
   // Compliance switches trading crypto off, two people with the stack's TEST reason (I-kyc-compliance-07).
-  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', 'compliance_hold')).toContain(
-    'switched off (compliance_hold)',
+  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', CAPABILITY_REASON.code)).toContain(
+    `switched off (${CAPABILITY_REASON.code})`,
   );
+  // The reason identity stored with the switch-off, read back from identity itself: the code and the owner's words and
+  // next step for it. Every reason shown below is this record's.
+  const client = await api(who);
+  const mine = await client.get('/api/identity/trpc/accountStatus.mine');
+  expect(mine.status).toBe(200);
+  const stored = mine.body.result.data.restrictions.filter((r) => r.kind === 'capability_off');
+  expect(stored.map((r) => [r.capability, r.owner])).toEqual([['trade_crypto', CAPABILITY_REASON]]);
   await page.reload();
   // Here: Capabilities says it is switched off and why, and the restrictions section points there, saying it once.
   const capabilities = page.getByRole('region', { name: 'Capabilities' });
   const capability = capabilities.locator('[data-testid="verification__capability"][data-capability="trade_crypto"]');
   await expect(capability).toContainText('Switched off');
-  await expect(capability).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(capability).toContainText(CAPABILITY_REASON.text);
   await expect(restrictions.getByTestId('verification__restrictions-capabilities')).toHaveText(
     'A capability compliance switched off is listed under Capabilities above.',
   );
@@ -543,8 +561,10 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
   const off = status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(off).toContainText('Trade crypto switched off');
-  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
-  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(off).toContainText(CAPABILITY_REASON.text);
+  await expect(off).toContainText(`Next: ${CAPABILITY_REASON.guidance}`);
+  // In plain words: the owner's sentence, never the code behind it.
+  await expect(off).not.toContainText(CAPABILITY_REASON.code);
   await expect(off).toContainText('It stops a new request for the level that grants it.');
   await expect(off).toContainText('it does not stop your orders or transfers.');
   await expect(off).toContainText('It cannot be switched back on.');
@@ -578,8 +598,9 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   const why = list.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(why).toHaveCount(1);
   await expect(why).toContainText('Trade crypto switched off');
-  await expect(why).toContainText('TEST: this was switched off after a compliance review.');
-  await expect(why).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(why).toContainText(CAPABILITY_REASON.text);
+  await expect(why).toContainText(`Next: ${CAPABILITY_REASON.guidance}`);
+  await expect(refused).not.toContainText(CAPABILITY_REASON.code);
   await expect(refused.locator('li')).toHaveCount(1);
 
   // Re-read: no case opened, trading crypto is still the one switched off, and nothing is held pending.
@@ -590,6 +611,115 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
     .getByTestId('verification__capability')
     .evaluateAll((items) => items.map((li) => [li.getAttribute('data-capability'), li.getAttribute('data-state')]));
   expect(states.filter(([, state]) => state !== 'unrequested')).toEqual([['trade_crypto', 'inactive']]);
+});
+
+test(`${J} #7: a trading restriction refuses a new order on the desk by name, keeps cancel and money, and the lift lets it through`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // A verified person with TEST USDT, so only the restriction can refuse the order. The deposit is the precondition.
+  const who = await fundedTrader(page, 'kvtr', '100');
+  await openDesk(page, who);
+  const order = () => reviewLimit(page, 'buy', '10000.00', '0.001');
+  const sends = () => page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+  // One resting order from before the restriction: the restriction must leave it in place and cancellable.
+  await order();
+  await confirm(page, 'buy');
+  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
+  const [earlier] = await openOrders(who);
+  expect(earlier?.id).toBeTruthy();
+  const client = await api(who);
+  const usdtBefore = (await client.balances()).USDT;
+  // The earlier order holds USDT, so the cancel below has a hold to release.
+  expect(usdtBefore.used).not.toMatch(/^0(\.0+)?$/);
+
+  let lifted = false;
+  try {
+    // A trade-ops operator restricts this account's trading at identity, with a second person's approval and a reason
+    // code from the owner's list (the stack's TEST IDENTITY_TRADING_RESTRICTION_REASONS).
+    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
+      /OK .* trading restrict: changed/,
+    );
+
+    // On another screen, the trade desk: a new order is refused by name before anything is held.
+    await page.reload();
+    const sent = sends();
+    const review = await order();
+    await review.getByRole('button', { name: 'Confirm buy' }).click();
+    const answer = await sent;
+    // A trading control's refusal is a permission refusal (403), carrying identity's one typed code.
+    expect(answer.status()).toBe(403);
+    const refusal = await answer.json();
+    expect(refusal.intafacedCode).toBe('trade.account_restricted');
+    expect(refusal.message).toBe('trade.account_restricted');
+    const main = page.getByRole('main');
+    await expect(main.getByText('Trading is on hold on your account')).toBeVisible();
+    await expect(
+      main.getByText(
+        "New orders can't be placed, and this one wasn't. You can still cancel orders and move money. Contact support to find out why.",
+      ),
+    ).toBeVisible();
+    // Re-read: the one earlier order is all that rests, and the ledger holds exactly what it held before the refusal.
+    expect((await openOrders(who)).map((o) => o.id)).toEqual([earlier.id]);
+    expect((await client.balances()).USDT).toEqual(usdtBefore);
+
+    // The account status names it, what it stops and what it does not.
+    await main.getByRole('link', { name: 'See your account status' }).click();
+    await expect(page).toHaveURL(/\/uc\/account/);
+    const status = page.getByTestId('account-status');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+    const restriction = status.getByTestId('account-status__restrictions').locator('li[data-kind="trading_restricted"]');
+    await expect(restriction).toContainText('Trading restricted');
+    await expect(restriction).toContainText(
+      'It stops new orders, larger orders, new bots and copied trades. You can still cancel an order.',
+    );
+    // The reason identity stored with the restriction, read back from identity itself: the code staff chose and the
+    // owner's words and next step for it.
+    const mine = await client.get('/api/identity/trpc/accountStatus.mine');
+    expect(mine.status).toBe(200);
+    const stored = mine.body.result.data.restrictions.filter((r) => r.kind === 'trading_restricted');
+    expect(stored.map((r) => r.owner)).toEqual([TRADING_REASON]);
+    // The page says that stored reason in plain words, with its next step, and that only support lifts it.
+    await expect(restriction).toHaveAttribute('data-reason', TRADING_REASON.code);
+    await expect(restriction).toContainText(TRADING_REASON.text);
+    await expect(restriction).toContainText(`Next: ${TRADING_REASON.guidance}`);
+    await expect(restriction).not.toContainText('No reason recorded.');
+    // In plain words: the owner's sentence, never the stored code or the refusal's typed code.
+    await expect(restriction).not.toContainText(TRADING_REASON.code);
+    await expect(status).not.toContainText('trade.account_restricted');
+    await expect(restriction).toContainText('Only support can lift this.');
+    await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
+
+    // Cancel still works while it holds: the earlier order is cancelled and its hold released.
+    const cancel = await client.delete(`/api/v1/orders/${earlier.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
+    await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+    // Its hold is released: nothing is held, and all of the same total is free again.
+    await expect
+      .poll(async () => (await client.balances()).USDT, { timeout: 20_000 })
+      .toEqual({ free: usdtBefore.total, used: expect.stringMatching(/^0(\.0+)?$/), total: usdtBefore.total });
+
+    // Lifted, again with two people: the same order goes through and rests.
+    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
+    lifted = true;
+    await page.goto('/uc/account');
+    await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
+    await page.goto(deskPath());
+    const accepted = sends();
+    await order();
+    await confirm(page, 'buy');
+    expect((await accepted).status()).toBeLessThan(300);
+    await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
+  } finally {
+    // Lift it if the test stopped before its own lift, without hiding the first failure behind a second one.
+    if (!lifted) {
+      try {
+        tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
+      } catch (error) {
+        console.warn(`J-identity-08 #7: the lift after a failure failed too: ${error}`);
+      }
+    }
+  }
 });
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
@@ -642,6 +772,9 @@ async function setPostingFreeze(browser, frozen) {
   expect((await readFreeze(a)).state.frozen).toBe(frozen);
 }
 
+/** Wording that would make the platform's posting freeze read as this account's own restriction. */
+const ACCOUNT_HOLD_WORDS = /restricted|on hold|suspended|your account is (limited|blocked|frozen)/i;
+
 test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
   test.setTimeout(240_000);
   // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
@@ -667,7 +800,8 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     const main = page.getByRole('main');
     await expect(main.getByText('Orders are paused right now')).toBeVisible();
     await expect(main.getByText("Orders can't go through at the moment, and this one wasn't placed. Try again later.")).toBeVisible();
-    await expect(main).not.toContainText(/restricted|on hold/i);
+    // Nowhere on the page, not only in the desk: no wording that makes it this account's restriction.
+    await expect(page.locator('body')).not.toContainText(ACCOUNT_HOLD_WORDS);
 
     // Re-read: the refused order moved nothing. Free and held USDT are what they were, the same orders rest, and no
     // order, open or closed, carries the refused request's client id.
@@ -688,10 +822,18 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
     await expect(status).toContainText('Your account is active. Nothing is restricted.');
     await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
+    await expect(status.getByTestId('account-status__restrictions').locator('li')).toHaveCount(0);
+    // Identity's own record agrees: active, with no restriction listed.
+    const mine = await client.get('/api/identity/trpc/accountStatus.mine');
+    expect(mine.status).toBe(200);
+    expect([mine.body.result.data.state, mine.body.result.data.restrictions]).toEqual(['active', []]);
 
-    // And on /verification: nothing is restricted on the account.
+    // And on /verification: nothing is restricted on the account, and no capability reads switched off.
     await page.goto('/verification');
     await expect(page.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+    await expect(
+      page.getByRole('region', { name: 'Capabilities' }).locator('[data-testid="verification__capability"][data-state="inactive"]'),
+    ).toHaveCount(0);
   } finally {
     await setPostingFreeze(browser, false);
   }
