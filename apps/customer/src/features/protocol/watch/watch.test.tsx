@@ -6,7 +6,11 @@ vi.mock('../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const session = { userId: null as string | null };
-vi.mock('../../session/session', () => ({ useSession: () => session }));
+vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => ({ query: () => new Promise(() => undefined) }) }));
+const answers: Record<string, unknown> = {};
+vi.mock('../../../shared/resource', () => ({
+  useResource: (_load: unknown, key: string) => ({ resource: answers[key] ?? { status: 'loading' }, reload: () => undefined }),
+}));
 let list: unknown = { status: 'signed-out' };
 vi.mock('./account-lists', () => ({ useAccountAddressWatches: () => ({ list, change: vi.fn() }) }));
 import { AddressPage } from './AddressPage';
@@ -24,6 +28,9 @@ describe('Address page', () => {
     expect(html).toContain('This explorer holds no funds');
     expect(html).toContain('aria-label="Summary"');
     expect(html).toContain('aria-label="Transactions"');
+    expect(html).toContain('aria-label="Holdings"');
+    expect(html).toContain('aria-label="Balance at a past point"');
+    expect(html).toMatch(/role="tab"[^>]*>Internal transactions</);
     expect(html).toContain('Sign in to keep a private watch');
     expect(html).not.toContain('Watch this address</button>');
     expect(html).not.toMatch(/\$\d/);
@@ -37,6 +44,45 @@ describe('Address page', () => {
     expect(html).toMatch(/<button[^>]*>Watch this address<\/button>/);
     list = { status: 'ready', items: [] };
     expect(renderToStaticMarkup(<AddressPage address={ADDRESS} />)).not.toContain('TEST note');
+  });
+  it('lists the indexer’s transactions for the address, each transfer with its direction, amount and token', () => {
+    const lower = ADDRESS.toLowerCase();
+    answers[`explorer:address:${ADDRESS}:chain`] = { status: 'ready', data: { configuredChainId: 84532 } };
+    const token = `0x${'a'.repeat(40)}`;
+    answers[`explorer:address-txs:84532:${lower}`] = {
+      status: 'ready',
+      data: {
+        rows: [
+          {
+            chainId: 84532,
+            hash: `0x${'c'.repeat(64)}`,
+            blockHeight: 12,
+            index: 0,
+            timestamp: 1_790_000_000,
+            from: token,
+            to: token,
+            status: 'success',
+            revertReason: null,
+            transfers: [
+              { token: { address: token, symbol: 'TESTA', decimals: 18 }, amount: '1500000000000000000', direction: 'in' },
+              { token: { address: token, symbol: null, decimals: null }, amount: '7', direction: 'out' },
+            ],
+          },
+        ],
+        nextCursor: null,
+        asOf: '',
+        asOfHeight: 14,
+      },
+    };
+    const html = renderToStaticMarkup(<AddressPage address={ADDRESS} />);
+    expect(html).toContain('In 1.5 TESTA');
+    expect(html).toContain('Out 7 base units of 0xaaaaaaaa…aaaaaa');
+    expect(html).toContain('href="/chain/blocks/12"');
+    expect(html).toContain('Indexed to block 14.');
+    answers[`explorer:address-txs:84532:${lower}`] = { status: 'ready', data: { rows: [], nextCursor: null, asOf: '', asOfHeight: 14 } };
+    expect(renderToStaticMarkup(<AddressPage address={ADDRESS} />)).toContain(
+      'The indexer lists no transaction for this address on Base Sepolia test network.',
+    );
   });
   it('answers a malformed address with not found', () => {
     expect(renderToStaticMarkup(<AddressPage address="0x12" />)).toContain('data-code="protocol.not_found"');
