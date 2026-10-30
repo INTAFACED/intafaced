@@ -11,13 +11,20 @@
  *   so blank is the only value that boots: the presets read answers "not set" and carries no APR. Any other value stops
  *   the boot instead of pretending a source exists.
  *
+ * - `TRADE_BOTS_WITHDRAW_DAILY_CAP` (owner setting `trade.bots_withdraw_daily_cap`): the most one account may withdraw
+ *   from its grid bots' profit in one UTC day, per quote asset, as JSON `{"USDT":"500"}` (decimal strings). Blank, or an
+ *   asset missing from the map, refuses that asset's withdrawals with `trade.bots_withdraw_cap_unset`. A value that is
+ *   not a positive decimal string stops the boot.
+ *
  * The verification level is the shared bots level (`TRADE_BOTS_VERIFICATION_LEVEL`, algo/bots-verification.ts).
  */
+import { parseAmount, type Amount } from '@intafaced/ledger-client';
 
 export const TRADE_GRID_COUNT_MIN_ENV = 'TRADE_GRID_COUNT_MIN';
 export const TRADE_GRID_COUNT_MAX_ENV = 'TRADE_GRID_COUNT_MAX';
 export const TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS_ENV = 'TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS';
 export const TRADE_GRID_PRESET_SOURCE_ENV = 'TRADE_GRID_PRESET_SOURCE';
+export const TRADE_BOTS_WITHDRAW_DAILY_CAP_ENV = 'TRADE_BOTS_WITHDRAW_DAILY_CAP';
 
 /** The structural floor: two price levels are the fewest a grid can trade between. */
 export const GRID_COUNT_FLOOR = 2;
@@ -29,6 +36,38 @@ export interface GridPolicy {
   readonly boundsMaxDistanceBps: number | null;
   /** Always null today: no backtest source exists. */
   readonly presetSource: null;
+  /** The owner's daily withdrawal cap per quote asset. An asset that is absent has no cap set and refuses. */
+  readonly withdrawDailyCap: ReadonlyMap<string, Amount>;
+}
+
+const ASSET = /^[A-Z0-9]{2,16}$/;
+
+function readWithdrawCap(env: Record<string, string | undefined>): Map<string, Amount> {
+  const raw = env[TRADE_BOTS_WITHDRAW_DAILY_CAP_ENV]?.trim() ?? '';
+  const caps = new Map<string, Amount>();
+  if (raw === '') return caps;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${TRADE_BOTS_WITHDRAW_DAILY_CAP_ENV} must be a JSON map of asset to decimal string; refusing to boot`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${TRADE_BOTS_WITHDRAW_DAILY_CAP_ENV} must be a JSON map of asset to decimal string; refusing to boot`);
+  }
+  for (const [asset, value] of Object.entries(parsed)) {
+    let cap: Amount | null = null;
+    try {
+      cap = typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) ? parseAmount(value) : null;
+    } catch {
+      cap = null;
+    }
+    if (!ASSET.test(asset) || cap === null || cap <= 0n) {
+      throw new Error(`${TRADE_BOTS_WITHDRAW_DAILY_CAP_ENV} ${JSON.stringify(asset)} must be a positive decimal string; refusing to boot`);
+    }
+    caps.set(asset, cap);
+  }
+  return caps;
 }
 
 function readCount(env: Record<string, string | undefined>, key: string): number | null {
@@ -55,5 +94,10 @@ export function loadGridPolicy(env: Record<string, string | undefined>): GridPol
   if (source !== '') {
     throw new Error(`${TRADE_GRID_PRESET_SOURCE_ENV} is set, but no grid backtest source is built; leave it blank. Refusing to boot`);
   }
-  return { countRange: min !== null && max !== null ? { min, max } : null, boundsMaxDistanceBps: band, presetSource: null };
+  return {
+    countRange: min !== null && max !== null ? { min, max } : null,
+    boundsMaxDistanceBps: band,
+    presetSource: null,
+    withdrawDailyCap: readWithdrawCap(env),
+  };
 }

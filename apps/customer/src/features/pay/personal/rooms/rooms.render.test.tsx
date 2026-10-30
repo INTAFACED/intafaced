@@ -100,7 +100,7 @@ describe('personal Pay rooms render', () => {
   });
 
   it('names the blocker on every room whose back end is not wired, and keeps its controls off', async () => {
-    const wired = new Set(['/pay/request/req-1', '/pay/history/t1', '/pay/contacts']);
+    const wired = new Set(['/pay/request/req-1', '/pay/history/t1', '/pay/contacts', '/pay/scan']);
     for (const path of samples) {
       await open(path);
       const reason = host.querySelector('[data-testid="pay-reason"]');

@@ -21,6 +21,7 @@ import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
 import { PayError, appendEvent, assertTransition, lockPayment } from './internal.js';
 import { payerNameHoldOf } from '../payer-name/holds.js';
+import { fundsHeldOf, fundsStateOf, recordFundsAvailable, recordFundsPending } from './funds.js';
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 
@@ -162,6 +163,31 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
           applied = true;
         }
         break;
+      case 'funds.available':
+      case 'funds.pending': {
+        // RC-merchant-10: the rail's word on held funds, recorded on the payment under its lock. Only this verified
+        // delivery (or the capture result) writes it; a client never does. A release is kept whenever the rail may
+        // still hold the payment: held now, or not captured yet (a release that arrives before the capture commits, or
+        // after a dispute, is never lost). A payment captured with no hold, or one already released, changes nothing.
+        applied = await transaction(svc.sql, async (tx) => {
+          const locked = await lockPayment(tx, payment.id);
+          if (event.type === 'funds.available') {
+            const state = await fundsStateOf(tx, payment.id);
+            const beforeCapture = locked.status === 'created' || locked.status === 'authorized';
+            if (state.available || (!state.pending && !beforeCapture)) return false;
+            await recordFundsAvailable(tx, payment.id, { at: event.occurredAt, railEventId: deliveryKey });
+            return true;
+          }
+          if (locked.status !== 'captured' || !(await fundsHeldOf(tx, payment.id)).held) return false;
+          await recordFundsPending(tx, payment.id, {
+            ...(event.availableOn ? { availableOn: event.availableOn } : {}),
+            source: 'rail.webhook',
+            railEventId: deliveryKey,
+          });
+          return true;
+        });
+        break;
+      }
       case 'refunded':
       case 'payout.completed':
         // Recorded, not acted on. A refund we did not initiate, or a payout the

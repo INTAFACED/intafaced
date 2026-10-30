@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrandLockup, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
@@ -25,6 +26,9 @@ import { MyTierPage } from './MyTierPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
+
+// A backtest result shared by link (AL-report-03) loads only when one is opened.
+const SharedResultRoute = lazy(() => import('../quant/SharedResultRoute'));
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
@@ -110,6 +114,10 @@ export function PublicRoutes({ path }: { path: string }) {
           <NoticePage />
         ) : path.startsWith('/notice/') || path.startsWith('/announcement/') ? (
           <NoticePage detail id={path.split('/')[2] ?? null} />
+        ) : path.startsWith('/quant/share/') ? (
+          <Suspense fallback={null}>
+            <SharedResultRoute path={path} />
+          </Suspense>
         ) : path === '/fees' ? (
           <FeesPage />
         ) : path === '/fees/my-tier' ? (

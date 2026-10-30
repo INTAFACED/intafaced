@@ -43,7 +43,9 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
             '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
-            'settlement\\.(list|get|lines|lifecycle|payout)$',
+            // M-adv-payments-core-01: the caller's own saved views and one clear payer detail, on the caller's business.
+            'payment\\.(views\\.(list|create|delete)|unmask)$',
+            'settlement\\.(list|get|lines|clearing|lifecycle|payout)$',
             'payHalts\\.status$',
             // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
             'merchantControl\\.(get|reserve|topUp\\.options|usage|pricing\\.(preview|history)|tiers\\.list|limits\\.(open|requestIncrease|withdraw)|approvals\\.(list|request|decide|cancel))$',
@@ -135,8 +137,26 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchantControl.approvals.decide',
         'merchantControl.approvals.cancel',
       ]),
-      payment: new Set(['payment.list', 'payment.get', 'payment.history', 'payment.refunds.list', 'payment.refunds.get']),
-      settlement: new Set(['settlement.list', 'settlement.get', 'settlement.lines', 'settlement.lifecycle', 'settlement.payout']),
+      payment: new Set([
+        'payment.list',
+        'payment.get',
+        'payment.history',
+        'payment.refunds.list',
+        'payment.refunds.get',
+        // Saved views and one clear payer detail, scoped to the caller's own business (M-adv-payments-core-01).
+        'payment.views.list',
+        'payment.views.create',
+        'payment.views.delete',
+        'payment.unmask',
+      ]),
+      settlement: new Set([
+        'settlement.list',
+        'settlement.get',
+        'settlement.lines',
+        'settlement.clearing',
+        'settlement.lifecycle',
+        'settlement.payout',
+      ]),
       payHalts: new Set(['payHalts.status']),
       conversion: new Set(['conversion.quote', 'conversion.execute', 'conversion.get', 'conversion.list']),
       // The business application is the merchant's own (`pay:onboard`); `kyb.decide` and `kyb.decisionBinding` are the operator's.

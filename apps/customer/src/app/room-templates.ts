@@ -239,6 +239,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/quant/sandbox': { template: 'desk' },
   '/quant/studio': { template: 'desk' },
   '/quant/backtest': { template: 'desk' },
+  '/quant/share/:token': { template: 'reading' },
   '/launch': { template: 'catalogue' },
   '/market': { template: 'catalogue' },
   '/market/mine': { template: 'record-list' },

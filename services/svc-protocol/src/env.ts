@@ -12,6 +12,7 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
 import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
@@ -130,6 +131,18 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     /** Constant-product PoolFactory (protocol.amm). Zero until deployed on the target chain. */
     PROTOCOL_AMM_FACTORY_ADDRESS: evmAddressDefaultZero,
     /**
+     * The token the token pages state every price and volume in (D-portfolio-wallet-06, -07). An owner setting with
+     * NO DEFAULT: blank or zero is null and `tokens.*` refuses `protocol.tokens_quote_unset`.
+     */
+    PROTOCOL_TOKENS_QUOTE_TOKEN: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || /^0x[0-9a-fA-F]{40}$/.test(raw.trim()),
+        'PROTOCOL_TOKENS_QUOTE_TOKEN must be blank or an address',
+      )
+      .transform((raw) => (raw.trim() === '' || /^0x0{40}$/.test(raw.trim()) ? null : (raw.trim() as `0x${string}`))),
+    /**
      * Worst slippage a swap builder or session check will accept, in bps.
      *
      * NO DEFAULT. Blank / unset / non-integer → null; `buildSwapExactIn` and
@@ -148,6 +161,27 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * NO DEFAULT: blank refuses `protocol.swap_settings_unset`, like the quote lifetime.
      */
     PROTOCOL_SWAP_CONFIRMATIONS: z.string().default('').transform(parseWhole),
+    /**
+     * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
+     * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_USD_TOKENS: z
+      .string()
+      .default('')
+      .refine((raw) => raw.trim() === '' || parseUsdTokens(raw) !== null, 'PROTOCOL_PRICE_USD_TOKENS must be blank or addresses')
+      .transform(parseUsdTokens),
+    /**
+     * The reliability filter: the least a pool must hold on its priced side, in whole US dollars, for its price to be
+     * shown. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
+     */
+    PROTOCOL_PRICE_MIN_RESERVE_USD: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || parseMinReserveUsd(raw) !== null,
+        'PROTOCOL_PRICE_MIN_RESERVE_USD must be blank or whole US dollars above 0',
+      )
+      .transform(parseMinReserveUsd),
     /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *

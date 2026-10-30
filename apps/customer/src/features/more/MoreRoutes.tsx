@@ -15,6 +15,7 @@ import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
+import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support, supportPageTitleKey } from './Support';
@@ -153,6 +154,8 @@ function MoreRooms({ path }: { path: string }) {
           page.content(path, paper)
         ) : room === 'launch' && hit.id && !hit.invalid ? (
           <LaunchDetail key={hit.id} eventId={hit.id} />
+        ) : room === 'market' && hit.id && !hit.invalid ? (
+          <MarketListingPage key={hit.id} listingId={hit.id} />
         ) : (
           <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
