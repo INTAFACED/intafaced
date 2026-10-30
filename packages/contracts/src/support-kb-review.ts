@@ -91,6 +91,8 @@ export const supportKbHistorySchema = z
           audience: z.enum(['public', 'signed_in', 'staff']),
           live: z.boolean(),
           createdAt: z.string().datetime().nullable(),
+          /** On a version published from a draft, that draft's revision. */
+          sourceRevision: z.number().int().positive().nullable(),
         })
         .strict(),
     ),

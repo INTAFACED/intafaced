@@ -1,3 +1,4 @@
+import { supportKbHistorySchema } from '@intafaced/contracts';
 import { describe, expect, it } from 'vitest';
 import { KbAuthoring } from './kb-authoring.js';
 import { MemoryKbReviewBook } from './kb-review.js';
@@ -86,8 +87,10 @@ describe('help-article authoring and review', () => {
     expect((await store.publishKbDraft({ id: 'withdraw-time', revision: 1 })).status).toBe('ok');
     await kb.saveDraft(AUTHOR, text({ body: 'TEST Later edit.', baseRevision: 2 }));
     expect(await kb.publish(AUTHOR, { id: 'withdraw-time', revision: 1 })).toMatchObject({ version: 2 });
-    const { trail, versions } = await kb.history('withdraw-time');
+    // What the router answers: the history passes its own output schema.
+    const { trail, versions } = supportKbHistorySchema.parse(await kb.history('withdraw-time'));
     expect(trail.map((r) => r.action)).toEqual(['submit', 'approve', 'publish']);
+    expect(versions.find((v) => v.revision === 2)?.sourceRevision).toBe(1);
     expect(versions.map((v) => [v.revision, v.draft])).toEqual([
       [1, true],
       [2, false],
