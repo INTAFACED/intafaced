@@ -168,10 +168,12 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
   const oldSession = await session.get(STATUS);
   expect(oldSession.status, JSON.stringify(oldSession.body).slice(0, 300)).toBe(401);
-  expect(codeOn(oldSession)).toBe('auth.session_revoked');
+  // Edge passes an ended sign-in on as signed out, so identity's own door answers it: not signed in. That the sign-in
+  // itself is gone is read below from identity's list of the person's sessions.
+  expect(codeOn(oldSession), JSON.stringify(oldSession.body)).toBe('UNAUTHORIZED');
   const oldKey = await withKey(key, { path: STATUS });
   expect(oldKey.status, JSON.stringify(oldKey.body).slice(0, 300)).toBe(401);
-  expect(codeOn(oldKey)).toBe('edge.api_key_revoked');
+  expect(codeOn(oldKey), JSON.stringify(oldKey.body)).toBe('edge.api_key_revoked');
   await page.goto('/uc/safe');
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
 
