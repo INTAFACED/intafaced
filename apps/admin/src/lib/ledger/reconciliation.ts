@@ -417,7 +417,7 @@ export function controlRefusal(code: string | null, status: number): string {
 }
 
 /** How many reconciling items a run's line names; the run itself keeps every one. */
-const RUN_ITEMS_SHOWN = 20;
+const RUN_ITEMS_SHOWN = 200;
 
 /** A run as one line for the desk's reply: what it found and the as-of of each source. Decimal strings stay strings. */
 export function describeRun(run: ReconciliationControlRunView): string {
