@@ -679,6 +679,7 @@ test(`${J} #9 Opens the treasury panel: Each figure equals the token service rea
 test(`${J} ends: my vote is recorded once with its power fixed at proposal creation; delegation shows its blocker and the treasury view shows only what the token service reports`, async ({
   browser,
 }) => {
+  // The re-cast, two concurrent casts, the delegation refusal and the treasury reconcile run in one test.
   test.setTimeout(180_000);
   const { who, proposer, nonce, openId, ballots, walletKey, treasury: treasuryAt9 } = run.read();
   if (!walletKey || !ballots) throw new Error(`${J} #7 linked no wallet, so the end has no signed vote to cast`);
@@ -741,7 +742,8 @@ test(`${J} ends: my vote is recorded once with its power fixed at proposal creat
   await expect(openRow.getByTestId('proposal-votes')).toHaveText('1 votes · 1 for · 0 against · 0 abstain');
   await openRow.getByRole('button', { name: /^Inspect proposal/ }).click();
   const powerPanel = page.getByRole('region', { name: 'Your voting power' });
-  await expect(powerPanel).toContainText('Voting power on this proposal100');
+  // Not followed by a digit, so 1000 cannot pass for 100.
+  await expect(powerPanel).toContainText(/Voting power on this proposal100(?!\d)/);
   const fixed = new Date(power.takenAt).toISOString().replace('T', ' · ').replace('Z', ' UTC');
   await expect(powerPanel.getByTestId('voting-power-basis')).toHaveText(
     `Fixed on ${fixed}, when the proposal was created. Stake you add or remove later does not change it.`,
