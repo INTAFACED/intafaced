@@ -1096,3 +1096,28 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.ok(source.includes(`await stopForNewBuild(${part},`), `${part} restarts onto a new build`);
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
+
+// 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
+// of halting on blocks the new node never made (lead, 30 Oct: indexer.halted after a restart).
+{
+  const { CHAIN_DERIVED, emptySchemaSql } = await import('./local-test-stack.mjs');
+  assert.deepEqual(
+    CHAIN_DERIVED.map((c) => c.service),
+    ['indexer'],
+  );
+  const sql = emptySchemaSql('indexer');
+  assert.match(sql, /schemaname = 'indexer'/);
+  assert.match(sql, /TRUNCATE ' \|\| t \|\| ' RESTART IDENTITY CASCADE/);
+  assert.doesNotMatch(sql, /DROP/, 'the tables and their applied migrations stay');
+  assert.throws(() => emptySchemaSql("indexer'; DROP SCHEMA x; --"), /not a schema name/);
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  // Only the branch that starts a new anvil forgets the old chain; a running chain's rows stay.
+  assert.match(
+    source,
+    /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*stopped = await forgetOldChain\(secrets\);/,
+  );
+  assert.equal(source.split('await forgetOldChain(secrets)').length - 1, 1, 'one place forgets the old chain');
+  // What it stopped comes back even under --only.
+  assert.match(source, /renewed\.includes\(d\.name\)/);
+  console.log('local-test-stack: a new TEST chain empties the indexer and brings it back');
+}

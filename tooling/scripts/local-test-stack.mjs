@@ -1346,12 +1346,48 @@ function testChain() {
 }
 
 /**
+ * What services stored from the TEST chain: rows that describe blocks and logs of one node. A new anvil starts at
+ * block 0 with other hashes, so rows kept from an earlier node make the indexer see a chain that is not its own and halt
+ * (`indexer.halted`). Each entry is a database and the schema the service keeps those rows in.
+ */
+export const CHAIN_DERIVED = [{ service: 'indexer', db: 'svc_indexer', schema: 'indexer' }];
+
+/** SQL that empties every table in `schema` and keeps the tables (and so the service's applied migrations). */
+export function emptySchemaSql(schema) {
+  if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`not a schema name: ${schema}`);
+  return `DO $$ DECLARE t text; BEGIN
+  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO t FROM pg_tables WHERE schemaname = '${schema}';
+  IF t IS NOT NULL THEN EXECUTE 'TRUNCATE ' || t || ' RESTART IDENTITY CASCADE'; END IF;
+END $$;`;
+}
+
+/**
+ * A new TEST chain: every service that stored the old one's blocks is stopped and its chain rows emptied, so it starts
+ * again from the new node's block 0. Called only when this script starts a new anvil, never for a running one.
+ */
+async function forgetOldChain(secrets) {
+  const procs = readProcs();
+  const stopped = [];
+  for (const { service, db, schema } of CHAIN_DERIVED) {
+    if (ownedAlive(procs[service])) {
+      say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
+      stopped.push(service);
+    }
+    psql(secrets, emptySchemaSql(schema), { db });
+    say(`  ${service}: rows from the earlier TEST chain emptied (${db}.${schema}); it reads the new chain from block 0`);
+  }
+  return stopped;
+}
+
+/**
  * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
  * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
  * journeys fail later for a reason the log no longer shows.
  */
-async function startTestChain() {
+/** Returns the services it stopped for a new chain, which the start brings back even when `--only` leaves them out. */
+async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
+  let stopped = [];
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1363,13 +1399,15 @@ async function startTestChain() {
       }
     }
     say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
-    return;
+    return stopped;
   }
   if (!ownedAlive(procs.chain)) {
     for (const port of Object.values(CHAIN_PORTS))
       if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
-    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
+    // service stored from it.
     fs.rmSync(chainRecordPath(STATE), { force: true });
+    stopped = await forgetOldChain(secrets);
     startProc(
       'chain',
       [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
@@ -1391,6 +1429,7 @@ async function startTestChain() {
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+  return stopped;
 }
 
 async function rpcChainId() {
@@ -1847,7 +1886,7 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
-  if (!only || only.includes('protocol')) await startTestChain();
+  const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1860,7 +1899,10 @@ async function cmdStart(flags) {
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices(wanted);
+  await startServices([
+    ...wanted,
+    ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
+  ]);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
