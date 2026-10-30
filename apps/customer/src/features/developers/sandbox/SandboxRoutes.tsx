@@ -47,17 +47,26 @@ function Refused({ failure, t }: { failure: Refusal; t: T }) {
 }
 
 function BaseUrl({ baseUrl, t }: { baseUrl: string | null; t: T }) {
-  return baseUrl ? (
-    <p>
-      {t('baseUrlLabel')}:{' '}
-      <code lang="und" data-testid="sandbox-base-url">
-        {baseUrl}
-      </code>
-    </p>
-  ) : (
-    <p className="muted" data-testid="sandbox-base-url-unset">
-      {t('baseUrlUnset')}
-    </p>
+  return (
+    <>
+      {baseUrl ? (
+        <p>
+          {t('baseUrlLabel')}:{' '}
+          <code lang="und" data-testid="sandbox-base-url">
+            {baseUrl}
+          </code>
+        </p>
+      ) : (
+        <p className="muted" data-testid="sandbox-base-url-unset">
+          {t('baseUrlUnset')}
+        </p>
+      )}
+      <p>
+        <a className="text-link" href="/developers/sandbox/test-values">
+          {t('testValuesLink')}
+        </a>
+      </p>
+    </>
   );
 }
 

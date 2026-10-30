@@ -12,10 +12,8 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 // operators approved (pay permissions come only from that grant, with no sandbox temporary grant), signed in with its
 // authenticator code, with a passkey for each fresh step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #8: no test values page or simulated decline yet (DV-sandbox-02). The sandbox store's Fund and Reset are built: the
-//   stack starts with the owner's fund amount and resets per day blank (#4 makes sure of it), and
-//   `local-test-gates.mjs sandbox-funds set` sets TEST values (#5).
+// The stack starts with the owner's sandbox fund amount and resets per day blank (#4 makes sure of it), and
+// `local-test-gates.mjs sandbox-funds set` sets TEST values (#5, #8).
 const J = 'J-developer-02';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
@@ -351,21 +349,56 @@ test(`${J} #7 sends the first signed call: success in the sandbox, and the same 
 });
 
 test(`${J} #8 triggers a simulated decline and resets the balance: the payment ends declined; reset works until the daily cap, then a typed refusal`, async () => {
-  test.setTimeout(180_000);
-  const { key, baseUrl, keyOwner, who } = run.read();
-  expect(keyOwner, "the key from #3 is this account's").toBe(who.userId);
+  test.setTimeout(240_000);
+  const { who, merchantId } = run.read();
+  // The decline value comes from the sandbox's test values page, which lists the tokens the sandbox card rail steers by.
   await page.goto('/developers/sandbox/test-values');
-  const decline = tableIn(page, 'Test values')
-    .getByRole('row', { name: /Decline/ })
-    .getByRole('code')
-    .first();
-  await expect(decline).toBeVisible(UNBUILT);
-  const payment = await fetch(`${baseUrl}/api/pay/v1/payments`, {
+  const decline = tableIn(page, 'Test values').getByRole('row', { name: /Decline/ });
+  await expect(decline.getByRole('code').first()).toBeVisible(UNBUILT);
+  const token = (await decline.getByRole('code').first().textContent())?.trim();
+  await expect(decline).toContainText('card.declined');
+
+  // Making a payment needs pay:write, and the key from #3 only reads: a second sandbox key with the TEST payments preset.
+  await openSandbox('development');
+  await page.getByRole('link', { name: 'Create a sandbox key' }).click();
+  await page.getByLabel('Key name').fill('sandbox-payments');
+  await page.getByLabel('Test payments', { exact: true }).check();
+  const made = await serverAnswer('createKey', () => page.getByRole('button', { name: 'Create with a passkey', exact: true }).click());
+  expect(made.status, JSON.stringify(made.body)).toBe(200);
+  const { key, baseUrl } = made.body.result.data;
+  expect(key).toMatch(/^ifc_test_/);
+  await page.getByLabel('I have stored this key somewhere safe').check();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  // The payment, made at the sandbox host with the decline token, is a sandbox payment; authorizing it ends it failed,
+  // declined by the issuer, with the code the page named.
+  const call = (pathname, init = {}) =>
+    fetch(`${baseUrl}/api/pay/v1${pathname}`, {
+      ...init,
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...init.headers },
+    }).then(json);
+  const created = await call('/payments', {
     method: 'POST',
-    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': `jd02-${RUN}-8-decline` },
-    body: JSON.stringify({ amount: '10', currency: 'USD', card: (await decline.textContent())?.trim() }),
-  }).then(json);
-  expect(payment.body?.status, JSON.stringify(payment.body)).toBe('declined');
+    headers: { 'idempotency-key': `jd02-${RUN}-8-decline-${who.userId}` },
+    body: JSON.stringify({
+      merchantId,
+      amount: '10',
+      assetId: 'USD',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token },
+    }),
+  });
+  expect(created.status, JSON.stringify(created.body)).toBeLessThan(300);
+  expect(created.body).toMatchObject({ mode: 'sandbox', status: 'created' });
+  const authorized = await call(`/payments/${created.body.id}/authorize`, {
+    method: 'POST',
+    headers: { 'idempotency-key': `jd02-${RUN}-8-authorize-${who.userId}` },
+    body: JSON.stringify({ merchantId }),
+  });
+  expect(authorized.body?.status, JSON.stringify(authorized.body)).toBe('failed');
+  const read = await call(`/payments/${created.body.id}?merchantId=${merchantId}`);
+  expect(read.body, JSON.stringify(read.body)).toMatchObject({ status: 'failed', mode: 'sandbox', failure: { code: 'card.declined' } });
 
   await openSandbox('development');
   const funds = page.getByRole('region', { name: 'TEST funds' });
