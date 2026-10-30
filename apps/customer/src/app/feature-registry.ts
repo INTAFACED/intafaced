@@ -436,8 +436,8 @@ export const features: readonly Feature[] = [
     label: 'Scan to pay',
     paths: ['/pay/scan'],
     status: 'blocked',
-    reason: 'Scanning is not connected: a real QR code cannot be told from a forged one; Show my QR code works',
-    unlock: 'the QR signing key and scanner (PP-send-request-11)',
+    reason: 'Scan to pay reads no QR code from the camera or an image; opening a payment link and Show my QR code work',
+    unlock: 'a QR reader for the camera and an image upload (PP-send-request-11)',
     tab: 'pay',
   },
   {
