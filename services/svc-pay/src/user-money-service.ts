@@ -829,7 +829,12 @@ export class UserMoneyService {
             LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
            WHERE w.id = ${claimed.id}
         `;
-            return { ...claimed, status: 'held', journal: current?.journal ?? null, dispatchJournaled: current?.dispatch_journaled ?? null };
+            return {
+              ...claimed,
+              status: 'held',
+              journal: current?.journal ?? null,
+              dispatchJournaled: current?.dispatch_journaled ?? null,
+            };
           }
 
           // ── Phase 2: the rail.

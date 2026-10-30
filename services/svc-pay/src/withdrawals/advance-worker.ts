@@ -124,7 +124,14 @@ export async function runWithdrawAdvancePass(
     }
   }
   const last = rows[rows.length - 1];
-  return { examined: rows.length, settled, reversed, waiting, failed, nextCursor: rows.length >= input.batchLimit && last ? last.cursor : null };
+  return {
+    examined: rows.length,
+    settled,
+    reversed,
+    waiting,
+    failed,
+    nextCursor: rows.length >= input.batchLimit && last ? last.cursor : null,
+  };
 }
 
 export interface WithdrawAdvanceLog {
