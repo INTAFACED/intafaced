@@ -91,7 +91,8 @@ function build(host: ChartHost, series: readonly SeriesOut[], tickSize: string):
       key: series[n]!.key,
       pane: paneOf[n],
       type: api.seriesType(),
-      color: (api.options() as { color?: string }).color ?? '',
+      // A token that does not resolve was drawn in the library's default colour: recorded as '', not as that colour.
+      color: colorOf(series[n]!.color) ? ((api.options() as { color?: string }).color ?? '') : '',
     })),
   );
   if (panes > 0) {

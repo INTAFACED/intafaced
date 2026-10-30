@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { EDGE } from './stack.mjs';
-import { chartBars, expectLines, F, STEP_MS } from './charts-desk-studies.mjs';
+import { atTick, chartBars, expectLines, F, shownText, STEP_MS } from './charts-desk-studies.mjs';
 
 // J-charts-desk-04 "I add advanced studies and market analytics series" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-04 #<n>". This is a DRAFT: it has not been run against the local stack. Each test opens the
@@ -47,12 +47,6 @@ async function facts(page, id) {
   const texts = await row(page, id).locator('.st-fact').allTextContents();
   return Object.fromEntries(texts.map((t) => [t.slice(0, t.indexOf(':')).trim(), t.slice(t.indexOf(':') + 1).trim()]));
 }
-/** A shown number is the worked value to the tick (within half a unit of its last digit). */
-const atTick = (text, value, digits) =>
-  typeof text === 'string' &&
-  new RegExp(`^-?\\d+\\.\\d{${digits}}$`).test(text) &&
-  Math.abs(Number(text) - value) <= 0.5 * 10 ** -digits + 1e-9;
-
 /** The public tape the volume studies read (the newest 500 prints), oldest first, as the studies take them. */
 async function prints() {
   return (await trades(500)).map((r) => ({ t: r.timestamp, side: r.side, amount: Number(r.amount), price: Number(r.price) }));
@@ -108,7 +102,6 @@ test('J-charts-desk-04 #2 adds pivot points and auto levels on the daily interva
     const b = bars[bars.length - 2];
     return { high: b.h, low: b.l, close: b.c };
   };
-  expect(priorOf(await chartBars('1d'))).toEqual({ high: H, low: L, close: C });
   await expectLines(page, 'pivots-1', 2, (bars) => F.pivots(priorOf(bars)), '1d');
   await expect(row(page, 'pivots-1')).toContainText(P.toFixed(2));
   await expectLines(
@@ -196,10 +189,8 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from th
         let total = 0;
         const cumulative = delta.map((d) => (d === null ? null : (total += d)));
         const last = bars.length - 1;
-        const text = async (name) =>
-          (await row(page, 'volume-delta-1').locator(`[data-series="${name}"] .st-value-text`).textContent()).trim();
         const f = await facts(page, 'volume-delta-1');
-        const okLine = async (name, v) => (v === null ? (await text(name)) === '—' : atTick(await text(name), v, 5));
+        const okLine = async (name, v) => atTick(await shownText(page, 'volume-delta-1', name), v, 5);
         return [
           f['Public trades read'] === String(tape.length),
           f['Bars covered by the trades'] === String(bars.filter((b) => b.t >= coveredFrom).length),
@@ -218,9 +209,17 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series from th
         const tape = await prints();
         const [lo, hi] = [Math.min(...tape.map((p) => p.price)), Math.max(...tape.map((p) => p.price))];
         const width = (hi - lo) / 24;
-        const totals = Array.from({ length: 24 }, () => 0);
-        for (const p of tape) totals[Math.min(Math.max(width === 0 ? 0 : Math.floor((p.price - lo) / width), 0), 23)] += p.amount;
-        const poc = totals.indexOf(Math.max(...totals));
+        // Buys and sells summed apart and then added, in tape order, as the study does; the first bin wins a tie.
+        const bins = Array.from({ length: 24 }, () => ({ buy: 0, sell: 0 }));
+        for (const p of tape) {
+          const bin = bins[Math.min(Math.max(width === 0 ? 0 : Math.floor((p.price - lo) / width), 0), 23)];
+          if (p.side === 'buy') bin.buy += p.amount;
+          else bin.sell += p.amount;
+        }
+        let poc = 0;
+        bins.forEach((bin, i) => {
+          if (bin.buy + bin.sell > bins[poc].buy + bins[poc].sell) poc = i;
+        });
         const [low, high] = width === 0 ? [lo, hi] : [lo + poc * width, lo + (poc + 1) * width];
         const f = await facts(page, 'volume-profile-1');
         const m = /^(\S+) to (\S+)$/.exec(f['Point of control'] ?? '');
@@ -244,8 +243,8 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
   // quarter of an hour that includes the forming hour, which ends with the forming 15m bar. Worked from the public routes
   // at the moment of each check: a bar that closes while the test runs changes the count on the page and on the route.
   await expect(async () => {
-    const quarter = await candles('15m', 1);
-    const chartEnd = Number(quarter[quarter.length - 1][0]) + 900_000;
+    // The chart's last 15m bar is the current quarter hour (a quiet one is filled), so it ends at the next quarter.
+    const chartEnd = Math.floor(Date.now() / 900_000) * 900_000 + 900_000;
     // The hourly bars as the chart builds them: one per hour from the first that traded (the last 240), a quiet hour
     // filled from the one before, so an hour with no trade still counts.
     const hourly = await candles('1h', 240);

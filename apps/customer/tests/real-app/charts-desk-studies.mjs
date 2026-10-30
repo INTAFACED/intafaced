@@ -5,7 +5,35 @@ import { EDGE } from './stack.mjs';
 // chart itself reads, and each study's formula worked here, independently of the app (studies/math.ts states them).
 
 const SYMBOL = 'BTC/USDT';
-export const STEP_MS = { '1m': 60_000, '15m': 900_000, '1h': 3_600_000, '2h': 7_200_000, '1d': 86_400_000 };
+export const STEP_MS = {
+  '1m': 60_000,
+  '5m': 300_000,
+  '15m': 900_000,
+  '30m': 1_800_000,
+  '1h': 3_600_000,
+  '2h': 7_200_000,
+  '4h': 14_400_000,
+  '1d': 86_400_000,
+};
+
+/**
+ * A shown value is the worked value to the tick: a number with exactly `digits` decimals within half a unit of its last
+ * digit of the worked value (so an exact half rounds either way), or "—" where the formula has no value (null).
+ */
+export function atTick(text, value, digits) {
+  if (value === null || value === undefined) return text === '—';
+  if (typeof text !== 'string' || !Number.isFinite(value)) return false;
+  const pattern = digits === 0 ? /^-?\d+$/ : new RegExp(`^-?\\d+\\.\\d{${digits}}$`);
+  return pattern.test(text) && Math.abs(Number(text) - value) <= 0.5 * 10 ** -digits + 1e-9;
+}
+
+/** A study line's shown text in the legend, or '' when it is not there (never waits past two seconds). */
+export async function shownText(page, id, name) {
+  const text = await shownValue(page, id, name)
+    .textContent({ timeout: 2_000 })
+    .catch(() => null);
+  return (text ?? '').trim();
+}
 
 /**
  * The bars the chart holds at an interval, worked here from the public candles as the chart builds them: the last 240 buckets up
@@ -69,7 +97,12 @@ export const F = {
     const P = (H + L + C) / 3;
     return { P, R1: 2 * P - L, S1: 2 * P - H, R2: P + (H - L), S2: P - (H - L), R3: H + 2 * (P - L), S3: L - 2 * (H - P) };
   },
-  sma: (xs, p, i) => (i < p - 1 ? null : xs.slice(i - p + 1, i + 1).reduce((a, b) => a + b, 0) / p),
+  sma(xs, p, i) {
+    if (i < p - 1) return null;
+    const win = xs.slice(i - p + 1, i + 1);
+    // A window that holds a gap has no average.
+    return win.some((x) => x === null || x === undefined) ? null : win.reduce((a, b) => a + b, 0) / p;
+  },
   emaLine(xs, p) {
     const a = 2 / (p + 1);
     const out = xs.map(() => null);
@@ -104,6 +137,7 @@ export const F = {
   },
   bollinger(closes, p, m, i) {
     const mid = F.sma(closes, p, i);
+    if (mid === null) return { upper: null, middle: null, lower: null };
     const sigma = Math.sqrt(closes.slice(i - p + 1, i + 1).reduce((a, x) => a + (x - mid) ** 2, 0) / p);
     return { upper: mid + m * sigma, middle: mid, lower: mid - m * sigma };
   },
@@ -134,23 +168,10 @@ export async function expectLines(page, id, digits, work, interval = '15m') {
     .poll(
       async () => {
         const values = work(await chartBars(interval));
-        const checks = [];
         for (const [name, value] of Object.entries(values)) {
-          const text = (
-            (await shownValue(page, id, name)
-              .textContent({ timeout: 2_000 })
-              .catch(() => null)) ?? ''
-          ).trim();
-          const ok =
-            value === null
-              ? text === '—'
-              : /^-?\d+(\.\d+)?$/.test(text) &&
-                text.split('.')[1]?.length === (digits || undefined) &&
-                Math.abs(Number(text) - value) <= 0.5 * 10 ** -digits + 1e-9;
-          checks.push(ok);
-          if (!ok) return false;
+          if (!atTick(await shownText(page, id, name), value, digits)) return false;
         }
-        return checks.length > 0;
+        return Object.keys(values).length > 0;
       },
       { timeout: 30_000, message: `the ${id} legend never showed the values worked from the bars` },
     )
