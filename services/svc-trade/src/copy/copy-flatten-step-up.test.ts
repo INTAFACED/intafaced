@@ -156,7 +156,7 @@ describe('copy.flatten asks identity for a step-up first (J-copy-bots-otc-03 #4)
     const { copy, flatten } = wired(check);
     const follow = await openFollow(copy);
     const longFollow = 'f'.repeat(64);
-    for (const [followId, requestId] of [
+    for (const [followId, requestId] of <[string, string][]>[
       [follow.followId, ''],
       [follow.followId, 'short'],
       [follow.followId, 'has space in it'],
