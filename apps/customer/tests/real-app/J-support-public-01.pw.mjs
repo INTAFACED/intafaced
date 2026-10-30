@@ -204,6 +204,17 @@ test(`${J} #3 browses a category and then a section: only that section's publish
   await page.goto(`/help/category/${category.id}`);
   await expect(page.locator('main').getByTestId('help-topic-missing')).toBeVisible();
   await page.context().close();
+  // With the whole library empty, /help shows its honest empty state and no sample answer. That needs a stack whose
+  // catalogue is empty; on a shared stack other journeys' answers are published, so the clause stays red by name until
+  // the stack has that profile (lead ruling 2026-10-30 19:24).
+  const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
+  const answers = (await listed.json()).result?.data ?? [];
+  if (answers.length > 0) throw new Error('the empty-library clause needs an empty-catalogue stack profile');
+  const bare = await visitor(browser);
+  await bare.goto('/help');
+  await expect(bare.locator('main').getByTestId('help__row')).toHaveCount(0);
+  await expect(bare.locator('main').getByText(/No answers are published/)).toBeVisible();
+  await bare.context().close();
 });
 
 test(`${J} #4 a search lists the labelled answer first, and the typed words survive going to sign in`, async ({ browser }) => {
