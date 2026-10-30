@@ -250,7 +250,10 @@ test(`${J} #3 A distinct second founder confirms: The settings are stored with a
   test.setTimeout(240_000);
   const { founderA, founderB } = started('nonce', 'founderA', 'founderB');
   const pages = await founders(browser);
-  const before = await pages.a.getByTestId('settings-move').count().catch(() => 0);
+  const before = await pages.a
+    .getByTestId('settings-move')
+    .count()
+    .catch(() => 0);
   const reply = await settingsStep(
     pages,
     '0',
@@ -357,9 +360,7 @@ test(`${J} #5 An author tries to cancel another author's proposal: A typed permi
 
 test(`${J} #6 Changes a role without a fresh step-up: Refused until step-up is done`, async () => {
   test.setTimeout(5_000);
-  throw new Error(
-    'MC-token-02 step-up on a role change is not built: svc-identity has no same-person step-up type for svc-token yet',
-  );
+  throw new Error('MC-token-02 step-up on a role change is not built: svc-identity has no same-person step-up type for svc-token yet');
 });
 
 test(`${J} ends: voting delay and period are set by two founders, a moderator cancelled an open proposal with a reason`, async ({
