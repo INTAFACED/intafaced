@@ -407,7 +407,22 @@ const copyBestBid = async (marketId: string) => {
   const best = depth.bids[0];
   return best ? parseAmount(best[0]) : null;
 };
+// Identity's customer step-up, spent by a grid profit withdrawal and a copy close-all. A blank IDENTITY_URL leaves it
+// unwired: both then refuse identity.step_up_unavailable.
+const stepUp = createStepUpCheck({
+  service: 'svc-trade',
+  approvals: env.IDENTITY_URL?.trim()
+    ? createIdentityApprovalClient({
+        service: 'svc-trade',
+        baseUrl: env.IDENTITY_URL,
+        internalSecret: env.INTERNAL_SERVICE_SECRET,
+        fail: (message, code) => Object.assign(new Error(message), { code }),
+        s2s: outS2s,
+      })
+    : null,
+});
 const copy = new CopyService(ledger, {
+  stepUp,
   gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
@@ -515,19 +530,7 @@ const grid = new GridService({
   findOrder: (orderId) => trade.findOrder(orderId),
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
-  // A blank IDENTITY_URL leaves the check unwired: every withdrawal then refuses identity.step_up_unavailable.
-  stepUp: createStepUpCheck({
-    service: 'svc-trade',
-    approvals: env.IDENTITY_URL?.trim()
-      ? createIdentityApprovalClient({
-          service: 'svc-trade',
-          baseUrl: env.IDENTITY_URL,
-          internalSecret: env.INTERNAL_SERVICE_SECRET,
-          fail: (message, code) => Object.assign(new Error(message), { code }),
-          s2s: outS2s,
-        })
-      : null,
-  }),
+  stepUp,
 });
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(

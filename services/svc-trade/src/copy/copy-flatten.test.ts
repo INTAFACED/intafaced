@@ -20,6 +20,10 @@ import { applyCopyFlatten, flattenFollowerCopyPosition, presentCopyFlattenAck } 
 import type { FlattenCopyPositionPort } from './copy-flatten.js';
 import type { CopyFollow } from './follows.js';
 import { GateOpenLedger, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
+import type { StepUpCheck } from '@intafaced/contracts';
+
+/** Identity's step-up, approving: these tests are about the close-all itself (the gate's own tests are in copy-flatten-step-up.test.ts). */
+const approveStepUp: StepUpCheck = { require: async () => ({ stepUpEventId: 'appr-test', consumedAt: null, replayed: false }) };
 
 const SECRET = 'copy-flatten-edge-secret-32bytes-xx';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -65,6 +69,7 @@ const publishedJur = { published: true as const, allowedRegions: ['SG'] };
 
 function wiredCopy(opts: { flatten?: FlattenCopyPositionPort; place?: PlaceFollowerOrderPort } = {}) {
   return new CopyService(new GateOpenLedger(), {
+    stepUp: approveStepUp,
     ...OPEN_FOLLOW_GATE,
     store: new MemoryCopyFollowStore(),
     feeShareLaw: publishedFee,
@@ -140,13 +145,13 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
         return { orderIds: [] };
       },
     });
-    await expect(copy.flatten(principal(), { followId: '   ' })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: '   ', requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_not_following',
     });
-    await expect(copy.flatten(principal(), { followId: '' })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: '', requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_not_following',
     });
-    await expect(copy.flatten(principal(), { followId: 'missing-follow' })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: 'missing-follow', requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_not_following',
     });
     expect(flattenCalls).toEqual([]);
@@ -179,7 +184,7 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
     await other.detach(principal(), { followId: kept.followId });
     expect(flattenCalls).toEqual([]);
 
-    const acked = await copy.flatten(principal(), { followId: follow.followId });
+    const acked = await copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' });
     expect(flattenCalls).toEqual([follow.followId]);
     expect(acked).toMatchObject({
       followId: follow.followId,
@@ -206,7 +211,7 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
   it('unwired flatten port refuses rather than invent a close', async () => {
     const copy = wiredCopy();
     const follow = await openFollow(copy);
-    await expect(copy.flatten(principal(), { followId: follow.followId })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_flatten_refused',
     });
   });
@@ -246,12 +251,12 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
     });
     await follower.copy.pause({ followId: follow.followId });
     expect(flattenCalls).toEqual([]);
-    const acked = await follower.copy.flatten({ followId: follow.followId });
+    const acked = await follower.copy.flatten({ followId: follow.followId, requestId: 'flatten-0001' });
     expect(acked.disposition).toBe('DETACH_FLATTEN');
     expect(acked.flattenChosen).toBe(true);
     expect(acked.orderIds).toEqual(['ord-wire']);
     expect(flattenCalls).toEqual([follow.followId]);
-    await expect(follower.copy.flatten({ followId: 'missing-follow' })).rejects.toMatchObject({
+    await expect(follower.copy.flatten({ followId: 'missing-follow', requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
@@ -261,7 +266,7 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
       flatten: async () => ({ orderIds: [], refuse: 'drift' }),
     });
     const follow = await openFollow(copy);
-    await expect(copy.flatten(principal(), { followId: follow.followId })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_flatten_drift',
     });
     await copy.planMirrorForFollow(principal(), {
@@ -279,7 +284,7 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
       flatten: async () => ({ orderIds: [], refuse: 'unavailable' }),
     });
     const follow = await openFollow(copy);
-    await expect(copy.flatten(principal(), { followId: follow.followId })).rejects.toMatchObject({
+    await expect(copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0001' })).rejects.toMatchObject({
       code: 'trade.copy_flatten_unavailable',
     });
     await copy.planMirrorForFollow(principal(), {

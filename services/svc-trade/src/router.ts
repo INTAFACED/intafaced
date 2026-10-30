@@ -10,6 +10,7 @@ import {
   serviceProcedure,
   TRPCError,
   type Context,
+  StepUpCheckError,
 } from '@intafaced/contracts';
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
@@ -455,6 +456,12 @@ export function toTrpcError(err: unknown): TRPCError {
   if (desk) return desk;
   const copyClose = copyCloseTrpcError(err);
   if (copyClose) return copyClose;
+  // Identity's step-up codes (a copy close-all) reach the person unchanged: confirm again (403), or identity could not
+  // check it (503).
+  if (err instanceof StepUpCheckError) {
+    const code = err.code === 'identity.step_up_required' ? 'FORBIDDEN' : 'SERVICE_UNAVAILABLE';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -1684,7 +1691,13 @@ export function createTradeRouter(
         ),
 
       flatten: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            requestId: z.string().max(64).nullable().optional(),
+            stepUpApprovalId: z.string().max(128).nullable().optional(),
+          }),
+        )
         .output(copyFlattenOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
