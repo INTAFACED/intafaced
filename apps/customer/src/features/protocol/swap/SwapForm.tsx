@@ -187,7 +187,8 @@ export function SwapForm() {
                                   ? (feeAlert ?? t('feeCustomNeeded'))
                                   : null;
   const following = track?.state === 'submitted' || track?.state === 'confirming';
-  const canSwap = reason === null && !busy && !following;
+  // A failed swap needs a new quote (Get a new quote clears it); the failed one is never offered again.
+  const canSwap = reason === null && !busy && !following && track?.state !== 'failed';
 
   // Why a swap did not go through: the pool read again; under the minimum means the price moved.
   const whyFailed = async (pool: string, inToken: string, amountInUnits: bigint, min: bigint, otherwise?: string): Promise<string> => {

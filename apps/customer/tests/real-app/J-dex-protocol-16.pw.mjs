@@ -42,7 +42,8 @@ test(`${J} #1 opens Validators: the table headers and a sentence saying why it i
   for (const header of ['Validator', 'Stake', 'Status']) await expect(validators.getByRole('columnheader', { name: header })).toBeVisible();
   const rows = bodyRows(validators);
   await expect(rows).toHaveCount(1);
-  await expect(rows).toHaveText(/no validator set because the INTACHAIN network is not running|not connected here/);
+  await expect(rows).toHaveText('There is no validator set: the INTACHAIN network is not running, so it is not connected here.');
+  await expect(rows.getByRole('link')).toHaveCount(0);
 });
 
 test(`${J} #2 opens a validator page and presses Stake: the stake form in full, disabled with the chain.go blocker; a blank staking parameter shows its typed refusal`, async ({
