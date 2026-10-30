@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { scanQr } from './qr-read.mjs';
 
 // J-pay-03 step 3's signed QR code (PP-send-request-11) in the running app, kept apart from J-pay-03.pw.mjs because it
 // restarts identity. The code names the payee by account id and is signed with this stack's LOCAL TEST key, made on
@@ -38,6 +39,21 @@ async function balances(payee, payer) {
  * Runs `go` and returns the answer the page itself got from identity for `procedure`: the data, or the typed refusal
  * code the service sent (`error.data.cause.code`), so a refusal is matched by its code and not only by its copy.
  */
+/** Whether identity says the person can be found by their handle, read through their own API. */
+async function findable(who) {
+  const res = await (await api(who)).get('/api/identity/trpc/handle.get');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.discoverable;
+}
+
+/** Identity's answer when `who` looks up `handle`, through their own API. */
+async function lookUp(who, handle) {
+  const input = encodeURIComponent(JSON.stringify({ handle }));
+  const res = await (await api(who)).get(`/api/identity/trpc/users.resolveHandle?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 async function answer(page, procedure, go) {
   const res = page.waitForResponse((r) => r.url().includes(`/api/identity/trpc/${procedure}`));
   await go();
@@ -86,12 +102,20 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   expect(code, 'the QR code carries a signed code').toMatch(/^v1\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
   expect(code, 'the code names the account by id, never the handle').not.toContain(payee.handle);
   await expect(page.getByTestId('pay-qr')).toBeVisible();
+  // The payer's camera reads the drawn QR code: it scans to the printed link, which is what the payer opens below.
+  expect(await scanQr(page.getByTestId('pay-qr')), 'the drawn QR code scans to the printed link').toBe(link);
   const before = await record(payee);
   expect(code.split('.')[1]).toBe(before.userId);
+  // While findable, the payer's handle search finds the payee, so the miss below is the switch's doing.
+  expect(await findable(payee)).toBe(true);
+  expect(await lookUp(payer, before.handle)).toEqual({ found: true, userId: before.userId, handle: before.handle, self: false });
   // Finding by handle off: the code must still open Send on this account.
   const discoverable = page.getByRole('switch', { name: 'Let people find me by my handle' });
   await discoverable.click();
   await expect(discoverable).not.toBeChecked();
+  await page.reload();
+  await expect(discoverable, 'the switch stays off after a reload').not.toBeChecked();
+  expect(await findable(payee), 'identity stores the switch off').toBe(false);
   // The switch says only what the product does, and the scan below proves it.
   await expect(page.getByText('People you share your QR code or link with can still pay you.')).toBeVisible();
   const hidden = await record(payee);

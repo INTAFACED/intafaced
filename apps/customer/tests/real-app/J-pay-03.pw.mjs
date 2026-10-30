@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { scanQr } from './qr-read.mjs';
 
 // J-pay-03, in the running app (docs/roadmap/journeys.json): pick a handle, choose who can find it, and receive a payment.
 // One test per step, titled "J-pay-03 #<n>", run in order on two TEST accounts: A receives, B is a stranger who pays.
@@ -33,6 +34,21 @@ async function record(who) {
   return res.body.result.data;
 }
 
+/** Whether identity says the person can be found by their handle, read through their own API. */
+async function findable(who) {
+  const res = await (await api(who)).get('/api/identity/trpc/handle.get');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.discoverable;
+}
+
+/** Identity's answer when `who` looks up `handle`, through their own API. */
+async function lookUp(who, handle) {
+  const input = encodeURIComponent(JSON.stringify({ handle }));
+  const res = await (await api(who)).get(`/api/identity/trpc/users.resolveHandle?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 /** Both people's TEST USDT, read through their own API. */
 async function balances(me, stranger) {
   return { me: (await usdt(me)).free, stranger: (await usdt(stranger)).free };
@@ -41,6 +57,7 @@ async function balances(me, stranger) {
 /** Runs `go` and returns identity's answer to the page for `procedure`: its data, or the typed refusal code it sent. */
 async function answer(page, procedure, go) {
   const res = page.waitForResponse((r) => r.url().includes(`/api/identity/trpc/${procedure}`));
+  res.catch(() => {}); // when `go` fails first, its own error is the one reported
   await go();
   const got = await res;
   const body = await got.json();
@@ -147,11 +164,18 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
   // The handle the stranger looks for is this account's current one (#2 changed it), read back from identity.
   const mine = await record(me);
   await expect(page.getByTestId('receive-value')).toHaveText(`@${mine.handle}`);
-  // What the QR code encodes is the link printed under it.
+  // The stranger's camera reads the QR code drawn on Receive: it encodes the link printed under it, to Send.
   const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
+  expect(await scanQr(page.getByTestId('pay-qr')), 'the drawn QR code scans to the printed link').toBe(link);
   expect(new URL(link).pathname, 'the QR code opens Send for this account').toBe('/pay/send');
+  // While findable, the same handle search finds this account, so the miss below is the switch's doing.
+  expect(await findable(me)).toBe(true);
+  expect(await lookUp(stranger, mine.handle)).toEqual({ found: true, userId: mine.userId, handle: mine.handle, self: false });
   await discoverable().click();
   await expect(discoverable()).not.toBeChecked();
+  await page.reload();
+  await expect(discoverable(), 'the switch stays off after a reload').not.toBeChecked();
+  expect(await findable(me), 'identity stores the switch off').toBe(false);
   const hidden = await record(me);
   try {
     await signOutBrowser(page.context());
@@ -196,6 +220,13 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await page.goto('/pay/receive');
     if (!(await discoverable().isChecked())) await discoverable().click();
     await expect(discoverable()).toBeChecked();
+    expect(await findable(me)).toBe(true);
+    expect(await lookUp(stranger, mine.handle), 'found again once back on').toEqual({
+      found: true,
+      userId: mine.userId,
+      handle: mine.handle,
+      self: false,
+    });
   }
 });
 
@@ -209,11 +240,14 @@ test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a
   const mine = await record(me);
   await expect(page.getByTestId('pay-qr')).toBeVisible();
   const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
+  expect(await scanQr(page.getByTestId('pay-qr')), 'the drawn QR code scans to the printed link').toBe(link);
+  // The image the friend will upload is the QR code exactly as Receive draws it.
+  const picture = await page.getByTestId('pay-qr').screenshot();
   const url = new URL(link);
   const code = url.searchParams.get('qr') ?? '';
   expect(code, 'the QR code carries a signed pay code').toMatch(/^v1\./);
 
-  // The friend opens what the QR code encodes: Send prefilled with the payee preview identity resolved.
+  // The friend opens what the QR code scanned to: Send prefilled with the payee preview identity resolved.
   await signOutBrowser(page.context());
   await signIn(page, stranger);
   const scanned = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
@@ -229,14 +263,26 @@ test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a
   expect(refused).toEqual({ status: 400, data: undefined, code: 'identity.qr_invalid' });
   await expect(page.getByRole('alert')).toContainText('This code is not valid');
   await expect(page.getByTestId('recipient-found')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue('');
   expect(await record(me)).toEqual(mine);
   expect(await balances(me, stranger)).toEqual(held);
 
   // With the camera denied, an image of the QR code opens Send on the payee. UNBUILT: Scan to pay has no image upload.
-  await page.context().clearPermissions();
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+  });
   await page.goto('/pay/scan');
-  const upload = page.getByRole('button', { name: 'Choose an image of a QR code' });
-  await expect(upload, 'with the camera denied an image upload works (unbuilt: PP-send-request-11)').toBeEnabled(UNBUILT);
+  const uploaded = await answer(page, 'qr.resolve', () =>
+    page
+      .getByLabel('Choose an image of a QR code')
+      .setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }, UNBUILT)
+      .catch((err) => {
+        throw new Error(`with the camera denied an image upload works (unbuilt: PP-send-request-11): ${err.message}`);
+      }),
+  );
+  expect(uploaded).toEqual({ status: 200, data: { userId: mine.userId, handle: mine.handle, self: false }, code: undefined });
+  await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);
+  await expect(page.getByTestId('recipient-found')).toContainText(`@${mine.handle}`);
 });
 
 test(`${J} #5 sets how to treat payments from people not in contacts: a stranger's payment waits, and can be accepted or denied`, async ({
