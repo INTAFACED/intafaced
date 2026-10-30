@@ -637,12 +637,8 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
 
   // From the posted settlement on Settlements, to its payout, to the payout form on that settlement.
   await signInOwner(page, '/pay/settlements');
-  await page
-    .getByRole('row')
-    .filter({ hasText: settlement.slice(0, 8) })
-    .getByRole('link')
-    .first()
-    .click();
+  // A row names a settlement by its day; its Open link carries the settlement's id.
+  await page.getByRole('row').locator(`a[href="/pay/settlements/${settlement}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/pay/settlements/${settlement}$`));
   await page.getByRole('link', { name: 'The payout for this settlement' }).click();
   await expect(page).toHaveURL(new RegExp(`/pay/payouts/${settlement}$`));
