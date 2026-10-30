@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
-import { ORIGIN, api } from './stack.mjs';
+import { ORIGIN, api, tool } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
 // J-academy-08, in the running app (docs/roadmap/journeys.json): ask a question in the course discussion and message the
 // course team. One test per step, titled "J-academy-08 #<n>", run in order. The stack's TEST founder A is the course team:
 // it makes a free course through Academy's own admin door, with two topics beside the course's default General one, and
 // answers the learner's message the same way. Courses are kept on the stack, so each run's course has an address of its
-// own and its General topic starts empty. A blank post or message length refuses by name (academy.post_limit_unset,
-// academy.message_limit_unset), which svc-academy's discussion and messages tests prove, since the running stack cannot
-// change those owner values mid-run.
+// own and its General topic starts empty. A blank post length refuses by name (academy.post_limit_unset): #2 restarts Academy
+// with the stack's post limits blank, posts, and puts them back; a blank message length (academy.message_limit_unset) is
+// proved by svc-academy's messages tests.
 const J = 'J-academy-08';
 const RUN = Date.now().toString(36);
 const SLUG = `test-j08-${RUN}`;
@@ -62,6 +62,19 @@ async function staff(kind, procedure, input) {
   const res = await ctx.edge[kind]('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
+}
+
+/** Academy restarted with the stack's TEST post and message limits blank (`off`), or back on them. */
+function academyPostLimits(on) {
+  const before = process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
+  if (on) delete process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
+  else process.env.LOCAL_STACK_ACADEMY_POST_LIMITS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'academy');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_POST_LIMITS;
+    else process.env.LOCAL_STACK_ACADEMY_POST_LIMITS = before;
+  }
 }
 
 async function learnerPage(browser, who) {
@@ -158,18 +171,35 @@ test(`${J} #1 the Rooms tab opens my course's Discussion: General is empty with 
   await page.context().close();
 });
 
-test(`${J} #2 a question pressed twice is one post; a non-image file refuses by type`, async ({ browser }) => {
+test(`${J} #2 a question pressed twice is one post; a non-image file refuses by type; a blank post length refuses by name`, async ({
+  browser,
+}) => {
   needs('me');
+  // Two Academy restarts (limits blank, then back) can take most of a minute each.
+  test.setTimeout(300_000);
   const page = await learnerPage(browser, run.me);
   await page.goto(`/academy/rooms/discussion/${SLUG}`);
   const form = discussion(page).getByTestId('discussion-new-post');
+  const outcome = form.getByTestId('discussion-outcome');
+  // While the owner's post length is blank, a post refuses by that name and nothing is posted.
+  academyPostLimits(false);
+  try {
+    await form.getByLabel('Title', { exact: true }).fill(QUESTION);
+    await form.getByLabel('Your post', { exact: true }).fill('TEST A post while no length is set.');
+    await form.getByRole('button', { name: 'Post', exact: true }).click();
+    await expect(outcome).toHaveAttribute('data-code', 'academy.post_limit_unset');
+    await expect(outcome).toContainText('Posting is off: Academy has not set how long a post may be. Nothing was posted.');
+    expect(await read(run.me, 'discussionPosts', { courseSlug: SLUG, topicSlug: 'general', limit: 50 })).toEqual([]);
+  } finally {
+    academyPostLimits(true);
+  }
+  await page.reload();
   await form.getByRole('combobox', { name: 'Kind of post', exact: true }).selectOption('question');
   await form.getByLabel('Title', { exact: true }).fill(QUESTION);
   await form.getByLabel('Your post', { exact: true }).fill('TEST I have 1,000 TEST units. How much should one trade risk?');
   // A file that is not an image is refused by its type, and nothing is posted.
   await form.getByLabel('Image (optional)', { exact: true }).setInputFiles(PDF);
   await form.getByRole('button', { name: 'Post', exact: true }).click();
-  const outcome = form.getByTestId('discussion-outcome');
   await expect(outcome).toHaveAttribute('data-code', 'academy.attachment_type_refused');
   await expect(outcome).toContainText('Only an image can be attached to a post. Nothing was posted.');
   expect(await read(run.me, 'discussionPosts', { courseSlug: SLUG, topicSlug: 'general', limit: 50 })).toEqual([]);
