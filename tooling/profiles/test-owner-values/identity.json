@@ -36,6 +36,16 @@
       "value": "[{\"code\": \"market_conduct_review\", \"reason\": \"TEST: your trading is paused while we review recent orders.\", \"guidance\": \"TEST: contact Support to ask about the review.\"}]",
       "note": "TEST: one reason staff can restrict trading for, so the restriction shows its stored reason and next step in plain words (J-identity-08 #7)."
     },
+    "IDENTITY_APPEAL_WINDOW_DAYS": {
+      "service": "identity",
+      "value": "30",
+      "note": "TEST: a person may appeal a restriction within thirty days of it starting, so the journey can file one (J-identity-14 #3)."
+    },
+    "IDENTITY_APPEAL_DECISION_REASONS": {
+      "service": "identity",
+      "value": "[{\"code\": \"review_found_no_issue\", \"reason\": \"TEST: we looked again and found no reason to keep the restriction.\", \"guidance\": \"TEST: you can trade again.\"}, {\"code\": \"restriction_stands\", \"reason\": \"TEST: we looked again and the restriction stays.\", \"guidance\": \"TEST: contact Support if something has changed.\"}]",
+      "note": "TEST: one reason to lift and one to uphold, so a decision shows its stored reason in plain words (J-identity-14 #4)."
+    },
     "IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY": {
       "service": "identity",
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",

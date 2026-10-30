@@ -47,6 +47,10 @@ import {
   campaignVoucherSchema,
   voucherIssueInputSchema,
   voucherListInputSchema,
+  welcomeChecklistSchema,
+  welcomeClaimInputSchema,
+  welcomeClaimResultSchema,
+  welcomeListInputSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
@@ -105,6 +109,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.funding_unknown': 'NOT_FOUND',
   'campaigns.funding_reference_taken': 'CONFLICT',
   'campaigns.not_voucher': 'CONFLICT',
+  'campaigns.welcome_none': 'NOT_FOUND',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -231,6 +236,30 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
             mapError(err);
           }
         }),
+      welcome: router({
+        /** The caller's own welcome checklist (CM-rewards-hub-03): its window and each task's state and reward. */
+        list: scopedProcedure('campaigns:read', guard)
+          .input(welcomeListInputSchema)
+          .output(welcomeChecklistSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await tasks.welcomeChecklist({ accountId: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        /** Claims one welcome task for the caller's own account. A second call returns the first claim's reward. */
+        claim: scopedProcedure('campaigns:write', guard)
+          .input(welcomeClaimInputSchema)
+          .output(welcomeClaimResultSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await tasks.welcomeClaim({ accountId: ctx.principal!.userId, event: input.event });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
     }),
 
     rewards: router({

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   applyCopyDetach,
+  applyCopyLeave,
   applyCopyPause,
   applyCopyResume,
   applyCopyStop,
+  applyCopyStopCloseOnly,
   presentCopyControlAck,
   requireCopyFollowId,
   requireNewCopyIntentAllowed,
@@ -89,5 +91,13 @@ describe('copy lifecycle (PTX-M26-R05)', () => {
     expect(() => applyCopyResume(applyCopyStop(follow))).toThrow(/STOPPING/);
     expect(() => applyCopyResume(applyCopyDetach(follow))).toThrow(/DETACHED/);
     expect(() => applyCopyPause(applyCopyDetach(follow))).toThrow(/DETACHED/);
+  });
+
+  it('a follow already left refuses every control by trade.copy_detached', () => {
+    const detached = applyCopyDetach(follow);
+    for (const apply of [applyCopyLeave, applyCopyPause, applyCopyResume, applyCopyStop, applyCopyStopCloseOnly]) {
+      expect(() => apply(detached)).toThrow(expect.objectContaining({ code: 'trade.copy_detached' }));
+    }
+    expect(applyCopyLeave(follow)).toEqual(applyCopyDetach(follow));
   });
 });

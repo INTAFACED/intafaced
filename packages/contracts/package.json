@@ -78,6 +78,10 @@
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
     },
+    "./identity-appeals": {
+      "types": "./dist/identity-appeals.d.ts",
+      "default": "./dist/identity-appeals.js"
+    },
     "./identity-kyc-profile": {
       "types": "./dist/identity-kyc-profile.d.ts",
       "default": "./dist/identity-kyc-profile.js"
@@ -330,6 +334,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./pay-payment-views": {
+      "types": "./dist/pay-payment-views.d.ts",
+      "default": "./dist/pay-payment-views.js"
+    },
     "./merchant-activation": {
       "types": "./dist/merchant-activation.d.ts",
       "default": "./dist/merchant-activation.js"
@@ -345,6 +353,10 @@
     "./support-macros": {
       "types": "./dist/support-macros.d.ts",
       "default": "./dist/support-macros.js"
+    },
+    "./agents-team": {
+      "types": "./dist/agents-team.d.ts",
+      "default": "./dist/agents-team.js"
     }
   },
   "scripts": {
