@@ -33,6 +33,7 @@ const window = { kind: 'preset', preset: 'today' } as const;
 const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'merchantControl.get': { founder: false, input: { merchantId } },
   'merchantControl.reserve': { founder: false, input: { merchantId } },
+  'merchantControl.topUp.options': { founder: false, input: { merchantId } },
   'merchantControl.approvals.list': { founder: false, input: { merchantId, limit: 10 } },
   'merchantControl.approvals.decide': {
     founder: false,

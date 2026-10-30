@@ -35,6 +35,21 @@
       "service": "agents",
       "value": "800",
       "note": "LOCAL TEST: the test engine answers after 0.8 s, so two runs started together are both in flight (J-agents-02 #3). Not a product value."
+    },
+    "AGENTS_LOG_READ_REASONS": {
+      "service": "agents",
+      "value": "TEST customer complaint,TEST incident review",
+      "note": "LOCAL TEST reasons an operator picks to read a customer's agent log. Not an owner decision (blank in production refuses agents.log_read_reason_unset)."
+    },
+    "AGENTS_OPS_ACTIONS_LIMIT": {
+      "service": "agents",
+      "value": "50",
+      "note": "LOCAL TEST rows per operator log read or export. Not an owner decision (blank refuses agents.ops_actions_limit_unset)."
+    },
+    "AGENTS_TRANSCRIPT_RETENTION_DAYS": {
+      "service": "agents",
+      "value": "1",
+      "note": "LOCAL TEST days an engine call's prompt text is kept for a transcript read. Not an owner decision (blank keeps none and refuses agents.transcript_retention_unset)."
     }
   }
 }

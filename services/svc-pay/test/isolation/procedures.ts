@@ -548,6 +548,14 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'merchantControl.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchantControl.usage', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchantControl.reserve', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  // M-money-out-02: no top-up rail is wired, so the owner reaches the business and is refused for exactly that reason.
+  {
+    path: 'merchantControl.topUp.options',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.topup_unconfigured',
+    input: (i) => ({ merchantId: i.merchantId }),
+  },
   {
     path: 'merchantControl.pricing.preview',
     scope: 'pay:read',
