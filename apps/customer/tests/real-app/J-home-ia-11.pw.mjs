@@ -546,20 +546,35 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
   ]);
 });
 
-/** `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. */
+/**
+ * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. `.env.tester`
+ * layers the tester profile's LOCAL TEST values over the documented example env, which keeps them blank for a real deployment.
+ */
 function compose(args, env, { timeout = 120_000 } = {}) {
   const files = COMPOSE.flatMap((name) => ['-f', name]);
   const res = spawnSync(
     'docker',
-    ['compose', '-p', 'intafaced-tester-journey', '--env-file', '.env.example', ...files, '--profile', 'tester', ...args],
+    [
+      'compose',
+      '-p',
+      'intafaced-tester-journey',
+      '--env-file',
+      '.env.example',
+      '--env-file',
+      '.env.tester',
+      ...files,
+      '--profile',
+      'tester',
+      ...args,
+    ],
     { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout },
   );
   const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
   return { status: res.status ?? 1, out };
 }
 
-// The step's own start: a fresh compose up with the tester profile, from the documented example env as a test build, on a
-// state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
+// The step's own start: a fresh compose up with the tester profile, from the documented example env and .env.tester's LOCAL
+// TEST values as a test build, on a state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
 // stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
 test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
   test.setTimeout(30 * 60_000);
