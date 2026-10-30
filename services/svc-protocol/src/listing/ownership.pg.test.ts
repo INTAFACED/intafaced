@@ -11,7 +11,9 @@ import { PostgresListingStore } from './ownership.pg.js';
 /** `protocol.listing_challenges` and `listing_ownership_proofs` (20261029070000) on a real test database. Deletes only this file's rows. */
 const URL = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
-const migration = join(here, '..', '..', 'drizzle', '20261029070000_protocol_listing_ownership.sql');
+const migrations = ['20261029070000_protocol_listing_ownership.sql', '20261030193000_protocol_listing_spent_expiry.sql'].map((file) =>
+  join(here, '..', '..', 'drizzle', file),
+);
 const available = URL ? await postgresAvailable(URL) : false;
 // The service's own client: drizzle shares it and reads timestamps back as text, which the store must handle.
 const db = URL && available ? createDb({ url: URL, schema: 'protocol', max: 4 }, {}) : null;
@@ -41,7 +43,7 @@ if (!sql) {
     beforeAll(async () => {
       await assertTestDatabase(sql!, 'svc-protocol ownership.pg.test');
       await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
-      await sql!.unsafe(readFileSync(migration, 'utf8'));
+      for (const migration of migrations) await sql!.unsafe(readFileSync(migration, 'utf8'));
       await cleanup();
     });
     afterAll(async () => {
@@ -90,7 +92,7 @@ if (!sql) {
       ]);
     });
 
-    it('a failed check spends its challenge, and pruning removes only expired unused ones', async () => {
+    it('a failed check spends its challenge, and pruning removes expired challenges that have no proof', async () => {
       const store = new PostgresListingStore(sql!);
       const stranger = privateKeyToAccount(`0x${'78'.repeat(32)}`);
       const wrong = await issueChallenge(store, chain, 300, TOKEN, T0, 'ef'.repeat(16));
@@ -105,6 +107,13 @@ if (!sql) {
       expect(await store.findChallenge(stale.nonce)).toBeNull();
       expect(await store.findChallenge(wrong.nonce)).not.toBeNull();
       expect(await store.findChallenge('34'.repeat(16))).not.toBeNull();
+
+      // Once the spent challenge has expired, the next issue prunes it too: it has no proof to keep.
+      await issueChallenge(store, chain, 300, TOKEN, new Date(T0.getTime() + 301_000), '56'.repeat(16));
+      expect(await store.findChallenge(wrong.nonce)).toBeNull();
+      // The proven challenges (earlier tests, also expired by now) stay with their proofs.
+      expect(await store.findChallenge('ab'.repeat(16))).not.toBeNull();
+      expect(await store.findChallenge('cd'.repeat(16))).not.toBeNull();
     });
   });
 }

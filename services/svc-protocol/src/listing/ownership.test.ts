@@ -43,7 +43,9 @@ function memoryStore() {
       if (c && !c.usedAt) challenges.set(nonce, { ...c, usedAt });
     },
     pruneExpired: async (now) => {
-      for (const [nonce, c] of challenges) if (!c.usedAt && c.expiresAt.getTime() < now.getTime()) challenges.delete(nonce);
+      for (const [nonce, c] of challenges)
+        if (c.expiresAt.getTime() < now.getTime() && (!c.usedAt || !proofs.some((proof) => proof.nonce === nonce)))
+          challenges.delete(nonce);
     },
   };
   return { store, proofs, challenges };

@@ -59,12 +59,19 @@ export class PostgresListingStore implements ListingStore {
   }
 
   async pruneExpired(now: Date): Promise<void> {
-    // A bounded batch per call, off the partial index, so pruning never scans the table on a public request.
+    // Bounded batches per call, each off a partial index, so pruning never scans the table on a public request: expired
+    // challenges never used, then expired ones a failed check spent with no proof. A proven challenge stays with its proof.
     await this.sql`
       DELETE FROM protocol.listing_challenges WHERE nonce IN (
         SELECT nonce FROM protocol.listing_challenges
         WHERE used_at IS NULL AND expires_at < ${now.toISOString()}
         ORDER BY expires_at LIMIT 500)`;
+    await this.sql`
+      DELETE FROM protocol.listing_challenges WHERE nonce IN (
+        SELECT c.nonce FROM protocol.listing_challenges c
+        WHERE c.used_at IS NOT NULL AND c.expires_at < ${now.toISOString()}
+          AND NOT EXISTS (SELECT 1 FROM protocol.listing_ownership_proofs p WHERE p.nonce = c.nonce)
+        ORDER BY c.expires_at LIMIT 500)`;
   }
 
   async spend(nonce: string, usedAt: Date): Promise<void> {

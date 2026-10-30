@@ -78,6 +78,11 @@ export interface ListingChallenge {
   readonly usedAt: Date | null;
 }
 
+/**
+ * Who owned the token at one block, and that they signed this service's challenge. It is not a lasting right: the owner
+ * can change after `blockNumber`. Anything that acts on a proof later (an info update, a listing change) re-reads
+ * `owner()` and compares it with `signer`, or refuses a proof older than its own bound, before acting.
+ */
 export interface OwnershipProof {
   readonly chainId: number;
   readonly token: Address;
@@ -98,7 +103,10 @@ export interface ListingStore {
    * verify won), so a nonce can back at most one proof.
    */
   consume(nonce: string, usedAt: Date, proof: Omit<OwnershipProof, 'verifiedAt'>): Promise<boolean>;
-  /** Deletes challenges that expired before `now` and were never used, a bounded batch at a time. */
+  /**
+   * Deletes challenges that expired before `now` and either were never used or were spent by a failed check (no proof),
+   * a bounded batch at a time. A challenge with a proof is kept.
+   */
   pruneExpired(now: Date): Promise<void>;
   /** Marks a nonce used with no proof: a failed check spends its challenge, so each challenge buys one check. */
   spend(nonce: string, usedAt: Date): Promise<void>;
