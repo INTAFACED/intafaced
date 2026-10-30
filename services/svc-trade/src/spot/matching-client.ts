@@ -334,6 +334,9 @@ export interface EngineMarketList {
   /** Operator halts on matching's board: the whole venue, and the halted market ids. Older engines omit them. */
   readonly venueHalted?: boolean;
   readonly halted?: readonly string[];
+  /** When each halted market's halt began (ISO), and the venue halt's start (null when open). Older engines omit them. */
+  readonly haltedSince?: Readonly<Record<string, string>>;
+  readonly venueHaltedSince?: string | null;
 }
 
 export interface EngineMarkResult {

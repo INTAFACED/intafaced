@@ -47,6 +47,39 @@ describe('GET /api/v1/market-halt/:symbol', () => {
     expect(res.json()).toMatchObject({ halted: false, venueHalted: false });
   });
 
+  it('says when each halt in force began, as matching journaled it', async () => {
+    const res = await get(
+      deps({
+        bookHalt: async () => ({
+          halted: true,
+          venueHalted: true,
+          haltedSince: '2026-10-30T10:00:00.000Z',
+          venueHaltedSince: '2026-10-30T10:03:00.000Z',
+        }),
+      }),
+      '/api/v1/market-halt/BTC%2FUSDT',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ haltedSince: '2026-10-30T10:00:00.000Z', venueHaltedSince: '2026-10-30T10:03:00.000Z' });
+  });
+
+  it('a halt whose start matching did not say reads null (time unknown), and an open book carries no start', async () => {
+    const unknown = await get(deps({ bookHalt: async () => ({ halted: true, venueHalted: false }) }), '/api/v1/market-halt/BTC%2FUSDT');
+    expect(unknown.json()).toMatchObject({ halted: true, haltedSince: null, venueHaltedSince: null });
+    const stale = await get(
+      deps({
+        bookHalt: async () => ({
+          halted: false,
+          venueHalted: false,
+          haltedSince: '2026-10-30T10:00:00.000Z',
+          venueHaltedSince: '2026-10-30T10:00:00.000Z',
+        }),
+      }),
+      '/api/v1/market-halt/BTC%2FUSDT',
+    );
+    expect(stale.json()).toMatchObject({ halted: false, haltedSince: null, venueHalted: false, venueHaltedSince: null });
+  });
+
   it('refuses with trade.book_halt_unavailable when no reader is mounted', async () => {
     const res = await get(deps(), '/api/v1/market-halt/BTC%2FUSDT');
     expect(res.statusCode).toBe(503);

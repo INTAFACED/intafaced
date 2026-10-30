@@ -65,7 +65,10 @@ export interface PublicRestDeps {
    * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
    * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open.
    */
-  bookHalt?(market: Market): Promise<{ halted: boolean; venueHalted: boolean }>;
+  /** Matching's halt flags for this market and the venue, with when each standing halt began (null when open or unknown). */
+  bookHalt?(
+    market: Market,
+  ): Promise<{ halted: boolean; venueHalted: boolean; haltedSince?: string | null; venueHaltedSince?: string | null }>;
   /**
    * SP-order-entry-03: TEST-ONLY per-market reader (one read per market — the
    * N+1 the batched readers replace). Production must not mount it; kept for
@@ -814,7 +817,13 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     if (!deps.bookHalt) return reply.code(503).send(unavailable);
     try {
       const halt = await deps.bookHalt(market);
-      return reply.code(200).send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, serverTime: now() });
+      // When each halt in force began, as matching journaled it. Null when that halt is not in force, or when matching
+      // did not say (an older engine, or a start it could not read): a reader shows "time unknown", never a guess.
+      const haltedSince = halt.halted ? (halt.haltedSince ?? null) : null;
+      const venueHaltedSince = halt.venueHalted ? (halt.venueHaltedSince ?? null) : null;
+      return reply
+        .code(200)
+        .send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, haltedSince, venueHaltedSince, serverTime: now() });
     } catch {
       return reply.code(503).send(unavailable);
     }
