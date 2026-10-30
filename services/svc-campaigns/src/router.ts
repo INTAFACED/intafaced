@@ -34,6 +34,12 @@ import {
   campaignViewSchema,
   myCampaignsSchema,
   myRewardsInputSchema,
+  myVoucherSchema,
+  myVouchersSchema,
+  voucherCodeInputSchema,
+  voucherRedeemInputSchema,
+  voucherRedeemResultSchema,
+  voucherValidationSchema,
   myRewardsSchema,
   payoutRecordListSchema,
   potFundingApproveInputSchema,
@@ -56,6 +62,7 @@ import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import type { TaskService } from './tasks.js';
+import type { VoucherService } from './vouchers.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
@@ -109,6 +116,14 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.funding_unknown': 'NOT_FOUND',
   'campaigns.funding_reference_taken': 'CONFLICT',
   'campaigns.not_voucher': 'CONFLICT',
+  'campaigns.voucher_invalid': 'NOT_FOUND',
+  'campaigns.voucher_window_unset': 'PRECONDITION_FAILED',
+  'campaigns.voucher_window_invalid': 'BAD_REQUEST',
+  'campaigns.voucher_code_taken': 'CONFLICT',
+  'campaigns.voucher_expired': 'CONFLICT',
+  'campaigns.voucher_amount_invalid': 'BAD_REQUEST',
+  'campaigns.voucher_exceeds_remaining': 'CONFLICT',
+  'campaigns.voucher_sequence_invalid': 'CONFLICT',
   'campaigns.welcome_none': 'NOT_FOUND',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
@@ -150,7 +165,7 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService) {
+export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService, vouchers: VoucherService) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -270,6 +285,53 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .query(async ({ ctx }) => {
           try {
             return await tasks.myRewards({ accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    vouchers: router({
+      /** My vouchers (J-campaigns-08): the caller's own, newest claim first, with what is left and every redemption. */
+      mine: scopedProcedure('campaigns:read', guard)
+        .input(z.object({}).strict().optional())
+        .output(myVouchersSchema)
+        .query(async ({ ctx }) => {
+          try {
+            return await vouchers.mine({ accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** What a code would give the caller; changes nothing. A code the caller may not claim is the generic refusal. */
+      validate: scopedProcedure('campaigns:read', guard)
+        .input(voucherCodeInputSchema)
+        .output(voucherValidationSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            return await vouchers.validate({ code: input.code, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** Claims a code for the caller's own account only. */
+      claim: scopedProcedure('campaigns:write', guard)
+        .input(voucherCodeInputSchema)
+        .output(myVoucherSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await vouchers.claim({ code: input.code, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** The n-th redemption of the caller's own voucher; the same one again returns the first. */
+      redeem: scopedProcedure('campaigns:write', guard)
+        .input(voucherRedeemInputSchema)
+        .output(voucherRedeemResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }

@@ -6,8 +6,8 @@ import { api, journeyState, signOutBrowser } from './stack.mjs';
 // "J-campaigns-08 #<n>", run in order. The voucher campaign is this run's TEST campaign, made by the stack's two LOCAL TEST
 // founders through svc-campaigns' operator doors (A creates and asks, B approves, A activates), and its vouchers are
 // issued by founder A under codes made for this run. A cash voucher pays TEST USDT from the one reward pot, which the
-// founders fund from trade fees the platform earned. Validate and claim attempts count against the stack's labelled TEST
-// attempt limit (tooling/profiles/test-owner-values/campaigns.json).
+// founders fund from trade fees the platform earned. A redemption is a reward intent under
+// `task:<campaign>:<account>:voucher:<voucher>:<n>`, paid by the reward saga like any reward.
 const J = 'J-campaigns-08';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
@@ -208,13 +208,13 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, my account cr
   const answers = [one, two].map((r) => r.body?.result?.data);
   expect(answers.every(Boolean), JSON.stringify([one.body, two.body]).slice(0, 400)).toBe(true);
   expect(answers.filter((a) => a.created)).toHaveLength(1);
-  expect(answers[0].redemption.key).toBe(answers[1].redemption.key);
+  expect(answers[0].redemption.reward.rewardKey).toBe(answers[1].redemption.reward.rewardKey);
   await expect
     .poll(async () => (await walletOf(me)).find((v) => v.id === voucherId).redemptions.map((r) => r.reward?.state), { timeout: 60_000 })
     .toEqual(['posted']);
   const [v] = (await walletOf(me)).filter((x) => x.id === voucherId);
   expect(v.redemptions).toHaveLength(1);
-  expect(v.redemptions[0].reward.rewardKey).toBe(`voucher:${voucherId}:${client.userId.toLowerCase()}:1`);
+  expect(v.redemptions[0].reward.rewardKey).toBe(`task:${state('campaignId').campaignId}:${client.userId}:voucher:${voucherId}:1`);
   // My rewards shows the credit once, posted with its transaction.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
@@ -253,7 +253,7 @@ test(`${J} #7 lets a voucher expire: it expires once, and a late redemption refu
   const { me } = state('me');
   const now = Date.now();
   const short = await liveVoucherCampaign(`TEST vouchers short ${tag}`, {
-    claimBy: new Date(now + 20 * 60_000).toISOString(),
+    claimBy: new Date(now + 30_000).toISOString(),
     useBy: new Date(now + 40_000).toISOString(),
   });
   const code = `JC08-${tag}-C`;

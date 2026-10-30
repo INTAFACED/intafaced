@@ -12,6 +12,7 @@ import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
 import { TaskService } from './tasks.js';
+import { VoucherService } from './vouchers.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -64,7 +65,9 @@ const tasks = new TaskService({
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks);
+const vouchers = new VoucherService({ sql, participants, campaigns, saga });
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 let bus: JetStreamEventBus | null = null;
@@ -216,6 +219,14 @@ const reconciler =
     : null;
 reconciler?.unref();
 
+// Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once. It moves no value, so
+// it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
+const VOUCHER_EXPIRY_MS = 15_000;
+const voucherExpiry = setInterval(() => {
+  vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
+}, VOUCHER_EXPIRY_MS);
+voucherExpiry.unref();
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
@@ -232,6 +243,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
+      clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
       await app.close();

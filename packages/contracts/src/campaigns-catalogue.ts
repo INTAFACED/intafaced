@@ -67,6 +67,14 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.funding_unknown',
   'campaigns.funding_reference_taken',
   'campaigns.not_voucher',
+  'campaigns.voucher_invalid',
+  'campaigns.voucher_window_unset',
+  'campaigns.voucher_window_invalid',
+  'campaigns.voucher_code_taken',
+  'campaigns.voucher_expired',
+  'campaigns.voucher_amount_invalid',
+  'campaigns.voucher_exceeds_remaining',
+  'campaigns.voucher_sequence_invalid',
   'campaigns.window_unset',
   'campaigns.welcome_none',
   'owner.decision',
@@ -405,6 +413,11 @@ export const campaignSchema = z.object({
   reward: campaignRewardSchema.nullable(),
   /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
   tasks: campaignTasksSchema.nullable(),
+  /** A voucher campaign's claim-by and use-by times; null for any other campaign. */
+  vouchers: z
+    .lazy(() => voucherWindowSchema)
+    .nullable()
+    .default(null),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
   earning: z.array(earningRuleSchema).default([]),
   createdBy: z.string(),
@@ -525,6 +538,14 @@ export const campaignDefinitionInputSchema = z
     timeZone: z.string().max(64).nullish(),
     /** Earning rules (CM-rewards-hub-05); absent or null: none. */
     earning: z.array(earningRuleSchema).max(20).nullish(),
+    /**
+     * Only for a `voucher` campaign (anything else refuses `campaigns.voucher_window_invalid`): until when a voucher may be
+     * claimed and until when a claimed one may be used. Either blank: every claim refuses `campaigns.voucher_window_unset`.
+     */
+    vouchers: z
+      .object({ claimBy: z.string().max(64).nullish(), useBy: z.string().max(64).nullish() })
+      .strict()
+      .nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -579,8 +600,15 @@ export const campaignVoucherSchema = z.object({
   state: z.enum(VOUCHER_STATES),
   issuedBy: z.string(),
   issuedAt: iso,
+  /** The claim-by and use-by of the revision it was issued under; null reads "not set" and its claim refuses. */
+  claimBy: iso.nullable().default(null),
+  useBy: iso.nullable().default(null),
 });
 export type CampaignVoucher = z.infer<typeof campaignVoucherSchema>;
+
+/** A voucher campaign's claim-by and use-by times, as stored; either may be blank. */
+export const voucherWindowSchema = z.object({ claimBy: iso.nullable(), useBy: iso.nullable() });
+export type VoucherWindow = z.infer<typeof voucherWindowSchema>;
 
 /** A voucher code: 4 to 32 letters, digits or hyphens, stored upper case. With the campaign it is the issue's business key. */
 export const voucherCode = z.string().regex(/^[A-Za-z0-9-]{4,32}$/);
@@ -589,6 +617,77 @@ export const voucherIssueInputSchema = z.object({ campaignId: id, code: voucherC
 export const VOUCHER_LIST_LIMIT = 500;
 
 export const voucherListInputSchema = z.object({ campaignId: id }).strict();
+
+/**
+ * The customer's voucher doors (J-campaigns-08). A code is only ever checked or claimed by the caller for their own
+ * account. Anything about a code the caller may not claim (no such code, claimed by anyone, past its claim-by, or its
+ * campaign not live) is one generic refusal, `campaigns.voucher_invalid`, so a guess learns nothing about other people.
+ */
+export const voucherCodeInputSchema = z.object({ code: voucherCode }).strict();
+
+/** What a claimable code would give. Checking it changes nothing. */
+export const voucherValidationSchema = z.object({
+  claimable: z.literal(true),
+  campaignName: z.string(),
+  face: z.object({ asset, amount: campaignDecimal }),
+  claimBy: iso,
+  useBy: iso,
+});
+export type VoucherValidation = z.infer<typeof voucherValidationSchema>;
+
+/**
+ * One redemption of a voucher: the n-th use, under the business key `task:<campaign>:<account>:voucher:<voucher>:<n>`,
+ * paid by the reward saga like any reward (its record is in My rewards too).
+ */
+export const voucherRedemptionSchema = z.object({
+  sequence: z.number().int().positive(),
+  amount: campaignDecimal,
+  createdAt: iso,
+  reward: z.object({
+    rewardKey: z.string(),
+    state: z.lazy(() => z.enum(REWARD_STATES)),
+    reason: z.string().nullable(),
+    ledgerTxId: z.string().nullable(),
+    postedAt: iso.nullable(),
+  }),
+});
+export type VoucherRedemption = z.infer<typeof voucherRedemptionSchema>;
+
+/** A voucher in the caller's wallet: its face value, what is left, its dates and every redemption, oldest first. */
+export const myVoucherSchema = z.object({
+  id,
+  code: z.string(),
+  campaignId: id,
+  campaignName: z.string(),
+  state: z.enum(VOUCHER_STATES),
+  face: z.object({ asset, amount: campaignDecimal }),
+  used: campaignDecimal,
+  remaining: campaignDecimal,
+  claimedAt: iso,
+  useBy: iso,
+  expiredAt: iso.nullable(),
+  redemptions: z.array(voucherRedemptionSchema),
+});
+export type MyVoucher = z.infer<typeof myVoucherSchema>;
+
+/** The most vouchers the wallet lists, newest claim first. */
+export const MY_VOUCHERS_LIMIT = 200;
+export const myVouchersSchema = z.object({ vouchers: z.array(myVoucherSchema) });
+export type MyVouchers = z.infer<typeof myVouchersSchema>;
+
+/**
+ * Redeems part or all of what is left. `sequence` is the n-th redemption of this voucher (1 for the first): with the
+ * voucher it is the business key, so the same request again returns the first answer (`created: false`).
+ */
+export const voucherRedeemInputSchema = z
+  .object({ voucherId: id, amount: z.string().max(40), sequence: z.number().int().min(1).max(1000) })
+  .strict();
+export const voucherRedeemResultSchema = z.object({
+  redemption: voucherRedemptionSchema,
+  voucher: myVoucherSchema,
+  created: z.boolean(),
+});
+export type VoucherRedeemResult = z.infer<typeof voucherRedeemResultSchema>;
 
 /** The gate's answer: every blank by name, in order. Empty means the campaign may go live. */
 export const campaignGateSchema = z.object({
