@@ -580,6 +580,9 @@ test(`${J} #7 the gradebook marks work not attempted, not zero; each download is
   const idleRow = page.getByTestId('gradebook').locator(`tr[data-learner="${idleId}"]`);
   await expect(idleRow.locator('td[data-state="not_attempted"]')).toHaveCount(2);
   await expect(idleRow.getByTestId('gradebook-total')).toHaveText('not attempted');
+  const workerRow = page.getByTestId('gradebook').locator(`tr[data-learner="${await userIdOf(worker)}"]`);
+  await expect(workerRow.locator('td[data-state="not_attempted"]')).toHaveCount(1);
+  await expect(workerRow.getByTestId('gradebook-total')).toHaveText('0.8');
 
   // Two reports, each downloaded: its own time and hash, and the file's bytes hash to the hash the desk shows.
   const reports = page.getByTestId('grade-reports');
@@ -604,7 +607,9 @@ test(`${J} #7 the gradebook marks work not attempted, not zero; each download is
     expect(createHash('sha256').update(d.csv, 'utf8').digest('hex')).toBe(d.sha);
     expect(d.csv).toContain(`made at,${d.at}`);
     const lines = d.csv.split('\r\n');
-    expect(lines.find((l) => l.startsWith(`${workerId},`))).toMatch(new RegExp(`^${workerId},0\\.8,not attempted,`));
+    // The stated rule: work not attempted is left out of an average, never counted as zero. The worker's Homework average
+    // and total are their one graded score, 0.8; counting the untried journal as zero would make both 0.4.
+    expect(lines.find((l) => l.startsWith(`${workerId},`))).toBe(`${workerId},0.8,not attempted,0.8,0.8`);
     expect(lines.find((l) => l.startsWith(`${idleId},`))).toBe(`${idleId},not attempted,not attempted,not attempted,not attempted`);
   }
   // Downloading report 1 again serves the same stored bytes, not a new reading.
