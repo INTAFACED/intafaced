@@ -108,6 +108,12 @@ import {
   type RepresentationStore,
 } from './representation/representation.js';
 import {
+  createAddressBookRouter,
+  createWalletSessionRouter,
+  unwiredAddressBookStore,
+  type AddressBookDeps,
+} from './address-book/router.js';
+import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
   LISTING_NONCE_UNKNOWN,
@@ -454,6 +460,11 @@ export interface ProtocolRouterDeps {
     setting: () => RepresentationSetting | null;
   };
   /**
+   * The wallet address book and wallet groups (D-portfolio-wallet-03), opened with a wallet session the wallet signs.
+   * Absent = not wired, which refuses `protocol.wallet_session_unset`.
+   */
+  addressBook?: Omit<AddressBookDeps, 'chainId'>;
+  /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
@@ -498,6 +509,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     return blockTime!.at;
   };
   const peers = deps.peers ?? noPeers;
+  const addressBookDeps: AddressBookDeps = {
+    chainId: () => chain.config.chainId,
+    ...(deps.addressBook ?? {
+      store: unwiredAddressBookStore,
+      session: () => null,
+      maxContacts: () => undefined,
+      maxGroups: () => undefined,
+    }),
+  };
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -1148,6 +1168,10 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           }
         }),
     }),
+
+    // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
+    walletSession: createWalletSessionRouter(addressBookDeps),
+    addressBook: createAddressBookRouter(addressBookDeps),
 
     // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
     // Account = signed principal; address = that account's own registered smart account. Never a body field.
