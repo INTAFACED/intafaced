@@ -24,7 +24,11 @@ function otcConvertBounds() {
 
 /** The TEST provider list, left blank when the switch says so. */
 function otcMakerDirectory() {
-  return process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off' ? '' : testValue('TRADE_OTC_MAKER_DIRECTORY');
+  if (process.env.LOCAL_STACK_TRADE_OTC_MAKERS === 'off') return '';
+  const directory = JSON.parse(testValue('TRADE_OTC_MAKER_DIRECTORY'));
+  // Blank spreads: every outside provider loses its LOCAL TEST spread, so a request to one refuses by name (#5).
+  if (process.env.LOCAL_STACK_TRADE_OTC_SPREADS === 'off') for (const maker of directory.makers) delete maker.spreadBps;
+  return JSON.stringify(directory);
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
@@ -144,6 +148,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // so its "Not set" state can be seen too (J-copy-bots-otc-24 #7). `LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL=off` leaves the
     // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
     // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
+    // `LOCAL_STACK_TRADE_OTC_SPREADS=off` leaves every outside provider's spread blank, so asking one refuses
+    // `trade.otc_provider_spread_unset` (#5).
     // `LOCAL_STACK_TRADE_OTC_ASSETS=off` leaves the desk's asset list blank, so the overview reads "Not set" and a request
     // refuses `trade.otc_assets_unset` (#1). `LOCAL_STACK_TRADE_OTC_MIN_TIER=off` leaves the desk's verification level
     // blank, so every request refuses `trade.otc_level_unset` (#3). `LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS=off` leaves the

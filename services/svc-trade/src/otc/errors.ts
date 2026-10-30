@@ -37,6 +37,8 @@ export type OtcErrorCode =
   | 'trade.otc_asset_unlisted'
   | 'trade.otc_level_unset'
   | 'trade.otc_level_insufficient'
+  | 'trade.otc_provider_spread_unset'
+  | 'trade.rfq_other_quote_accepted'
   /** NotConnected (allowlisted blocker class): a provider routed to an outside venue the platform has no feed for. */
   | 'feed.market';
 

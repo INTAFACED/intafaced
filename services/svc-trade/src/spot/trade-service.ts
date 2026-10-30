@@ -44,6 +44,7 @@ import {
   optionsPositions as optionsPositionsDoor,
 } from './options-doors.js';
 import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
+import { listRfqBoard } from '../otc/rfq-board.js';
 import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
@@ -1098,6 +1099,11 @@ export class TradeService {
 
   rfqList(principal: Principal, query: RfqListQuery) {
     return listRfqHistory(this.sql, principal, query);
+  }
+
+  /** J-copy-bots-otc-24 #5: the caller's requests grouped by status, each with its quotes best first. */
+  rfqBoard(principal: Principal, query: RfqListQuery) {
+    return listRfqBoard(this.sql, principal, query, this.now());
   }
 
   rfqExport(principal: Principal, query: { from?: string; to?: string }) {
