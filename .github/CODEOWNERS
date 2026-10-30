@@ -62,20 +62,16 @@
 # ── Jurisdiction and custody. Legal surface, not just code. ──────────────────
 /packages/config/src/jurisdiction.ts @Phantom-X-007 @ZenYoda3
 
-# ── Protocol Plane + INTACHAIN: @shehzad002 is asked to review ───────────────
-# A review request is not an ownership claim. svc-chain, INTACORE and Predict are
-# open to agents (owner decision 2026-10-22; INTACHAIN P1 approved 2026-10-17);
-# @shehzad002 may take a part back. AGENTS.md applies.
-/services/svc-protocol/              @shehzad002 @Phantom-X-007 @ZenYoda3
-/services/svc-dex/                   @shehzad002 @Phantom-X-007 @ZenYoda3
+# ── Protocol Plane + INTACHAIN ───────────────────────────────────────────────
+# svc-chain, INTACORE and Predict are open to agents (owner decision 2026-10-22;
+# INTACHAIN P1 approved 2026-10-17); the agents are the only engineers (owner
+# decision 2026-10-30). AGENTS.md applies.
+/services/svc-protocol/              @Phantom-X-007 @ZenYoda3
+/services/svc-dex/                   @Phantom-X-007 @ZenYoda3
 #
-# Added 2026-08-07. svc-indexer was missing and Tier C of his board — the VENUE
-# CONTRACT the indexer decodes — is his mountain, so PRs touching it were not
-# reaching him. The adapter half stays agent residual; a review request is not
-# an ownership claim, and CODEOWNERS cannot express half a directory.
 # svc-chain and svc-bridge do not exist yet (§17.5) and are listed ahead of
 # time: GitHub ignores a path with no files, and the alternative is remembering
 # to add them on the day they are created, which is the day it matters.
-/services/svc-indexer/               @shehzad002 @Phantom-X-007 @ZenYoda3
-/services/svc-chain/                 @shehzad002 @Phantom-X-007 @ZenYoda3
-/services/svc-bridge/                @shehzad002 @Phantom-X-007 @ZenYoda3
+/services/svc-indexer/               @Phantom-X-007 @ZenYoda3
+/services/svc-chain/                 @Phantom-X-007 @ZenYoda3
+/services/svc-bridge/                @Phantom-X-007 @ZenYoda3

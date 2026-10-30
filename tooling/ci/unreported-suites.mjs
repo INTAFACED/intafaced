@@ -13,8 +13,8 @@
  * skip-honesty will fail a new private probe on that path the same as anywhere else.
  *
  * svc-protocol's UNJOURNALLED lock below is NOT a phantom. `/services/svc-protocol/`
- * is a real CODEOWNERS line (@shehzad002) and the chain plane is his to implement,
- * so that hold names its scope, sits where merges pass, and states who lifts it.
+ * is a real CODEOWNERS line, so that hold names its scope, sits where merges pass,
+ * and states who lifts it.
  *
  * So the register is loud in both directions:
  *
