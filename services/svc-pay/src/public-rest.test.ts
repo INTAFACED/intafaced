@@ -8,6 +8,7 @@ import { MemoryMerchantWebhookStore, MerchantWebhookService } from './merchant-w
 import { PayError, assertPaymentLinkListLimit, assertPaymentListLimit, type PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore } from './rest-idempotency.js';
+import type { MerchantTeamRead } from './merchant-team-read.js';
 
 /**
  * THE MERCHANT SURFACE — reads (step 1) and mutations (step 2).
@@ -161,6 +162,7 @@ async function build(
   pay: PayService = stubPay(),
   idempotency = new MemoryRestIdempotencyStore(),
   webhooks?: MerchantWebhookService,
+  teamReads?: MerchantTeamRead,
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, genReqId: () => randomUUID() });
   await registerPublicPayRest(app, {
@@ -169,6 +171,7 @@ async function build(
     pay,
     idempotency,
     webhooks: webhooks ?? new MerchantWebhookService(new MemoryMerchantWebhookStore()),
+    teamReads,
   });
   await app.ready();
   return app;
@@ -1317,5 +1320,54 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(again.headers['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     expect(again.headers['x-request-id']).not.toBe(requestId);
     expect(again.json().error.requestId).toBe(again.headers['x-request-id']);
+  });
+});
+
+describe('the rail reference for a team member (M-adv-payments-core-01)', () => {
+  // One team member per role on MERCHANT: a viewer reads the reference masked, finance (who may unmask) reads it clear.
+  const teamOf = (role: 'viewer' | 'developer' | 'finance'): MerchantTeamRead =>
+    ({
+      allows: async (userId: string | undefined, merchantId: string, permission: string) =>
+        userId === STRANGER && merchantId === MERCHANT && (permission === 'payments.read' || permission === 'settlements.read'),
+      activeRole: async (userId: string | undefined, merchantId: string) => (userId === STRANGER && merchantId === MERCHANT ? role : null),
+    }) as unknown as MerchantTeamRead;
+  const member = () => signed(principal({ sub: STRANGER, userId: STRANGER }));
+
+  for (const role of ['viewer', 'developer'] as const) {
+    it(`masks it for a ${role} on the REST list and get, and a search does not match it`, async () => {
+      const seen: Array<{ searchRailRef?: boolean }> = [];
+      const pay = stubPay({
+        listPayments: async (input: { searchRailRef?: boolean }) => {
+          seen.push(input);
+          return { items: [paymentRow], nextCursor: null } as never;
+        },
+      });
+      app = await build(pay, undefined, undefined, teamOf(role));
+      const list = await app.inject({ method: 'GET', url: `/v1/payments?merchantId=${MERCHANT}&limit=10&search=ref-1`, headers: member() });
+      expect(list.statusCode).toBe(200);
+      expect(list.json().items[0].railRef).toBe('***');
+      expect(seen[0]!.searchRailRef).toBe(false);
+      const one = await app.inject({ method: 'GET', url: `/v1/payments/${PAYMENT}`, headers: member() });
+      expect(one.statusCode).toBe(200);
+      expect(one.json().railRef).toBe('***');
+      expect(list.body + one.body).not.toContain('ref-1');
+    });
+  }
+
+  it('shows it clear to finance, who may unmask, and searches it', async () => {
+    const seen: Array<{ searchRailRef?: boolean }> = [];
+    const pay = stubPay({
+      listPayments: async (input: { searchRailRef?: boolean }) => {
+        seen.push(input);
+        return { items: [paymentRow], nextCursor: null } as never;
+      },
+    });
+    app = await build(pay, undefined, undefined, teamOf('finance'));
+    const list = await app.inject({ method: 'GET', url: `/v1/payments?merchantId=${MERCHANT}&limit=10`, headers: member() });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items[0].railRef).toBe('ref-1');
+    expect(seen[0]!.searchRailRef).toBe(true);
+    const one = await app.inject({ method: 'GET', url: `/v1/payments/${PAYMENT}`, headers: member() });
+    expect(one.json().railRef).toBe('ref-1');
   });
 });

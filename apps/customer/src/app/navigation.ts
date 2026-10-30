@@ -72,6 +72,8 @@ export const rooms: readonly Room[] = [
   { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
+  // A backtest result shared by link (AL-report-03): public, as the service returns only the simulated result.
+  { path: '/quant/share/:token', title: 'Shared backtest', description: 'A backtest result shared by link', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
   { path: '/announcement/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/about-us', title: 'About Intafaced', description: 'One account, connected experiences', area: 'public' },
@@ -93,6 +95,20 @@ export const rooms: readonly Room[] = [
     title: 'Authentication and permission errors',
     description: 'Codes a refused key or token carries',
     area: 'public',
+  },
+  {
+    path: '/developers/sandbox/:sandboxId',
+    title: 'Sandbox',
+    description: 'One named sandbox and its keys',
+    area: 'public',
+    hidden: true,
+  },
+  {
+    path: '/developers/sandbox/:sandboxId/keys/new',
+    title: 'Create a sandbox key',
+    description: 'A key that works only in this sandbox',
+    area: 'public',
+    hidden: true,
   },
   {
     path: '/developers/:section',
@@ -869,8 +885,10 @@ export const rooms: readonly Room[] = [
     [
       ['academy', 'Academy', 'Rooms, learning and certifications'],
       ['agents', 'Agents', 'Your agent fleet'],
+      ['agents/team', 'Agents team', 'Roles, a shared pool and project limits for your business'],
       ['quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
+      ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['launch', 'Launch', 'Issue and list an asset'],

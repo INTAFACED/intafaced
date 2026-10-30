@@ -83,6 +83,15 @@ function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store: MemoryCopy
   });
 }
 
+/** Counts saves, so a refused control can be shown to save nothing. */
+class CountingStore extends MemoryCopyFollowStore {
+  saves = 0;
+  override async saveFollow(...args: Parameters<MemoryCopyFollowStore['saveFollow']>): Promise<void> {
+    this.saves += 1;
+    return super.saveFollow(...args);
+  }
+}
+
 async function openFollow(copy: CopyService) {
   return copy.follow(principal(), {
     leaderId: LEADER,
@@ -213,6 +222,36 @@ describe('trade.copy pause/stop/detach (PTX-M26-R05)', () => {
         notional: '50',
       }),
     ).rejects.toMatchObject({ code: 'trade.copy_detached' });
+  });
+
+  it('leaving twice is refused by its typed code; the follow is not saved again and reads back unchanged', async () => {
+    const store = new CountingStore();
+    const copy = wiredCopy(async () => ({ orderId: 'unused' }), store);
+    const follow = await openFollow(copy);
+    await copy.detach(principal(), { followId: follow.followId });
+    const left = await store.getFollow(follow.followId);
+    const saves = store.saves;
+
+    await expect(copy.detach(principal(), { followId: follow.followId })).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    expect(store.saves).toBe(saves);
+    expect(await store.getFollow(follow.followId)).toEqual(left);
+  });
+
+  it('pause, resume, stop and close-only on a follow the follower has left refuse as trade.copy_detached; nothing is saved', async () => {
+    const store = new CountingStore();
+    const copy = wiredCopy(async () => ({ orderId: 'unused' }), store);
+    const follow = await openFollow(copy);
+    await copy.detach(principal(), { followId: follow.followId });
+    const left = await store.getFollow(follow.followId);
+    const saves = store.saves;
+    const ref = { followId: follow.followId };
+
+    await expect(copy.pause(principal(), ref)).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    await expect(copy.resume(principal(), ref)).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    await expect(copy.stop(principal(), ref)).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    await expect(copy.stop(principal(), { ...ref, closeOnly: true })).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    expect(store.saves).toBe(saves);
+    expect(await store.getFollow(follow.followId)).toEqual(left);
   });
 
   it('missing follow id refuses pause/stop/detach/resume', async () => {

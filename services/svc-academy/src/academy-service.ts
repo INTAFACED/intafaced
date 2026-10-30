@@ -46,6 +46,7 @@ import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { CourseQuizzes } from './curriculum/course-quizzes.js';
+import { CourseQuizTrail } from './curriculum/course-quiz-trail.js';
 import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
@@ -85,6 +86,7 @@ import type {
   AcademyGradeSubmissionInput,
   AcademyMarkFeedbackReadInput,
   AcademyOpenGradingInput,
+  AcademyBulkGradeInput,
   AcademySubmitPeerReviewInput,
   AcademySubmitAssignmentInput,
   AcademyUploadAssignmentFileInput,
@@ -421,6 +423,8 @@ export class AcademyService {
   readonly courseMessages: CourseMessages;
   /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
   readonly courseQuizzes: CourseQuizzes;
+  /** AC-quizzes-04: key fixes, rescores and score overrides after grading. */
+  readonly courseQuizTrail: CourseQuizTrail;
   /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
   readonly courseRelease: CourseRelease;
   readonly courseItemRules: CourseItemRules;
@@ -476,6 +480,7 @@ export class AcademyService {
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.courseQuizzes = new CourseQuizzes(sql);
+    this.courseQuizTrail = new CourseQuizTrail(sql);
     this.courseRelease = new CourseRelease(sql);
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
@@ -2537,6 +2542,11 @@ export class AcademyService {
 
   gradeSubmission(input: AcademyGradeSubmissionInput & { operatorId: string; now?: Date }) {
     return this.grading.grade({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: a file of grades by alias; good rows apply, bad rows are listed, a repeated file changes nothing. */
+  bulkGrade(input: AcademyBulkGradeInput & { operatorId: string; now?: Date }) {
+    return this.grading.bulkGrade({ ...input, now: input.now ?? new Date() });
   }
 
   /** AC-assignments-02: the learner read their feedback; answers with the assignment as they see it. */

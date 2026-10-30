@@ -7,6 +7,7 @@ import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
+import { parseAppealWindowDays } from './account/appeals.js';
 import { parseSecurityLockUnlockWait } from './auth/security-lock.js';
 import { parseMfaResetWait } from './auth/mfa-reset.js';
 
@@ -232,6 +233,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
+       * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
+       * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_SANDBOXES_MAX_BY_TIER: z.string().optional(),
+      /**
+       * Owner setting: the origin where the door serves sandbox keys (one of the edge's `EDGE_SANDBOX_HOSTS`), shown
+       * with a new sandbox key. Blank: the room says the sandbox address is not set. Never git-default.
+       */
+      IDENTITY_SANDBOX_BASE_URL: z.string().optional(),
+      /**
        * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
        * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
        * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;
@@ -295,6 +307,25 @@ const schema = serviceEnvSchema
        * start; malformed stops the service.
        */
       IDENTITY_TRADING_RESTRICTION_REASONS: z.string().optional(),
+      /**
+       * Owner settings (I-account-lifecycle-12, J-identity-14 #3 and #4). How many whole days after a restriction starts
+       * the person may appeal it, and the reasons compliance may decide an appeal with (the same shape as
+       * `IDENTITY_KYC_REJECT_REASONS`). NO DEFAULT. An unset window closes appeals (`identity.appeal_window_unset`, and the
+       * page says so); an unset reason list refuses every decision (`identity.appeal_reasons_unset`). Parsed at start;
+       * malformed stops the service.
+       */
+      IDENTITY_APPEAL_WINDOW_DAYS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseAppealWindowDays(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      IDENTITY_APPEAL_DECISION_REASONS: z.string().optional(),
       /**
        * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
        * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID

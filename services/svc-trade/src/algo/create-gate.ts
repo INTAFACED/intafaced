@@ -24,6 +24,7 @@ import type { Principal } from '@intafaced/auth';
 import { assertBotVerification, type BotVerificationPolicy } from './bots-verification.js';
 import { acceptableForAlgo, withinPriceBand, type AlgoMarkPolicy } from './mark-gate.js';
 import { planTwapSlices } from './schedule.js';
+import { chaseFurthestPrice } from './twap-engine.js';
 import type { CreateTwapInput } from './types.js';
 import { planPovSliceQty, planVwapSlices, vwapLookbackImmature } from './volume-plan.js';
 
@@ -121,6 +122,8 @@ function immature(symbol: string, why: string): never {
 
 function firstSliceQty(input: CreateTwapInput, lotSize: Amount, povVolume: Amount | null): Amount {
   const kind = input.kind ?? 'twap';
+  // A chase works the whole quantity as one order.
+  if (kind === 'chase') return input.totalQty;
   if (kind === 'twap') {
     return planTwapSlices({
       totalQty: input.totalQty,
@@ -253,11 +256,18 @@ export async function gateAlgoCreate(ctx: AlgoCreateGateInput): Promise<void> {
 
   const sliceQty = firstSliceQty(ctx.input, ctx.market.lotSize, povVolume);
   const perks = await ctx.perks.perksOf(ctx.userId);
+  // A chase buy may come to rest as far as its distance allows, so it is funded at that price, not at today's bid.
+  const chase = (ctx.input.kind ?? 'twap') === 'chase';
+  const start = ctx.input.chaseStartPrice;
+  const bps = ctx.input.chaseMaxDistanceBps;
+  if (chase && (start === undefined || bps === undefined)) {
+    throw new TradeError('a chase needs a maximum chase distance and a start price', 'trade.algo_chase_distance_required');
+  }
   const cover = await childSliceCover({
     market: ctx.market,
     side: ctx.input.side,
     qty: sliceQty,
-    limitPrice: ctx.input.limitPrice,
+    limitPrice: chase ? chaseFurthestPrice(ctx.input.side, start!, bps!) : ctx.input.limitPrice,
     bid,
     ask,
     slippageCapBps: ctx.slippageCapBps,

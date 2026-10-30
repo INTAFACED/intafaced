@@ -32,6 +32,7 @@ const RANGE_LABEL = {
   '1D': 'Range 1D',
   '1W': 'Range 1W',
   '1M': 'Range 1M',
+  '6M': 'Range 6M',
   '1Y': 'Range 1Y',
   All: 'Range All',
 } as const satisfies Record<RangeSpec['id'], Parameters<Copy>[0]>;
@@ -39,6 +40,7 @@ const RANGE_SUFFIX = {
   '1D': 'Past day',
   '1W': 'Past week',
   '1M': 'Past month',
+  '6M': 'Past six months',
   '1Y': 'Past year',
   All: 'All time',
 } as const satisfies Record<RangeSpec['id'], Parameters<Copy>[0]>;

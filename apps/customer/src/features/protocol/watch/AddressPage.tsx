@@ -6,7 +6,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session/session';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
-import { AddressTxs } from '../explorer/AddressTxs';
+import { AddressActivity, AddressHoldings, AddressSummary, PastBalance } from '../explorer/AddressDetails';
 import { useAccountAddressWatches } from './account-lists';
 import { watchCopy, type WatchTranslate } from './copy';
 import '../protocol.css';
@@ -125,9 +125,9 @@ function WatchPanel({ address, t }: { address: string; t: WatchTranslate }) {
 }
 
 /**
- * An address on the network the explorer reads (/chain/address/:address, D-explorer-03 and -04). Its transactions are
- * the indexer's; the summary and holdings wait on the indexer's balance reader and say so; the private watch is the account's own
- * record (`protocol.address-watches`). The explorer holds no funds.
+ * An address on the network the explorer reads (/chain/address/:address, D-explorer-03 and -04). Its kind, balance,
+ * holdings, transactions, internal transactions and past balance are the indexer's, read at blocks it has stored; the
+ * private watch is the account's own record (`protocol.address-watches`). The explorer holds no funds.
  */
 export function AddressPage({ address }: { address: string | undefined }) {
   const { language } = usePreferences();
@@ -151,33 +151,24 @@ export function AddressPage({ address }: { address: string | undefined }) {
       <WatchPanel address={address} t={t} />
       <section aria-label={t('summary')}>
         <Panel title={t('summary')}>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('summaryAddress')}</dt>
-              <dd>{address}</dd>
-            </div>
-            <div>
-              <dt>{t('summaryKind')}</dt>
-              <dd>{t('notRead')}</dd>
-            </div>
-            <div>
-              <dt>{t('summaryBalance')}</dt>
-              <dd>{t('notAvailable')}</dd>
-            </div>
-          </dl>
-          <p className="muted" data-blocker="indexer">
-            {t('summaryBlocked')}
-          </p>
+          <AddressSummary
+            key={address}
+            address={address}
+            labels={{ address: t('summaryAddress'), kind: t('summaryKind'), balance: t('summaryBalance') }}
+          />
         </Panel>
       </section>
       <Panel title={t('transactions')}>
-        <AddressTxs key={address} address={address} />
+        <AddressActivity key={address} address={address} />
       </Panel>
       <section aria-label={t('holdings')}>
         <Panel title={t('holdings')}>
-          <div role="status" data-blocker="indexer">
-            <EmptyState title={t('holdingsBlocked')} />
-          </div>
+          <AddressHoldings key={address} address={address} />
+        </Panel>
+      </section>
+      <section aria-label={t('pastBalance')}>
+        <Panel title={t('pastBalance')}>
+          <PastBalance key={address} address={address} />
         </Panel>
       </section>
       <Button variant="secondary" onClick={() => navigate('/chain')}>

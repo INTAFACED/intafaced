@@ -119,7 +119,7 @@ import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
 import { openStrategyRepository } from './studio/open.js';
-import { draftOf, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
+import { draftOf, type StrategyOrganisation, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
 import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST } from './studio/scope.js';
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
@@ -163,6 +163,24 @@ const runOutput = z
     venueVault: z.enum(['unset', 'set']),
   })
   .merge(simulatedStamp);
+
+/** The head an organise sets: a name, one level of folder (blank is the root) and a description, each checked by name. */
+function organisationOf(input: { name?: unknown; folder?: unknown; description?: unknown }): StrategyOrganisation {
+  const text = (field: 'name' | 'folder' | 'description', value: unknown): string => {
+    if (value === undefined || value === null) return '';
+    if (typeof value !== 'string') throw new QuantError('quant.params_invalid', `${field} — must be text`);
+    return value.trim();
+  };
+  const name = text('name', input.name);
+  if (!name) throw new QuantError('quant.params_invalid', 'name — the strategy name is unset');
+  if (name.length > 128) throw new QuantError('quant.params_invalid', 'name — longer than 128 characters');
+  const folder = text('folder', input.folder);
+  if (folder.length > 40) throw new QuantError('quant.params_invalid', 'folder — longer than 40 characters');
+  if (folder.includes('/')) throw new QuantError('quant.params_invalid', 'folder — one level only, without a slash');
+  const description = text('description', input.description);
+  if (description.length > 500) throw new QuantError('quant.params_invalid', 'description — longer than 500 characters');
+  return { name, folder, description };
+}
 
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
@@ -255,6 +273,11 @@ const strategyHead = strategyVersionRecord.extend({
   accountId: z.string().guid(),
   clientStrategyId: z.string(),
   deletedAt: z.string().nullable(),
+  // Defaults, because a write receipt stored before the head fields existed is replayed as it was stored.
+  folder: z.string().default(''),
+  description: z.string().default(''),
+  organised: z.number().int().nonnegative().default(0),
+  restores: z.number().int().nonnegative().default(0),
 });
 
 const strategyDetail = strategyHead.extend({
@@ -622,6 +645,77 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               id: input.id,
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
             });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Rename, move to a folder and describe one of the caller's strategies (AL-editor-01). The head changes and no
+       * version is added. All three are sent each time; the screen keys the write `studio.organise:<id>:<organised>`.
+       */
+      organise: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z.object({
+            id: z.string().min(1),
+            name: z.unknown().optional(),
+            folder: z.unknown().optional(),
+            description: z.unknown().optional(),
+            ...accountField,
+            ...writeKeyField,
+          }),
+        )
+        .output(strategyDetail)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const prior = await replayOf(accountId, input.idempotencyKey);
+            if (prior?.operation === 'organise') return prior.response;
+            if (prior) idempotencyConflict(prior.operation);
+            const head = organisationOf(input);
+            return strategies.organise({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey), head });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Bring a deleted strategy back from the recycle bin with the versions it had (AL-editor-01). One that is not
+       * deleted returns its head unchanged. The screen keys it `studio.restore:<id>:<deletedAt>`.
+       */
+      restore: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ id: z.string().min(1), ...accountField, ...writeKeyField }))
+        .output(strategyDetail)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const prior = await replayOf(accountId, input.idempotencyKey);
+            if (prior?.operation === 'restore') return prior.response;
+            if (prior) idempotencyConflict(prior.operation);
+            return strategies.restore({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey) });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The recycle bin: the caller's deleted strategies, with the same page limit rule as the list. */
+      listDeleted: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z
+            .object({
+              limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
+              cursor: z.string().optional().nullable(),
+              ...accountField,
+            })
+            .optional(),
+        )
+        .output(z.object({ strategies: z.array(strategyHead), nextCursor: z.string().nullable() }))
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const limit = assertStudioListLimit(input?.limit);
+            const page = await strategies.listDeleted({ accountId, limit, cursor: input?.cursor });
+            return { strategies: page.strategies.slice(0, limit), nextCursor: page.nextCursor };
           } catch (err) {
             toTrpc(err);
           }
