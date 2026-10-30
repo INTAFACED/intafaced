@@ -34,6 +34,12 @@ const messages = {
   'Not set': 'Not set',
   'Assets on reason': 'The desk quotes these assets only.',
   'Assets off reason': 'The desk has no asset list, so every request refuses.',
+  'Verification level': 'Verification level',
+  'Level basic': 'Basic and above',
+  'Level full': 'Full and above',
+  'Level institutional': 'Institutional only',
+  'Level on reason': 'The desk prices only for accounts verified at this level or above.',
+  'Level off reason': 'The desk has no verification level set, so every request refuses.',
 
   // Request form
   'Request a price': 'Request a price',

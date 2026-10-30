@@ -258,6 +258,14 @@ describe('D26-P2-01h public doors — metering-off never feeCharges', () => {
       session: async (sessionId: string) => (sessionId === SESSION ? openSession : null),
       settleWindow: async (sessionId: string, windowId: string) => offSettle(sessionId, windowId),
       settleSession: async (sessionId: string) => [offSettle(sessionId, WINDOW)],
+      // Same order as AgentRuntime.closeSettled: settle the session's windows, then close it.
+      async closeSettled(
+        this: { settleSession(id: string): Promise<unknown>; closeSession(id: string): Promise<unknown> },
+        sessionId: string,
+      ) {
+        await this.settleSession(sessionId);
+        return this.closeSession(sessionId);
+      },
       closeSession: async (sessionId: string) => ({
         ...openSession,
         id: sessionId,

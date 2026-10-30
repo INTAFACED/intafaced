@@ -139,6 +139,9 @@ async function runApproved(desk, phrase) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
+/** The one typed code a desk reply names, or null. */
+const codeOf = (reply) => reply.match(/Code: ([a-z0-9_.]+)/)?.[1] ?? null;
+
 /** Founder A asks for a run, founder B approves it, and A runs it. Returns the service's answer as shown on A's desk. */
 async function twoFounderRun(controlId, opts) {
   const { desk, phrase } = await approvedRun(controlId, opts);
@@ -459,6 +462,15 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
   });
 
+  /** The selected control's evaluations as its panel reads them back from svc-ledger: the total and the run ids shown. */
+  async function evaluationsOf(section) {
+    const runs = section.getByTestId('rc-runs');
+    await expect(runs.getByTestId('rc-runs-count')).toContainText(/showing \d+ of \d+ evaluation/, { timeout: 30_000 });
+    const total = Number((await runs.getByTestId('rc-runs-count').innerText()).match(/showing \d+ of (\d+)/)[1]);
+    const ids = await runs.getByTestId('rc-run-row').evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
+    return { total, ids };
+  }
+
   test('J-ops-console-07 #6 pause needs two founders, a paused control runs nothing until resumed, and retired is final', async ({
     browser,
   }) => {
@@ -492,22 +504,35 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const early = await approvedRun(state.thresholdId);
     const paused = await lifecycle(state.thresholdId, 'pause', 'Paused');
     await choose(paused, state.thresholdId);
+    const beforeRefused = await evaluationsOf(paused);
     const runDesk = paused.getByTestId('rc-run');
     await runDesk.getByLabel('Request packet').fill(early.packetText);
     await expect(runDesk.getByTestId('packet-summary')).toContainText(`Run reconciliation control ${state.thresholdId}`);
-    expect(await runApproved(runDesk, early.phrase)).toContain('Code: ops.control_state_illegal');
+    expect(codeOf(await runApproved(runDesk, early.phrase)), 'the paused control refuses the run').toBe('ops.control_state_illegal');
     await paused.getByRole('button', { name: 'Refresh' }).click();
     await expect(row(paused, state.thresholdId).getByTestId('rc-state')).toHaveText('Paused');
+    // The refused run recorded nothing: the control's evaluations, read back from svc-ledger, are the same as before it.
+    await choose(paused, state.thresholdId);
+    expect(await evaluationsOf(paused), 'a paused control runs nothing').toEqual(beforeRefused);
     const desk = paused.getByTestId('rc-run');
     await expect(desk).toContainText('A paused control runs nothing (ops.control_state_illegal). Resume it first.');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
     await expect(paused.getByTestId('rc-lifecycle').getByRole('option', { name: 'Pause' })).toHaveCount(0);
 
     // Resume: active again, and a two-founder run goes through.
-    await lifecycle(state.thresholdId, 'resume', 'Active');
-    expect(await twoFounderRun(state.thresholdId)).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    const resumed = await lifecycle(state.thresholdId, 'resume', 'Active');
+    const resumedRun = await twoFounderRun(state.thresholdId);
+    expect(resumedRun).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    await resumed.getByRole('button', { name: 'Refresh' }).click();
+    await choose(resumed, state.thresholdId);
+    const afterResume = await evaluationsOf(resumed);
+    expect(afterResume.total, 'the resumed control’s run is its one new evaluation').toBe(beforeRefused.total + 1);
+    expect(afterResume.ids[0]).toBe(runId(resumedRun));
 
     // Retire: final. No change form, no lifecycle step, the run desk holds, and the control stays in the list.
+    const outsideSection = await openLedger(a);
+    await choose(outsideSection, state.outsideId);
+    const beforeRetire = await evaluationsOf(outsideSection);
     const again = await lifecycle(state.outsideId, 'retire', 'Retired');
     await expect(again.getByTestId('rc-retired')).toBeVisible();
     await expect(again.getByTestId('rc-form-update')).toHaveCount(0);
@@ -535,6 +560,10 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(shown, 'every evaluation of the control is on the first page').toBe(total);
     const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-run-id')));
     expect(new Set(ids).size, 'each evaluation appears exactly once').toBe(ids.length);
+    // The hourly scheduler may add its own evaluations while the control is still active, so retiring is shown to keep
+    // every evaluation listed before it (none dropped), not to keep the count fixed.
+    expect(total, 'retiring dropped no evaluation').toBeGreaterThanOrEqual(beforeRetire.total);
+    for (const id of beforeRetire.ids) expect(ids, `evaluation ${id} listed before the retire is still listed`).toContain(id);
     const [first, second] = state.outsideRuns;
     expect(ids.indexOf(second.id), 'the #5 ERROR run is listed').toBeGreaterThanOrEqual(0);
     expect(ids.indexOf(first.id), 'the #3 run is listed').toBeGreaterThan(ids.indexOf(second.id));
@@ -545,29 +574,67 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
     await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
 
-    // A paused control keeps its alerts, and so does a retired one: #5's FAIL raised one USDT alert on the floor control,
-    // which #5 paused. It is listed once while paused, then the floor is retired with two founders and the same alert is
-    // still listed and its detail still reads, with the same count and evidence.
-    if (!state.floorId) throw new Error('step #5 left no paused floor control');
-    const [raised] = await awaitAlerts(
-      a,
-      state.floorId,
-      (rows) => rows.length === 1 && rows[0].asset === 'USDT',
-      'svc-ops raises exactly one USDT alert from the floor control’s FAIL',
-    );
-    const floorPaused = await openLedger(a);
-    await expect(row(floorPaused, state.floorId).getByTestId('rc-state')).toHaveText('Paused');
-    const pausedDetail = await openAlert(a, raised.id);
-    await expect(pausedDetail).toHaveAttribute('data-occurrences', String(raised.occurrences));
-    await expect(pausedDetail.getByTestId('alert-evidence')).toContainText(`expected ${HIGH_FLOOR}`);
-    const evidenceText = await pausedDetail.getByTestId('alert-evidence').innerText();
+    // A paused control keeps its alerts, and so does a retired one. A fresh TEST floor fails; its USDT alert and its
+    // evaluations are read back from svc-ops and svc-ledger once it is paused, and again after it is retired.
+    const keepId = await define(await openLedger(a), {
+      template: 'threshold',
+      explanation: `LOCAL TEST USDT floor kept ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Threshold bound').selectOption('min');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+    let keepRetired = false;
+    try {
+      const fail = await twoFounderRun(keepId);
+      expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      const failed = evidence(fail, 'USDT');
+      const [raised] = await awaitAlerts(
+        a,
+        keepId,
+        (rows) => rows.length === 1 && rows[0].asset === 'USDT',
+        'svc-ops raises exactly one USDT alert from the floor’s FAIL',
+      );
+      expect(raised.state).toBe('open');
 
-    await lifecycle(state.floorId, 'retire', 'Retired');
-    const kept = await alertsOf(a, state.floorId);
-    expect(kept, 'the retired control still lists its alert, once and unchanged').toEqual([raised]);
-    const retiredDetail = await openAlert(a, raised.id);
-    await expect(retiredDetail).toHaveAttribute('data-occurrences', String(raised.occurrences));
-    await expect(retiredDetail.getByTestId('alert-evidence')).toHaveText(evidenceText);
+      // Paused with two founders: the alert raised before the pause is still there, open, its count never lower, and the
+      // FAIL run is still among the control's evaluations. (The hourly scheduler may have run it once more before the pause.)
+      const pausedKeep = await lifecycle(keepId, 'pause', 'Paused');
+      await choose(pausedKeep, keepId);
+      const kept = await evaluationsOf(pausedKeep);
+      expect(kept.ids, 'pausing kept the FAIL evaluation').toContain(runId(fail));
+      const keptAlerts = await alertsOf(a, keepId);
+      const keptAlert = keptAlerts.filter((row) => row.id === raised.id);
+      expect(keptAlert, 'a paused control’s alert stays, once').toHaveLength(1);
+      expect(keptAlert[0]).toMatchObject({ id: raised.id, asset: 'USDT', state: 'open', periodStart: raised.periodStart });
+      expect(keptAlert[0].occurrences).toBeGreaterThanOrEqual(raised.occurrences);
+      const detailOf = async () => {
+        const detail = await openAlert(a, raised.id);
+        return {
+          state: await detail.getAttribute('data-state'),
+          version: await detail.getAttribute('data-version'),
+          occurrences: await detail.getAttribute('data-occurrences'),
+          evidence: (await detail.getByTestId('alert-evidence').innerText()).replace(/\s+/g, ' '),
+        };
+      };
+      const whilePaused = await detailOf();
+      expect(whilePaused.evidence).toBe(
+        `Observed ${failed.observed} · expected ${failed.expected} · difference ${failed.difference} · tolerance ${failed.tolerance}`,
+      );
+
+      // Retired: a paused control runs nothing, so its evaluations, its alert and the alert's detail read exactly as while paused.
+      const retiredKeep = await lifecycle(keepId, 'retire', 'Retired');
+      keepRetired = true;
+      await choose(retiredKeep, keepId);
+      expect(await evaluationsOf(retiredKeep), 'a retired control keeps every evaluation readable').toEqual(kept);
+      expect(await alertsOf(a, keepId), 'a retired control keeps its alert, once and unchanged').toEqual(keptAlerts);
+      expect(await detailOf(), 'the alert’s detail still reads, unchanged').toEqual(whilePaused);
+    } finally {
+      if (!keepRetired) await lifecycle(keepId, 'retire', 'Retired').catch(() => undefined);
+    }
+    // #5's paused TEST floor is retired too, so no scheduled run keeps failing on it.
+    if (state.floorId) await lifecycle(state.floorId, 'retire', 'Retired');
   });
 
   test('J-ops-console-07 #7 a run that fails two assets opens two alerts; the same failure again raises the count, opens nothing new', async ({

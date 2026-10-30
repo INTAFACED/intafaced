@@ -14,9 +14,9 @@ import type { AlgoParent, AlgoPolicy } from '../rooms/api';
 import { AlgoDetail, AlgoList, type AlgoAction } from './AlgoList';
 import { AlgoForm, valuesFrom, type AlgoFormValues } from './AlgoForm';
 import { execCopy } from './copy';
-import { useParents, useRefreshParents, type ExecMarket } from './data';
+import { useAlgoIds, useParents, useRefreshParents, type ExecMarket } from './data';
 import { ownsNote } from './model';
-import { ConfirmDialog, Why, useStoredIds } from './parts';
+import { ConfirmDialog, Why } from './parts';
 
 const ACTIONS: readonly AlgoAction[] = ['pause', 'resume', 'cancel'];
 
@@ -32,7 +32,7 @@ export function AlgoTab({
   const { t } = execCopy.useCopy();
   const room = useRoomApi();
   const writer = useRoomWriter();
-  const ids = useStoredIds('algo', userId);
+  const { ids, list: algoList } = useAlgoIds(userId);
   const parents = useParents(ids);
   const refreshParents = useRefreshParents(ids);
   const [selected, setSelected] = useState<string | null>(null);
@@ -126,6 +126,7 @@ export function AlgoTab({
         <AlgoList
           load={parents}
           empty={ids.length === 0}
+          listing={algoList}
           selectedId={selected}
           onSelect={setSelected}
           onAction={(parent, kind) => setAction({ parent, action: kind })}

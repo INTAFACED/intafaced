@@ -90,16 +90,28 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   const merchantId = await openBusiness(page, owner);
   await verifiedBusiness(page, owner, merchantId);
   run.reset({ owner: saved(owner), merchantId });
-  await signInOwner(page, '/pay/money');
+  // Watched from the first load of Money, so a refused read on that load counts too.
   const refused = refusedPayCalls(page);
+  await signInOwner(page, '/pay/money');
   await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
   await expect(page.getByText('No money yet')).toBeVisible();
   await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
   // The reserve card is there before the first payment too.
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
 
-  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
+  // The service's own answer for the new business: no asset holds anything yet, and no reserve rule is set. The page
+  // above reads exactly that, not a zero it made up.
   const api = await ownerApi();
+  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
+  // "Zero per asset" for a new business: the service lists no asset at all (it lists only assets the business has
+  // held), so the page shows "No money yet" with no asset row and no figure, never a made-up zero.
+  expect((await snapshot()).balances, 'a new business holds no asset yet').toEqual([]);
+  await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
+  const reserveRead = await api.query('merchantControl.reserve', { merchantId });
+  expect(reserveRead).toMatchObject({ rule: null, holding: 'recorded_not_withheld', payoutsRefused: false, assets: [] });
+  await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('No reserve rule is set for your account.');
+
+  // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available.
   const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:clearing:${merchantId}`, amount: '40.00' });
   expect(paid.status).toBe('captured');
   // The balances follow the payment's events, so the page is read again until the payment shows.
@@ -116,27 +128,35 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
   const reserve = page.getByRole('region', { name: 'Reserve' });
   await expect(reserve).toContainText('recorded, not withheld');
+  // The card's "no rule" is the service's: the reserve read still has no rule after the payment.
+  expect((await api.query('merchantControl.reserve', { merchantId })).rule).toBeNull();
   await expect(reserve).toContainText('No reserve rule is set for your account.');
   expect(refused).toEqual([]);
 
   // A balance the page cannot read says so, and never reads as zero: with the ledger stopped the service refuses the
   // read with its code, and the page shows the refusal and no figure. Started again, the same 40.00 is back.
-  const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
   expect((await snapshot()).balances).toEqual([
     { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
   ]);
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
     await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
-    await page.reload();
-    // The refusal the page shows is the balance read's own (pay.metrics_balance_unavailable), not some other failure.
+    // The page's own balance read is the one refused, with the balance code, not some other failure.
+    const [pageRead] = await Promise.all([
+      page.waitForResponse((res) => new URL(res.url()).pathname.includes('merchantMetrics.snapshot')),
+      page.reload(),
+    ]);
+    expect(pageRead.status()).toBe(503);
+    const refusal = (await pageRead.json())?.error?.data;
+    expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('pay.metrics_balance_unavailable');
     await expect(page.getByTestId('failure').filter({ hasText: 'We can’t show your balances right now.' })).toHaveCount(1);
     await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
     await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
     await expect(page.getByText('Available to pay out')).toHaveCount(0);
     await expect(page.getByText('No money yet')).toHaveCount(0);
-    await expect(page.locator('main')).not.toContainText(/\b0\.00 USDT/);
+    // No zero in any form: "0 USDT", "0.00 USDT", "Now 0".
+    await expect(page.locator('main')).not.toContainText(/(^|[^\d.,])0(\.0+)?\s*USDT|Now\s*0\b/);
   } finally {
     // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
     tool('local-test-stack.mjs', 'start');
@@ -145,6 +165,11 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     await page.reload();
     await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT', { timeout: 3_000 });
   }).toPass({ timeout: 60_000 });
+  // The same two figures from the service once the ledger is back: the outage moved nothing.
+  expect((await snapshot()).balances).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
@@ -253,6 +278,8 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
     const recordBefore = await api.query('merchantControl.get', { merchantId });
     const ladderBefore = await api.query('merchantControl.tiers.list', { merchantId });
     expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
+    // The service itself publishes no fee and no payout fee for the blank tier; the "Not set" cells are what it sent.
+    expect(ladderBefore.tiers.find((tier) => tier.id === blank.tierId)).toMatchObject({ fees: [], payoutFee: null });
     await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
     await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
     await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');

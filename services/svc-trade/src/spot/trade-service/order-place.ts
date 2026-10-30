@@ -29,6 +29,7 @@ import { slippageToleranceFor } from '../slippage-tolerance.js';
 import { assertOperatorRiskOnPlace } from '../../admin/risk.js';
 import { classifyHoldPostError } from '../hold-outcome.js';
 import { refusedBeforeEngine } from '../../ledger-public-code.js';
+import { BUYBACK_INVALID, isBuybackUser } from '../buyback-order.js';
 import { assertSubAccountOwned } from '../sub-account-ownership.js';
 import { assertEmailProved } from '../email-proof.js';
 import { type EngineSubmitRequest } from '../matching-client.js';
@@ -80,6 +81,10 @@ export async function placeOrderInner(
   requireScope(principal, 'trade:write');
   const attribution = attributionFromPrincipal(principal);
   const userId = principal.userId;
+  // The buyback's house user places only through its own door (`./buyback.ts`), never as a customer.
+  if (isBuybackUser(userId)) {
+    throw new TradeError('the token buyback places only through its service door', BUYBACK_INVALID);
+  }
 
   // NO ORDERABLE PLANE AT ALL — refused before the registry is touched.
   //

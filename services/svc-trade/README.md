@@ -201,6 +201,18 @@ open has no client idempotency key — see audit residual).
 | **Cross ban**     | Seed submits are limit `PO`; synchronous engine fills → `manufactured_cross` + hold release (SD-5)                                   |
 | **F8**            | seed↔seed prints never inflate public tape                                                                                           |
 
+### Token buyback IOC buy (J-dex-protocol-17)
+
+`POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
+
+- **Whose money:** the rewards engine's, never a person's. svc-token sweeps the fee share first (`sweepFeesToRewards`). The hold is `buybackOrderHold`, each fill `buybackTakerFill` and the remainder `buybackOrderHoldRelease`. An unfunded hold is refused by the ledger and leaves no row.
+- **The row:** a `trade.orders` row under the house buyback user (`HOUSE_BUYBACK_USER_UUID`), at the regular tier with no tier volume, so the normal fill, release and reconcile paths find it. Every hold read and release on those paths goes through `holdAccountOf` and `buybackReleasePost` (`src/spot/buyback-order.ts`). It earns no XP.
+- **The engine account:** `house:buyback`, distinct from `house:market-maker`, so self-trade prevention does not pull the house maker's orders.
+- **House against house is refused** with `trade.buyback_house_maker`. Before the hold, a resting house market-maker ask at or under the limit refuses the buy, and an unreadable book refuses it with `trade.buyback_book_unreadable`. At settlement, a fill against a house maker is refused and posts nothing; customer fills before it in the same batch settle. The buyback row is marked `recovery_required` (`RECONCILIATION_REQUIRED`) and its quote stays in its own hold. Reconcile releases that hold only when the engine and `trade.fills` prove nothing else filled; otherwise it is a named break for an operator. The customer order path refuses the house buyback user (`trade.buyback_invalid`).
+- **Retries:** the same run id and command on the same market returns the first order. Another command under it is `trade.buyback_conflict`, and a run still settling is `trade.buyback_in_flight`; a retry never resubmits a stranded row, which reconcile resolves.
+- **Hold outcome:** a hold the ledger refuses, or a post that never left, deletes the row. A post with no answer keeps the row `pending` (`trade.hold_unknown`) for reconcile's age-bounded path. The engine is asked only when the booked hold equals the row's; otherwise `trade.buyback_conflict`.
+- **Not live yet:** svc-ledger has not granted svc-trade the three recipes, so a key-signed (S2S v3 keypair) post of them is refused at the ledger; a shared-secret post is only logged as a binding violation there. svc-token does not call this door yet.
+
 ### OHLCV / candles (A-TRADE-SPOT-1 + A-TRADE-SPOT-OPS)
 
 | Path                                 | Behavior                                                                                                                                         |

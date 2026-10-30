@@ -49,3 +49,27 @@ describe('the assets on the desk (CB-otc-11)', () => {
     }
   });
 });
+
+describe('the verification level of the desk (CB-otc-08)', () => {
+  const strip = () => host.querySelector('section[aria-label="Desk status"]')?.textContent ?? '';
+
+  it('names the level the desk publishes', async () => {
+    for (const [minTier, words] of [
+      ['basic', 'Basic and above'],
+      ['full', 'Full and above'],
+      ['institutional', 'Institutional only'],
+    ] as const) {
+      await show({ ...open, assets: ['BTC'], minTier });
+      expect(strip()).toContain(`Verification level${words}`);
+      expect(strip()).toContain('The desk prices only for accounts verified at this level or above.');
+    }
+  });
+
+  it('reads "Not set" with its blocker when the level is blank or one the room does not know', async () => {
+    for (const minTier of [null, undefined, 'gold']) {
+      await show({ ...open, assets: ['BTC'], minTier });
+      expect(strip()).toContain('Verification levelNot set');
+      expect(strip()).toContain('The desk has no verification level set, so every request refuses.');
+    }
+  });
+});

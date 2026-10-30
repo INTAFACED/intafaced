@@ -1,7 +1,8 @@
 /**
  * The Execution room's reads. All polled through the tab's one scheduler (rooms/read.ts), private ones keyed by user.
- * The service publishes no list of algo schedules (ALG-1), so the parents shown are the ids this device remembers plus any
- * id opened by hand; each one is re-read from the service every time and never trusted from storage.
+ * The parents shown are the service's list of the person's schedules (`algo.list`), plus any id this device remembers or
+ * opened by hand that the list does not hold yet; each one is re-read from the service every time and never trusted from
+ * storage.
  */
 import { useMemo } from 'react';
 import { z } from 'zod';
@@ -11,7 +12,9 @@ import { createTradeApi } from '../../../features/trade/trade-api';
 import { useSession } from '../rooms/ui';
 import { deskListingSchema, toDeskMarket, type DeskMarket } from '../desk/market';
 import { ROOM_INTERVALS, usePrivateRead, usePublicRead, useRoomApi } from '../rooms/read';
-import type { AlgoParent, AlgoPolicy, AlgoProgress } from '../rooms/api';
+import type { AlgoListPage, AlgoParent, AlgoPolicy, AlgoProgress, AlgoResult } from '../rooms/api';
+import { compareDecimals } from '../rooms/math';
+import { useStoredIds } from './parts';
 
 /** Same shape as `executionSpine` in features/trade/tool-api.ts, kept here so this room reads it without the legacy client. */
 export const spineSchema = z.object({
@@ -62,15 +65,35 @@ export function useSpine(): Loadable<Spine> {
 
 /** What one stored id turned out to be when the service was asked. */
 export type ParentRead =
-  { id: string; ok: true; parent: AlgoParent; progress: AlgoProgress | null } | { id: string; ok: false; code: string | null };
+  | { id: string; ok: true; parent: AlgoParent; progress: AlgoProgress | null; result: AlgoResult | null }
+  | { id: string; ok: false; code: string | null };
 
 async function readParent(room: ReturnType<typeof useRoomApi>, id: string, signal: AbortSignal): Promise<ParentRead> {
   const [parent, progress] = await Promise.all([room.algoGet(id, signal), room.algoProgress(id, signal)]);
   if (!parent.ok) return { id, ok: false, code: parent.code ?? null };
-  return { id, ok: true, parent: parent.data, progress: progress.ok ? progress.data : null };
+  // The average fill price is read only once something has filled: with zero fills it is "Not set" without asking.
+  const filled = progress.ok && compareDecimals(progress.data.filledQty, '0') === 1;
+  const result = filled ? await room.algoResult(id, signal) : null;
+  return { id, ok: true, parent: parent.data, progress: progress.ok ? progress.data : null, result: result?.ok ? result.data : null };
 }
 
-/** Re-reads every known parent, one `get` and one `progress` each, every 10 s. One failure never hides the others. */
+/**
+ * The schedule ids the room shows: the service's list, newest first, then ids remembered here that the list does not
+ * hold (a schedule made a moment ago, or one older than the list's window). `list` is the list read itself, so the room
+ * can tell "none" from "not read yet" or "refused"; while it cannot be read, only the remembered ids show.
+ */
+export function useAlgoIds(userId: string | null): { ids: string[]; list: Loadable<AlgoListPage> } {
+  const room = useRoomApi();
+  const stored = useStoredIds('algo', userId);
+  const listed = usePrivateRead('exec-algo-list', (signal) => room.algoList(signal), ROOM_INTERVALS.progress);
+  const fromService = listed.status === 'ready' ? listed.data.rows.map((r) => r.id) : [];
+  const key = [...stored, '|', ...fromService].join(',');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ids = useMemo(() => [...fromService, ...stored.filter((id) => !fromService.includes(id))], [key]);
+  return { ids, list: listed };
+}
+
+/** Re-reads every known parent, one `get` and one `progress` each (and `result` once it has fills), every 10 s. One failure never hides the others. */
 export function useParents(ids: readonly string[]): Loadable<ParentRead[]> {
   const room = useRoomApi();
   const key = ids.join(',');
