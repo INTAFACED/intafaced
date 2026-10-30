@@ -19,7 +19,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { MARKER, STATUS_CONTEXT, commitSessions, selfPassSession } from './review-marker.mjs';
+import { MARKER, STATUS_CONTEXT, sessionRefusal, sessionsForHead } from './review-marker.mjs';
 
 const PATCH_RE = /patch ([0-9a-f]{12})/;
 
@@ -41,7 +41,7 @@ export function markerSha(body) {
  * Does this comment sign off this PR's current head? Pure, so the policy table is testable. `authorSessions` are the
  * sessions on the PR's `Claude-Session:` commit lines, or null when they could not all be read (then nothing signs off).
  */
-export function judgeComment({ commenter, body, pr, authorSessions = new Set() }, config) {
+export function judgeComment({ commenter, body, pr, authorSessions = null }, config) {
   const login = String(commenter ?? '').toLowerCase();
   const sha = markerSha(body);
   if (!sha) return { ok: false, reason: 'no review marker' };
@@ -51,8 +51,8 @@ export function judgeComment({ commenter, body, pr, authorSessions = new Set() }
   if (config.requireDistinctFromAuthor && login === String(pr.user.login).toLowerCase()) {
     return { ok: false, reason: 'a reviewer may not sign off their own pull request' };
   }
-  const self = selfPassSession(body, authorSessions);
-  if (self) return { ok: false, reason: `the PASS names the pull request's own session (${self}); another session must review` };
+  const refusal = sessionRefusal(body, authorSessions);
+  if (refusal) return { ok: false, reason: refusal };
   return { ok: true, sha, reviewer: commenter };
 }
 
@@ -122,8 +122,7 @@ async function prAuthorSessions(repo, n, sha) {
     commits.push(...(json ?? []));
     if ((json ?? []).length < 100) break;
   }
-  if (commits.length === 0 || commits.length >= 250 || commits.at(-1)?.sha !== sha) return null;
-  return commitSessions(commits.map((c) => c?.commit?.message));
+  return sessionsForHead(commits, sha);
 }
 
 async function prFileList(repo, n) {
@@ -238,19 +237,35 @@ async function selfTest() {
   const head = 'a'.repeat(40);
   const cfg = { reviewers: ['nino', 'phantom'], requireDistinctFromAuthor: false };
   const pr = { state: 'open', head: { sha: head }, user: { login: 'nino' } };
+  const none = new Set();
   const body = `Independent review: PASS ${head}`;
-  assert(judgeComment({ commenter: 'Nino', body, pr }, cfg).ok, 'a listed reviewer, current head, passes (case-insensitive)');
-  assert(!judgeComment({ commenter: 'stranger', body, pr }, cfg).ok, 'a stranger cannot sign off');
-  assert(!judgeComment({ commenter: 'nino', body: `Independent review: PASS ${'b'.repeat(40)}`, pr }, cfg).ok, 'another head is refused');
-  assert(!judgeComment({ commenter: 'nino', body: 'looks good', pr }, cfg).ok, 'a comment without the marker is ignored');
   assert(
-    !judgeComment({ commenter: 'nino', body: `Independent review: PASS ${head} but not really`, pr }, cfg).ok,
+    judgeComment({ commenter: 'Nino', body, pr, authorSessions: none }, cfg).ok,
+    'a listed reviewer, current head, passes (case-insensitive)',
+  );
+  assert(!judgeComment({ commenter: 'stranger', body, pr, authorSessions: none }, cfg).ok, 'a stranger cannot sign off');
+  assert(
+    !judgeComment({ commenter: 'nino', body: `Independent review: PASS ${'b'.repeat(40)}`, pr, authorSessions: none }, cfg).ok,
+    'another head is refused',
+  );
+  assert(
+    !judgeComment({ commenter: 'nino', body: 'looks good', pr, authorSessions: none }, cfg).ok,
+    'a comment without the marker is ignored',
+  );
+  assert(
+    !judgeComment({ commenter: 'nino', body: `Independent review: PASS ${head} but not really`, pr, authorSessions: none }, cfg).ok,
     'trailing text voids the marker',
   );
-  assert(!judgeComment({ commenter: 'nino', body, pr: { ...pr, state: 'closed' } }, cfg).ok, 'a closed PR is refused');
+  assert(
+    !judgeComment({ commenter: 'nino', body, pr: { ...pr, state: 'closed' }, authorSessions: none }, cfg).ok,
+    'a closed PR is refused',
+  );
   const strict = { ...cfg, requireDistinctFromAuthor: true };
-  assert(!judgeComment({ commenter: 'nino', body, pr }, strict).ok, 'the author may not review their own PR when distinctness is on');
-  assert(judgeComment({ commenter: 'phantom', body, pr }, strict).ok, 'another listed reviewer may');
+  assert(
+    !judgeComment({ commenter: 'nino', body, pr, authorSessions: none }, strict).ok,
+    'the author may not review their own PR when distinctness is on',
+  );
+  assert(judgeComment({ commenter: 'phantom', body, pr, authorSessions: none }, strict).ok, 'another listed reviewer may');
   const own = new Set(['session_A1']);
   const named = (s) => `${body}\nReviewer session: https://claude.ai/code/${s}`;
   assert(judgeComment({ commenter: 'nino', body: named('session_R1'), pr, authorSessions: own }, cfg).ok, 'another session may sign off');
