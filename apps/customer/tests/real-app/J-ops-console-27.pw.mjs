@@ -4,7 +4,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, ROOT, bestPrices, fromUnits, journeyState, ma
 import { confirm, deskPath, previewed, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { readRail } from '../../../../tooling/scripts/local-test-rail-records.mjs';
+import { readRail, recordRailMovement } from '../../../../tooling/scripts/local-test-rail-records.mjs';
 
 // J-ops-console-27, in the running app (its step table lands in docs/roadmap/journeys.json): the money loop. One fresh customer signs up, passes
 // TEST verification, deposits on the TEST chain, buys on the desk, pays a person, cashes out, withdraws, and every cent
@@ -449,7 +449,11 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
 
   // The partner verifies the account, and the TEST fixture moves its link past the 24-hour cooling-off.
   const api = await client();
-  const [account] = (await api.query('bank', 'linkedAccounts.list')).data.accounts;
+  const linked = await api.query('bank', 'linkedAccounts.list');
+  expect(linked, 'the linked accounts are read').toMatchObject({ ok: true });
+  const named = linked.data.accounts.filter((entry) => entry.label === BANK_LABEL);
+  expect(named, `exactly one linked account is ${BANK_LABEL}`).toHaveLength(1);
+  const [account] = named;
   expect(await partner('verify', { accountId: account.accountId })).toMatchObject({ state: 'verified' });
   expect(tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
   const before = total(await api.balances(), ASSET);
@@ -459,7 +463,10 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
   await page.getByRole('button', { name: 'Cash out', exact: true }).click();
   await confirmItsMe(page);
   await expect(page.getByTestId('cash-out-sent')).toContainText('Your cash-out is on its way');
-  const [taken] = (await api.query('bank', 'cashOut.requests', { limit: 10 })).data;
+  const asked = await api.query('bank', 'cashOut.requests', { limit: 10 });
+  expect(asked, 'the cash-out requests are read').toMatchObject({ ok: true });
+  expect(asked.data, 'this account has made one cash-out').toHaveLength(1);
+  const [taken] = asked.data;
   expect(taken).toMatchObject({ amount: CASH_OUT, assetId: ASSET, status: 'processing' });
 
   const paid = await partner('paid', { cashOutId: taken.requestId });
@@ -474,7 +481,9 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
   const receipt = done.getByTestId('cash-out-receipt');
   await Promise.all([page.waitForEvent('download'), receipt.getByRole('button', { name: 'Download receipt' }).click()]);
   await expect(receipt.getByTestId('cash-out-receipt-ledger')).toHaveText(`Ledger record: ${paid.ledgerTxId}`);
-  const requests = (await api.query('bank', 'cashOut.requests', { limit: 10 })).data;
+  const reread = await api.query('bank', 'cashOut.requests', { limit: 10 });
+  expect(reread, 'the cash-out requests are read again').toMatchObject({ ok: true });
+  const requests = reread.data;
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({
     requestId: taken.requestId,
@@ -484,7 +493,10 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
     payoutRef: `TEST-PAYOUT-${taken.requestId}`,
     ledgerTxId: paid.ledgerTxId,
   });
-  expect(before - total(await api.balances(), ASSET)).toBe(toUnits(CASH_OUT));
+  const after = await api.balances();
+  expect(before - total(after, ASSET)).toBe(toUnits(CASH_OUT));
+  // Completed means paid out: nothing of it is still held on the ledger.
+  expect(toUnits(after[ASSET]?.used ?? '0'), `${ASSET} held after the payout`).toBe(0n);
   // Recorded on the rail: the TEST payout stand-in's own record (its line in the stack's rail records, which its
   // statement totals), one payout out of custody for this request, of this amount and asset.
   const key = `cash-out:${taken.requestId}:paid`;
@@ -737,7 +749,19 @@ const BREAK = {
 // The held deposits open on each rail (lead ruling on #8: no netting, held deposits post nothing). svc-pay's custody
 // deposits all arrive on crypto-native, so only that rail can carry them; payout-sim never does.
 const OPEN_ITEMS_RAILS = new Set(['crypto-native']);
-const HELD_OPEN = 'held deposits from other journeys are open on this rail';
+// One asset's evidence line on a run (apps/admin describeEvidence), with the items' sum and the residual when items were read.
+const EVIDENCE =
+  /([A-Z0-9._-]+): observed (-?[\d.]+), expected (-?[\d.]+|unset), difference (-?[\d.]+|unset), tolerance [^,.]+(?:\.\d+)?(?:, reconciling items (-?[\d.]+), residual (-?[\d.]+|unset))?\./g;
+// One named item on a run (apps/admin describeRun): kind, id, asset, signed amount, the service that holds its record.
+const ITEM = /(held|reversal_unfunded) (\S+) ([A-Z0-9._-]+) (-?[\d.]+) \(svc-pay\)\./g;
+// The TEST transfer no item lists, written on the rail's own records to show the control can FAIL by it.
+const STRAY = '0.01';
+const describeNet = (net) =>
+  Object.entries(net)
+    .filter(([, units]) => units !== 0n)
+    .sort(([x], [y]) => (x < y ? -1 : 1))
+    .map(([asset, units]) => `${asset} ${fromUnits(units)}`)
+    .join(', ') || 'net 0';
 
 /**
  * The founders' read of open custody items (svc-pay founderAdmin.depositOpenItems.list, on the console's custody-ops
@@ -763,6 +787,7 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
+  const judged = [];
   for (const [rail, steps] of Object.entries(RAIL_STEPS)) {
     const crossed = [...new Set(steps.flatMap((step) => Object.keys(moves[step] ?? {})))].sort();
     if (!crossed.length) throw new Error(`${J} ${steps.join(' and ')} recorded no move, so rail ${rail} has nothing to reconcile`);
@@ -778,54 +803,85 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
         lines.filter((line) => line.key === key),
         `${rail}: its records hold ${key} once`,
       ).toHaveLength(1);
-    // What is open on this rail before and after the run; the two must agree, or the run judged a moving list.
     const carries = OPEN_ITEMS_RAILS.has(rail);
-    const before = carries ? await openItems(a) : { total: 0, net: {} };
+    // The founders' own read of what is open (custody-ops), before and after: the two must agree, or the run judged a
+    // moving list. Only crypto-native can carry custody items; on payout-sim the run must say it read none.
+    const before = carries ? await openItems(a) : null;
     const id = await defineOutside(await openLedger(a), rail, tag);
     const answer = await twoFounderRun(a, b, id, tag);
-    const after = carries ? await openItems(a) : { total: 0, net: {} };
-    expect(after, `${rail}: the open custody items did not change during the run`).toEqual(before);
+    if (carries) expect(await openItems(a), `${rail}: the open custody items did not change during the run`).toEqual(before);
+    judged.push(rail);
     // The run read this rail's boundary: one account per asset on it, never a set that nets to 0.
     const read = /(\d+) accounts? and \d+ assets? read\./.exec(answer);
-    expect(read, `${rail}: the run names how many boundary accounts it read`).not.toBeNull();
-    expect(Number(read[1]), `${rail}: at least one boundary account read`).toBeGreaterThan(0);
+    expect.soft(read, `${rail}: the run names how many boundary accounts it read`).not.toBeNull();
+    expect.soft(Number(read?.[1] ?? 0), `${rail}: at least one boundary account read`).toBeGreaterThan(0);
     for (const asset of crossed) {
       const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
-      expect(observed, `${rail} ${asset}: the run names what the boundary holds`).not.toBeNull();
-      expect(toUnits(observed[1]), `${rail} ${asset}: the boundary the customer's money crossed is not 0`).not.toBe(0n);
+      expect.soft(observed, `${rail} ${asset}: the run names what the boundary holds`).not.toBeNull();
+      expect.soft(toUnits(observed?.[1] ?? '0'), `${rail} ${asset}: the boundary the customer's money crossed is not 0`).not.toBe(0n);
     }
-    // The outside side is this rail's own statement (LEDGER_RECONCILE_RAIL_<RAIL>_URL, the stack's rail-statements
-    // stand-in). Soft, so every rail is judged in one run; the step still fails. A FAIL here is a real break between the
-    // rail and the ledger and stays red by name: on crypto-native, a transfer the chain delivered into custody that svc-pay
-    // has not credited (below its minimum, held for the travel rule or an expired address, frozen) or a reorg it could not
-    // reverse; on payout-sim, a payout or return the stand-in made that the ledger does not hold.
+    // The outside side is this rail's own statement (LEDGER_RECONCILE_RAIL_<RAIL>_URL, the stack's rail-statements stand-in).
     expect.soft(answer, `${rail}: the outside side is this rail's own statement`).toContain('Outside side: snapshot');
-    const open = Object.entries(before.net).filter(([, units]) => units !== 0n);
-    if (!open.length) {
-      // Nothing open on the rail: the boundary must equal the statement exactly.
-      console.log(`${J} #8 ${rail}: branch "none open" (${before.total} items, net 0 on every asset); expecting PASS`);
+    const evidence = [...answer.matchAll(EVIDENCE)];
+    expect.soft(evidence.length, `${rail}: the run names each asset's difference`).toBeGreaterThan(0);
+    if (!carries) {
+      // No open items on this rail: the boundary must equal the statement exactly, and no item is taken out.
+      expect.soft(answer, `${rail}: no open items are read for this rail`).not.toContain('reconciling item');
+      for (const [, asset, , , difference] of evidence) expect.soft(difference, `${rail} ${asset}: difference`).toBe('0');
       expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       continue;
     }
-    // Something open: the control must FAIL, and on each asset the difference (observed minus expected) is exactly the
-    // signed sum of the open items, and on every other asset it is 0. Then the step stays red by name.
-    console.log(
-      `${J} #8 ${rail}: branch "items open" (${before.total} items; ${open.map(([asset, units]) => `${asset} ${fromUnits(units)}`).join(', ')}); expecting FAIL by exactly that`,
-    );
-    expect(answer, `${rail}: the run FAILs while items are open`).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-    const evidence = [...answer.matchAll(/([A-Z0-9._-]+): observed (-?[\d.]+), expected (-?[\d.]+|unset), difference (-?[\d.]+|unset)/g)];
-    expect(evidence.length, `${rail}: the run names each asset's difference`).toBeGreaterThan(0);
-    for (const [, asset, , , difference] of evidence) {
-      expect(difference, `${rail} ${asset}: the statement names this asset`).not.toBe('unset');
-      expect(fromUnits(toUnits(difference)), `${rail} ${asset}: the difference is exactly the open items' signed sum`).toBe(
-        fromUnits(before.net[asset] ?? 0n),
-      );
+    // Lead ruling 2026-10-30: the rail PASSes only when its difference is exactly the open items svc-pay lists, each named
+    // on the run with its id and amount; the residual on every asset is 0. Branch by the count the founders read.
+    const branch = before.total > 0 ? 'items open' : 'none open';
+    console.log(`${J} #8 ${rail}: branch "${branch}" (${before.total} items; ${describeNet(before.net)}); expecting PASS with each named`);
+    const count = /(\d+) reconciling items?[:.]/.exec(answer);
+    expect.soft(count, `${rail}: the run says how many open items it took out`).not.toBeNull();
+    expect.soft(Number(count?.[1] ?? -1), `${rail}: the run took out exactly the items the founders read`).toBe(before.total);
+    const named = [...answer.matchAll(ITEM)];
+    expect.soft(named.length, `${rail}: each item is named on the run`).toBe(before.total);
+    expect.soft(new Set(named.map((m) => m[2])).size, `${rail}: each item is named once, by its own id`).toBe(named.length);
+    const sums = {};
+    for (const [, kind, , asset, amount] of named) {
+      expect.soft(toUnits(amount) > 0n, `${rail}: a ${kind} item carries its sign`).toBe(kind === 'held');
+      sums[asset] = (sums[asset] ?? 0n) + toUnits(amount);
     }
-    for (const [asset] of open)
-      expect(
-        evidence.map((e) => e[1]),
-        `${rail}: the run judged ${asset}`,
-      ).toContain(asset);
-    expect.soft(answer, `${rail}: ${HELD_OPEN}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    expect.soft(describeNet(sums), `${rail}: the named items add up to the founders' read`).toBe(describeNet(before.net));
+    for (const [, asset, , , difference, items, residual] of evidence) {
+      expect.soft(difference, `${rail} ${asset}: the statement names this asset`).not.toBe('unset');
+      expect.soft(items, `${rail} ${asset}: the run states the items' sum`).toBe(fromUnits(before.net[asset] ?? 0n));
+      expect.soft(residual, `${rail} ${asset}: nothing is left once the items are taken out`).toBe('0');
+    }
+    expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+
+    // The scope can be non-zero (checklist point 9): a TEST transfer into custody that no item lists, written on the rail's
+    // own records, FAILs the same control by exactly that amount, named as the residual. An equal TEST transfer out then
+    // closes it, so the rail's records net back to what they were.
+    const stray = `test-unlisted:${tag}`;
+    recordRailMovement(stackFile('.'), {
+      rail,
+      key: `${stray}:in`,
+      direction: 'in',
+      assetId: ASSET,
+      amount: STRAY,
+      at: new Date(Date.now() - 60_000).toISOString(),
+    });
+    let strayAnswer;
+    try {
+      strayAnswer = await twoFounderRun(a, b, id, `${tag}-unlisted`);
+    } finally {
+      recordRailMovement(stackFile('.'), { rail, key: `${stray}:out`, direction: 'out', assetId: ASSET, amount: STRAY });
+    }
+    expect.soft(strayAnswer, `${rail}: a transfer no item lists FAILs the rail`).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+    const strayRow = [...strayAnswer.matchAll(EVIDENCE)].find((m) => m[1] === ASSET);
+    const firstRow = evidence.find((m) => m[1] === ASSET);
+    expect.soft(strayRow?.[6], `${rail} ${ASSET}: the run names a residual`).toMatch(/^-?[\d.]+$/);
+    expect
+      .soft(
+        fromUnits(toUnits(strayRow?.[6] ?? '0') - toUnits(firstRow?.[6] ?? '0')),
+        `${rail} ${ASSET}: the residual moved by exactly the unlisted transfer`,
+      )
+      .toBe(STRAY);
   }
+  expect(judged, 'every rail with a statement was judged').toEqual(Object.keys(RAIL_STEPS));
 });
