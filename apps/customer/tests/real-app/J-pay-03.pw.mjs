@@ -165,8 +165,10 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await expect(page.getByRole('alert')).toHaveText(`No one with this handle. We couldn’t find @${mine.handle}. Check the spelling.`);
     expect(await record(me)).toEqual(hidden);
 
-    // The stranger scans the QR code: Send opens on this account and the payment lands in its balance.
+    // The stranger scans the QR code: Send opens on this account and the payment lands once: this account's balance
+    // rises by exactly 1 TEST USDT and the stranger's falls by exactly 1, both read from the service.
     const before = toUnits((await usdt(me)).free);
+    const spending = toUnits((await usdt(stranger)).free);
     const url = new URL(link);
     const scanned = await answer(page, 'qr.resolve', () => page.goto(`${url.pathname}${url.search}`));
     expect(scanned, 'the QR code resolves to this account by its id').toEqual({
@@ -183,6 +185,10 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(async () => toUnits((await usdt(me)).free) - before, { timeout: 30_000 }).toBe(toUnits('1'));
+    await expect.poll(async () => spending - toUnits((await usdt(stranger)).free), { timeout: 30_000 }).toBe(toUnits('1'));
+    // Once: a fresh read of both still shows exactly one payment.
+    expect(toUnits((await usdt(me)).free) - before).toBe(toUnits('1'));
+    expect(spending - toUnits((await usdt(stranger)).free)).toBe(toUnits('1'));
   } finally {
     // Back on, so #5 can be paid by handle.
     await signOutBrowser(page.context());

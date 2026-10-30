@@ -92,6 +92,8 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   const discoverable = page.getByRole('switch', { name: 'Let people find me by my handle' });
   await discoverable.click();
   await expect(discoverable).not.toBeChecked();
+  // The switch says only what the product does, and the scan below proves it.
+  await expect(page.getByText('People you share your QR code or link with can still pay you.')).toBeVisible();
   const hidden = await record(payee);
   // The handle Send must show is the one identity holds for the payee, read back, not the one this test chose.
   const handle = hidden.handle;
@@ -121,8 +123,10 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await expect(page.getByTestId('recipient-found')).toContainText(`@${handle}`);
   await expect(page.getByRole('alert')).toHaveCount(0);
 
-  // It pays through the existing pay path: 1 TEST USDT lands in the payee's balance.
+  // It pays through the existing pay path, once: the payee's balance rises by exactly 1 TEST USDT and the payer's falls
+  // by exactly 1, both read from the service, and both stay there (re-read after each refusal below).
   const held = toUnits((await usdt(payee)).free);
+  const spending = toUnits((await usdt(payer)).free);
   await page.getByLabel(/Amount/).fill('1');
   await page.getByRole('button', { name: 'Review' }).click();
   const review = page.getByRole('alertdialog');
@@ -130,6 +134,7 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await review.getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect.poll(async () => toUnits((await usdt(payee)).free) - held, { timeout: 30_000 }).toBe(toUnits('1'));
+  await expect.poll(async () => spending - toUnits((await usdt(payer)).free), { timeout: 30_000 }).toBe(toUnits('1'));
 
   // The signature moved onto another account, and a changed last character: both refused identity.qr_invalid, and
   // nothing moves: the payee's record and both balances read the same.
