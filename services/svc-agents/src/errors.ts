@@ -52,6 +52,8 @@ export type AgentErrorCode =
   | 'agents.team.pool_exceeded'
   /** A team run's member has no allocation in the business pool, or there is no pool: nothing runs on it unlimited. */
   | 'agents.team.allocation_unset'
+  /** The person's own agent spent its monthly hard limit: new runs refuse until next month; a held run finishes. */
+  | 'agents.usage.hard_limit_reached'
   /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
   | 'agents.window_unpaid';
 

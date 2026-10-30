@@ -6,6 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
+import { SECTIONS } from './developers-model';
 import {
   CALL_COST,
   NEVER_ON_A_KEY,
@@ -319,6 +320,13 @@ describe('the machine-readable files', () => {
       expect(existsSync(file), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(true);
       expect(readFileSync(file, 'utf8'), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(body);
     }
+  });
+
+  it('gives every written page of the portal a markdown variant, except the live pages', () => {
+    const written = SECTIONS.filter((section) => section.page && !['status', 'changelog'].includes(section.id)).map(
+      (section) => section.id,
+    );
+    expect(written.filter((id) => !DOCS_PAGES.some((page) => page.slug === id))).toEqual([]);
   });
 
   it('lists each page once in the docs index, each beside its markdown variant', () => {

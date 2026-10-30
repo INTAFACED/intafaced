@@ -75,10 +75,18 @@ export async function saveSection(row) {
   return data(await ctx.edge.mutate('support', 'kbSaveSection', row, await leadToken()), 'kbSaveSection');
 }
 
-/** Publish an article typed as text into a section. Returns the stored version. */
+/**
+ * Publish an article typed as text into a section, through review (SP-kb-02): the lead saves a draft and submits it, the
+ * desk's second operator (founder B, the agent) approves it, and the lead publishes. Returns the live version.
+ */
 export async function publishText(row) {
   const { ctx } = await founders();
-  return data(await ctx.edge.mutate('support', 'kbPublishText', row, await leadToken()), 'kbPublishText');
+  const lead = await leadToken();
+  const draft = data(await ctx.edge.mutate('support', 'kbSaveDraft', row, lead), 'kbSaveDraft');
+  const ref = { id: draft.id, revision: draft.revision };
+  data(await ctx.edge.mutate('support', 'kbSubmitForReview', ref, lead), 'kbSubmitForReview');
+  data(await ctx.edge.mutate('support', 'kbApprove', ref, await agentToken()), 'kbApprove');
+  return data(await ctx.edge.mutate('support', 'kbPublishDraft', ref, lead), 'kbPublishDraft');
 }
 
 /** Take an article off the help centre (a new hidden version). */

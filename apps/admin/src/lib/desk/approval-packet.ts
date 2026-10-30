@@ -7,6 +7,14 @@ import {
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance/model';
+import {
+  LAUNCH_ID,
+  LAUNCH_ISSUER_STATES,
+  LAUNCH_MOVE_TARGETS,
+  readLaunchEventPayload,
+  type LaunchIssuerState,
+  type LaunchMoveTarget,
+} from '@/lib/launch-issuers/model';
 import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
@@ -47,6 +55,7 @@ const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
 const WHOLE = /^[1-9][0-9]{0,8}$/;
 const GOV_REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
+const REVISION = /^(?:0|[1-9][0-9]{0,8})$/;
 
 export type DeskRequest =
   | { readonly kind: 'edge.kill'; readonly module: ModuleId; readonly disabled: boolean; readonly reason: string }
@@ -110,6 +119,19 @@ export type DeskRequest =
   | { readonly kind: 'token.governance.role.set'; readonly userId: string; readonly role: GovernanceRole | ''; readonly revision: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
+  /**
+   * Launch issuer lens (svc-token `launch.*`, J-more-catalogue-14). `revision` is the issuer's or the launch's revision read
+   * (0 for a new issuer); `event` is svc-token's canonical launch payload, exactly the text the founders approve.
+   */
+  | {
+      readonly kind: 'token.launch.issuer.set';
+      readonly issuerId: string;
+      readonly name: string;
+      readonly state: LaunchIssuerState;
+      readonly revision: string;
+    }
+  | { readonly kind: 'token.launch.event.create'; readonly event: string }
+  | { readonly kind: 'token.launch.event.move'; readonly eventId: string; readonly to: LaunchMoveTarget; readonly revision: string }
   /** Lift a compliance freeze on one customer deposit address (svc-pay `founderAdmin.depositFreezes.unfreeze`). `freezeId` is the open freeze read. */
   | {
       readonly kind: 'pay.deposit_address.unfreeze';
@@ -391,6 +413,28 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     // A revoke needs a role to revoke, so it is never the first move.
     if (raw.role === '' && raw.revision === '0') return null;
     return { kind: 'token.governance.role.set', userId: raw.userId, role: raw.role as GovernanceRole | '', revision: raw.revision };
+  }
+  if (raw.kind === 'token.launch.issuer.set') {
+    if (keys !== 'issuerId,kind,name,revision,state') return null;
+    if (typeof raw.issuerId !== 'string' || !LAUNCH_ID.test(raw.issuerId) || typeof raw.name !== 'string') return null;
+    const name = raw.name.trim();
+    if (name !== raw.name || name.length < 1 || name.length > 120) return null;
+    if (typeof raw.state !== 'string' || !(LAUNCH_ISSUER_STATES as readonly string[]).includes(raw.state)) return null;
+    if (typeof raw.revision !== 'string' || !REVISION.test(raw.revision)) return null;
+    // A new issuer starts as applied; svc-token refuses any other state at revision 0.
+    if (raw.revision === '0' && raw.state !== 'applied') return null;
+    return { kind: 'token.launch.issuer.set', issuerId: raw.issuerId, name, state: raw.state as LaunchIssuerState, revision: raw.revision };
+  }
+  if (raw.kind === 'token.launch.event.create') {
+    if (keys !== 'event,kind' || typeof raw.event !== 'string' || readLaunchEventPayload(raw.event) === null) return null;
+    return { kind: 'token.launch.event.create', event: raw.event };
+  }
+  if (raw.kind === 'token.launch.event.move') {
+    if (keys !== 'eventId,kind,revision,to') return null;
+    if (typeof raw.eventId !== 'string' || !LAUNCH_ID.test(raw.eventId)) return null;
+    if (typeof raw.to !== 'string' || !(LAUNCH_MOVE_TARGETS as readonly string[]).includes(raw.to)) return null;
+    if (typeof raw.revision !== 'string' || !REVISION.test(raw.revision)) return null;
+    return { kind: 'token.launch.event.move', eventId: raw.eventId, to: raw.to as LaunchMoveTarget, revision: raw.revision };
   }
   if (raw.kind === 'pay.deposit_address.unfreeze') {
     if (keys !== 'address,freezeId,kind,networkId,reason,userId') return null;
@@ -735,6 +779,12 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'GOVERNANCE SETTINGS';
     case 'token.governance.role.set':
       return `ROLE ${request.userId.slice(0, 8)} ${request.role === '' ? 'NONE' : request.role.toUpperCase()}`;
+    case 'token.launch.issuer.set':
+      return `ISSUER ${request.issuerId} ${request.state.toUpperCase()}`;
+    case 'token.launch.event.create':
+      return `DRAFT LAUNCH ${readLaunchEventPayload(request.event)?.id ?? ''}`;
+    case 'token.launch.event.move':
+      return `LAUNCH ${request.eventId} ${request.to.toUpperCase()}`;
     case 'pay.deposit_address.unfreeze':
       return `UNFREEZE ADDRESS ${request.address.slice(0, 10)}`;
     case 'identity.account.close':
@@ -837,6 +887,21 @@ export function describeRequest(request: DeskRequest): string {
       return request.role === ''
         ? `Remove the governance role of account ${request.userId}: it can no longer cancel proposals. svc-token applies it only if the role is still at revision ${request.revision}. No money moves.`
         : `Give account ${request.userId} the governance role ${request.role}${request.role === 'author' ? ' (it cancels no proposal)' : ': it may cancel any draft or open proposal, with a reason, and the votes stay'}. svc-token applies it only if the role is still at revision ${request.revision}, and refuses it when a founder on this request is that account. No money moves.`;
+    case 'token.launch.issuer.set':
+      return request.revision === '0'
+        ? `Add issuer ${request.issuerId} ("${request.name}") as applied. It cannot announce a launch until it is reviewed and onboarded. No money moves.`
+        : request.state === 'suspended'
+          ? `Suspend issuer ${request.issuerId} ("${request.name}"). Each of its open launches closes in the same step, and every move is recorded with both founders. svc-token applies it only if the issuer is still at revision ${request.revision}. No money moves.`
+          : `Move issuer ${request.issuerId} ("${request.name}") to ${request.state}. svc-token applies it only if the issuer is still at revision ${request.revision}. No money moves.`;
+    case 'token.launch.event.create': {
+      const e = readLaunchEventPayload(request.event);
+      if (!e) return 'This draft cannot be read.';
+      const [announce, snapshot, open, close, distribution] = e.periods;
+      const money = (v: string | null) => (v === null ? 'not set' : `${v} ${e.paymentAsset ?? ''}`.trim());
+      return `Save launch ${e.id} ("${e.projectName}", ${e.symbol}, ${e.type.replace(/_/g, ' ')}) for issuer ${e.issuerId} as a draft. Periods (UTC): announce ${announce}, snapshot ${snapshot}, open ${open}, close ${close}, distribution ${distribution}. Allocation ${e.method?.replace(/_/g, ' ') ?? 'not set'}, cap per account ${e.perUserCap === null ? 'not set' : `${e.perUserCap} ${e.symbol}`}, ticket size ${e.ticketSize ?? 'not set'}. Price ${money(e.price)}, currency ${e.paymentAsset ?? 'not set'}, rate source ${e.rateSource ?? 'not set'}. A draft is not published: nobody outside this console sees it until it is announced. No money moves.`;
+    }
+    case 'token.launch.event.move':
+      return `Move launch ${request.eventId} to ${request.to}. svc-token checks the period and that the issuer is onboarded, and applies it only if the launch is still at revision ${request.revision}. No money moves.`;
     case 'pay.deposit_address.unfreeze':
       return `Lift the compliance freeze on deposit address ${request.address} (${request.networkId}) of account ${request.userId} ("${request.reason}"). Deposits held by the freeze are judged again, and each one that has its confirmations is credited once, under the same key as any deposit. svc-pay lifts it only if freeze ${request.freezeId.slice(0, 8)} is still the open one, and refuses the founder who approved it as the one who runs it.`;
     case 'identity.account.close':
@@ -896,6 +961,9 @@ export function requestReason(request: DeskRequest): string | null {
     case 'ops.console_mode.off':
     case 'identity.kyc_document.open':
     case 'identity.kyc_selfie.decide':
+    case 'token.launch.issuer.set':
+    case 'token.launch.event.create':
+    case 'token.launch.event.move':
     case 'ops.restore.record':
     case 'ops.restore.finalize':
     case 'token.governance.settings.set':

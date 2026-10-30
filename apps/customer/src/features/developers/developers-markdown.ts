@@ -5,8 +5,11 @@
  * with `WRITE_DEVELOPER_DOCS=1`.
  */
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
+import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
+import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { developersCopy } from './developers-copy';
 import { docsCopy } from './developers-docs-copy';
+import { causeKey, fixKey, tradeErrorsCopy } from './errors/trade-errors-copy';
 import { connectivityEndpointsLabel, connectivityStateLabel, dataTermLabel } from './developers-labels';
 import { AUDIENCES, DATA_PRODUCTS, DATA_TERMS, SECTIONS, connectivityOptions, hostRows, type Section } from './developers-model';
 import {
@@ -24,6 +27,7 @@ import {
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
+const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
 const table = (head: string[], rows: string[][]) =>
@@ -208,6 +212,27 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         `## ${docs('authWindowTitle')}`,
         `${docs('authRefusals')} ${docs('authPolicyRead')}`,
         `- ${docs('authErrorsLink')}: /developers/errors/auth`,
+      ].join('\n\n'),
+  },
+  {
+    slug: 'errors',
+    title: sectionTitle('errors'),
+    summary: tradeErrors('lead'),
+    body: () =>
+      [
+        tradeErrors('lead'),
+        `## ${tradeErrors('tableTitle')}`,
+        table(
+          [tradeErrors('colCode'), tradeErrors('colStatus'), tradeErrors('colDetail'), tradeErrors('colCause'), tradeErrors('colFix')],
+          TRADE_ERROR_CATALOGUE.map((entry) => [
+            code(entry.code),
+            String(entry.status),
+            code(entry.intafacedCode),
+            tradeErrors(causeKey(entry.cause)),
+            tradeErrors(fixKey(entry.cause)),
+          ]),
+        ),
+        `- ${tradeErrors('authLink')}: ${AUTH_ERRORS_PATH}`,
       ].join('\n\n'),
   },
   {

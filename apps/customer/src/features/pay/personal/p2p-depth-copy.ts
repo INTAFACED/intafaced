@@ -235,9 +235,6 @@ const en = {
   problemNonInstantEdit: 'This ad was posted without accepting methods that are not instant. Post a new ad to offer one.',
   formReview: 'Review offer',
   formSave: 'Save changes',
-  formOffEditTitle: 'Editing a published offer is off',
-  formOffEditBody:
-    'The service can’t change an offer after it is published. You can pause or close it from My offers. What you type here is not saved or sent.',
   formIncomplete: 'Finish the form to review',
   editPickTitle: 'Pick an offer to edit',
   editPickBody: 'Open one of your offers and choose Edit.',
@@ -530,9 +527,6 @@ const es = {
   problemNonInstantEdit: 'Este anuncio se publicó sin aceptar métodos no instantáneos. Publica un anuncio nuevo para ofrecer uno.',
   formReview: 'Revisar oferta',
   formSave: 'Guardar cambios',
-  formOffEditTitle: 'La edición de una oferta publicada está desactivada',
-  formOffEditBody:
-    'El servicio no puede cambiar una oferta ya publicada. Puedes pausarla o cerrarla desde Mis ofertas. Lo que escribas aquí no se guarda ni se envía.',
   formIncomplete: 'Completa el formulario para revisar',
   editPickTitle: 'Elige una oferta para editar',
   editPickBody: 'Abre una de tus ofertas y elige Editar.',
@@ -830,9 +824,6 @@ const fr = {
     'Cette annonce a été publiée sans accepter les moyens non instantanés. Publiez une nouvelle annonce pour en proposer un.',
   formReview: 'Vérifier l’offre',
   formSave: 'Enregistrer les modifications',
-  formOffEditTitle: 'La modification d’une offre publiée est désactivée',
-  formOffEditBody:
-    'Le service ne peut pas modifier une offre une fois publiée. Vous pouvez la mettre en pause ou la fermer depuis Mes offres. Ce que vous saisissez ici n’est ni enregistré ni envoyé.',
   formIncomplete: 'Complétez le formulaire pour vérifier',
   editPickTitle: 'Choisissez une offre à modifier',
   editPickBody: 'Ouvrez l’une de vos offres et choisissez Modifier.',

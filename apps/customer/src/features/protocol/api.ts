@@ -19,8 +19,10 @@ import {
   type ProtocolRepresentationStatus,
 } from '@intafaced/contracts/protocol-representation';
 import {
+  protocolAllowancesOutputSchema,
   protocolApprovalCheckOutputSchema,
   protocolPoolQuoteOutputSchema,
+  protocolSwapFeesOutputSchema,
   protocolSwapPairsOutputSchema,
   protocolSwapSettingsOutputSchema,
   protocolTokenPricesOutputSchema,
@@ -120,6 +122,14 @@ export function createProtocolApi(api: ApiClient) {
     /** The swap call the wallet signs; the service re-reads the pool and refuses a minimum under the slippage ceiling. */
     buildSwap: (input: { pool: string; tokenIn: string; amountIn: string; minAmountOut: string; to: string }, signal?: AbortSignal) =>
       api.query('protocol', 'amm.buildSwapExactIn', input, protocolUnsignedCallSchema, { signal }),
+    /** Slow, Normal and Fast network fees from the last blocks, with the owner's fee cap; a blank setting refuses. */
+    feeLevels: (signal?: AbortSignal) => api.query('protocol', 'amm.feeLevels', undefined, protocolSwapFeesOutputSchema, { signal }),
+    /** The live allowances `owner` has given for the tokens the network's pools trade, read from the chain at one block. */
+    allowances: (owner: string, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.allowances', { owner }, protocolAllowancesOutputSchema, { signal }),
+    /** `approve(spender, 0)` for the wallet to sign and send. */
+    buildRevoke: (input: { token: string; spender: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.buildRevoke', input, protocolUnsignedCallSchema, { signal }),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
       api.query('dex', 'quote', input, dexQuoteSchema, { signal }),
