@@ -2,14 +2,15 @@ import 'server-only';
 import type { DeskRequest } from '@/lib/desk/approval-packet';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import type { FounderCallContext } from '@/lib/desk/founder-call';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { failureRefusal } from '@/lib/ops-desk/execute';
 import { finalizeKey, refusalWords } from './model';
+import { restoreTreasuryCall, restoreWritesParked } from './treasury';
 
 /**
  * The last step of a two-founder restore request: svc-ops `restore.record` (one stamp) or `restore.finalize` (one run), as the
- * founder who proposed it, with the approval a different founder signed. svc-ops spends the approval once and re-checks the joint
+ * founder who proposed it, on the treasury transport (`./treasury`), with the approval a different founder signed. svc-ops spends the approval once and re-checks the joint
  * watermark itself; this file only carries the call and reads back what it stored.
  */
 
@@ -55,12 +56,13 @@ function inRoomWords(reply: ExecuteReply): ExecuteReply {
 
 export function restoreExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request: DeskRequest, ids: { approvalId: string; operationId: string }): Promise<ExecuteReply> => {
+    if (request.kind !== 'ops.restore.record' && request.kind !== 'ops.restore.finalize')
+      return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
+    const parked = restoreWritesParked(ctx);
+    if (parked) return { ok: false, refusal: parked };
     if (request.kind === 'ops.restore.record') {
-      const result = await founderCall(
-        ctx,
-        'ops',
+      const result = await restoreTreasuryCall(
         'restore.record',
-        'POST',
         {
           service: request.service,
           kind: request.stampKind,
@@ -76,11 +78,8 @@ export function restoreExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-ops answered and holds the svc-${a.service} stamp ${a.watermark}, recorded ${a.recordedAt}.` };
     }
     if (request.kind === 'ops.restore.finalize') {
-      const result = await founderCall(
-        ctx,
-        'ops',
+      const result = await restoreTreasuryCall(
         'restore.finalize',
-        'POST',
         { restoreNo: request.restoreNo, idempotencyKey: finalizeKey(request.restoreNo), ...ids },
         readFinalizeAnswer,
       );

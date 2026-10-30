@@ -2,11 +2,12 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall } from '@/lib/desk/founder-call';
 import { RESTORE_NO, refusalWords, startKey, stepKey } from '@/lib/restore/model';
+import { restoreTreasuryCall, restoreWritesParked } from '@/lib/restore/treasury';
 
 /**
- * Restore desk writes as the signed-in founder: start a run, record a step (svc-ops `restore.*`). Stamps and finalize need a
+ * Restore desk writes for the signed-in founder: start a run, record a step (svc-ops `restore.*`, admin:treasury), on the
+ * treasury transport and only while that founder holds it (`@/lib/restore/treasury`). Stamps and finalize need a
  * second founder, so they go through `/api/restore/approvals`. The keys are business
  * keys built here from the restore number and step, so a repeated press or a retry returns the stored row. svc-ops decides the
  * order, the joint check and the second founder; this route only carries the call and says what came back. A reply that never
@@ -60,21 +61,18 @@ export async function POST(request: Request) {
   const input = parseBody(raw);
   if (!input) return answer({ ok: false, code: 'admin.request_invalid', message: 'That request was not accepted. Nothing was sent.' }, 400);
 
+  const parked = restoreWritesParked(session);
+  if (parked) return answer({ ok: false, code: parked.code, message: `${parked.title}. ${parked.body}` }, 403);
+
   const result =
     input.action === 'start'
-      ? await founderCall(
-          session,
-          'ops',
+      ? await restoreTreasuryCall(
           'restore.start',
-          'POST',
           { restoreNo: input.restoreNo, cutOff: input.cutOff, idempotencyKey: startKey(input.restoreNo) },
           accepted,
         )
-      : await founderCall(
-          session,
-          'ops',
+      : await restoreTreasuryCall(
           'restore.step',
-          'POST',
           { restoreNo: input.restoreNo, step: input.step, idempotencyKey: stepKey(input.restoreNo, input.step) },
           accepted,
         );
@@ -86,7 +84,7 @@ export async function POST(request: Request) {
         {
           ok: false,
           code: result.refusal.code,
-          message: refusalWords(result.refusal.code) ?? 'svc-ops did not accept this session for that. It needs the treasury permission.',
+          message: refusalWords(result.refusal.code) ?? 'svc-ops did not accept the treasury credential for that. It needs admin:treasury.',
         },
         403,
       );
