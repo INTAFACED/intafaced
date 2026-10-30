@@ -24,7 +24,7 @@ import {
   toRow,
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
-import { classifyExplorerTx, type ExplorerTxSource } from './explorer/tx.js';
+import { classifyExplorerTx, listTxPage, type ExplorerTxList, type ExplorerTxSource } from './explorer/tx.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -190,6 +190,8 @@ export interface IndexerRouterDeps {
   readonly explorer?: ExplorerBlocksSource;
   /** D-explorer-02 transaction read. Absent => `indexer.explorer_unwired`. */
   readonly txs?: ExplorerTxSource;
+  /** Latest transactions, newest first. Absent => `indexer.explorer_unwired`. */
+  readonly txList?: ExplorerTxList;
 }
 
 /**
@@ -283,6 +285,21 @@ const explorerBlockRowSchema = z.object({
   orphaned: z.object({ reason: z.string() }).nullable(),
 });
 
+const explorerTxListRowSchema = z.object({
+  chainId: z.number().int(),
+  hash: z.string(),
+  blockHeight: z.number().int(),
+  blockHash: z.string(),
+  index: z.number().int(),
+  from: z.string(),
+  to: z.string().nullable(),
+  /** Wei, decimal string. */
+  value: z.string(),
+  status: z.enum(['success', 'failed']),
+  timestamp: z.number().int(),
+  orphaned: z.object({ reason: z.string() }).nullable(),
+});
+
 function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
   assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
   if (!deps.explorer) {
@@ -306,7 +323,15 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               limit: z.number().int().min(1).optional(),
             }),
           )
-          .output(z.object({ rows: z.array(explorerBlockRowSchema), nextCursor: z.number().int().nullable(), asOf: z.string() }))
+          .output(
+            z.object({
+              rows: z.array(explorerBlockRowSchema),
+              nextCursor: z.number().int().nullable(),
+              /** Head minus the finality depth; null before the first block or on another network. */
+              finalizedHeight: z.number().int().nullable(),
+              asOf: z.string(),
+            }),
+          )
           .query(async ({ input }) => {
             try {
               const explorer = explorerOrRefuse(deps);
@@ -319,7 +344,8 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               const paged =
                 input.chainId === deps.chainId ? await listPage(explorer, { cursor: input.cursor, limit }) : { rows: [], nextCursor: null };
               const page = { rows: paged.rows.map(toRow), nextCursor: paged.nextCursor };
-              return { ...page, asOf: new Date().toISOString() };
+              const finalizedHeight = input.chainId === deps.chainId ? finalizedHeightOf(await store.head(), deps.finalityDepth) : null;
+              return { ...page, finalizedHeight, asOf: new Date().toISOString() };
             } catch (err) {
               throw toTrpcError(err);
             }
@@ -342,6 +368,62 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
                   : await explorer.block('hash' in input ? { hash: input.hash.toLowerCase() } : { height: input.height });
               if (!match) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
               return toRow(match);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      txs: router({
+        /** Newest first, optionally of one block; owner-bounded window; orphans kept with reason. */
+        list: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              blockHash: z
+                .string()
+                .regex(/^0x[0-9a-fA-F]{64}$/)
+                .optional(),
+              cursor: z
+                .object({
+                  height: z.number().int().min(0),
+                  index: z.number().int().min(0),
+                  hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+                })
+                .optional(),
+              limit: z.number().int().min(1).optional(),
+            }),
+          )
+          .output(
+            z.object({
+              rows: z.array(explorerTxListRowSchema),
+              nextCursor: z.object({ height: z.number().int(), index: z.number().int(), hash: z.string() }).nullable(),
+              asOf: z.string(),
+            }),
+          )
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              if (!deps.txList) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              const limit = Math.min(input.limit ?? owner.limit, owner.limit);
+              const page =
+                input.chainId === deps.chainId
+                  ? await listTxPage(deps.txList, {
+                      limit,
+                      ...(input.blockHash ? { blockHash: input.blockHash.toLowerCase() } : {}),
+                      ...(input.cursor ? { cursor: { ...input.cursor, hash: input.cursor.hash.toLowerCase() } } : {}),
+                    })
+                  : { rows: [], nextCursor: null };
+              return {
+                rows: page.rows.map(({ valueWei, ...r }) => ({ ...r, chainId: deps.chainId, value: valueWei.toString() })),
+                nextCursor: page.nextCursor,
+                asOf: new Date().toISOString(),
+              };
             } catch (err) {
               throw toTrpcError(err);
             }

@@ -151,6 +151,7 @@ export const appRouter = createIndexerRouter({
     notePending: (hash, at) => store.noteExplorerTxPending(hash, at),
     lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
+  txList: (q) => store.explorerTxList(q),
 });
 export type AppRouter = typeof appRouter;
 

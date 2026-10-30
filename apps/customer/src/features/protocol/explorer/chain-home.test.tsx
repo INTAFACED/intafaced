@@ -49,11 +49,12 @@ describe('Chain home', () => {
       status: 'failed',
       failure: { ok: false, reason: 'error', message: 'Not connected', code: 'edge.upstream_unwired' },
     };
+    answers['explorer:txs:84532:latest'] = answers['explorer:blocks:84532'];
     const html = renderToStaticMarkup(<ChainHome chain={ready84532} />);
     expect(html).toContain('No blocks listed: the indexer service is not running here');
     expect(html).toMatch(/<button[^>]*>Try again<\/button>/);
     expect(html).toContain('aria-label="Latest transactions"');
-    expect(html).toContain('The indexer has no list of recent transactions');
+    expect(html).toContain('No transactions listed: the indexer service is not running here');
     expect(html).not.toMatch(/<td[^>]*>\s*0\s*<\/td>/);
   });
   it('with an empty answer it names the network it asked about, never zero blocks', () => {
