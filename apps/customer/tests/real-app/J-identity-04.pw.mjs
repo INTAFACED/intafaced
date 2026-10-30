@@ -434,9 +434,6 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
     .click();
   await expect(names.getByTestId('security__row')).toHaveCount(2);
   const [kept] = await heldPasskeys(key);
-  const {
-    credentials: [keptCredential],
-  } = await key.cdp.send('WebAuthn.getCredentials', { authenticatorId: key.authenticatorId });
   const securityKey = names.locator('[data-testid="security__row"]', { hasText: 'Security key' });
   await expect(securityKey).toContainText('Kept for: nothing in particular');
   await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
@@ -468,7 +465,11 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   // the kept passkey, so this browser signs the account's own challenge with theirs (the device holds it) and sends it
   // where the page sends its answer: the app and identity are unmodified.
   const { passkey: challenge } = await password();
-  // Only the device that holds their passkey answers: the security key is unplugged for this attempt.
+  // Only the device that holds their passkey answers: the security key is unplugged for this attempt, with its passkey
+  // (and its sign count as it stands now) kept to plug back in.
+  const {
+    credentials: [keptCredential],
+  } = await key.cdp.send('WebAuthn.getCredentials', { authenticatorId: key.authenticatorId });
   await key.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: key.authenticatorId });
   const forged = await page.evaluate(
     async ({ options, theirsId }) => {
