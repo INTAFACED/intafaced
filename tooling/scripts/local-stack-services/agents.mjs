@@ -29,6 +29,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     SUPPORT_URL: urlOf('support'),
     TRADE_URL: urlOf('trade'),
     PAY_URL: urlOf('pay'),
+    BANK_URL: urlOf('bank'),
     // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/agents.json. Metered at TEST rates, so
     // a run charges TEST USDT through the ledger (OWNER 107). Production leaves the rates blank, and every run refuses
     // agents.price_unset before the engine.

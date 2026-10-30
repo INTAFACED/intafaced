@@ -121,6 +121,16 @@ class SessionSpendCeilingError extends Error {
   }
 }
 
+/** A team run's hold refusals (team/hold.ts), recorded as refusals like the own-agent caps. */
+const TEAM_HOLD_REFUSALS = [
+  'agents.team.allocation_exceeded',
+  'agents.team.project_limit_exceeded',
+  'agents.team.pool_exceeded',
+  'agents.team.allocation_unset',
+] as const;
+const isTeamHoldRefusal = (code: string): code is (typeof TEAM_HOLD_REFUSALS)[number] =>
+  (TEAM_HOLD_REFUSALS as readonly string[]).includes(code);
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -669,7 +679,10 @@ export class AgentRuntime {
             { kind: 'completion', task: input.task },
           );
         }
-        if (err instanceof AgentError && (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset')) {
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend.cap_exceeded' || err.code === 'agents.spend.cap_unset' || isTeamHoldRefusal(err.code))
+        ) {
           throw await this.appendRefusal(
             session,
             {

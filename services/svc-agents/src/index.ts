@@ -17,6 +17,7 @@ import { UpstreamModelProvider } from './providers/upstream.js';
 import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
+import { createHttpTeamMembershipPort } from './team/membership.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
@@ -170,6 +171,10 @@ const payMetricsPort = env.PAY_URL
   ? createHttpPayMetricsPort({ payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : undefined;
 
+const teamMembership = env.BANK_URL
+  ? createHttpTeamMembershipPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
+  : undefined;
+
 const copyLeaderFixturesPort = env.TRADE_URL
   ? createHttpCopyLeaderFixturesPort({
       tradeUrl: env.TRADE_URL,
@@ -203,6 +208,7 @@ const appRouter = createAgentsRouter({
   ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
+  ...(teamMembership ? { teamMembership } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),
   ...(env.TRADE_URL ? { navigatorTradeUrl: env.TRADE_URL } : {}),
   ...(navigatorTradeDataPort ? { navigatorTradeDataPort } : {}),
