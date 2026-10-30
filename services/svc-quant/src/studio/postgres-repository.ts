@@ -272,8 +272,8 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
     );
   }
 
-/** One page of the caller's heads: live ones for the list, deleted ones for the recycle bin. */
-async function page(input: { accountId: string; limit: number; cursor?: string | null }, deleted: 'IS NULL' | 'IS NOT NULL') {
+  /** One page of the caller's heads: live ones for the list, deleted ones for the recycle bin. */
+  async function page(input: { accountId: string; limit: number; cursor?: string | null }, deleted: 'IS NULL' | 'IS NOT NULL') {
     const cursor = input.cursor ? decodeListCursor(input.cursor) : null;
     const rows = await query<Joined>(
       sql,
