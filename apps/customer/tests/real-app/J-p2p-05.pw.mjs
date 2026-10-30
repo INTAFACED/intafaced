@@ -201,6 +201,8 @@ test('J-p2p-05 #2 the person edits price and limits, pauses an ad and relists a 
   // The buyer's passkey from #1 confirms the take; a second one would itself need confirming.
   const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
   const trade = await b.mutate('trades.take', { offerId: newId, tradeId: randomUUID(), amount: '15', method: METHOD });
+  // A passkey's counter only goes up: keep how far it went for the next step.
+  run.write({ buyerPasskey: b.passkey().saved() });
   const refused = await s.raw.mutate('offers.close', { offerId: newId });
   expect(refusalCode(refused)).toBe('p2p.offer_has_open_trades');
   expect(refused.body.error.data.p2pLimit).toMatchObject({ openTrades: '1', openTradeIds: [trade.id] });
@@ -257,6 +259,7 @@ test('J-p2p-05 #3 a private ad is off the board and reachable by its link until 
 
   // An order taken through the link is marked shared, and the order says so.
   const trade = await b.mutate('trades.take', { offerId: ad.id, tradeId: randomUUID(), amount: '15', method: METHOD, shareToken: token });
+  run.write({ buyerPasskey: b.passkey().saved() });
   expect(trade.sharedFrom).toBe(true);
   await buyerPage.goto(`/p2p/orders/${trade.id}`);
   await expect(buyerPage.getByTestId('order-shared')).toHaveText('Taken through a link the seller or buyer shared.');
