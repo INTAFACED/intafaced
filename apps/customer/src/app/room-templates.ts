@@ -236,6 +236,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/agents/:agentId': { template: 'catalogue' },
   '/quant': { template: 'desk' },
   '/quant/sandbox': { template: 'desk' },
+  '/quant/strategies': { template: 'record-list' },
   '/quant/studio': { template: 'desk' },
   '/quant/backtest': { template: 'desk' },
   '/launch': { template: 'catalogue' },

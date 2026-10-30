@@ -871,6 +871,7 @@ export const rooms: readonly Room[] = [
       ['agents', 'Agents', 'Your agent fleet'],
       ['quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
+      ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['launch', 'Launch', 'Issue and list an asset'],
