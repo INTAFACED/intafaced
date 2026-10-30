@@ -154,6 +154,17 @@ test(`${J} #1 opens Payments on an account with none: how the first payment appe
   expect(refused).toEqual([]);
 });
 
+// The row's own words for the empty room are "No payments yet". The Payments room titles its empty state "Your first
+// payment starts here" (payments/Payments.tsx, copy key noPayments); "No payments yet" is only the dashboard's
+// insights explanation (dashEmptyTitle). So this clause stays red until the room says the row's words.
+test(`${J} #1 the empty Payments room says "No payments yet"`, async ({ page }) => {
+  test.setTimeout(120_000);
+  await signInOwner(page, journey(), '/pay/payments');
+  await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible({ timeout: 5_000 });
+});
+
 test(`${J} #2 opens the list: totals with their period, filters the service applies, load more, export, a phone layout; a merchant reference finds only its payment`, async ({
   page,
 }) => {
