@@ -305,7 +305,7 @@ function CertificateXp({ certId }: { certId: string }) {
       <span data-testid="certificate-xp-text">
         {xp.kind === 'none' ? t('certXpNone') : t(xp.kind === 'worth' ? 'certXpWorth' : 'certXpOff', { xp: xp.xp })}
       </span>{' '}
-      <a className="academy-learning-link" href="/account">
+      <a className="academy-learning-link" href="/uc/account">
         {t('seeRank')}
       </a>
     </p>
