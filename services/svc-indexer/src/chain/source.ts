@@ -125,6 +125,28 @@ export interface ChainBlock {
    * Absent when the source does not read them; a contract already read earlier is not repeated.
    */
   readonly tokens?: readonly ChainToken[];
+  /**
+   * D-explorer-03. Value the block's contracts moved inside its transactions, from the node's own trace. Absent when the
+   * source does not trace; `read: false` when the node would not trace this block, with the code saying why.
+   */
+  readonly internal?: ChainBlockInternal;
+}
+
+export type ChainBlockInternal =
+  { readonly read: true; readonly calls: readonly ChainInternalCall[] } | { readonly read: false; readonly reason: string };
+
+/**
+ * One value move a contract made inside a transaction: a call carrying value, a contract it created with value, or a
+ * self-destruct sending its balance. `path` is the call's place in the trace tree (`0.2` is the third call of the first
+ * one). Only moves that stood count: a reverted call and everything under it moved nothing.
+ */
+export interface ChainInternalCall {
+  readonly txHash: string;
+  readonly path: string;
+  readonly kind: 'call' | 'create' | 'selfdestruct';
+  readonly from: string;
+  readonly to: string;
+  readonly valueWei: bigint;
 }
 
 /** A token contract's own answers. Null is "it did not answer that call" (no such function, a revert), never a guess. */
@@ -318,6 +340,34 @@ export function assertValidBlock(block: ChainBlock): void {
   }
 
   if (block.transactions) assertChainTxs(block.transactions, block.height);
+  if (block.internal) assertInternal(block.internal, block.transactions ?? [], block.height);
+}
+
+const PATH_RE = /^(?:0|[1-9]\d{0,5})(?:\.(?:0|[1-9]\d{0,5}))*$/;
+
+function assertInternal(internal: ChainBlockInternal, transactions: readonly ChainTx[], height: number): void {
+  if (!internal.read) {
+    if (typeof internal.reason !== 'string' || !/^indexer\.[a-z_]+$/.test(internal.reason)) {
+      throw new ChainDataError(`block ${height} trace refusal must carry a code`, 'indexer.bad_trace');
+    }
+    return;
+  }
+  const hashes = new Set(transactions.map((tx) => tx.hash));
+  const keys = new Set<string>();
+  for (const call of internal.calls) {
+    if (!hashes.has(call.txHash))
+      throw new ChainDataError(`internal call names tx ${call.txHash} not in block ${height}`, 'indexer.bad_trace');
+    if (!PATH_RE.test(call.path)) throw new ChainDataError(`internal call path "${call.path}" is not a trace path`, 'indexer.bad_trace');
+    const key = `${call.txHash}:${call.path}`;
+    if (keys.has(key)) throw new ChainDataError(`duplicate internal call ${key} in block ${height}`, 'indexer.bad_trace');
+    keys.add(key);
+    if (call.kind !== 'call' && call.kind !== 'create' && call.kind !== 'selfdestruct') {
+      throw new ChainDataError(`internal call kind ${String(call.kind)}`, 'indexer.bad_trace');
+    }
+    assertAddress(call.from, 'internal call from');
+    assertAddress(call.to, 'internal call to');
+    assertNonNegativeWei(call.valueWei, 'internal call value');
+  }
 }
 
 const HEX_DATA = /^0x(?:[0-9a-fA-F]{2})*$/;

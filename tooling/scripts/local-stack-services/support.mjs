@@ -33,5 +33,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
     SUPPORT_CUSTOMER_SEES: 'priority,type',
+    // LOCAL TEST only, labelled in the same file: an in-memory file store and a scanner that blocks only the EICAR test
+    // string, so a customer can attach a file in the running app (J-support-public-04 #3, #4). svc-support refuses both
+    // unless APP_ENV is exactly dev or test; production stays blank and every attach refuses naming the missing piece.
+    SUPPORT_ATTACHMENT_STORE: 'local-test-memory',
+    SUPPORT_MALWARE_SCANNER: 'local-test-eicar',
   }),
 });

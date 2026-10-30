@@ -50,6 +50,16 @@
       "service": "quant",
       "value": "90",
       "note": "TEST stop-out close under the margin call, so a short TEST tape shows both events in order."
+    },
+    "QUANT_SHARE_RATE": {
+      "service": "quant",
+      "value": "30",
+      "note": "TEST public reads of one share link allowed in one window, so a journey can open a shared result a few times."
+    },
+    "QUANT_SHARE_WINDOW_SEC": {
+      "service": "quant",
+      "value": "60",
+      "note": "TEST window for the share read limit, in seconds."
     }
   }
 }

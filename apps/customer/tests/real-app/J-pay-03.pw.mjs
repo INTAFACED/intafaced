@@ -9,7 +9,6 @@ import { scanQr } from './qr-read.mjs';
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4's camera-denied clause: Scan to pay has no image upload yet (PP-send-request-11).
 // - #5, #6: no stranger rule and no receive-by email or phone (PP-money-balance-05).
 // A refusal is matched by the typed code identity sent the page (`answer`), and after it the record and balances are
 // read again unchanged.
@@ -301,18 +300,16 @@ test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a
   expect(await record(me)).toEqual(mine);
   expect(await balances(me, stranger)).toEqual(held);
 
-  // With the camera denied, an image of the QR code opens Send on the payee. UNBUILT: Scan to pay has no image upload.
+  // With the camera denied, Scan to pay refuses the camera by name, and an image of the QR code opens Send on the payee.
   await page.addInitScript(() => {
     navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
   });
   await page.goto('/pay/scan');
+  await page.getByRole('button', { name: 'Scan with the camera' }).click();
+  await expect(page.locator('[data-kind="refused"]')).toContainText('scan.camera_denied');
+  await expect(page.locator('video')).toHaveCount(0);
   const uploaded = await answer(page, 'qr.resolve', () =>
-    page
-      .getByLabel('Choose an image of a QR code')
-      .setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }, UNBUILT)
-      .catch((err) => {
-        throw new Error(`with the camera denied an image upload works (unbuilt: PP-send-request-11): ${err.message}`);
-      }),
+    page.getByLabel('Choose an image of a QR code').setInputFiles({ name: 'pay-qr.png', mimeType: 'image/png', buffer: picture }),
   );
   expect(uploaded).toEqual({ status: 200, data: { userId: mine.userId, handle: mine.handle, self: false }, code: undefined });
   await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(mine.handle);

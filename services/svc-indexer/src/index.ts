@@ -157,6 +157,29 @@ export const appRouter = createIndexerRouter({
     txs: (q) => store.explorerAddressTxs(q),
     tokensBySymbol: (q) => store.explorerTokensBySymbol(q),
   },
+  // Live balances need a node: with no chain wired the address page refuses as unwired rather than read a zero.
+  ...(evmSource
+    ? {
+        addressPage: {
+          reads: {
+            internal: (q) => store.explorerAddressInternal(q),
+            traceGaps: () => store.explorerTraceGaps(),
+            tokens: (q) => store.explorerAddressTokens(q),
+            blockBefore: (time) => store.explorerBlockBefore(time),
+            blockAt: async (height) => {
+              const block = await store.blockAt(height);
+              return block ? { height: block.height, timestamp: Math.floor(block.blockTime.getTime() / 1000) } : null;
+            },
+            earliestHeight: () => store.earliestHeight(),
+          },
+          state: {
+            account: (address, height) => evmSource.readAccountAt(address, height),
+            balance: (address, height) => evmSource.readBalanceAt(address, height),
+            tokenBalances: (tokens, address, height) => evmSource.readTokenBalancesAt(tokens, address, height),
+          },
+        },
+      }
+    : {}),
 });
 export type AppRouter = typeof appRouter;
 

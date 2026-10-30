@@ -50,6 +50,12 @@ export async function mock(page, overrides = {}, options = {}) {
     return fulfill(route, served[name], request);
   });
 
+  // The lot book (svc-tax) for "Your position", and the asset registry (svc-bank) for the networks row: the TEST
+  // holding's 0.25 BTC cost 15,000.00 in all; BTC moves on one network.
+  const trpc = (json) => ({ status: 200, json: { result: { data: json } } });
+  await page.route('**/api/tax/trpc/lotBook**', (route) => route.fulfill(trpc(overrides.lotBook ?? lotBook)));
+  await page.route('**/api/bank/trpc/assets.list**', (route) => route.fulfill(trpc(overrides.assets ?? supportedAssets)));
+
   return {
     ...base,
     world,
@@ -68,3 +74,32 @@ export async function mock(page, overrides = {}, options = {}) {
     },
   };
 }
+
+export const lotBook = {
+  method: 'FIFO',
+  preview: false,
+  choices: { status: 'unwired', code: 'tax.basis_store_unwired' },
+  indicator: 'indicator_not_tax_advice',
+  assets: [{ assetId: 'BTC', openQty: '0.25', openCostUsd: '15000', held: '0.25', uncountedQty: '0' }],
+  sales: [],
+  lots: [],
+  realizedUsd: '0',
+  includeTransfers: true,
+  feesUsd: '0',
+  termRule: { status: 'unset', code: 'tax.term_rule_unset' },
+  residuals: [],
+};
+
+export const supportedAssets = {
+  assets: [
+    {
+      assetId: 'BTC',
+      kind: 'crypto',
+      precision: 8,
+      networks: [{ networkId: 'bitcoin', label: 'Bitcoin' }],
+      defaultNetworkId: 'bitcoin',
+      allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'],
+      state: 'active',
+    },
+  ],
+};
