@@ -124,6 +124,8 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.voucher_amount_invalid': 'BAD_REQUEST',
   'campaigns.voucher_exceeds_remaining': 'CONFLICT',
   'campaigns.voucher_sequence_invalid': 'CONFLICT',
+  'campaigns.attempt_limit_unset': 'PRECONDITION_FAILED',
+  'campaigns.attempt_limit_reached': 'TOO_MANY_REQUESTS',
   'campaigns.welcome_none': 'NOT_FOUND',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
@@ -145,6 +147,12 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'audit.external': 'PRECONDITION_FAILED',
   'chain.go': 'PRECONDITION_FAILED',
 };
+
+/**
+ * The caller's address as the edge resolved it and forwarded it (`x-real-ip`, set by svc-edge from the connection, never
+ * from a client header); null when the call did not come through the edge.
+ */
+const sourceOf = (ctx: object): string | null => (ctx as { sourceAddress?: string | null }).sourceAddress ?? null;
 
 /** The code leads in brackets and rides `cause.code`, so the screens quote it. */
 function mapError(err: unknown): never {
@@ -309,7 +317,7 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(voucherValidationSchema)
         .query(async ({ ctx, input }) => {
           try {
-            return await vouchers.validate({ code: input.code, accountId: ctx.principal!.userId });
+            return await vouchers.validate({ code: input.code, accountId: ctx.principal!.userId, source: sourceOf(ctx) });
           } catch (err) {
             mapError(err);
           }
@@ -320,7 +328,7 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(myVoucherSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            return await vouchers.claim({ code: input.code, accountId: ctx.principal!.userId });
+            return await vouchers.claim({ code: input.code, accountId: ctx.principal!.userId, source: sourceOf(ctx) });
           } catch (err) {
             mapError(err);
           }

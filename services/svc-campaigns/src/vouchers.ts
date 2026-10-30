@@ -15,12 +15,15 @@ import { CampaignsError } from './codes.js';
 import { ELIGIBILITY_REFUSAL, effectiveState, type CampaignService } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
-import { drawnOf, rewardKeyOf } from './tasks.js';
+import { drawnOf } from './tasks.js';
 
 /**
  * A customer's vouchers (J-campaigns-08, CM-vouchers-coupons-01): check a code, claim it for the caller's own account,
  * redeem part or all of what is left, and let it expire.
  *
+ * - Every check and claim counts against the owner's attempt limits, per account and per source address over the owner's
+ *   window (VC-3). Any blank refuses `campaigns.attempt_limit_unset`; over a limit, `campaigns.attempt_limit_reached`.
+ *   The attempt is counted before the code is looked at, so a refused guess counts like any other.
  * - One answer for any code the caller may not claim: no such code, already claimed (by anyone, the caller included),
  *   past its claim-by, or its campaign not live all refuse `campaigns.voucher_invalid` with the same words, so a guess
  *   learns nothing about whether a code exists or who holds it (ENGINE EL-6). Only the caller's own eligibility under
@@ -29,8 +32,8 @@ import { drawnOf, rewardKeyOf } from './tasks.js';
  *   refusal. Checking a code changes nothing.
  * - The face value is a limit, not a balance, and what a voucher used is never stored: it is the sum of its redemption
  *   intents that hold or spent value (not failed, forfeited or withheld), as a campaign's budget is. The n-th
- *   redemption is a reward intent under `task:<campaign>:<account>:voucher:<voucher>:<n>` (the ledger key is `reward:`
- *   and that), written under a lock on the voucher once that sum and the campaign's budget leave room for it, and then
+ *   redemption is a reward intent under `voucher:<voucher>:<account>:<n>` (the spec's key with the use number after
+ *   it; the ledger key is `reward:` and that), written under a lock on the voucher once that sum and the campaign's budget leave room for it, and then
  *   paid by the reward saga (`rewardPay`) like any reward. The same redemption again returns the first; a voucher never
  *   pays more than its face value (`campaigns.voucher_exceeds_remaining`). Its state (claimed, partly used, used) is
  *   read from the same sum.
@@ -78,6 +81,12 @@ const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 const decimalOf = (raw: string) => formatAmount(parseAmount(raw));
 const periodOf = (voucherId: string, sequence: number) => `voucher:${voucherId}:${sequence}`;
 const periodPrefix = (voucherId: string) => `voucher:${voucherId}:`;
+/** The n-th redemption's business key (CM-vouchers-coupons-01); the ledger key is `reward:` and this. */
+export const voucherRewardKeyOf = (voucherId: string, accountId: string, sequence: number) =>
+  `voucher:${voucherId}:${accountId}:${sequence}`;
+
+/** Owner limits on code checks and claims (CM-eligibility-rules-04); null while any of them is blank. */
+export type AttemptLimits = { perAccount: number; perAddress: number; windowSeconds: number };
 
 /** What a voucher used: its redemption intents that hold or spent value, as the campaign budget counts them. */
 const USED = (sql: Sql) => sql`
@@ -100,6 +109,8 @@ export interface VoucherServiceOptions {
   campaigns: Pick<CampaignService, 'eligibility'>;
   /** Null while the ledger is not connected: every redemption refuses `campaigns.reward_saga_unwired`. */
   saga: PayoutSaga | null;
+  /** The owner's attempt limits, read per call; null refuses every check and claim `campaigns.attempt_limit_unset`. */
+  attemptLimits: () => AttemptLimits | null;
   now?: () => Date;
 }
 
@@ -108,6 +119,7 @@ export class VoucherService {
   private readonly participants: ParticipantSource;
   private readonly campaigns: Pick<CampaignService, 'eligibility'>;
   private readonly saga: PayoutSaga | null;
+  private readonly attemptLimits: () => AttemptLimits | null;
   private readonly now: () => Date;
 
   constructor(options: VoucherServiceOptions) {
@@ -115,11 +127,13 @@ export class VoucherService {
     this.participants = options.participants;
     this.campaigns = options.campaigns;
     this.saga = options.saga;
+    this.attemptLimits = options.attemptLimits;
     this.now = options.now ?? (() => new Date());
   }
 
   /** What a code would give the caller, once every claim check passes. Nothing is written. */
-  async validate(input: { code: string; accountId: string }): Promise<VoucherValidation> {
+  async validate(input: { code: string; accountId: string; source: string | null }): Promise<VoucherValidation> {
+    await this.attempt(input.accountId, input.source);
     const v = await this.claimable(input.code, input.accountId);
     return {
       claimable: true,
@@ -131,7 +145,8 @@ export class VoucherService {
   }
 
   /** Claims a code for the caller's own account. Of two claims at once, one wins; the other is the generic refusal. */
-  async claim(input: { code: string; accountId: string }): Promise<MyVoucher> {
+  async claim(input: { code: string; accountId: string; source: string | null }): Promise<MyVoucher> {
+    await this.attempt(input.accountId, input.source);
     const v = await this.claimable(input.code, input.accountId);
     const now = this.now();
     const claimed = await transaction(this.sql, async (tx) => {
@@ -169,9 +184,8 @@ export class VoucherService {
     // Identity is read before any write, and nothing it answers is stored.
     const who = await this.participants.read(input.accountId);
     if (!who) throw new CampaignsError('campaigns.participant_unread', 'Your account could not be checked for this redemption');
-    if (who.status !== 'active') {
-      throw new CampaignsError('campaigns.not_eligible', 'Your account is not active, so a voucher cannot be redeemed');
-    }
+    // An account that is not active gets its redemption withheld before any ledger call (svc-identity owns the freeze).
+    const withheld = who.status !== 'active' ? `account.${who.status}` : null;
     const [rules] = await this.sql<{ participation: ParticipationRules | null }[]>`
       SELECT c.participation FROM campaigns.vouchers v JOIN campaigns.campaigns c ON c.id = v.campaign_id
       WHERE v.id = ${input.voucherId} AND v.claimed_by = ${input.accountId}`;
@@ -185,14 +199,14 @@ export class VoucherService {
       const [usage] = await tx<{ used_amount: string }[]>`
         SELECT ${USED(tx)} AS used_amount FROM campaigns.vouchers v WHERE v.id = ${v.id}`;
       v.used_amount = usage!.used_amount;
-      const key = rewardKeyOf(v.campaign_id, input.accountId, period);
+      const key = voucherRewardKeyOf(v.id, input.accountId, input.sequence);
       const [first] = await tx<{ amount: string }[]>`
         SELECT amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${key}`;
       if (first) {
         if (parseAmount(first.amount) !== units) {
           throw new CampaignsError('campaigns.voucher_sequence_invalid', `Redemption ${input.sequence} of this voucher was another amount`);
         }
-        return { key, created: false };
+        return { key, created: false, withheld: false };
       }
       if (v.state === 'expired' || !v.use_by || v.use_by <= this.now()) {
         throw new CampaignsError('campaigns.voucher_expired', 'This voucher’s use-by has passed');
@@ -229,24 +243,30 @@ export class VoucherService {
         throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the voucher are in different assets');
       }
       // The budget, as a task reward reads it: the limit less every intent that holds or spent part of it.
-      if ((await drawnOf(tx, v.campaign_id)) + units > parseAmount(campaign!.budget_limit)) {
+      if (!withheld && (await drawnOf(tx, v.campaign_id)) + units > parseAmount(campaign!.budget_limit)) {
         throw new CampaignsError('campaigns.budget_exhausted', 'This campaign’s budget has no room for this redemption');
       }
       const amount = formatAmount(units);
       await tx`
         INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason, form)
-        VALUES (${key}, ${v.campaign_id}, ${input.accountId}, ${period}, ${v.face_asset}, ${amount}, 'qualified', NULL, 'paid')`;
-      await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, 'qualified', NULL)`;
+        VALUES (${key}, ${v.campaign_id}, ${input.accountId}, ${period}, ${v.face_asset}, ${amount},
+          ${withheld ? 'withheld' : 'qualified'}, ${withheld}, 'paid')`;
       await tx`
-        UPDATE campaigns.vouchers SET state = ${units === left ? 'used' : 'partially_used'}, updated_at = now()
-        WHERE id = ${v.id}`;
+        INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+        VALUES (${key}, ${withheld ? 'withheld' : 'qualified'}, ${withheld})`;
+      // A withheld redemption uses nothing of the voucher: it is not in the sum.
+      if (!withheld) {
+        await tx`
+          UPDATE campaigns.vouchers SET state = ${units === left ? 'used' : 'partially_used'}, updated_at = now()
+          WHERE id = ${v.id}`;
+      }
       await tx`
         INSERT INTO campaigns.audit_log (actor, action, target, detail)
         VALUES (${input.accountId}, 'campaign.voucher.redeem', ${v.campaign_id},
           ${tx.json({ voucher: v.id, rewardKey: key, sequence: input.sequence, amount })})`;
-      return { key, created: true };
+      return { key, created: true, withheld: withheld !== null };
     });
-    if (outcome.created) await this.saga.attempt(outcome.key);
+    if (outcome.created && !outcome.withheld) await this.saga.attempt(outcome.key);
     const voucher = (await this.own(input.voucherId, input.accountId))!;
     const redemption = voucher.redemptions.find((r) => r.sequence === input.sequence)!;
     return { redemption, voucher, created: outcome.created };
@@ -288,6 +308,31 @@ export class VoucherService {
           VALUES ('svc-campaigns', 'campaign.voucher.expire', ${g.campaign_id}, ${tx.json({ voucher: g.id, account: g.claimed_by })})`;
       }
       return gone.length;
+    });
+  }
+
+  /**
+   * Counts one check or claim against the owner's limits, per account and per source address in the window, under a lock
+   * on the account so two at once never both take the last one. No address (a call that did not come through the edge)
+   * counts against the account limit only.
+   */
+  private async attempt(accountId: string, source: string | null): Promise<void> {
+    const limits = this.attemptLimits();
+    if (!limits) {
+      throw new CampaignsError('campaigns.attempt_limit_unset', 'Voucher code checks are closed: the attempt limit is not set');
+    }
+    const since = new Date(this.now().getTime() - limits.windowSeconds * 1000);
+    await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:attempts:${accountId}`}))`;
+      if (source) await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:attempts:source:${source}`}))`;
+      const [counts] = await tx<{ account: number; address: number }[]>`
+        SELECT
+          (SELECT count(*)::int FROM campaigns.voucher_attempts WHERE account_id = ${accountId} AND at > ${since}) AS account,
+          (SELECT count(*)::int FROM campaigns.voucher_attempts WHERE source = ${source} AND at > ${since}) AS address`;
+      if (counts!.account >= limits.perAccount || (source !== null && counts!.address >= limits.perAddress)) {
+        throw new CampaignsError('campaigns.attempt_limit_reached', 'Too many voucher code checks; try again later');
+      }
+      await tx`INSERT INTO campaigns.voucher_attempts (account_id, source, at) VALUES (${accountId}, ${source}, ${this.now()})`;
     });
   }
 

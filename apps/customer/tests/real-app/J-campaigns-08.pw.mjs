@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { api, journeyState, signOutBrowser } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
 
 // J-campaigns-08, in the running app (docs/roadmap/journeys.json): claim a voucher and use it. One test per step, titled
 // "J-campaigns-08 #<n>", run in order. The voucher campaign is this run's TEST campaign, made by the stack's two LOCAL TEST
 // founders through svc-campaigns' operator doors (A creates and asks, B approves, A activates), and its vouchers are
 // issued by founder A under codes made for this run. A cash voucher pays TEST USDT from the one reward pot, which the
 // founders fund from trade fees the platform earned. A redemption is a reward intent under
-// `task:<campaign>:<account>:voucher:<voucher>:<n>`, paid by the reward saga like any reward.
+// `voucher:<voucher>:<account>:<n>`, paid by the reward saga like any reward. Code checks and claims count against the
+// stack's labelled TEST attempt limits (tooling/profiles/test-owner-values/campaigns.json).
 const J = 'J-campaigns-08';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
@@ -70,6 +71,51 @@ async function issue(campaignId, code) {
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   return data(await ctx.edge.mutate('campaigns', 'ops.campaigns.vouchers.issue', { campaignId, code }, a), 'vouchers.issue');
+}
+
+/** A TEST fee schedule through svc-trade's two-person door, waiting until the public read serves it. */
+async function feeSchedule(schedule, reason) {
+  const { ctx, pair: sessions } = await operators();
+  const row = await gates.setFeeSchedule(ctx, schedule, { reason: `LOCAL TEST ${J}: ${reason}`, sessions });
+  await expect
+    .poll(async () => (await (await fetch('http://127.0.0.1:14500/api/v1/fees/published')).json()).version, { timeout: 30_000 })
+    .toBe(`v${row.version}`);
+}
+
+/**
+ * Trade fees the platform really earned, for the pot: the stack boots with a zero fee schedule, so a TEST schedule charges
+ * 0.10% on a taker, a TEST trader sells TEST BTC into the market maker's book on BTC/USDT (the fee is in USDT), and a zero
+ * schedule is written back so later journeys trade as the stack boots.
+ */
+async function earnTradeFees(page) {
+  const rows = (zeroFee) => [
+    { pairGroup: 'all-others', tierId: 'regular', zeroFee, makerBps: '0', takerBps: zeroFee ? '0' : '10', minFee: null },
+  ];
+  const base = { defaultPairGroup: 'all-others', pairGroups: {}, perpetual: { makerBps: '0', takerBps: '0' } };
+  await feeSchedule({ ...base, rows: rows(false) }, 'taker 0.10% so a TEST trade earns the fees the reward pot is funded from');
+  try {
+    const trader = await signUp(page, 'jc08fee');
+    await page.goto('/verification');
+    await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+    await page.getByLabel('Country code').fill('DE');
+    await page.getByRole('button', { name: 'Review request' }).click();
+    await page.getByRole('button', { name: 'Submit this request' }).click();
+    await expect(page.getByText('Your reviewed request')).toBeVisible();
+    tool('local-test-gates.mjs', 'verify');
+    expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
+    const res = await (
+      await api(trader)
+    ).post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'market',
+      side: 'sell',
+      amount: '0.001',
+      clientOrderId: `${J}-fee-${tag}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  } finally {
+    await feeSchedule({ ...base, rows: rows(true) }, 'back to no fee, as the stack boots');
+  }
 }
 
 /** Founder A asks to sweep earned trade fees into the reward pot; founder B approves, which posts it. */
@@ -199,6 +245,7 @@ test(`${J} #4 validates the code: nothing changes, and I see what it would give`
 test(`${J} #5 redeems the voucher, pressing twice: one redemption, my account credited once`, async ({ browser }) => {
   test.setTimeout(180_000);
   const { me, voucherId } = state('me', 'voucherId');
+  await earnTradeFees(await (await browser.newContext()).newPage());
   await fundPot(`TEST-${J}-${tag}`, FACE);
   const client = await api(me);
   const [one, two] = await Promise.all([
@@ -214,7 +261,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, my account cr
     .toEqual(['posted']);
   const [v] = (await walletOf(me)).filter((x) => x.id === voucherId);
   expect(v.redemptions).toHaveLength(1);
-  expect(v.redemptions[0].reward.rewardKey).toBe(`task:${state('campaignId').campaignId}:${client.userId}:voucher:${voucherId}:1`);
+  expect(v.redemptions[0].reward.rewardKey).toBe(`voucher:${voucherId}:${client.userId}:1`);
   // My rewards shows the credit once, posted with its transaction.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);

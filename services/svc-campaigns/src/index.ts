@@ -65,7 +65,15 @@ const tasks = new TaskService({
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
 
-const vouchers = new VoucherService({ sql, participants, campaigns, saga });
+const attemptLimits =
+  env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT && env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS && env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
+    ? {
+        perAccount: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT,
+        perAddress: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS,
+        windowSeconds: env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS,
+      }
+    : null;
+const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
 
 const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
@@ -84,6 +92,7 @@ app.get('/ready', async (_req, reply) => {
       tgeSchedule: tgeSchedule ? 'set' : 'launch.schedule_unset',
       timeZone: timeZone ?? 'campaigns.timezone_unset',
       ruleLimits: ruleLimits.depth && ruleLimits.size ? 'set' : 'campaigns.rule_limits_unset',
+      voucherAttempts: attemptLimits ? 'set' : 'campaigns.attempt_limit_unset',
       ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
       reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
       bus: bus ? 'attached' : 'unreachable',
@@ -97,7 +106,11 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    // The voucher attempt limit counts per source address: the one svc-edge resolved and forwarded as x-real-ip.
+    createContext: ({ req }) => {
+      const forwarded = req.headers['x-real-ip'];
+      return { ...edgeContext(req), sourceAddress: (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.trim() || null };
+    },
   } satisfies FastifyTRPCPluginOptions<CampaignsRouter>['trpcOptions'],
 });
 

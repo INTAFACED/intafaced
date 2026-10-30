@@ -75,6 +75,8 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.voucher_amount_invalid',
   'campaigns.voucher_exceeds_remaining',
   'campaigns.voucher_sequence_invalid',
+  'campaigns.attempt_limit_unset',
+  'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
   'owner.decision',
@@ -617,7 +619,8 @@ export const voucherListInputSchema = z.object({ campaignId: id }).strict();
 
 /**
  * The customer's voucher doors (J-campaigns-08). A code is only ever checked or claimed by the caller for their own
- * account. Anything about a code the caller may not claim (no such code, claimed by anyone, past its claim-by, or its
+ * account. Every check and claim counts against the owner's attempt limits per account and per source address over the
+ * owner's window (blank refuses `campaigns.attempt_limit_unset`; over a limit, `campaigns.attempt_limit_reached`). Anything about a code the caller may not claim (no such code, claimed by anyone, past its claim-by, or its
  * campaign not live) is one generic refusal, `campaigns.voucher_invalid`, so a guess learns nothing about other people.
  */
 export const voucherCodeInputSchema = z.object({ code: voucherCode }).strict();
@@ -633,8 +636,9 @@ export const voucherValidationSchema = z.object({
 export type VoucherValidation = z.infer<typeof voucherValidationSchema>;
 
 /**
- * One redemption of a voucher: the n-th use, under the business key `task:<campaign>:<account>:voucher:<voucher>:<n>`,
- * paid by the reward saga like any reward (its record is in My rewards too).
+ * One redemption of a voucher: the n-th use, under the business key `voucher:<voucher>:<account>:<n>` (ledger key
+ * `reward:` and that), paid by the reward saga like any reward (its record is in My rewards too). An account that is not
+ * active gets its redemption `withheld` before any ledger call.
  */
 export const voucherRedemptionSchema = z.object({
   sequence: z.number().int().positive(),

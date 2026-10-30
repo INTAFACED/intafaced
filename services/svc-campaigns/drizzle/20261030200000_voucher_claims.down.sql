@@ -6,6 +6,10 @@ BEGIN
     RAISE EXCEPTION 'campaigns: a voucher is claimed; voucher claims are never dropped by reversing this migration';
   END IF;
 END $$;
+DROP TABLE IF EXISTS campaigns.voucher_attempts;
+ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_key_ck;
+ALTER TABLE campaigns.reward_intents ADD CONSTRAINT reward_intents_key_ck CHECK (
+  reward_key = 'task:' || campaign_id || ':' || account_id || ':' || period);
 DROP INDEX IF EXISTS campaigns.vouchers_use_by_idx;
 DROP INDEX IF EXISTS campaigns.vouchers_owner_idx;
 DROP INDEX IF EXISTS campaigns.vouchers_code_idx;

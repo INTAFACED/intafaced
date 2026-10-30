@@ -43,6 +43,10 @@ import {
  * funding again under the same key. Blank: no reconciler runs, open intents wait, and /ready says
  * `campaigns.reconcile_unset`. CAMPAIGNS_ROLLBACK_WINDOW_SECONDS (owner value) is the rollback window every reward record
  * shows; blank reads "not set". A value-moving rollback needs a reversing recipe that does not exist, so none is offered.
+ *
+ * CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT, CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS and CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
+ * (owner values, CM-eligibility-rules-04): how many voucher code checks and claims one account, and one source address,
+ * may make in the window. Any blank: every check and claim refuses `campaigns.attempt_limit_unset`. NO DEFAULT.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -69,6 +73,9 @@ const schema = baseEnvSchema
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
       CAMPAIGNS_RECONCILE_AFTER_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
       CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
+      CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
+      CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
+      CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
     }),
   );
 
