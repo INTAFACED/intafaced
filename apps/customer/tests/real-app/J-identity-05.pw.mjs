@@ -569,7 +569,7 @@ test.describe('recovery keys', () => {
     ];
     // Every door is on the list exactly once: the list matches the procedures the two recovery routers declare.
     for (const [service, file] of RECOVERY_ROUTERS) {
-      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(/scopedProcedure\(/g) ?? []).length;
+      const declared = (readFileSync(path.join(ROOT, file), 'utf8').match(/^\s+\w+:\s*\w*[pP]rocedure\b/gm) ?? []).length;
       const listed = RECOVERY_DOORS.filter(([s]) => s === service).map(([, , procedure]) => procedure);
       expect(new Set(listed).size, `${service}: each recovery door once`).toBe(listed.length);
       expect(listed.length, `${service}: the list holds every door ${file} declares`).toBe(declared);
@@ -620,8 +620,8 @@ test.describe('recovery keys', () => {
     expect(heirLedgerAfter.USDT ?? 0n).toBe((heirLedgerBefore.USDT ?? 0n) + toUnits('125'));
     expect(heirLedgerAfter.BTC ?? 0n).toBe((heirLedgerBefore.BTC ?? 0n) + toUnits('0.02'));
     const ownerAfter = await ledgerFree(ownerId);
-    expect(ownerAfter.USDT ?? 0n, "owner's free USDT").toBe(0n);
-    expect(ownerAfter.BTC ?? 0n, "owner's free BTC").toBe(0n);
+    expect(ownerAfter, "the owner's USDT account is still read").toHaveProperty('USDT');
+    expect(ownerAfter, "the owner's BTC account is still read").toHaveProperty('BTC');
     for (const [asset, units] of Object.entries(ownerAfter)) expect(units, `owner's free ${asset}`).toBe(0n);
     // Claiming again moves nothing twice.
     await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
