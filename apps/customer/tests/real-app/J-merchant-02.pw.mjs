@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import {
@@ -8,6 +7,7 @@ import {
   refusedPayCalls,
   sentForReview,
   signInWithCode,
+  uuidOf,
   verifiedBusiness,
 } from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
@@ -641,8 +641,21 @@ test(`${J} #6 reads the verification history and the activation state: append-on
         at: li.querySelector('time')?.getAttribute('datetime') ?? '',
       })),
     );
-  const noClearance = async () =>
-    expect(page.locator('main')).not.toContainText(/screening (passed|cleared|complete)|(passed|cleared) screening/i);
+  // No words that read as a screening clearance anywhere in the room (a facts row's label and value join with no space,
+  // so the pattern allows none), and none in any history entry.
+  const noClearance = async () => {
+    await expect(page.locator('main')).not.toContainText(/screening\s*(passed|cleared|complete|clear)|(passed|cleared)\s*screening/i);
+    for (const entry of await entries()) expect(entry.title).not.toMatch(/screen|clear|sanction/i);
+  };
+  // Once there is a verification record, it says outright that it is not a screening result, and its Screening row says
+  // the results are not shown.
+  const screeningDisclaimed = async () => {
+    const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record' }) });
+    await expect(record.locator('dt', { hasText: /^Screening$/ }).locator('xpath=following-sibling::dd[1]')).toHaveText(
+      'Handled by INTAFACED. Results are not shown here.',
+    );
+    await expect(page.getByText('Verification is not a screening result.', { exact: false })).toBeVisible();
+  };
   const NO_RECORD = 'INTAFACED has no recorded activation decision for this business.';
   const UNCONFIRMED = { activation: 'unconfirmed', status: 'active', activatedAt: null, reason: 'no_activation_record' };
 
@@ -672,7 +685,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
     const res = await replied;
     expect(res.status()).toBe(200);
     const body = await res.json();
-    const shown = (Array.isArray(body) ? body[0] : body).result.data;
+    const shown = body.result.data;
     ownerToken = res.request().headers().authorization;
     expect(await askActivation()).toEqual(shown);
     return shown;
@@ -733,12 +746,13 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   await expect(activation).not.toContainText('Confirmed');
   await expect(page.getByText(NO_RECORD, { exact: false })).toBeVisible();
   await expect(page.getByText('It is not a screening result.')).toBeVisible();
+  await screeningDisclaimed();
   await noClearance();
 
   // The owner cannot say so themselves: svc-pay refuses the owner's own restore with its typed code and records the
   // attempt; the activation and the verification history read back exactly as before.
   const ownRestore = {
-    requestId: randomUUID(),
+    requestId: uuidOf(`${J}:own-restore:${merchantId}`),
     target: { area: 'merchant', merchantId },
     action: 'restore',
     reason: 'TEST J-merchant-02 #6 owner restore',
@@ -759,7 +773,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
     occurredAt: expect.stringMatching(/^\d{4}-/),
     outcome: 'refused',
     changed: false,
-    actorUserId: expect.any(String),
+    actorUserId: owner.userId.toLowerCase(),
     code: 'operator.denied',
     current: null,
   });
@@ -824,6 +838,10 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   const whileRestricted = await askRaw('merchantOps.activation.get', {});
   expect(whileRestricted.status()).toBe(403);
   expect((await whileRestricted.json()).error.message).toBe('pay.owner_grant_withdrawn');
+  // And the owner's room, opened now, shows no activation and no "Active since".
+  await page.goto('/pay/compliance');
+  await expect(page.locator('main')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/Confirmed|Active since/);
 
   const restored = await control('Restore access', 'restore', 'TEST J-merchant-02 #6 restore', restricted.after);
   await expect(desk.getByRole('status')).toContainText('Account restored.');
