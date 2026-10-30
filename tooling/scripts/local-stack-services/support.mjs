@@ -27,9 +27,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',
-    // LOCAL TEST only: the fraud route makes the stack's first desk group, which would turn on group visibility and hide
-    // every ungrouped request from agents in the other journeys. Every staff role sees every group here, as before.
-    SUPPORT_ALL_GROUPS_ROLES: 'agent,lead',
+    // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
+    // journey whose agent works a request puts it in the agent's group first (J-support-public-10 #8).
+    SUPPORT_ALL_GROUPS_ROLES: 'lead',
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
     SUPPORT_CUSTOMER_SEES: 'priority,type',

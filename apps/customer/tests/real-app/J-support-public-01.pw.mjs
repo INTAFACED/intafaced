@@ -11,7 +11,7 @@ import {
   unpublish,
 } from './help-centre.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
 // centre. Tests titled "J-support-public-01 #<n>" prove a whole step. A step that changes an owner setting puts back what
@@ -431,12 +431,17 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
     const done = card.getByTestId('help-feedback-done');
     await expect(done).toHaveText(/your support request is open/);
     await expect(done).toHaveCount(1);
+    // One request, whatever the double click sent: the person's own list holds exactly one, and it is the one linked.
+    const listed = await (await api(who)).get(`/api/support/trpc/listMine?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`);
+    expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+    const requests = listed.body.result.data;
+    expect(requests).toHaveLength(1);
     const votes = async (id) => (await feedbackSummary()).filter((row) => row.articleId === id);
     expect(await votes(first.id)).toEqual([{ articleId: first.id, version: first.revision, helpful: 0, unhelpful: 1 }]);
 
     // The request's first message names the answer and carries the comment.
     await done.getByRole('link', { name: 'Open your request' }).click();
-    await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(new RegExp(`/support/tickets/${requests[0].id}$`));
     await expect(page.locator('main').getByText(`This request is about help article ${first.id}`)).toBeVisible();
     await expect(page.locator('main').getByText(comment)).toBeVisible();
 
