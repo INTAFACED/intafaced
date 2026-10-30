@@ -37,6 +37,9 @@ const SELF_BUY = 'd5555555-5555-4555-8555-d55555555555';
 const SELF_SELL = 'd6666666-6666-4666-8666-d66666666666';
 const FREE_ORDER = 'd7777777-7777-4777-8777-d77777777777';
 const MAKER_ORDER_3 = 'd8888888-8888-4888-8888-d88888888888';
+const BB_PAYER = '87777777-7777-4777-8777-777777777777';
+const BB_MAKER = '86666666-6666-4666-8666-666666666666';
+const BB_ASK = 'd9999999-9999-4999-8999-d99999999999';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -165,6 +168,32 @@ describe('PostgresLedger.historyPage orderId', () => {
         takerFeeBps: 0,
       }),
     );
+
+    // The token buyback buys from a customer ask (TEST amounts): the fee share swept into the rewards engine, held for
+    // one IOC order, and 0.5 BTC bought for 300 USDT at a 10 bps maker fee, so the maker receives 299.7 and pays 0.3.
+    await fund(BB_PAYER, 'USDT', '300', 'oid-bb-fee');
+    await engine.post(
+      recipes.feeCharge({ chargeId: 'oid-bb-fee', userId: BB_PAYER, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('300') }),
+    );
+    await engine.post(
+      recipes.sweepFeesToRewards({ windowId: 'buyback:oid-bb', sourceModule: 'trade', assetId: 'USDT', amount: amt('300') }),
+    );
+    await engine.post(recipes.buybackOrderHold({ orderId: 'oid-bb-order', quoteAsset: 'USDT', amount: amt('300') }));
+    await fund(BB_MAKER, 'BTC', '1', 'oid-bb-maker-btc');
+    await engine.post(recipes.orderHold({ orderId: BB_ASK, userId: BB_MAKER, assetId: 'BTC', amount: amt('1') }));
+    await engine.post(
+      recipes.buybackTakerFill({
+        fillId: 'oid-bb-fill',
+        makerId: BB_MAKER,
+        makerOrderId: BB_ASK,
+        takerOrderId: 'oid-bb-order',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        qty: amt('0.5'),
+        quoteAmount: amt('300'),
+        makerFeeBps: 10,
+      }),
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -273,6 +302,14 @@ describe('PostgresLedger.historyPage orderId', () => {
     expect(serializeHistoryPage(await engine.historyPage(scope(FREE))).entries.find((e) => e.reason === 'trade.fill')).toMatchObject({
       fee: '0',
     });
+  });
+
+  it("a buyback fill against a customer ask: the maker's line names its own ask and the maker fee taken from it", async () => {
+    expect(byReason(await lines(BB_MAKER), 'trade.fill.buyback')).toMatchObject([
+      { assetId: 'USDT', direction: 'debit', amount: amt('299.7'), fee: amt('0.3'), orderId: BB_ASK },
+    ]);
+    const ask = (await engine.historyPage(scope(BB_MAKER, { kind: 'hold', purpose: `order:${BB_ASK}` }))).entries;
+    expect(byReason(ask, 'trade.fill.buyback')).toMatchObject([{ assetId: 'BTC', direction: 'credit', orderId: BB_ASK, fee: null }]);
   });
 
   it('paging is unchanged: the same entries in the same order, with or without order ids', async () => {

@@ -1101,6 +1101,86 @@ export const p2pQuoteExpired = defineEvent(
   'A P2P quote passed its firm window unaccepted. Nothing is bound; the requester is told to re-quote.',
 );
 
+/**
+ * The skip reason ids svc-trade writes on its skip log (CB-copy-11). Ids only: the screen and the notice turn them into
+ * words. `refused` is any other typed refusal of the mirror; its words name no raw code.
+ */
+export const COPY_SKIP_REASON_IDS = [
+  'paused',
+  'stopped',
+  'lead_stopped',
+  'risk_control',
+  'insufficient_funds',
+  'max_copy_total',
+  'copy_slippage_exceeded',
+  'position_closed',
+  'refused',
+] as const;
+
+/** Why a follow stopped copying. Ids only, never a raw refusal code. */
+export const COPY_STOP_REASON_IDS = ['follower', 'lead_stopped', 'risk_control', 'permission_ended'] as const;
+
+/** A lowercase reason id (`order_rejected`), never a sentence or a raw service code. */
+const copyReasonIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/);
+/** svc-trade's follow id: today a uuid, stored as text, so any id without blanks or separators beyond `: . _ -`. */
+const copyFollowIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9:._-]*$/);
+
+export const copySkipped = defineEvent(
+  'trade',
+  'copy',
+  'skipped',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    leaderFillId: engineFillIdSchema,
+    reason: z.enum(COPY_SKIP_REASON_IDS),
+    skippedAt: z.string().datetime({ offset: true }),
+  }),
+  'A follow did not copy one leader fill. svc-trade writes the skip row first and publishes after commit; there is one per follow and leader fill, so consumers dedupe on (followId, leaderFillId). The follower is told the reason.',
+);
+
+export const copyFailed = defineEvent(
+  'trade',
+  'copy',
+  'failed',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    leaderFillId: engineFillIdSchema,
+    reason: copyReasonIdSchema,
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A copy order was placed for a leader fill and did not complete. No funds move on this event; consumers dedupe on (followId, leaderFillId). The reason is an open id because order refusals grow with the engine; a consumer words the ids it knows and gives a general notice for the rest. The follower is told the reason.',
+);
+
+export const copyStopped = defineEvent(
+  'trade',
+  'copy',
+  'stopped',
+  1,
+  z.object({
+    followId: copyFollowIdSchema,
+    followerId: userIdSchema,
+    leaderId: userIdSchema,
+    reason: z.enum(COPY_STOP_REASON_IDS),
+    closeOnly: z.boolean(),
+    stoppedAt: z.string().datetime({ offset: true }),
+  }),
+  'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -1736,6 +1816,9 @@ export const EVENT_CATALOG = {
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
+  copySkipped,
+  copyFailed,
+  copyStopped,
   projectionUpdated,
 } as const;
 
@@ -2417,6 +2500,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copySkipped',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the skip row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copySkipped',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copyFailed',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the failure row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copyFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy failure notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'copyStopped',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the J-copy-bots-otc-03 events PR. svc-trade publishes it after the stop row commits (svc-trade PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'copyStopped',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). Until then no publisher exists either, so no user is promised a notice.',
   },
   {
     event: 'payCustodyAuditCreated',

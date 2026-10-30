@@ -213,6 +213,13 @@ export interface TokenRouterOptions {
    */
   runBuybackWindow?: (input: { runId: string; revenueWindow: { from: Date; to: Date } }) => Promise<BuybackRunResult>;
   /**
+   * Whether the buyback job has every setting it needs and its trade place is
+   * published. Read by `buybackRuns` only, which also needs the rate set before
+   * it says "set", so "job not set" is honest.
+   * Default false: an unknown state never reads as running.
+   */
+  buybackJobSet?: boolean;
+  /**
    * Identity consume for operator treasury mutates. Default unwired — blank
    * IDENTITY_URL must refuse, never invent a second person.
    */
@@ -414,6 +421,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
   const emissionsEnabled = options.emissionsEnabled ?? true;
   const runYieldWindow = options.runYieldWindow;
   const runBuybackWindow = options.runBuybackWindow;
+  const buybackJobSet = options.buybackJobSet ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
 
   /** HTTP job twin: HMAC as svc-token. Session admin:treasury is 401 unsigned. */
@@ -1052,6 +1060,40 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .query(({ ctx }) => {
         if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
         return guard(() => token.treasuryView());
+      }),
+
+    buybackRuns: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ limit: z.number().int().min(1).max(200) }))
+      .output(
+        z.object({
+          job: z.enum(['set', 'unset']),
+          runs: z.array(
+            z.object({
+              id: z.string().min(1),
+              bought: amountString,
+              burned: amountString,
+              toRewards: amountString,
+              executedAt: z.string().datetime({ offset: true }),
+              windowFrom: z.string().datetime({ offset: true }),
+              windowTo: z.string().datetime({ offset: true }),
+            }),
+          ),
+          rate: z
+            .object({
+              buybackBps: z.number().int().min(0).max(10_000),
+              burnSplitBps: z.number().int().min(0).max(10_000),
+            })
+            .nullable(),
+          missing: z.string().nullable(),
+          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
+        }),
+      )
+      .query(({ ctx, input }) => {
+        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return guard(async () => {
+          const read = await token.buybackRuns(input.limit);
+          return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
+        });
       }),
 
     burnedSupply: scopedProcedure('token:read')
