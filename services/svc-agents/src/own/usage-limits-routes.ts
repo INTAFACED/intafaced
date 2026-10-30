@@ -34,7 +34,7 @@ export function ownUsageLimitsRouter(sql: Sql | undefined, run: OwnRunDeps | und
         assertPersonSetsLimits(ctx.principal);
         const deps = depsOf(sql, run);
         await deps.run.runtime.publishUsageAlerts(ctx.principal.userId).catch(() => undefined);
-        const view = await guard(() => new OwnUsageLimitsStore(deps.sql).get(ctx.principal.userId, input.id));
+        const view = await guard(() => new OwnUsageLimitsStore(deps.sql).get(ctx.principal.userId, input.id, deps.run.feeAssetId));
         return { ...view, assetId: deps.run.feeAssetId };
       }),
 

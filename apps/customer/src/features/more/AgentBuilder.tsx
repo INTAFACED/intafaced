@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -368,6 +368,8 @@ export function OwnAgentPage({ id }: { id: string }) {
   const [page, setPage] = useState<string>('Build');
   // The open session belongs to the agent's page, not to one tab of it: moving to Usage and back keeps it.
   const session = useState<string | null>(null);
+  const [usageRuns, setUsageRuns] = useState(0);
+  const countRun = useCallback(() => setUsageRuns((n) => n + 1), []);
   const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent:${id}`);
   const [latest, setLatest] = useState<OwnAgent | null>(null);
   return (
@@ -396,8 +398,8 @@ export function OwnAgentPage({ id }: { id: string }) {
             ) : page === 'Limits' ? (
               <>
                 <Limits agent={agent} />
-                <UsageLimits agent={agent} />
-                <Sessions agent={agent} session={session} />
+                <UsageLimits agent={agent} runs={usageRuns} />
+                <Sessions agent={agent} session={session} onRun={countRun} />
               </>
             ) : page === 'Test' ? (
               <Sessions agent={agent} session={session} twice />
@@ -506,7 +508,7 @@ function LimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentLimits }) 
  * when this agent's spend reaches it, and runs go on; at the hard limit a new run is refused and a run already started
  * finishes. Email is the person's choice, shown with the channel's real state: no email provider is connected.
  */
-function UsageLimits({ agent }: { agent: OwnAgent }) {
+function UsageLimits({ agent, runs }: { agent: OwnAgent; runs: number }) {
   const api = useApi();
   const loaded = useResource(
     (signal) => api.query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal }),
@@ -514,15 +516,27 @@ function UsageLimits({ agent }: { agent: OwnAgent }) {
   );
   return (
     <Read resource={loaded.resource} retry={loaded.reload}>
-      {(view) => <UsageLimitsForm agent={agent} view={view} />}
+      {(view) => <UsageLimitsForm agent={agent} view={view} runs={runs} />}
     </Read>
   );
 }
 
-function UsageLimitsForm({ agent, view }: { agent: OwnAgent; view: OwnAgentUsageLimits }) {
+function UsageLimitsForm({ agent, view, runs }: { agent: OwnAgent; view: OwnAgentUsageLimits; runs: number }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const [current, setCurrent] = useState(view);
+  // A run on this page moves the month's spend: read it again after each one. The fresh read replaces what the form
+  // shows as spent and reached, never what the person is typing.
+  useEffect(() => {
+    if (runs === 0) return;
+    const controller = new AbortController();
+    void api
+      .query('agents', 'own.usageLimits.get', { id: agent.id }, ownAgentUsageLimitsSchema, { signal: controller.signal })
+      .then((res) => {
+        if (res.ok && !controller.signal.aborted) setCurrent(res.data);
+      });
+    return () => controller.abort();
+  }, [runs, api, agent.id]);
   const [alertAt, setAlertAt] = useState(view.alertAt ?? '');
   const [hardLimit, setHardLimit] = useState(view.hardLimit ?? '');
   const [email, setEmail] = useState(view.email);
@@ -601,10 +615,13 @@ function Sessions({
   agent,
   session: [sessionId, setSessionId],
   twice = false,
+  onRun,
 }: {
   agent: OwnAgent;
   session: [string | null, (id: string | null) => void];
   twice?: boolean;
+  /** Told after each run or refusal, so a panel beside it can read the month's spend again. */
+  onRun?: () => void;
 }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
@@ -615,6 +632,9 @@ function Sessions({
   const [refusedTask, setRefusedTask] = useState('');
   const [busy, setBusy] = useState(false);
   const [runsVersion, setRunsVersion] = useState(0);
+  useEffect(() => {
+    if (runsVersion > 0) onRun?.();
+  }, [runsVersion, onRun]);
   // Each press is its own request: a business key from this visit, the session and a count, so a retried request
   // (the same key) is one run and one charge, and a new press is a new run.
   const presses = useRef(0);

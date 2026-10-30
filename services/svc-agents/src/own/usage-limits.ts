@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
@@ -64,20 +65,33 @@ export async function readOwnUsageLimits(sql: Sql, ownerId: string, agentId: str
   };
 }
 
+/** The first instant of the UTC month after the one `since` starts. */
+function nextMonth(since: Date): Date {
+  return new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth() + 1, 1));
+}
+
 /**
- * What this person's runs of one own agent actually cost since `since`: committed holds only. A held run has not cost
- * anything yet, so it neither crosses the alert nor reaches the hard limit; it is counted once it commits.
+ * What this person's runs of one own agent actually cost in the UTC month that starts at `since`: committed holds
+ * only. A held run has not cost anything yet, so it does not cross the alert; it is counted once it commits. With
+ * `held`, runs still held count at their worst case too: what the hard limit admits new runs against.
  */
-export async function ownAgentSpent(sql: Sql, userId: string, agentId: string, since: Date): Promise<Amount> {
+export async function ownAgentSpent(
+  sql: Sql,
+  userId: string,
+  agentId: string,
+  since: Date,
+  { held = false }: { held?: boolean } = {},
+): Promise<Amount> {
   const rows = await sql<Array<{ total: string }>>`
-    SELECT COALESCE(SUM(r.committed_amount), 0::numeric)::text AS total
+    SELECT COALESCE(SUM(CASE WHEN r.status = 'held' THEN r.amount ELSE r.committed_amount END), 0::numeric)::text AS total
       FROM agents.spend_reservations r
       JOIN agents.agent_sessions s ON s.id = r.session_id
      WHERE r.user_id = ${userId}
        AND s.user_id = ${userId}
        AND s.agent_id = ${OWN_PREFIX + agentId}
-       AND r.status = 'committed'
+       AND r.status IN ${held ? sql`('committed', 'held')` : sql`('committed')`}
        AND r.created_at >= ${since}
+       AND r.created_at < ${nextMonth(since)}
   `;
   return parseAmount(rows[0]?.total ?? '0');
 }
@@ -173,27 +187,35 @@ export async function publishPendingUsageAlerts(sql: Sql, bus: EventBus, ownerId
      ORDER BY created_at
      LIMIT 100
   `;
+  let published = 0;
   for (const row of rows) {
-    await bus.publish(
-      'agentUsageAlertCrossed',
-      {
-        alertKey: row.alert_key,
-        userId: row.owner_id,
-        agentId: row.agent_id,
-        month: row.month,
-        alertAt: formatAmount(parseAmount(row.alert_at)),
-        spent: formatAmount(parseAmount(row.spent)),
-        assetId: row.asset_id,
-        email: row.email,
-      },
-      { idempotencyKey: row.alert_key },
-    );
+    // One row that cannot be published (a bus fault on it) never holds back the alerts recorded after it; it stays
+    // unpublished and is tried again on the next sweep.
+    try {
+      await bus.publish(
+        'agentUsageAlertCrossed',
+        {
+          alertKey: row.alert_key,
+          userId: row.owner_id,
+          agentId: row.agent_id,
+          month: row.month,
+          alertAt: formatAmount(parseAmount(row.alert_at)),
+          spent: formatAmount(parseAmount(row.spent)),
+          assetId: row.asset_id,
+          email: row.email,
+        },
+        { idempotencyKey: row.alert_key },
+      );
+    } catch {
+      continue;
+    }
     await sql`
       UPDATE agents.own_agent_usage_alerts SET published_at = now(), updated_at = now()
        WHERE alert_key = ${row.alert_key} AND published_at IS NULL
     `;
+    published += 1;
   }
-  return rows.length;
+  return published;
 }
 
 /**
@@ -203,9 +225,17 @@ export async function publishPendingUsageAlerts(sql: Sql, bus: EventBus, ownerId
 export class OwnUsageLimitsStore {
   constructor(private readonly sql: Sql) {}
 
-  async get(ownerId: string, agentId: string, now: Date = new Date()): Promise<OwnUsageLimitsView> {
-    await this.assertOwned(this.sql, ownerId, agentId);
-    return this.view(this.sql, ownerId, agentId, now);
+  /**
+   * Reading also records this month's alert when the spend already reached it and no row says so yet: a commit whose
+   * alert write failed is caught up here, even when the hard limit means no further commit comes.
+   */
+  async get(ownerId: string, agentId: string, assetId: string, now: Date = new Date()): Promise<OwnUsageLimitsView> {
+    return transaction(this.sql, async (tx) => {
+      const sql = tx as unknown as Sql;
+      await this.assertOwned(sql, ownerId, agentId);
+      await recordUsageAlert(sql, { userId: ownerId, agentId, assetId, at: now });
+      return this.view(sql, ownerId, agentId, now);
+    });
   }
 
   /**
@@ -223,7 +253,7 @@ export class OwnUsageLimitsStore {
     if (alertAt !== null && hardLimit !== null && alertAt >= hardLimit) {
       throw new OwnAgentRefusal('agents.usage.alert_above_limit', { limit: formatAmount(hardLimit) });
     }
-    return this.sql.begin(async (tx) => {
+    return transaction(this.sql, async (tx) => {
       const sql = tx as unknown as Sql;
       await this.assertOwned(sql, ownerId, agentId, true);
       await sql`
@@ -254,6 +284,8 @@ export class OwnUsageLimitsStore {
     const limits = await readOwnUsageLimits(sql, ownerId, agentId);
     const month = usageMonth(now);
     const spent = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now));
+    // The same measure the hard limit admits runs against: what was spent plus every run still held at its worst case.
+    const used = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now), { held: true });
     const alerts = await sql<Array<{ alert_key: string; spent: string }>>`
       SELECT alert_key, spent::text FROM agents.own_agent_usage_alerts WHERE alert_key = ${usageAlertKey(agentId, month)}
     `;
@@ -266,7 +298,7 @@ export class OwnUsageLimitsStore {
       spent: formatAmount(spent),
       alertCrossed: alert !== undefined,
       alert: alert ? { key: alert.alert_key, spent: formatAmount(parseAmount(alert.spent)) } : null,
-      hardLimitReached: limits?.hardLimit != null && spent >= limits.hardLimit,
+      hardLimitReached: limits?.hardLimit != null && used >= limits.hardLimit,
     };
   }
 }
