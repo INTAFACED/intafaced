@@ -44,6 +44,7 @@ export const COPY_KEYS = [
   'agents.refused.overage_grace_exceeded',
   'agents.refused.overage_grace_unset',
   'agents.refused.window_sealed',
+  'agents.refused.copy_intel.returns_board_refused',
   'agents.refused.spend_limit_invalid',
   'agents.refused.spend_cap',
   'agents.refused.spend_idempotency_conflict',
@@ -169,6 +170,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.merchant.empty': 'No approval-rate samples were provided to watch.',
   'agents.merchant.unavailable': 'Approval-rate metrics are unavailable right now — samples are missing or too old to trust.',
   'agents.copy_intel.empty': 'No leader performance samples were provided.',
+  'agents.refused.copy_intel.returns_board_refused':
+    'Refused: Copy intelligence never ranks leaders by returns. It shows each leader’s disclosed stats from fills. Nothing was run or charged.',
   'agents.copy_intel.unavailable': 'Leader stats are unavailable — samples are incomplete or the window is invalid.',
   'agents.navigator.empty': 'Nothing was asked, so nothing was looked up and nothing was charged.',
   'agents.navigator.unavailable': 'Market data is unavailable right now — the navigator will not invent quotes or routes.',

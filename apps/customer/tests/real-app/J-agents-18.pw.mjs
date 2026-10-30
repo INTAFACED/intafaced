@@ -7,12 +7,13 @@ import { api } from './stack.mjs';
 // approve what I choose. One test per step, titled "J-agents-18 #<n>", run in order on one verified TEST account funded
 // with TEST USDT. An approved rebalance moves value only through ordinary exchange orders under the person's limits; no
 // profit share is paid; the leader directory shows disclosed stats and never a returns ranking.
+// #4 is built: a person's own session opens Copy intelligence, and a request for a returns ranking is refused before
+// anything is priced, held or run.
 // What is built: the catalogue cards of Portfolio planner ("Not connected"), Copy intelligence (metered session), Launch
 // check, Growth drafts and Risk and compliance ("Staff only"). Steps not built yet fail at their first missing part,
 // quickly (UNBUILT):
 // - Portfolio planner's source is not connected, so there is no rebalance proposal (RC-agents-03);
-// - leader cards have no Copy-Intel stats or audited badge (RC-agents-07), and opening a Copy intelligence session is
-//   refused for a standard account ("agents:execute");
+// - leader cards have no Copy-Intel stats or audited badge (RC-agents-07);
 // - the Launch check and Growth drafts agents have no pages with run history and drafts (RC-agents-04).
 const J = 'J-agents-18';
 const agents = agentsRun(J);
@@ -81,16 +82,65 @@ test(`${J} #3 opens a leader's card: stats computed from fills, with the audited
 });
 
 test(`${J} #4 asks Copy-Intel for a returns ranking: a typed refusal and no board`, async ({ page }) => {
+  const CODE = 'agents.copy_intel.returns_board_refused';
   await openAgents(page, agents);
   await agentCard(page, 'Copy intelligence').getByRole('button', { name: 'Open a session' }).click();
   await main(page).getByRole('button', { name: 'Review session' }).click();
   await page.getByRole('dialog', { name: 'Review agent session' }).getByRole('button', { name: 'Open agent session' }).click();
-  await expect(page.getByText('Agent session opened')).toBeVisible(UNBUILT);
+  await expect(page.getByText('Agent session opened')).toBeVisible();
   const workspace = main(page).getByRole('region', { name: 'Session workspace' });
+  const sessionId = (await workspace.getByTestId('session-id').textContent()).trim();
+  // The session as svc-agents records it: its log and its usage, re-read on "Refresh session".
+  const selected = main(page).getByRole('region', { name: 'Selected session' });
+  await expect(selected.locator('code')).toHaveText(sessionId);
+  const accrued = selected
+    .getByRole('term')
+    .filter({ hasText: /^Session usage accrued$/ })
+    .locator('xpath=following-sibling::dd[1]');
+  const log = selected.getByRole('list', { name: 'Agent audit activity' }).getByRole('listitem');
+  await expect(accrued).toHaveText(/^0 USDT$/);
+  await expect(log).toHaveCount(1);
+  const before = await usdt();
   await workspace.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST: rank the leaders by returns');
   await workspace.getByRole('button', { name: 'Run' }).click();
-  await expect(workspace.getByRole('alert')).toContainText('agents.copy_intel.returns_board_refused');
-  await expect(tableIn(workspace, 'Leader ranking')).toHaveCount(0);
+  const answer = page.waitForResponse((r) => r.url().includes('/api/agents/trpc/run.complete'));
+  await page
+    .getByRole('dialog', { name: 'Confirm the spend ceiling' })
+    .getByRole('button', { name: /^Run up to/ })
+    .click();
+  // The service's own answer: refused by the one typed refusal, said in its words on the page.
+  const refused = await answer;
+  expect(refused.ok()).toBe(false);
+  expect((await refused.json()).error.message).toBe('agents.refused.copy_intel.returns_board_refused');
+  await expect(main(page).getByTestId('failure')).toContainText('Copy intelligence never ranks leaders by returns');
+  await expect(tableIn(workspace, 'Runs').getByRole('row').nth(1).getByRole('cell').nth(2)).toContainText('Refused');
+  // No board: the agent gave no reply at all, and nothing on the page ranks leaders.
+  await expect(workspace.getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  await expect(main(page).getByRole('table', { name: /rank/i })).toHaveCount(0);
+  await expect(main(page).getByRole('list', { name: /rank/i })).toHaveCount(0);
+  // Re-read from svc-agents: the session's log gained exactly one row, the refusal by its one typed code, and nothing
+  // ran or was charged, in the session or the ledger.
+  const reread = Promise.all(
+    ['session.log', 'usage.current'].map((procedure) =>
+      page.waitForResponse((r) => r.url().includes(`/api/agents/trpc/${procedure}`) && r.ok()),
+    ),
+  );
+  await selected.getByRole('button', { name: 'Refresh session' }).click();
+  await reread;
+  await expect(log).toHaveCount(2);
+  const refusal = log.filter({ hasText: CODE });
+  await expect(refusal).toHaveCount(1);
+  await expect(refusal.locator('span[lang="zxx"]')).toHaveText(CODE);
+  await expect(refusal.locator('strong')).toContainText('Refused');
+  await expect(
+    refusal
+      .getByRole('term')
+      .filter({ hasText: /^Cost$/ })
+      .locator('xpath=following-sibling::dd[1]'),
+  ).toHaveText(/^0$/);
+  await expect(accrued).toHaveText(/^0 USDT$/);
+  await expect(workspace.locator('p').filter({ has: page.getByTestId('session-id') })).toContainText('· open');
+  expect(await usdt()).toEqual(before);
 });
 
 test(`${J} #5 opens the Launch, Risk and Compliance, and Growth agent pages: run history and drafts; a growth proposal to publish stays a draft`, async ({

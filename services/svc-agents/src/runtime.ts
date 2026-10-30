@@ -18,6 +18,7 @@ import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
 import { type SettlementResult, type UsageMeter, type UsageWindowView } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
+import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel/returns-board-refuse.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
@@ -467,6 +468,24 @@ export class AgentRuntime {
       );
       await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
       throw err;
+    }
+
+    // 1b · Copy-Intel never builds a returns board (D26-P1-A5). A request for one is refused before the price, the hold
+    //      and the engine, so it charges nothing, and the refusal is logged for the person to read.
+    if (
+      session.agentId === COPY_INTEL_SESSION_AGENT_ID &&
+      input.messages.some((m) => m.role === 'user' && asksForReturnsRanking(m.content))
+    ) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.copy_intel.returns_board_refused',
+          userMessageKey: 'agents.refused.copy_intel.returns_board_refused',
+          userMessageParams: {},
+        },
+        { kind: 'completion', task: input.task },
+      );
     }
 
     const maxOutputTokens =
