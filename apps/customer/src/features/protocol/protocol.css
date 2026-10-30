@@ -73,3 +73,12 @@
   max-inline-size: 20rem;
   border-radius: var(--if-r-md);
 }
+/* The app resets native inputs to appearance: none, which leaves a checkbox with no size; the protocol rooms' ticks
+   (representation, contract send, address book groups, route exclusion) keep the browser's own checkbox. */
+.protocol-room input[type='checkbox'] {
+  appearance: auto;
+  flex: none;
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+  margin: 0;
+}

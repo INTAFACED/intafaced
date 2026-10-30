@@ -360,6 +360,25 @@
     font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
+  .coin-yours__position {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-2);
+    padding-block-start: var(--if-space-4);
+    border-block-start: 1px solid var(--if-line);
+  }
+  .coin-yours__position .coin-yours__rows {
+    flex-wrap: wrap;
+    gap: var(--if-space-4) var(--if-space-8);
+  }
+  .coin-yours__position-title {
+    font: 600 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+  }
+  .coin-yours__note {
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
   .coin-yours__actions {
     display: flex;
     gap: var(--if-space-2);

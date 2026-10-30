@@ -71,6 +71,11 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed' || purpose === 'support-recovery-used') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=${purpose}\n`;
   }
+  if (purpose === 'appeal-decided') {
+    // The outcome only (lifted or upheld); the reason's words are on the account status page.
+    const outcome = (message.detail ?? '').replace(/[^a-z]/g, '');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=appeal-decided outcome=${outcome}\n`;
+  }
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
   }

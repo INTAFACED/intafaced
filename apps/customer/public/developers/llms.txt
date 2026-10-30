@@ -29,7 +29,7 @@
 - FIX: Waits for DV-fix-01
 - Choosing a protocol: Waits for DV-websocket-01
 - Webhooks: /pay/developer/webhooks
-- Sandbox: /pay/developer/sandbox
+- Sandbox: /developers/sandbox
 - Registered apps: /developers/apps
 - Libraries: Waits for DV-tools-01
 - Command line: Waits for DV-tools-02

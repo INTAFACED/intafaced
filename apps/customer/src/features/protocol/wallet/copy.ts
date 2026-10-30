@@ -61,7 +61,7 @@ const en = {
   approvalsLogsUnread:
     'The network’s node did not answer the approval history, so only the pools were checked: an approval to anyone else may be missing.',
   approvalsWrongNetwork: 'Your wallet is on another network. Switch it to this network to see its approvals.',
-  revokeNotRead: 'The revoke was mined, but this page could not read the chain at that block yet. Reload to check the row.',
+  revokeNotRead: 'The revoke was mined, but the node this page reads is still behind its block. Reload to check the row.',
   approvalPool: 'Pool {pair}',
   approvalUnlimited: 'Unlimited',
   hdr_action: 'Action',

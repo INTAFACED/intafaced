@@ -260,6 +260,10 @@ export type AcademyErrorCode =
   | 'academy.grader_lease_unset'
   /** A score that is above the assignment's points. */
   | 'academy.grade_invalid'
+  /** AC-quizzes-04: a key fix that changes more than keys, clears a key or changes none, or on a quiz not published. */
+  | 'academy.key_fix_invalid'
+  /** AC-assignments-02: a bulk grade file whose header is not `learner,score,comment,reason`, or with no rows. */
+  | 'academy.bulk_file_invalid'
   /** AC-certificates-02: a delayed issue rule with no delay. */
   | 'academy.cert_delay_unset'
   /** AC-certificates-02: a delayed issue rule while no issue sweep runs (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS` blank). */
@@ -501,6 +505,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.grader_locked',
   'academy.grader_lease_unset',
   'academy.grade_invalid',
+  'academy.key_fix_invalid',
+  'academy.bulk_file_invalid',
   'academy.cert_delay_unset',
   'academy.cert_sweep_unset',
   'academy.cert_not_due',

@@ -90,8 +90,19 @@ export const paymentsContract: ContractPart = {
     { method: 'customers', run: (p) => p.customers(undefined, '') },
     { method: 'customerSeries', run: (p) => p.customerSeries('TEST-cust-001', '2026-09-18T00:00:00.000Z', '2026-10-18T00:00:00.000Z') },
     { method: 'customer', run: (p) => p.customer('TEST-cust-001') },
+    { method: 'paymentViews', run: (p) => p.paymentViews() },
+    {
+      method: 'createPaymentView',
+      run: (p) =>
+        p.createPaymentView({ name: 'TEST captured', visibility: 'private', filters: { status: 'captured' }, columns: ['amount'] }),
+    },
+    {
+      method: 'unmaskPayment',
+      run: (p) => p.unmaskPayment({ paymentId: 'aa000003-0000-4000-8000-000000000003', field: 'customerEmail', reason: 'TEST reason' }),
+    },
   ],
   notMocked: {
+    deletePaymentView: 'a write: the stand-in answers it, and the unit tests exercise it',
     reissueInvoiceLink: 'a write: the stand-in answers it, and the unit tests exercise it',
     markInvoicePaid: 'a write: the stand-in answers it, and the unit tests exercise it',
     uploadEvidence: 'a write: the stand-in answers it, and the unit tests exercise it',
