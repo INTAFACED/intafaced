@@ -81,6 +81,11 @@
       "value": "0",
       "note": "TEST payoff fee on clearing a loan early: none, so a payoff quote can be given (J-bank-11 #1). The owner's own fee table is not published."
     },
+    "BANK_LOAN_ORIGINATION_FEE_BPS": {
+      "service": "bank",
+      "value": "0",
+      "note": "TEST origination fee in basis points: none, so a TEST loan can be opened (J-bank-09). Blank refuses bank.loan_fee_unset; the owner's own fee is not published."
+    },
     "BANK_LOAN_PAYOFF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "15",

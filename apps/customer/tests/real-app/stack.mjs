@@ -58,6 +58,22 @@ export function tool(script, ...args) {
   });
 }
 
+/**
+ * A stack service restarted with one of its TEST settings switched `off` (blank), or back on: the switch is set for the
+ * restart only, and this process's environment is put back as it was.
+ */
+export function restartWith(service, envKey, on) {
+  const before = process.env[envKey];
+  if (on) delete process.env[envKey];
+  else process.env[envKey] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', service);
+  } finally {
+    if (before === undefined) delete process.env[envKey];
+    else process.env[envKey] = before;
+  }
+}
+
 /** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */
 export function mailedCodes(email, purpose = 'signup-code') {
   const file = path.join(STATE, 'email-outbox.log');

@@ -6,6 +6,9 @@ import { MemoryKbLibraryBook } from './kb-library.js';
 import { MemoryStaffBook } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
 import { SupportService } from './support-service.js';
+import { MemorySupportStore } from './store.js';
+import { KbAuthoring } from './kb-authoring.js';
+import { MemoryKbReviewBook } from './kb-review.js';
 
 /** SP-kb-01: categories and sections made by staff, articles typed as text, read signed out. J-support-public-01 #3, #5. */
 
@@ -16,6 +19,7 @@ const authConfig = {
   accessTtlSeconds: 900,
 };
 const LEAD = '33333333-3333-4333-8333-333333333333';
+const REVIEWER = '44444444-4444-4444-8444-444444444444';
 const CUSTOMER = '11111111-1111-4111-8111-111111111111';
 const SESSION = '66666666-6666-4666-8666-666666666666';
 const reason = 'TEST library';
@@ -29,7 +33,8 @@ async function ctx(userId: string | null, scopes: string[]): Promise<Context> {
 async function desk() {
   const library = new MemoryKbLibraryBook();
   const helpCentre = new MemoryHelpCentreBook();
-  const support = new SupportService(undefined, undefined, undefined, new MemoryStaffBook());
+  const store = new MemorySupportStore();
+  const support = new SupportService(store, undefined, undefined, new MemoryStaffBook());
   const router = createSupportRouter(
     support,
     undefined,
@@ -41,12 +46,24 @@ async function desk() {
     undefined,
     helpCentre,
     library,
+    undefined,
+    undefined,
+    new KbAuthoring(store, new MemoryKbReviewBook()),
   );
   const as = async (userId: string | null, scopes = ['support:ops', 'support:read', 'support:write']) =>
     router.createCaller(await ctx(userId, scopes));
   const staff = await as(LEAD);
   await staff.staffAppoint({ userId: LEAD, role: 'lead', idempotencyKey: 'appoint-lead-1' });
-  return { library, staff, visitor: await as(null), customer: await as(CUSTOMER, ['support:read', 'support:write']) };
+  const reviewer = await as(REVIEWER);
+  /** Typed text goes live through review (SP-kb-02): the lead writes and submits, a second operator approves. */
+  const publish = async (row: ReturnType<typeof article>) => {
+    const { baseRevision, ...text } = row;
+    const draft = await staff.kbSaveDraft({ ...text, baseRevision });
+    await staff.kbSubmitForReview({ id: draft.id, revision: draft.revision });
+    await reviewer.kbApprove({ id: draft.id, revision: draft.revision });
+    return staff.kbPublishDraft({ id: draft.id, revision: draft.revision });
+  };
+  return { library, staff, reviewer, publish, visitor: await as(null), customer: await as(CUSTOMER, ['support:read', 'support:write']) };
 }
 
 const article = (over: Record<string, unknown> = {}) => ({
@@ -70,20 +87,21 @@ describe('help library (SP-kb-01)', () => {
   });
 
   it('lists only published articles under their section, with a measured count, and the text reads back as typed', async () => {
-    const { staff, visitor } = await desk();
+    const { staff, visitor, publish } = await desk();
     await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
     await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
     await staff.kbSaveSection({ id: 'deposits', categoryId: 'money', name: 'Deposits', position: 0, reason });
-    const published = await staff.kbPublishText(article({ body: 'Paste <script>alert(1)</script> here.\n\nThen wait.' }));
+    const published = await publish(article({ body: 'Paste <script>alert(1)</script> here.\n\nThen wait.' }));
     expect(published).toMatchObject({
       id: 'withdraw-time',
-      version: 1,
+      // The draft is version 1; the published copy of it is version 2.
+      version: 2,
       title: 'How long a withdrawal takes',
       language: 'en',
       sectionId: 'withdrawals',
     });
     expect(published.body).toBe('Paste <script>alert(1)</script> here.\n\nThen wait.');
-    const hidden = await staff.kbPublishText(article({ id: 'withdraw-hidden', title: 'Hidden' }));
+    const hidden = await publish(article({ id: 'withdraw-hidden', title: 'Hidden' }));
     await staff.unpublishKb({ id: 'withdraw-hidden', baseRevision: hidden.revision! });
 
     const library = await visitor.kbLibrary();
@@ -104,14 +122,15 @@ describe('help library (SP-kb-01)', () => {
   });
 
   it('a new body is a new version; an unpublish and an audience change keep the text', async () => {
-    const { staff, visitor, customer } = await desk();
+    const { staff, visitor, customer, publish } = await desk();
     await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
     await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
-    const first = await staff.kbPublishText(article());
-    const second = await staff.kbPublishText(article({ body: 'Second body.', baseRevision: first.revision }));
-    expect(second.version).toBe(2);
-    expect(await visitor.getKb({ id: 'withdraw-time', version: 1 })).toMatchObject({ body: first.body });
-    await expect(staff.kbPublishText(article({ body: 'Stale.', baseRevision: first.revision }))).rejects.toMatchObject({
+    const first = await publish(article());
+    const second = await publish(article({ body: 'Second body.', baseRevision: first.revision! }));
+    // Draft 1, published 2, draft 3, published 4.
+    expect(second.version).toBe(4);
+    expect(await visitor.getKb({ id: 'withdraw-time', version: 2 })).toMatchObject({ body: first.body });
+    await expect(staff.kbSaveDraft({ ...article({ body: 'Stale.' }), baseRevision: first.revision! })).rejects.toMatchObject({
       code: 'CONFLICT',
     });
     const narrowed = await staff.setKbAudience({ id: 'withdraw-time', baseRevision: second.revision!, audience: 'signed_in' });
@@ -159,13 +178,24 @@ describe('help library (SP-kb-01)', () => {
   });
 
   it('a publish retried after a lost reply gets the version it made; a different text on the same base is stale', async () => {
-    const { staff } = await desk();
+    const { staff, publish } = await desk();
     await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
     await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
-    const first = await staff.kbPublishText(article());
-    const again = await staff.kbPublishText(article());
+    const first = await publish(article());
+    const again = await staff.kbPublishDraft({ id: first.id, revision: 1 });
     expect(again).toMatchObject({ id: first.id, version: first.version, revision: first.revision, body: first.body });
-    await expect(staff.kbPublishText(article({ body: 'Another body.' }))).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(staff.kbSaveDraft({ ...article({ body: 'Another body.' }), baseRevision: 1 })).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('typed text no longer goes live without review: the direct publish refuses after its checks', async () => {
+    const { staff, visitor } = await desk();
+    await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
+    await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
+    await expect(staff.kbPublishText(article())).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'support.kb_review_required',
+    });
+    expect(await visitor.getKb({ id: 'withdraw-time' })).toBeNull();
   });
 
   it('retiring a category takes it and its sections off the list; saving the same values writes no log row', async () => {

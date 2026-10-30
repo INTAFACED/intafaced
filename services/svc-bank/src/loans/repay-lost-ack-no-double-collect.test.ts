@@ -54,7 +54,7 @@ describe('loan repayment with a lost ledger acknowledgement', () => {
     const ledger = new MemoryLedger();
     await fund(ledger, PAYER, 'USDT', '100000');
     await fund(ledger, BORROWER, 'BTC', '1');
-    const options = { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) };
+    const options = { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) };
     let loans = new LoanService(sql, ledger, options);
     await loans.fundReserve({ debtAssetId: 'USDT', fundingId: randomUUID(), amount: amt('100000'), from: userAvailable(PAYER, 'USDT') });
     const product = await loans.createProduct({
@@ -110,7 +110,7 @@ describe('unattended recovery after a lost loan acknowledgement', () => {
   async function openLoan(ledger: MemoryLedger) {
     await fund(ledger, PAYER, 'USDT', '100000');
     await fund(ledger, BORROWER, 'BTC', '1');
-    const options = { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) };
+    const options = { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) };
     const loans = new LoanService(sql, ledger, options);
     await loans.fundReserve({ debtAssetId: 'USDT', fundingId: randomUUID(), amount: amt('100000'), from: userAvailable(PAYER, 'USDT') });
     const product = await loans.createProduct({

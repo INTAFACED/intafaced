@@ -88,7 +88,19 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
   await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
+  // The table is drawn from the two stored guardrails the page reads now; their answers are what each column must show.
+  const read = (agentId) =>
+    page.waitForResponse(
+      (r) =>
+        r.ok() &&
+        r.request().method() === 'GET' &&
+        r.url().includes('/api/agents/trpc/agent.get') &&
+        decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+      { timeout: 15_000 },
+    );
+  const reads = [read('navigator'), read('support')];
   await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
+  const [navigator, support] = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
   const compare = tableIn(main(page), 'Compare agents');
   await expect(compare.getByRole('columnheader', { name: 'Navigator' })).toBeVisible();
   await expect(compare.getByRole('columnheader', { name: 'Support helper' })).toBeVisible();
@@ -102,6 +114,28 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
     '1 USDT per session',
     '0.5 USDT per session',
   ]);
+  // Tools, modes and tasks side by side, each cell exactly the stored guardrail's values for its column.
+  const joined = (values) => (values.length ? values.join(', ') : 'None');
+  const stored = {
+    Tools: (g) => joined(g.tools.map((tool) => tool.name)),
+    Modes: (g) => joined([...new Set(g.tools.map((tool) => tool.mode))]),
+    'Allowed engine tasks': (g) => joined(g.limits.allowedTasks),
+  };
+  for (const [g, who] of [
+    [navigator, 'navigator'],
+    [support, 'support'],
+  ])
+    expect(g?.tools?.length, `${who}: ${JSON.stringify(g).slice(0, 300)}`).toBeGreaterThan(0);
+  // The two agents differ in what they may do, so the comparison is not one value twice.
+  expect(stored.Tools(navigator)).not.toBe(stored.Tools(support));
+  for (const [row, of] of Object.entries(stored)) {
+    await expect(
+      compare
+        .getByRole('row')
+        .filter({ has: page.getByRole('cell', { name: row, exact: true }) })
+        .getByRole('cell'),
+    ).toHaveText([row, of(navigator), of(support)]);
+  }
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({

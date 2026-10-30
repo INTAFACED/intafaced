@@ -46,9 +46,17 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-fees": {
+      "types": "./dist/protocol-fees.d.ts",
+      "default": "./dist/protocol-fees.js"
+    },
     "./protocol-swap": {
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
+    },
+    "./protocol-address-book": {
+      "types": "./dist/protocol-address-book.d.ts",
+      "default": "./dist/protocol-address-book.js"
     },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
@@ -154,6 +162,10 @@
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
     },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
@@ -210,6 +222,10 @@
       "types": "./dist/agents-own.d.ts",
       "default": "./dist/agents-own.js"
     },
+    "./agents-usage-limits": {
+      "types": "./dist/agents-usage-limits.d.ts",
+      "default": "./dist/agents-usage-limits.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
@@ -229,6 +245,10 @@
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
+    },
+    "./protocol-listing": {
+      "types": "./dist/protocol-listing.d.ts",
+      "default": "./dist/protocol-listing.js"
     },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",

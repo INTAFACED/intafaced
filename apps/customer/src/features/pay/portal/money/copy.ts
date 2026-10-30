@@ -768,6 +768,7 @@ const en = {
 
   // ---- plain words for service answers only the money pages meet
   rSettlementNotPayable: 'This settlement can’t be paid out yet. Open it to see where it stands.',
+  rKybRequired: 'Nothing was sent. Payouts open once your business verification is approved.',
   rClearingPending: 'This money is still clearing, so it isn’t available to pay out yet. Try again once the card network has released it.',
   rSettlementInFlight: 'A payout for this settlement is already on its way.',
   rDestinationMissing: 'Add a payout destination first, then try again.',

@@ -6,24 +6,28 @@ It serves the campaign catalogue and join (J-campaigns-01), task campaigns and t
 
 ## API
 
-| Procedure             | Scope                           | Input                                                     | Output                                                                       |
-| --------------------- | ------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `health`              | public                          | none                                                      | `{ ok, service }`                                                            |
-| `tasks.progress`      | `campaigns:read`                | `{ campaignId }`                                          | my steps, completion, claim deadline and my reward record with its log       |
-| `tasks.claim`         | `campaigns:write`               | `{ campaignId }`                                          | `{ reward, created }`; a second claim returns the first                      |
-| `rewards.mine`        | `campaigns:read`                | `{}`                                                      | my rewards in plain status, newest first, and totals by status and asset     |
-| `ops.payouts.list`    | `campaigns:ops` + second factor | `{ campaignId? }`                                         | every reward record with its redemption log                                  |
-| `ops.pot.list`        | `campaigns:ops` + second factor | none                                                      | every pot funding request                                                    |
-| `ops.pot.request`     | `campaigns:ops` + second factor | `{ reference, sourceModule, asset, amount }`              | a requested funding (the same request again returns it)                      |
-| `ops.pot.approve`     | `campaigns:ops` + second factor | `{ reference }`                                           | the funding, approved by a second person and posted                          |
-| `drops.room`          | `campaigns:read`                | none                                                      | the season and my points, each published drop with my claim, the TGE panel   |
-| `drops.claim`         | `campaigns:write`               | `{ dropId }`                                              | `{ claim, created, remaining }`; the account is the principal, never a field |
-| `tge.claim`           | `campaigns:write`               | `{ network: 'testnet' \| 'mainnet' }`                     | always a named refusal; nothing is posted                                    |
-| `ops.list`            | `campaigns:ops` + second factor | none                                                      | every season and drop, drafts included                                       |
-| `ops.seasons.create`  | `campaigns:ops` + second factor | `{ name, startsAt, endsAt }`                              | a draft season                                                               |
-| `ops.seasons.publish` | `campaigns:ops` + second factor | `{ id }`                                                  | the season, published by a second person                                     |
-| `ops.drops.create`    | `campaigns:ops` + second factor | `{ title, seasonId?, count, opensAt, closesAt?, value? }` | a draft drop                                                                 |
-| `ops.drops.publish`   | `campaigns:ops` + second factor | `{ id }`                                                  | the drop, published by a second person                                       |
+| Procedure             | Scope                           | Input                                                     | Output                                                                        |
+| --------------------- | ------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `health`              | public                          | none                                                      | `{ ok, service }`                                                             |
+| `tasks.progress`      | `campaigns:read`                | `{ campaignId }`                                          | my steps, completion, claim deadline and my reward record with its log        |
+| `tasks.claim`         | `campaigns:write`               | `{ campaignId }`                                          | `{ reward, created }`; a second claim returns the first                       |
+| `rewards.mine`        | `campaigns:read`                | `{}`                                                      | my rewards in plain status, newest first, and totals by status and asset      |
+| `vouchers.mine`       | `campaigns:read`                | `{}`                                                      | my vouchers, newest claim first, with what is left and every redemption       |
+| `vouchers.validate`   | `campaigns:read`                | `{ code }`                                                | what the code would give; changes nothing                                     |
+| `vouchers.claim`      | `campaigns:write`               | `{ code }`                                                | the voucher, now mine; of two claims at once one wins                         |
+| `vouchers.redeem`     | `campaigns:write`               | `{ voucherId, amount, sequence }`                         | `{ redemption, voucher, created }`; the same sequence again returns the first |
+| `ops.payouts.list`    | `campaigns:ops` + second factor | `{ campaignId? }`                                         | every reward record with its redemption log                                   |
+| `ops.pot.list`        | `campaigns:ops` + second factor | none                                                      | every pot funding request                                                     |
+| `ops.pot.request`     | `campaigns:ops` + second factor | `{ reference, sourceModule, asset, amount }`              | a requested funding (the same request again returns it)                       |
+| `ops.pot.approve`     | `campaigns:ops` + second factor | `{ reference }`                                           | the funding, approved by a second person and posted                           |
+| `drops.room`          | `campaigns:read`                | none                                                      | the season and my points, each published drop with my claim, the TGE panel    |
+| `drops.claim`         | `campaigns:write`               | `{ dropId }`                                              | `{ claim, created, remaining }`; the account is the principal, never a field  |
+| `tge.claim`           | `campaigns:write`               | `{ network: 'testnet' \| 'mainnet' }`                     | always a named refusal; nothing is posted                                     |
+| `ops.list`            | `campaigns:ops` + second factor | none                                                      | every season and drop, drafts included                                        |
+| `ops.seasons.create`  | `campaigns:ops` + second factor | `{ name, startsAt, endsAt }`                              | a draft season                                                                |
+| `ops.seasons.publish` | `campaigns:ops` + second factor | `{ id }`                                                  | the season, published by a second person                                      |
+| `ops.drops.create`    | `campaigns:ops` + second factor | `{ title, seasonId?, count, opensAt, closesAt?, value? }` | a draft drop                                                                  |
+| `ops.drops.publish`   | `campaigns:ops` + second factor | `{ id }`                                                  | the drop, published by a second person                                        |
 
 The catalogue, join and `ops.campaigns.*` procedures are in `src/router.ts`. Contracts: `@intafaced/contracts/campaigns-catalogue` and `@intafaced/contracts/campaigns-drops`.
 
@@ -38,6 +42,7 @@ The catalogue, join and `ops.campaigns.*` procedures are in `src/router.ts`. Con
 - **Claims.** Not joined `campaigns.not_joined`, steps open `campaigns.tasks_incomplete`, below the campaign's verification gate `campaigns.kyc_required`, after the window `campaigns.claim_expired` (the reward is stored as forfeited), no budget room `campaigns.budget_exhausted`. A reward for an account that is not active is withheld before any ledger call, and qualifies on a later claim once the account is active again, inside the window. A budget in another asset than the reward refuses activation `campaigns.budget_asset_mismatch`. One reward per account and campaign under the business key `task:<campaign>:<account>:once`.
 - **Reward saga.** The intent is written first, marked posting by a conditional update, then posted with no transaction open, then the answer recorded. An empty pot (`ledger.insufficient_funds`) leaves it `pending_funding`, a platform freeze `pending_retry`, a lost answer `unknown`; the reconciler posts the same key and body again, so the ledger books it once. Only a named refusal of a first single attempt ends `failed`. The rollback window is shown; a rollback refuses `campaigns.reclaim_unavailable` (no reversing recipe exists).
 - **Pot funding.** One operator requests a sweep of earned trade fees into the rewards engine under a reference; a different one approves (`campaigns.second_person_required`, also a CHECK). The sweep key is `token.fee.sweep:campaigns:<reference>:<module>:<asset>`. A refused sweep is final.
+- **Vouchers (J-campaigns-08).** A voucher campaign's definition carries `vouchers: { claimBy, useBy }` (a use-by before the claim-by refuses `campaigns.voucher_window_invalid`, as does the field on any other type); each voucher keeps the claim-by, use-by and face value of the revision it was issued under. A code is unique across campaigns (`campaigns.voucher_code_taken`), since a customer types it alone. Anything about a code the caller may not claim (no such code, claimed by anyone, past its claim-by, campaign not live) is one generic refusal, `campaigns.voucher_invalid`; a blank claim-by or use-by refuses `campaigns.voucher_window_unset`; the campaign's participation rules apply as for a join. A claim is one conditional update from `published`. The n-th redemption is a reward intent under `voucher:<voucher>:<account>:<n>` (the spec's key with the use number after it), written with the voucher's used amount under a lock on the voucher and inside the budget, then paid by the reward saga; the same sequence again returns it, another amount under it refuses `campaigns.voucher_sequence_invalid`, more than is left `campaigns.voucher_exceeds_remaining` (and a CHECK). A redemption for an account that is not active is `withheld` before any ledger call and uses nothing of the voucher. Every check and claim counts against the owner's attempt limits per account and per source address (the `x-real-ip` svc-edge resolved and forwarded) over the owner's window, counted before the code is looked at: blank refuses `campaigns.attempt_limit_unset`, over a limit `campaigns.attempt_limit_reached`. After its use-by a redemption refuses `campaigns.voucher_expired`, and a sweep every 15 seconds (and each wallet read) marks the voucher `expired` once; expiry moves no value.
 - **Value.** A claim records an entitlement and moves nothing. A drop with value pays through the reward saga (CM-payouts-ledger-02), which is not connected, so creating one refuses `campaigns.reward_saga_unwired`.
 - **Two people.** One operator creates; a different one publishes (`campaigns.second_person_required`, and a CHECK constraint refuses it in the database too). A published row refuses a second publish (`campaigns.already_published`). Customers see published rows only.
 - **Audit.** Every create, publish and claim writes a row to `campaigns.audit_log`.
@@ -45,12 +50,13 @@ The catalogue, join and `ops.campaigns.*` procedures are in `src/router.ts`. Con
 
 ## Owner settings
 
-| Variable                            | Blank means                                                                      |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| `CAMPAIGNS_TGE_SCHEDULE_JSON`       | every TGE claim refuses `launch.schedule_unset`. Set: `{"claimOpensAt":"<ISO>"}` |
-| `CAMPAIGNS_RECONCILE_AFTER_SECONDS` | no reconciler runs: an open reward or pot funding stays open                     |
-| `CAMPAIGNS_ROLLBACK_WINDOW_SECONDS` | the reward record's rollback window reads "not set"                              |
-| `DATABASE_POOL_MAX`                 | boot refuses; never a filled-in size                                             |
+| Variable                                                                                             | Blank means                                                                      |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `CAMPAIGNS_TGE_SCHEDULE_JSON`                                                                        | every TGE claim refuses `launch.schedule_unset`. Set: `{"claimOpensAt":"<ISO>"}` |
+| `CAMPAIGNS_RECONCILE_AFTER_SECONDS`                                                                  | no reconciler runs: an open reward or pot funding stays open                     |
+| `CAMPAIGNS_ROLLBACK_WINDOW_SECONDS`                                                                  | the reward record's rollback window reads "not set"                              |
+| `CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT`, `_PER_ADDRESS`, `CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS` | every voucher check and claim refuses `campaigns.attempt_limit_unset`            |
+| `DATABASE_POOL_MAX`                                                                                  | boot refuses; never a filled-in size                                             |
 
 Wiring: `IDENTITY_URL` (participant read), `LEDGER_URL` with `INTERNAL_SERVICE_SECRET` (the saga; unset, every claim and approval refuses `campaigns.reward_saga_unwired`), `TRADE_URL` (market names; unset, a step on one market counts no fill), `NATS_URL` (the fill events).
 
@@ -60,8 +66,8 @@ Publishes none. Consumes `trade.fill.settled` (`fillSettled`) with the durable c
 
 ## Ledger
 
-`rewardPay` (key `reward:task:<campaign>:<account>:once`, reason `campaigns.task.reward`) and `sweepFeesToRewards` (from `houseFees('trade', asset)`), through `@intafaced/ledger-client`, signed as svc-campaigns with a module token. svc-ledger must list svc-campaigns for both recipes in its caller allowlist. Reads only its own keys back.
+`rewardPay` (key `reward:task:<campaign>:<account>:<period>`, `once` or a welcome task, or `reward:voucher:<voucher>:<account>:<n>` for a voucher redemption, reason `campaigns.task.reward`) and `sweepFeesToRewards` (from `houseFees('trade', asset)`), through `@intafaced/ledger-client`, signed as svc-campaigns with a module token. svc-ledger must list svc-campaigns for both recipes in its caller allowlist. Reads only its own keys back.
 
 ## Database
 
-Schema `campaigns` (from the database bootstrap): `campaigns`, `participations`, `eligibility_reviews`, `task_progress`, `task_completions`, `reward_intents`, `redemption_attempts`, `pot_fundings`, `seasons`, `drops`, `drop_claims`, `audit_log`, and the view `campaign_rows` (a campaign with the budget its open and paid rewards draw). Migrations in `drizzle/`, applied by `pnpm db:migrate`.
+Schema `campaigns` (from the database bootstrap): `campaigns`, `participations`, `eligibility_reviews`, `task_progress`, `task_completions`, `reward_intents`, `redemption_attempts`, `pot_fundings`, `seasons`, `drops`, `drop_claims`, `vouchers`, `voucher_attempts`, `campaign_revisions`, `audit_log`, and the view `campaign_rows` (a campaign with the budget its open and paid rewards draw). Migrations in `drizzle/`, applied by `pnpm db:migrate`.

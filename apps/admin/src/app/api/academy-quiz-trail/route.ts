@@ -11,6 +11,8 @@ import { changeQuizTrail, isQuizTrailOp, loadQuizTrail } from '@/lib/academy/qui
  *   POST { op: 'fixKey', itemId, revision, questions, reason }   a new revision that changes only keys
  *   POST { op: 'rescore', itemId, reason }   apply the current keys to each graded attempt they change
  *   POST { op: 'override', itemId, attemptId, questionId, points, n, comment, reason }   one question's points
+ *   POST { op: 'curve', itemId, fileName, csv, dryRun, reason }   a curve file by alias; a dry run writes nothing
+ *   POST { op: 'answers', itemId }   answers learner by learner (needs the data researcher role)
  *
  * Founder-only. svc-academy records the founder from their own token.
  */
@@ -18,7 +20,7 @@ import { changeQuizTrail, isQuizTrailOp, loadQuizTrail } from '@/lib/academy/qui
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;
-const BODY_BYTES = 262_144;
+const BODY_BYTES = 1_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const incomplete = (body: string) =>
@@ -50,7 +52,8 @@ export async function POST(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   try {
-    // A key fix sends every question, to 100 of 20 choices, so this route takes up to 256 KiB as the quiz editor's does.
+    // A curve file runs to 900,000 characters (svc-academy then holds it to the owner's byte limit), so this route takes a
+    // body to 1,000,000 bytes, under the edge's 1 MiB.
     const body = await readAdminJson(request, BODY_BYTES);
     if (!isQuizTrailOp(body.op)) return incomplete('Unknown action.');
     const answer = await changeQuizTrail(session, body.op, body);

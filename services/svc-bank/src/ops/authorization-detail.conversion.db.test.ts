@@ -97,7 +97,7 @@ describe('ops.authorizationGet (BK-cops-01): asset, conversion legs, audit, id b
         },
         clock: () => NOW,
       },
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '1' } }) },
     });
   }
 

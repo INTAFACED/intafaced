@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
  * LOCAL TEST merchant pricing — puts one TEST business on a TEST risk tier through svc-pay's own two-founder doors, for
- * journey tests that read Pricing and Fees (J-merchant-07 #3). Local only.
+ * journey tests that read Pricing and Fees (J-merchant-07 #3) and that need today's payout limit exceeded (#6, which puts
+ * the business back on its priced tier after). The payout steps after #3 (#6, #7, #8) rely on the priced tier's caps and
+ * thresholds, so a change to `journeyTier`'s shared caps changes them too. Local only.
  *
- *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier priced|blank [--payout-not-charged]
+ *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]
  *
  *   --tier priced         the business's own tier, with a TEST tier-layer USDT fee (JOURNEY_PRICING_RULE)
  *   --tier blank          a second tier of its own with no fee at all, so the calculator has nothing to price
+ *   --tier capped         a third tier of its own with no fee and a TEST daily payout cap of 1 USDT
+ *                         (JOURNEY_CAPPED_DAILY_PAYOUT), so a settlement's payout is more than is left today (J-merchant-07 #6)
  *   --payout-not-charged  the tier publishes its payout fee as not charged; without it the tier publishes none
  *
  * Each change is one founder submitting and a DIFFERENT founder confirming with the hash of the change they were shown
@@ -21,8 +25,10 @@
 import { assertActiveLocalStack } from './local-test-state.mjs';
 import { describeMoneyRefusal, founderChange, populateUuid, trpcData } from './local-test-world.mjs';
 
-export const PRICING_USAGE = 'usage: local-test-merchant-pricing.mjs <merchantId> --tier priced|blank [--payout-not-charged]';
+export const PRICING_USAGE = 'usage: local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const TIER_KINDS = ['priced', 'blank', 'capped'];
 
 /** The arguments, or null. Everything is refused before the stack is touched. */
 export function pricingArgs(argv) {
@@ -31,7 +37,7 @@ export function pricingArgs(argv) {
   let tier = null;
   let payoutNotCharged = false;
   for (let i = 0; i < rest.length; i += 1) {
-    if (rest[i] === '--tier' && (rest[i + 1] === 'priced' || rest[i + 1] === 'blank') && tier === null) tier = rest[(i += 1)];
+    if (rest[i] === '--tier' && TIER_KINDS.includes(rest[i + 1]) && tier === null) tier = rest[(i += 1)];
     else if (rest[i] === '--payout-not-charged' && !payoutNotCharged) payoutNotCharged = true;
     else return null;
   }
@@ -50,6 +56,9 @@ export const JOURNEY_PRICING_RULE = {
   minFee: '0.5',
 };
 
+/** TEST VALUE daily payout cap of the capped tier: below any TEST settlement's net, so its payout is over today's limit. */
+export const JOURNEY_CAPPED_DAILY_PAYOUT = '1';
+
 /**
  * The TEST tier for one business. Its caps and thresholds are the LOCAL TEST tier's (local-test-world.mjs), so the payout
  * steps after it behave as on that tier. A tier id is a slug of at most 32 characters, so it carries 8 hex of the id.
@@ -61,7 +70,7 @@ export function journeyTier(merchantId, kind, payoutNotCharged) {
     name: `TEST ${kind} tier ${short}`,
     archetype: 'standard',
     caps: [
-      { kind: 'daily_payout', assetCode: 'USDT', limit: '500' },
+      { kind: 'daily_payout', assetCode: 'USDT', limit: kind === 'capped' ? JOURNEY_CAPPED_DAILY_PAYOUT : '500' },
       { kind: 'beneficiaries_per_day', limit: 500 },
     ],
     reserve: null,

@@ -215,3 +215,14 @@
     }
   }
 }
+
+/* P-ads-merchant-07: a share link's QR code. */
+.p2p-share-qr {
+  inline-size: 11rem;
+  max-inline-size: 100%;
+  border-radius: var(--if-radius-sm, 0.5rem);
+  background: white; /* look-drift-allow: a QR code needs fixed dark-on-light contrast for scanners in every theme */
+}
+.p2p-share-qr-dark {
+  fill: black; /* look-drift-allow: a QR code needs fixed dark-on-light contrast for scanners in every theme */
+}

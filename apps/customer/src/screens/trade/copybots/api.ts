@@ -297,7 +297,9 @@ export function createRoomApi(api: ApiClient) {
       api.mutate('trade', 'copy.closeCopiedPosition', { followId, positionId, ...(qty ? { qty } : {}) }, closePositionSchema.passthrough()),
     skipLog: (followId: string, signal?: AbortSignal) =>
       api.query('trade', 'copy.skipLog', { followId }, z.object({ items: z.array(copySkipSchema) }), { signal }),
-    flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
+    /** Close-all needs identity's step-up for exactly this follow and request (`trade.step_up.copy.flatten`). */
+    flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
+      api.mutate('trade', 'copy.flatten', input, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),

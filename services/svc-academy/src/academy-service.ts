@@ -47,6 +47,7 @@ import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { CourseQuizzes } from './curriculum/course-quizzes.js';
 import { CourseQuizTrail } from './curriculum/course-quiz-trail.js';
+import { CourseQuizAnalytics } from './curriculum/course-quiz-analytics.js';
 import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
@@ -319,6 +320,8 @@ export interface AcademyServiceOptions {
   graderLeaseSeconds?: number;
   /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
   gradeReportRows?: number;
+  /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
+  bulkFileMaxBytes?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -425,6 +428,8 @@ export class AcademyService {
   readonly courseQuizzes: CourseQuizzes;
   /** AC-quizzes-04: key fixes, rescores and score overrides after grading. */
   readonly courseQuizTrail: CourseQuizTrail;
+  /** AC-quizzes-04: item analysis and score distribution from real graded attempts. */
+  readonly courseQuizAnalytics: CourseQuizAnalytics;
   /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
   readonly courseRelease: CourseRelease;
   readonly courseItemRules: CourseItemRules;
@@ -480,7 +485,8 @@ export class AcademyService {
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.courseQuizzes = new CourseQuizzes(sql);
-    this.courseQuizTrail = new CourseQuizTrail(sql);
+    this.courseQuizTrail = new CourseQuizTrail(sql, this.options.bulkFileMaxBytes ?? null);
+    this.courseQuizAnalytics = new CourseQuizAnalytics(sql);
     this.courseRelease = new CourseRelease(sql);
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);

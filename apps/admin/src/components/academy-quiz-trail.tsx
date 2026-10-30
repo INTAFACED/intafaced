@@ -1,12 +1,15 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchQuizTrail, postQuizTrailChange } from '@/lib/academy/quiz-trail-browser';
+import { ACADEMY_CURVE_FILE_MAX_CHARS } from '@intafaced/contracts/academy-course-quizzes';
 import type {
   AcademyAdminCourseQuiz,
+  AcademyCourseQuizAnalytics,
+  AcademyCurveCourseQuizResult,
   AcademyCourseQuizAttempts,
   AcademyCourseQuizQuestion,
   QuizTrailReply,
@@ -138,6 +141,175 @@ function KeyFix({ quiz, busy, onSave }: { quiz: AcademyAdminCourseQuiz; busy: bo
   );
 }
 
+function Curve({ busy, onSend }: { busy: boolean; onSend: (body: Record<string, unknown>) => void }) {
+  // The chosen file is read from the input when a button is pressed, so a choice made before the page was interactive counts.
+  const input = useRef<HTMLInputElement>(null);
+  const [reason, setReason] = useState('');
+  const [why, setWhy] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const send = (dryRun: boolean) => {
+    const file = input.current?.files?.[0];
+    if (!file) return setWhy('Choose a curve file first.');
+    if (reading || busy) return;
+    setReading(true);
+    void file
+      .text()
+      .then((csv) => {
+        if (csv.length > ACADEMY_CURVE_FILE_MAX_CHARS || new TextEncoder().encode(JSON.stringify(csv)).length > 990_000)
+          return setWhy('That file is larger than one request carries. Nothing was sent.');
+        setWhy(null);
+        onSend({ op: 'curve', fileName: file.name, csv, dryRun, reason: reason.trim() });
+      })
+      .catch(() => setWhy('The file could not be read. Nothing was sent.'))
+      .finally(() => setReading(false));
+  };
+  return (
+    <form className="dk-stack" data-testid="curve" onSubmit={(e) => e.preventDefault()}>
+      <h2>Curve by file</h2>
+      <p className="dk-muted">
+        A CSV file whose first line is learner,score, one row per learner by alias (Learner 3) with a new whole total for their newest
+        graded attempt. Run it dry first: it lists every change and every refused row and writes nothing. A curve applies whole or not at
+        all, and the same file again changes nothing.
+      </p>
+      <div className="adm-field">
+        <label htmlFor="curve-file">Curve file (CSV)</label>
+        <input id="curve-file" ref={input} type="file" accept=".csv,text/csv" />
+      </div>
+      <div className="adm-field">
+        <label htmlFor="curve-reason">Reason for the curve</label>
+        <input id="curve-reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+      {why && <p className="dk-why">{why}</p>}
+      <div className="dk-row">
+        <button type="button" className="adm-btn" disabled={busy || reading} onClick={() => send(true)}>
+          Dry run
+        </button>
+        <button type="button" className="adm-btn" disabled={busy || reading} onClick={() => send(false)}>
+          Apply curve
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function CurveResult({ result }: { result: AcademyCurveCourseQuizResult }) {
+  const lines = [
+    ...result.rows.map((r) => ({
+      line: r.line,
+      who: `Learner ${r.alias}, attempt ${r.number}`,
+      outcome: result.dryRun && !result.repeated ? 'would-change' : 'applied',
+      text: `${r.from} → ${r.to}`,
+    })),
+    ...result.rejected.map((r) => ({
+      line: r.line,
+      who: r.alias === null ? '—' : `Learner ${r.alias}`,
+      outcome: 'rejected',
+      text: `Refused: ${r.message}`,
+    })),
+  ].sort((a, b) => a.line - b.line);
+  return (
+    <section className="dk-stack" data-testid="curve-result" data-dry-run={String(result.dryRun)} data-applied={String(result.applied)}>
+      <h3>
+        {result.fileName}: {result.dryRun ? 'dry run' : result.applied ? 'applied' : 'not applied'}
+      </h3>
+      <span className="dk-muted">sha256 {result.sha256}</span>
+      <div className="dk-table-wrap" role="region" aria-label="Curve file rows" tabIndex={0}>
+        <table className="adm-table">
+          <thead>
+            <tr>
+              <th scope="col">Line</th>
+              <th scope="col">Learner</th>
+              <th scope="col">Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.line} data-line={l.line} data-outcome={l.outcome}>
+                <td>{l.line}</td>
+                <td>{l.who}</td>
+                <td>{l.text}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function Analytics({ data, busy, onAnswers }: { data: AcademyCourseQuizAnalytics; busy: boolean; onAnswers: () => void }) {
+  return (
+    <section className="dk-stack" data-testid="quiz-analytics" aria-labelledby="h-quiz-analytics">
+      <h2 id="h-quiz-analytics">Analytics</h2>
+      {data.graded === 0 ? (
+        <p className="dk-muted" data-testid="analytics-empty">
+          No graded attempt, so there is nothing to analyse and no score distribution is drawn.
+        </p>
+      ) : (
+        <>
+          <p>
+            From {data.graded} graded attempt{data.graded === 1 ? '' : 's'} by {data.learners} learner{data.learners === 1 ? '' : 's'}, as
+            their score changes leave them.
+          </p>
+          <div className="dk-table-wrap" role="region" aria-label="Item analysis" tabIndex={0}>
+            <table className="adm-table" data-testid="item-analysis">
+              <thead>
+                <tr>
+                  <th scope="col">Question</th>
+                  <th scope="col">Attempts</th>
+                  <th scope="col">Full marks</th>
+                  <th scope="col">Full marks, first attempts</th>
+                  <th scope="col">Mean points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((i, n) => (
+                  <tr key={i.questionId} data-question={i.questionId}>
+                    <td>
+                      {n + 1}. {i.prompt}
+                    </td>
+                    <td>{i.attempts}</td>
+                    <td>{i.fullMarksShare === null ? '—' : `${i.fullMarksShare}%`}</td>
+                    <td>{i.firstAttemptFullMarksShare === null ? '—' : `${i.firstAttemptFullMarksShare}%`}</td>
+                    <td>{i.meanPoints === null ? '—' : `${i.meanPoints} of ${i.points}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="dk-table-wrap" role="region" aria-label="Score distribution" tabIndex={0}>
+            <table className="adm-table" data-testid="score-distribution">
+              <thead>
+                <tr>
+                  <th scope="col">Score</th>
+                  <th scope="col">Attempts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.scoreDistribution.map((d) => (
+                  <tr key={d.score} data-score={d.score}>
+                    <td>{d.score}</td>
+                    <td>{d.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <div className="dk-stack" data-testid="answer-level">
+        <h3>Answers by learner</h3>
+        <p className="dk-muted">
+          Answer-level data needs the data researcher role on this course, and shows learners under anonymised ids.
+        </p>
+        <button type="button" className="adm-btn" disabled={busy} onClick={onAnswers}>
+          Show answers by learner
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function Override({ attempt, busy, onSave }: { attempt: Attempt; busy: boolean; onSave: (body: Record<string, unknown>) => void }) {
   const [questionId, setQuestionId] = useState(attempt.questions[0]?.questionId ?? '');
   const [points, setPoints] = useState('');
@@ -245,6 +417,7 @@ export function AcademyQuizTrail({ itemId, initial }: { itemId: string; initial:
   const [reply, setReply] = useState<QuizTrailReply | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [curve, setCurve] = useState<AcademyCurveCourseQuizResult | null>(null);
 
   const reload = useCallback(async () => {
     const next = await fetchQuizTrail(itemId);
@@ -257,6 +430,8 @@ export function AcademyQuizTrail({ itemId, initial }: { itemId: string; initial:
     setReply(answer);
     setBusy(false);
     // Whatever the answer, the page shows the quiz and its attempts as svc-academy holds them now.
+    // A curve's table shows that file's rows; any other answer clears it.
+    setCurve(answer.ok && answer.curve ? answer.curve : null);
     if (answer.ok) setView(answer.view);
     else await reload();
     return answer;
@@ -317,6 +492,14 @@ export function AcademyQuizTrail({ itemId, initial }: { itemId: string; initial:
             </ul>
           )}
         </form>
+      )}
+      {quiz && quiz.kind === 'quiz' && <Curve busy={busy} onSend={(body) => void send(body)} />}
+      {curve && <CurveResult result={curve} />}
+      {view?.analytics?.kind === 'ok' && (
+        <Analytics data={view.analytics.data} busy={busy} onAnswers={() => void send({ op: 'answers' })} />
+      )}
+      {view?.analytics?.kind === 'failed' && (
+        <Failed title="Could not read the analytics" message={view.analytics.message} code={view.analytics.code} />
       )}
       {attempts && (
         <>

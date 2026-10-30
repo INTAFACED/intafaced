@@ -69,6 +69,8 @@ export const offerSchema = z.object({
   pauseReason: z.enum(['method_removed']).nullable().optional(),
   /** P-ads-merchant-06: why the ad is closed (by the person, or sold out); null when not closed or closed before reasons. */
   closeReason: z.enum(['by_you', 'sold_out']).nullable().optional(),
+  /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
+  visibility: z.enum(['public', 'private']).optional(),
   /** P-ads-merchant-06: when the ad came into its present status. */
   statusSince: z.string().optional(),
   /** P-ads-merchant-06: the closed ad this one relisted. */
@@ -114,6 +116,8 @@ export type MethodSettlement = z.infer<typeof methodSettlementSchema>;
 export const tradeSchema = z.object({
   id,
   offerId: id,
+  /** P-ads-merchant-07: the order was taken through a share link. */
+  sharedFrom: z.boolean().optional(),
   sellerId: z.string(),
   buyerId: z.string(),
   asset,
@@ -781,3 +785,13 @@ export type OfferUpdateInput = {
   methods?: string[];
   terms?: string;
 };
+
+/** P-ads-merchant-07: a share link to the person's own ad, as svc-p2p lists it (never its token). */
+export const shareLinkSchema = z.object({
+  id,
+  offerId: id,
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable(),
+});
+export type ShareLink = z.infer<typeof shareLinkSchema>;

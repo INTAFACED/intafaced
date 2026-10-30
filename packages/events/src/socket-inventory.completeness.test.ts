@@ -128,11 +128,14 @@ describe('D26-P2-05 bus completeness inventory (ADR D-S-13)', () => {
     expect(reasonFingerprint(inventory.brokenPromises[0]!.reason.trim())).toBe('c020418427c6');
   });
 
-  it('keeps Class A sockets as the true-socket inventory (not broken promises)', () => {
+  it('keeps Class A and C sockets as the true-socket inventory (not broken promises)', () => {
     const counts = countByClass(inventory);
     expect(counts.B).toBe(1);
-    expect(counts.C).toBe(0);
-    expect(counts.A).toBe(inventory.sockets.length);
+    // The one Class C: agentUsageAlertCrossed's svc-notify consumer, disclosed on the agent's Limits page until it lands.
+    expect(WIRING_SOCKETS.filter((s) => s.class === 'C').map((s) => `${s.event}::${s.missing}`)).toEqual([
+      'agentUsageAlertCrossed::subscriber',
+    ]);
+    expect(counts.A + counts.C).toBe(inventory.sockets.length);
     expect(counts.A + counts.B + counts.C).toBe(WIRING_SOCKETS.length);
 
     for (const key of socketKeys(inventory)) {
