@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, signOutBrowser, tool } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, parseAbi } from 'viem';
@@ -299,17 +299,113 @@ test(`${J} #4 pastes a 40-hex address into search: the address page is the top r
   expect(await tokens.evaluateAll((items) => items.map((item) => item.getAttribute('data-symbol')))).toEqual([symbol, symbol]);
 });
 
+/**
+ * A contract that forwards the value it is sent to the address in its calldata, by an internal call: so the address
+ * receives value only inside a transaction, which is what "internal transactions" lists (#5); #10 deploys it as the twin
+ * transaction. Runtime code:
+ * CALL(gas, calldataload(0), callvalue, 0, 0, 0, 0), then STOP.
+ */
+const FORWARDER_DEPLOY = '0x600f600c600039600f6000f3' + '600060006000600034600035' + '5af100';
+
+/** Polls the indexer until it has stored the canonical block at `height`, so the page reads a block that holds the run's txs. */
+async function indexedTo(height) {
+  const input = (h) => encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height: h }));
+  await expect(async () => {
+    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input(height)}`, { headers: { origin: ORIGIN } });
+    expect(res.status).toBe(200);
+  }).toPass({ timeout: 60_000 });
+}
+
+/** Whether the indexer has stored the canonical block at `height`. */
+async function blockIndexed(height) {
+  const input = encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height }));
+  const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input}`, { headers: { origin: ORIGIN } });
+  if (res.status === 200) return true;
+  expect(res.status, 'an unknown block is NOT_FOUND').toBe(404);
+  return false;
+}
+
 test(`${J} #5 opens the address page: summary, transactions, holdings with unpriced ones counted, internal transactions or "trace unavailable", and a past balance or "not indexed before block N"`, async ({
   page,
 }) => {
-  await page.goto(`/chain/address/${ADDRESS}`);
-  await expect(page.getByRole('region', { name: 'Summary' })).toBeVisible(UNBUILT);
-  await expect(tableIn(page, 'Transactions')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Holdings' })).toContainText(/holdings? (has|have) no price|\$[\d,.]+/);
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so nothing can be sent to an address').toBe('running');
+  const viemChain = {
+    id: chain.chainId,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  // A fresh address this run alone sends to: one TEST token minted to it, and 0.25 TEST ETH reaching it only through a
+  // forwarding contract's internal call. It holds nothing else, so every figure below is exact.
+  const subject = getAddress(privateKeyToAccount(generatePrivateKey()).address);
+  const sender = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(sender.address);
+  const wallet = createWalletClient({ account: sender, chain: viemChain, transport: http(chain.gateUrl) });
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const symbol = `T${Date.now().toString(36).toUpperCase().slice(-7)}`;
+  const deployToken = await wallet.deployContract({ abi: TEST_TOKEN.abi, bytecode: TEST_TOKEN.bytecode, args: ['TEST Token', symbol, 18] });
+  const token = getAddress((await reader.waitForTransactionReceipt({ hash: deployToken })).contractAddress);
+  const mint = await wallet.writeContract({ address: token, abi: TEST_TOKEN.abi, functionName: 'mint', args: [subject, 10n ** 18n] });
+  expect((await reader.waitForTransactionReceipt({ hash: mint })).status).toBe('success');
+  const deployForwarder = await wallet.sendTransaction({ data: FORWARDER_DEPLOY });
+  const forwarder = getAddress((await reader.waitForTransactionReceipt({ hash: deployForwarder })).contractAddress);
+  const forward = await wallet.sendTransaction({ to: forwarder, value: 25n * 10n ** 16n, data: `0x${subject.slice(2).padStart(64, '0')}` });
+  const forwarded = await reader.waitForTransactionReceipt({ hash: forward });
+  expect(forwarded.status).toBe('success');
+  expect(await reader.getBalance({ address: subject, blockNumber: forwarded.blockNumber })).toBe(25n * 10n ** 16n);
+  const forwardHeight = Number(forwarded.blockNumber);
+  await indexedTo(forwardHeight);
+
+  await page.goto(`/chain/address/${subject}`);
+  // "Summary": the kind and the exact native balance.
+  const summary = page.getByRole('region', { name: 'Summary' });
+  await expect(summary.getByTestId('address-kind')).toHaveText('Account');
+  await expect(summary.getByTestId('address-balance')).toHaveText('0.25 (the network’s native unit)');
+
+  // "tx tables": the transactions list holds the mint to this address.
+  await expect(tableIn(page, 'Transactions').locator(`tr[data-tx="${mint.toLowerCase()}"]`)).toBeVisible();
+
+  // "holdings with "1 holding has no price"": its one token, at its exact balance, and counted as unpriced.
+  const holdings = page.getByRole('region', { name: 'Holdings' });
+  const held = holdings.locator('tbody tr');
+  await expect(held).toHaveCount(1);
+  await expect(held.first()).toHaveAttribute('data-token', token.toLowerCase());
+  await expect(held.first().locator('td').first()).toHaveText('1');
+  await expect(holdings.getByTestId('address-unpriced')).toHaveText('1 holding has no price: this explorer has no price source.');
+
+  // "internal txs or "trace unavailable"": the forwarder's internal call to this address, with its value.
   await page.getByRole('tab', { name: 'Internal transactions' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Internal transactions' })).toContainText(/trace unavailable|0x/i);
-  await page.getByRole('textbox', { name: 'Balance on date' }).fill('2026-01-01');
-  await expect(page.getByTestId('address-past-balance')).toContainText(/not indexed before block \d+|[\d.]+/);
+  const internal = page.getByRole('tabpanel', { name: 'Internal transactions' });
+  const move = internal.locator(`tr[data-tx="${forward.toLowerCase()}"]`);
+  await expect(move).toHaveCount(1);
+  await expect(move.locator('td').nth(3)).toHaveAttribute('data-address', forwarder.toLowerCase());
+  await expect(move.locator('td').nth(4)).toHaveAttribute('data-address', subject.toLowerCase());
+  await expect(move.getByTestId('internal-value')).toHaveText('0.25');
+
+  // "a past balance": the exact balance at the forwarding block, and nothing before it.
+  const at = page.getByRole('textbox', { name: /date .* or a block number/ });
+  const show = page.getByRole('button', { name: 'Show balance' });
+  await at.fill(String(forwardHeight));
+  await show.click();
+  await expect(page.getByTestId('address-past-balance')).toHaveText(new RegExp(`^0\\.25 at block ${forwardHeight} \\(`));
+  await at.fill(String(forwardHeight - 1));
+  await show.click();
+  await expect(page.getByTestId('address-past-balance')).toHaveText(new RegExp(`^0 at block ${forwardHeight - 1} \\(`));
+
+  // "or "not indexed before block N"": a date before the TEST chain's first block names the first block the indexer
+  // holds. Checked against the chain and the block list: block N was mined after that date, block N is stored, and no
+  // block before it is (block 0 is the chain's first block, so nothing precedes it).
+  await at.fill('2026-01-01');
+  await show.click();
+  const notIndexed = page.getByTestId('address-past-balance');
+  await expect(notIndexed).toHaveText(/^Not indexed before block \d+\.$/);
+  const earliest = Number((await notIndexed.textContent()).match(/block (\d+)/)[1]);
+  const mined = (await reader.getBlock({ blockNumber: BigInt(earliest) })).timestamp;
+  expect(mined, `block ${earliest} was mined after 2026-01-01 ended`).toBeGreaterThan(BigInt(Date.UTC(2026, 0, 2) / 1000));
+  expect(await blockIndexed(earliest), `block ${earliest} is indexed`).toBe(true);
+  const before = earliest === 0 ? 'no block before the first' : (await blockIndexed(earliest - 1)) ? 'indexed' : 'not indexed';
+  expect(before, `the block before ${earliest}`).not.toBe('indexed');
 });
 
 test(`${J} #6 adds a watch with a tag and a private note: listed for this person only, adding again changes nothing, another account cannot read it, and the page says the explorer holds no funds`, async ({
@@ -436,24 +532,81 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
   await expect(page.getByRole('alert')).toContainText('protocol fee policy is not set');
 });
 
+/** One JSON-RPC call to a TEST network's gate. */
+async function rpcAt(url, method, params = []) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = await response.json();
+  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
+  return body.result;
+}
+
+/**
+ * One transaction with the same hash on both TEST networks. A legacy transaction signed without a chain id (pre-EIP-155)
+ * is valid on any chain, so a fresh key sends the same signed bytes, at nonce 0, to each. Returns the hash and the
+ * block each network mined it in, both read from the chains themselves.
+ */
+async function twinTx() {
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no transaction can be sent').toBe('running');
+  expect(chain.second?.gate, 'the stack runs no second TEST network').toBe('open');
+  const account = privateKeyToAccount(generatePrivateKey());
+  const urls = [chain.gateUrl, chain.second.gateUrl];
+  for (const url of urls) await rpcAt(url, 'anvil_setBalance', [account.address, '0xde0b6b3a7640000']);
+  const signed = await account.signTransaction({
+    type: 'legacy',
+    nonce: 0,
+    gas: 100_000n,
+    gasPrice: 20_000_000_000n,
+    to: null,
+    data: FORWARDER_DEPLOY,
+  });
+  const hashes = [];
+  for (const url of urls) hashes.push(await rpcAt(url, 'eth_sendRawTransaction', [signed]));
+  expect(hashes[1], 'the same signed transaction has the same hash on both networks').toBe(hashes[0]);
+  const blocks = [];
+  for (const url of urls) {
+    const reader = createPublicClient({ transport: http(url) });
+    const receipt = await reader.waitForTransactionReceipt({ hash: hashes[0] });
+    expect(receipt.status).toBe('success');
+    blocks.push(Number(receipt.blockNumber));
+  }
+  return { hash: hashes[0], primaryHeight: blocks[0], secondHeight: blocks[1] };
+}
+
 test(`${J} #10 searches a hash that exists on two networks: both are listed, and a network that did not answer reads "not checked" with its reason`, async ({
   page,
 }) => {
-  // An unknown hash reads "Not found" everywhere and proves nothing about two networks: the hash searched is one the
-  // stack's two test networks both hold (the same signed deploy sent to each), read from the first network's list.
+  const { hash, primaryHeight, secondHeight } = await twinTx();
+  await indexedTo(primaryHeight);
+  const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
+  const primary = networks.filter({ hasText: /^Base Sepolia test network: / });
+  const second = networks.filter({ hasText: /^Local test chain: / });
+
+  // Both networks hold the hash, and both are listed as Found: the explorer's own from its index, the second network
+  // from its node. These are the only two networks the stack's explorer searches, so exactly two read Found.
   await page.goto('/chain');
-  const link = tableIn(page, 'Latest transactions')
-    .getByRole('link', { name: /^0x[0-9a-f]{4}/ })
-    .first();
-  await expect(link).toBeVisible(UNBUILT);
-  const hash = (await link.getAttribute('href'))?.match(/0x[0-9a-fA-F]{64}/)?.[0];
-  expect(hash).toMatch(/^0x[0-9a-fA-F]{64}$/);
   await search(page).fill(hash);
   await search(page).press('Enter');
-  const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
-  await expect.poll(() => networks.count()).toBeGreaterThan(1);
-  for (const network of await networks.all()) await expect(network).toContainText(/Found|Not found|not checked: .+/);
-  await expect.poll(() => networks.filter({ hasText: /: Found/ }).count()).toBeGreaterThan(1);
+  await expect(primary).toHaveText('Base Sepolia test network: Found (Success) Open transaction');
+  await expect(second).toHaveText(`Local test chain: Found (Success, block ${secondHeight})`);
+  await expect(networks.filter({ hasText: /: Found \(/ })).toHaveCount(2);
+
+  // The second network's node is made not to answer (the stack's gate for that network is closed), and the same hash
+  // is searched again: that network reads "not checked" with its reason, never "Not found", and the first still Found.
+  try {
+    tool('local-test-chain.mjs', 'gate', 'closed', 'second');
+    expect(testChain().second.gate).toBe('closed');
+    await search(page).press('Enter');
+    await expect(second).toHaveText('Local test chain: not checked: the network’s node didn’t answer', { timeout: 15_000 });
+    await expect(primary).toHaveText('Base Sepolia test network: Found (Success) Open transaction');
+  } finally {
+    tool('local-test-chain.mjs', 'gate', 'open', 'second');
+  }
+  expect(testChain().second.gate).toBe('open');
 });
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({

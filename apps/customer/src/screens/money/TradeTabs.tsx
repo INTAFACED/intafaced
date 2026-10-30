@@ -32,7 +32,8 @@ function useOrderIndex(): ReadonlyMap<string, Order> {
   return useMemo(() => new Map(latest.current.map((order) => [order.id, order])), [key]);
 }
 
-export function TradesPanel({ asset = null }: { asset?: string | null }) {
+/** `fill` is the one trade the link opened on: its row is marked current and scrolled to. */
+export function TradesPanel({ asset = null, fill = null }: { asset?: string | null; fill?: string | null }) {
   const { t } = deskCopy.useCopy();
   const money = moneyCopy.useCopy();
   const fills = useFills(true);
@@ -52,7 +53,7 @@ export function TradesPanel({ asset = null }: { asset?: string | null }) {
           if (rows.length > 0)
             return (
               <>
-                <FillsTable rows={rows} precision={precision} layout="activity" orders={orders} />
+                <FillsTable rows={rows} precision={precision} layout="activity" orders={orders} current={fill} />
                 {note}
               </>
             );

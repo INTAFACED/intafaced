@@ -1,11 +1,19 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  createIdentityApprovalClient,
+  createIdentityOperationDecisionClient,
+  createStepUpCheck,
+  retainRawBody,
+  s2sFromEnv,
+} from '@intafaced/contracts';
 import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { busCopyNotices } from './copy/copy-notices.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
@@ -402,6 +410,7 @@ const copyBestBid = async (marketId: string) => {
   return best ? parseAmount(best[0]) : null;
 };
 const copy = new CopyService(ledger, {
+  notices: busCopyNotices(bus),
   gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
@@ -509,6 +518,19 @@ const grid = new GridService({
   findOrder: (orderId) => trade.findOrder(orderId),
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
+  // A blank IDENTITY_URL leaves the check unwired: every withdrawal then refuses identity.step_up_unavailable.
+  stepUp: createStepUpCheck({
+    service: 'svc-trade',
+    approvals: env.IDENTITY_URL?.trim()
+      ? createIdentityApprovalClient({
+          service: 'svc-trade',
+          baseUrl: env.IDENTITY_URL,
+          internalSecret: env.INTERNAL_SERVICE_SECRET,
+          fail: (message, code) => Object.assign(new Error(message), { code }),
+          s2s: outS2s,
+        })
+      : null,
+  }),
 });
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(

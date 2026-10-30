@@ -120,7 +120,7 @@ describe('Approvals', () => {
     // Each catch-up read is its own render, so time moves one read at a time.
     for (let read = 0; read < 32; read += 1) await tick(1_000);
     expect(allowances.mock.calls.length).toBeGreaterThan(30);
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not read the chain at that block yet');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('the node this page reads is still behind its block');
     expect(revokeButton().disabled).toBe(false);
   });
 

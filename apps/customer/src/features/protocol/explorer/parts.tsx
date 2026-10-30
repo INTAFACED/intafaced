@@ -12,10 +12,15 @@ import type { ExplorerTranslate } from './copy';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
-/** Why the indexer gave no answer, in words. A gateway with no indexer behind it says so instead of a raw code. */
+/**
+ * Why the indexer gave no answer, in words. A gateway with no indexer behind it, and a node that did not answer or no
+ * longer holds a block's state, say so instead of a raw code; any other refusal shows the indexer's own message.
+ */
 export function refusalWords(failure: Failure, t: ExplorerTranslate): string {
   if (isServiceNotConnected(failure.code)) return t('reasonIndexerNotConnected');
   if (failure.code === 'edge.upstream_unavailable') return t('reasonIndexerNoAnswer');
+  if (failure.code === 'indexer.state_unavailable') return t('reasonStateGone');
+  if (failure.code === 'indexer.chain_unreachable') return t('reasonNodeNoAnswer');
   return failure.message;
 }
 
