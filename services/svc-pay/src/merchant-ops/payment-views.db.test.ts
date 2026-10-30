@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { ActivityFeed } from './activity.js';
+import { resolveExportColumns } from './exports.js';
 import { maskRailRef, PaymentPrivacy, PaymentViews, seesClearRailRef } from './payment-views.js';
 import type { MerchantCaller, MerchantRole } from './roles.js';
 
@@ -140,6 +141,21 @@ describe('payment views and unmask (real Postgres)', () => {
     expect(await views.remove(admin, { viewId: shared.id })).toEqual({ deleted: true });
   });
 
+  it('treats the same columns in another order as the same view, and stores them in list order', async () => {
+    const me = caller('developer');
+    const first = await views.create(me, { ...base, name: 'TEST order', columns: ['customerEmail', 'amount'] });
+    expect(first.columns).toEqual(['amount', 'customerEmail']);
+    const again = await views.create(me, { ...base, name: 'TEST order', columns: ['amount', 'customerEmail'] });
+    expect(again.id).toBe(first.id);
+  });
+
+  it('leaves the rail reference out of a payments export for roles that read it masked', () => {
+    expect(resolveExportColumns('payments', 'viewer', undefined)).not.toContain('rail_reference');
+    expect(resolveExportColumns('payments', 'developer', undefined)).not.toContain('rail_reference');
+    expect(resolveExportColumns('payments', 'finance', undefined)).toContain('rail_reference');
+    expect(() => resolveExportColumns('payments', 'viewer', ['payment_id', 'rail_reference'])).toThrow(/pay\.export_columns_forbidden/);
+  });
+
   it('refuses a view write from an API key or a session without MFA', async () => {
     expect(await refusal(() => views.create(caller('owner', owner, { viaApiKey: true }), { ...base, name: 'TEST key' }))).toBe(
       'pay.payment_view_interactive_only',
@@ -189,7 +205,7 @@ describe('payment views and unmask (real Postgres)', () => {
         }),
       ),
     ).toBe('pay.payment_unmask_interactive_only');
-    expect(await refusal(() => privacy.unmask(finance, { paymentId: foreign, field: 'railRef', reason: 'TEST reason here' }))).toBe(
+    expect(await refusal(() => privacy.unmask(finance, { paymentId: foreign, field: 'customerEmail', reason: 'TEST reason here' }))).toBe(
       'pay.payment_not_found',
     );
   });
@@ -199,8 +215,10 @@ describe('payment views and unmask (real Postgres)', () => {
     const finance = caller('finance', financeId);
     const out = await privacy.unmask(finance, { paymentId: paid, field: 'customerEmail', reason: '  TEST payer asked for a receipt ' });
     expect(out).toMatchObject({ paymentId: paid, field: 'customerEmail', value: email });
-    const rail = await privacy.unmask(finance, { paymentId: paid, field: 'railRef', reason: 'TEST matching the card rail' });
-    expect(rail.value).toBe('TEST-rail-ref-0001');
+    // A payment that paid no invoice has no email: the answer says none, and the ask is still on the audit.
+    const none = await privacy.unmask(finance, { paymentId: bare, field: 'customerEmail', reason: 'TEST checking a payer' });
+    expect(none.value).toBeNull();
+    expect((await sql`SELECT count(*)::int AS n FROM pay.payment_unmask_reads WHERE id = ${none.auditId}`)[0]!.n).toBe(1);
     expect(await refusal(() => privacy.reads(finance, { limit: 10 }))).toBe('pay.team_role_forbidden');
     const reads = await privacy.reads(caller('owner', owner), { paymentId: paid, limit: 10 });
     const line = reads.items.find((r) => r.id === out.auditId);
@@ -216,6 +234,6 @@ describe('payment views and unmask (real Postgres)', () => {
     const feed = await new ActivityFeed(sql).list(caller('owner', owner), { limit: 50, action: 'payment.unmasked' });
     const shown = feed.items.find((a) => a.objectId === paid && a.actorId === financeId);
     expect(shown).toMatchObject({ objectType: 'payment', action: 'payment.unmasked' });
-    expect(shown?.detail).toMatchObject({ field: expect.stringMatching(/^(customerEmail|railRef)$/), role: 'finance' });
+    expect(shown?.detail).toMatchObject({ field: 'customerEmail', role: 'finance' });
   });
 });

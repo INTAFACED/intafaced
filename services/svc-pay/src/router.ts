@@ -419,8 +419,10 @@ export function createPayRouter(
       if (!afterCommit) throw err;
       logPaymentFactsReadFailure(view.id);
     }
+    const out = toPaymentOut(view);
     return {
-      ...toPaymentOut(view),
+      ...out,
+      railRef: railRefFor(out.railRef, audience),
       pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
       failure: facts.failure,
     };
@@ -432,6 +434,8 @@ export function createPayRouter(
   };
 
   const paymentPrivacy = portalSql ? new PaymentPrivacy(portalSql) : null;
+  /** M-adv-payments-core-01: a role that cannot unmask (viewer, developer) reads every rail reference masked. */
+  const railRefFor = (ref: string | null, audience: MerchantReadAudience) => (seesClearRailRef(audience) ? ref : maskRailRef(ref));
 
   const portal =
     portalSql && teamReads
@@ -1031,7 +1035,7 @@ export function createPayRouter(
     ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
-      ...paymentPrivacyProcedures(portalSql),
+      ...paymentPrivacyProcedures(portalSql, paymentPrivacy),
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
@@ -1153,7 +1157,7 @@ export function createPayRouter(
               payment.status === 'created' ? pay.paymentConfirmations(input.paymentId) : null,
             ]);
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts, confirmations };
+            return { ...body, attempts: attempts.map((a) => ({ ...a, railRef: railRefFor(a.railRef, audience) })), confirmations };
           }),
         ),
 
@@ -1166,20 +1170,19 @@ export function createPayRouter(
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
             const page = await pay.listPayments(input);
             // M-adv-payments-core-01: the payer email is masked for every role (`payment.unmask` shows one clear value,
-            // audited), and a role that cannot unmask reads the rail reference masked too.
+            // audited), and a role that cannot unmask reads the rail reference masked (`railRefFor`).
             const emails = paymentPrivacy
               ? await paymentPrivacy.maskedEmails(
                   input.merchantId,
                   page.items.map((item) => item.id),
                 )
               : new Map<string, string>();
-            const clearRailRef = seesClearRailRef(audience);
             return {
               items: page.items.map((item) => {
                 const out = toPaymentOut(item);
                 return {
                   ...out,
-                  railRef: clearRailRef ? out.railRef : maskRailRef(out.railRef),
+                  railRef: railRefFor(out.railRef, audience),
                   customerEmail: emails.get(item.id) ?? null,
                   pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
                   failure: item.failure,

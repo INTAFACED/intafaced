@@ -12,7 +12,8 @@ import { z } from 'zod';
  * The payments list shows a payer's email (the one on the invoice the payment paid) masked for every role. A role
  * holding `payments.unmask` (owner, admin, finance) can ask for one clear value at a time from an interactive session,
  * giving a reason; each clear value shown writes one audit line (who, which payment, which field, why), which the owner
- * and admins read back. Viewer and developer never get a clear value, and also read the rail reference masked.
+ * and admins read back. Viewer and developer never get a clear value, and read the rail reference masked everywhere
+ * (`payment.list`, `payment.get`; a payments export has no rail reference column for them).
  */
 
 /** The columns a view may show, in the order the list draws them. */
@@ -63,7 +64,8 @@ export const paymentViewSchema = z
   .strict();
 export type PaymentView = z.infer<typeof paymentViewSchema>;
 
-export const paymentViewListSchema = z.object({ items: z.array(paymentViewSchema) }).strict();
+/** `payment.views.list`: one page, newest first. */
+export const paymentViewListSchema = z.object({ items: z.array(paymentViewSchema), nextCursor: z.string().nullable() }).strict();
 
 export const paymentViewCreateInputSchema = z
   .object({
@@ -88,8 +90,11 @@ export const paymentViewUpdateInputSchema = z
 export const paymentViewDeleteInputSchema = z.object({ viewId: z.string().guid() }).strict();
 export const paymentViewDeletedSchema = z.object({ deleted: z.literal(true) }).strict();
 
-/** The payment details that are masked unless unmasked. */
-export const PAYMENT_MASKED_FIELDS = ['customerEmail', 'railRef'] as const;
+/**
+ * The payment details `payment.unmask` shows in full. The rail reference is not one: the roles that may unmask already
+ * read it in full, and viewer and developer read it masked with no way to unmask it.
+ */
+export const PAYMENT_MASKED_FIELDS = ['customerEmail'] as const;
 export const paymentMaskedFieldSchema = z.enum(PAYMENT_MASKED_FIELDS);
 export type PaymentMaskedField = z.infer<typeof paymentMaskedFieldSchema>;
 

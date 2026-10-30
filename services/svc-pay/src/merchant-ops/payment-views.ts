@@ -1,5 +1,11 @@
 import type { Sql } from 'postgres';
-import type { PaymentMaskedField, PaymentView, PaymentViewColumn, PaymentViewFilters } from '@intafaced/contracts/pay-payment-views';
+import {
+  PAYMENT_VIEW_COLUMNS,
+  type PaymentMaskedField,
+  type PaymentView,
+  type PaymentViewColumn,
+  type PaymentViewFilters,
+} from '@intafaced/contracts/pay-payment-views';
 import { MerchantOpsError } from './errors.js';
 import { maskCustomerEmail } from './invoices.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage, type Page } from './pagination.js';
@@ -44,6 +50,10 @@ function canonicalFilters(filters: PaymentViewFilters): PaymentViewFilters {
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Columns in the order the list draws them, so the same set saved in another order is the same view. */
+const canonicalColumns = (columns: readonly PaymentViewColumn[]): PaymentViewColumn[] =>
+  PAYMENT_VIEW_COLUMNS.filter((c) => columns.includes(c));
 
 const uniqueViolation = (error: unknown) => (error as { code?: string }).code === '23505';
 
@@ -112,9 +122,10 @@ export class PaymentViews {
     }
     const name = input.name.trim();
     const filters = canonicalFilters(input.filters);
+    const columns = canonicalColumns(input.columns);
     const inserted = await this.sql<ViewRow[]>`
       INSERT INTO pay.payment_views (merchant_id, owner_user_id, name, visibility, filters, columns)
-      VALUES (${caller.merchantId}, ${caller.userId}, ${name}, ${input.visibility}, ${this.sql.json(filters)}, ${input.columns}::text[])
+      VALUES (${caller.merchantId}, ${caller.userId}, ${name}, ${input.visibility}, ${this.sql.json(filters)}, ${columns}::text[])
       ON CONFLICT (merchant_id, owner_user_id, lower(name)) DO NOTHING
       RETURNING ${this.cols()}`;
     if (inserted[0]) return toView(caller, inserted[0]);
@@ -127,7 +138,7 @@ export class PaymentViews {
       prior.name === name &&
       prior.visibility === input.visibility &&
       sameJson(canonicalFilters(prior.filters), filters) &&
-      sameJson(prior.columns, input.columns)
+      sameJson(canonicalColumns(prior.columns), columns)
     ) {
       return toView(caller, prior);
     }
@@ -147,7 +158,7 @@ export class PaymentViews {
     const row = await this.editable(caller, input.viewId);
     const name = input.name?.trim() ?? row.name;
     const filters = input.filters ? canonicalFilters(input.filters) : canonicalFilters(row.filters);
-    const columns = input.columns ?? row.columns;
+    const columns = canonicalColumns(input.columns ?? row.columns);
     let saved: ViewRow[];
     try {
       saved = await this.sql<ViewRow[]>`
@@ -229,17 +240,15 @@ export class PaymentPrivacy {
     const reason = input.reason.trim();
     if (reason.length < 8) throw new MerchantOpsError('pay.payment_unmask_reason_required', 'bad_request');
     return this.sql.begin(async (tx) => {
-      const payments = await tx<Array<{ id: string; rail_ref: string | null }>>`
-        SELECT id::text, rail_ref FROM pay.payments WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;
+      const payments = await tx<Array<{ id: string }>>`
+        SELECT id::text FROM pay.payments WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;
       const payment = payments[0];
       if (!payment) throw new MerchantOpsError('pay.payment_not_found', 'not_found');
-      let value: string | null = payment.rail_ref;
-      if (input.field === 'customerEmail') {
-        const emails = await tx<Array<{ customer_email: string | null }>>`
-          SELECT customer_email FROM pay.merchant_invoices
-           WHERE merchant_id = ${caller.merchantId} AND payment_id = ${payment.id}::uuid`;
-        value = emails[0]?.customer_email ?? null;
-      }
+      // The one field there is today: the email on the invoice this payment paid.
+      const emails = await tx<Array<{ customer_email: string | null }>>`
+        SELECT customer_email FROM pay.merchant_invoices
+         WHERE merchant_id = ${caller.merchantId} AND payment_id = ${payment.id}::uuid`;
+      const value = emails[0]?.customer_email ?? null;
       const audit = await tx<Array<{ id: string }>>`
         INSERT INTO pay.payment_unmask_reads (merchant_id, payment_id, field, actor_id, actor_role, reason)
         VALUES (${caller.merchantId}, ${payment.id}::uuid, ${input.field}, ${caller.userId}, ${caller.role}, ${reason})

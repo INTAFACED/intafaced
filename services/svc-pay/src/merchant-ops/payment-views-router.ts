@@ -8,6 +8,7 @@ import {
   paymentViewCreateInputSchema,
   paymentViewDeletedSchema,
   paymentViewDeleteInputSchema,
+  paymentViewListSchema,
   paymentViewSchema,
   paymentViewUpdateInputSchema,
 } from '@intafaced/contracts/pay-payment-views';
@@ -24,8 +25,8 @@ import { resolveMerchantCaller } from './roles.js';
  * router. The caller's merchant and role come from the principal, never from the body. Without a database every
  * procedure refuses `pay.merchant_ops_unavailable`; none answers empty.
  */
-export function paymentPrivacyProcedures(sql: Sql | null) {
-  const parts = sql ? { sql, views: new PaymentViews(sql), privacy: new PaymentPrivacy(sql) } : null;
+export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivacy | null = sql ? new PaymentPrivacy(sql) : null) {
+  const parts = sql && privacy ? { sql, views: new PaymentViews(sql), privacy } : null;
   const need = () => {
     if (!parts) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
     return parts;
@@ -39,7 +40,7 @@ export function paymentPrivacyProcedures(sql: Sql | null) {
     views: router({
       list: read
         .input(z.object({ limit: limitInput, cursor: cursorInput }).strict())
-        .output(z.object({ items: z.array(paymentViewSchema), nextCursor: z.string().nullable() }).strict())
+        .output(paymentViewListSchema)
         .query(({ ctx, input }) => wrapOps(async () => need().views.list(await callerOf(ctx), input))),
       create: write
         .input(paymentViewCreateInputSchema)

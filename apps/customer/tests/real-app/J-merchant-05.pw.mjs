@@ -298,7 +298,7 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
     run.write({ [as]: saved(who) });
   }
   const viewerApi = await onTeam(journey(), 'viewer', 'viewer');
-  const financeApi = await onTeam(journey(), 'finance', 'finance');
+  await onTeam(journey(), 'finance', 'finance');
 
   // The payer's email is the one on the TEST invoice the first paid payment settled.
   const owner = await ownerApi(journey());
@@ -379,10 +379,26 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   await expect(page.getByTestId('payer-email-masked').filter({ hasText: viewerRow.customerEmail })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Unmask' })).toHaveCount(0);
   expect(await page.locator('body').innerText()).not.toContain(email);
-  // The service refuses a viewer's unmask too, with its typed code.
+  // The service refuses a viewer's unmask too, with its typed code, and the audit and the view read back unchanged.
+  const readsBefore = await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 });
+  const viewerNow = await ownerApi(journey(), 'viewer');
+  const viewerAsk = await viewerNow
+    .mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: 'TEST viewer asks' })
+    .then(
+      () => null,
+      (err) => err,
+    );
+  expect(viewerAsk, 'the service refused the viewer').not.toBeNull();
+  expect(viewerAsk.typed, viewerAsk.message).toBe('pay.team_role_forbidden');
+  expect(await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 }), 'a refused unmask writes no audit line').toEqual(
+    readsBefore,
+  );
   expect(
-    await refusalOf(viewerApi.mutate('payment.unmask', { paymentId: paidId, field: 'customerEmail', reason: 'TEST viewer asks' })),
-  ).toBe('pay.team_role_forbidden');
+    (await viewerNow.query('payment.list', { merchantId: state.merchantId, status: 'captured', limit: 25 })).items.find(
+      (p) => p.id === paidId,
+    )?.customerEmail,
+    'the email stays masked for the viewer after the refusal',
+  ).toBe(viewerRow.customerEmail);
 
   // Finance unmasks: the review asks for a reason first, then shows the email in full.
   await forgetSession(page);
@@ -398,19 +414,27 @@ test(`${J} #3 saves a view with chosen columns: reopening restores filter and co
   const reason = `TEST payer asked for a receipt ${state.stamp}`;
   await unmask.getByLabel('Reason *').fill(reason);
   await expect(confirm).toBeEnabled();
+  const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/payment.unmask'));
   await confirm.click();
-  await expect(page.getByTestId('payer-email-clear')).toHaveText(email);
+  const response = await answered;
+  expect(response.status(), 'the service answered the unmask').toBe(200);
+  const body = await response.json();
+  const unmasked = body?.result?.data?.json ?? body?.result?.data;
+  // The clear value is the service's own answer, and it is the email on the paid invoice.
+  expect(unmasked).toMatchObject({ paymentId: paidId, field: 'customerEmail', value: email });
+  await expect(page.getByTestId('payer-email-clear')).toHaveText(unmasked.value);
 
   // The audit line: who, which payment, which field, why; and the business's activity feed shows it.
   const reads = await owner.query('payment.unmaskReads', { paymentId: paidId, limit: 50 });
   const line = reads.items.find((r) => r.actorId === finance.userId && r.reason === reason);
   expect(line, 'an audit line was written').toMatchObject({ paymentId: paidId, field: 'customerEmail', actorRole: 'finance' });
+  expect(line.id, 'the audit line is the one the unmask answered with').toBe(unmasked.auditId);
+  expect(reads.items.length, 'exactly one more audit line than before the viewer was refused').toBe(readsBefore.items.length + 1);
   const activity = await owner.query('merchantOps.activity.list', { limit: 50, action: 'payment.unmasked' });
   expect(
     activity.items.some((a) => a.objectId === paidId && a.actorId === finance.userId),
     'the activity feed names the unmask',
   ).toBe(true);
-  expect(await financeApi.query('merchantOps.team.me', {})).toMatchObject({ role: 'finance' });
   expect(refused).toEqual([]);
 });
 

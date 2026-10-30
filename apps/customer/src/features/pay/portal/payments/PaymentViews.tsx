@@ -85,7 +85,7 @@ export function PaymentViewsBar({
   const chosen = items.find((v) => v.id === viewId) ?? null;
   const columnLabel = (col: PaymentViewColumn) => t(`pv_col_${col}`);
   return (
-    <div className="pp-filterbar" aria-label={t('pv_views')} role="group">
+    <div className="pp-filterbar">
       <div className="pp-filter-row">
         {views.resource.status === 'failed' ? (
           <PortalFailure result={views.resource.failure} retry={views.reload} />

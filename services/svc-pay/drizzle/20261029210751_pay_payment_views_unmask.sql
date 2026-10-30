@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS "pay"."payment_unmask_reads" (
   "actor_role" text NOT NULL,
   "reason" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "payment_unmask_reads_field_known" CHECK ("field" IN ('customerEmail', 'railRef')),
+  CONSTRAINT "payment_unmask_reads_field_known" CHECK ("field" IN ('customerEmail')),
   CONSTRAINT "payment_unmask_reads_reason_given" CHECK (length(btrim("reason")) BETWEEN 8 AND 500)
 );
 

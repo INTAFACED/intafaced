@@ -289,7 +289,15 @@ export function createPaymentsMock(ctx) {
           return ok(route, page(views, input));
         case 'payment.views.create': {
           const same = views.find((v) => v.name.toLowerCase() === String(input.name).trim().toLowerCase());
-          if (same) return refuse(route, 409, 'pay.payment_view_name_taken');
+          if (same) {
+            // The service answers the same content with the view it already holds; only a different view under the name is refused.
+            const order = (cols) => [...cols].sort().join(',');
+            const alike =
+              same.visibility === input.visibility &&
+              JSON.stringify(same.filters) === JSON.stringify(input.filters) &&
+              order(same.columns) === order(input.columns);
+            return alike ? ok(route, same) : refuse(route, 409, 'pay.payment_view_name_taken');
+          }
           const at = iso(now);
           const view = {
             id: hex('7e', views.length + 1),

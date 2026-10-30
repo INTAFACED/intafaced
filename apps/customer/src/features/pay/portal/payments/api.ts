@@ -205,7 +205,7 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
     columns: PaymentViewColumn[];
   }) => mutate('payment.views.create', input, paymentViewSchema),
   deletePaymentView: (viewId: string) => mutate('payment.views.delete', { viewId }, paymentViewDeletedSchema),
-  unmaskPayment: (input: { paymentId: string; field: 'customerEmail' | 'railRef'; reason: string }) =>
+  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) =>
     mutate('payment.unmask', input, paymentUnmaskedSchema),
   paymentHistory: (paymentId: string, signal?: AbortSignal) =>
     query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),
