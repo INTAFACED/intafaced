@@ -69,13 +69,19 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   // A fresh load, so the page reads it now rather than from what an earlier page kept.
-  const accessRead = page.waitForResponse((r) => r.url().includes('merchant.myAccess') && r.status() === 200);
+  // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
+  let sent = null;
+  const accessRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.myAccess') || r.status() !== 200) return false;
+    sent = await r.json().catch(() => null);
+    return sent !== null;
+  });
   await page.reload();
-  const sent = await (await accessRead).json();
+  await accessRead;
   const memberships = (Array.isArray(sent) ? sent[0] : sent).result.data.memberships;
   expect(memberships).toHaveLength(1);
-  expect(memberships[0]).toMatchObject({ role: 'owner', kybStatus: 'none' });
-  expect(memberships[0].status).not.toBe('active');
+  // Verification not started: no KYB application and not verified (the account's own status is a separate field).
+  expect(memberships[0]).toMatchObject({ role: 'owner', kybStatus: 'none', verified: false });
   await expect(page.getByText('TEST Rooms Ltd').first()).toBeVisible();
   await expect(page.getByText('Not verified').first()).toBeVisible();
   const account = page.locator('main section').filter({ hasText: 'Business verification' }).last();
@@ -83,21 +89,21 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
 
-  // Money-moving controls are drawn, switched off, and say what blocks them.
-  const actions = page.getByTestId('plo-actions');
-  for (const name of ['Pay out', 'Refund']) {
-    const off = actions.locator('.pfo-action-off').filter({ hasText: name });
-    await expect(off, name).toHaveCount(1);
-    await expect(off.getByRole('button'), name).toBeDisabled();
-    await expect(off.getByRole('button'), name).toHaveAccessibleDescription(MONEY_OFF_INACTIVE);
-  }
+  // The home page has no money action of its own; the money rooms' Pay out and Refund, switched off with what blocks
+  // them, are checked room by room below (everyRoomOpens with moneyOff).
 
   // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
   await page.getByRole('link', { name: /Set up your account/ }).click();
   await expect(page).toHaveURL(/\/pay\/onboarding$/);
-  const progressRead = page.waitForResponse((r) => r.url().includes('merchant.onboarding.progress') && r.status() === 200);
+  // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
+  let progressBody = null;
+  const progressRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.onboarding.progress') || r.status() !== 200) return false;
+    progressBody = await r.json().catch(() => null);
+    return progressBody !== null;
+  });
   await page.reload();
-  const progressBody = await (await progressRead).json();
+  await progressRead;
   const progress = (Array.isArray(progressBody) ? progressBody[0] : progressBody).result.data;
   expect(progress.kybStatus).not.toBe('approved');
   const verification = progress.kybStatus === 'pending' ? 'Waiting for review' : 'Up next';
