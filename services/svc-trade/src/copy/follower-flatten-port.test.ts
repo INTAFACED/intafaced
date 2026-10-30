@@ -25,7 +25,16 @@ import type { Market } from '../spot/types.js';
 import type { StepUpCheck } from '@intafaced/contracts';
 
 /** Identity's step-up, approving: these tests are about the close-all itself (the gate's own tests are in copy-flatten-step-up.test.ts). */
-const approveStepUp: StepUpCheck = { require: async () => ({ stepUpEventId: 'appr-test', consumedAt: null, replayed: false }) };
+/** Identity's step-up, approving, and like identity a second use of one approval for the same request is a replay. */
+const usedApprovals = new Set<string>();
+const approveStepUp: StepUpCheck = {
+  require: async ({ approvalId, requestId }) => {
+    const key = `${approvalId}|${requestId}`;
+    const replayed = usedApprovals.has(key);
+    usedApprovals.add(key);
+    return { stepUpEventId: approvalId ?? 'appr-test', consumedAt: null, replayed };
+  },
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -361,6 +370,13 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     });
     expect(box.calls).toHaveLength(1);
     expect(again.orderIds).toEqual(acked.orderIds);
+
+    // A new close-all (a new confirmation and request) on the follow already left is refused, and nothing is placed (#6920).
+    await expect(
+      box.copy.flatten(principal(), { followId: follow.followId, requestId: 'flatten-0002', stepUpApprovalId: 'appr-test-2' }),
+    ).rejects.toMatchObject({ code: 'trade.copy_detached' });
+    expect(box.calls).toHaveLength(1);
+    expect(await box.store.getFollow(follow.followId)).toEqual(detached);
   });
 
   it('refuses drift and places nothing when available balance is below the mirrored net', async () => {
