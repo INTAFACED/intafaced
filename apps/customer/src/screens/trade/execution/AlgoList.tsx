@@ -10,6 +10,15 @@ import { Gate, Why, useWhen } from './parts';
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
 type Ok = Extract<ParentRead, { ok: true }>;
 
+/** A schedule waiting for its trigger price has no end yet: it starts when the price is reached. */
+function endWords(
+  parent: Ok['parent'],
+  t: (key: 'After the trigger price is reached') => string,
+  when: (iso: string) => string | null,
+): string | null {
+  return parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.projectedEndsAt);
+}
+
 const CANCEL_INCOMPLETE = 'cancel_incomplete';
 const TONE = { active: 'lime', paused: 'warn', halted: 'error', completed: 'neutral', cancelled: 'neutral' } as const;
 
@@ -136,9 +145,14 @@ export function AlgoList({
       id: 'next',
       header: t('Next slice'),
       width: 116,
-      value: (r) => (r.ok && r.parent.status === 'active' ? when(r.parent.nextDueAt) : null),
+      value: (r) =>
+        r.ok && r.parent.status === 'active'
+          ? r.parent.awaitingTrigger
+            ? t('After the trigger price is reached')
+            : when(r.parent.nextDueAt)
+          : null,
     },
-    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? when(r.parent.projectedEndsAt) : null) },
+    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? endWords(r.parent, t, when) : null) },
     {
       id: 'actions',
       header: t('Actions'),
@@ -245,13 +259,25 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
           { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
           { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
           {
+            label: t('Trigger price'),
+            value: parent.triggerPrice
+              ? parent.awaitingTrigger
+                ? t('Waiting for the trigger price')
+                : parent.triggeredAt
+                  ? t('Triggered at', { when: when(parent.triggeredAt) ?? parent.triggeredAt })
+                  : null
+              : null,
+            hint: parent.triggerPrice ?? undefined,
+          },
+          { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
+          {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
             hint: t('Counts only fills of the child orders'),
           },
           { label: t('Created'), value: when(parent.createdAt) },
-          { label: t('Next slice due'), value: when(parent.nextDueAt) },
-          { label: t('Projected end'), value: when(parent.projectedEndsAt) },
+          { label: t('Next slice due'), value: parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.nextDueAt) },
+          { label: t('Projected end'), value: endWords(parent, t, when) },
         ]}
       />
       {blocked ? <Why>{blocked}</Why> : null}
