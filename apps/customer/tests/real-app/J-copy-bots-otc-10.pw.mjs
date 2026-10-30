@@ -9,7 +9,7 @@ import { tableIn, bodyRows } from './tables.mjs';
 // pair (admin.mjs); an approval needs both. The applicants are TEST accounts that apply through the customer app.
 // The lead criteria are owner values kept append-only, so #2 (criteria blank) holds on a fresh stack, as each CI shard is;
 // a second local run on the same stack needs a fresh one. Pooled masters, whitelists, takeovers and levels are parked
-// views with their honest empty or unset state (CB-copy-pro-share-03, -06, -09, -11).
+// views with their honest empty or unset state: #6 waits on CB-copy-pro-share-11 and -06, #7 on -09 and -03.
 const J = 'J-copy-bots-otc-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -38,6 +38,15 @@ async function apply(page, name) {
   await signOutBrowser(page.context());
   return who;
 }
+
+test(`${J} #1 with no applications waiting, the empty state`, async ({ page }) => {
+  // Before this run applies: on a fresh stack svc-trade's queue is empty, and the desk says so instead of an empty table.
+  await openDesk(page);
+  const waiting = (await readDesk(page)).queue.applications;
+  expect(waiting, 'the queue is empty on a fresh stack; a second run on the same stack needs a fresh one').toEqual([]);
+  await expect(page.getByText('No applications waiting.')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Lead applications' })).toHaveCount(0);
+});
 
 test(`${J} starts: a TEST trader applies to lead in the customer app`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -90,7 +99,7 @@ async function openDesk(page, founder = 'a') {
   await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible(UNBUILT);
 }
 
-test(`${J} #1 opens the applications queue: oldest first, and with none the empty state`, async ({ page }) => {
+test(`${J} #1 opens the applications queue: oldest first`, async ({ page }) => {
   await openDesk(page);
   // This run applied A, then B: both wait in the queue, A first, and the whole queue is oldest first.
   const desk = await readDesk(page);
@@ -158,7 +167,7 @@ test(`${J} #3 approves with the criteria set, as one founder: pending until the 
   await second.context().close();
 });
 
-test(`${J} #4 rejects with a reason: the applicant sees it and may apply again after the owner's wait`, async ({ page }) => {
+test(`${J} #4 rejects with a reason: the applicant sees it, and applying again is refused by the wait's code`, async ({ page }) => {
   await openDesk(page);
   const reason = `TEST: track record too short ${state('tag')}`;
   await rowOf(queue(page), state('reject')).getByRole('button', { name: 'Reject' }).click();
@@ -175,7 +184,13 @@ test(`${J} #4 rejects with a reason: the applicant sees it and may apply again a
   const applicant = await api(state('rejectWho'));
   const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
   expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait_unset');
-  // "May apply again after the owner's wait": the wait is the owner's and unset, so this clause cannot pass yet.
+});
+
+test(`${J} #4 may apply again after the owner's wait`, async ({ page }) => {
+  // The wait is the owner's and unset, so a rejected applicant is never offered the form again: this clause cannot pass yet.
+  await signIn(page, state('rejectWho'));
+  await page.goto('/copy/lead/apply');
+  await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Apply to lead' }),
     "UNSET: the owner's wait before a rejected applicant may apply again is not set (trade.copy_lead_reapply_wait_unset)",
@@ -209,7 +224,7 @@ test(`${J} #6 opens pooled masters and the pool whitelist: master applications, 
   // The tables must come from a service: pools are not built, so nothing reads master applications or whitelists.
   expect(
     (await readDesk(page)).pooledMasters,
-    'UNBUILT: CB-copy-pro-share-03 pooled master applications are read from no service',
+    'UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service',
   ).toBeDefined();
   await page.getByRole('tab', { name: 'Pooled masters' }).click();
   await expect(tableIn(page, 'Master applications')).toBeVisible();
@@ -223,7 +238,7 @@ test(`${J} #7 opens the takeover and level views: takeovers per pool and day; le
   await openDesk(page);
   expect(
     (await readDesk(page)).takeovers,
-    'UNBUILT: CB-copy-pro-share-09 takeovers per pool and day are read from no service',
+    'UNBUILT: CB-copy-pro-share-09 (takeovers) and CB-copy-pro-share-03 (levels): takeovers per pool and day and the level ratios are read from no service',
   ).toBeDefined();
   await page.getByRole('tab', { name: 'Takeovers' }).click();
   await expect(tableIn(page, 'Takeovers')).toBeVisible();
