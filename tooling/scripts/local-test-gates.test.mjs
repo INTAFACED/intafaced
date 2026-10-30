@@ -335,6 +335,7 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
     dbUrl: () => '',
     urlOf: () => '',
     PORTS: {},
+    STATE: '/nonexistent/local-test-state',
   }).env();
   for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
 }
@@ -367,6 +368,7 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
     dbUrl: () => '',
     urlOf: () => '',
     PORTS: {},
+    STATE: '/nonexistent/local-test-state',
   }).env();
   assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
   // J-wallet-05: a TEST custody signer on TEST Ethereum only, so TEST Base stays unconnected (#7).
