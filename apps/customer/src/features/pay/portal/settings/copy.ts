@@ -205,6 +205,7 @@ const en = {
   perm_webhooks_manage: 'Manage webhooks',
   perm_products_read: 'See products',
   perm_products_manage: 'Add and change products',
+  perm_payments_unmask: 'See a payer’s hidden details, with a reason',
   permUnknown: 'A permission this page has no name for yet ({key})',
   roleCan_owner: 'Everything, including managing the team and admins.',
   teamHistoryTitle: 'Team history',
