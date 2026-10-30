@@ -767,6 +767,7 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     // A new real send of 12, watched while it goes. The stack's TEST chain waits a few seconds after a send is recorded
     // before it answers (`PAY_TEST_CHAIN_SEND_DELAY_MS`), so the page can be read while the money is held and on its way.
     const known = new Set((await api.withdrawals(200)).map((w) => w.id));
+    const freeBeforeTwelve = toUnits(await api.available('USDT'));
     await signInWithCode(page);
     await readyToConfirm(page, '12');
     await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
@@ -805,6 +806,8 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     const made12 = await record(watching.id);
     expect(made12.status).toBe('settled');
     expect(toUnits(made12.amount)).toBe(toUnits('12'));
+    // Its debit, read back from the ledger: the 12 out with the TEST 1.5 fee on top.
+    expect(toUnits(await api.available('USDT')), 'the settled 12 took 12 + 1.5 from the balance').toBe(freeBeforeTwelve - toUnits('13.5'));
 
     // A real send the TEST chain refuses (any send of exactly 13, `PAY_TEST_CHAIN_REFUSE_AMOUNT`): held, refused, its
     // hold back, and the page says why in a sentence, never as its code.
