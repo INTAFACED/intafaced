@@ -21,6 +21,7 @@ const J = 'J-dex-protocol-18';
 const account = dexRun(J);
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
+const QUOTE = 'USDT';
 
 test.describe.configure({ mode: 'default' });
 
@@ -180,8 +181,11 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   page,
 }) => {
   const who = await desk(page);
-  const [before] = await positions(who);
-  expect(before, 'an earlier step left a position').toBeTruthy();
+  // The one open position on this contract is the row the dialog closes (the desk draws one row per position).
+  const open = (await positions(who)).filter((p) => p.symbol === SYMBOL);
+  expect(open, 'an earlier step left exactly one position on this contract').toHaveLength(1);
+  const [before] = open;
+  const freeBefore = toUnits((await (await api(who)).balances())[QUOTE]?.free ?? '0');
   const row = page
     .getByRole('row')
     .filter({ hasText: SYMBOL })
@@ -191,7 +195,9 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   await dialog.getByRole('button', { name: '25%' }).click(UNBUILT);
   // The close is a reduce-only market order on the futures book (slice 6b retired the at-mark close while matching is
   // on), for a quarter of the size, on the side that shrinks the position.
-  const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/futures/orders' && r.request().method() === 'POST');
+  const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/futures/orders' && r.request().method() === 'POST', {
+    timeout: 20_000,
+  });
   await dialog.getByRole('button', { name: 'Close this size' }).click();
   const answer = await sent;
   const asked = answer.request().postDataJSON();
@@ -199,7 +205,7 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   expect(asked).toMatchObject({ symbol: SYMBOL, type: 'market', reduceOnly: true, side: before.side === 'long' ? 'sell' : 'buy' });
   expect(toUnits(asked.amount)).toBe(quarter);
   expect(asked.price, 'a market close sends no price of its own').toBeUndefined();
-  expect(answer.status(), JSON.stringify(await answer.json())).toBeLessThan(300);
+  expect(answer.status(), await answer.text()).toBeLessThan(300);
   const placed = await answer.json();
   // Exactly three quarters stay open: 4 × left = 3 × before, in exact units.
   await expect
@@ -211,8 +217,8 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
     await api(who)
   ).get(`/api/v1/futures/orders?scope=all&limit=50&symbol=${encodeURIComponent(SYMBOL)}`);
   expect(listed).toBe(200);
-  const rows = Array.isArray(list) ? list : (list.orders ?? list.items ?? []);
-  const order = rows.find((o) => o.orderId === (placed.orderId ?? placed.order?.orderId));
+  expect(Array.isArray(list), JSON.stringify(list).slice(0, 200)).toBe(true);
+  const order = list.find((o) => o.orderId === placed.orderId);
   expect(order, JSON.stringify(placed).slice(0, 300)).toBeTruthy();
   expect(order).toMatchObject({ reduceOnly: true, positionId: before.id, status: 'filled', type: 'market' });
   expect(toUnits(order.filledQty)).toBe(quarter);
@@ -222,7 +228,12 @@ test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in 
   expect(order.bankruptcyPrice, 'the bound is recorded').toBeTruthy();
   if (before.side === 'long') expect(limit).toBeGreaterThanOrEqual(toUnits(order.bankruptcyPrice));
   else expect(limit).toBeLessThanOrEqual(toUnits(order.bankruptcyPrice));
-  // The close door takes no price from the caller: the accepted mark is the only price.
+  // And what the fills actually did: the quarter's margin plus its result comes back to the account less the fee, so a
+  // fill past the bankruptcy price (a loss bigger than that margin) would leave the account with less than before
+  // the fee. Free margin asset after + the order's fees >= free before.
+  const freeAfter = toUnits((await (await api(who)).balances())[QUOTE]?.free ?? '0');
+  expect(freeAfter + toUnits(order.feesPaid)).toBeGreaterThanOrEqual(freeBefore);
+  // The position close door takes no price from the caller either.
   const { status, body } = await (
     await api(who)
   ).post(`/api/v1/positions/${before.id}/close`, {
