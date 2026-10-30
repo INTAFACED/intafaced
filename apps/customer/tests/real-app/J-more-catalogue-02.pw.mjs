@@ -161,8 +161,11 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   const { who, seller, title, price, purchaseId } = run.read();
   expect(purchaseId, 'a purchase from #4').toBeTruthy();
   test.setTimeout(420_000);
+  // The buyer holds a real USDT row (never the zero fallback), with the price held in `used`; a new seller has none yet.
+  expect((await (await api(who)).balances()).USDT, "the buyer's USDT balance row").toBeDefined();
   const before = await usdt(who);
   const sellerBefore = await usdt(seller);
+  expect(toUnits(before.used)).toBeGreaterThanOrEqual(toUnits(price));
   await signIn(page, who);
   const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) });
   // The refund policy undecided (blank): the refund shows its named blocker, moves nothing, and the purchase stays held.
@@ -191,10 +194,16 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   } finally {
     marketRefundPolicy(true);
   }
-  // The policy set (the stack's TEST value): the buyer asks, inside the window. Asking moves nothing.
+  // The policy set again (the stack's TEST value, read back), and the buyer asks inside the window. Asking moves nothing.
+  const restored = await (await api(who)).get('/api/market/trpc/commerceProgramme');
+  expect(restored.body?.result?.data, JSON.stringify(restored.body).slice(0, 300)).toMatchObject({ refundPolicy: 'seller_full' });
+  const [open] = await purchasesOf(who);
+  expect(open).toMatchObject({ id: purchaseId, status: 'held' });
+  expect(Date.parse(open.refundWindowEndsAt)).toBeGreaterThan(Date.now());
   await page.goto('/market/purchases');
+  await expect(row.getByRole('button', { name: 'Ask for a refund' })).toBeEnabled();
   await expect(row.getByRole('note').filter({ hasText: 'The refund policy is not set' })).toHaveCount(0);
-  await row.getByRole('button', { name: 'Ask for a refund' }).click(UNBUILT);
+  await row.getByRole('button', { name: 'Ask for a refund' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Request refund' }).click();
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: 'Refund requested.' })).toBeVisible();
   await expect(row).toContainText('Held · refund requested');
@@ -209,7 +218,10 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   await sellerPage.getByRole('dialog').getByRole('button', { name: 'Refund the buyer' }).click();
   await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Refunded.' })).toBeVisible();
   await expect(asked).toHaveCount(0);
-  expect(toUnits((await usdt(who)).free)).toBe(toUnits(before.free) + toUnits(price));
+  // The whole price comes back: out of the held `used` and into `free`.
+  const refunded = await usdt(who);
+  expect(toUnits(refunded.free)).toBe(toUnits(before.free) + toUnits(price));
+  expect(toUnits(refunded.used)).toBe(toUnits(before.used) - toUnits(price));
   expect(await usdt(seller)).toEqual(sellerBefore);
   // Once: the seller's retry answers with the stored refund and moves nothing again.
   const retry = await (await api(seller)).post('/api/market/trpc/refund', { purchaseId });
@@ -217,7 +229,11 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   const [stored] = await purchasesOf(who);
   expect(stored).toMatchObject({ id: purchaseId, status: 'refunded', outcome: 'refund' });
   expect(stored.outcomeTxId).toBeTruthy();
-  expect(toUnits((await usdt(who)).free)).toBe(toUnits(before.free) + toUnits(price));
+  // And the buyer cannot ask again: the purchase is no longer held.
+  expect(refusedWith(await (await api(who)).post('/api/market/trpc/requestRefund', { purchaseId }))).toEqual([409, 'market.refund_not_held']);
+  const [still] = await purchasesOf(who);
+  expect(still).toMatchObject({ id: purchaseId, status: 'refunded', outcome: 'refund', outcomeTxId: stored.outcomeTxId });
+  expect(await usdt(who)).toEqual(refunded);
   expect(await usdt(seller)).toEqual(sellerBefore);
   await page.reload();
   await expect(row).toContainText('Refunded');
