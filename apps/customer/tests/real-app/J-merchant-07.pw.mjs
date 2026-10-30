@@ -103,7 +103,10 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   // above reads exactly that, not a zero it made up.
   const api = await ownerApi();
   const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
+  // "Zero per asset" for a new business: the service lists no asset at all (it lists only assets the business has
+  // held), so the page shows "No money yet" with no asset row and no figure, never a made-up zero.
   expect((await snapshot()).balances, 'a new business holds no asset yet').toEqual([]);
+  await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
   const reserveRead = await api.query('merchantControl.reserve', { merchantId });
   expect(reserveRead).toMatchObject({ rule: null, holding: 'recorded_not_withheld', payoutsRefused: false, assets: [] });
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('No reserve rule is set for your account.');
@@ -144,14 +147,16 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
       page.reload(),
     ]);
     expect(pageRead.status()).toBe(503);
-    expect(await pageRead.text()).toContain('pay.metrics_balance_unavailable');
+    const refusal = (await pageRead.json())?.error?.data;
+    expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('pay.metrics_balance_unavailable');
     await expect(page.getByTestId('failure').filter({ hasText: 'We can’t show your balances right now.' })).toHaveCount(1);
     await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
     await expect(page.getByRole('group', { name: /Balances at a glance/ })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
     await expect(page.getByText('Available to pay out')).toHaveCount(0);
     await expect(page.getByText('No money yet')).toHaveCount(0);
-    await expect(page.locator('main')).not.toContainText(/\b0\.00 USDT/);
+    // No zero in any form: "0 USDT", "0.00 USDT", "Now 0".
+    await expect(page.locator('main')).not.toContainText(/(^|[^\d.,])0(\.0+)?\s*USDT|Now\s*0\b/);
   } finally {
     // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
     tool('local-test-stack.mjs', 'start');
@@ -160,6 +165,11 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     await page.reload();
     await expect(balances.getByRole('link', { name: /^Clearing/ })).toContainText('40.00 USDT', { timeout: 3_000 });
   }).toPass({ timeout: 60_000 });
+  // The same two figures from the service once the ledger is back: the outage moved nothing.
+  expect((await snapshot()).balances).toEqual([
+    { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
+  ]);
+  await expect(balances.getByRole('link', { name: /^Available to pay out/ })).toContainText(/Now\s*0(\.0+)?\s*USDT/);
 });
 
 test(`${J} #2 reads funds moving from clearing to available: funds wait until available, and a payout of clearing money is refused without moving it`, async ({
