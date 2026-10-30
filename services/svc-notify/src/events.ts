@@ -8,6 +8,8 @@ import {
   payDepositCreditPosted,
   bankScheduledReminder,
   bankScheduledFailed,
+  copySkipped,
+  copyStopped,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -847,6 +849,51 @@ export async function subscribeNotificationEvents(
         bodyKey: 'notify.pay.transfer_sent.body',
       });
       nakIfRetryable(...(received ? [received, sent] : [sent]));
+    }),
+  );
+
+  // Copy trading (J-copy-bots-otc-03 #6): svc-trade publishes after the skip row or the stop is saved. The notice says
+  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. Inbox only.
+  attachments.push(
+    await attach(bus, 'copySkipped', copySkipped.subject, 'notify-copy-skipped', async (payload) => {
+      // A skip the follower chose (a pause or a stop) is theirs already; svc-trade does not send it, and none is written.
+      if (payload.reason === 'paused' || payload.reason === 'stopped') return;
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.followerId,
+          kind: 'trade.copy.skipped',
+          titleKey: 'notify.trade.copy_skipped.title',
+          bodyKey: `notify.trade.copy_skipped.body.${payload.reason}`,
+          params: { followId: payload.followId, leaderFillId: payload.leaderFillId },
+          href: '/trade/copy?tab=follows',
+          severity: 'action',
+          sourceSubject: copySkipped.subject,
+          // One notice per follow and leader fill, however often svc-trade sends it.
+          sourceIdempotencyKey: `${payload.followId}:${payload.leaderFillId}`,
+          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'copyStopped', copyStopped.subject, 'notify-copy-stopped', async (payload) => {
+      const variant = payload.reason === 'follower' && payload.closeOnly ? 'follower_close_only' : payload.reason;
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.followerId,
+          kind: 'trade.copy.stopped',
+          titleKey: 'notify.trade.copy_stopped.title',
+          bodyKey: `notify.trade.copy_stopped.body.${variant}`,
+          params: { followId: payload.followId },
+          href: '/trade/copy?tab=follows',
+          severity: payload.reason === 'follower' ? 'info' : 'action',
+          sourceSubject: copyStopped.subject,
+          // A stop is one-way, so one notice per follow and close-only.
+          sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
+          outOfApp: false,
+        }),
+      );
     }),
   );
 

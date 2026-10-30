@@ -5,6 +5,7 @@ import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';
+import { bpsAsPercent } from './model';
 import { Gate, Why, useWhen } from './parts';
 
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
@@ -62,13 +63,17 @@ function useReasonWords() {
   const { t } = execCopy.useCopy();
   return (reason: string | null, kind: 'halt' | 'stretch'): { text: string; code: string | null } | null => {
     if (!reason) return null;
-    const known: Record<string, string> = {
-      cancel_incomplete: t('Halt reason cancel_incomplete'),
-      user_pause: t('Stretch reason user_pause'),
-      tick_outage: t('Stretch reason tick_outage'),
+    const known: Record<'halt' | 'stretch', Record<string, string>> = {
+      halt: {
+        cancel_incomplete: t('Halt reason cancel_incomplete'),
+        chase_max_distance: t('Halt reason chase_max_distance'),
+        chase_expired: t('Halt reason chase_expired'),
+        chase_child_unaccounted: t('Halt reason chase_child_unaccounted'),
+      },
+      stretch: { user_pause: t('Stretch reason user_pause'), tick_outage: t('Stretch reason tick_outage') },
     };
-    const word = known[reason];
-    if (word && (kind === 'halt' ? reason === CANCEL_INCOMPLETE : reason !== CANCEL_INCOMPLETE)) return { text: word, code: reason };
+    const word = Object.hasOwn(known[kind], reason) ? known[kind][reason] : undefined;
+    if (word) return { text: word, code: reason };
     return { text: reason, code: null };
   };
 }
@@ -118,7 +123,21 @@ export function AlgoList({
     );
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    {
+      id: 'market',
+      header: t('Market'),
+      width: 130,
+      pin: 'start',
+      value: (r) => (r.ok ? r.parent.symbol : r.id),
+      // Every row names its schedule for assistive technology, whatever its status: a finished row has no action buttons
+      // to carry the id.
+      cell: (r) => (
+        <>
+          {r.ok ? r.parent.symbol : r.id}
+          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+        </>
+      ),
+    },
     { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
     {
       id: 'kind',
@@ -173,7 +192,12 @@ export function AlgoList({
       id: 'slices',
       header: t('Slices'),
       width: 70,
-      cell: (r) => (r.ok ? `${r.progress?.childrenEmitted ?? r.parent.childrenEmitted} / ${r.parent.slicesPlanned}` : null),
+      cell: (r) => {
+        if (!r.ok) return null;
+        const emitted = r.progress?.childrenEmitted ?? r.parent.childrenEmitted;
+        // A chase has no slice plan: it re-prices one child, so the count is the children placed so far.
+        return r.parent.kind === 'chase' ? `${emitted}` : `${emitted} / ${r.parent.slicesPlanned}`;
+      },
     },
     {
       id: 'misses',
@@ -288,24 +312,36 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
         items={[
           { label: t('Schedule id'), value: parent.id, mono: true },
           { label: t('Market'), value: `${parent.symbol}, ${parent.side === 'buy' ? t('Buy') : t('Sell')}, ${parent.kind.toUpperCase()}` },
-          {
-            label: t('Settings'),
-            value: t('{total} over {duration} s, a slice every {seconds} s', {
-              total: fmtAmount(parent.totalQty),
-              duration: String(Math.round(parent.durationMs / 1000)),
-              seconds: String(Math.round(parent.sliceIntervalMs / 1000)),
-            }),
-            hint: [
-              parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
-              parent.participationBps
-                ? parent.povBasis === 'opposite_liquidity'
-                  ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
-                  : t('{bps} bps of volume', { bps: String(parent.participationBps) })
-                : '',
-            ]
-              .filter(Boolean)
-              .join(', '),
-          },
+          parent.kind === 'chase'
+            ? {
+                label: t('Settings'),
+                value: t('{total} over {duration} s, one order that follows the book', {
+                  total: fmtAmount(parent.totalQty),
+                  duration: String(Math.round(parent.durationMs / 1000)),
+                }),
+                hint:
+                  parent.chaseMaxDistanceBps != null
+                    ? t('Maximum chase distance {pct} %', { pct: bpsAsPercent(parent.chaseMaxDistanceBps) })
+                    : undefined,
+              }
+            : {
+                label: t('Settings'),
+                value: t('{total} over {duration} s, a slice every {seconds} s', {
+                  total: fmtAmount(parent.totalQty),
+                  duration: String(Math.round(parent.durationMs / 1000)),
+                  seconds: String(Math.round(parent.sliceIntervalMs / 1000)),
+                }),
+                hint: [
+                  parent.limitPrice ? t('Limit {price}', { price: parent.limitPrice }) : t('No limit'),
+                  parent.participationBps
+                    ? parent.povBasis === 'opposite_liquidity'
+                      ? t('{bps} bps of opposite-side liquidity', { bps: String(parent.participationBps) })
+                      : t('{bps} bps of volume', { bps: String(parent.participationBps) })
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(', '),
+              },
           { label: t('Status'), value: t(`Status ${progress?.status ?? parent.status}`) },
           { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
           { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
@@ -321,6 +357,13 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
             hint: parent.triggerPrice ?? undefined,
           },
           { label: t('Last slice'), value: lastSliceWords(parent, t) },
+          ...(parent.kind === 'chase'
+            ? [
+                { label: t('Chase start price'), value: parent.chaseStartPrice ? fmtPrice(parent.chaseStartPrice, null) : null },
+                { label: t('Chase current price'), value: parent.chasePrice ? fmtPrice(parent.chasePrice, null) : null },
+                { label: t('Chase re-prices'), value: parent.chaseReprices == null ? null : String(parent.chaseReprices) },
+              ]
+            : []),
           { label: t('Slice sizes'), value: parent.randomSeed != null ? t('Random sizes', { seed: String(parent.randomSeed) }) : null },
           {
             label: t('Average fill price'),
@@ -336,7 +379,15 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
             hint: t('Counts only fills of the child orders'),
           },
           { label: t('Created'), value: when(parent.createdAt) },
-          { label: t('Next slice due'), value: parent.awaitingTrigger ? t('After the trigger price is reached') : when(parent.nextDueAt) },
+          {
+            label: t('Next slice due'),
+            value:
+              parent.kind === 'chase'
+                ? t('A chase has one order')
+                : parent.awaitingTrigger
+                  ? t('After the trigger price is reached')
+                  : when(parent.nextDueAt),
+          },
           { label: t('Projected end'), value: endWords(parent, t, when) },
         ]}
       />

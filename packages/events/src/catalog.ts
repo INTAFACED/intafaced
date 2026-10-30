@@ -2607,13 +2607,6 @@ export const WIRING_SOCKETS = [
       'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
   },
   {
-    event: 'copySkipped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). svc-trade publishes it; until svc-notify reads it, the skip log on the follow is where the person sees it.',
-  },
-  {
     event: 'copyFailed',
     missing: 'publisher',
     class: 'A',
@@ -2626,13 +2619,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the copy failure notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
-  },
-  {
-    event: 'copyStopped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). svc-trade publishes it; until svc-notify reads it, the state of the follow is where the person sees it.',
   },
   {
     event: 'payCustodyAuditCreated',

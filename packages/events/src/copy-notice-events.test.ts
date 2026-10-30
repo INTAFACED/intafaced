@@ -60,24 +60,25 @@ describe('J-copy-bots-otc-03 copy notice events', () => {
     expect(EVENT_CATALOG.copyStopped.schema.safeParse({ ...ok, closeOnly: 'yes' }).success).toBe(false);
   });
 
-  it('each subscriber socket names the key its consumer dedupes on', () => {
+  it('each event names the key its consumer dedupes on; a socket still open says it too', () => {
     const keys = { copySkipped: '(followId, leaderFillId)', copyFailed: '(followId, leaderFillId)', copyStopped: '(followId, closeOnly)' };
     for (const [k, key] of Object.entries(keys)) {
-      const sub = WIRING_SOCKETS.find((s) => s.event === k && s.missing === 'subscriber');
-      expect(sub?.reason).toContain(key);
       expect(EVENT_CATALOG[k as keyof typeof keys].description).toContain(key);
+      const sub = WIRING_SOCKETS.find((s) => s.event === k && s.missing === 'subscriber');
+      if (sub) expect(sub.reason).toContain(key);
     }
   });
 
-  it('svc-trade publishes the skip and the stop; their consumer and both ends of the failure are class A sockets', () => {
-    // The publisher is services/svc-trade/src/copy/copy-notices.ts (copy-notices.test.ts).
+  it('the skip and the stop are wired end to end; the failure is still a class A socket at both ends', () => {
+    // Published by services/svc-trade/src/copy/copy-notices.ts, read by svc-notify (events.ts, copy-notify.test.ts).
     for (const k of ['copySkipped', 'copyStopped'] as const) {
-      expect(WIRING_SOCKETS.filter((s) => s.event === k).map((s) => [s.missing, s.class])).toEqual([['subscriber', 'A']]);
-      expect(EVENT_BUS_MATRIX[k]).toEqual({ kind: 'socket', socketClass: 'A' });
+      expect(WIRING_SOCKETS.filter((s) => (s.event as string) === k)).toEqual([]);
+      expect(EVENT_BUS_MATRIX[k]).toEqual({ kind: 'live' });
     }
     expect(WIRING_SOCKETS.filter((s) => s.event === 'copyFailed').map((s) => [s.missing, s.class])).toEqual([
       ['publisher', 'A'],
       ['subscriber', 'A'],
     ]);
+    expect(EVENT_BUS_MATRIX.copyFailed).toEqual({ kind: 'socket', socketClass: 'A' });
   });
 });
