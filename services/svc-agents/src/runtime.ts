@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AgentError } from './errors.js';
+import { AgentError, MeteredReplayError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
@@ -459,12 +459,7 @@ export class AgentRuntime {
     // before price and funds, so a replay reads as a replay whatever the balance.
     const shouldMeter = shouldMeterUsage(session.metered, this.meteringEnabled);
     if (shouldMeter && (await this.meter.hasRequest(session.id, input.requestId))) {
-      const err = new AgentError(
-        `Request id "${input.requestId}" was already metered on session ${session.id}`,
-        'agents.request_id_replay',
-        'agents.error.request_id_replay',
-        { requestId: input.requestId },
-      );
+      const err = new MeteredReplayError(session.id, input.requestId);
       await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
       throw err;
     }
