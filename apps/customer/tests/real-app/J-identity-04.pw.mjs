@@ -137,9 +137,13 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   const item = (name) => checklist.getByTestId('security__row').filter({ has: page.getByText(name, { exact: true }) });
   await expect(item('A second step at sign-in')).toContainText('To do');
   await expect(item('A second step at sign-in')).toContainText('anyone who learns it can sign in');
+  // Each open method says why it matters, in its own words.
   await expect(item('A passkey')).toContainText('To do');
+  await expect(item('A passkey')).toContainText('A passkey cannot be typed into a fake site, so phishing cannot take it.');
   await expect(item('An authenticator app')).toContainText('To do');
+  await expect(item('An authenticator app')).toContainText('Six-digit codes from your phone still work when this device is lost.');
   await expect(item('Recovery codes saved')).toContainText('To do');
+  await expect(item('Recovery codes saved')).toContainText('If you lose your phone, a recovery code is how you get back in.');
   // No owner policy is set on this stack: the floor actions still carry "Required", and nothing else does.
   await expect(checklist.getByText('Required', { exact: true })).toHaveCount(2);
   await expect(item('Moving money out')).toContainText('Required');
@@ -152,7 +156,11 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('An authenticator app')).toContainText('Done');
   await expect(item('A second step at sign-in')).toContainText('Done');
   await expect(item('Recovery codes saved')).toContainText('Done');
+  // A done method no longer argues for itself; the open one still does.
+  await expect(item('An authenticator app')).not.toContainText('Six-digit codes from your phone');
+  await expect(item('A second step at sign-in')).not.toContainText('anyone who learns it can sign in');
   await expect(item('A passkey')).toContainText('To do');
+  await expect(item('A passkey')).toContainText('phishing cannot take it');
   await expect(checklist).toContainText('Always needs a second step');
 
   // A passkey after "Confirm it is you" with the code ticks the last one.
@@ -327,7 +335,7 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
   const who = person('ck');
   await signUpInBrowser(page, who);
-  await addAuthenticator(page, totp);
+  let { secret, step } = await addAuthenticator(page, totp);
 
   // With the right time: codes should work, and Replace is offered.
   await page.goto('/uc/safe');
@@ -337,10 +345,22 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await expect(ok.getByRole('status')).toContainText('so codes should work');
   await expect(ok).toContainText('Apps that sync codes');
   await expect(ok.getByRole('listitem')).toHaveCount(4);
-  // Moving to a new phone starts the card's own replace, which first confirms it is you.
+  await expect(ok.getByRole('button', { name: 'Replace', exact: true })).toBeVisible();
+  // Moving to a new phone starts the card's own replace, which first confirms it is you, then takes the new app's code.
   await ok.getByRole('button', { name: 'Move to a new phone' }).click();
   await expect(ok).toHaveCount(0);
   await expect(real.getByRole('heading', { name: 'Confirm it is you' })).toBeVisible();
+  let code;
+  ({ code, step } = await nextCode(totp, secret, step));
+  await real.getByLabel('6-digit code or a recovery code').fill(code);
+  await real.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(real).toContainText('Add this key to your new authenticator app, then enter the code it shows.');
+  const newKey = (await real.locator('code').innerText()).trim();
+  await real.getByLabel('Code from the new app').fill(totp(newKey));
+  ({ code, step } = await nextCode(totp, secret, step));
+  await real.getByLabel('Next code or a recovery code').fill(code);
+  await real.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await expect(real.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app replaced');
 
   // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
   await page.context().clock.install({ time: new Date(Date.now() + 90_000) });

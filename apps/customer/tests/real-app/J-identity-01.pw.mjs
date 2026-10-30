@@ -212,11 +212,24 @@ test(`${J} #7 and #6 Account shows "verify your email", sends a link, and the op
 });
 
 test(`${J} #6 a confirmation link with no token or a wrong one is a page with the next step, not an error code`, async ({ page }) => {
+  // The dead-link page: its name, the next step (send a new one from Account, with the link there), and no code at all.
+  const deadLinkPage = async () => {
+    await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+    const notice = page.getByRole('alert');
+    await expect(notice).toContainText('Sign in, open Account and send a new one.');
+    await expect(notice.getByRole('link', { name: 'Go to Account' })).toHaveAttribute('href', '/uc/account');
+    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
+    await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
+  };
   await page.goto('/confirm-email');
-  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+  await deadLinkPage();
   await page.goto('/confirm-email?token=not-a-real-token');
+  const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.confirmEmail'));
   await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+  // Identity refused the token by its typed code; the page turns that into words and the next step.
+  const refused = await (await answered).json();
+  expect(refused.error?.data?.intafacedCode ?? refused.error?.data?.cause?.code).toBe('auth.email_confirm_invalid');
+  await deadLinkPage();
   expect(await page.content()).not.toContain('not-a-real-token');
 });
 
