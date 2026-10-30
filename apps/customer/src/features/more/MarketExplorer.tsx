@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -63,7 +63,7 @@ export function MarketFilters({
         />
       </div>
       <div data-testid="more-toolbar" className="more-toolbar">
-        <span className="muted" role="status">
+        <span className="muted" aria-live="polite">
           {t('showing', { shown, total: rows.length })}
           {filter.vendorId ? ` · ${t('sellerFilter')}` : ''}
         </span>
@@ -87,11 +87,14 @@ export function ListingDetail({
   signedIn,
   onClose,
   onSeller,
+  children,
 }: {
   row: ListingRow;
   signedIn: boolean;
   onClose: () => void;
   onSeller: (vendorId: string) => void;
+  /** The listing's purchase controls, drawn by the Market room. */
+  children?: ReactNode;
 }) {
   const api = useApi();
   const { Copy, t } = marketExplorerCopy.useCopy();
@@ -118,6 +121,7 @@ export function ListingDetail({
           [t('listed'), when(row.createdAt)],
         ]}
       />
+      {children}
       {row.offerType === 'subscription' ? (
         <p className="muted">
           <Copy k="recurringNote" />
