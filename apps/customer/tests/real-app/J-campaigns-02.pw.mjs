@@ -1,4 +1,7 @@
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { openDesk, signIn } from './desk.mjs';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
@@ -145,6 +148,60 @@ async function waitForProgress(who, campaignId, done) {
   await expect.poll(async () => (await progressOf(who, campaignId)).completed, { timeout: 30_000 }).toBe(done);
 }
 
+/**
+ * The same fill event delivered to svc-campaigns twice more: the customer's newest trade.fill.settled on the stack's bus,
+ * published again with its payload unchanged (same fill id) under new envelope keys, so the bus does not drop it as its
+ * own duplicate and the campaign's consumer is what must hold. Returns the payload.
+ */
+function redeliverFill(userId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId } = process.env;
+    const subject = EVENT_CATALOG.fillSettled.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName(EVENT_CATALOG.fillSettled.service, prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.userId === userId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-trade', streamPrefix: prefix });
+    for (const n of [1, 2]) {
+      await bus.publish('fillSettled', payload, { idempotencyKey: payload.fillId + ':again:' + n + ':' + Date.now() });
+    }
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(root, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the fill event again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+/** Until svc-campaigns' task fill consumer has taken and acknowledged every message on the bus. */
+async function fillConsumerCaughtUp() {
+  await expect(async () => {
+    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const consumer = info.account_details
+      ?.flatMap((a) => a.stream_detail ?? [])
+      .flatMap((st) => st.consumer_detail ?? [])
+      .find((c) => c.name === 'campaigns-task-fill-settled');
+    expect(consumer?.num_pending ?? -1).toBe(0);
+    expect(consumer?.num_ack_pending ?? -1).toBe(0);
+  }).toPass({ timeout: 30_000 });
+}
+
 async function openCampaign(page, id) {
   await page.goto(`/campaigns/${encodeURIComponent(id)}`);
   await expect(page.getByTestId('campaign-detail')).toBeVisible();
@@ -180,6 +237,11 @@ test(`${J} #1 does the first step by a real trade: progress shows 1 of 3, and re
   await expect(steps.nth(0)).toHaveAttribute('data-complete', 'true');
   await expect(steps.nth(1)).toHaveAttribute('data-complete', 'false');
   await expect(steps.nth(2)).toContainText('1 of 3');
+  // The same fill event reaches svc-campaigns twice more on the bus: it is counted once.
+  const fill = redeliverFill((await api(me)).userId);
+  expect(fill).toMatchObject({ side: 'buy' });
+  await fillConsumerCaughtUp();
+  expect((await progressOf(me, campaign.id)).steps.map((s) => s.done)).toEqual([1, 0, 1]);
   // Read again: the same fill is counted once.
   await page.reload();
   await expect(page.getByTestId('task-progress')).toHaveText('1 of 3 steps done');
