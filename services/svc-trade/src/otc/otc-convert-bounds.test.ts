@@ -42,10 +42,10 @@ function codeOf(fn: () => unknown): OtcErrorCode {
   throw new Error('expected a refusal');
 }
 
-function desk(convertBoundsJson: string) {
+function desk(convertBoundsJson: string, law: OtcDeskLaw = TEST_LAW) {
   const now = () => new Date('2026-10-22T03:00:00.000Z');
   return new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
-    law: TEST_LAW,
+    law,
     midSource: createObservedOtcMidSource('BTC/USDT:200', now),
     convertBounds: parseOtcConvertBoundsJson(convertBoundsJson),
     now,
@@ -108,6 +108,13 @@ describe('OtcDeskService.convertQuote', () => {
     expect(q.midPrice).toBe('200');
     expect(q.quotedPrice).not.toBe(q.midPrice);
     expect(q.expiresAt).toBeTruthy();
+  });
+
+  it("carries the owner's settle window, and null when it is blank", async () => {
+    expect((await desk(TEST_BOUNDS_JSON, { ...TEST_LAW, settleWindowMs: 45_000 }).convertQuote(principal, input)).settleWindowMs).toBe(
+      45_000,
+    );
+    expect((await desk(TEST_BOUNDS_JSON).convertQuote(principal, input)).settleWindowMs).toBeNull();
   });
 
   it('an amount outside the bounds refuses', async () => {

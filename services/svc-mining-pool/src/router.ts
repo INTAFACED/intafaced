@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
-import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
+import { readPoolConnection } from './connection.js';
 import { DIFFICULTY, publishedDifficulty } from './env.js';
 import { EMISSION_UNPUBLISHED, WORKER_NAME } from './window-store.js';
 import { MiningError } from './errors.js';
@@ -17,7 +17,17 @@ const money = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 
 export type MiningReads = Pick<
   MiningReadStore,
-  'myWorkers' | 'setWorkerDifficulty' | 'setWorkerMode' | 'listWorkers' | 'myShares' | 'opsShares' | 'opsWindows' | 'pending' | 'myPayouts'
+  | 'myWorkers'
+  | 'setWorkerDifficulty'
+  | 'setWorkerMode'
+  | 'listWorkers'
+  | 'myShares'
+  | 'opsShares'
+  | 'opsWindows'
+  | 'pending'
+  | 'myPayouts'
+  | 'minerSecretStatus'
+  | 'issueMinerSecret'
 >;
 
 function fail(err: unknown): never {
@@ -351,6 +361,27 @@ export function createMiningRouter(
           fail(err);
         }
       }),
+    /**
+     * The caller's own miner secret, which the miner door asks for on `mining.authorize`. `status` says when the current
+     * one was issued (never the secret). `issue` makes a new one, replacing the old, and returns it this once; only its
+     * SHA-256 is kept. Issuing is a rig setting, so it needs `trade:write` as `workers.setMode` does.
+     */
+    minerSecret: router({
+      status: customer.output(z.object({ issuedAt: z.string().nullable() })).query(async ({ ctx }) => {
+        try {
+          return await reads.minerSecretStatus(ctx.principal.userId);
+        } catch (err) {
+          fail(err);
+        }
+      }),
+      issue: rigWriter.output(z.object({ secret: z.string(), issuedAt: z.string() })).mutation(async ({ ctx }) => {
+        try {
+          return await reads.issueMinerSecret(ctx.principal.userId);
+        } catch (err) {
+          fail(err);
+        }
+      }),
+    }),
     connection: signed
       .output(
         z.object({
@@ -359,8 +390,6 @@ export function createMiningRouter(
           secureUrl: z.string().nullable(),
           accountId: z.string().min(1),
           workerNamePattern: z.string().nullable(),
-          credentialOffered: z.literal(false),
-          credentialReason: z.literal(CREDENTIAL_NOT_ISSUED),
         }),
       )
       .query(({ ctx }) => {

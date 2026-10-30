@@ -1159,12 +1159,13 @@ test('fee line: this order’s rate and role from the check, and the listed pair
   await expect(buyForm(page)).toContainText('Your rates: maker 0.08% · taker 0.12%');
 });
 
-test('a frozen ledger: the service refuses the order with a generic error; the desk says orders are paused, nothing rests, Buy works again', async ({
+test('the platform posting freeze: the service refuses the order posting_frozen; the desk says orders are paused, nothing rests, Buy works again', async ({
   page,
 }) => {
   const m = await mount(page);
   await ready(page);
-  m.exchange.opts.placeMode = { status: 400, json: { code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' } };
+  // What svc-trade answers when the freeze refuses the order's first hold, before the engine.
+  m.exchange.opts.placeMode = { status: 400, json: { code: 'OnMaintenance', message: 'ledger.frozen', intafacedCode: 'posting_frozen' } };
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
   const headBefore = (await page.getByTestId('dk-bottom-head').boundingBox()).y;

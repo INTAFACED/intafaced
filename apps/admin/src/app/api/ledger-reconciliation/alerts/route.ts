@@ -1,6 +1,7 @@
 import {
   opsAlertAcknowledgeInputSchema,
   opsAlertDetailSchema,
+  opsAlertResolveInputSchema,
   opsAlertSnoozeInputSchema,
   opsAlertUnsnoozeInputSchema,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
@@ -9,10 +10,13 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { founderCall, parseWith } from '@/lib/desk/founder-call';
-import { UUID, alertKey, refusalWords, type AlertAction } from '@/lib/recon-alerts/model';
+import { UUID, alertKey, refusalWords, txIdsFrom, type AlertAction } from '@/lib/recon-alerts/model';
+import { alertWritesParked, resolveAlert } from '@/lib/recon-alerts/treasury';
 
 /**
- * Reconciliation alert writes as the signed-in founder (svc-ops `alerts.acknowledge|snooze|unsnooze`, OPS-reconciliation-03).
+ * Reconciliation alert writes as the signed-in founder (svc-ops `alerts.acknowledge|snooze|unsnooze`, OPS-reconciliation-03),
+ * and resolving with corrective ledger transactions (`alerts.resolve`, OPS-reconciliation-04), which goes on the treasury
+ * transport and only while the signed-in founder holds that credential.
  * The key is a business key built here from the move, the alert, the version the founder saw and the founder's own user id,
  * so a retry returns the stored result and two founders acting at once never share a key: svc-ops lets one win and refuses
  * the other with `ops.alert_state_illegal`. A reply that never arrived is reported as unknown and never sent again on its own.
@@ -27,6 +31,7 @@ const PROCEDURE: Readonly<Record<AlertAction, string>> = {
   acknowledge: 'alerts.acknowledge',
   snooze: 'alerts.snooze',
   unsnooze: 'alerts.unsnooze',
+  resolve: 'alerts.resolve',
 };
 
 /** A typed time with no offset is read as UTC, as the form says, never in the server's own zone. */
@@ -39,11 +44,21 @@ function utcIso(raw: unknown): string {
 
 function parseBody(raw: Record<string, unknown>, userId: string): { action: AlertAction; input: unknown } | null {
   const action = raw.action;
-  if (action !== 'acknowledge' && action !== 'snooze' && action !== 'unsnooze') return null;
+  if (action !== 'acknowledge' && action !== 'snooze' && action !== 'unsnooze' && action !== 'resolve') return null;
   if (typeof raw.alertId !== 'string' || !UUID.test(raw.alertId)) return null;
   if (typeof raw.version !== 'number' || !Number.isInteger(raw.version) || raw.version < 1) return null;
   const alertId = raw.alertId.toLowerCase();
   const idempotencyKey = alertKey(action, alertId, raw.version, userId);
+  if (action === 'resolve') {
+    const note = typeof raw.note === 'string' ? raw.note.trim() : '';
+    const parsed = opsAlertResolveInputSchema.safeParse({
+      alertId,
+      correctiveTxIds: typeof raw.txIds === 'string' ? txIdsFrom(raw.txIds) : [],
+      ...(note ? { note } : {}),
+      idempotencyKey,
+    });
+    return parsed.success ? { action, input: parsed.data } : null;
+  }
   const schema =
     action === 'acknowledge'
       ? opsAlertAcknowledgeInputSchema
@@ -78,11 +93,31 @@ export async function POST(request: Request) {
     return adminSessionErrorResponse(error instanceof AdminSessionError ? error : new AdminSessionError('admin.json_required', 400));
   }
   const body = parseBody(raw, session.session.userId);
-  if (!body) return answer({ ok: false, code: 'admin.alert_input', message: 'That alert request is not one this console sends.' }, 400);
+  if (!body)
+    return answer(
+      {
+        ok: false,
+        code: 'admin.alert_input',
+        message:
+          raw.action === 'resolve'
+            ? 'Give 1 to 20 corrective transaction ids from the ledger, separated by commas or spaces. Nothing was sent.'
+            : 'That alert request is not one this console sends.',
+      },
+      400,
+    );
 
-  const result = await founderCall(session, 'ops', PROCEDURE[body.action], 'POST', body.input, parseWith(opsAlertDetailSchema));
+  if (body.action === 'resolve') {
+    const parked = alertWritesParked(session);
+    if (parked) return answer({ ok: false, code: parked.code, message: parked.title, detail: parked.body }, 409);
+  }
+  const result =
+    body.action === 'resolve'
+      ? await resolveAlert(opsAlertResolveInputSchema.parse(body.input))
+      : await founderCall(session, 'ops', PROCEDURE[body.action], 'POST', body.input, parseWith(opsAlertDetailSchema));
   switch (result.kind) {
     case 'ok':
+      if (result.data.alert.id !== (body.input as { alertId: string }).alertId)
+        return answer({ ok: false, unknown: true, message: 'svc-ops answered for a different alert. Reload to see what was stored.' }, 502);
       return answer({ ok: true, alert: result.data.alert }, 200);
     case 'forbidden':
       return answer(
@@ -90,7 +125,10 @@ export async function POST(request: Request) {
           ok: false,
           code: result.refusal.code,
           message:
-            refusalWords(result.refusal.code) ?? 'svc-ops did not accept this session for that. It needs admin:write and a second factor.',
+            refusalWords(result.refusal.code) ??
+            (body.action === 'resolve'
+              ? 'svc-ops did not accept the treasury credential for that. It needs admin:treasury.'
+              : 'svc-ops did not accept this session for that. It needs admin:write and a second factor.'),
         },
         403,
       );

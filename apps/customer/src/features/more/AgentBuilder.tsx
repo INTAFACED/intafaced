@@ -115,6 +115,8 @@ export function NewAgent() {
   const { t } = agentBuilderCopy.useCopy();
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
+  // Kept on the page only: nothing drafts from it or saves it until the owner chooses the model.
+  const [description, setDescription] = useState('');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
   // press made, rather than a second one. Each visit to the picker is a new draft.
   const visit = useRef(`picker:${crypto.randomUUID()}`);
@@ -144,6 +146,7 @@ export function NewAgent() {
         <p role="note">
           {t('assistantBlocked')} <code lang="zxx">owner.decision</code>
         </p>
+        <TextArea label={t('describeAgent')} value={description} maxLength={4000} onChange={setDescription} />
         <Button disabled>{t('draftIt')}</Button>
       </Panel>
     </div>

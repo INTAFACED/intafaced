@@ -6,6 +6,10 @@
 //   INTAFACED_JOIN_HOST=https://join.intafaced.com node apps/customer/deployment/host-dispatch.mjs [--out file]
 //
 // Only GET requests go out, to hosts the owner named. No secret is read and the receipt holds no user data.
+//
+// LOCAL TEST (`--local-test --out <file>`, the local test stack only): the hosts are the stack's own loopback sites,
+// http://127.0.0.1:<port>, and the receipt says `test: true`. It refuses unless APP_ENV is exactly dev or test, never
+// writes the deployment receipt the build publishes, and with a blank or malformed host writes nothing at all.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -19,6 +23,7 @@ const PROXY_PROBE = 'host-dispatch.probe';
 const TIMEOUT_MS = 10_000;
 
 export const hostCode = (suffix) => `host.${suffix}`;
+export const LOCAL_TEST_APP_ENVS = ['dev', 'test'];
 
 /** Same rules as apps/mobile/scripts/native-origin.cjs: an HTTPS origin with no credentials, path, query or fragment. */
 export function hostOrigin(role, value) {
@@ -30,6 +35,30 @@ export function hostOrigin(role, value) {
     return { code: hostCode(`${role}_invalid`) };
   }
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    return { code: hostCode(`${role}_invalid`) };
+  }
+  return { origin: url.origin };
+}
+
+/** LOCAL TEST only: a loopback http origin with a port (the stack's own sites), nothing else. */
+export function localTestOrigin(role, value) {
+  if (!value?.trim()) return { code: hostCode(`${role}_unset`) };
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return { code: hostCode(`${role}_invalid`) };
+  }
+  if (
+    url.protocol !== 'http:' ||
+    url.hostname !== '127.0.0.1' ||
+    !url.port ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
     return { code: hostCode(`${role}_invalid`) };
   }
   return { origin: url.origin };
@@ -54,9 +83,30 @@ async function get(fetchImpl, origin, path, timeoutMs, { anyStatus = false } = {
 
 const notServed = (role, origin, why) => ({ role, host: origin, result: hostCode('not_served'), detail: why });
 
-async function checkApex(fetchImpl, origin, timeoutMs) {
-  const got = await get(fetchImpl, origin, '/', timeoutMs);
+/** What the apex build publishes at APEX_DESCRIPTOR_PATH, as the customer build publishes /customer-deployment.json. */
+export const APEX_DESCRIPTOR_PATH = '/apex-deployment.json';
+export const APEX_PRODUCT = 'intafaced-apex';
+
+/**
+ * The apex serves its own build: `/` answers and its descriptor names the apex product. The customer and invitation
+ * servers answer an unknown path with their index, which is not a descriptor. A descriptor carrying `test` is the local
+ * stack's stand-in, accepted only in LOCAL TEST mode.
+ */
+async function checkApex(fetchImpl, origin, timeoutMs, localTest) {
+  const wrong = (detail) => ({ role: 'apex', host: origin, result: hostCode('apex_wrong_build'), detail });
+  const index = await get(fetchImpl, origin, '/', timeoutMs);
+  if (index.failed) return notServed('apex', origin, index.failed);
+  const got = await get(fetchImpl, origin, APEX_DESCRIPTOR_PATH, timeoutMs, { anyStatus: true });
   if (got.failed) return notServed('apex', origin, got.failed);
+  let descriptor;
+  try {
+    descriptor = got.status >= 200 && got.status <= 299 ? JSON.parse(got.body) : null;
+  } catch {
+    descriptor = null;
+  }
+  if (descriptor?.product !== APEX_PRODUCT) return wrong('the apex host publishes no apex descriptor');
+  if (descriptor.test !== undefined && descriptor.test !== false && !localTest)
+    return wrong('the apex descriptor is the local test stand-in');
   return { role: 'apex', host: origin, result: 'served', buildId: buildIdOf(got.body) };
 }
 
@@ -137,8 +187,10 @@ function writeReceipt(file, receipt) {
 }
 
 /**
- * Returns { ok, hosts, receipt }. `fetchImpl` is injectable so tests can point each HTTPS host at a stub server.
- * Nothing is fetched when any host setting is blank or malformed.
+ * Returns { ok, hosts, receipt, written }. `fetchImpl` is injectable so tests can point each HTTPS host at a stub server.
+ * Nothing is fetched when any host setting is blank or malformed. `localTest` checks the local stack's loopback sites
+ * (see the header): outside a dev or test APP_ENV it refuses with `host.local_test_refused`, and it writes a receipt
+ * only when every host setting was usable, never to the deployment receipt.
  */
 export async function runHostDispatch({
   env = process.env,
@@ -146,48 +198,57 @@ export async function runHostDispatch({
   receiptFile = DEFAULT_RECEIPT,
   now = () => new Date(),
   timeoutMs = TIMEOUT_MS,
+  localTest = false,
 } = {}) {
   const checkedAt = now().toISOString();
+  if (localTest && (!LOCAL_TEST_APP_ENVS.includes(env.APP_ENV) || resolve(receiptFile) === DEFAULT_RECEIPT)) {
+    const hosts = [{ role: 'all', host: null, result: hostCode('local_test_refused') }];
+    return { ok: false, hosts, receipt: null, written: false };
+  }
   const refused = [];
   const origins = {};
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
     refused.push({ role: 'all', host: null, result: hostCode('tls_verification_disabled') });
   }
   for (const role of ROLES) {
-    const parsed = hostOrigin(role, env[SETTINGS[role]]);
+    const parsed = (localTest ? localTestOrigin : hostOrigin)(role, env[SETTINGS[role]]);
     if (parsed.code) refused.push({ role, host: null, result: parsed.code });
     else origins[role] = parsed.origin;
   }
+  if (localTest && refused.length > 0) return { ok: false, hosts: refused, receipt: null, written: false };
   let hosts;
   if (refused.length > 0) {
     hosts = refused;
   } else {
     hosts = await Promise.all([
-      checkApex(fetchImpl, origins.apex, timeoutMs),
+      checkApex(fetchImpl, origins.apex, timeoutMs, localTest),
       checkApp(fetchImpl, origins.app, timeoutMs),
       checkJoin(fetchImpl, origins.join, timeoutMs),
     ]);
   }
   const ok = hosts.length === ROLES.length && hosts.every((host) => host.result === 'served');
   const receipt = { schemaVersion: RECEIPT_SCHEMA_VERSION, checkedAt, status: ok ? 'served' : 'refused', hosts };
-  if (!ok) {
+  if (localTest) receipt.test = true;
+  else if (!ok) {
     const previous = readPrevious(receiptFile);
     const lastGood = previous?.status === 'served' ? previous : previous?.lastGood;
     if (lastGood) receipt.lastGood = { ...lastGood, lastGood: undefined, stale: true, staleSince: lastGood.staleSince ?? checkedAt };
   }
   writeReceipt(receiptFile, receipt);
-  return { ok, hosts, receipt };
+  return { ok, hosts, receipt, written: true };
 }
 
 async function main() {
   const flag = process.argv.indexOf('--out');
+  const localTest = process.argv.includes('--local-test');
   const receiptFile = flag > 0 ? resolve(process.argv[flag + 1] ?? '') : DEFAULT_RECEIPT;
-  const { ok, hosts } = await runHostDispatch({ receiptFile });
+  const { ok, hosts, written } = await runHostDispatch({ receiptFile, localTest });
+  const label = localTest ? 'host dispatch (TEST):' : 'host dispatch:';
   for (const host of hosts) {
-    console.log(`host dispatch: ${host.role} ${host.host ?? '(not checked)'} ${host.result}${host.detail ? ` (${host.detail})` : ''}`);
+    console.log(`${label} ${host.role} ${host.host ?? '(not checked)'} ${host.result}${host.detail ? ` (${host.detail})` : ''}`);
   }
-  console.log(`host dispatch: receipt ${receiptFile}`);
-  process.exit(ok ? 0 : 1);
+  console.log(`${label} ${written ? `receipt ${receiptFile}` : 'no receipt written'}`);
+  process.exit(ok ? 0 : hosts.some((host) => host.result === hostCode('local_test_refused')) ? 2 : 1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

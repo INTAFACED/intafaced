@@ -9,13 +9,15 @@
  * holds and no second sell can exist. Once that order has settled (filled, cancelled, expired or rejected) the key's
  * close is done, and a later close of what is open again is the next attempt, `<key>#<n>`. A typed refusal of the
  * place removes the row, since nothing was placed; any other failure keeps it, and the position reads as closing until
- * a retry settles it.
+ * a retry settles it. A key already recorded by a close this follow cannot read back (its copied buy no longer joins)
+ * is refused with `trade.copy_close_conflict`: nothing is placed under a record that is not this close's.
  */
 import { createHash } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { COPY_MIRROR_CLIENT_ORDER_ID_MAX, type PlaceFollowerOrderPort } from './auto-mirror-place.js';
+import { CopyCloseError } from './copy-close-errors.js';
 import { protectionFloor, type FollowerFlattenPortDeps } from './follower-flatten-port.js';
 import { isCopySkipRefusal } from './skip-log.js';
 import { orderIdFor } from '../spot/ids.js';
@@ -163,12 +165,14 @@ export function createCopyClosePort(
     }
   }
 
+  async function resume(principal: Principal, record: CopyCloseRecord): Promise<{ orderId: string }> {
+    if (await orderExists(record)) return { orderId: record.followerOrderId };
+    return send(principal, record);
+  }
+
   return {
     latest,
-    async resume(principal, record) {
-      if (await orderExists(record)) return { orderId: record.followerOrderId };
-      return send(principal, record);
-    },
+    resume,
     async place(principal, input) {
       const priced = await protectionFloor(deps, { symbol: input.symbol, baseAsset: input.baseAsset, qty: input.qty }, now());
       const clientOrderId = copyCloseClientOrderId(input.closeKey);
@@ -192,7 +196,10 @@ export function createCopyClosePort(
       `;
       if (inserted.length === 0) {
         const prior = await latest(input.followId, input.closeKey);
-        if (prior?.record.closeKey === input.closeKey) return this.resume(principal, prior.record);
+        if (prior?.record.closeKey === input.closeKey) return resume(principal, prior.record);
+        // The key is recorded, but not as a close this follow reads back (its copied buy no longer joins): sending would
+        // place a sell whose quantity and price are not the recorded ones. Refuse; nothing is placed and the row stays.
+        throw new CopyCloseError('This position cannot be closed right now. Nothing was sold.', 'trade.copy_close_conflict');
       }
       return send(principal, record);
     },
