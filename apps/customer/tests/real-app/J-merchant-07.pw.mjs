@@ -636,7 +636,7 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   const refused = refusedPayCalls(page);
 
   // From the posted settlement on Settlements, to its payout, to the payout form on that settlement.
-  await signInOwner(page, '/pay/settlements');
+  const owner = await signInOwner(page, '/pay/settlements');
   // A row names a settlement by its day; its Open link carries the settlement's id.
   await page.getByRole('row').locator(`a[href="/pay/settlements/${settlement}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/pay/settlements/${settlement}$`));
@@ -659,12 +659,17 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   await expect(factIn(main, 'Approval')).toHaveText(APPROVAL_RULE);
   await expect(main.getByText('This is more than you have left of today’s payout limit', { exact: false })).toHaveCount(0);
 
-  // Pressing Pay out opens the review: the same whole net, the destination, the limit and the approval rule. It is
-  // closed without sending (#7 sends).
+  // Pressing Pay out asks the owner to confirm it's them, then opens the review: the same whole net, the destination,
+  // the limit and the approval rule. It is closed without sending (#7 sends).
   const payOut = main.getByRole('button', { name: 'Pay out', exact: true });
   await expect(payOut).toBeEnabled();
   await payOut.click();
-  const review = page.getByRole('dialog');
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" });
+  const payCode = await nextCode(owner.totp, owner.secret, owner.step);
+  run.write({ owner: saved({ ...owner, step: payCode.step }) });
+  await confirm.getByLabel('6-digit code from your authenticator app').fill(payCode.code);
+  await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Review: Pay out' });
   await expect(factIn(review, 'Amount')).toHaveText(new RegExp(`^${usdtText(posted.net)}$`));
   await expect(factIn(review, 'Goes to')).toContainText(dest.destinationMasked);
   await expect(factIn(review, 'Today’s payout limit')).toHaveText(new RegExp(`^${usdtText(roomy.remaining)} left today$`));
