@@ -85,12 +85,21 @@ test(`${J} #3 turns on sync for symbol, interval, crosshair and date range in on
   const at = await cell(page, 0).getAttribute('data-crosshair');
   for (const i of [1, 2]) await expect(cell(page, i)).toHaveAttribute('data-crosshair', at);
   await expect(cell(page, 3)).not.toHaveAttribute('data-crosshair', at);
-  // Date range: zooming chart 1 moves charts 2 and 3 to the same range.
+  // Date range: zooming chart 1 moves charts 2 and 3 to the same range; chart 4 keeps its own.
+  const unzoomed = await cell(page, 0).getAttribute('data-range');
   await canvasOf(page, 0).focus();
   await page.keyboard.press('+');
   await page.keyboard.press('+');
-  await expect.poll(async () => cell(page, 1).getAttribute('data-range')).toBe(await cell(page, 0).getAttribute('data-range'));
-  await expect.poll(async () => cell(page, 2).getAttribute('data-range')).toBe(await cell(page, 0).getAttribute('data-range'));
+  // Each zoom lands a moment after its key, so chart 1's range is read again on every poll, never once up front.
+  const ranges = async () => Promise.all([0, 1, 2, 3].map((i) => cell(page, i).getAttribute('data-range')));
+  await expect
+    .poll(async () => {
+      const [first, second, third] = await ranges();
+      return first !== unzoomed && second === first && third === first;
+    })
+    .toBe(true);
+  const [zoomed, , , own] = await ranges();
+  expect(own).not.toBe(zoomed);
 });
 
 test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar by bar and the real bars are untouched`, async ({
