@@ -95,6 +95,7 @@ function stubBank(overrides: Partial<Record<string, unknown>> = {}) {
       ...(overrides.earn as object | undefined),
     },
     loans: {
+      originationFeeBps: '0',
       accrue: async () => ({ loanId: '00000000-0000-4000-8000-000000000002', charged: 0n, days: [] as string[] }),
       accrueAll: async () => ({ results: [], failures: [] }),
       runRiskSweep: async () => ({ marked: 0, called: 0, liquidated: 0, cleared: 0, refused: [] }),
@@ -323,6 +324,7 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
     let ran = false;
     const bank = stubBank({
       loans: {
+        originationFeeBps: '0',
         accrueAll: async () => {
           ran = true;
           return { results: [], failures: [] };
@@ -347,6 +349,7 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
     let ran = false;
     const bank = stubBank({
       loans: {
+        originationFeeBps: '0',
         runRiskSweep: async () => {
           ran = true;
           return { marked: 0, called: 0, liquidated: 0, cleared: 0, refused: [] };
@@ -367,6 +370,7 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
     let ran = false;
     const bank = stubBank({
       loans: {
+        originationFeeBps: '0',
         runRiskSweep: async () => {
           ran = true;
           return { marked: 1, called: 0, liquidated: 0, cleared: 0, refused: [] };
@@ -511,6 +515,7 @@ describe('svc-bank mount — treasury value mutates identity consume', () => {
         },
       },
       loans: {
+        originationFeeBps: '0',
         fundReserve: async () => {
           calls.push('fundReserve');
           return { ledgerTxId: 'tx-reserve' };
@@ -664,6 +669,7 @@ describe('svc-bank mount — treasury value mutates identity consume', () => {
     let swept = 0;
     const bank = stubBank({
       loans: {
+        originationFeeBps: '0',
         runRiskSweep: async () => {
           swept += 1;
           return { marked: 0, called: 0, liquidated: 0, cleared: 0, refused: [] };

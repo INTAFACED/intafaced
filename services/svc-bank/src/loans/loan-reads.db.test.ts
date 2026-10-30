@@ -97,6 +97,7 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
   function services(reads: { payoffFee?: string | null; payoffWindowMinutes?: string | null; statementSecret?: string | null } = {}) {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       loans: {
+        originationFeeBps: '0',
         priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW),
         payoffFee: reads.payoffFee === undefined ? '0' : reads.payoffFee,
         payoffWindowMinutes: reads.payoffWindowMinutes === undefined ? '15' : reads.payoffWindowMinutes,

@@ -181,7 +181,7 @@ describe('LoanService.open refuses a missing mark before any post', () => {
 
   it('bank.mark_missing — no loan row, no lock, no draw', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({}, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({}, () => NOW) },
     });
     const product = await seedProduct(bank, ledger);
 
@@ -241,7 +241,7 @@ describe('HTTP /trpc/loans.open — originate through ledger-client', () => {
 
   it('with a mark, posts lock then draw — no invented rate', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const product = await seedProduct(bank, ledger);
     const app = await mountDoors(bank);
