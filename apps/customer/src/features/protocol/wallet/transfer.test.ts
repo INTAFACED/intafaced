@@ -76,3 +76,16 @@ describe('readScan', () => {
     expect(receivePayload(FRIEND)).toBe(`ethereum:${FRIEND}@84532`);
   });
 });
+
+describe('tokenLabel', () => {
+  it('shows the address when two names look the same, including lookalikes', async () => {
+    const { tokenLabel } = await import('./transfer');
+    const real = { address: '0x00000000000000000000000000000000000a11ce', name: 'USD Coin' };
+    const copy = { address: '0x000000000000000000000000000000000000bad0', name: 'USD​Coin' };
+    const wide = { address: '0x000000000000000000000000000000000000bad1', name: 'ＵＳＤ Coin' };
+    const other = { address: '0x00000000000000000000000000000000000b0b00', name: 'TEST Token B' };
+    expect(tokenLabel(real, [real, other])).toBe('USD Coin');
+    expect(tokenLabel(real, [real, copy])).toBe('USD Coin (0x0000…11ce)');
+    expect(tokenLabel(wide, [real, wide])).toBe('ＵＳＤ Coin (0x0000…bad1)');
+  });
+});

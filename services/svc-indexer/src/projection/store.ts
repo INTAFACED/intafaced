@@ -187,15 +187,16 @@ export interface ProjectionStore {
    * Orphan every canonical block at or above `height` and delete what they
    * wrote. Atomic, for the same reason.
    *
-   * Block rows are kept (marked `orphaned`) rather than deleted, until `prune`
-   * ages them out: a projection that silently forgets it ever served a price
-   * cannot afterwards explain what a user saw.
+   * Block rows are kept (marked `orphaned`) rather than deleted: a projection
+   * that silently forgets it ever served a price cannot afterwards explain what
+   * a user saw, and the explorer lists a reorged block with its badge.
    */
   unwindTo(height: number): Promise<UnwindOutcome>;
 
   /**
    * Collapse superseded versions at or below `throughHeight`, keeping the
-   * newest version of every key, and drop orphan block records that old.
+   * newest version of every key. Orphaned block records are not pruned: unwind
+   * already deleted what they wrote, and the explorer keeps showing them.
    *
    * `throughHeight` is the finality horizon: below it we accept we will not be
    * unwinding, so the history that only existed to make an unwind possible has

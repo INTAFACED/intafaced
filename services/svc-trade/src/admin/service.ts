@@ -64,6 +64,8 @@ import { feeScheduleAt, feeScheduleHistory, latestFeeScheduleVersion, type FeeSc
 import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
+import { CopyBotsOtcAdmin } from './copy-bots-otc.js';
+import type { OtcDeskLaw } from '../otc/desk-law.js';
 
 export interface TradeOpsDeps {
   readonly sql: Sql;
@@ -79,6 +81,10 @@ export interface TradeOpsDeps {
   readonly feeSchedule?: OwnerFeeSchedule;
   /** The VIP proof key (TRADE_VIP_PROOF_KEY). Absent or null: proofs cannot be opened. */
   readonly vipProofKey?: Buffer | null;
+  /** The quote desk law (TRADE_OTC_DESK_LAW), for settle deadlines. Absent: unpublished, so the quote desk read refuses. */
+  readonly otcLaw?: OtcDeskLaw;
+  /** TRADE_OPS_METRICS_WINDOW_SECONDS, parsed. Absent or null: the module counts refuse. */
+  readonly metricsWindowSeconds?: number | null;
   readonly now?: () => Date;
 }
 
@@ -121,8 +127,16 @@ export class TradeOpsAdmin {
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
   /** VIP application review and trial grants (SP-fees-vip-04, J-cex-spot-10 #7). */
   readonly vipApplications: VipReviewAdmin;
+  /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
+  readonly copyBotsOtc: CopyBotsOtcAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.copyBotsOtc = new CopyBotsOtcAdmin({
+      sql: deps.sql,
+      otcLaw: deps.otcLaw ?? { published: false },
+      metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
+      now: () => nowOf(deps),
+    });
     this.vipApplications = new VipReviewAdmin({
       sql: deps.sql,
       approvals: deps.approvals,

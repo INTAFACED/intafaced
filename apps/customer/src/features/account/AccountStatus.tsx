@@ -6,6 +6,7 @@ import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
 import { verificationCapabilitiesCopy } from './verification-capabilities-copy';
+import { AccountAppeals } from './AccountAppeals';
 
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
@@ -83,6 +84,7 @@ export function AccountStatus() {
             <RestrictionList restrictions={status.restrictions} />
           </>
         )}
+        <AccountAppeals restrictions={status.restrictions} />
       </div>
     );
   };
@@ -169,7 +171,7 @@ export function RestrictionList({
             )}
           </strong>{' '}
           {reason(r)} {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
-          {r.kind === 'trading_restricted' && <Copy k="blocksNothing_trading_restricted" />}
+          {r.kind === 'trading_restricted' && <Copy k="stops_trading_restricted" />}
           {r.kind === 'capability_off' && <Copy k={r.blocks.length > 0 ? 'capabilityStops' : 'capabilityStopsNothing'} />} {lift(r)}
         </li>
       ))}
