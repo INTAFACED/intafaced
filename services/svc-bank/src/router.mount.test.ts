@@ -284,6 +284,40 @@ describe('svc-bank mount — ops job kill switches (earn / loan / risk)', () => 
     expect(ran).toBe(true);
   });
 
+  it('ops.accrueInterest refuses a day that has not begun, for one pool or all, and never runs', async () => {
+    let ran = false;
+    const bank = stubBank({
+      earn: {
+        accrueAll: async () => {
+          ran = true;
+          return { results: [], failures: [] };
+        },
+        accrue: async () => {
+          ran = true;
+          return { poolId: POOL, date: '2026-01-01', paid: 0n, recipients: 0, alreadyAccrued: false };
+        },
+      },
+    });
+    const caller = createBankRouter(bank, { interestAccrualEnabled: true }).createCaller(jobCaller());
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const tomorrowStart = new Date(`${tomorrow.toISOString().slice(0, 10)}T00:00:00.000Z`).toISOString();
+
+    for (const input of [{ at: tomorrowStart }, { poolId: POOL, at: tomorrowStart }]) {
+      await expect(caller.ops.accrueInterest(input)).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        cause: { code: 'bank.accrual_day_not_begun' },
+      });
+    }
+    expect(ran).toBe(false);
+
+    // Today has begun, so a late hour of today is paid.
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(caller.ops.accrueInterest({ poolId: POOL, at: `${today}T23:59:59.000Z` })).resolves.toMatchObject({
+      results: [{ poolId: POOL }],
+    });
+    expect(ran).toBe(true);
+  });
+
   it('ops.accrueLoanInterest refuses when loanAccrualEnabled is false, and never runs', async () => {
     let ran = false;
     const bank = stubBank({
