@@ -181,8 +181,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
     // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
     // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
-    // J-developer-03 can show the fourth refused.
-    IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+    // J-developer-03 can show the fourth refused. `LOCAL_STACK_IDENTITY_KEY_CAP=off` on a start or restart leaves it
+    // blank, so J-developer-03 #8 can see that refusal too.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
+      ? {}
+      : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
