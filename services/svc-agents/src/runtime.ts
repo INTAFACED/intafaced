@@ -160,6 +160,12 @@ export interface ThinkInput {
   readonly messages: readonly { role: 'user' | 'assistant'; content: string }[];
   readonly maxOutputTokens?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Set only by the team run route (team/runs.ts), after it read the member's business membership and runner role. A
+   * team session's hold refuses without it, so no other route can run on a team session, whatever request id it sends.
+   * Never taken from a request body.
+   */
+  readonly teamRun?: boolean;
 }
 
 export interface ThinkResult {
@@ -618,6 +624,7 @@ export class AgentRuntime {
           amount: formatAmount(worstCaseCost),
           agentCap: agentCapOf(session.guardrail),
           overageGrace: this.overageGrace,
+          teamRun: input.teamRun === true,
           ...(fundsRead ? { funds: fundsRead } : {}),
         });
         // A committed hold is a metered replay. Metering-off must not invent
@@ -655,6 +662,7 @@ export class AgentRuntime {
             amount: formatAmount(worstCaseCost),
             agentCap: agentCapOf(session.guardrail),
             overageGrace: this.overageGrace,
+            teamRun: input.teamRun === true,
             ...(fundsRead ? { funds: fundsRead } : {}),
           });
         }

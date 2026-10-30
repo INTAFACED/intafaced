@@ -118,7 +118,7 @@ if (!available) {
       revision,
     });
   const hold = (userId: string, sessionId: string, key: string, amount: string) =>
-    spend.reserve({ userId, sessionId, reservationKey: key, assetId: 'IFC', amount, agentCap: '100' });
+    spend.reserve({ userId, sessionId, reservationKey: key, assetId: 'IFC', amount, agentCap: '100', teamRun: true });
   const held = async () => {
     const [row] = await sql<Array<{ total: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS total FROM agents.spend_reservations WHERE status = 'held'`;
@@ -128,6 +128,34 @@ if (!available) {
     store.setGrant({ actorUserId: OWNER, businessId: BUSINESS, memberUserId, role, allow: true, deny: false, revision: 1 });
 
   describe('a team hold', () => {
+    it('refuses a run on a team session from any route but the team run route, whatever request id it sends', async () => {
+      await pool('3', [
+        [ANA, '2'],
+        [BEN, '1'],
+      ]);
+      // Another route (own.run, complete) reaches the spend gate without the team route's flag: a hand-made `team:`
+      // key does not stand in for the membership and role read.
+      for (const key of ['team:forged', 'plain-key']) {
+        await expect(
+          spend.reserve({ userId: ANA, sessionId: ANA_SESSION, reservationKey: key, assetId: 'IFC', amount: '0.5', agentCap: '100' }),
+        ).rejects.toMatchObject({ code: 'agents.session_not_found' });
+      }
+      // The flag alone does not either: the team route's key carries its prefix.
+      await expect(
+        spend.reserve({
+          userId: ANA,
+          sessionId: ANA_SESSION,
+          reservationKey: 'plain',
+          assetId: 'IFC',
+          amount: '0.5',
+          agentCap: '100',
+          teamRun: true,
+        }),
+      ).rejects.toMatchObject({ code: 'agents.session_not_found' });
+      expect(await held()).toBe(0n);
+      expect((await hold(ANA, ANA_SESSION, 'team:a1', '0.5')).status).toBe('held');
+    });
+
     it("refuses a run past the member's allocation and keeps the pool within its limit", async () => {
       await pool('3', [
         [ANA, '2'],

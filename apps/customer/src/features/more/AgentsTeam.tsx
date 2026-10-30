@@ -16,7 +16,7 @@ import {
   type AgentsTeamView,
 } from '@intafaced/contracts/agents-team';
 import { ownAgentSchema } from '@intafaced/contracts/agents-own';
-import type { ApiResult } from '../../shared/api';
+import type { ApiResult, RefusalReason } from '../../shared/api';
 import { businessListSchema } from '../money/business-schema';
 import { Checkbox } from '@intafaced/ui';
 import { useResource } from '../../shared/resource';
@@ -75,6 +75,9 @@ const refusalCodeOf = (failed: Refusal): string =>
   /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : (failed.code ?? 'unknown');
 
 /** A refusal said in the room's own words, never the service's text, with its code beside them. */
+
+/** A refusal that may hide an answer the service already gave: the next press resends the same run. */
+const ANSWER_UNKNOWN = new Set<RefusalReason>(['unreachable', 'aborted', 'uncertain', 'invalid_response']);
 function RefusalText({ failed }: { failed: Refusal }) {
   const { t } = agentsTeamCopy.useCopy();
   const code = refusalCodeOf(failed);
@@ -203,8 +206,12 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [rolesNote, setRolesNote] = useState<Note | null>(null);
   const [override, setOverride] = useState<Record<string, boolean>>({});
-  // A saved tick stays shown until the team is read again, so the box never flips back to the old value in between.
-  useEffect(() => setOverride({}), [team]);
+  // A saved tick stays shown, and the boxes stay locked, until the team is read again: the box never flips back to the
+  // old value in between, and the next change is sent on the grant's new version, never the one just used.
+  useEffect(() => {
+    setOverride({});
+    setBusy(false);
+  }, [team]);
 
   /** Saves one member's allow and deny for one role as that grant's next change. */
   async function saveGrant(memberUserId: string, role: Role, allow: boolean, deny: boolean, version: number) {
@@ -215,7 +222,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
       { businessId, memberUserId, role, allow, deny, revision: version + 1 },
       agentsTeamGrantResultSchema,
     );
-    setBusy(false);
+    if (!result.ok) setBusy(false);
     setRolesNote(result.ok ? { ok: true, text: t('saved') } : { ok: false, failed: result as Refusal });
     // A refused change shows the stored value again at once; a saved one keeps its tick until the reload lands.
     if (!result.ok) setOverride({});
@@ -496,8 +503,10 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   const [reply, setReply] = useState<z.infer<typeof agentsTeamRunResultSchema> | null>(null);
   const [note, setNote] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
-  // One key per run asked on this page: a retried press after a lost answer is the same run, never a second one.
-  const runKey = useRef<string | null>(null);
+  // Each run of a session is keyed by the session and its number there, a business key. A press after a lost or
+  // unread answer sends the same key, so the service answers it as that run (a replay), never as a second charge; the
+  // number moves on only once the service gave its answer or its typed refusal.
+  const runCount = useRef(0);
 
   async function open() {
     setBusy(true);
@@ -506,22 +515,23 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
     setReply(null);
     if (result.ok) {
       setSession(result.data.sessionId);
+      runCount.current = 0;
       setNote(null);
     } else setNote({ ok: false, failed: result as Refusal });
   }
   async function run(event: FormEvent) {
     event.preventDefault();
     if (!session) return;
-    runKey.current ??= crypto.randomUUID();
+    const requestId = `run:${session}:${runCount.current + 1}`;
     setBusy(true);
     const result = await api.mutate(
       'agents',
       'team.runs.run',
-      { businessId, sessionId: session, requestId: runKey.current, ask },
+      { businessId, sessionId: session, requestId, ask },
       agentsTeamRunResultSchema,
     );
     setBusy(false);
-    runKey.current = null;
+    if (result.ok || !ANSWER_UNKNOWN.has(result.reason)) runCount.current += 1;
     if (result.ok) {
       setReply(result.data);
       setNote(null);
@@ -615,7 +625,8 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
   const [note, setNote] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
   const rows = held.resource.status === 'ready' ? held.resource.data : [];
-  const nextSeq = rows.length + 1;
+  // The list is newest first; the next proposal is the latest number plus one, whatever the list's length.
+  const nextSeq = (rows[0]?.seq ?? 0) + 1;
 
   async function propose(event: FormEvent) {
     event.preventDefault();
@@ -689,7 +700,7 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
             />
             <Select label={t('proposeTool')} value={chosenTool} onChange={setTool} options={agent.tools} />
           </div>
-          <Button type="submit" disabled={busy || !chosenTool}>
+          <Button type="submit" disabled={busy || !chosenTool || held.resource.status !== 'ready'}>
             <Copy k="propose" />
           </Button>
         </form>

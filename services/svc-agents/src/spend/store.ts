@@ -322,6 +322,8 @@ export class UserSpendStore implements SpendGate {
      * so a run whose own worst case the balance covers still starts. Blank forgives nothing.
      */
     overageGrace?: Amount | null;
+    /** True only from the team run route (`SpendGate.reserve`); a team session's hold refuses without it. */
+    teamRun?: boolean;
   }): Promise<SpendReservationView> {
     const amount = parseSpendAmount(input.amount, 'reservation');
     const assetId = input.assetId?.trim() ?? '';
@@ -411,7 +413,14 @@ export class UserSpendStore implements SpendGate {
           if (monthUsed + amount > own.perPeriod) throw ownCapExceeded(own.perPeriod, assetId, 'month');
         }
         // A team session is also held against the business's allocation, project limits and pool (team/hold.ts).
-        await holdAgainstTeam(tx, { userId: input.userId, sessionId: input.sessionId, reservationKey, assetId, amount });
+        await holdAgainstTeam(tx, {
+          userId: input.userId,
+          sessionId: input.sessionId,
+          reservationKey,
+          assetId,
+          amount,
+          teamRun: input.teamRun === true,
+        });
         if (agentCap !== null && sessionUsed + amount > agentCap) {
           // The agent's cap holds every run of the session, held ones included, so two runs at once cannot both fit
           // under it. It applies whether or not the person set limits of their own: the lower of the two wins.

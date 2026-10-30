@@ -51,14 +51,15 @@ export async function used(tx: Sql, businessId: string, memberUserIds: readonly 
  */
 export async function holdAgainstTeam(
   tx: Sql,
-  input: { userId: string; sessionId: string; reservationKey: string; assetId: string; amount: Amount },
+  input: { userId: string; sessionId: string; reservationKey: string; assetId: string; amount: Amount; teamRun: boolean },
 ): Promise<void> {
   const [session] = await tx<Array<{ business_id: string; member_user_id: string }>>`
     SELECT business_id::text, member_user_id FROM agents.team_sessions WHERE session_id = ${input.sessionId}
   `;
   if (!session) return;
-  if (session.member_user_id !== input.userId || !input.reservationKey.startsWith(TEAM_RUN_KEY_PREFIX)) {
-    // Not made by the team run route, so membership was not read for it: this session takes no other run.
+  if (session.member_user_id !== input.userId || !input.teamRun || !input.reservationKey.startsWith(TEAM_RUN_KEY_PREFIX)) {
+    // Not made by the team run route, so membership and role were not read for it: this session takes no other run,
+    // whatever request id another route sends.
     throw new AgentError(`No session ${input.sessionId}`, 'agents.session_not_found', 'agents.refused.session_closed');
   }
   const businessId = session.business_id;

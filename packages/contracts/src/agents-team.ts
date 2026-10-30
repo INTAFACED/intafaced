@@ -88,6 +88,8 @@ export const agentsTeamRunClosedSchema = z.object({ sessionId: z.string(), statu
 /** An action a team agent proposed that waits for an approver who is not the agent's creator (four eyes). */
 export const agentsTeamHeldActionSchema = z.object({
   id: z.string(),
+  /** Its number in the business, from 1: the next proposal sends the latest one plus one. */
+  seq: z.number().int().min(1),
   agentId: z.string(),
   creatorUserId: z.string(),
   tool: z.string(),

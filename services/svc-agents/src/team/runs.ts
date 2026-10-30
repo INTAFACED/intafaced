@@ -12,7 +12,7 @@ import type { AgentRuntime } from '../runtime.js';
 import { TeamError } from './errors.js';
 import { TEAM_RUN_KEY_PREFIX } from './hold.js';
 import type { TeamMembershipPort } from './membership.js';
-import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, TeamStore, type Team } from './store.js';
+import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, stale, TeamStore, type Team } from './store.js';
 
 /**
  * A business team's runs, held actions and usage (AG-governance-01, AG-usage-03). Each call reads the team from
@@ -23,6 +23,7 @@ import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, TeamStor
 
 interface HeldRow {
   id: string;
+  seq: number;
   own_agent_id: string;
   creator_user_id: string;
   tool: string;
@@ -32,6 +33,7 @@ interface HeldRow {
 
 const heldView = (row: HeldRow): AgentsTeamHeldAction => ({
   id: row.id,
+  seq: row.seq,
   agentId: row.own_agent_id,
   creatorUserId: row.creator_user_id,
   tool: row.tool,
@@ -82,10 +84,17 @@ export class TeamRuns {
     const agent = await this.ownAgent(input.userId, input.agentId);
     if (!(await readOwnCaps(this.sql, input.userId, agent.id))) throw new OwnAgentRefusal('agents.spend.cap_unset');
     const session = await this.runtime.openOwnSession({ userId: input.userId, guardrail: ownGuardrail(agent) });
-    await this.sql`
-      INSERT INTO agents.team_sessions (session_id, business_id, member_user_id, own_agent_id)
-      VALUES (${session.id}, ${team.businessId}, ${input.userId}, ${agent.id})
-    `;
+    try {
+      await this.sql`
+        INSERT INTO agents.team_sessions (session_id, business_id, member_user_id, own_agent_id)
+        VALUES (${session.id}, ${team.businessId}, ${input.userId}, ${agent.id})
+      `;
+    } catch (err) {
+      // A session the team cannot be linked to is closed at once (nothing ran on it), so no open session is left
+      // outside the team's hold; the member's retry opens a fresh one.
+      await this.runtime.closeSettled(session.id).catch(() => undefined);
+      throw err;
+    }
     return { sessionId: session.id, agentId: agent.id, businessId: team.businessId };
   }
 
@@ -101,6 +110,7 @@ export class TeamRuns {
       task: OWN_RUN_TASK,
       ...(agent.instructions.trim() ? { system: agent.instructions } : {}),
       messages: [{ role: 'user', content: input.ask }],
+      teamRun: true,
     });
     return {
       text: result.text,
@@ -144,12 +154,12 @@ export class TeamRuns {
     return transaction(this.sql, async (tx) => {
       await lockBusiness(tx, team.businessId);
       const [same] = await tx<HeldRow[]>`
-        SELECT id::text, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
+        SELECT id::text, seq, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
          WHERE idempotency_key = ${key}
       `;
       if (same) {
         if (same.own_agent_id !== agent.id || same.creator_user_id !== input.userId || same.tool !== input.tool) {
-          throw new TeamError('The team changed since this was read; read it again', 'agents.team_change_stale');
+          throw stale();
         }
         return { action: heldView(same), replayed: true };
       }
@@ -157,12 +167,12 @@ export class TeamRuns {
         SELECT COALESCE(MAX(seq), 0)::int AS seq FROM agents.team_held_actions WHERE business_id = ${team.businessId}
       `;
       if (input.seq !== (last?.seq ?? 0) + 1) {
-        throw new TeamError('The team changed since this was read; read it again', 'agents.team_change_stale');
+        throw stale();
       }
       const [row] = await tx<HeldRow[]>`
         INSERT INTO agents.team_held_actions (id, business_id, own_agent_id, creator_user_id, tool, seq, idempotency_key)
         VALUES (gen_random_uuid(), ${team.businessId}, ${agent.id}, ${input.userId}, ${input.tool}, ${input.seq}, ${key})
-        RETURNING id::text, own_agent_id, creator_user_id, tool, status, approved_by
+        RETURNING id::text, seq, own_agent_id, creator_user_id, tool, status, approved_by
       `;
       return { action: heldView(row!), replayed: false };
     });
@@ -178,7 +188,7 @@ export class TeamRuns {
     return transaction(this.sql, async (tx) => {
       await lockBusiness(tx, team.businessId);
       const [row] = await tx<HeldRow[]>`
-        SELECT id::text, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
+        SELECT id::text, seq, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
          WHERE id = ${input.actionId}::uuid AND business_id = ${team.businessId}
       `;
       if (!row) throw new TeamError('No such held action', 'agents.team_action_not_found');
@@ -192,7 +202,7 @@ export class TeamRuns {
       const [next] = await tx<HeldRow[]>`
         UPDATE agents.team_held_actions SET status = 'approved', approved_by = ${input.userId}, approved_at = now()
          WHERE id = ${row.id}::uuid AND status = 'held'
-        RETURNING id::text, own_agent_id, creator_user_id, tool, status, approved_by
+        RETURNING id::text, seq, own_agent_id, creator_user_id, tool, status, approved_by
       `;
       return { action: heldView(next!), replayed: false };
     });
@@ -202,7 +212,7 @@ export class TeamRuns {
   async actions(input: { userId: string; businessId: string; limit: number }): Promise<AgentsTeamHeldAction[]> {
     const team = await this.team(input.userId, input.businessId);
     const rows = await this.sql<HeldRow[]>`
-      SELECT id::text, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
+      SELECT id::text, seq, own_agent_id, creator_user_id, tool, status, approved_by FROM agents.team_held_actions
        WHERE business_id = ${team.businessId} ORDER BY seq DESC LIMIT ${input.limit}
     `;
     return rows.map(heldView);

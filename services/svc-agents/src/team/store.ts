@@ -108,7 +108,7 @@ function positiveAmount(
   return value;
 }
 
-function stale(): TeamError {
+export function stale(): TeamError {
   return new TeamError('The team changed since this was read; read it again', 'agents.team_change_stale');
 }
 
