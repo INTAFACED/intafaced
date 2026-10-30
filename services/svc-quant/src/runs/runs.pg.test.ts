@@ -350,6 +350,35 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     const ids = page.runs.map((row) => row.id);
     expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
     expect(ids).not.toContain(fills.id);
+    // One strategy's runs only: a run of another strategy is left out.
+    const other = await repo.begin({
+      userId: ACCOUNT_A,
+      idempotencyKey: 'algo:bt:history:other',
+      kind: 'backtest',
+      strategyId: 'strategy-other',
+      strategyVersion: 1,
+    });
+    const page2 = await repo.history({
+      userId: ACCOUNT_A,
+      kind: 'backtest',
+      keyPrefix: 'algo:bt:',
+      limit: 50,
+      cursor: null,
+      strategyId: 'strategy-h',
+    });
+    expect(page2.runs.map((row) => row.id)).toEqual([newer.id, older.id]);
+    expect(
+      (
+        await repo.history({
+          userId: ACCOUNT_A,
+          kind: 'backtest',
+          keyPrefix: 'algo:bt:',
+          limit: 50,
+          cursor: null,
+          strategyId: 'strategy-other',
+        })
+      ).runs.map((row) => row.id),
+    ).toEqual([other.id]);
 
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'first' })).toEqual({ label: 'first' });
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'renamed' })).toEqual({ label: 'renamed' });

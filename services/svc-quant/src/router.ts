@@ -35,6 +35,7 @@ import {
   TRPCError,
   type Context,
   type QuantBacktestResult,
+  quantVersionDiffSchema,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
@@ -275,8 +276,6 @@ const strategyVersionRecord = z
   })
   .merge(simulatedStamp);
 
-const diffLine = z.object({ op: z.enum(['same', 'removed', 'added']), text: z.string() });
-
 const strategyHead = strategyVersionRecord.extend({
   id: z.string(),
   accountId: z.string().guid(),
@@ -384,14 +383,14 @@ export interface QuantRouterDeps extends SandboxDeps {
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
   /**
-   * Share links (AL-report-03). Omitted, the rate and the window are blank and every share call refuses by name.
-   * A repository is still required once the rate is set; production passes Postgres.
-   */
-  /**
    * The owner's cap on a version's release note, in characters (AL-editor-01). Omitted or null, a save with a note
    * refuses `quant.release_note_limit_unset`; a save without one still saves.
    */
   readonly releaseNoteMax?: number | null;
+  /**
+   * Share links (AL-report-03). Omitted, the rate and the window are blank and every share call refuses by name.
+   * A repository is still required once the rate is set; production passes Postgres.
+   */
   readonly share?: {
     readonly repository: ShareRepository;
     readonly rate: number | null;
@@ -430,10 +429,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const shares = deps.share?.repository;
   const releaseNoteMax = deps.releaseNoteMax ?? null;
   /** A version's release note: blank is no note; a note needs the owner's cap, and is refused over it. */
-  function releaseNoteOf(raw: unknown): string {
-    if (raw === undefined || raw === null) return '';
-    if (typeof raw !== 'string') throw new QuantError('quant.params_invalid', 'releaseNote — must be text');
-    const note = raw.trim();
+  function releaseNoteOf(raw: string | undefined): string {
+    const note = raw?.trim() ?? '';
     if (!note) return '';
     if (releaseNoteMax === null) {
       throw new QuantError(QUANT_RELEASE_NOTE_LIMIT_UNSET, 'releaseNote — the length limit for a release note is not set');
@@ -539,7 +536,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               ...accountField,
               ...writeKeyField,
               ...clientIdField,
-              releaseNote: z.unknown().optional(),
+              releaseNote: z.string().max(2000).optional(),
             })
             .merge(environmentInput),
         )
@@ -636,7 +633,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               cash: decimal.optional().nullable(),
               ...accountField,
               ...writeKeyField,
-              releaseNote: z.unknown().optional(),
+              releaseNote: z.string().max(2000).optional(),
             })
             .merge(environmentInput),
         )
@@ -689,16 +686,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
        */
       diff: publicJurisdictionProcedure('quant', 'fiat')
         .input(z.object({ id: z.string().min(1), from: z.number().int().positive(), to: z.number().int().positive(), ...accountField }))
-        .output(
-          z.object({
-            from: z.number().int().positive(),
-            to: z.number().int().positive(),
-            source: z.array(diffLine),
-            blocks: z.array(diffLine),
-            rules: z.array(diffLine),
-            changed: z.boolean(),
-          }),
-        )
+        .output(quantVersionDiffSchema)
         .query(async ({ input, ctx }) => {
           try {
             const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
@@ -1184,6 +1172,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           z.object({
             limit: z.number().int().min(1).max(BACKTEST_HISTORY_PAGE_MAX),
             cursor: z.string().optional().nullable(),
+            /** Only one strategy's runs (its own page). Another account's strategy id simply matches none. */
+            strategyId: z.string().min(1).max(128).optional(),
             ...accountField,
           }),
         )
@@ -1192,7 +1182,14 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           try {
             const userId = accountOf(ctx, input.accountId);
             const cursor = input.cursor?.trim() ? input.cursor.trim() : null;
-            const page = await runs.history({ userId, kind: 'backtest', keyPrefix: BAR_BACKTEST_KEY_PREFIX, limit: input.limit, cursor });
+            const page = await runs.history({
+              userId,
+              kind: 'backtest',
+              keyPrefix: BAR_BACKTEST_KEY_PREFIX,
+              limit: input.limit,
+              cursor,
+              strategyId: input.strategyId ?? null,
+            });
             return {
               runs: page.runs.map((row) => ({
                 runId: row.id,

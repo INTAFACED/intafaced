@@ -2,6 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 // One saved strategy's page (AL-editor-01, J-algo-dev-03 #3). Names, versions and times enter through parameters.
 const en = {
+  roomTitle: 'Strategy',
   title: '{name}',
   description: 'Every version of one saved strategy, its release notes, a comparison of two versions and the code each run used.',
   back: 'All strategies',
@@ -29,8 +30,10 @@ const en = {
   blocks: 'Order blocks',
   rules: 'Signal rules',
   sourcePart: 'Source',
+  sourcePartFolded: 'Source, line by line',
   runs: 'Runs of this strategy',
-  noRuns: 'None of your latest {count} runs used this strategy.',
+  noRuns: 'This strategy has not been backtested on this account.',
+  runsLatest: 'The latest {count} runs are shown.',
   runStarted: 'Started (UTC)',
   runLabel: 'Label',
   noLabel: 'No label',

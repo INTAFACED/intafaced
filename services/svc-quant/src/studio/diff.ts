@@ -16,10 +16,34 @@ export interface VersionDiff {
   readonly changed: boolean;
 }
 
-/** Longest common subsequence of lines, so a moved or edited line reads as one removal and one addition. */
+/**
+ * The largest middle part, in table cells, compared line by line. Beyond it the middle reads as removed then added:
+ * still a true difference, never a wrong one, and the work stays bounded whatever a version holds.
+ */
+export const DIFF_CELLS_MAX = 250_000;
+
+/**
+ * Longest common subsequence of lines, so a moved or edited line reads as one removal and one addition. The lines both
+ * versions share at the start and the end are kept first, so a usual edit compares only the few lines around it.
+ */
 export function lineDiff(before: readonly string[], after: readonly string[]): DiffLine[] {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start += 1;
+  let end = 0;
+  while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) {
+    end += 1;
+  }
+  const same = (lines: readonly string[]) => lines.map((text): DiffLine => ({ op: 'same', text }));
+  const middle = middleDiff(before.slice(start, before.length - end), after.slice(start, after.length - end));
+  return [...same(before.slice(0, start)), ...middle, ...same(before.slice(before.length - end))];
+}
+
+function middleDiff(before: readonly string[], after: readonly string[]): DiffLine[] {
   const n = before.length;
   const m = after.length;
+  if ((n + 1) * (m + 1) > DIFF_CELLS_MAX) {
+    return [...before.map((text): DiffLine => ({ op: 'removed', text })), ...after.map((text): DiffLine => ({ op: 'added', text }))];
+  }
   const longest: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i -= 1) {
     for (let j = m - 1; j >= 0; j -= 1) {

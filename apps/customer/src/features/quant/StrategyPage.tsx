@@ -16,7 +16,7 @@ import { QuantRooms } from './QuantRooms';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
 
-/** How many recent runs the page reads to show which version each one used. A page size, not a product limit. */
+/** How many of this strategy's recent runs the page reads. A page size, not a product limit. */
 const RUN_PAGE = 20;
 
 /** An ISO instant as its UTC minute, "2026-10-23 03:40". */
@@ -142,23 +142,34 @@ function DiffParts({ diff }: { diff: QuantVersionDiff }) {
     ['rules', diff.rules],
     ['sourcePart', diff.source],
   ] as const;
+  const changed = parts.filter(([, lines]) => lines.some((line) => line.op !== 'same'));
+  // The source is built from the blocks and rules, so when they show the change its line diff only repeats it.
+  const fold = changed.some(([part]) => part !== 'sourcePart');
   return (
     <>
-      {parts
-        .filter(([, lines]) => lines.some((line) => line.op !== 'same'))
-        .map(([part, lines]) => (
+      {changed.map(([part, lines]) => {
+        const body = (
+          <pre lang="zxx" className="quant-source">
+            {lines.map((line, i) => (
+              <span key={i} data-testid="quant-diff-line" data-op={line.op}>
+                {marks[line.op]} {line.text}
+                {'\n'}
+              </span>
+            ))}
+          </pre>
+        );
+        return part === 'sourcePart' && fold ? (
+          <details key={part} data-testid={`quant-diff-${part}`}>
+            <summary>{t('sourcePartFolded')}</summary>
+            {body}
+          </details>
+        ) : (
           <div key={part} data-testid={`quant-diff-${part}`}>
             <h5>{t(part)}</h5>
-            <pre lang="zxx" className="quant-source">
-              {lines.map((line, i) => (
-                <span key={i} data-testid="quant-diff-line" data-op={line.op}>
-                  {marks[line.op]} {line.text}
-                  {'\n'}
-                </span>
-              ))}
-            </pre>
+            {body}
           </div>
-        ))}
+        );
+      })}
     </>
   );
 }
@@ -168,7 +179,8 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
   const api = useApi();
   const { t } = strategyPageCopy.useCopy();
   const runs = useResource(
-    (signal) => api.query('quant', 'backtest.history', { limit: RUN_PAGE }, quantBacktestHistorySchema, { signal }),
+    (signal) =>
+      api.query('quant', 'backtest.history', { limit: RUN_PAGE, strategyId: strategy.id }, quantBacktestHistorySchema, { signal }),
     `quant-strategy-runs:${strategy.id}`,
   );
   const [open, setOpen] = useState<string | null>(null);
@@ -178,7 +190,7 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
       <Read resource={runs.resource} retry={runs.reload}>
         {(data) => {
           const mine = data.runs.filter((run) => run.strategyId === strategy.id);
-          if (!mine.length) return <EmptyState title={t('noRuns', { count: RUN_PAGE })} />;
+          if (!mine.length) return <EmptyState title={t('noRuns')} />;
           return (
             <>
               <DataTable label={t('runs')} headers={[t('runStarted'), t('runLabel'), t('version'), t('code')]}>
@@ -197,6 +209,7 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
                   </tr>
                 ))}
               </DataTable>
+              {data.nextCursor && <p className="muted">{t('runsLatest', { count: RUN_PAGE })}</p>}
               {(() => {
                 const run = mine.find((row) => row.runId === open);
                 const version = run?.strategyVersion ? strategy.versions.find((row) => row.version === run.strategyVersion) : undefined;

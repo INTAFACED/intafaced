@@ -33,7 +33,7 @@ export function quantRoute(
       // A broken escape is sent as it is, and the service answers that no such strategy exists.
     }
     return {
-      title: strategiesCopy.t('title'),
+      title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
     };
