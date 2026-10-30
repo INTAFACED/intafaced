@@ -39,6 +39,11 @@ export type OtcDeskLaw =
        * only. Null, or a quote asset left out, is blank: a request in that asset refuses `trade.rfq_size_not_set`.
        */
       readonly minNotional?: Readonly<Record<string, Amount>> | null;
+      /**
+       * The base assets the desk quotes (CB-otc-11), as the overview lists them. Owner-published only. Null is blank: the
+       * overview reads "Not set" and every desk request refuses `trade.otc_assets_unset`.
+       */
+      readonly assets?: readonly string[] | null;
     };
 
 /** Production default — no invent. */
@@ -130,7 +135,28 @@ export function parseOtcDeskLawJson(raw: string | null | undefined): OtcDeskLaw 
   // Optional: absent or null is blank, and a blank minimum refuses each request in its asset, never a default size.
   const minNotional = parseMinNotional(obj.minNotional ?? null);
 
-  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs, minNotional };
+  // Optional: absent or null is blank, and a blank asset list refuses every desk request, never a default list.
+  const assets = parseAssets(obj.assets ?? null);
+
+  return { published: true, spreadBps, minStake, counterparty, quoteTtlMs, maxMidAgeSeconds, settleWindowMs, minNotional, assets };
+}
+
+/** `["BTC", "ETH"]`: the base assets the desk quotes, each named once. */
+function parseAssets(raw: unknown): readonly string[] | null {
+  if (raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 200) refuseAssets('must be a list of 1 to 200 asset ids, or left out');
+  const out: string[] = [];
+  for (const item of raw) {
+    const asset = typeof item === 'string' && item.length <= 32 ? normalizeOtcAsset(item) : null;
+    if (asset == null) refuseAssets(`has an unusable asset id ${JSON.stringify(item)}`);
+    if (out.includes(asset)) refuseAssets(`names ${asset} twice`);
+    out.push(asset);
+  }
+  return out;
+}
+
+function refuseAssets(why: string): never {
+  throw new OtcError(`TRADE_OTC_DESK_LAW.assets ${why}`, 'trade.otc_desk_law_blank', OTC_DESK_LAW_RESIDUAL);
 }
 
 /** `{ "USDT": "1000" }`: quote asset to minimum notional, each a non-negative decimal string. */
@@ -179,7 +205,7 @@ export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
     logRefusalSpec('trade.otc_desk_law_blank');
     return 'published=0 residual=otc_desk_law_unset';
   }
-  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)} minNotional=${minNotionalLabel(law.minNotional ?? null)}`;
+  return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds} settleWindowMs=${law.settleWindowMs ?? 'unset'} minStake=${formatAmount(law.minStake)} minNotional=${minNotionalLabel(law.minNotional ?? null)} assets=${law.assets?.join(',') || 'unset'}`;
 }
 
 function minNotionalLabel(table: Readonly<Record<string, Amount>> | null): string {

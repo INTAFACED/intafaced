@@ -80,6 +80,8 @@ export const deskStatusSchema = z.object({
   published: z.boolean(),
   statusLine: z.string(),
   residual: z.string().nullable().optional(),
+  /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
+  assets: z.array(z.string()).nullable().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -132,6 +134,18 @@ export const batchItemSchema = z.object({
 });
 export type BatchItem = z.infer<typeof batchItemSchema>;
 export const batchSchema = z.object({ results: z.array(batchItemSchema) });
+
+/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
+export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
+
+export interface IcebergOrder {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: string;
+  price: string;
+  displayQty: string;
+  clientOrderId: string;
+}
 
 export interface CreateTwapInput {
   symbol: string;
@@ -214,6 +228,15 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    /** One of the account's orders by its request id; `trade.order_not_found` when no order was made with it. */
+    orderByClientId: (clientOrderId: string, symbol: string) =>
+      api.rest(
+        `/orders/by-client-id/${encodeURIComponent(clientOrderId)}`,
+        icebergAnswerSchema.extend({ executionOutcome: z.unknown().nullable().optional() }),
+        { query: { symbol } },
+      ),
+    placeIceberg: (order: IcebergOrder) =>
+      api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;

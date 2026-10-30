@@ -5,7 +5,7 @@ ALTER TABLE "trade"."algo_parents"
   ADD COLUMN IF NOT EXISTS "random_seed" bigint;
 
 ALTER TABLE "trade"."algo_parents"
-  ADD COLUMN IF NOT EXISTS "trigger_price" numeric;
+  ADD COLUMN IF NOT EXISTS "trigger_price" numeric(38, 18);
 
 ALTER TABLE "trade"."algo_parents"
   ADD COLUMN IF NOT EXISTS "trigger_above" boolean;

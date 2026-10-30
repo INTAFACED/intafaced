@@ -3,10 +3,12 @@
  * LOCAL TEST CONTENT — labelled rows so Earn, Loans, Convert and P2P show data.
  *
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply  [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs home   [--notice-minutes <n>] [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs end-earn-unbonding <positionId> [--state <dir>]
  *
  * Default state dir: ~/.intafaced/local-test-stack
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
@@ -30,7 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { applyHome, homeStatus } from './local-test-home.mjs';
+import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -477,18 +479,27 @@ export async function applyAll(deps) {
   const loans = await applyLoans(deps);
   const house = await applyHouse(deps);
   const p2p = await applyP2p(deps);
-  // Home's TEST deposit, notice and inbox row need the founder pair; a stack without it seeds the rest.
-  const wired = deps.home ? await deps.home() : null;
-  const home = wired ? await applyHome(wired) : ['home: no enrolled founder pair on this stack, so Home is not seeded'];
   const lines = [
     `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
     `loan products: created ${loans.created}, skipped ${loans.skipped}`,
     `house inventory: ${house.posted} assets posted on rail local-test`,
     `p2p method: ${p2p.methodId}`,
-    ...home,
     FUNDS_LABEL,
   ];
-  return { earn, loans, house, p2p, home, lines };
+  return { earn, loans, house, p2p, lines };
+}
+
+/**
+ * The founder's Home (J-home-ia-11): a TEST deposit, a TEST notice and an inbox row, only when the tester profile asks
+ * (`home`). Not part of `apply`: the notice is on the public board for 30 days, and every stack that loads the TEST
+ * content without the tester entry (each Real-app journeys shard, Try it) keeps an empty board, which J-home-ia-06 needs.
+ */
+export async function applyHomeContent(deps, { noticeMinutes } = {}) {
+  // The deposit, notice and inbox row need the founder pair; the tester entry asked for Home, so without it this fails.
+  const wired = deps.home ? await deps.home() : null;
+  if (!wired) throw new Error('home: no enrolled founder pair on this stack, so Home cannot be seeded (run local-founder-seed.mjs enrol)');
+  const lines = await applyHome(wired, noticeMinutes === undefined ? {} : { noticeMs: noticeMinutes * 60_000 });
+  return { lines: [...lines, FUNDS_LABEL] };
 }
 
 // ── Unseed (close / disable, never delete, never reverse a ledger credit) ──
@@ -572,6 +583,22 @@ export async function fundEarnPool(deps, poolId, amount, ref) {
     recipe: (from) => deps.recipes.earnPoolFund({ poolId, fundingId: `local-test-${ref}`, assetId: pool.assetId, amount: units, from }),
   });
   return { lines: [`pool ${poolId}: reserve funded ${amount} ${pool.assetId} (ref ${ref})`, FUNDS_LABEL] };
+}
+
+/**
+ * Ends one TEST saving's unbonding now, so the bank's own release job can pay it back on this stack (J-bank-08 #6: the
+ * release job reads the bank's clock, never a caller's, and a journey cannot wait seven days). Only the unbonding's two
+ * dates move, back by the same span, so its length is kept and it ends a minute ago. The saving's opening never moves,
+ * so no past day becomes payable, and nothing is posted: the release is the bank's, through its job door. Refused
+ * unless the saving is in a TEST pool, still active and unbonding, and its unbonding has not ended yet.
+ */
+export async function endEarnUnbonding(deps, positionId) {
+  if (typeof positionId !== 'string' || !UUID.test(positionId)) {
+    throw new GuardError('refusing: end-earn-unbonding needs a saving id (a UUID)');
+  }
+  const ended = await deps.endUnbondingRows(positionId, TEST_POOL_NAME);
+  if (ended.refused) throw new GuardError(`refusing: saving ${positionId} ${ended.refused}`);
+  return { ...ended, lines: [`saving ${positionId}: unbonding ends ${ended.unbondsAt} (moved back)`, FUNDS_LABEL] };
 }
 
 // ── Status (read-only) ──────────────────────────────────────────────────────
@@ -870,6 +897,30 @@ export async function openLocal(plan) {
         return { openedAt: moved.opened_at.toISOString(), drawnAt: moved.drawn_at.toISOString() };
       });
     },
+    async endUnbondingRows(positionId, testPoolName) {
+      return bankSql.begin(async (tx) => {
+        const rows = await tx`
+          SELECT ps.status, ps.unbonds_at, pl.name AS pool
+            FROM bank.earn_positions ps JOIN bank.earn_pools pl ON pl.id = ps.pool_id
+           WHERE ps.id = ${positionId}
+             FOR UPDATE OF ps
+        `;
+        const position = rows[0];
+        if (!position) return { refused: 'is not on this stack' };
+        if (!testPoolName.test(position.pool)) return { refused: 'is not in a TEST pool' };
+        if (position.status !== 'active') return { refused: `is ${position.status}, not active` };
+        if (position.unbonds_at === null) return { refused: 'is not unbonding' };
+        const [moved] = await tx`
+          UPDATE bank.earn_positions
+             SET unbonding_started_at = unbonding_started_at - (unbonds_at - now() + interval '1 minute'),
+                 unbonds_at = now() - interval '1 minute'
+           WHERE id = ${positionId} AND unbonds_at > now()
+          RETURNING unbonds_at
+        `;
+        if (!moved) return { refused: 'has already ended its unbonding' };
+        return { unbondsAt: moved.unbonds_at.toISOString() };
+      });
+    },
     async close() {
       await bankSql.end({ timeout: 5 });
       await p2pSql.end({ timeout: 5 });
@@ -879,31 +930,56 @@ export async function openLocal(plan) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
+const USAGE = 'Use: apply | home [--notice-minutes <n>] | status | unseed | age-loan | fund-earn-pool | end-earn-unbonding';
+const MAX_NOTICE_MINUTES = HOME_NOTICE_DAYS * 24 * 60;
+
 export function parseArgs(argv) {
   const args = [...argv];
   let stateDir;
+  let noticeMinutes;
   const at = args.indexOf('--state');
   if (at !== -1) {
     stateDir = args[at + 1];
     if (!stateDir || stateDir.startsWith('--')) throw new GuardError('refusing: --state needs a directory');
     args.splice(at, 2);
   }
-  const [command, ...rest] = args;
-  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed | age-loan | fund-earn-pool');
-  const operands = command === 'age-loan' ? 2 : command === 'fund-earn-pool' ? 3 : 0;
-  if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
-  if (rest.length < operands) {
-    throw new GuardError(
-      command === 'age-loan' ? 'refusing: age-loan needs <loanId> <days>' : 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
-    );
+  const minutesAt = args.indexOf('--notice-minutes');
+  if (minutesAt !== -1) {
+    const raw = args[minutesAt + 1];
+    if (args[0] !== 'home') throw new GuardError('refusing: --notice-minutes is for home only');
+    if (!/^[1-9][0-9]*$/.test(raw ?? '') || Number(raw) > MAX_NOTICE_MINUTES) {
+      throw new GuardError(`refusing: --notice-minutes needs a whole number from 1 to ${MAX_NOTICE_MINUTES}`);
+    }
+    noticeMinutes = Number(raw);
+    args.splice(minutesAt, 2);
   }
-  return { command, operands: rest, stateDir: path.resolve(stateDir ?? defaultStateDir()) };
+  const [command, ...rest] = args;
+  if (!command) throw new GuardError(`refusing: command required. ${USAGE}`);
+  const needs = {
+    'age-loan': 'refusing: age-loan needs <loanId> <days>',
+    'fund-earn-pool': 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
+    'end-earn-unbonding': 'refusing: end-earn-unbonding needs <positionId>',
+  };
+  const operands = { 'age-loan': 2, 'fund-earn-pool': 3, 'end-earn-unbonding': 1 }[command] ?? 0;
+  if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
+  if (rest.length < operands) throw new GuardError(needs[command]);
+  return {
+    command,
+    operands: rest,
+    ...(noticeMinutes === undefined ? {} : { noticeMinutes }),
+    stateDir: path.resolve(stateDir ?? defaultStateDir()),
+  };
 }
 
-async function dispatch(command, deps, hooks, operands = []) {
+async function dispatch(command, deps, hooks, operands = [], options = {}) {
   const out = hooks.out ?? ((line) => process.stdout.write(`${line}\n`));
   if (command === 'apply') {
     const report = await applyAll(deps);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'home') {
+    const report = await applyHomeContent(deps, { noticeMinutes: options.noticeMinutes });
     for (const line of report.lines) out(line);
     return 0;
   }
@@ -927,7 +1003,12 @@ async function dispatch(command, deps, hooks, operands = []) {
     for (const line of report.lines) out(line);
     return 0;
   }
-  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed | age-loan | fund-earn-pool`);
+  if (command === 'end-earn-unbonding') {
+    const report = await endEarnUnbonding(deps, operands[0]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  throw new GuardError(`refusing: unknown command "${command}". ${USAGE}`);
 }
 
 /**
@@ -943,7 +1024,7 @@ export async function main(argv, env = process.env, hooks = {}) {
     const load = hooks.load ?? openLocal;
     const deps = hooks.deps ?? (await load(plan));
     try {
-      return await dispatch(parsed.command, deps, hooks, parsed.operands);
+      return await dispatch(parsed.command, deps, hooks, parsed.operands, { noticeMinutes: parsed.noticeMinutes });
     } finally {
       if (!hooks.deps && deps?.close) await deps.close();
     }

@@ -9,6 +9,7 @@ import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
+import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
@@ -25,6 +26,7 @@ import { registerOperatorHttp } from '../operator-http.js';
 import { ledgerActionPayloadHash, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
+import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
   listReconciliationControlRuns,
@@ -38,6 +40,7 @@ import {
   type SnapshotRead,
 } from './reconciliation-controls.js';
 import { reconciliationSourcesFrom } from './reconciliation-sources.js';
+import { transactionsExist } from './transactions-exist.js';
 import type { LedgerService } from '../service.js';
 
 // PG-hard: no skip. A run without a database fails instead of reporting a silent absence.
@@ -712,10 +715,100 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
         operationId: nextOp(),
       });
       expect(run.status).toBe('FAIL');
-      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: expect.stringMatching(/^5/) })]);
+      // The row observes the summed size of each USDT account's drift against 0: this account's 5 on top of the one-sided
+      // fixture rows earlier tests leave in the whole book.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', expected: '0' })]);
+      expect(amt(run.assets[0]!.observed) >= amt('5')).toBe(true);
     } finally {
       await db.sql`UPDATE accounts SET balance = 0 WHERE id = ${drifted}`;
     }
+  });
+
+  it('leaves an account created and funded after read_at out of every side, and its counter-leg at read_at: the total stays 0', async () => {
+    const REPLAY = '11111111-1111-4111-8111-111111111111';
+    const NETTING = '33333333-3333-4333-8333-333333333333';
+    const engine = new PostgresLedger(db.sql);
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const fund = (userId: string, railRef: string) =>
+      engine.post(recipes.deposit({ userId, assetId: 'BTC', amount: amt('7'), rail: 'test', railRef }));
+    // The first deposit makes the rail boundary account, so the counter-leg exists before read_at.
+    await fund('abcdeaaa-4444-4444-8444-000000000001', 'recon-snap-1');
+    // Whole-book controls: an earlier test leaves one-sided USDT rows, so each run is judged on its BTC row alone.
+    const btc = (run: { assets: Array<{ assetId: string }> }) => run.assets.find((asset) => asset.assetId === 'BTC');
+    const zero = { assetId: 'BTC', observed: '0', expected: '0', difference: '0', tolerance: '0' };
+    const open = async (controlId: string, approvalId: string) => {
+      const operationId = nextOp();
+      const run = await runReconciliationControl(db.sql, approvals, actor, { controlId, reason: REASON, approvalId, operationId });
+      expect(btc(run)).toEqual(zero);
+      return { run, operationId };
+    };
+    const netting = await open(NETTING, 'appr-snap-1');
+    const replay = await open(REPLAY, 'appr-snap-2');
+    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
+    await tick();
+    const [stamp] = await db.sql<Array<{ read_at: Date }>>`
+      UPDATE reconciliation_control_runs
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL,
+             read_at = date_trunc('milliseconds', clock_timestamp())
+       WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
+      RETURNING read_at
+    `;
+    const readAt = stamp!.read_at;
+    await tick();
+    await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
+    const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`
+      SELECT a.id, a.created_at, a.owner_id
+        FROM ledger_entries e
+        JOIN ledger_tx t ON t.id = e.tx_id
+        JOIN accounts a ON a.id = e.account_id
+       WHERE t.idempotency_key LIKE '%recon-snap-2%'
+    `;
+    expect(legs).toHaveLength(2);
+    const fresh = legs.find((leg) => leg.owner_id === 'abcdeaaa-4444-4444-8444-000000000002')!;
+    const boundary = legs.find((leg) => leg.id !== fresh.id)!;
+    expect(fresh.created_at.getTime()).toBeGreaterThan(readAt.getTime());
+    expect(boundary.created_at.getTime()).toBeLessThan(readAt.getTime());
+
+    // The run resumes after the deposit, at the current instant: the fresh account is in no side, the boundary is counted
+    // at read_at, and the BTC total is exactly 0.
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      approvalId: 'appr-snap-3',
+      operationId: netting.operationId,
+    });
+    expect(resumed.id).toBe(netting.run.id);
+    expect(resumed.status).not.toBe('started');
+    expect(btc(resumed)).toEqual(zero);
+    expect(resumed.accounts).toContain(boundary.id);
+    expect(resumed.accounts).not.toContain(fresh.id);
+    expect(resumed.sources.ledger.asOf).toBe(readAt.toISOString());
+
+    // The replay reports balance_after against the entries at read_at, and checks the cached column against the entries
+    // on its snapshot: no drift from a deposit that landed after read_at.
+    const replayed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: REPLAY,
+      reason: REASON,
+      approvalId: 'appr-snap-4',
+      operationId: replay.operationId,
+    });
+    expect(replayed.id).toBe(replay.run.id);
+    expect(replayed.status).not.toBe('started');
+    expect(btc(replayed)).toEqual(zero);
+    expect(replayed.accounts).not.toContain(fresh.id);
+
+    // A past run at that read_at agrees with the resumed run.
+    const past = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: NETTING,
+      reason: REASON,
+      asOf: readAt.toISOString(),
+      margin: '0',
+      approvalId: 'appr-snap-5',
+      operationId: nextOp(),
+    });
+    expect(past.accounts).toContain(boundary.id);
+    expect(past.accounts).not.toContain(fresh.id);
+    expect(btc(past)).toEqual(zero);
   });
 
   it('runs an operator ledger invariant as replay only, and passes a healthy subset', async () => {
@@ -737,6 +830,46 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       operationId: nextOp(),
     });
     expect(run.status).toBe('PASS');
+  });
+
+  it('fails a replay now when two accounts drift by amounts that cancel in the asset total', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const funded = async (userId: string) => {
+      const posted = await engine.post(
+        recipes.deposit({ userId, assetId: 'ETH', amount: amt('5'), rail: 'test', railRef: `recon-cancel-${userId}` }),
+      );
+      const [account] = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM accounts WHERE owner_id = ${userId} AND id = ANY(${posted.entries.map((entry) => entry.accountId)}::uuid[])
+      `;
+      return account!.id;
+    };
+    const up = await funded('abcdeaaa-5555-4555-8555-000000000001');
+    const down = await funded('abcdeaaa-5555-4555-8555-000000000002');
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'ledger_invariant',
+      accountSet: { mode: 'explicit', accountIds: [up, down] },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${up}`;
+    await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${down}`;
+    try {
+      const run = await runReconciliationControl(db.sql, approvals, actor, {
+        controlId: defined.id,
+        reason: REASON,
+        approvalId: 'appr-cancel',
+        operationId: nextOp(),
+      });
+      expect(run.status).toBe('FAIL');
+      // Each account drifts by 3; the asset row observes the summed size, 6, against 0.
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'ETH', observed: '6', expected: '0', difference: '6' })]);
+    } finally {
+      await db.sql`UPDATE accounts SET balance = balance - 3 WHERE id = ${up}`;
+      await db.sql`UPDATE accounts SET balance = balance + 3 WHERE id = ${down}`;
+    }
   });
 
   it('refuses an operator run in the scheduled operation-id space', async () => {
@@ -1077,5 +1210,23 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(run.statusCode).toBe(200);
     expect(run.json()).toMatchObject({ status: 'ERROR', errorCode: { status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE } });
     await app.close();
+  });
+
+  it('answers which asked transaction ids are booked: ids only, in the order asked, each once (OPS-reconciliation-04)', async () => {
+    const engine = new PostgresLedger(db.sql);
+    const posted = await engine.post(
+      recipes.deposit({
+        userId: 'abcdeaaa-6666-4666-8666-000000000001',
+        assetId: 'BTC',
+        amount: amt('1'),
+        rail: 'test',
+        railRef: 'recon-exist-1',
+      }),
+    );
+    const unknown = '00000000-0000-4000-8000-0000000000ff';
+    const answer = await transactionsExist(db.sql, { txIds: [unknown, posted.id.toUpperCase(), posted.id] });
+    expect(answer).toEqual({ found: [posted.id] });
+    expect(await transactionsExist(db.sql, { txIds: [unknown] })).toEqual({ found: [] });
+    await expect(transactionsExist(db.sql, { txIds: ['not-a-tx'] })).rejects.toMatchObject({ name: 'ZodError' });
   });
 }

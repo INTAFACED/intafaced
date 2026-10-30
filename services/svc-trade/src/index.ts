@@ -86,7 +86,8 @@ import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
-import { parseDataTerms, parseDeveloperHosts, registerDeveloperPortalRest } from './developer-portal-rest.js';
+import { installRouteInventory } from './route-inventory.js';
+import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
@@ -169,6 +170,7 @@ import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
+import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
@@ -247,6 +249,8 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 assertMakerRebatesPayable(feeSchedule);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+// Before any route: every /api/v1 route declares who may call it, and GET /api/v1/routes publishes the list.
+installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
@@ -379,6 +383,12 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+// The best bid a follower's sell is floored against: top of book, or null when the book has none.
+const copyBestBid = async (marketId: string) => {
+  const depth = await matching.depth(marketId, 1);
+  const best = depth.bids[0];
+  return best ? parseAmount(best[0]) : null;
+};
 const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
@@ -395,11 +405,14 @@ const copy = new CopyService(ledger, {
     placeFollowerOrder,
     slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
     loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: async (marketId) => {
-      const depth = await matching.depth(marketId, 1);
-      const best = depth.bids[0];
-      return best ? parseAmount(best[0]) : null;
-    },
+    bestBid: copyBestBid,
+  }),
+  copyClose: createCopyClosePort({
+    sql,
+    placeFollowerOrder,
+    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+    bestBid: copyBestBid,
   }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
@@ -1142,6 +1155,7 @@ registerFundingHistory(app, {
 registerDeveloperPortalRest(app, {
   hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
   dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
+  regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

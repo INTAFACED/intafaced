@@ -41,19 +41,22 @@ export const docsCopy = defineCopy(
     'door_drop-copy': 'Drop copy of your fills',
     streamsLive: 'The live stream inventory, GET /ws/streams, lists every channel the stream service serves and whether its door is up.',
     publicRoute: 'public; with a key {scope}',
+    onlyWithMatching: 'mounted only with futures matching',
+    internalRoute: 'service to service only; no key or session reaches it',
     privateStream: 'your own data; {scope}',
     publicStream: 'public',
     fundingNone:
       'No deposit or withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app.',
     referenceMore:
-      'The live inventory, GET /api/v1/capabilities, also lists the position and statement routes beyond this table, with their refusals.',
+      'This table lists every trading REST route, each once. The live inventory, GET /api/v1/routes, lists the same routes with who may call each and the scopes a key needs; a route marked as needing futures matching is mounted only while futures orders go through matching.',
     // Permissions
     permissionsLead:
-      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a key without it is refused with scope.denied and a link to this page.',
+      'Which permission a key needs for each route. On /api/v1 a key needs trade:read to read and trade:write for anything else; a staff route also needs admin:read, which only a staff session holds, so no key can call one. A key without the scope is refused with scope.denied and a link to this page.',
     permissionsTable: 'Permissions and endpoints',
     colScope: 'Permission',
     colEndpoints: 'Endpoints',
     neverOnKey: 'Never on a key: withdrawing is interactive only and no route takes it.',
+    neverOnKeyStaff: 'Never on a key: only a staff session holds it, so a key is refused on these staff routes.',
     // OpenAPI and collection
     openapiLead:
       'The same routes as files a program reads: an OpenAPI 3 description, a request collection and an index of these pages for assistants. Each lists the permission, the cost of a call and the refusals.',
@@ -89,6 +92,44 @@ export const docsCopy = defineCopy(
     clockFailed: 'The server time could not be read, so no offset is shown. Try again.',
     clockHow:
       'The check reads GET /api/v1/time and takes the offset at the middle of the round trip. Keep your clock on a standard network time source.',
+    clockWindowUnset:
+      'The signing window is unset, so the offset is not judged against one, and every signed request is refused with auth.request_window_unset.',
+    clockPolicyFailed: 'The signing window could not be read, so the offset is not judged against it. Try again.',
+    clockWindowLive:
+      'The server publishes its window, in seconds, at GET /api/identity/trpc/requestSigningPolicy and refuses a timestamp further from its clock than that. While the window is not set, every signed request is refused.',
+    authLead: 'How a key proves that each request is yours.',
+    authKeyTitle: 'Send your key',
+    authKeyBody: 'Send the key in the Authorization header: Bearer, a space, then the key. The key is shown once, when you create it.',
+    authSignTitle: 'Sign each request',
+    authSignBody:
+      'A key you create under Developers that may place orders (trade:write) signs every request, so that key copied alone cannot trade. Its signing secret is shown once, beside the key, when you create it. Join these lines with a newline, sign the text with HMAC-SHA256 and the secret, and send the signature in hex.',
+    authLines: 'The text you sign, line by line',
+    authLineVersion: 'The scheme’s name, {version}',
+    authLineMethod: 'The method, in capitals',
+    authLinePath: 'The path with its query string, exactly as sent',
+    authLineTimestamp: 'The time you sign, in Unix seconds',
+    authLineNonce: 'A nonce: a new value for every request',
+    authLineBody: 'The SHA-256 of the body you send, in hex (of empty text when there is no body)',
+    authHeadersTable: 'The headers a signed request carries',
+    colHeader: 'Header',
+    colCarries: 'Carries',
+    authHeaderTimestamp: 'The time you signed',
+    authHeaderNonce: 'The nonce you signed',
+    authHeaderSignature: 'The signature, in hex',
+    authWindowTitle: 'Timestamp window',
+    authWindow: 'The server accepts a timestamp up to {seconds} seconds from its clock, either way, and each nonce once.',
+    authWindowUnset: 'The timestamp window is unset, so every signed request is refused with auth.request_window_unset.',
+    authRefusals: 'An altered request, a stale or future timestamp and a reused nonce are each refused with their own code.',
+    authErrorsLink: 'Authentication and permission errors',
+    authPolicyLoading: 'Reading the signing policy.',
+    authPolicyFailed: 'The signing policy could not be read, so the window and the test vector are not shown. Try again.',
+    authPolicyRead: 'The window and the test vector are read live from GET /api/identity/trpc/requestSigningPolicy.',
+    authVectorTitle: 'Test vector',
+    authVectorBody:
+      'One request signed by the server’s own signer with a published TEST secret. Your signer is right when it makes the same text and signature from these parts.',
+    authVectorTable: 'Test vector fields',
+    colField: 'Field',
+    colValue: 'Value',
     // Connectivity
     connectivityLead: 'How to reach the API, and how to keep your clock in step with it.',
     connectivityTable: 'Connectivity options',
@@ -164,18 +205,21 @@ export const docsCopy = defineCopy(
       streamsLive:
         'El inventario de flujos en vivo, GET /ws/streams, lista cada canal que sirve el servicio de flujos y si su puerta está abierta.',
       publicRoute: 'pública; con clave {scope}',
+      onlyWithMatching: 'montada solo con matching de futuros',
+      internalRoute: 'solo entre servicios; ninguna clave ni sesión la alcanza',
       privateStream: 'tus propios datos; {scope}',
       publicStream: 'público',
       fundingNone:
         'Ninguna ruta de depósito o retiro está en la API de trading: los retiros nunca son posibles con una clave, y los depósitos se hacen desde la app con sesión iniciada.',
       referenceMore:
-        'El inventario en vivo, GET /api/v1/capabilities, también lista las rutas de posiciones y extractos fuera de esta tabla, con sus rechazos.',
+        'Esta tabla lista cada ruta REST de trading, una vez cada una. El inventario en vivo, GET /api/v1/routes, lista las mismas rutas con quién puede llamar a cada una y los permisos que necesita una clave; una ruta marcada como dependiente del matching de futuros solo está montada mientras las órdenes de futuros pasan por el matching.',
       permissionsLead:
-        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una clave sin él se rechaza con scope.denied y un enlace a esta página.',
+        'Qué permiso necesita una clave para cada ruta. En /api/v1 una clave necesita trade:read para leer y trade:write para todo lo demás; una ruta de personal también necesita admin:read, que solo tiene una sesión de personal, así que ninguna clave puede llamarla. Una clave sin el permiso se rechaza con scope.denied y un enlace a esta página.',
       permissionsTable: 'Permisos y endpoints',
       colScope: 'Permiso',
       colEndpoints: 'Endpoints',
       neverOnKey: 'Nunca en una clave: retirar es solo interactivo y ninguna ruta lo acepta.',
+      neverOnKeyStaff: 'Nunca en una clave: solo lo tiene una sesión de personal, así que una clave se rechaza en estas rutas de personal.',
       openapiLead:
         'Las mismas rutas como archivos que lee un programa: una descripción OpenAPI 3, una colección de peticiones y un índice de estas páginas para asistentes. Cada uno lista el permiso, el coste de una llamada y los rechazos.',
       openapiDownload: 'Descargar el archivo OpenAPI',
@@ -210,6 +254,48 @@ export const docsCopy = defineCopy(
       clockFailed: 'No se pudo leer la hora del servidor, así que no se muestra ningún desfase. Inténtalo de nuevo.',
       clockHow:
         'La comprobación lee GET /api/v1/time y toma el desfase en la mitad de la ida y vuelta. Mantén tu reloj con una fuente de hora de red estándar.',
+      clockWindowUnset:
+        'La ventana de firma no está fijada, así que el desfase no se juzga contra ninguna, y toda solicitud firmada se rechaza con auth.request_window_unset.',
+      clockPolicyFailed: 'No se pudo leer la ventana de firma, así que el desfase no se juzga contra ella. Inténtalo de nuevo.',
+      clockWindowLive:
+        'El servidor publica su ventana, en segundos, en GET /api/identity/trpc/requestSigningPolicy y rechaza una marca de tiempo más alejada de su reloj. Mientras la ventana no esté fijada, toda solicitud firmada se rechaza.',
+      authLead: 'Cómo una clave demuestra que cada solicitud es tuya.',
+      authKeyTitle: 'Envía tu clave',
+      authKeyBody: 'Envía la clave en la cabecera Authorization: Bearer, un espacio y la clave. La clave se muestra una vez, al crearla.',
+      authSignTitle: 'Firma cada solicitud',
+      authSignBody:
+        'Una clave que puede colocar órdenes (trade:write) firma cada solicitud por defecto, así que una clave copiada no basta para operar. Su secreto de firma se muestra una vez, junto a la clave, al crearla. Une estas líneas con un salto de línea, firma el texto con HMAC-SHA256 y el secreto, y envía la firma en hexadecimal.',
+      authLines: 'El texto que firmas, línea a línea',
+      authLineVersion: 'El nombre del esquema, {version}',
+      authLineMethod: 'El método, en mayúsculas',
+      authLinePath: 'La ruta con su cadena de consulta, tal como se envía',
+      authLineTimestamp: 'La hora en que firmas, en segundos Unix',
+      authLineNonce: 'Un nonce: un valor nuevo en cada solicitud',
+      authLineBody: 'El SHA-256 del cuerpo que envías, en hexadecimal (de un texto vacío si no hay cuerpo)',
+      authHeadersTable: 'Las cabeceras que lleva una solicitud firmada',
+      colHeader: 'Cabecera',
+      colCarries: 'Lleva',
+      authHeaderTimestamp: 'La hora que firmaste',
+      authHeaderNonce: 'El nonce que firmaste',
+      authHeaderSignature: 'La firma, en hexadecimal',
+      authWindowTitle: 'Ventana de marca de tiempo',
+      authWindow:
+        'El servidor acepta una marca de tiempo hasta {seconds} segundos de su reloj, en cualquier sentido, y cada nonce una vez.',
+      authWindowUnset:
+        'La ventana de marca de tiempo no está fijada, así que toda solicitud firmada se rechaza con auth.request_window_unset.',
+      authRefusals:
+        'Una solicitud alterada, una marca de tiempo caducada o futura y un nonce reutilizado se rechazan cada uno con su propio código.',
+      authErrorsLink: 'Errores de autenticación y de permisos',
+      authPolicyLoading: 'Leyendo la política de firma.',
+      authPolicyFailed:
+        'No se pudo leer la política de firma, así que no se muestran la ventana ni el vector de prueba. Inténtalo de nuevo.',
+      authPolicyRead: 'La ventana y el vector de prueba se leen en vivo de GET /api/identity/trpc/requestSigningPolicy.',
+      authVectorTitle: 'Vector de prueba',
+      authVectorBody:
+        'Una solicitud firmada por el propio firmante del servidor con un secreto TEST publicado. Tu firmante es correcto cuando produce el mismo texto y la misma firma a partir de estas partes.',
+      authVectorTable: 'Campos del vector de prueba',
+      colField: 'Campo',
+      colValue: 'Valor',
       connectivityLead: 'Cómo llegar a la API y cómo mantener tu reloj al paso con ella.',
       connectivityTable: 'Opciones de conectividad',
       colOption: 'Opción',
@@ -283,18 +369,22 @@ export const docsCopy = defineCopy(
       streamsLive:
         'L’inventaire des flux en direct, GET /ws/streams, liste chaque canal que sert le service de flux et si sa porte est ouverte.',
       publicRoute: 'publique ; avec une clé {scope}',
+      onlyWithMatching: 'montée seulement avec le matching des contrats à terme',
+      internalRoute: 'entre services uniquement ; aucune clé ni session ne l’atteint',
       privateStream: 'vos propres données ; {scope}',
       publicStream: 'public',
       fundingNone:
         'Aucune route de dépôt ou de retrait n’est sur l’API de trading : les retraits ne sont jamais accessibles avec une clé, et les dépôts se font depuis l’application connectée.',
       referenceMore:
-        'L’inventaire en direct, GET /api/v1/capabilities, liste aussi les routes de positions et de relevés hors de ce tableau, avec leurs refus.',
+        'Ce tableau liste chaque route REST de trading, une fois chacune. L’inventaire en direct, GET /api/v1/routes, liste les mêmes routes avec qui peut appeler chacune et les autorisations dont une clé a besoin ; une route marquée comme dépendant du matching des contrats à terme n’est montée que lorsque les ordres à terme passent par le matching.',
       permissionsLead:
-        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une clé qui ne l’a pas est refusée avec scope.denied et un lien vers cette page.',
+        'L’autorisation dont une clé a besoin pour chaque route. Sur /api/v1, une clé a besoin de trade:read pour lire et de trade:write pour tout le reste ; une route réservée au personnel demande aussi admin:read, que seule une session du personnel détient : aucune clé ne peut l’appeler. Une clé sans l’autorisation est refusée avec scope.denied et un lien vers cette page.',
       permissionsTable: 'Autorisations et endpoints',
       colScope: 'Autorisation',
       colEndpoints: 'Endpoints',
       neverOnKey: 'Jamais sur une clé : le retrait est uniquement interactif et aucune route ne le prend.',
+      neverOnKeyStaff:
+        'Jamais sur une clé : seule une session du personnel la détient, donc une clé est refusée sur ces routes du personnel.',
       openapiLead:
         'Les mêmes routes en fichiers qu’un programme lit : une description OpenAPI 3, une collection de requêtes et un index de ces pages pour les assistants. Chacun liste l’autorisation, le coût d’un appel et les refus.',
       openapiDownload: 'Télécharger le fichier OpenAPI',
@@ -330,6 +420,46 @@ export const docsCopy = defineCopy(
       clockFailed: 'L’heure du serveur n’a pas pu être lue, donc aucun décalage n’est affiché. Réessayez.',
       clockHow:
         'La vérification lit GET /api/v1/time et prend le décalage au milieu de l’aller-retour. Gardez votre horloge sur une source de temps réseau standard.',
+      clockWindowUnset:
+        'La fenêtre de signature n’est pas fixée : le décalage n’est jugé contre aucune, et toute requête signée est refusée avec auth.request_window_unset.',
+      clockPolicyFailed: 'La fenêtre de signature n’a pas pu être lue : le décalage n’est pas jugé contre elle. Réessayez.',
+      clockWindowLive:
+        'Le serveur publie sa fenêtre, en secondes, à GET /api/identity/trpc/requestSigningPolicy et refuse un horodatage plus éloigné de son horloge. Tant que la fenêtre n’est pas fixée, toute requête signée est refusée.',
+      authLead: 'Comment une clé prouve que chaque requête vient de vous.',
+      authKeyTitle: 'Envoyez votre clé',
+      authKeyBody:
+        'Envoyez la clé dans l’en-tête Authorization : Bearer, une espace, puis la clé. La clé est affichée une fois, à sa création.',
+      authSignTitle: 'Signez chaque requête',
+      authSignBody:
+        'Une clé qui peut passer des ordres (trade:write) signe chaque requête par défaut : une clé copiée ne suffit pas pour trader. Son secret de signature est affiché une fois, à côté de la clé, à sa création. Joignez ces lignes par un saut de ligne, signez le texte avec HMAC-SHA256 et le secret, et envoyez la signature en hexadécimal.',
+      authLines: 'Le texte que vous signez, ligne par ligne',
+      authLineVersion: 'Le nom du schéma, {version}',
+      authLineMethod: 'La méthode, en majuscules',
+      authLinePath: 'Le chemin avec sa chaîne de requête, tel qu’envoyé',
+      authLineTimestamp: 'L’heure de signature, en secondes Unix',
+      authLineNonce: 'Un nonce : une nouvelle valeur à chaque requête',
+      authLineBody: 'Le SHA-256 du corps envoyé, en hexadécimal (d’un texte vide sans corps)',
+      authHeadersTable: 'Les en-têtes d’une requête signée',
+      colHeader: 'En-tête',
+      colCarries: 'Contient',
+      authHeaderTimestamp: 'L’heure signée',
+      authHeaderNonce: 'Le nonce signé',
+      authHeaderSignature: 'La signature, en hexadécimal',
+      authWindowTitle: 'Fenêtre d’horodatage',
+      authWindow:
+        'Le serveur accepte un horodatage jusqu’à {seconds} secondes de son horloge, dans un sens comme dans l’autre, et chaque nonce une fois.',
+      authWindowUnset: 'La fenêtre d’horodatage n’est pas fixée : toute requête signée est refusée avec auth.request_window_unset.',
+      authRefusals: 'Une requête modifiée, un horodatage périmé ou futur et un nonce réutilisé sont chacun refusés avec leur propre code.',
+      authErrorsLink: 'Erreurs d’authentification et d’autorisation',
+      authPolicyLoading: 'Lecture de la politique de signature.',
+      authPolicyFailed: 'La politique de signature n’a pas pu être lue : la fenêtre et le vecteur de test ne sont pas affichés. Réessayez.',
+      authPolicyRead: 'La fenêtre et le vecteur de test sont lus en direct depuis GET /api/identity/trpc/requestSigningPolicy.',
+      authVectorTitle: 'Vecteur de test',
+      authVectorBody:
+        'Une requête signée par le propre signataire du serveur avec un secret TEST publié. Votre signataire est juste quand il produit le même texte et la même signature à partir de ces éléments.',
+      authVectorTable: 'Champs du vecteur de test',
+      colField: 'Champ',
+      colValue: 'Valeur',
       connectivityLead: 'Comment joindre l’API, et comment garder votre horloge en phase avec elle.',
       connectivityTable: 'Options de connectivité',
       colOption: 'Option',

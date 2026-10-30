@@ -35,6 +35,11 @@
       "service": "ops",
       "value": "5",
       "note": "TEST number of help articles the header search lists. Not an owner decision; it only lets J-home-ia-02 #5 run on the test stack."
+    },
+    "OPS_RECON_ALERT_REPEAT_SECONDS": {
+      "service": "ops",
+      "value": "5",
+      "note": "TEST seconds before a repeat reconciliation failure sends another in-console notice. Not an owner decision; short so J-ops-console-07 #8 can see a repeat land inside a snooze on the test stack."
     }
   }
 }

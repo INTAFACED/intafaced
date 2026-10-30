@@ -11,7 +11,7 @@ Access follows the account and the permissions on its key. No access tiers are p
 Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.
 
 - Permissions: /developers/permissions
-- Authentication: Waits for DV-auth-01
+- Authentication: /developers/authentication
 - REST conventions: /developers/rest
 - API reference: /developers/reference
 - WebSocket streams: Waits for DV-websocket-01
