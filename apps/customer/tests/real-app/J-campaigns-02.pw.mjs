@@ -189,12 +189,15 @@ function redeliverFill(userId) {
   return JSON.parse(r.stdout.trim().split('\n').at(-1));
 }
 
+const FILL_STREAM = 'LOCAL_TEST_TRADE';
+
 /** Until svc-campaigns' task fill consumer has taken and acknowledged every message on the bus. */
 async function fillConsumerCaughtUp() {
   await expect(async () => {
     const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
+      .filter((st) => st.name === FILL_STREAM)
       .flatMap((st) => st.consumer_detail ?? [])
       .find((c) => c.name === 'campaigns-task-fill-settled');
     expect(consumer?.num_pending ?? -1).toBe(0);

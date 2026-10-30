@@ -73,13 +73,19 @@ async function liveCampaign(name, over = {}) {
 
 /**
  * The step's starting point, nothing running: founder A ends every TEST campaign that is scheduled, active or paused on
- * this stack (earlier journeys in the same run leave theirs live). Ending moves nothing and is what an operator does.
+ * this stack (earlier journeys in the same run leave theirs live), and any older one the customer `who` still sees.
+ * Ending moves nothing and is what an operator does.
  */
-async function endEveryRunningCampaign() {
+async function endEveryRunningCampaign(who) {
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const all = data(await ctx.edge.query('campaigns', 'ops.campaigns.list', undefined, a), 'ops.campaigns.list');
-  for (const c of all.filter((x) => ['scheduled', 'active', 'paused'].includes(x.state))) {
+  const running = all.filter((x) => ['scheduled', 'active', 'paused'].includes(x.state));
+  // The ops list is the newest 200; anything older the customer still sees is read by id.
+  for (const { id } of (await catalogueOf(who)).campaigns.filter((x) => !running.some((c) => c.id === x.id))) {
+    running.push(data(await ctx.edge.query('campaigns', 'ops.campaigns.get', { id }, a), `ops.campaigns.get ${id}`));
+  }
+  for (const c of running) {
     const ended = data(
       await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: c.id, action: 'end', revision: c.revision }, a),
       `end ${c.name}`,
@@ -119,7 +125,7 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
   const me = person(`jc01me${tag}`.slice(0, 20));
   const page = await customer(browser);
   await signUpInBrowser(page, me);
-  await endEveryRunningCampaign();
+  await endEveryRunningCampaign(me);
   await openCatalogue(page);
   // The filters and the type list are always laid out.
   await expect(page.getByRole('combobox', { name: 'Type', exact: true })).toBeVisible();
