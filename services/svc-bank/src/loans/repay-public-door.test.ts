@@ -246,7 +246,7 @@ describe('HTTP /trpc/loans.repay — repay through ledger-client', () => {
 
   it('with a live loan, posts loan.repaid — no invented rate', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const app = await mountDoors(bank);

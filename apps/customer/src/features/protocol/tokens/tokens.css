@@ -66,3 +66,11 @@
   color: var(--if-danger);
   font-weight: 600;
 }
+
+.tokens-room .tokens-challenge {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--if-space-3);
+  border: 0.0625rem solid var(--if-line);
+  border-radius: var(--if-r-md);
+}

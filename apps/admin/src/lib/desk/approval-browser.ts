@@ -27,6 +27,7 @@ export type ApprovalEndpoint =
   | '/api/identity-ops/keys'
   | '/api/more-ops/waves'
   | '/api/console-mode'
+  | '/api/launch/issuers'
   | '/api/restore/approvals';
 
 export interface StepPayload {

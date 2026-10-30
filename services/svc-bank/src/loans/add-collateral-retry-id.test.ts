@@ -227,7 +227,7 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
 
   it('omit eventId refuses bank.event_id_required and posts nothing', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const locksAtOpen = lockCount(ledger);
@@ -239,7 +239,7 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
 
   it('timeout after lock posts, retry same eventId + amount — one extra lock, not two', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const locksAtOpen = lockCount(ledger);
@@ -282,7 +282,7 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
     'two overlapping addCollateral with the same eventId lock once (%s promise is held)',
     async (heldCaller) => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-        loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+        loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
       });
       const opened = await seedOpenLoan(bank, ledger);
       const locksAtOpen = lockCount(ledger);
@@ -363,7 +363,7 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
 
   it('same eventId with a different amount refuses and does not post a second lock', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }, () => NOW) },
     });
     const opened = await seedOpenLoan(bank, ledger);
     const eventId = randomUUID();
@@ -397,7 +397,7 @@ describe('HTTP /trpc/loans.addCollateral — retry with the same eventId is one 
 
   it('two HTTP posts with the same eventId and amount lock once', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     const locksAtOpen = lockCount(ledger);
@@ -425,7 +425,7 @@ describe('HTTP /trpc/loans.addCollateral — retry with the same eventId is one 
 
   it('HTTP without eventId is 400', async () => {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource({ BTC: { price: '10000', quality: 'mid' } }) },
     });
     const opened = await seedOpenLoan(bank, ledger, new Date());
     const locksAtOpen = lockCount(ledger);

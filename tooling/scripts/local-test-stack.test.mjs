@@ -282,6 +282,10 @@ const script = resolve(here, 'local-test-stack.mjs');
     delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
     const unset = ledgerEnv();
     assert.equal('LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL' in unset, false);
+    // Each recorded rail reads its own statement from the stack's statement server; the TEST mint has none.
+    const rails = Object.keys(unset).filter((name) => name.startsWith('LEDGER_RECONCILE_RAIL_'));
+    assert.deepEqual(rails.sort(), ['LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL', 'LEDGER_RECONCILE_RAIL_PAYOUT_SIM_URL']);
+    for (const name of rails) assert.equal(unset[name], 'http://127.0.0.1:14525/statement');
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
     const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
     assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
@@ -589,9 +593,10 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, each with a reason in EDGE_ABSENT: indexer and dex are called by the Protocol rooms (#4835) and
-  // stay unwired. protocol is started (J-dex-protocol-01) and mining too (svc-mining-pool binds HTTP_HOST since #5907).
-  assert.deepEqual([...absentButUsed].sort(), ['dex', 'indexer'], `unexpected Customer modules without a service: ${absentButUsed}`);
+  // Absent on purpose, with its reason in EDGE_ABSENT: dex is called by the Protocol rooms (#4835) and stays unwired.
+  // protocol is started (J-dex-protocol-01), mining too (svc-mining-pool binds HTTP_HOST since #5907), and indexer since the
+  // explorer pages (#6645, local-stack-services/indexer.mjs).
+  assert.deepEqual([...absentButUsed].sort(), ['dex'], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }
@@ -774,7 +779,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
   assert.match(
     source,
-    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'nats'\];/,
+    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'rail-statements', 'nats'\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -920,6 +925,23 @@ console.log('local-test-stack: customer folder override checks passed');
   }
 }
 
+// The /api/ proxy keeps the status badge's own cache life, as nginx does, and stays no-store everywhere else.
+{
+  const { apiCacheControl } = await import('./local-test-stack.mjs');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', 'public, max-age=120'), 'public, max-age=120');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', 'no-cache, max-age=0'), 'no-cache, max-age=0');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', undefined), 'no-store');
+  assert.equal(apiCacheControl('/api/notify/status/badge.svg', ''), 'no-store');
+  for (const path of [
+    '/api/notify/trpc/statusPage.badge',
+    '/api/notify/status/badge.svg/',
+    '/api/notify/status/badge.svgx',
+    '/api/trade/trpc/orders.list',
+  ]) {
+    assert.equal(apiCacheControl(path, 'public, max-age=120'), 'no-store', path);
+  }
+}
+
 // The Customer site carries the production security headers, and the browser's CSP reports are recorded and fail the run.
 {
   const { customerSecurityHeaders, cspReportRows } = await import('./local-test-stack.mjs');
@@ -1008,4 +1030,43 @@ console.log('local-test-stack: customer folder override checks passed');
     server.kill('SIGTERM');
     rmSync(home, { recursive: true, force: true });
   }
+}
+
+// A build stamp vouches only for the checkout that made it, at source no commit has changed since, with the same
+// uncommitted edits (B16, 30 Oct: a branch change and a shared state folder kept an older build "up to date"). A running
+// service or console started on an older build is restarted onto the new one.
+{
+  const { buildStillFresh, onCurrentBuild } = await import('./local-test-stack.mjs');
+  const same = () => true;
+  const stamp = { stampRepo: '/w/a', stampHead: 'h1', stampEdits: '' };
+  assert.equal(buildStillFresh(stamp, { repo: '/w/a', head: 'h1', edits: '' }, same), true);
+  assert.equal(buildStillFresh(stamp, { repo: '/w/b', head: 'h1', edits: '' }, same), false, 'another worktree is not this build');
+  assert.equal(buildStillFresh(stamp, { repo: '/w/a', head: 'h1', edits: 'e1' }, same), false, 'new uncommitted edits rebuild');
+  assert.equal(
+    buildStillFresh({ ...stamp, stampEdits: 'e1' }, { repo: '/w/a', head: 'h1', edits: '' }, same),
+    false,
+    'reverted edits rebuild',
+  );
+  assert.equal(
+    buildStillFresh(stamp, { repo: '/w/a', head: 'h2', edits: '' }, () => false),
+    false,
+    'a source commit rebuilds',
+  );
+  assert.equal(
+    buildStillFresh(stamp, { repo: '/w/a', head: 'h2', edits: '' }, (a, b) => a === 'h1' && b === 'h2'),
+    true,
+    'a tooling-only commit does not',
+  );
+  assert.equal(buildStillFresh({ stampHead: 'h1' }, { repo: '/w/a', head: 'h1', edits: '' }, same), false, 'an older stamp builds once');
+
+  assert.equal(onCurrentBuild({ build: 'b1' }, 'b1'), true);
+  assert.equal(onCurrentBuild({ build: 'b1' }, 'b2'), false, 'rebuilt since it started');
+  assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
+  assert.equal(onCurrentBuild({}, undefined), true, 'no build id yet: nothing to compare');
+
+  // Each built part's start stops a process on another build first (services, console, Customer app, invitation site).
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  for (const part of ['def.name', "'admin'", "'customer'", "'invitation'"])
+    assert.ok(source.includes(`await stopForNewBuild(${part},`), `${part} restarts onto a new build`);
+  console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }

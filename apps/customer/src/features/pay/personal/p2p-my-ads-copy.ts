@@ -1,0 +1,92 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// P-ads-merchant-06 (J-p2p-05 #1, #2): My Ads beyond the board. Each ad's state with why and since when, the daily edit
+// cap with when it starts again, closed ads with relist, and closing refused while orders are open.
+const en = {
+  editSaving: 'Saving…',
+  editSaved: 'Saved. Orders already open keep the terms they were taken on.',
+  editBack: 'Back to your ads',
+  editPairFixed: 'Buy or sell, the coin, the currency and fixed or floating price stay as posted. To change them, post a new ad.',
+  editSpentAt: 'You have made all {limit} ad edits for today. Editing opens again at',
+  listedSince: 'Listed since',
+  pausedSince: 'Paused since',
+  closedSince: 'Closed since',
+  editsTitle: 'Ad edits today',
+  editsUsed: 'You have made {used} of {limit} ad edits today. The count starts again at {time}.',
+  editsSpent: 'You have made all {limit} ad edits for today. Editing opens again at {time}.',
+  editsUnset: 'Ads cannot be edited: the daily edit limit is not set in this build.',
+  closedTitle: 'Closed ads',
+  closedNone: 'You have no closed ads.',
+  closedMore: 'Showing your {count} most recently closed ads.',
+  closedByYou: 'Closed by you.',
+  closedSoldOut: 'Sold out: what was left is under one order’s minimum, so it closed by itself.',
+  closedPlain: 'Closed.',
+  relist: 'Relist',
+  relisting: 'Relisting…',
+  relistBody: 'Relisting posts this ad again as a new ad, checked as any new ad is. This closed ad stays as it was.',
+  relisted: 'Relisted as a new ad.',
+  openRelisted: 'Open the new ad',
+  closeHasOpenTrades: 'This ad has {count} open orders. It can close once they finish; closing never cancels an order.',
+  closeHasOneOpenTrade: 'This ad has 1 open order. It can close once it finishes; closing never cancels an order.',
+} as const;
+const es = {
+  editSaving: 'Guardando…',
+  editSaved: 'Guardado. Los pedidos ya abiertos conservan las condiciones con que se tomaron.',
+  editBack: 'Volver a tus anuncios',
+  editPairFixed:
+    'Comprar o vender, la criptomoneda, la moneda y el precio fijo o variable quedan como se publicaron. Para cambiarlos, publica un anuncio nuevo.',
+  editSpentAt: 'Has hecho las {limit} ediciones de anuncios de hoy. Podrás editar de nuevo a las',
+  listedSince: 'Publicado desde',
+  pausedSince: 'En pausa desde',
+  closedSince: 'Cerrado desde',
+  editsTitle: 'Ediciones de anuncios hoy',
+  editsUsed: 'Has hecho {used} de {limit} ediciones de anuncios hoy. El recuento vuelve a empezar a las {time}.',
+  editsSpent: 'Has hecho las {limit} ediciones de anuncios de hoy. Podrás editar de nuevo a las {time}.',
+  editsUnset: 'Los anuncios no se pueden editar: el límite diario de ediciones no está fijado en esta versión.',
+  closedTitle: 'Anuncios cerrados',
+  closedNone: 'No tienes anuncios cerrados.',
+  closedMore: 'Se muestran tus {count} anuncios cerrados más recientes.',
+  closedByYou: 'Lo cerraste tú.',
+  closedSoldOut: 'Agotado: lo que quedaba es menos que el mínimo de un pedido, así que se cerró solo.',
+  closedPlain: 'Cerrado.',
+  relist: 'Volver a publicar',
+  relisting: 'Volviendo a publicar…',
+  relistBody:
+    'Volver a publicar crea este anuncio de nuevo como un anuncio nuevo, revisado como cualquier anuncio nuevo. Este anuncio cerrado queda como estaba.',
+  relisted: 'Publicado de nuevo como un anuncio nuevo.',
+  openRelisted: 'Abrir el anuncio nuevo',
+  closeHasOpenTrades: 'Este anuncio tiene {count} pedidos abiertos. Podrá cerrarse cuando terminen; cerrarlo nunca cancela un pedido.',
+  closeHasOneOpenTrade: 'Este anuncio tiene 1 pedido abierto. Podrá cerrarse cuando termine; cerrarlo nunca cancela un pedido.',
+} satisfies Record<keyof typeof en, string>;
+const fr = {
+  editSaving: 'Enregistrement…',
+  editSaved: 'Enregistré. Les commandes déjà ouvertes gardent les conditions auxquelles elles ont été prises.',
+  editBack: 'Retour à vos annonces',
+  editPairFixed:
+    'Achat ou vente, la cryptomonnaie, la monnaie et le prix fixe ou variable restent ceux de la publication. Pour les changer, publiez une nouvelle annonce.',
+  editSpentAt: 'Vous avez fait les {limit} modifications d’annonces d’aujourd’hui. Vous pourrez modifier à nouveau à',
+  listedSince: 'Publiée depuis',
+  pausedSince: 'En pause depuis',
+  closedSince: 'Fermée depuis',
+  editsTitle: 'Modifications d’annonces aujourd’hui',
+  editsUsed: 'Vous avez fait {used} des {limit} modifications d’annonces d’aujourd’hui. Le compte repart à {time}.',
+  editsSpent: 'Vous avez fait les {limit} modifications d’annonces d’aujourd’hui. Vous pourrez modifier à nouveau à {time}.',
+  editsUnset: 'Les annonces ne peuvent pas être modifiées : la limite quotidienne de modifications n’est pas fixée dans cette version.',
+  closedTitle: 'Annonces fermées',
+  closedNone: 'Vous n’avez aucune annonce fermée.',
+  closedMore: 'Affichage de vos {count} annonces fermées les plus récentes.',
+  closedByYou: 'Fermée par vous.',
+  closedSoldOut: 'Épuisée : le reste est inférieur au minimum d’une commande, elle s’est donc fermée seule.',
+  closedPlain: 'Fermée.',
+  relist: 'Republier',
+  relisting: 'Republication…',
+  relistBody:
+    'Republier publie cette annonce comme une nouvelle annonce, vérifiée comme toute nouvelle annonce. Cette annonce fermée reste telle quelle.',
+  relisted: 'Republiée comme nouvelle annonce.',
+  openRelisted: 'Ouvrir la nouvelle annonce',
+  closeHasOpenTrades:
+    'Cette annonce a {count} commandes ouvertes. Elle pourra être fermée quand elles seront terminées ; la fermer n’annule jamais une commande.',
+  closeHasOneOpenTrade:
+    'Cette annonce a 1 commande ouverte. Elle pourra être fermée quand elle sera terminée ; la fermer n’annule jamais une commande.',
+} satisfies Record<keyof typeof en, string>;
+export const myAdsCopy = defineCopy('pay.p2p.my-ads', en, { es, fr });

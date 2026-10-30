@@ -8,7 +8,7 @@ import { recordMerchantNotification } from './notifications.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { payoutReference } from './payouts.js';
 import { boundAmount } from '../payments/amounts.js';
-import { assertPermission, type MerchantCaller, type MerchantRole } from './roles.js';
+import { assertPermission, roleHasPermission, type MerchantCaller, type MerchantRole } from './roles.js';
 
 /**
  * ASYNC CSV EXPORT JOBS (G5).
@@ -61,7 +61,13 @@ const FEE_LAYER_COLUMNS = new Set(['fee_bps', 'applied_layer']);
 
 export function resolveExportColumns(kind: ExportKind, role: MerchantRole, requested: readonly string[] | undefined): string[] {
   const known = EXPORT_COLUMNS[kind];
-  const permit = kind === 'fees' && (role === 'viewer' || role === 'developer') ? known.filter((c) => !FEE_LAYER_COLUMNS.has(c)) : known;
+  const permit =
+    kind === 'fees' && (role === 'viewer' || role === 'developer')
+      ? known.filter((c) => !FEE_LAYER_COLUMNS.has(c))
+      : // A role that reads the rail reference masked (M-adv-payments-core-01) gets no rail reference column at all.
+        kind === 'payments' && !roleHasPermission(role, 'payments.unmask')
+        ? known.filter((c) => c !== 'rail_reference')
+        : known;
   if (requested === undefined) return [...permit];
   if (requested.length === 0 || new Set(requested).size !== requested.length || requested.some((c) => !permit.includes(c))) {
     throw new MerchantOpsError('pay.export_columns_forbidden', 'bad_request');

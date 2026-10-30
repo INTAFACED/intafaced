@@ -100,6 +100,7 @@ import {
   shouldRegisterCardSandbox,
 } from './rails/posture.js';
 import { createPayRouter } from './router.js';
+import { createSandboxFundsRouter } from './developer-sandbox-funds/router.js';
 import { readMerchantTerms } from './merchant-portal/terms.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { payChainReadyHonesty } from './ready-honesty.js';
@@ -692,6 +693,8 @@ export const appRouter = mergeRouters(
   // prettier-ignore
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor, merchantTerms),
   createWithdrawalApprovalRouter(withdrawalApprovals),
+  // DV-sandbox-02: a developer sandbox's TEST funds; refuses by name until the owner decides where they are kept.
+  createSandboxFundsRouter(),
   // HM-dashboard-03: Home's work list, pay's part (a payout waiting on the caller's own business).
   createWorkItemsRouter(payoutWaitingFromSql(sql)),
   createAllowlistRouter(allowlist),

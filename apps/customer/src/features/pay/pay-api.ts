@@ -350,6 +350,8 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
 
 /** The most paused ads My offers lists (svc-p2p's page maximum); the room says when there may be more. */
 export const PAUSED_OFFERS_SHOWN = 200;
+/** P-ads-merchant-06: closed ads My Ads lists, most recently closed first. */
+export const CLOSED_OFFERS_SHOWN = 50;
 
 export function createPersonalPayApi(
   api: ApiClient,
@@ -651,6 +653,22 @@ export function createPersonalPayApi(
         'offers.create',
         { ...input, idempotencyKey, advertiserTermsVersion: termsVersion },
         s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
+      );
+    },
+    /**
+     * P-ads-merchant-06: saves an edit of the person's own ad, only the fields that changed. `idempotencyKey` is made once
+     * per edit form, so a second press or a retry is the same edit and counts once against the day's cap. Open orders keep
+     * the terms they were taken on.
+     */
+    updateOffer(offerId: string, changes: s.OfferUpdateInput, idempotencyKey: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.update',
+        { offerId, idempotencyKey, ...changes },
+        s.offerSchema.refine((offer) => offer.makerId === userId && offer.id === offerId.toLowerCase(), 'The edited ad is not this one'),
       );
     },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
@@ -1160,6 +1178,41 @@ export function createPersonalPayApi(
         z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
         { signal },
       );
+    },
+    /** P-ads-merchant-06: the person's own closed ads, most recently closed first, each with why it closed. */
+    async closedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'closed', limit: CLOSED_OFFERS_SHOWN },
+        z.array(
+          s.offerSchema.refine(
+            (offer) => offer.makerId === userId && offer.status === 'closed',
+            'An ad in this list is not this account’s',
+          ),
+        ),
+        { signal },
+      );
+    },
+    /** P-ads-merchant-06: the person's ad edits today against the daily cap; blank cap refuses `p2p.config_unset`. */
+    async offerEditQuota(signal?: AbortSignal): Promise<ApiResult<z.infer<typeof s.offerEditQuotaSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'offers.editQuota', undefined, s.offerEditQuotaSchema, { signal });
+    },
+    /**
+     * P-ads-merchant-06: posts a closed ad again as a new ad, through every check a new ad passes. svc-p2p derives the new
+     * ad's id from the closed one, so pressing twice, or a retry after a lost reply, is the same relist.
+     */
+    async relistOffer(offerId: string): Promise<ApiResult<s.Offer>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return guard.run(`${userId}:relist:${offerId}`, () => api.mutate('p2p', 'offers.relist', { offerId }, s.offerSchema));
     },
     /**
      * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its

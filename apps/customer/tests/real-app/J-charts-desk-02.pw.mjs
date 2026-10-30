@@ -153,8 +153,20 @@ test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by
   const label = page.getByTestId('chart-test');
   await expect(label).toHaveText('TEST');
   await expect(label).toHaveAttribute('title', /TEST: this market’s prices are test prices/);
-  // The label sits with the title in the same row as the status chip.
-  await expect(page.getByTestId('chart-title').first()).toBeVisible();
+  // The label sits on the chart's title row: the same row element as the title and the status chip, and drawn on the
+  // same line (its vertical middle inside the title's height), after the title.
+  const row = await page.evaluate(() => {
+    const cw = document.querySelector('[data-testid="cw"]');
+    const [title, test, status] = ['chart-title', 'chart-test', 'chart-status'].map((id) => cw.querySelector(`[data-testid="${id}"]`));
+    const [tb, lb] = [title.getBoundingClientRect(), test.getBoundingClientRect()];
+    const middle = (lb.top + lb.bottom) / 2;
+    return {
+      sameRow: test.parentElement === title.parentElement && status.parentElement === title.parentElement,
+      onTitleLine: middle >= tb.top && middle <= tb.bottom,
+      afterTitle: title.compareDocumentPosition(test) === Node.DOCUMENT_POSITION_FOLLOWING,
+    };
+  });
+  expect(row).toEqual({ sameRow: true, onTitleLine: true, afterTitle: true });
 });
 
 test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter advances, and no task holds the page past the render budget`, async ({

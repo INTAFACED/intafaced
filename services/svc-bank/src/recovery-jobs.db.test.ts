@@ -31,6 +31,7 @@ describe('two recovery schedulers', () => {
     const calls = { loans: 0, repay: 0, earn: 0 };
     const ports = {
       loans: {
+        originationFeeBps: '0',
         resumePending: async () => {
           calls.loans += 1;
           if (calls.loans === 1) {

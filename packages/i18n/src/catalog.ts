@@ -186,6 +186,9 @@ export const en = {
   'notify.identity.security.totp_replaced.title': 'Authenticator app replaced',
   'notify.identity.security.passkey_added.title': 'Passkey added',
   'notify.identity.security.passkey_removed.title': 'Passkey removed',
+  'notify.identity.security.password_changed.title': 'Password changed',
+  'notify.identity.security.password_changed.body':
+    'The password of your account was changed. If this was not you, reset it now, open Security, sign out everywhere and contact Support.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
@@ -314,6 +317,8 @@ export const en = {
   'agents.refused.funds_unread': 'Refused: your available balance could not be read, so this run did not start. Nothing was charged.',
   'agents.refused.spend_limit_invalid': 'Refused: that spend limit is blank or not a valid amount, so it was not saved.',
   'agents.refused.spend_cap': 'Refused: this would pass your {scope} spend limit of {limit} {asset}.',
+  'agents.refused.hard_limit_reached':
+    'Refused: this agent reached your hard limit of {limit} {asset} for {month}. It runs again next month, or when you raise the limit.',
   'agents.refused.spend_idempotency_conflict': 'Refused: this request key was already used for a different spend change.',
   'agents.refused.spend_reservation_conflict': 'Refused: this reservation key is already in use for a different amount or session.',
   'agents.refused.spend_reservation_missing': 'Refused: that spend reservation does not exist.',
@@ -338,6 +343,8 @@ export const en = {
     'Refused: {owed} {asset} of earlier usage is still unpaid, and no allowance for unpaid usage is set, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
   'agents.refused.window_sealed':
     'Refused: this session’s usage period is sealed, so it takes no more runs and nothing was called. Open a new session; usage still unpaid is retried on its same charge.',
+  'agents.refused.copy_intel.returns_board_refused':
+    'Refused: Copy intelligence never ranks leaders by returns. It shows each leader’s disclosed stats from fills. Nothing was run or charged.',
   'agents.error.route_not_found': 'No Sovereign Intelligence route is configured for “{task}”.',
   'agents.error.capability_unavailable': 'The Neural Engine cannot serve this kind of request right now.',
   'agents.error.engine_unavailable': 'The Neural Engine is unavailable. Nothing was run and nothing was charged.',

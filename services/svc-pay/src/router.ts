@@ -84,6 +84,9 @@ import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
+import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
+import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
+import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   loadDestinationHoldSeconds,
   notifyMerchantOwners,
@@ -429,8 +432,10 @@ export function createPayRouter(
       if (!afterCommit) throw err;
       logPaymentFactsReadFailure(view.id);
     }
+    const out = toPaymentOut(view);
     return {
-      ...toPaymentOut(view),
+      ...out,
+      railRef: railRefFor(out.railRef, audience),
       pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
       failure: facts.failure,
     };
@@ -440,6 +445,10 @@ export function createPayRouter(
     const detail = toSettlementDetail(row);
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
+
+  const paymentPrivacy = portalSql ? new PaymentPrivacy(portalSql) : null;
+  /** M-adv-payments-core-01: a role that cannot unmask (viewer, developer) reads every rail reference masked. */
+  const railRefFor = (ref: string | null, audience: MerchantReadAudience) => (seesClearRailRef(audience) ? ref : maskRailRef(ref));
 
   const portal =
     portalSql && teamReads
@@ -1039,6 +1048,7 @@ export function createPayRouter(
     ...(portal ? { merchantAnalytics: portal.merchantAnalytics } : {}),
 
     payment: router({
+      ...paymentPrivacyProcedures(portalSql, paymentPrivacy),
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
@@ -1160,24 +1170,37 @@ export function createPayRouter(
               payment.status === 'created' ? pay.paymentConfirmations(input.paymentId) : null,
             ]);
             const body = await paymentOut(payment, audience, false);
-            return { ...body, attempts, confirmations };
+            return { ...body, attempts: attempts.map((a) => ({ ...a, railRef: railRefFor(a.railRef, audience) })), confirmations };
           }),
         ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
       list: ownMerchantRead()
         .input(payPaymentListInputSchema)
-        .output(payPageSchema(paymentView).extend({ summary: payPaymentListSummarySchema }))
+        .output(payPageSchema(paymentView.extend(paymentListPrivacySchema.shape)).extend({ summary: payPaymentListSummarySchema }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
-            const page = await pay.listPayments(input);
+            const page = await pay.listPayments({ ...input, searchRailRef: seesClearRailRef(audience) });
+            // M-adv-payments-core-01: the payer email is masked for every role (`payment.unmask` shows one clear value,
+            // audited), and a role that cannot unmask reads the rail reference masked (`railRefFor`).
+            const emails = paymentPrivacy
+              ? await paymentPrivacy.maskedEmails(
+                  input.merchantId,
+                  page.items.map((item) => item.id),
+                )
+              : new Map<string, string>();
             return {
-              items: page.items.map((item) => ({
-                ...toPaymentOut(item),
-                pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
-                failure: item.failure,
-              })),
+              items: page.items.map((item) => {
+                const out = toPaymentOut(item);
+                return {
+                  ...out,
+                  railRef: railRefFor(out.railRef, audience),
+                  customerEmail: emails.get(item.id) ?? null,
+                  pricingSnapshot: projectPricingSnapshot(item.pricingSnapshot, audience),
+                  failure: item.failure,
+                };
+              }),
               nextCursor: page.nextCursor,
               summary: page.summary,
             };
