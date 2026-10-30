@@ -22,7 +22,7 @@ import { createRunStore, type RunStore } from './store.js';
 /**
  * The run entity on real Postgres, through the agents router, with the real runtime and the real meter
  * (AG-sessions-01, ENGINE RS-1 to RS-4). The ledger is `MemoryLedger`, the reference the conformance suite proves equal
- * to svc-ledger; the engine is the deterministic mock. A person starts every run; an API key only reads it (OWNER 107).
+ * to svc-ledger; the engine is the deterministic mock. A person starts every run; an API key only reads it (owner decision 2026-10-29).
  */
 
 const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
@@ -313,7 +313,7 @@ if (!available) {
         code: 'BAD_REQUEST',
         message: 'agents.refused.cursor_invalid',
       });
-      // A key never starts a run (OWNER 107), and the refused start stores nothing.
+      // A key never starts a run (owner decision 2026-10-29), and the refused start stores nothing.
       await expect(
         key(USER, ['agents:read', 'agents:execute']).run.complete({
           sessionId: session.id,

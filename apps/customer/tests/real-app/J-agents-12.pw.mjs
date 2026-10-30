@@ -20,7 +20,7 @@ import { EDGE, ROOT, api, json, toUnits } from './stack.mjs';
 // tells the person on their own sign-in. Runs are metered exactly as in J-agents-01: each run's cost is its usage at the
 // stack's TEST rate card (tooling/profiles/test-owner-values/agents.json), held in the session's usage window, and the
 // window settles once as a ledger fee when the session closes.
-// Red by name, never counted: #2 (a run started from an API key) is overtaken by OWNER 107, which keeps running to the
+// Red by name, never counted: #2 (a run started from an API key) is overtaken by the owner decision 2026-10-29, which keeps running to the
 // person's own session; #5 (webhooks) waits on the developer module's webhook delivery (developer-webhooks-001); run
 // notices wait on the run events of AG-sessions-04, not yet declared in packages/events. The journey's end (a background
 // run, events from a cursor, a webhook delivery) is therefore partial: only the cursor read is proven.
@@ -54,7 +54,7 @@ const NO_SUCH_ID = '00000000-0000-4000-8000-000000000000';
 
 /** The steps that stay red by name, and why. Every failure inside them carries the name (`blockedBy`). */
 const BLOCKED = {
-  2: `${J} #2 BLOCKED (OWNER 107): starting a run from an API key is overtaken by the owner's decision that runs start only from the person's own session`,
+  2: `${J} #2 BLOCKED (owner decision 2026-10-29: runs start only from the person's own session): starting a run from an API key is overtaken`,
   5: `${J} #5 BLOCKED (developer-webhooks-001): the developer module's webhook delivery is not on main, so no endpoint can be registered`,
   outside: `${J} outside BLOCKED (AG-sessions-04 events): intafaced.agents.run.completed is not declared in packages/events, so no run notice exists`,
 };
@@ -262,7 +262,7 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
     await keyReadBack(who, 'TEST agents-off', offKey, ['trade:read']);
     await keyReadBack(who, 'TEST agents-on', onKey, ['agents:read']);
     agents.run.write({ offKey, onKey });
-    // The keys page never offers agents:execute, so no key can start a run (OWNER 107): identity lists it as a scope a
+    // The keys page never offers agents:execute, so no key can start a run (owner decision 2026-10-29): identity lists it as a scope a
     // key never holds, and the page shows it among those with the reason, never as a box to tick.
     const keyScopes = ok(await as(who, '/api/identity/trpc/developerKeys.scopes')).scopes;
     expect(keyScopes.filter(({ scope }) => scope === 'agents:execute')).toEqual([
@@ -443,7 +443,7 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
 });
 
 test(`${J} #2 opens a background run with a key holding the scope: a run id and a status`, async () => {
-  // STALE under OWNER 107 ("never from API keys or delegated tokens"): a run starts only from the person's own session.
+  // STALE under the owner decision 2026-10-29 ("never from API keys or delegated tokens"): a run starts only from the person's own session.
   // Red by name and never counted. What the app does today: a key with agents:read cannot start a run, by the scope a
   // run needs, and nothing is stored. No key can hold that scope: the keys page never offers agents:execute (the start
   // checks identity's list and the page), so there is no key with it to try.

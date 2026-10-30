@@ -36,7 +36,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     AGENTS_USAGE_WINDOW_MINUTES: testValue('AGENTS_USAGE_WINDOW_MINUTES'),
     AGENTS_METERING_ENABLED: testValue('AGENTS_METERING_ENABLED'),
     AGENTS_ROUTING_TABLE: routingTable(),
-    // LOCAL TEST tier law of the scanner, navigator and support doors (OWNER 108); production leaves it blank and each
+    // LOCAL TEST tier law of the scanner, navigator and support doors (owner decision); production leaves it blank and each
     // door refuses tier_law_blank. The tier itself is always the signed principal's.
     AGENTS_TIER_LAWS: testValue('AGENTS_TIER_LAWS'),
     // The service's deterministic stand-in engine, which /ready and every route report as "sandbox": no model

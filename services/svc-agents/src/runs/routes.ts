@@ -10,7 +10,7 @@ import { createRunStore, type StoredRun } from './store.js';
 /** The run routes' builders, handed in by the agents router so the procedures here match the rest of it. */
 export interface RunRouteKit {
   readonly guard: <T>(fn: () => Promise<T>) => Promise<T>;
-  /** `agents:execute`, the person's own session only (OWNER 107). */
+  /** `agents:execute`, the person's own session only (owner decision 2026-10-29). */
   readonly executeProcedure: ExecuteProcedure;
   /** The session if it is the caller's; the same not-found for someone else's. */
   readonly ownedSession: (sessionId: string, userId: string) => Promise<{ id: string; agentId: string }>;
