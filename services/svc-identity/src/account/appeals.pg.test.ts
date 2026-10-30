@@ -241,14 +241,17 @@ if (!available) {
       expect(ran.outcome).toBe('changed');
       // An uphold now refuses: the restriction it names is gone.
       expect(
-        await codeOf(desk().decide(decider, { appealId: appeal.id, decision: 'uphold', reasonCode: 'restriction_stands', expectedVersion: '1' })),
+        await codeOf(
+          desk().decide(decider, { appealId: appeal.id, decision: 'uphold', reasonCode: 'restriction_stands', expectedVersion: '1' }),
+        ),
       ).toBe('identity.appeal_restriction_changed');
       const done = await desk().decide(decider, lift);
       expect(done).toMatchObject({ status: 'lifted', decision: { outcome: 'lifted', reason: { code: 'review_complete' } } });
       expect(await held()).toEqual({ restricted: false, version: '2' });
       expect(await desk().decide(decider, lift)).toEqual(done);
       expect(await notices()).toEqual([{ purpose: 'appeal-decided', detail: 'lifted' }]);
-      const audits = await db.sql`SELECT audit_id FROM founder_control_audit WHERE request_id = ${appealLiftRequestId(appeal.id, approved.approvalId)}`;
+      const audits =
+        await db.sql`SELECT audit_id FROM founder_control_audit WHERE request_id = ${appealLiftRequestId(appeal.id, approved.approvalId)}`;
       expect(audits).toHaveLength(1);
     });
 

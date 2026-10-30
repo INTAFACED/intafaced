@@ -267,7 +267,9 @@ export class AccountAppeals {
   private assertDecidable(row: AppealRow, deciderId: string, input: AppealDecideInput): void {
     if (!(OPEN as readonly string[]).includes(row.status)) throw new AppealError('identity.appeal_decided');
     if (row.version !== input.expectedVersion) throw new AppealError('identity.appeal_version_conflict');
-    const setters = [row.restricted_by, row.restriction_approved_by].filter((id): id is string => id !== null).map((id) => id.toLowerCase());
+    const setters = [row.restricted_by, row.restriction_approved_by]
+      .filter((id): id is string => id !== null)
+      .map((id) => id.toLowerCase());
     if (deciderId === row.user_id || setters.includes(deciderId)) throw new AppealError('identity.appeal_decider_restricted');
   }
 }
