@@ -39,7 +39,7 @@ export {
   useTicker,
 } from '../../data';
 export type { Candle, Decimal, Holding, Loadable, MarketRow, PortfolioSummary, TickerRow } from '../../data';
-export { dec, decOrNull, fractionDigits, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
+export { dec, decOrNull, fractionDigits, ratio, roundScaled, sub, times, toFixedString } from '../../data/decimal';
 export { PAR_ASSETS } from '../../data/derive';
 
 export { tickerSource } from '../../data/queries';
@@ -60,3 +60,6 @@ export { partialWindowStart, sinceLabel } from '../trade/markets/window';
 export { zoneName } from '../trade/desk/time';
 export { usePreferences } from '../../shared/preferences';
 export { useSession } from '../../features/session/session';
+export { useLotBook } from '../money/pnl-source';
+export { fmtUsdChange } from '../../data/format';
+export { useSupportedAssets } from '../../features/money/supported-assets-reads';
