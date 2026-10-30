@@ -62,6 +62,13 @@ test('J-ops-console-02 #4 the risk card says no risk level and the indicator str
   const indicators = page.getByTestId('customer-indicator-strip');
   await expect(indicators).toContainText('Indicators: Not set');
   await expect(indicators).toContainText('compliance.indicators_unset');
+  // Nothing numeric: once slice ids and codes are left out, neither shows a digit, a meter or a progress bar.
+  for (const part of [risk, indicators]) {
+    const words = (await part.innerText()).replace(/\b[A-Z]+(?:-[a-z]+)+-\d+\b/g, '').replace(/Code: \S+/g, '');
+    expect(words, 'no score, level number or value').not.toMatch(/\d/);
+    await expect(part.getByRole('meter')).toHaveCount(0);
+    await expect(part.getByRole('progressbar')).toHaveCount(0);
+  }
 });
 
 test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page }) => {
