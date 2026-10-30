@@ -963,11 +963,16 @@ export const PLAN_SECRETS = {
  * LOCAL_STACK_S2S for a start or restart, checked before anything is stopped or started. A stack whose services are
  * running with another value is refused: start and restart leave a running service alone, so it would mix modes.
  */
-function checkedS2sMode() {
+function validS2sMode() {
   const raw = process.env.LOCAL_STACK_S2S;
   const mode = raw === undefined || raw === '' ? 'off' : raw;
   if (mode !== 'off' && mode !== 'dual')
     fail(`LOCAL_STACK_S2S must be off or dual, not "${raw}" (keypair would refuse the local fund and seed scripts)`, 2);
+  return mode;
+}
+
+function checkedS2sMode() {
+  const mode = validS2sMode();
   const procs = readProcs();
   const running = serviceNames().filter((n) => ownedAlive(procs[n]));
   const was = fs.existsSync(P.s2sMode) ? fs.readFileSync(P.s2sMode, 'utf8').trim() : 'off';
@@ -1663,6 +1668,7 @@ async function cmdStop(names = []) {
 
 /** Read-only: what this script would run and where Edge would send every route. Touches nothing. */
 function cmdPlan(flags) {
+  validS2sMode();
   const defs = serviceDefs(PLAN_SECRETS);
   const procs = fs.existsSync(P.procs) ? readProcs() : {};
   const services = defs.map((d) => ({
