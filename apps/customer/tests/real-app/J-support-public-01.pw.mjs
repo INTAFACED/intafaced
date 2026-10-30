@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import {
-  asDesk,
   contactChannels,
   feedbackSummary,
   helpCentre,
@@ -8,6 +7,7 @@ import {
   saveCategory,
   saveSection,
   setAudience,
+  setContact,
   setHelpCentre,
   unpublish,
 } from './help-centre.mjs';
@@ -60,22 +60,14 @@ async function expectContactCard(page) {
   else await expect(card.getByTestId('support-phone')).toContainText(owner.phone);
 }
 
-/** Set the published contact details as the support lead, from the revision just read; the stored details. */
-async function setContact(changes, reason) {
-  const current = await contactChannels();
-  const res = await asDesk('lead', 'mutation', 'setContactChannels', { ...changes, expectedRevision: current.revision, reason });
-  if (res.json?.result?.data === undefined) throw new Error(`setContactChannels refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return res.json.result.data;
-}
-
 test(`${J} #1 /help is one front door: search, categories, the request button and a contact card that says "not set"`, async ({
   browser,
 }) => {
   // The owner's contact details are cleared for this step, so "not set" is what the card must say, then put back.
   if (process.env.VITE_SUPPORT_EMAIL) throw new Error('this build carries VITE_SUPPORT_EMAIL, so the "not set" state cannot be shown');
   const found = await contactChannels();
-  const cleared = found.email !== null || found.phone !== null || found.chatHours !== null;
-  if (cleared) await setContact({ email: null, phone: null, chatHours: null }, `TEST ${J} #1 clear the contact details`);
+  const hadDetails = found.email !== null || found.phone !== null || found.chatHours !== null;
+  if (hadDetails) await setContact({ email: null, phone: null, chatHours: null }, `TEST ${J} #1 clear the contact details`);
   try {
     const page = await visitor(browser);
     await page.goto('/help');
@@ -97,7 +89,7 @@ test(`${J} #1 /help is one front door: search, categories, the request button an
     await expect(main.getByTestId('request-sign-in')).toBeVisible();
     await page.context().close();
   } finally {
-    if (cleared)
+    if (hadDetails)
       await setContact({ email: found.email, phone: found.phone, chatHours: found.chatHours }, `TEST ${J} #1 put the contact details back`);
   }
 });
@@ -204,17 +196,6 @@ test(`${J} #3 browses a category and then a section: only that section's publish
   await page.goto(`/help/category/${category.id}`);
   await expect(page.locator('main').getByTestId('help-topic-missing')).toBeVisible();
   await page.context().close();
-  // With the whole library empty, /help shows its honest empty state and no sample answer. That needs a stack whose
-  // catalogue is empty; on a shared stack other journeys' answers are published, so the clause stays red by name until
-  // the stack has that profile (lead ruling 2026-10-30 19:24).
-  const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
-  const answers = (await listed.json()).result?.data ?? [];
-  if (answers.length > 0) throw new Error('the empty-library clause needs an empty-catalogue stack profile');
-  const bare = await visitor(browser);
-  await bare.goto('/help');
-  await expect(bare.locator('main').getByTestId('help__row')).toHaveCount(0);
-  await expect(bare.locator('main').getByText(/No answers are published/)).toBeVisible();
-  await bare.context().close();
 });
 
 test(`${J} #4 a search lists the labelled answer first, and the typed words survive going to sign in`, async ({ browser }) => {
@@ -391,7 +372,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
   try {
     const { answer, word } = await narrowedAnswer('#7', 'st', 'staff', made);
     // A public answer beside it in the same section, so the section's list is not empty by chance.
-    const sibling = await publishText({
+    made.sibling = await publishText({
       id: `j01-${RUN}-st-public`,
       title: `TEST public answer beside the staff one ${RUN}`,
       body: 'TEST A public answer in the same section.',
@@ -421,7 +402,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
       await expect(main.getByText(word)).toHaveCount(0);
       // The section that holds it lists the public answer beside it and not the staff one.
       await page.goto(`/help/section/j01-${RUN}-st1`);
-      await expect(main.getByTestId('help__row').locator('h2')).toHaveText([sibling.title]);
+      await expect(main.getByTestId('help__row').locator('h2')).toHaveText([made.sibling.title]);
       await expect(main.getByText(word)).toHaveCount(0);
       await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
       await main.getByRole('button', { name: 'Search', exact: true }).click();
@@ -430,6 +411,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
     }
   } finally {
     await page?.context().close();
+    if (made.sibling) await unpublish(made.sibling.id, made.sibling.revision);
     await made.cleanup?.();
   }
 });
@@ -481,7 +463,9 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
     const done = card.getByTestId('help-feedback-done');
     await expect(done).toHaveText(/your support request is open/);
     await expect(done).toHaveCount(1);
-    // One request, whatever the double click sent: the person's own list holds exactly one, and it is the one linked.
+    // One request, whatever the double click sent: once nothing is in flight, the person's own list holds exactly one,
+    // and it is the one linked.
+    await page.waitForLoadState('networkidle');
     const listed = await (await api(who)).get(`/api/support/trpc/listMine?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`);
     expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
     const requests = listed.body.result.data;
@@ -517,4 +501,19 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
     for (const row of made) await unpublish(row.id, row.revision);
     await saveCategory({ ...category, retired: true, reason: `TEST ${J} #8 retire the run's topic` });
   }
+});
+
+// Last in this serial file, so its red skips no other step. With the whole library empty, /help shows its honest empty
+// state and no sample answer. That needs a stack whose catalogue is empty; on a shared stack other journeys' answers are
+// published, so this clause of #3 stays red by name until the stack has that profile (lead ruling 2026-10-30 19:24).
+test(`${J} #3 with the whole library empty, /help shows its honest empty state and no sample answer`, async ({ browser }) => {
+  const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
+  expect(listed.status, 'listKb answers').toBe(200);
+  const answers = (await listed.json()).result.data;
+  if (answers.length > 0) throw new Error('the empty-library clause needs an empty-catalogue stack profile');
+  const page = await visitor(browser);
+  await page.goto('/help');
+  await expect(page.locator('main').getByTestId('help__row')).toHaveCount(0);
+  await expect(page.locator('main').getByText(/No answers are published/)).toBeVisible();
+  await page.context().close();
 });

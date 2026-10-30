@@ -63,6 +63,16 @@ export async function setHelpCentre(changes, reason) {
   );
 }
 
+/** Set the published contact details (a field `null` clears it) from the revision just read. Returns the stored details. */
+export async function setContact(changes, reason) {
+  const { ctx } = await founders();
+  const current = await contactChannels();
+  return data(
+    await ctx.edge.mutate('support', 'setContactChannels', { ...changes, expectedRevision: current.revision, reason }, await leadToken()),
+    'setContactChannels',
+  );
+}
+
 /** Create or change a help library category as the support lead. */
 export async function saveCategory(row) {
   const { ctx } = await founders();

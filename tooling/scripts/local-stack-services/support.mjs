@@ -28,7 +28,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
-    // journey whose agent works a request puts it in the agent's group first (J-support-public-10 #8).
+    // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.

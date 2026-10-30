@@ -125,27 +125,29 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
   // A request someone holds is not in the queue.
   const held = await request(`TEST queue held ${RUN}`);
   await desk('lead', 'mutation', 'claim', { ticketId: held.id });
-  const queue = await openQueue(page);
-  await expect(rowOf(queue, ticket.subject)).toBeVisible();
-  await expect(rowOf(queue, held.subject)).toHaveCount(0);
-  await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
-  await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
-  await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
-  // Ranked by score, highest first.
-  const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
-    Number,
-  );
-  expect(scores).toEqual([...scores].sort((a, b) => b - a));
-  // Only unassigned open and pending requests.
-  for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
-    expect(['open', 'pending']).toContain(status); // Every listed request is unassigned, as svc-support holds it.
-  const rows = await queue.getByRole('row').evaluateAll((list) => list.slice(1).map((row) => row.textContent ?? ''));
-  expect(rows.length).toBeGreaterThan(0);
-  const all = await desk('lead', 'query', 'listAll', { limit: 500 });
-  for (const text of rows) {
-    const stored = all.filter((row) => text.includes(row.subject)).sort((a, b) => b.subject.length - a.subject.length)[0];
-    expect(stored, `queue row "${text}" is a stored request`).toBeDefined();
-    expect(stored.assigneeId ?? null, `queue row "${text}" is assigned`).toBeNull();
+  try {
+    const queue = await openQueue(page);
+    await expect(rowOf(queue, ticket.subject)).toBeVisible();
+    await expect(rowOf(queue, held.subject)).toHaveCount(0);
+    await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
+    await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
+    await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
+    // Ranked by score, highest first.
+    const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
+      Number,
+    );
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    // Only open and pending requests.
+    for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
+      expect(['open', 'pending']).toContain(status);
+    // Only unassigned ones: the page lists the queue page svc-support answers, and none of its tickets has an assignee.
+    const answered = await desk('lead', 'query', 'listQueue', { limit: 100 });
+    const entries = answered.status === 'ok' ? answered.entries : [];
+    expect(entries.length).toBeGreaterThan(0);
+    await expect(queue.getByRole('row')).toHaveCount(entries.length + 1);
+    for (const entry of entries) expect((await desk('lead', 'query', 'get', { ticketId: entry.ticketId })).assigneeId ?? null).toBeNull();
+  } finally {
+    await desk('lead', 'mutation', 'unclaim', { ticketId: held.id, idempotencyKey: `${J}:${RUN}:held` });
   }
 });
 
