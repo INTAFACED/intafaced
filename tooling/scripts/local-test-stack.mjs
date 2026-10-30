@@ -1348,9 +1348,9 @@ function testChain() {
 /**
  * What services stored from the TEST chain: rows that describe blocks and logs of one node. A new anvil starts at
  * block 0 with other hashes, so rows kept from an earlier node make the indexer see a chain that is not its own and halt
- * (`indexer.halted`). Each entry is a database and the schema the service keeps those rows in.
+ * (`indexer.halted`). Each entry is the service and the schema of the stack's one database it keeps those rows in.
  */
-export const CHAIN_DERIVED = [{ service: 'indexer', db: 'svc_indexer', schema: 'indexer' }];
+export const CHAIN_DERIVED = [{ service: 'indexer', schema: 'indexer' }];
 
 /** SQL that empties every table in `schema` and keeps the tables (and so the service's applied migrations). */
 export function emptySchemaSql(schema) {
@@ -1368,13 +1368,13 @@ END $$;`;
 async function forgetOldChain(secrets) {
   const procs = readProcs();
   const stopped = [];
-  for (const { service, db, schema } of CHAIN_DERIVED) {
+  for (const { service, schema } of CHAIN_DERIVED) {
     if (ownedAlive(procs[service])) {
       say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
       stopped.push(service);
     }
-    psql(secrets, emptySchemaSql(schema), { db });
-    say(`  ${service}: rows from the earlier TEST chain emptied (${db}.${schema}); it reads the new chain from block 0`);
+    psql(secrets, emptySchemaSql(schema), { db: DB_NAME });
+    say(`  ${service}: rows from the earlier TEST chain emptied (schema ${schema}); it reads the new chain from block 0`);
   }
   return stopped;
 }
@@ -1894,8 +1894,10 @@ async function cmdStart(flags) {
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
-  // Migrate only what is about to start: a service that is already running was migrated when it started.
-  const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
+  // Migrate only what is about to start: a service that is already running on the current build was migrated when it
+  // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
+  const backendBuild = currentBuild('backendBuild');
+  const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]) || !onCurrentBuild(readProcs()[d.name], backendBuild));
   await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
@@ -1903,6 +1905,13 @@ async function cmdStart(flags) {
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
+  // A service stopped for the new chain that this start did not plan for is migrated before it comes back.
+  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
+  if (extra.length)
+    await migrate(
+      secrets,
+      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
+    );
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {

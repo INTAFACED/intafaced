@@ -1117,6 +1117,8 @@ console.log('local-test-stack: customer folder override checks passed');
     /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*stopped = await forgetOldChain\(secrets\);/,
   );
   assert.equal(source.split('await forgetOldChain(secrets)').length - 1, 1, 'one place forgets the old chain');
+  // The stack keeps every service in its one database; svc_indexer is a role, not a database.
+  assert.match(source, /psql\(secrets, emptySchemaSql\(schema\), \{ db: DB_NAME \}\)/);
   // What it stopped comes back even under --only.
   assert.match(source, /renewed\.includes\(d\.name\)/);
   console.log('local-test-stack: a new TEST chain empties the indexer and brings it back');
@@ -1128,4 +1130,19 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.match(source, /n === 'indexer' \? await indexerHalt\(\) : null/);
   assert.match(source, /halted \? `HALTED \(\$\{halted\}\)` : 'ok'/);
   console.log('local-test-stack: a halted indexer reads HALTED in the health table');
+}
+
+// 23. A running service on another build is restarted onto the new one, so the start migrates it first (a new
+// migration would otherwise be missing: svc-protocol refused to boot without protocol.listing_challenges).
+{
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  assert.match(
+    source,
+    /const toStart = wanted\.filter\(\s*\(d\) => !ownedAlive\(readProcs\(\)\[d\.name\]\) \|\| !onCurrentBuild\(readProcs\(\)\[d\.name\], backendBuild\),?\s*\);/,
+  );
+  assert.match(
+    source,
+    /const extra = renewed\.filter\(\(name\) => !toStart\.some\(\(d\) => d\.name === name\)\);\s*if \(extra\.length\)\s*await migrate\(/,
+  );
+  console.log('local-test-stack: a service restarted onto a new build, or for a new chain, is migrated first');
 }
