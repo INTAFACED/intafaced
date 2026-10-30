@@ -38,10 +38,13 @@ export interface LeadCriteria {
   readonly setAt: string;
 }
 
-/** What the applicant reads of their own application. */
+/**
+ * What the applicant reads of their own application (CB-copy-12): submitted, under review (a first founder approved
+ * and a second must confirm), approved, or disapproved with the founders' reason.
+ */
 export interface MyLeadApplication {
   readonly applicationId: string;
-  readonly state: 'submitted' | 'approved' | 'rejected';
+  readonly state: 'submitted' | 'under_review' | 'approved' | 'disapproved';
   readonly displayName: string;
   readonly submittedAt: string;
   readonly reason: string | null;
@@ -77,7 +80,13 @@ export interface LeadAuditView {
   readonly operatorId: string;
   readonly subject: string;
   readonly reason: string | null;
+  /** A lead decision's business key, `copy.ops.decide:<applicationId>:<decision>` (CB-ops-01); null on other rows. */
+  readonly key: string | null;
 }
+
+/** The business key of one founder decision on one application (CB-ops-01). Its audit row is written once under it. */
+export const leadDecisionKey = (applicationId: string, decision: 'approve' | 'reject'): string =>
+  `copy.ops.decide:${applicationId}:${decision}`;
 
 export interface LeadDeskDeps {
   readonly sql: Sql;
@@ -138,7 +147,14 @@ function view(row: ApplicationRow): LeadApplicationView {
 function mine(row: ApplicationRow): MyLeadApplication {
   return {
     applicationId: row.id,
-    state: row.status === 'approved' ? 'approved' : row.status === 'rejected' ? 'rejected' : 'submitted',
+    state:
+      row.status === 'approved'
+        ? 'approved'
+        : row.status === 'rejected'
+          ? 'disapproved'
+          : row.status === 'awaiting_second'
+            ? 'under_review'
+            : 'submitted',
     displayName: row.display_name,
     submittedAt: row.created_at.toISOString(),
     reason: row.status === 'rejected' ? row.reason : null,
@@ -349,14 +365,14 @@ export class LeadDesk {
       await writeOperatorAudit(
         tx as unknown as Sql,
         {
-          id: randomUUIDFor(`approve:${row.id}`),
+          id: randomUUIDFor(leadDecisionKey(row.id, 'approve')),
           kind: 'copy_lead.approve',
           operatorId: principal.userId,
           accountId: row.user_id,
           objectId: row.id,
           approverId,
           reason: null,
-          detail: { approvalId, leaderRef: listed.leaderRef, displayName: row.display_name },
+          detail: { key: leadDecisionKey(row.id, 'approve'), approvalId, leaderRef: listed.leaderRef, displayName: row.display_name },
         },
         now,
       );
@@ -383,13 +399,14 @@ export class LeadDesk {
       await writeOperatorAudit(
         tx as unknown as Sql,
         {
-          id: randomUUIDFor(`reject:${row.id}`),
+          id: randomUUIDFor(leadDecisionKey(row.id, 'reject')),
           kind: 'copy_lead.reject',
           operatorId: principal.userId,
           accountId: row.user_id,
           objectId: row.id,
           approverId: null,
           reason,
+          detail: { key: leadDecisionKey(row.id, 'reject') },
         },
         now,
       );
@@ -418,13 +435,14 @@ export class LeadDesk {
   async audit(principal: Principal): Promise<LeadAuditView[]> {
     requireOperator(principal);
     const rows = await this.deps.sql<
-      Array<{ id: string; at: Date; action: string; operator_id: string; subject: string; reason: string | null }>
+      Array<{ id: string; at: Date; action: string; operator_id: string; subject: string; reason: string | null; key: string | null }>
     >`
       SELECT * FROM (
-        SELECT audit_id::text AS id, occurred_at AS at, 'leader.' || action AS action, operator_id, leader_ref AS subject, reason
+        SELECT audit_id::text AS id, occurred_at AS at, 'leader.' || action AS action, operator_id, leader_ref AS subject, reason,
+               NULL::text AS key
         FROM trade.copy_leader_listing_audit
         UNION ALL
-        SELECT id::text AS id, occurred_at AS at, kind AS action, operator_id, object_id AS subject, reason
+        SELECT id::text AS id, occurred_at AS at, kind AS action, operator_id, object_id AS subject, reason, detail->>'key' AS key
         FROM trade.operator_audit WHERE kind LIKE 'copy_lead.%'
       ) feed ORDER BY at DESC, id DESC LIMIT ${LIST_MAX}`;
     return rows.map((r) => ({
@@ -434,6 +452,7 @@ export class LeadDesk {
       operatorId: r.operator_id,
       subject: r.subject,
       reason: r.reason,
+      key: r.key,
     }));
   }
 

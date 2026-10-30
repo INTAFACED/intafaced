@@ -17,7 +17,7 @@ import { leadApplyCopy } from './lead-apply-copy';
 // hand-declared-ok: svc-trade's copy procedures have no browser-safe schema in packages/contracts yet (the Copy room's api.ts declares its own the same way)
 const mineSchema = z.object({
   applicationId: z.string(),
-  state: z.enum(['submitted', 'approved', 'rejected']),
+  state: z.enum(['submitted', 'under_review', 'approved', 'disapproved']),
   displayName: z.string(),
   submittedAt: z.string(),
   reason: z.string().nullable(),
@@ -109,7 +109,7 @@ export function LeadApplyRoom() {
       };
     if (refusal) return { kind: 'ready', partial: { missing: refusal } };
     // After a rejection, applying again waits on the platform's waiting period, which is not set: refused by name.
-    if (current?.state === 'rejected')
+    if (current?.state === 'disapproved')
       return {
         kind: 'ready',
         partial: {
@@ -127,13 +127,15 @@ export function LeadApplyRoom() {
       step={
         <div className="lead-apply">
           {sent ? <p role="status">{t('sent')}</p> : null}
-          {!sent && current?.state === 'submitted' ? <p>{t('waiting', { name: current.displayName })}</p> : null}
+          {!sent && (current?.state === 'submitted' || current?.state === 'under_review') ? (
+            <p>{t('waiting', { name: current.displayName })}</p>
+          ) : null}
           {current?.state === 'approved' ? (
             <p>
               {t('approved', { name: current.displayName })} <a href="/trade/copy">{t('openCopy')}</a>
             </p>
           ) : null}
-          {current?.state === 'rejected' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
+          {current?.state === 'disapproved' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
           {canApply ? (
             <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
               <Field label={t('nameLabel')} hint={t('nameHint')}>

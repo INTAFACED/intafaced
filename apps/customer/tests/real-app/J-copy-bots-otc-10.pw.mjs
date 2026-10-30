@@ -167,34 +167,60 @@ test(`${J} #3 approves with the criteria set, as one founder: pending until the 
   await second.context().close();
 });
 
+/** The applicant's own application, as svc-trade answers `copy.myLeadApplication`. */
+async function mineOf(who) {
+  const res = await (await api(who)).get('/api/trade/trpc/copy.myLeadApplication');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body?.result?.data ?? null;
+}
+
 test(`${J} #4 rejects with a reason: the applicant sees it, and applying again is refused by the wait's code`, async ({ page }) => {
   await openDesk(page);
+  const waiting = applicationOf(await readDesk(page), state('reject'));
+  expect(waiting?.status, 'the second applicant waits in the queue').toBe('pending');
+  // A decision carries a reason: without one the desk refuses by code, and the application is unchanged.
+  const bare = await deskCall(page, { action: 'reject', applicationId: waiting.id, reason: '' });
+  expect([bare.status, bare.body?.code]).toEqual([400, 'reason_required']);
+  expect(applicationOf(await readDesk(page), state('reject'))).toEqual(waiting);
+
   const reason = `TEST: track record too short ${state('tag')}`;
   await rowOf(queue(page), state('reject')).getByRole('button', { name: 'Reject' }).click();
   await page.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill(reason);
   await page.getByRole('dialog').getByRole('button', { name: 'Reject' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Rejected' })).toBeVisible();
+  // Read back from svc-trade: the application left the queue, and the decision wrote its audit row in the same step,
+  // once, under the decision's business key, with the reason.
+  const desk = await readDesk(page);
+  expect(applicationOf(desk, state('reject'))).toBeUndefined();
+  expect(desk.audit.filter((r) => r.key === `copy.ops.decide:${waiting.id}:reject`)).toEqual([
+    expect.objectContaining({ action: 'copy_lead.reject', subject: waiting.id, reason }),
+  ]);
   await signOutBrowser(page.context());
-  // The applicant reads the reason; the wait before applying again is the owner's and unset, so no form is offered.
-  await signIn(page, state('rejectWho'));
+
+  // The applicant's application is disapproved with that reason, read from svc-trade, and the room shows it.
+  const rejectWho = state('rejectWho');
+  const decided = await mineOf(rejectWho);
+  expect(decided).toMatchObject({ applicationId: waiting.id, state: 'disapproved', reason });
+  await signIn(page, rejectWho);
   await page.goto('/copy/lead/apply');
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
-  // svc-trade refuses a new application by the wait's code, and the applicant's application is still the rejected one.
-  const applicant = await api(state('rejectWho'));
+  // svc-trade refuses a new application by the wait's code, and the record is re-read unchanged: no second row.
+  const applicant = await api(rejectWho);
   const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
   expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait_unset');
+  expect(await mineOf(rejectWho)).toEqual(decided);
 });
 
-test(`${J} #4 may apply again after the owner's wait`, async ({ page }) => {
-  // The wait is the owner's and unset, so a rejected applicant is never offered the form again: this clause cannot pass yet.
-  await signIn(page, state('rejectWho'));
-  await page.goto('/copy/lead/apply');
-  await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Apply to lead' }),
-    "UNSET: the owner's wait before a rejected applicant may apply again is not set (trade.copy_lead_reapply_wait_unset)",
-  ).toBeVisible(UNBUILT);
+test(`${J} #4 may apply again after the owner's wait`, async () => {
+  // The wait before a rejected applicant may apply again is the owner's (CB-copy-12), and svc-trade has no setting for
+  // it yet, so every re-application is refused by the unset code. Only this clause is red, on svc-trade's own answer.
+  const rejectWho = state('rejectWho');
+  const again = await (await api(rejectWho)).post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
+  expect(
+    again.body?.result?.data?.state,
+    `UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered ${codeOf(again.body)}`,
+  ).toBe('submitted');
 });
 
 test(`${J} #5 suspends a lead: the state changes once, with an audit row showing the reason`, async ({ page }) => {

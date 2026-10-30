@@ -39,6 +39,8 @@ export interface LeadAuditRow {
   readonly operatorId: string;
   readonly subject: string;
   readonly reason: string | null;
+  /** A lead decision's business key (`copy.ops.decide:<applicationId>:<decision>`); null on other rows. */
+  readonly key: string | null;
 }
 
 export interface LeadQueue {
@@ -131,7 +133,8 @@ export const parseListings = (raw: unknown) => all(raw, parseListing);
 export function parseAuditRow(raw: unknown): LeadAuditRow | null {
   const r = obj(raw);
   if (!r || !str(r.id) || !str(r.at) || !str(r.action) || !str(r.operatorId) || !str(r.subject) || !strOrNull(r.reason)) return null;
-  return { id: r.id, at: r.at, action: r.action, operatorId: r.operatorId, subject: r.subject, reason: r.reason };
+  const key = strOrNull(r.key) ? (r.key as string | null) : null;
+  return { id: r.id, at: r.at, action: r.action, operatorId: r.operatorId, subject: r.subject, reason: r.reason, key };
 }
 
 export const parseAudit = (raw: unknown) => all(raw, parseAuditRow);

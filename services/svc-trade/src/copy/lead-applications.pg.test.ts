@@ -115,6 +115,7 @@ describe('lead applications', () => {
     fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-1');
     const waiting = await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-1' });
     expect(waiting).toMatchObject({ status: 'awaiting_second', proposedBy: FOUNDER_A });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'under_review' });
 
     // The proposer cannot confirm their own approval.
     await expect(
@@ -145,6 +146,7 @@ describe('lead applications', () => {
     expect(audit.map((r) => r.action)).toEqual(
       expect.arrayContaining(['copy_lead.criteria', 'copy_lead.propose', 'copy_lead.approve', 'leader.upsert']),
     );
+    expect(audit.filter((r) => r.action === 'copy_lead.approve').map((r) => r.key)).toEqual([`copy.ops.decide:${a.applicationId}:approve`]);
   });
 
   it('refuses an approval bound to other criteria, and leaves the application waiting', async () => {
@@ -197,7 +199,7 @@ describe('lead applications', () => {
       desk.approve(founder(FOUNDER_B), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
     ).rejects.toMatchObject({ code: 'approval_reused' });
     expect(await desk.leads(reader())).toEqual([]);
-    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'submitted' });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'under_review' });
   });
 
   it('refuses before listing when the founder who attached the approval also approved it', async () => {
@@ -211,7 +213,7 @@ describe('lead applications', () => {
       desk.approve(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-1', operationId: 'op-appr-1' }),
     ).rejects.toMatchObject({ code: 'approval_mismatch' });
     expect(await desk.leads(reader())).toEqual([]);
-    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'submitted' });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'under_review' });
     // A newly filed approval, attached by the founder who filed it, lists the lead.
     fileApproval(approvals, a.applicationId, 'TEST lead a', 30, 'appr-2');
     await desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'appr-2' });
@@ -268,7 +270,12 @@ describe('lead applications', () => {
     });
     const rejected = await desk.reject(founder(FOUNDER_A), { applicationId: a.applicationId, reason: 'TEST: track record too short' });
     expect(rejected).toMatchObject({ status: 'rejected', reason: 'TEST: track record too short' });
-    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'rejected', reason: 'TEST: track record too short' });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ state: 'disapproved', reason: 'TEST: track record too short' });
+    // The decision and its audit row are one step, under the decision's business key, once.
+    const decided = (await desk.audit(reader())).filter((r) => r.key === `copy.ops.decide:${a.applicationId}:reject`);
+    expect(decided).toEqual([
+      expect.objectContaining({ action: 'copy_lead.reject', subject: a.applicationId, reason: 'TEST: track record too short' }),
+    ]);
     await expect(desk.propose(founder(FOUNDER_A), { applicationId: a.applicationId, approvalId: 'x' })).rejects.toThrow();
     await expect(desk.reject(founder(FOUNDER_A), { applicationId: a.applicationId, reason: 'TEST other reason' })).rejects.toMatchObject({
       code: 'trade.copy_lead_application_decided',
@@ -277,7 +284,7 @@ describe('lead applications', () => {
     await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead a' })).rejects.toMatchObject({
       code: 'trade.copy_lead_reapply_wait_unset',
     });
-    expect(await desk.mine(customer(ALICE))).toMatchObject({ applicationId: a.applicationId, state: 'rejected' });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ applicationId: a.applicationId, state: 'disapproved' });
   });
 
   it('refuses an unknown application id by name', async () => {
