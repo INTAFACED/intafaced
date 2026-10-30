@@ -8,6 +8,8 @@ import { Button, EmptyState, Failure, Panel } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { Details, Read } from './common';
 import { listingSchema } from './Market';
+import { periodUnit } from './market-explorer';
+import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
 import { reviewablePurchase, reviewKey } from './market-listing';
 
@@ -28,6 +30,7 @@ const listingDetailSchema = z.object({
   }),
   performance: z.object({ reported: z.literal(false) }),
 });
+type ListingDetail = z.infer<typeof listingDetailSchema>;
 const reviewRowSchema = z.object({
   id: uuid,
   listingId: uuid,
@@ -41,13 +44,26 @@ const myPurchaseSchema = z.object({ id: uuid, listingId: uuid, buyerId: uuid, st
 const reviewOutSchema = z.object({ id: uuid, purchaseId: uuid, listingId: uuid, score: z.number().int(), text: z.string().nullable() });
 
 const SCORES = [5, 4, 3, 2, 1] as const;
+/** The most purchases one read returns (svc-market `myPurchases`, which has no cursor). */
+const PURCHASES_READ = 50;
 
 /** `/market/<listingId>`: one listing's own page, with its terms, seller, reviews and performance basis. */
 export function MarketListingPage({ listingId }: { listingId: string }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
+  // An id that cannot be a listing is answered here, without asking the service. The service answers an unknown or
+  // withdrawn listing 404 (`market.listing_not_found`, the only NOT_FOUND of its `listing` read).
+  const wellFormed = uuid.safeParse(listingId).success;
   const detail = useResource(
-    (signal) => api.query('market', 'listing', { listingId }, listingDetailSchema, { signal }),
+    (signal) =>
+      wellFormed
+        ? api.query('market', 'listing', { listingId }, listingDetailSchema, { signal })
+        : Promise.resolve<ApiResult<ListingDetail>>({
+            ok: false,
+            reason: 'not_mounted',
+            message: 'market.listing_not_found',
+            code: 'market.listing_not_found',
+          }),
     `market-listing:${listingId}`,
   );
   const back = (
@@ -55,10 +71,7 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
       {t('backToMarket')}
     </a>
   );
-  if (
-    detail.resource.status === 'failed' &&
-    (detail.resource.failure.code === 'market.listing_not_found' || !uuid.safeParse(listingId).success)
-  )
+  if (!wellFormed || (detail.resource.status === 'failed' && detail.resource.failure.status === 404))
     return (
       <Panel title={t('notFound')}>
         <EmptyState title={t('notFound')} action={back}>
@@ -70,19 +83,24 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
     <div className="more-grid">
       {back}
       <Read resource={detail.resource} retry={detail.reload}>
-        {(d) => <ListingBody detail={d} onReviewed={detail.reload} />}
+        {(d) => <ListingBody detail={d} />}
       </Read>
     </div>
   );
 }
 
-function ListingBody({ detail, onReviewed }: { detail: z.infer<typeof listingDetailSchema>; onReviewed: () => void }) {
+function ListingBody({ detail }: { detail: ListingDetail }) {
+  const api = useApi();
   const { t } = marketListingCopy.useCopy();
+  const explorer = marketExplorerCopy.useCopy();
   const preferences = usePreferences();
   const { userId } = useSession();
   const date = (at: string) => new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium' }).format(new Date(at));
-  const { listing, vendor, terms, reviews } = detail;
+  const { listing, vendor, terms } = detail;
+  // After a review posts, only the summary and the list are read again, so the page and its message stay on screen.
+  const [reviews, setReviews] = useState(detail.reviews);
   const [revision, setRevision] = useState(0);
+  const period = terms.periodSeconds ? periodUnit(terms.periodSeconds) : null;
   return (
     <Panel title={<span lang="und">{listing.title}</span>}>
       <p data-testid="more-body" className="more-body" lang="und">
@@ -100,7 +118,7 @@ function ListingBody({ detail, onReviewed }: { detail: z.infer<typeof listingDet
                   {displayAmount(terms.price)} {terms.assetId}
                 </span>,
               ],
-              [t('period'), terms.periodSeconds ? t('periodSeconds', { seconds: terms.periodSeconds }) : t('periodNone')],
+              [t('period'), period ? explorer.t(`every_${period.unit}`, { value: period.value }) : t('periodNone')],
             ]}
           />
         </section>
@@ -119,19 +137,26 @@ function ListingBody({ detail, onReviewed }: { detail: z.infer<typeof listingDet
           ) : (
             <>
               <p role="status" data-testid="market-review-summary">
-                {t('reviewsSummary', { count: reviews.count, mean: displayAmount(reviews.mean) })}
+                {t('reviewsSummary', { count: displayAmount(reviews.count), mean: displayAmount(reviews.mean) })}
               </p>
               <p className="muted">{t('reviewsRounding')}</p>
             </>
           )}
-          {userId ? <ReviewList key={revision} listingId={listing.id} /> : <p className="muted">{t('reviewsSignIn')}</p>}
-          <WriteReview
-            listingId={listing.id}
-            onPosted={() => {
-              setRevision((n) => n + 1);
-              onReviewed();
-            }}
-          />
+          {userId ? (
+            <>
+              <ReviewList key={revision} listingId={listing.id} />
+              <WriteReview
+                listingId={listing.id}
+                onPosted={async () => {
+                  setRevision((n) => n + 1);
+                  const again = await api.query('market', 'listing', { listingId: listing.id }, listingDetailSchema);
+                  if (again.ok) setReviews(again.data.reviews);
+                }}
+              />
+            </>
+          ) : (
+            <p className="muted">{t('reviewsSignIn')}</p>
+          )}
         </section>
         <section aria-labelledby="market-listing-performance">
           <h3 id="market-listing-performance">{t('performance')}</h3>
@@ -175,9 +200,10 @@ function ReviewList({ listingId }: { listingId: string }) {
 type Outcome =
   | { kind: 'posted' }
   | { kind: 'refused'; text: string; code: string }
+  | { kind: 'unseen' }
   | { kind: 'failed'; result: Extract<ApiResult<unknown>, { ok: false }> };
 
-function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () => void }) {
+function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () => Promise<void> }) {
   const api = useApi();
   const { userId } = useSession();
   const { t } = marketListingCopy.useCopy();
@@ -186,7 +212,6 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  if (!userId) return <p className="muted">{t('reviewSignIn')}</p>;
 
   const refusalOf = (code: string | undefined): Outcome | null =>
     code === 'market.review_exists'
@@ -195,16 +220,23 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
         ? { kind: 'refused', text: t('reviewNotSettled'), code }
         : null;
 
-  /** The purchase that may review, read fresh from svc-market, or the refusal the service would give without one. */
+  /**
+   * The purchase that may review, read fresh from svc-market before each step (it can change between opening the form
+   * and posting it), or what stops the review.
+   */
   async function purchase(): Promise<{ id: string } | Outcome> {
     const mine = await api.query(
       'market',
       'myPurchases',
-      { limit: 50 },
+      { limit: PURCHASES_READ },
       z.array(myPurchaseSchema).refine((rows) => rows.every((row) => row.buyerId === userId)),
     );
     if (!mine.ok) return { kind: 'failed', result: mine };
-    return reviewablePurchase(mine.data, listingId) ?? { kind: 'refused', text: t('reviewNotSettled'), code: 'market.review_not_settled' };
+    const found = reviewablePurchase(mine.data, listingId);
+    if (found) return found;
+    // A full page may hide an older purchase that could review: say so, never a refusal the service did not give.
+    if (mine.data.length >= PURCHASES_READ) return { kind: 'unseen' };
+    return { kind: 'refused', text: t('reviewNotSettled'), code: 'market.review_not_settled' };
   }
 
   async function begin() {
@@ -218,6 +250,7 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
 
   async function post() {
     setBusy(true);
+    setOutcome(null);
     const found = await purchase();
     if ('kind' in found) {
       setBusy(false);
@@ -236,7 +269,7 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
       setOpen(false);
       setText('');
       setOutcome({ kind: 'posted' });
-      onPosted();
+      await onPosted();
       return;
     }
     setOutcome(refusalOf(result.code) ?? { kind: 'failed', result });
@@ -286,6 +319,7 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
           {outcome.text} <code lang="zxx">{outcome.code}</code>
         </p>
       ) : null}
+      {outcome?.kind === 'unseen' ? <p role="status">{t('reviewUnseen', { count: PURCHASES_READ })}</p> : null}
       {outcome?.kind === 'failed' ? <Failure result={outcome.result} /> : null}
     </div>
   );

@@ -142,7 +142,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
     await door.click();
     await expect(page).toHaveURL((url) => url.pathname + url.search === href);
     await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('main')).not.toContainText('No customer route');
+    await expect(page.locator('#main')).not.toContainText('No customer route');
   }
 });
 
@@ -168,7 +168,9 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   const terms = main.getByRole('region', { name: 'Terms' });
   await expect(terms).toContainText('Strategy subscription');
   await expect(terms).toContainText(`${read.terms.price} ${read.terms.assetId}`);
-  await expect(terms).toContainText(`${read.terms.periodSeconds} seconds`);
+  // The TEST listing's period is whole days (market-listing.mjs), worded as the catalogue card words it.
+  expect(read.terms.periodSeconds % 86_400).toBe(0);
+  await expect(terms).toContainText(`${read.terms.periodSeconds / 86_400} days`);
 
   const sellerPart = main.getByRole('region', { name: 'Seller' });
   await expect(sellerPart).toContainText(read.vendor.displayName);
@@ -177,7 +179,7 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
 
   const reviews = main.getByRole('region', { name: 'Reviews' });
   if (read.reviews.count === '0') await expect(reviews.getByRole('status')).toHaveText('No reviews yet.');
-  else await expect(reviews.getByTestId('market-review-summary')).toContainText(`${read.reviews.count} reviews`);
+  else await expect(reviews.getByTestId('market-review-summary')).toContainText(`Reviews: ${read.reviews.count} `);
 
   // Performance with its stated basis: the service reports none, so no figure is drawn.
   expect(read.performance).toEqual({ reported: false });
@@ -190,7 +192,8 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   const unknown = '00000000-0000-4000-8000-000000000000';
   const missing = await marketRead(null, 'listing', { listingId: unknown });
   expect(missing.status).toBe(404);
-  expect(codeOf(missing)).toBe('market.listing_not_found');
+  // svc-market maps market.listing_not_found to tRPC NOT_FOUND, with its user copy as the message.
+  expect(missing.body.error.data.code).toBe('NOT_FOUND');
   await page.goto(`/market/${unknown}`);
   await expect(main).toContainText('No listing has this id.');
   await expect(main.locator('code', { hasText: 'market.listing_not_found' })).toBeVisible();
@@ -521,7 +524,7 @@ test(`${J} #7 writes a review after a settled purchase: one review stored, a sec
   page,
   browser,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const { who, listingId, releasedId } = run.read();
   expect(releasedId, 'the purchase #6 let its window end on').toBeTruthy();
   const released = (await purchasesOf(who)).find((row) => row.id === releasedId);
@@ -538,7 +541,10 @@ test(`${J} #7 writes a review after a settled purchase: one review stored, a sec
   const visitorContext = await browser.newContext({ baseURL: ORIGIN });
   try {
     const visitorPage = await visitorContext.newPage();
-    await signUp(visitorPage, 'mkv');
+    // Verified, as a buyer must be to read the Market's purchases at all; it simply has bought nothing here.
+    const visitor = await signUp(visitorPage, 'mkv');
+    await verify(visitorPage, visitor);
+    await signIn(visitorPage, visitor);
     await visitorPage.goto(`/market/${listingId}`);
     const visitorReviews = visitorPage.getByRole('main').getByRole('region', { name: 'Reviews' });
     await visitorReviews.getByRole('button', { name: 'Write a review' }).click();
@@ -580,7 +586,7 @@ test(`${J} #7 writes a review after a settled purchase: one review stored, a sec
   expect(stored).toEqual([expect.objectContaining({ score: 4, listingId })]);
   const after = await listingRead(who);
   expect(BigInt(after.reviews.count)).toBe(BigInt(before.reviews.count) + 1n);
-  await expect(reviews.getByTestId('market-review-summary')).toContainText(`${after.reviews.count} reviews`);
+  await expect(reviews.getByTestId('market-review-summary')).toContainText(`Reviews: ${after.reviews.count} `);
   await expect(reviews.locator(`[data-review="${stored[0].id}"]`)).toContainText(text);
 
   // A second review of the same purchase is refused as already reviewed, and nothing more is stored.

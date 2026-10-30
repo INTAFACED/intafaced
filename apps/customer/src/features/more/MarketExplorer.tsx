@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -61,11 +61,12 @@ export function MarketFilters({
   shown: number;
 }) {
   const { Copy, t } = marketExplorerCopy.useCopy();
+  const typeName = useId();
   return (
     <div className="more-grid">
       <div className="depth-filters">
         <Field label={t('search')} value={filter.query} maxLength={64} onChange={(e) => onChange({ ...filter, query: e.target.value })} />
-        <fieldset className="market-listing-type" role="radiogroup" aria-label={t('offer')}>
+        <fieldset className="market-listing-type" role="radiogroup">
           <legend>{t('offer')}</legend>
           {(
             [
@@ -77,7 +78,7 @@ export function MarketFilters({
             <label key={value}>
               <input
                 type="radio"
-                name="market-listing-type"
+                name={typeName}
                 value={value}
                 checked={filter.offer === value}
                 onChange={() => onChange({ ...filter, offer: value })}
