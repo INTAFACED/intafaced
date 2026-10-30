@@ -148,7 +148,12 @@ async function attachBus(): Promise<void> {
     await connected.subscribe(
       'kycApproved',
       async (kyc, envelope) => {
-        await tasks.onWelcomeEvent({ userId: kyc.userId, event: 'identity.verified', eventId: envelope.idempotencyKey, at: envelope.occurredAt });
+        await tasks.onWelcomeEvent({
+          userId: kyc.userId,
+          event: 'identity.verified',
+          eventId: envelope.idempotencyKey,
+          at: envelope.occurredAt,
+        });
       },
       { durable: 'campaigns-welcome-kyc-approved' },
     );

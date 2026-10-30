@@ -55,9 +55,33 @@ const person = (userId: string, over: Partial<CampaignParticipant> = {}): Campai
 
 const WELCOME: CampaignTasks = {
   steps: [
-    { title: 'TEST verify', event: 'identity.verified', market: null, side: null, count: 1, streakDays: null, reward: { asset: 'USDT', amount: '1' } },
-    { title: 'TEST first deposit', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null, reward: { asset: 'USDT', amount: '2' } },
-    { title: 'TEST first trade', event: 'trade.fill', market: null, side: null, count: 1, streakDays: null, reward: { asset: 'USDT', amount: '3' } },
+    {
+      title: 'TEST verify',
+      event: 'identity.verified',
+      market: null,
+      side: null,
+      count: 1,
+      streakDays: null,
+      reward: { asset: 'USDT', amount: '1' },
+    },
+    {
+      title: 'TEST first deposit',
+      event: 'pay.deposit',
+      market: null,
+      side: null,
+      count: 1,
+      streakDays: null,
+      reward: { asset: 'USDT', amount: '2' },
+    },
+    {
+      title: 'TEST first trade',
+      event: 'trade.fill',
+      market: null,
+      side: null,
+      count: 1,
+      streakDays: null,
+      reward: { asset: 'USDT', amount: '3' },
+    },
   ],
   claimWindowSeconds: null,
   holdSeconds: 0,
@@ -111,9 +135,18 @@ const happen = (userId: string, event: 'identity.verified' | 'pay.deposit' | 'tr
 
 /** The reward pot, funded from earned trade fees as svc-campaigns funds it. */
 async function fundPot(amount: string) {
-  await book.post(recipes.deposit({ userId: FUNDER, assetId: 'USDT', amount: parseAmount(amount), rail: 'test', railRef: `fees-${amount}` }));
   await book.post(
-    recipes.feeCharge({ chargeId: `test-${amount}`, userId: FUNDER, module: 'trade', mode: 'asset', assetId: 'USDT', amount: parseAmount(amount) }),
+    recipes.deposit({ userId: FUNDER, assetId: 'USDT', amount: parseAmount(amount), rail: 'test', railRef: `fees-${amount}` }),
+  );
+  await book.post(
+    recipes.feeCharge({
+      chargeId: `test-${amount}`,
+      userId: FUNDER,
+      module: 'trade',
+      mode: 'asset',
+      assetId: 'USDT',
+      amount: parseAmount(amount),
+    }),
   );
   await tasks.requestFunding({ reference: `welcome-${amount}`, sourceModule: 'trade', asset: 'USDT', amount, actor: A });
   await tasks.approveFunding({ reference: `welcome-${amount}`, actor: B });
