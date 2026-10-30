@@ -204,7 +204,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
-    IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can
+    // be seen too (J-campaigns-05 #5); a plain restart puts the TEST value back.
+    ...(process.env.LOCAL_STACK_IDENTITY_REFERRAL_WINDOW === 'off'
+      ? {}
+      : { IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS') }),
     IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
     // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
