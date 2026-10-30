@@ -211,6 +211,16 @@ test(`${J} #4 an excluded account type sees the typed reason and can ask for one
   await detail.getByRole('button', { name: 'Ask for a review' }).click();
   await expect(detail.getByTestId('campaign-review')).toContainText('Review requested');
   await expect(detail.getByRole('button', { name: 'Ask for a review' })).toHaveCount(0);
+  // One review only: a second request, as a retry or another tab would send it, returns the first, and a fresh load
+  // of the page still shows it requested with no button to ask again.
+  const api1 = await api(firm);
+  const first = await api1.post('/api/campaigns/trpc/participation.requestReview', { campaignId: excluding.id });
+  const second = await api1.post('/api/campaigns/trpc/participation.requestReview', { campaignId: excluding.id });
+  expect(first.body?.result?.data?.created).toBe(false);
+  expect(second.body?.result?.data).toEqual(first.body.result.data);
+  await page.reload();
+  await expect(detail.getByTestId('campaign-review')).toContainText('Review requested', { timeout: 30_000 });
+  await expect(detail.getByRole('button', { name: 'Ask for a review' })).toHaveCount(0);
 });
 
 test(`${J} #5 a region-scoped campaign from a blocked region shows the reason; another person gets the same answer`, async ({

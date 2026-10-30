@@ -342,6 +342,29 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
   expect(Date.parse(standing.endsAt) - Date.parse(edge.attributedAt)).toBe(3_600_000);
   await expect(term.locator('time').nth(1)).toHaveAttribute('datetime', standing.endsAt);
 
+  // While it lasts, a fee the friend pays earns the referrer a commission: the commission engine's dry run (it writes
+  // nothing and posts nothing) under a TEST simulation tier, since the owner's rates are blank, names the referrer.
+  const { ctx, ops } = await operators();
+  const friendId = (await api(friend)).userId;
+  const dryRun = async (n) =>
+    result(
+      await ctx.edge.query(
+        'identity',
+        'affiliates.accrueDryRun',
+        {
+          feeEventId: `TEST-${J}-7-${n}-${friend.handle}`,
+          userId: friendId,
+          feeAmount: '1',
+          asset: 'USDT',
+          tiers: [{ hop: 0, rate: '0.1' }],
+        },
+        await ops.a.tradeOpsToken(),
+      ),
+    );
+  const before = await dryRun('before');
+  expect(before.data?.rows, JSON.stringify(before)).toHaveLength(1);
+  expect(before.data.rows[0]).toMatchObject({ beneficiaryId: referrerId, payerId: friendId, hop: 0, commissionAmount: '0.1' });
+
   // An hour passes for the friend with no fee: the sweep ends the relationship once.
   expect(tool('local-test-gates.mjs', 'age', friend.handle, '3700')).toContain('LOCAL TEST');
   let lapse;
@@ -354,6 +377,9 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
   expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data).toBeNull();
   // Commission stops: nobody is above the friend any more, so no fee of theirs can accrue to the referrer.
   expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myAncestors')).body.result.data).toEqual([]);
+  // The same fee now earns nobody a commission.
+  const after = await dryRun('after');
+  expect(after.data?.rows, JSON.stringify(after)).toEqual([]);
 
   await page.reload();
   await expect(page.getByRole('region', { name: 'Your recorded referrer' }).getByText('No referrer on record')).toBeVisible();

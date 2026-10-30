@@ -267,6 +267,14 @@ test(`${J} #2 opens it with rewards in each state: earned, on hold and still ope
   await expect(still.getByTestId('reward-why')).toHaveAttribute('data-reason', 'ledger.insufficient_funds');
   await expect(still.getByTestId('reward-why')).toContainText('The reward pot cannot cover it at the moment');
 
+  // The history: one table holds every reward the account has, earned and waiting alike, each row once, and the earned
+  // one is dated in it.
+  const history = hub.getByRole('table', { name: 'Rewards and history' });
+  await expect(history).toBeVisible();
+  await expect(history.getByTestId('reward-row')).toHaveCount(3);
+  for (const c of [posted, held, open]) await expect(history.locator(`[data-campaign="${c.id}"]`)).toHaveCount(1);
+  await expect(history.locator(`[data-campaign="${posted.id}"]`).getByTestId('reward-why')).toContainText('Posted on ');
+
   // Totals are summed from the rows: one per status and asset.
   const total = (status, asset) => hub.locator(`[data-testid="rewards-total"][data-status="${status}"][data-asset="${asset}"]`);
   await expect(total('posted', 'USDT').getByTestId('rewards-total-amount')).toHaveText(`${REWARD} USDT`);
