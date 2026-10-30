@@ -221,6 +221,8 @@ test('a targeted run takes only existing journey files, with or without the fold
 
 test('a targeted run refuses a name that is not a journey file, and an empty list', () => {
   const files = ['J-bank-04.pw.mjs'];
+  assert.deepEqual(targetFiles('./apps/customer/tests/real-app/J-bank-04.pw.mjs', files), ['J-bank-04.pw.mjs']);
+  assert.throws(() => targetFiles('x/apps/customer/tests/real-app/J-bank-04.pw.mjs', files), /not a journey file/);
   assert.throws(() => targetFiles('J-bank-4.pw.mjs', files), /not a journey file.*J-bank-4\.pw\.mjs/);
   assert.throws(() => targetFiles('../../../etc/passwd', files), /not a journey file/);
   assert.throws(() => targetFiles('*.pw.mjs', files), /not a journey file/);

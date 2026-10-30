@@ -57,7 +57,7 @@ export function targetFiles(asked, files) {
   const wanted = String(asked ?? '')
     .split(/[\s,]+/)
     .filter(Boolean)
-    .map((f) => f.replace(`${JOURNEY_DIR}/`, ''))
+    .map((f) => f.replace(/^(\.\/)?apps\/customer\/tests\/real-app\//, ''))
     .map((f) => (JOURNEY_FILE.test(f) ? f : `${f}.pw.mjs`));
   if (wanted.length === 0) throw new Error('the journeys input names no journey file');
   const unknown = wanted.filter((f) => !known.has(f));
@@ -193,7 +193,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
-  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, TARGET_MINUTES * 60_000)) : Number(asked);
+  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor.
+  const floor = only === null ? MIN_SHARDS : 1;
+  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, TARGET_MINUTES * 60_000, floor)) : Number(asked);
   const plan = planShards(files, durations, shards);
   console.error(`journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards`);
   plan.forEach((bin, i) =>
