@@ -490,14 +490,10 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
   const key = `cash-out:${taken.requestId}:paid`;
   const onRail = railRecords('payout-sim').filter((line) => line.key.startsWith(`cash-out:${taken.requestId}:`));
   expect(onRail, `payout-sim's records for cash-out ${taken.requestId}`).toHaveLength(1);
-  expect(onRail[0]).toMatchObject({ key, direction: 'out', assetId: ASSET });
+  // The rail's own line carries the stand-in's payout reference, the one the customer and svc-bank show.
+  expect(onRail[0]).toMatchObject({ key, direction: 'out', assetId: ASSET, ref: requests[0].payoutRef });
+  expect(onRail[0].ref).toBe(`TEST-PAYOUT-${taken.requestId}`);
   expect(toUnits(onRail[0].amount)).toBe(toUnits(requests[0].amount));
-  expect
-    .soft(
-      JSON.stringify(onRail[0]),
-      `recorded on the rail: payout-sim's own record exposes no payout reference (TEST-PAYOUT-${taken.requestId}); it keys the payout by cash-out id only`,
-    )
-    .toContain(`TEST-PAYOUT-${taken.requestId}`);
   run.write({ cashOutKey: key });
   record('cashOut', { [ASSET]: [`-${requests[0].amount}`] });
 });
