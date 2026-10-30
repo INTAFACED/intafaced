@@ -112,6 +112,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.support_recovery_unconfigured': 'Recovery links are not available yet. Their lifetime is not published.',
   'identity.support_recovery_link_invalid':
     'This recovery link does not work: it was already used, it expired, or the case was closed. Write to Support again.',
+  'identity.freeze_link_invalid': 'This freeze link does not work. Sign in and freeze your account from Security, or write to Support.',
   'identity.death_notice_not_found': 'There is no such death notice or account.',
   'identity.death_notice_self': 'You cannot record or decide a death notice for your own account.',
   'identity.death_notice_account_closed': 'This account is closed, so a death notice cannot be recorded or confirmed for it.',

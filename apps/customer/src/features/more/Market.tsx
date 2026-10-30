@@ -8,7 +8,7 @@ import { usePreferences } from '../../shared/preferences';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Dialog, EmptyState, Field, Panel } from '../../shared/ui';
 import { MarketPurchaseRecords } from './MarketPurchaseRecords';
-import { ListingDetail, MarketFilters, SellerDirectory } from './MarketExplorer';
+import { ListingDetail, MarketDoors, MarketFilters, SellerDirectory } from './MarketExplorer';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import type { ApiResult, RefusalReason } from '../../shared/api';
@@ -431,6 +431,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           </p>
         )}
       </Read>
+      {mine || strategy ? null : <MarketDoors />}
       <Panel title={mine || strategy ? copyText('market.your.listings') : copyText('market.browse.listings')}>
         <Read
           resource={listings.resource}

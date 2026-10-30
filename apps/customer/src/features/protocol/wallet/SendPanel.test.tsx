@@ -14,8 +14,10 @@ const wallet = {
   sign: vi.fn(),
 };
 const representationStatus = vi.fn();
+const TOKEN = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', symbol: 'TESTA', decimals: 6 };
+const ammPairs = vi.fn();
 vi.mock('./WalletProvider', () => ({ useWallet: () => wallet }));
-vi.mock('../api', () => ({ createProtocolApi: () => ({ representationStatus, representationAccept: vi.fn() }) }));
+vi.mock('../api', () => ({ createProtocolApi: () => ({ representationStatus, representationAccept: vi.fn(), ammPairs }) }));
 vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,6 +58,7 @@ beforeEach(() => {
   wallet.code.mockReset().mockResolvedValue('0x');
   wallet.sign.mockReset().mockResolvedValue({ status: 'sent', hash: `0x${'a'.repeat(64)}` });
   representationStatus.mockReset().mockResolvedValue({ ok: true, data: { accepted: true } });
+  ammPairs.mockReset().mockResolvedValue({ ok: true, data: { factory: TOKEN.address, blockNumber: '1', tokens: [TOKEN], pools: [] } });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -83,6 +86,29 @@ describe('Send', () => {
     expect(wallet.sign).toHaveBeenCalledTimes(1);
     expect(wallet.sign).toHaveBeenCalledWith({ kind: 'transaction', to: FRIEND, value: '0x14d1120d7b160000' });
     expect(text()).toContain(`Transaction 0x${'a'.repeat(64)}`);
+  });
+
+  it('sends a pool token with its own transfer call and decimals, never as the network currency', async () => {
+    await mount();
+    await type(field(/^Token$/), TOKEN.address);
+    await type(field(/^Amount$/), '2.5');
+    await type(field(/^To$/), FRIEND);
+    await click('Review');
+    expect(text()).toContain('2.5 TEST Token A');
+    await type(field(/^Last four characters/), '9ee7');
+    await click('Send');
+    expect(wallet.sign).toHaveBeenCalledWith({
+      kind: 'transaction',
+      to: TOKEN.address,
+      data: `0xa9059cbb${FRIEND.slice(2).toLowerCase().padStart(64, '0')}${(2_500_000).toString(16).padStart(64, '0')}`,
+    });
+  });
+
+  it('pre-chooses a token a scanned code asked for when the pools trade it', async () => {
+    await mount({ to: FRIEND, token: TOKEN.address });
+    expect((field(/^Token$/) as HTMLSelectElement).value).toBe(TOKEN.address);
+    await type(field(/^Amount$/), '1');
+    expect(button('Review').disabled).toBe(false);
   });
 
   it('asks for a tick before sending to a contract', async () => {
@@ -145,7 +171,7 @@ describe('Send', () => {
   });
 
   it('does not let a token request be paid in the network currency', async () => {
-    await mount({ to: FRIEND, token: '0x00000000000000000000000000000000000a11ce' });
+    await mount({ to: FRIEND, token: '0x00000000000000000000000000000000000dead1' });
     expect(field(/^To$/).value).toBe(FRIEND);
     expect(text()).toContain('it cannot be paid from here');
     await type(field(/^Token$/), 'native');

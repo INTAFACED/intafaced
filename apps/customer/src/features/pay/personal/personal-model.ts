@@ -38,7 +38,12 @@ export interface PaymentRequest {
   amount: string | null;
   asset: string | null;
   note: string | null;
+  /** A signed pay code (PP-send-request-11): when present, the service says who it pays and `to` is not trusted. */
+  qr: string | null;
 }
+
+/** The characters a signed pay code is made of, with room to spare. Anything else is dropped, never sent. */
+const PAY_QR = /^[A-Za-z0-9._-]{1,200}$/;
 
 export function payee(raw: string | null | undefined): { to: string; kind: 'handle' | 'accountId' } | null {
   if (typeof raw !== 'string') return null;
@@ -48,7 +53,13 @@ export function payee(raw: string | null | undefined): { to: string; kind: 'hand
 }
 
 /** `/pay/send?to=…` for a payee, with whatever the requester asked for. */
-export function requestPath(input: { to: string; amount?: string | null; asset?: string | null; note?: string | null }): string {
+export function requestPath(input: {
+  to: string;
+  amount?: string | null;
+  asset?: string | null;
+  note?: string | null;
+  qr?: string | null;
+}): string {
   const params = new URLSearchParams();
   params.set('to', input.to);
   const amount = cleanAmount(input.amount);
@@ -59,6 +70,9 @@ export function requestPath(input: { to: string; amount?: string | null; asset?:
   }
   const note = cleanNote(input.note);
   if (note) params.set('note', note);
+  // Last, so nothing after it in the link can be mistaken for part of the code.
+  const qr = (input.qr ?? '').trim();
+  if (PAY_QR.test(qr)) params.set('qr', qr);
   return `/pay/send?${params.toString()}`;
 }
 
@@ -80,6 +94,7 @@ export function parseRequestSearch(search: string): PaymentRequest | null {
     amount: knownAsset ? cleanAmount(params.get('amount')) : null,
     asset: knownAsset,
     note: cleanNote(params.get('note')),
+    qr: PAY_QR.test(params.get('qr') ?? '') ? params.get('qr') : null,
   };
 }
 

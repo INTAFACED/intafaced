@@ -46,6 +46,10 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./protocol-swap": {
+      "types": "./dist/protocol-swap.d.ts",
+      "default": "./dist/protocol-swap.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
@@ -213,6 +217,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./protocol-tokens": {
+      "types": "./dist/protocol-tokens.d.ts",
+      "default": "./dist/protocol-tokens.js"
     },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
