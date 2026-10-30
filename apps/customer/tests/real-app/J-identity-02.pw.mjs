@@ -259,7 +259,12 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
   await expect(waiting).not.toHaveURL(/\/login/, { timeout: 30_000 });
   // Signing in there again asks for the authenticator code, as every sign-in of this account does, but not about the
   // browser any more.
+  // Signed out there (the session cookie and the tab's state go; the browser's own device cookie stays), and the page
+  // shows it, so the sign-in below really happens.
   await waiting.context().clearCookies({ name: 'ifc_rt' });
+  await waiting.evaluate(() => sessionStorage.clear());
+  await waiting.goto('/uc/safe');
+  await expect(waiting.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
   await waiting.goto('/login');
   ({ code, step } = await nextCode(totp, secret, step));
   await waiting.fill('input[name=totp]', code);

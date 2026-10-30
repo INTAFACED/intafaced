@@ -240,8 +240,8 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
     return code;
   };
 
-  // On the new phone: sign in with a recovery code, then replace the app from Security. The old app is gone, so a
-  // recovery code confirms it is them and a second one proves the old factor; each is spent.
+  // On the new phone: sign in with a recovery code, then replace the app from Security. The old app still works
+  // until the new one is proved; recovery codes confirm it is them and each is spent.
   const { context, page: other } = await atSecondStep(browser, who);
   await other.getByRole('button', { name: 'Use a recovery code' }).click();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
@@ -254,7 +254,7 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   await expect(other).toHaveURL(/\/uc\/safe/);
   const card = other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' });
   // Until the new app is proved, the old one still works: its code confirms the replace, and a wrong code from the new
-  // app is refused, which leaves the old app in place (it confirms again below) and the new key unused.
+  // app is refused, which leaves the old app in place (its next code still confirms a fresh replace) and the new key unused.
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -267,6 +267,14 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   const wrong = await (await refused).json();
   expect(wrong.error.data.intafacedCode ?? wrong.error.data.cause?.code ?? wrong.error.data.code).toBe('auth.mfa_invalid');
   await expect(card.getByText('Authenticator app replaced')).toHaveCount(0);
+  await other.reload();
+  // The old app's code still confirms it is them, so the refused attempt changed nothing; the fresh replace is then done
+  // with recovery codes, as a person whose old phone is gone would.
+  await card.getByRole('button', { name: 'Replace', exact: true }).click();
+  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(card.getByLabel('Code from the new app')).toBeVisible();
+  await expect((await card.locator('code').innerText()).trim()).not.toBe(firstKey);
   await other.reload();
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
@@ -535,14 +543,8 @@ test.describe('factor notices', () => {
     await card.getByRole('button', { name: 'Turn off', exact: true }).click();
     await card.getByLabel('6-digit code or a recovery code').fill(await code());
     await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-    const next = card.getByLabel('Next code or a recovery code');
-    if (
-      await next.waitFor({ state: 'visible', timeout: 3_000 }).then(
-        () => true,
-        () => false,
-      )
-    )
-      await next.fill(await code());
+    // Turning it off asks for the app's next code too.
+    await card.getByLabel('Next code or a recovery code').fill(await code());
     await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
     await expect(page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
     await notified('totp_removed', 'Authenticator app turned off');

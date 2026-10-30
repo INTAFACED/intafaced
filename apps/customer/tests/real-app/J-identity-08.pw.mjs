@@ -338,14 +338,16 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   const own = await api(who);
   const read = await own.get('/api/identity/trpc/kyc.attempts.read');
   expect(read.body.result.data).toMatchObject({ limit: { maxDenials: 2 }, denialsInWindow: 2 });
+  // It opens when the page said it would: no later than the countdown read above, and only the seconds since then sooner.
   const opensIn = (Date.parse(read.body.result.data.lockedUntil) - Date.now()) / 1000;
-  expect(opensIn).toBeGreaterThan(3500);
-  expect(opensIn).toBeLessThanOrEqual(3600);
+  expect(opensIn).toBeLessThanOrEqual(seconds);
+  expect(opensIn).toBeGreaterThan(seconds - 60);
   const third = await own.post('/api/identity/trpc/kyc.submit', { tier: 'basic', jurisdiction: 'DE' });
   expect(third.status).toBe(429);
   const data = third.body.error.data;
   expect(data.intafacedCode ?? data.cause?.code ?? data.code).toBe('kyc.attempts_exhausted');
-  if (data.retryAfterSeconds !== undefined) expect(data.retryAfterSeconds).toBeGreaterThan(3500);
+  expect(data.retryAfterSeconds).toBeLessThanOrEqual(Math.ceil(opensIn) + 1);
+  expect(data.retryAfterSeconds).toBeGreaterThan(seconds - 60);
   await page.reload();
   await expect(cases).toHaveCount(2);
 

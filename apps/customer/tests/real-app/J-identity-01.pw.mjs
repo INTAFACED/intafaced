@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import {
   DEVICE_KEY,
@@ -11,6 +12,7 @@ import {
   nextMailedCode,
   signOutBrowser,
   signUpInBrowser,
+  stackFile,
   tool,
 } from './stack.mjs';
 import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } from './desk.mjs';
@@ -108,6 +110,8 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
 
   // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
   // no code mailed anywhere.
+  const outbox = () => (existsSync(stackFile('email-outbox.log')) ? readFileSync(stackFile('email-outbox.log'), 'utf8') : '');
+  const before = outbox().length;
   await page.goto('/register');
   await page.getByRole('radio', { name: 'Phone' }).check();
   await page.getByLabel('Phone number, international format (+…)').fill('+491701234567');
@@ -119,7 +123,7 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await expect(notice(page)).toContainText(
     'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
   );
-  expect(mailedCodes(who.email)).toHaveLength(0);
+  expect(outbox().length).toBe(before);
   await noAccount(who);
 
   // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
