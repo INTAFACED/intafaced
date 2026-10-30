@@ -486,6 +486,8 @@ _None._
 | `intafaced.bank.personal_request.settled`     | `notify-personal-request-settled`  | Inbox row `pay.request_paid` for the person who was paid                                                      |
 | `intafaced.bank.personal_transfer.posted`     | `notify-personal-transfer-posted`  | Inbox rows `pay.transfer_received` (recipient) and `pay.transfer_sent` (sender) for one posted personal send  |
 | `intafaced.pay.deposit_credit.posted`         | `notify-pay-deposit-credit-posted` | Inbox row `bank.deposit.credited` for the customer whose crypto deposit the ledger credited, once per deposit |
+| `intafaced.trade.copy.skipped`                | `notify-copy-skipped`              | Inbox row `trade.copy.skipped` for the follower, the reason in words, once per follow and leader fill         |
+| `intafaced.trade.copy.stopped`                | `notify-copy-stopped`              | Inbox row `trade.copy.stopped` for the follower, the reason in words, once per follow and close-only          |
 | `intafaced.bank.scheduled_reminder.triggered` | `notify-bank-scheduled-reminder`   | Inbox row `bank.scheduled_reminder` for the owner of a standing order due within their reminder lead time     |
 | `intafaced.bank.scheduled_run.failed`         | `notify-bank-scheduled-failed`     | Inbox row `bank.scheduled_failed`, with the bank's reason, for a standing-order run that took nothing         |
 | `intafaced.support.ticket.resolved`           | `notify-support-ticket-resolved`   | Inbox row `support.rate_request` asking the owner to rate a resolved request                                  |

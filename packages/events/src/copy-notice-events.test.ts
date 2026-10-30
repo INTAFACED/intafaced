@@ -60,23 +60,24 @@ describe('J-copy-bots-otc-03 copy notice events', () => {
     expect(EVENT_CATALOG.copyStopped.schema.safeParse({ ...ok, closeOnly: 'yes' }).success).toBe(false);
   });
 
-  it('each subscriber socket names the key its consumer dedupes on', () => {
+  it('each event names the key its consumer dedupes on; a socket still open says it too', () => {
     const keys = { copySkipped: '(followId, leaderFillId)', copyFailed: '(followId, leaderFillId)', copyStopped: '(followId, closeOnly)' };
     for (const [k, key] of Object.entries(keys)) {
-      const sub = WIRING_SOCKETS.find((s) => s.event === k && s.missing === 'subscriber');
-      expect(sub?.reason).toContain(key);
       expect(EVENT_CATALOG[k as keyof typeof keys].description).toContain(key);
+      const sub = WIRING_SOCKETS.find((s) => s.event === k && s.missing === 'subscriber');
+      if (sub) expect(sub.reason).toContain(key);
     }
   });
 
-  it('each end is a recorded class A socket until its publisher and its consumer land', () => {
-    for (const k of ['copySkipped', 'copyFailed', 'copyStopped'] as const) {
-      expect(EVENT_BUS_MATRIX[k]).toEqual({ kind: 'socket', socketClass: 'A' });
-      const ends = WIRING_SOCKETS.filter((s) => s.event === k);
-      expect(ends.map((s) => [s.missing, s.class])).toEqual([
-        ['publisher', 'A'],
-        ['subscriber', 'A'],
-      ]);
+  it('svc-notify reads the skip and the stop; the failure is still a class A socket at both ends', () => {
+    // The skip and stop consumers are in svc-notify (events.ts, copy-notify.test.ts); their publisher is svc-trade's.
+    for (const k of ['copySkipped', 'copyStopped'] as const) {
+      expect(WIRING_SOCKETS.filter((s) => s.event === k && s.missing === 'subscriber')).toEqual([]);
     }
+    expect(WIRING_SOCKETS.filter((s) => s.event === 'copyFailed').map((s) => [s.missing, s.class])).toEqual([
+      ['publisher', 'A'],
+      ['subscriber', 'A'],
+    ]);
+    expect(EVENT_BUS_MATRIX.copyFailed).toEqual({ kind: 'socket', socketClass: 'A' });
   });
 });
