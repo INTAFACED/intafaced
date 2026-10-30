@@ -29,6 +29,20 @@ CREATE TABLE IF NOT EXISTS "market"."purchase_hold_clearances" (
   )
 );
 
+-- A database that ran an earlier draft of this file gets the later columns too.
+ALTER TABLE "market"."purchase_hold_clearances"
+  ADD COLUMN IF NOT EXISTS "attempt_no" integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "reconciled_at" timestamptz,
+  ADD COLUMN IF NOT EXISTS "reconcile_refund_tx_id" uuid;
+ALTER TABLE "market"."purchase_hold_clearances" DROP CONSTRAINT IF EXISTS "purchase_hold_clearances_attempt_ck";
+ALTER TABLE "market"."purchase_hold_clearances"
+  ADD CONSTRAINT "purchase_hold_clearances_attempt_ck" CHECK ("attempt_no" >= 0);
+ALTER TABLE "market"."purchase_hold_clearances" DROP CONSTRAINT IF EXISTS "purchase_hold_clearances_refund_reconciled_ck";
+ALTER TABLE "market"."purchase_hold_clearances"
+  ADD CONSTRAINT "purchase_hold_clearances_refund_reconciled_ck" CHECK (
+    "reconcile_refund_tx_id" IS NULL OR "reconciled_at" IS NOT NULL
+  );
+
 CREATE OR REPLACE FUNCTION "market"."purchase_hold_clearances_lock"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

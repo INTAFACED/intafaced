@@ -608,12 +608,36 @@ describe('market held purchase', () => {
       bBooked();
       return tx;
     };
+    // B's settle waits until A's refusal has been handled, so A's release meets the claim still pending.
+    const releaseRefusedClaim = held.held.releaseRefusedClaim.bind(held.held);
+    let aHandled!: () => void;
+    const handled = new Promise<void>((resolve) => {
+      aHandled = resolve;
+    });
+    let released = 0;
+    held.held.releaseRefusedClaim = async (...args) => {
+      try {
+        await releaseRefusedClaim(...args);
+        released += 1;
+      } finally {
+        aHandled();
+      }
+    };
+    const settleHeld = held.held.settleHeld.bind(held.held);
+    held.held.settleHeld = async (input) => {
+      await handled;
+      expect(await purchaseRow(id)).toEqual({ status: 'pending', rejection_code: null });
+      return settleHeld(input);
+    };
     const [a, b] = await Promise.allSettled([
       held.purchase({ buyerId: BUYER, listingId, purchaseId: id }),
       first.then(() => held.purchase({ buyerId: BUYER, listingId, purchaseId: id })),
     ]);
     ledger.post = post;
     held.held.beginHoldPost = beginHoldPost;
+    held.held.releaseRefusedClaim = releaseRefusedClaim;
+    held.held.settleHeld = settleHeld;
+    expect(released).toBe(1);
     expect(a).toMatchObject({ status: 'rejected', reason: { code: 'market.insufficient_funds' } });
     expect(b).toMatchObject({ status: 'fulfilled', value: { status: 'settled', hold: { state: 'held', heldAmount: '10' } } });
     expect(await purchaseRow(id)).toEqual({ status: 'settled', rejection_code: null });
@@ -674,6 +698,23 @@ describe('market held purchase', () => {
     expect(await clearanceRow(poor)).toEqual({ attempt_no: 1, reconciled: true, refunded: false });
     expect(await ledger.getTxByKey(`market:refund:${poor}:1`)).toBeNull();
     expect(await books(poor)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+  });
+
+  it('with the refund window off, a direct purchase does not stack on a held claim still settling', async () => {
+    const lost = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${lost}`,
+      () => new Error('socket hang up'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: lost })).rejects.toThrow('socket hang up');
+    restore();
+    const direct = randomUUID();
+    await expect(service(null).purchase({ buyerId: BUYER, listingId, purchaseId: direct })).rejects.toMatchObject({
+      code: 'market.purchase_already_held',
+    });
+    expect(await purchaseRow(direct)).toBeNull();
+    expect(await purchaseRow(lost)).toEqual({ status: 'pending', rejection_code: null });
+    expect(await books(lost)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
   });
 
   it('with the refund window off, a direct purchase does not stack on a purchase still held', async () => {

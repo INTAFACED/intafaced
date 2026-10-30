@@ -878,11 +878,15 @@ export class CommerceService {
 
     // A live hold on this listing makes "Buy again" one purchase: refuse before writing a claim. The claim itself
     // re-checks under a lock, for two claims racing.
-    // Checked with the window off too: a direct purchase never stacks on a purchase still held from before.
+    // Checked with the window off too: a direct purchase never stacks on a purchase still held from before, or on a
+    // held claim still settling into its hold.
     const [live] = await this.sql<Array<{ purchase_id: string }>>`
-      SELECT purchase_id FROM market.purchase_holds
-       WHERE listing_id = ${listing.id} AND buyer_id = ${input.buyerId} AND state = 'held' AND purchase_id <> ${input.purchaseId}
-       LIMIT 1
+      SELECT h.purchase_id FROM market.purchase_holds h
+       WHERE h.listing_id = ${listing.id} AND h.buyer_id = ${input.buyerId} AND h.state = 'held' AND h.purchase_id <> ${input.purchaseId}
+      UNION ALL
+      SELECT p.id FROM market.purchases p JOIN market.purchase_hold_clearances c ON c.purchase_id = p.id
+       WHERE p.listing_id = ${listing.id} AND p.buyer_id = ${input.buyerId} AND p.status = 'pending' AND p.id <> ${input.purchaseId}
+      LIMIT 1
     `;
     if (live) throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
 
