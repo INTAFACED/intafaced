@@ -23,7 +23,12 @@ async function wired() {
   return { bus, inbox, inboxOf };
 }
 
-const words = (key: string) => (en as Record<string, string>)[key];
+/** The English text of a plain (not plural) catalog entry. */
+const words = (key: string): string => {
+  const text = (en as Readonly<Record<string, unknown>>)[key];
+  if (typeof text !== 'string') throw new Error(`${key} is not a plain catalog string`);
+  return text;
+};
 
 describe('copy notices (J-copy-bots-otc-03 #6)', () => {
   it('a skipped copy tells the follower why and what they can do, once however often it is sent', async () => {
