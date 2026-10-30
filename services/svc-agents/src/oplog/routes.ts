@@ -103,9 +103,10 @@ export const logReadKey = (kind: ReadKind, operatorId: string, requestId: string
 const RETRY_WINDOW_MINUTES = 5;
 
 /**
- * Writes the read's audit row (once per key) and re-reads how many rows carry its key. A key already written for a
- * different customer, reason, filter or action, or written more than RETRY_WINDOW_MINUTES ago, is refused, so a reused
- * request id never reads without its own row.
+ * Writes the read's audit row (once per key) and re-reads how many rows carry its key, and how many reads of this
+ * customer's log there are in all, this one included. A key already written for a different customer, reason, filter or
+ * action, or written more than RETRY_WINDOW_MINUTES ago, is refused, so a reused request id never reads without its own
+ * row.
  */
 async function recordRead(
   tx: Sql,
@@ -119,7 +120,7 @@ async function recordRead(
     actionId: string | null;
     rowCount: number;
   },
-): Promise<number> {
+): Promise<{ auditRows: number; subjectReads: number }> {
   const key = logReadKey(read.kind, read.operatorId, read.requestId);
   await tx`
     INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, filter, action_id, row_count)
@@ -138,7 +139,10 @@ async function recordRead(
     row.action_id === read.actionId &&
     JSON.stringify(Object.entries(row.filter).sort()) === JSON.stringify(Object.entries(read.filter).sort());
   if (!rows.every(same)) throw new OpsLogRefusal('agents.log_read_request_reused');
-  return rows.length;
+  const [all] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM agents.agent_log_reads WHERE subject_id = ${read.subjectId}
+  `;
+  return { auditRows: rows.length, subjectReads: all!.n };
 }
 
 interface ActionRow {
@@ -256,6 +260,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
           more: z.boolean(),
           limit: z.number().int(),
           auditRows: z.number().int(),
+          subjectReads: z.number().int(),
         }),
       )
       .mutation(({ ctx, input }) =>
@@ -271,7 +276,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
                ORDER BY 1
                LIMIT ${TOOLS_LISTED}
             `;
-            const auditRows = await recordRead(tx, {
+            const audit = await recordRead(tx, {
               kind: 'actions',
               operatorId: ctx.principal.userId,
               requestId: input.requestId,
@@ -281,7 +286,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
               actionId: null,
               rowCount: rows.length,
             });
-            return { items: rows.map(viewOf), tools: tools.map((t) => t.tool), more, limit, auditRows };
+            return { items: rows.map(viewOf), tools: tools.map((t) => t.tool), more, limit, ...audit };
           });
         }),
       ),
@@ -289,14 +294,22 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
     /** The same filter as a file: the rows the list shows for it, as CSV. */
     export: operator()
       .input(readInput)
-      .output(z.object({ csv: z.string(), rows: z.number().int(), more: z.boolean(), auditRows: z.number().int() }))
+      .output(
+        z.object({
+          csv: z.string(),
+          rows: z.number().int(),
+          more: z.boolean(),
+          auditRows: z.number().int(),
+          subjectReads: z.number().int(),
+        }),
+      )
       .mutation(({ ctx, input }) =>
         guard(async () => {
           const reason = assertReason(settings, input.reason);
           const limit = assertLimit(settings);
           return transaction(sqlOf(sql), async (tx) => {
             const { rows, more } = await readActions(tx, input.userId, input, limit);
-            const auditRows = await recordRead(tx, {
+            const audit = await recordRead(tx, {
               kind: 'export',
               operatorId: ctx.principal.userId,
               requestId: input.requestId,
@@ -306,7 +319,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
               actionId: null,
               rowCount: rows.length,
             });
-            return { csv: actionsCsv(rows.map(viewOf)), rows: rows.length, more, auditRows };
+            return { csv: actionsCsv(rows.map(viewOf)), rows: rows.length, more, ...audit };
           });
         }),
       ),
@@ -333,6 +346,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
           storedAt: z.string(),
           expiresAt: z.string(),
           auditRows: z.number().int(),
+          subjectReads: z.number().int(),
         }),
       )
       .mutation(({ ctx, input }) =>
@@ -353,7 +367,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
                  AND stored_at > now() - make_interval(days => ${retentionDays})
             `;
             if (!kept) throw new OpsLogRefusal('agents.transcript_not_kept');
-            const auditRows = await recordRead(tx, {
+            const audit = await recordRead(tx, {
               kind: 'transcript',
               operatorId: ctx.principal.userId,
               requestId: input.requestId,
@@ -371,7 +385,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
               inputDigest: action.input_digest,
               storedAt: kept.stored_at.toISOString(),
               expiresAt: kept.expires_at.toISOString(),
-              auditRows,
+              ...audit,
             };
           });
         }),

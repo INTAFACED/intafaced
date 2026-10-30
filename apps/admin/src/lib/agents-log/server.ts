@@ -106,12 +106,15 @@ const parseActions = (raw: unknown): Json | null =>
   isStrings(raw.tools) &&
   typeof raw.more === 'boolean' &&
   isInt(raw.limit) &&
-  isInt(raw.auditRows)
+  isInt(raw.auditRows) &&
+  isInt(raw.subjectReads)
     ? raw
     : null;
 
 const parseExport = (raw: unknown): Json | null =>
-  isObject(raw) && isString(raw.csv) && isInt(raw.rows) && typeof raw.more === 'boolean' && isInt(raw.auditRows) ? raw : null;
+  isObject(raw) && isString(raw.csv) && isInt(raw.rows) && typeof raw.more === 'boolean' && isInt(raw.auditRows) && isInt(raw.subjectReads)
+    ? raw
+    : null;
 
 const parseTranscript = (raw: unknown): Json | null =>
   isObject(raw) &&
@@ -122,7 +125,8 @@ const parseTranscript = (raw: unknown): Json | null =>
   nullableString(raw.inputDigest) &&
   isString(raw.storedAt) &&
   isString(raw.expiresAt) &&
-  isInt(raw.auditRows)
+  isInt(raw.auditRows) &&
+  isInt(raw.subjectReads)
     ? raw
     : null;
 

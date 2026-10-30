@@ -26,6 +26,7 @@ interface Page {
   readonly more: boolean;
   readonly limit: number;
   readonly auditRows: number;
+  readonly subjectReads: number;
 }
 
 interface Transcript {
@@ -33,8 +34,10 @@ interface Transcript {
   readonly text: string;
   readonly digest: string;
   readonly inputDigest: string | null;
+  readonly storedAt: string;
   readonly expiresAt: string;
   readonly auditRows: number;
+  readonly subjectReads: number;
 }
 
 const WORDS: Record<string, string> = {
@@ -53,6 +56,7 @@ const WORDS: Record<string, string> = {
 
 const say = (code: string): string => `${WORDS[code] ?? 'svc-agents refused this read.'} (${code})`;
 const audit = (n: number): string => `${n} audit ${n === 1 ? 'row' : 'rows'} written for this read`;
+const readsSoFar = (n: number): string => `Reads of this customer’s agent log so far: ${n}, this one included`;
 const requestId = (kind: string): string => `agents-log:${kind}:${crypto.randomUUID()}`;
 
 export function AgentsLogDesk({
@@ -200,6 +204,7 @@ export function AgentsLogDesk({
       {page && searched && (
         <>
           <p data-testid="log-read-audit">{audit(page.auditRows)}</p>
+          <p data-testid="log-read-total">{readsSoFar(page.subjectReads)}</p>
           <div className="dk-row">
             <label>
               Outcome
@@ -290,13 +295,14 @@ export function AgentsLogDesk({
       )}
 
       {transcriptProblem && (
-        <p role="alert" className="adm-callout" data-tone="warn">
+        <p role="alert" className="adm-callout" data-tone="warn" data-testid="transcript-problem">
           {transcriptProblem}
         </p>
       )}
       {transcript && (
         <section aria-label="Transcript" className="adm-callout" data-tone="info">
           <p data-testid="transcript-read-audit">{audit(transcript.auditRows)}</p>
+          <p data-testid="transcript-read-total">{readsSoFar(transcript.subjectReads)}</p>
           <p>
             Digest of this text: <code data-testid="transcript-digest">{transcript.digest}</code>
           </p>
@@ -304,7 +310,8 @@ export function AgentsLogDesk({
             {transcript.digest === transcript.inputDigest
               ? 'It matches the action row’s input digest.'
               : 'It does not match the action row’s input digest.'}{' '}
-            Kept until {transcript.expiresAt}.
+            Stored <time data-testid="transcript-stored-at">{transcript.storedAt}</time>, kept until{' '}
+            <time data-testid="transcript-kept-until">{transcript.expiresAt}</time>.
           </p>
           <pre data-testid="transcript-text">{transcript.text}</pre>
         </section>

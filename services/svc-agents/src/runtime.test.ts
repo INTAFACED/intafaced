@@ -2650,7 +2650,7 @@ if (!available) {
       const { ranId, refused } = await history();
       const read = { userId: USER_A, reason: REASONS[1], requestId: 'ops-log:actions:1' };
       const page = await opsLog().actions(read);
-      expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1 });
+      expect(page).toMatchObject({ more: false, limit: 50, auditRows: 1, subjectReads: 1 });
       expect(page.items.find((i) => i.id === ranId)).toMatchObject({
         kind: 'completion',
         tool: 'plan',
@@ -2677,10 +2677,13 @@ if (!available) {
         action_id: null,
         row_count: page.items.length,
       });
-      await opsLog().actions({ ...read, requestId: 'ops-log:actions:2' });
+      expect(await opsLog().actions({ ...read, requestId: 'ops-log:actions:2' })).toMatchObject({ auditRows: 1, subjectReads: 2 });
       expect(await reads()).toBe(2);
-      // Another customer's rows are not in this one's read.
-      expect((await opsLog().actions({ ...read, userId: USER_B, requestId: 'ops-log:actions:3' })).items).toEqual([]);
+      // Another customer's rows are not in this one's read, and their reads are counted apart.
+      expect(await opsLog().actions({ ...read, userId: USER_B, requestId: 'ops-log:actions:3' })).toMatchObject({
+        items: [],
+        subjectReads: 1,
+      });
     });
 
     it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
