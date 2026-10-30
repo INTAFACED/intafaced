@@ -18,7 +18,7 @@
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
  *
- * Before the verdict, a STALE line names any run on the head whose current attempt started more than an hour after the
+ * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
  * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
  *
