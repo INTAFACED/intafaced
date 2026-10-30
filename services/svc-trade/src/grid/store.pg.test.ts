@@ -10,7 +10,15 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import { GridError } from './errors.js';
 import { SqlGridStore } from './store.js';
-import { gridClientOrderId, gridReserveKey, type GridBot, type GridOrder, type GridReserve } from './types.js';
+import {
+  gridClientOrderId,
+  gridReserveKey,
+  gridWithdrawalKey,
+  type GridBot,
+  type GridOrder,
+  type GridReserve,
+  type GridWithdrawal,
+} from './types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -98,7 +106,7 @@ describe('SqlGridStore (shared test postgres)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db.sql`TRUNCATE trade.grid_bot_orders, trade.grid_bot_reserves, trade.grid_bots`;
+    await db.sql`TRUNCATE trade.grid_bot_withdrawals, trade.grid_bot_orders, trade.grid_bot_reserves, trade.grid_bots`;
   });
 
   it('writes the bot and its reserve once, and reads both back', async () => {
@@ -198,5 +206,106 @@ describe('SqlGridStore (shared test postgres)', () => {
     await store.createWithReserve(bot(), reserve(), async () => {});
     await store.saveOrder(buy());
     await expect(store.closeOrder(buy().clientOrderId, 'filled', A('1'), AT)).rejects.toThrow(/grid_bot_orders_profit_ck/);
+  });
+
+  describe('profit withdrawal (CB-bots-05)', () => {
+    const KEY = gridWithdrawalKey(BOT, 'withdraw-0001');
+    const sell = (): GridOrder => ({ ...buy(), clientOrderId: gridClientOrderId(BOT, 3, 'sell', 0), side: 'sell', orderId: 'o-s' });
+    const withdrawal = (over: Partial<GridWithdrawal> = {}): GridWithdrawal => ({
+      withdrawalId: KEY,
+      botId: BOT,
+      userId: ALICE,
+      requestId: 'withdraw-0001',
+      requestHash: 'h',
+      asset: 'USDT',
+      amount: A('0.2'),
+      profitBefore: A('0.5'),
+      profitAfter: A('0.3'),
+      reserveBefore: A('200.5'),
+      reserveAfter: A('200.3'),
+      dailyCap: A('0.5'),
+      capUsed: A('0.2'),
+      capRemaining: A('0.3'),
+      stepUpEventId: 'appr-1',
+      appliedAt: AT,
+      ...over,
+    });
+    const at = { withdrawalId: KEY, botId: BOT, userId: ALICE, asset: 'USDT', at: AT };
+
+    it('a filled sell raises the reserve by its positive profit, once; a loss or a partial leaves it', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      await store.saveOrder(sell());
+      await store.closeOrder(sell().clientOrderId, 'filled', A('0.5'), AT);
+      await store.closeOrder(sell().clientOrderId, 'filled', A('0.5'), AT);
+      const amount = (await store.getReserve(BOT))!.amount;
+      expect(amount).toBe(reserve().amount + A('0.5'));
+      const loss = { ...sell(), clientOrderId: gridClientOrderId(BOT, 4, 'sell', 0), levelIndex: 4 };
+      await store.saveOrder(loss);
+      await store.closeOrder(loss.clientOrderId, 'filled', A('-0.1'), AT);
+      expect((await store.getReserve(BOT))!.amount).toBe(amount);
+    });
+
+    it('writes the receipt and lowers the reserve together; the same key answers the stored row', async () => {
+      await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
+      let seen: { reserve: GridReserve | null; usedToday: bigint } | null = null;
+      const first = await store.withdraw(at, (state) => {
+        seen = state;
+        return withdrawal();
+      });
+      expect(first.created).toBe(true);
+      expect(seen!.usedToday).toBe(0n);
+      expect(seen!.reserve!.amount).toBe(A('200.5'));
+      expect(await store.findWithdrawal(KEY)).toEqual(withdrawal());
+      expect((await store.getReserve(BOT))!.amount).toBe(A('200.3'));
+      const again = await store.withdraw(at, () => {
+        throw new Error('decide must not run for a stored key');
+      });
+      expect(again).toEqual({ created: false, withdrawal: withdrawal() });
+      // The day's sum for the next one counts this withdrawal; the next UTC day starts again.
+      const next = { ...at, withdrawalId: gridWithdrawalKey(BOT, 'withdraw-0002') };
+      await expect(
+        store.withdraw(next, (state) => {
+          throw new GridError(`used ${state.usedToday}`, 'trade.bots_withdraw_cap_exceeded');
+        }),
+      ).rejects.toThrow(`used ${A('0.2')}`);
+      const tomorrow = { ...next, at: new Date(AT.getTime() + 86_400_000) };
+      await expect(
+        store.withdraw(tomorrow, (state) => {
+          throw new GridError(`used ${state.usedToday}`, 'trade.bots_withdraw_cap_exceeded');
+        }),
+      ).rejects.toThrow('used 0');
+    });
+
+    it('a refusal from decide writes nothing', async () => {
+      await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
+      await expect(
+        store.withdraw(at, () => {
+          throw new GridError('over', 'trade.bots_withdraw_cap_exceeded');
+        }),
+      ).rejects.toThrow('over');
+      expect(await store.findWithdrawal(KEY)).toBeNull();
+      expect((await store.getReserve(BOT))!.amount).toBe(A('200.5'));
+    });
+
+    it('the table refuses a receipt whose figures do not add up, and rolls the reserve back with it', async () => {
+      await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
+      for (const bad of [
+        { reserveAfter: A('200.4') },
+        { profitAfter: A('0.4') },
+        { capRemaining: A('0.4') },
+        { withdrawalId: gridWithdrawalKey(BOT, 'other') },
+      ]) {
+        await expect(store.withdraw(at, () => withdrawal(bad))).rejects.toThrow(/grid_bot_withdrawals_/);
+      }
+      expect((await store.getReserve(BOT))!.amount).toBe(A('200.5'));
+    });
+
+    it('a reserve that changed from what decide read is never overwritten', async () => {
+      await store.createWithReserve(bot(), { ...reserve(), amount: A('200.5') }, async () => {});
+      await expect(
+        store.withdraw(at, () => withdrawal({ reserveBefore: A('200.6'), reserveAfter: A('200.4'), amount: A('0.2') })),
+      ).rejects.toThrow(/reserve changed/);
+      expect(await store.findWithdrawal(KEY)).toBeNull();
+    });
   });
 });

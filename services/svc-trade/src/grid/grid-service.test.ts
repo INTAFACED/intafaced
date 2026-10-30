@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
+import { createStepUpCheck, type ActionApproval, type ActionApprovalConsumeInput, type StepUpApprovalConsumer } from '@intafaced/contracts';
 import { orderIdFor } from '../spot/ids.js';
 import { principalFor } from '../spot/testing.js';
 import type { PlaceOrderInput } from '../spot/trade-service.js';
@@ -38,6 +39,35 @@ const MARKET = {
   status: 'active',
   paper: false,
 } as unknown as Market;
+
+/** Identity's consume, as it answers an approval it minted for this person and scope (contracts step-up-check). */
+function identity(fail?: unknown, user = ALICE) {
+  const consumed: ActionApprovalConsumeInput[] = [];
+  const approvals: StepUpApprovalConsumer = {
+    async consume(input) {
+      if (fail) throw fail;
+      consumed.push(input);
+      return {
+        approvalId: input.approvalId,
+        actionType: 'trade.step_up.bots.grid.withdrawProfit',
+        targetService: input.targetService,
+        targetId: input.targetId,
+        expectedVersion: input.expectedVersion,
+        payloadHash: input.payloadHash,
+        requesterId: user,
+        approverId: user,
+        policyVersion: 'step-up-v1',
+        createdAt: '2026-10-30T00:00:00.000Z',
+        expiresAt: '2026-10-30T00:05:00.000Z',
+        status: 'CONSUMED',
+        operationId: input.operationId,
+        kind: 'same_person',
+        consumedAt: '2026-10-30T00:01:00.000Z',
+      } as ActionApproval;
+    },
+  };
+  return { approvals, consumed };
+}
 
 function verified(tier: Principal['tier'] = 'full'): Principal {
   return { ...principalFor(ALICE), tier };
@@ -101,9 +131,17 @@ class StubTrade {
 }
 
 function setup(
-  opts: { policy?: GridPolicy; verification?: BotVerificationPolicy; free?: () => string; copyUnused?: string; now?: () => Date } = {},
+  opts: {
+    policy?: GridPolicy;
+    verification?: BotVerificationPolicy;
+    free?: () => string;
+    copyUnused?: string;
+    now?: () => Date;
+    approvals?: StepUpApprovalConsumer | null;
+    store?: MemoryGridStore;
+  } = {},
 ) {
-  const store = new MemoryGridStore();
+  const store = opts.store ?? new MemoryGridStore();
   const trade = new StubTrade();
   // Each call is another process on the same store and trade service.
   const process = () =>
@@ -135,6 +173,7 @@ function setup(
         trade.orders.set(id, { ...o, status: 'cancelled' });
       },
       fillsForOrder: async (_p, id) => trade.fills.get(id) ?? [],
+      stepUp: createStepUpCheck({ service: 'svc-trade', approvals: opts.approvals === undefined ? identity().approvals : opts.approvals }),
       now: opts.now,
     });
   return { store, trade, service: process(), process };
@@ -654,5 +693,174 @@ describe('grid APR · simple, ACT/365, none under a day (CB-bots-05, #6)', () =>
     // A loss rounds down too, away from zero: -26.0714…% reads -26.08.
     expect(gridApr(A('-1'), A('200'), 7 * DAY)).toEqual({ state: 'set', percent: '-26.08' });
     expect(gridApr(0n, A('200'), 2 * DAY)).toEqual({ state: 'set', percent: '0' });
+  });
+});
+
+describe('grid profit withdrawal (CB-bots-05, #7)', () => {
+  const CAPPED = { TRADE_GRID_COUNT_MIN: '2', TRADE_GRID_COUNT_MAX: '100', TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS: '1000' };
+  const policy = (cap: string | undefined) => loadGridPolicy({ ...CAPPED, TRADE_BOTS_WITHDRAW_DAILY_CAP: cap });
+
+  /** A bot with one closed pair: its profit raised the reserve over the investment. */
+  async function earned(opts: Parameters<typeof setup>[0] = {}) {
+    const ctx = setup({ policy: policy('{"USDT":"0.50"}'), ...opts });
+    const view = await ctx.service.create(verified(), BODY);
+    const buy = view.orders.find((o) => o.levelIndex === 8)!;
+    ctx.trade.fill(buy.orderId, 'BTC', A('0.00000001'));
+    await ctx.service.tick((await ctx.store.findBot(view.botId))!);
+    ctx.trade.fill(oid(`grid:${view.botId}:8:s0`), 'USDT', A('0.01'));
+    await ctx.service.tick((await ctx.store.findBot(view.botId))!);
+    const bot = await ctx.service.get(verified(), view.botId);
+    return { ...ctx, bot };
+  }
+  const ask = (botId: string, amount: string, requestId = 'withdraw-0001', approval: string | null = 'appr-1') => ({
+    botId,
+    requestId,
+    asset: 'USDT',
+    amount,
+    stepUpApprovalId: approval,
+  });
+
+  it('a closed pair raises the reserve by its profit; the bot view names that as withdrawable', async () => {
+    const { bot, store } = await earned();
+    expect(A(bot.gridProfit) > 0n).toBe(true);
+    expect((await store.getReserve(bot.botId))!.amount).toBe(A('200') + A(bot.gridProfit));
+    expect(bot.withdrawableProfit).toBe(bot.gridProfit);
+  });
+
+  it('within the cap, the profit and a step-up: lowers the reserve, posts nothing, and answers every receipt field', async () => {
+    const id = identity();
+    const { bot, store, service } = await earned({ approvals: id.approvals, now: () => new Date('2026-10-30T10:00:00Z') });
+    const amount = div(A(bot.gridProfit), A('2'), 'floor');
+    const receipt = await service.withdrawProfit(verified(), ask(bot.botId, formatAmount(amount)));
+    const profit = A(bot.gridProfit);
+    expect(receipt).toEqual({
+      withdrawalId: `bots.grid.withdraw:${bot.botId}:withdraw-0001`,
+      botId: bot.botId,
+      asset: 'USDT',
+      amount: formatAmount(amount),
+      profitBefore: formatAmount(profit),
+      profitAfter: formatAmount(profit - amount),
+      reserveBefore: formatAmount(A('200') + profit),
+      reserveAfter: formatAmount(A('200') + profit - amount),
+      dailyCap: '0.5',
+      capUsed: formatAmount(amount),
+      capRemaining: formatAmount(A('0.5') - amount),
+      stepUpEventId: 'appr-1',
+      appliedAt: '2026-10-30T10:00:00.000Z',
+    });
+    expect((await store.getReserve(bot.botId))!.amount).toBe(A('200') + profit - amount);
+    // Identity was asked once, for exactly the fields the person confirmed, under the withdrawal's business key.
+    expect(id.consumed).toHaveLength(1);
+    expect(id.consumed[0]!.requestId).toBe(receipt.withdrawalId);
+    // The same key again answers the same receipt and lowers nothing more; a different amount under it conflicts.
+    expect(await service.withdrawProfit(verified(), ask(bot.botId, formatAmount(amount)))).toEqual(receipt);
+    expect((await store.getReserve(bot.botId))!.amount).toBe(A('200') + profit - amount);
+    expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001')))).code).toBe('trade.bots_withdraw_conflict');
+    expect((await service.get(verified(), bot.botId)).withdrawableProfit).toBe(formatAmount(profit - amount));
+  });
+
+  it('over the cap refuses cap_exceeded, before the profit check, and changes nothing', async () => {
+    const { bot, store, service } = await earned();
+    const before = await store.getReserve(bot.botId);
+    const r = await refusal(service.withdrawProfit(verified(), ask(bot.botId, '1.00')));
+    expect(r.code).toBe('trade.bots_withdraw_cap_exceeded');
+    expect(r.data).toEqual({ cap: '0.5', used: '0', remaining: '0.5' });
+    expect(await store.getReserve(bot.botId)).toEqual(before);
+    expect(await store.findWithdrawal(`bots.grid.withdraw:${bot.botId}:withdraw-0001`)).toBeNull();
+  });
+
+  it('the cap counts every withdrawal of the owner and asset in one UTC day, and starts again the next day', async () => {
+    let now = new Date('2026-10-30T23:00:00Z');
+    const { bot, service } = await earned({ policy: policy('{"USDT":"0.000002"}'), now: () => now });
+    await service.withdrawProfit(verified(), ask(bot.botId, '0.000002', 'withdraw-0001'));
+    const r = await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001', 'withdraw-0002')));
+    expect(r.code).toBe('trade.bots_withdraw_cap_exceeded');
+    expect(r.data).toEqual({ cap: '0.000002', used: '0.000002', remaining: '0' });
+    now = new Date('2026-10-31T00:00:01Z');
+    const next = await service.withdrawProfit(verified(), ask(bot.botId, '0.000001', 'withdraw-0002'));
+    expect(next.capUsed).toBe('0.000001');
+  });
+
+  it('more than the profit the reserve holds refuses exceeds_profit and changes nothing', async () => {
+    const { bot, store, service } = await earned({ policy: policy('{"USDT":"1000"}') });
+    const before = await store.getReserve(bot.botId);
+    const over = formatAmount(A(bot.gridProfit) + A('0.000001'));
+    const r = await refusal(service.withdrawProfit(verified(), ask(bot.botId, over)));
+    expect(r.code).toBe('trade.bots_withdraw_exceeds_profit');
+    expect(r.data).toEqual({ available: bot.gridProfit });
+    expect(await store.getReserve(bot.botId)).toEqual(before);
+  });
+
+  it('no step-up sent refuses identity.step_up_required unchanged, and nothing is read or written', async () => {
+    const id = identity();
+    const { bot, store, service } = await earned({ approvals: id.approvals });
+    const before = await store.getReserve(bot.botId);
+    const find = vi.spyOn(store, 'findBot');
+    for (const approval of [null, '']) {
+      expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001', 'withdraw-0001', approval)))).code).toBe(
+        'identity.step_up_required',
+      );
+    }
+    expect(find).not.toHaveBeenCalled();
+    expect(id.consumed).toEqual([]);
+    expect(await store.getReserve(bot.botId)).toEqual(before);
+  });
+
+  it('identity down refuses identity.step_up_unavailable: no reserve change, no receipt, the profit still in place', async () => {
+    const down = identity(new TypeError('fetch failed'));
+    const { bot, store, service, process } = await earned({ approvals: down.approvals });
+    const before = await store.getReserve(bot.botId);
+    expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001')))).code).toBe('identity.step_up_unavailable');
+    expect(await store.getReserve(bot.botId)).toEqual(before);
+    expect(await store.findWithdrawal(`bots.grid.withdraw:${bot.botId}:withdraw-0001`)).toBeNull();
+    expect((await process().get(verified(), bot.botId)).withdrawableProfit).toBe(bot.gridProfit);
+    // Identity not wired at all fails closed the same way.
+    const unwired = await earned({ approvals: null });
+    expect((await refusal(unwired.service.withdrawProfit(verified(), ask(unwired.bot.botId, '0.000001')))).code).toBe(
+      'identity.step_up_unavailable',
+    );
+  });
+
+  it('a blank cap, or an asset missing from the map, refuses cap_unset before identity is asked', async () => {
+    for (const cap of [undefined, '', '{"BTC":"1"}']) {
+      const id = identity();
+      const { bot, store, service } = await earned({ policy: policy(cap), approvals: id.approvals });
+      const before = await store.getReserve(bot.botId);
+      const r = await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001')));
+      expect(r.code).toBe('trade.bots_withdraw_cap_unset');
+      expect(id.consumed).toEqual([]);
+      expect(await store.getReserve(bot.botId)).toEqual(before);
+    }
+  });
+
+  it('refuses below the owner verification level, a blank amount and another person’s bot', async () => {
+    const { bot, store, service } = await earned();
+    expect((await refusal(service.withdrawProfit(verified('basic'), ask(bot.botId, '0.000001')))).code).toBe(
+      'trade.bots_verification_insufficient',
+    );
+    for (const amount of ['', '0', '-1', 'abc']) {
+      expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, amount)))).code).toBe('trade.bots_withdraw_amount_invalid');
+    }
+    // Another person: identity's answer is not their approval, so step-up refuses before the bot is read; and with one of
+    // their own that identity accepts, the bot is not theirs.
+    const BOB = '22222222-2222-4222-8222-222222222222';
+    const other = { ...principalFor(BOB), tier: 'full' } as Principal;
+    expect((await refusal(service.withdrawProfit(other, ask(bot.botId, '0.000001')))).code).toBe('identity.step_up_required');
+    const bobs = setup({ policy: policy('{"USDT":"0.50"}'), approvals: identity(undefined, BOB).approvals, store });
+    expect((await refusal(bobs.service.withdrawProfit(other, ask(bot.botId, '0.000001')))).code).toBe('trade.grid_not_found');
+  });
+
+  it('a stopped bot has released its reserve: its profit is already free, so it refuses reserve_released', async () => {
+    const { bot, service } = await earned();
+    await service.stop(verified(), bot.botId);
+    expect((await refusal(service.withdrawProfit(verified(), ask(bot.botId, '0.000001')))).code).toBe(
+      'trade.bots_withdraw_reserve_released',
+    );
+  });
+
+  it('a cap value that is not a positive decimal string stops the boot', () => {
+    for (const cap of ['not json', '[]', '{"USDT":0.5}', '{"USDT":"0"}', '{"USDT":"-1"}', '{"usdt":"1"}']) {
+      expect(() => policy(cap)).toThrow(/TRADE_BOTS_WITHDRAW_DAILY_CAP/);
+    }
   });
 });

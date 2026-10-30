@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import type { GridLevelPlan } from './plan.js';
-import type { GridBot, GridOrder, GridReserve, GridStatus } from './types.js';
+import type { GridBot, GridOrder, GridReserve, GridStatus, GridWithdrawal } from './types.js';
 
 export interface GridStore {
   findBot(botId: string): Promise<GridBot | null>;
@@ -31,8 +31,23 @@ export interface GridStore {
   sumUnusedReserves(userId: string, asset: string): Promise<Amount>;
   /** Insert once by clientOrderId; a second save of the same key keeps the first row. */
   saveOrder(order: GridOrder): Promise<GridOrder>;
+  /**
+   * Close an open order once. A filled sell's positive pair profit raises the bot's unreleased reserve by that profit in
+   * the same write, so the profit stays guarded for the bot until it is withdrawn (CB-bots-05).
+   */
   closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date): Promise<void>;
   listOrders(botId: string): Promise<GridOrder[]>;
+  findWithdrawal(withdrawalId: string): Promise<GridWithdrawal | null>;
+  /**
+   * Under the owner's reserve lock for the asset, in one transaction: a withdrawal already stored under the key is
+   * answered as it is (`created: false`); otherwise `decide` gets the bot's reserve and what the owner withdrew of the
+   * asset in `at`'s UTC day, and either throws (nothing is written) or returns the withdrawal, which is stored while the
+   * reserve row is lowered to its `reserveAfter`.
+   */
+  withdraw(
+    key: { withdrawalId: string; botId: string; userId: string; asset: string; at: Date },
+    decide: (state: { reserve: GridReserve | null; usedToday: Amount }) => GridWithdrawal,
+  ): Promise<{ created: boolean; withdrawal: GridWithdrawal }>;
 }
 
 type ClosedStatus = Exclude<GridOrder['status'], 'open'>;
@@ -40,6 +55,12 @@ const WINDING_DOWN: readonly GridStatus[] = ['stopped', 'initialization_failed']
 
 /** Same advisory key copy follows lock (copy/follow-store.ts), so a grid create and a follow create serialise. */
 export const reserveLockKey = (userId: string, asset: string): string => `copy.reserve:${userId}:${asset}`;
+
+/** The UTC day of `at`: [start, end). */
+export function utcDay(at: Date): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+  return { start, end: new Date(start.getTime() + 86_400_000) };
+}
 
 function unusedOf(reserve: GridReserve, orders: readonly GridOrder[]): Amount {
   const held = orders.filter((o) => o.side === 'buy' && o.status === 'open').reduce((acc, o) => acc + o.holdAmount, 0n);
@@ -51,6 +72,7 @@ export class MemoryGridStore implements GridStore {
   private readonly bots = new Map<string, GridBot>();
   private readonly reserves = new Map<string, GridReserve>();
   private readonly orders = new Map<string, GridOrder>();
+  private readonly withdrawals = new Map<string, GridWithdrawal>();
 
   async findBot(botId: string) {
     return this.bots.get(botId) ?? null;
@@ -104,7 +126,31 @@ export class MemoryGridStore implements GridStore {
   }
   async closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date) {
     const o = this.orders.get(clientOrderId);
-    if (o && o.status === 'open') this.orders.set(clientOrderId, { ...o, status, pairProfit, closedAt: at });
+    if (!o || o.status !== 'open') return;
+    this.orders.set(clientOrderId, { ...o, status, pairProfit, closedAt: at });
+    const r = this.reserves.get(o.botId);
+    if (status === 'filled' && pairProfit !== null && pairProfit > 0n && r && r.releasedAt === null) {
+      this.reserves.set(o.botId, { ...r, amount: r.amount + pairProfit });
+    }
+  }
+  async findWithdrawal(withdrawalId: string) {
+    return this.withdrawals.get(withdrawalId) ?? null;
+  }
+  async withdraw(
+    key: { withdrawalId: string; botId: string; userId: string; asset: string; at: Date },
+    decide: (state: { reserve: GridReserve | null; usedToday: Amount }) => GridWithdrawal,
+  ) {
+    const existing = this.withdrawals.get(key.withdrawalId);
+    if (existing) return { created: false, withdrawal: existing };
+    const day = utcDay(key.at);
+    const usedToday = [...this.withdrawals.values()]
+      .filter((w) => w.userId === key.userId && w.asset === key.asset && w.appliedAt >= day.start && w.appliedAt < day.end)
+      .reduce((a, w) => a + w.amount, 0n);
+    const reserve = this.reserves.get(key.botId) ?? null;
+    const withdrawal = decide({ reserve, usedToday });
+    this.withdrawals.set(withdrawal.withdrawalId, withdrawal);
+    if (reserve) this.reserves.set(key.botId, { ...reserve, amount: withdrawal.reserveAfter });
+    return { created: true, withdrawal };
   }
   async listOrders(botId: string) {
     return [...this.orders.values()]
@@ -159,6 +205,49 @@ interface OrderRow {
   placed_at: Date;
   closed_at: Date | null;
 }
+
+interface WithdrawalRow {
+  withdrawal_key: string;
+  bot_id: string;
+  user_id: string;
+  request_id: string;
+  request_hash: string;
+  asset: string;
+  amount: string;
+  profit_before: string;
+  profit_after: string;
+  reserve_before: string;
+  reserve_after: string;
+  daily_cap: string;
+  cap_used: string;
+  cap_remaining: string;
+  step_up_event_id: string;
+  applied_at: Date;
+}
+
+const withdrawalFromRow = (row: WithdrawalRow): GridWithdrawal => ({
+  withdrawalId: row.withdrawal_key,
+  botId: row.bot_id,
+  userId: row.user_id,
+  requestId: row.request_id,
+  requestHash: row.request_hash,
+  asset: row.asset,
+  amount: parseAmount(row.amount),
+  profitBefore: parseAmount(row.profit_before),
+  profitAfter: parseAmount(row.profit_after),
+  reserveBefore: parseAmount(row.reserve_before),
+  reserveAfter: parseAmount(row.reserve_after),
+  dailyCap: parseAmount(row.daily_cap),
+  capUsed: parseAmount(row.cap_used),
+  capRemaining: parseAmount(row.cap_remaining),
+  stepUpEventId: row.step_up_event_id,
+  appliedAt: row.applied_at,
+});
+
+const WITHDRAWAL_COLUMNS = `withdrawal_key, bot_id, user_id, request_id, request_hash, asset, amount::text AS amount,
+  profit_before::text AS profit_before, profit_after::text AS profit_after, reserve_before::text AS reserve_before,
+  reserve_after::text AS reserve_after, daily_cap::text AS daily_cap, cap_used::text AS cap_used,
+  cap_remaining::text AS cap_remaining, step_up_event_id, applied_at`;
 
 function levelsFromJson(botId: string, raw: unknown): GridLevelPlan[] {
   if (!Array.isArray(raw)) throw new Error(`grid bot ${botId} has no readable level plan`);
@@ -341,10 +430,61 @@ export class SqlGridStore implements GridStore {
   }
 
   async closeOrder(clientOrderId: string, status: ClosedStatus, pairProfit: Amount | null, at: Date) {
+    // One statement: the reserve grows only when this call is the one that closed the order.
     await this.sql`
-      UPDATE grid_bot_orders
-         SET status = ${status}, pair_profit = ${pairProfit === null ? null : formatAmount(pairProfit)}, closed_at = ${at}
-       WHERE client_order_id = ${clientOrderId} AND status = 'open'`;
+      WITH closed AS (
+        UPDATE grid_bot_orders
+           SET status = ${status}, pair_profit = ${pairProfit === null ? null : formatAmount(pairProfit)}, closed_at = ${at}
+         WHERE client_order_id = ${clientOrderId} AND status = 'open'
+        RETURNING bot_id, status, pair_profit)
+      UPDATE grid_bot_reserves r SET amount = r.amount + c.pair_profit
+        FROM closed c
+       WHERE r.bot_id = c.bot_id AND r.released_at IS NULL AND c.status = 'filled' AND c.pair_profit > 0`;
+  }
+
+  async findWithdrawal(withdrawalId: string) {
+    const rows = await this.sql.unsafe<WithdrawalRow[]>(
+      `SELECT ${WITHDRAWAL_COLUMNS} FROM grid_bot_withdrawals WHERE withdrawal_key = $1`,
+      [withdrawalId],
+    );
+    return rows[0] ? withdrawalFromRow(rows[0]) : null;
+  }
+
+  async withdraw(
+    key: { withdrawalId: string; botId: string; userId: string; asset: string; at: Date },
+    decide: (state: { reserve: GridReserve | null; usedToday: Amount }) => GridWithdrawal,
+  ) {
+    return (await this.sql.begin(async (tx) => {
+      const store = new SqlGridStore(tx as unknown as Sql);
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${reserveLockKey(key.userId, key.asset)}, 0))`;
+      const existing = await store.findWithdrawal(key.withdrawalId);
+      if (existing) return { created: false, withdrawal: existing };
+      const reserves = await tx<ReserveRow[]>`
+        SELECT reserve_key, bot_id, user_id, asset, amount::text AS amount, held_at, released_at
+          FROM grid_bot_reserves WHERE bot_id = ${key.botId} FOR UPDATE`;
+      const day = utcDay(key.at);
+      const [used] = await tx<Array<{ total: string | null }>>`
+        SELECT sum(amount)::text AS total FROM grid_bot_withdrawals
+         WHERE user_id = ${key.userId} AND asset = ${key.asset} AND applied_at >= ${day.start} AND applied_at < ${day.end}`;
+      const w = decide({
+        reserve: reserves[0] ? reserveFromRow(reserves[0]) : null,
+        usedToday: used?.total ? parseAmount(used.total) : 0n,
+      });
+      await tx`
+        INSERT INTO grid_bot_withdrawals (withdrawal_key, bot_id, user_id, request_id, request_hash, asset, amount,
+                                          profit_before, profit_after, reserve_before, reserve_after, daily_cap, cap_used,
+                                          cap_remaining, step_up_event_id, applied_at)
+        VALUES (${w.withdrawalId}, ${w.botId}, ${w.userId}, ${w.requestId}, ${w.requestHash}, ${w.asset}, ${formatAmount(w.amount)},
+                ${formatAmount(w.profitBefore)}, ${formatAmount(w.profitAfter)}, ${formatAmount(w.reserveBefore)},
+                ${formatAmount(w.reserveAfter)}, ${formatAmount(w.dailyCap)}, ${formatAmount(w.capUsed)},
+                ${formatAmount(w.capRemaining)}, ${w.stepUpEventId}, ${w.appliedAt})`;
+      const lowered = await tx`
+        UPDATE grid_bot_reserves SET amount = ${formatAmount(w.reserveAfter)}
+         WHERE bot_id = ${w.botId} AND released_at IS NULL AND amount = ${formatAmount(w.reserveBefore)}
+        RETURNING bot_id`;
+      if (lowered.length !== 1) throw new Error(`grid withdrawal ${w.withdrawalId}: the reserve changed under the lock`);
+      return { created: true, withdrawal: w };
+    })) as { created: boolean; withdrawal: GridWithdrawal };
   }
 
   async listOrders(botId: string) {

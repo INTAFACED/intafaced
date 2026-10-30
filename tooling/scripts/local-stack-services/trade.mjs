@@ -117,6 +117,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // `LOCAL_STACK_TRADE_GRID_BAND=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #4 sees that refusal.
     TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS:
       process.env.LOCAL_STACK_TRADE_GRID_BAND === 'blank' ? '' : testValue('TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS'),
+    // LOCAL TEST, not an owner decision: the daily cap on grid bot profit withdrawals (owner setting
+    // trade.bots_withdraw_daily_cap). Blank refuses every withdrawal (trade.bots_withdraw_cap_unset, grid/policy.ts);
+    // production stays blank until the owner sets it. `LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank` on a restart leaves it
+    // blank, so J-copy-bots-otc-14 #7 sees that refusal.
+    TRADE_BOTS_WITHDRAW_DAILY_CAP:
+      process.env.LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP === 'blank' ? '' : testValue('TRADE_BOTS_WITHDRAW_DAILY_CAP'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
