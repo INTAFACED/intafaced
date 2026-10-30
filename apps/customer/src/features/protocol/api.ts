@@ -28,6 +28,12 @@ import {
   protocolTokenPricesOutputSchema,
   protocolUnsignedCallSchema,
 } from '@intafaced/contracts/protocol-swap';
+import {
+  tokenPageOutputSchema,
+  tokensLeaderboardOutputSchema,
+  tokensListOutputSchema,
+  type TokenWindowId,
+} from '@intafaced/contracts/protocol-tokens';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -95,6 +101,15 @@ export function createProtocolApi(api: ApiClient) {
     ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
     /** Every listed token's USD price from the pools at one block, or why it has none. */
     tokenPrices: (signal?: AbortSignal) => api.query('protocol', 'amm.prices', undefined, protocolTokenPricesOutputSchema, { signal }),
+    /** Every token in the factory's pools with its price, growth and volume for one window, read at one block. */
+    tokensList: (window: TokenWindowId, signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.list', { window }, tokensListOutputSchema, { signal }),
+    /** One token's page: facts, trust, pairs with candles, holders and trades, read at one block. */
+    tokenPage: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.page', { address }, tokenPageOutputSchema, { signal }),
+    /** Wallets ranked by realised results from public swaps; each row carries the trades it sums. */
+    tokensLeaderboard: (signal?: AbortSignal) =>
+      api.query('protocol', 'tokens.leaderboard', undefined, tokensLeaderboardOutputSchema, { signal }),
     /** The owner's swap settings; blank refuses and the form keeps Swap off. */
     swapSettings: (signal?: AbortSignal) =>
       api.query('protocol', 'amm.swapSettings', undefined, protocolSwapSettingsOutputSchema, { signal }),

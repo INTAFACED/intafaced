@@ -43,6 +43,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain }) => ({
       PROTOCOL_GAS_PERCENTILES: '10,50,90',
       PROTOCOL_GAS_HISTORY_BLOCKS: '20',
       PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
+      // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
+      ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
     };
   },
 });

@@ -131,6 +131,7 @@ export const appRouter = createProtocolRouter({
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null
       ? { usdTokens: env.PROTOCOL_PRICE_USD_TOKENS, minReserveUsd: env.PROTOCOL_PRICE_MIN_RESERVE_USD }
       : null,
+  tokensQuoteToken: () => env.PROTOCOL_TOKENS_QUOTE_TOKEN,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
   representation: {
     store: new PostgresRepresentationStore(db.sql),

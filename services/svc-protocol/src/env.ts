@@ -132,6 +132,18 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     /** Constant-product PoolFactory (protocol.amm). Zero until deployed on the target chain. */
     PROTOCOL_AMM_FACTORY_ADDRESS: evmAddressDefaultZero,
     /**
+     * The token the token pages state every price and volume in (D-portfolio-wallet-06, -07). An owner setting with
+     * NO DEFAULT: blank or zero is null and `tokens.*` refuses `protocol.tokens_quote_unset`.
+     */
+    PROTOCOL_TOKENS_QUOTE_TOKEN: z
+      .string()
+      .default('')
+      .refine(
+        (raw) => raw.trim() === '' || /^0x[0-9a-fA-F]{40}$/.test(raw.trim()),
+        'PROTOCOL_TOKENS_QUOTE_TOKEN must be blank or an address',
+      )
+      .transform((raw) => (raw.trim() === '' || /^0x0{40}$/.test(raw.trim()) ? null : (raw.trim() as `0x${string}`))),
+    /**
      * Worst slippage a swap builder or session check will accept, in bps.
      *
      * NO DEFAULT. Blank / unset / non-integer → null; `buildSwapExactIn` and

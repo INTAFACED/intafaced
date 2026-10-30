@@ -58,6 +58,8 @@ import { pairsReader } from './amm/pairs.js';
 import { listAllowances } from './amm/allowances.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
+import { createTokensRouter } from './amm/tokens-router.js';
+import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
   MAX_UINT256,
@@ -385,6 +387,8 @@ export interface ProtocolRouterDeps {
   swapFeeCapWei?: () => bigint | null;
   /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
   priceSetting?: () => PriceSetting | null;
+  /** `PROTOCOL_TOKENS_QUOTE_TOKEN`: what the token pages state prices in. Null or absent: `tokens.*` refuses. */
+  tokensQuoteToken?: () => Address | null;
   /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
   peers?: Peers;
   /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
@@ -1211,6 +1215,17 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
      * Permissionless quotes and unsigned calldata only. The platform never
      * holds LP keys and never posts to the ledger here.
      */
+    tokens: createTokensRouter({
+      chain: tokenLogsChain(
+        chain,
+        () => chain.client,
+        () => chain.config.rpcUrl,
+      ),
+      factory: () => deps.ammFactoryAddress(),
+      quoteToken: () => deps.tokensQuoteToken?.() ?? null,
+      toTrpcError,
+    }),
+
     amm: router({
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.

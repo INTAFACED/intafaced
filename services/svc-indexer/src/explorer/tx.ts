@@ -220,3 +220,39 @@ export function classifyExplorerTx(input: {
   }
   return { kind: 'missing' };
 }
+
+/** One row of `indexer.explorer.txs.list`: newest first, orphans kept with their reason. */
+export interface ExplorerTxListFact {
+  readonly hash: string;
+  readonly blockHeight: number;
+  readonly blockHash: string;
+  readonly index: number;
+  readonly from: string;
+  readonly to: string | null;
+  readonly valueWei: bigint;
+  readonly status: 'success' | 'failed';
+  readonly timestamp: number;
+  readonly orphaned: { reason: string } | null;
+}
+
+/** Keyset position: the last row a page returned. */
+export interface ExplorerTxCursor {
+  readonly height: number;
+  readonly index: number;
+  readonly hash: string;
+}
+
+/** WHERE (height, index, hash) < cursor ORDER BY height DESC, index DESC, hash DESC LIMIT limit + 1. */
+export type ExplorerTxList = (q: { cursor?: ExplorerTxCursor; blockHash?: string; limit: number }) => Promise<ExplorerTxListFact[]>;
+
+/** One page and the cursor for the next, or null when this page is the last. */
+export async function listTxPage(
+  list: ExplorerTxList,
+  q: { cursor?: ExplorerTxCursor; blockHash?: string; limit: number },
+): Promise<{ rows: ExplorerTxListFact[]; nextCursor: ExplorerTxCursor | null }> {
+  const fetched = await list(q);
+  const rows = fetched.slice(0, q.limit);
+  const last = rows[rows.length - 1];
+  const nextCursor = fetched.length > q.limit && last ? { height: last.blockHeight, index: last.index, hash: last.hash } : null;
+  return { rows, nextCursor };
+}
