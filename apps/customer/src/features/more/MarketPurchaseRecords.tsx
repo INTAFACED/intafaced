@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
@@ -30,6 +30,9 @@ const purchase = z.object({
   createdAt: time,
   settledAt: time.nullable(),
   accessUntil: time.nullable(),
+  // A held purchase (MC-market-02): its refund window and the buyer's refund request.
+  refundWindowEndsAt: time.nullable().optional(),
+  refundRequestedAt: time.nullable().optional(),
 });
 export type MarketPurchaseRecord = z.infer<typeof purchase>;
 type Props = {
@@ -37,7 +40,31 @@ type Props = {
   reload: () => void;
   limit: number;
   renderCancel: (row: MarketPurchaseRecord) => ReactNode;
+  /** The listing's title from the catalogue, when it is loaded. */
+  titleOf?: (listingId: string) => string | undefined;
+  renderRefund?: (row: MarketPurchaseRecord) => ReactNode;
+  /** The named blocker shown with the refund control on a held row (the refund policy is not set). */
+  refundNote?: ReactNode;
 };
+type StatusKey =
+  'statusPending' | 'statusSettled' | 'statusRejected' | 'statusHeld' | 'statusRefundRequested' | 'statusReleased' | 'statusRefunded';
+const statusKey = (row: MarketPurchaseRecord): StatusKey =>
+  row.status === 'held'
+    ? row.refundRequestedAt
+      ? 'statusRefundRequested'
+      : 'statusHeld'
+    : row.status === 'pending'
+      ? 'statusPending'
+      : row.status === 'settled'
+        ? 'statusSettled'
+        : row.status === 'rejected'
+          ? 'statusRejected'
+          : row.status === 'released'
+            ? 'statusReleased'
+            : 'statusRefunded';
+/** A receipt is offered only for money that reached the seller: never for a pending, held or refunded purchase. */
+const hasReceipt = (row: MarketPurchaseRecord) =>
+  (row.status === 'settled' || row.status === 'released') && row.ledgerTxId !== null && row.settledAt !== null;
 type Fact =
   | 'purchase'
   | 'ledger'
@@ -57,7 +84,7 @@ export function MarketPurchaseRecords(props: Props) {
   const { userId } = useSession();
   return userId ? <OwnerRecords key={userId} userId={userId} {...props} /> : null;
 }
-function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props & { userId: string }) {
+function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, renderRefund, refundNote }: Props & { userId: string }) {
   const { Copy, t, languageFor } = copy.useCopy();
   const { hideBalances } = usePreferences();
   const [selected, setSelected] = useState<string | null>(null);
@@ -70,6 +97,9 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
     new Set(parsed.data.map((row) => row.id)).size === parsed.data.length;
   const rows = valid && parsed?.success ? parsed.data : null;
   const current = rows?.find((row) => row.id === selected);
+  useEffect(() => {
+    if (selected) document.getElementById(`market-receipt-${selected}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected]);
   return (
     <section className="market-purchases" aria-label={t('title')} lang={languageFor('title')}>
       <p className="market-purchases-description">
@@ -103,30 +133,52 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
           ) : (
             <>
               {rows.length ? (
-                rows.map((row) => (
-                  <article className="market-purchases-row" key={row.id}>
-                    <div className="market-purchases-row-header">
-                      <div>
-                        <strong lang="zxx">{row.assetId}</strong>
-                        <p className="muted" lang="zxx">
-                          {row.status}
-                        </p>
-                      </div>
-                      <Button variant="secondary" aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
-                        <Copy k="inspect" />
-                      </Button>
-                    </div>
-                    <p className="numeric">
-                      {hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}{' '}
-                      <span lang="zxx">{row.assetId}</span>
-                    </p>
-                    <Timestamp value={row.createdAt} />
-                    <code className="market-purchases-reference muted" lang="zxx">
-                      {row.id}
-                    </code>
-                    {row.accessUntil && renderCancel(row)}
-                  </article>
-                ))
+                <DataTable
+                  label={t('title')}
+                  headers={[t('listingColumn'), t('priceColumn'), t('refundWindowColumn'), t('statusColumn'), t('actionsColumn')]}
+                >
+                  {rows.map((row) => {
+                    const title = titleOf?.(row.listingId);
+                    return (
+                      <tr key={row.id}>
+                        <td>{title ? <span lang="und">{title}</span> : <code lang="zxx">{row.listingId}</code>}</td>
+                        <td className="numeric">
+                          {hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}{' '}
+                          <span lang="zxx">{row.assetId}</span>
+                        </td>
+                        <td>{row.refundWindowEndsAt ? <Timestamp value={row.refundWindowEndsAt} /> : <Copy k="noRefundWindow" />}</td>
+                        <td>
+                          <Copy k={statusKey(row)} />
+                        </td>
+                        <td>
+                          <div className="market-purchases-row-actions">
+                            {hasReceipt(row) ? (
+                              <a
+                                className="text-link"
+                                href={`#market-receipt-${row.id}`}
+                                aria-current={selected === row.id ? 'true' : undefined}
+                                onClick={(event) => {
+                                  // The room keeps its own address: a fragment change would retire the Market action in flight.
+                                  event.preventDefault();
+                                  setSelected(row.id);
+                                }}
+                              >
+                                <Copy k="receipt" />
+                              </a>
+                            ) : (
+                              <Button variant="secondary" aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
+                                <Copy k="inspect" />
+                              </Button>
+                            )}
+                            {row.status === 'held' && renderRefund?.(row)}
+                            {row.status === 'held' && refundNote}
+                            {row.accessUntil && renderCancel(row)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </DataTable>
               ) : (
                 <EmptyState title={t('noRows')}>
                   <Copy k="noRowsBody" />
@@ -139,7 +191,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
           )}
         </div>
         {selected && (
-          <section className="market-purchases-inspection" aria-label={t('selected')}>
+          <section className="market-purchases-inspection" id={`market-receipt-${selected}`} aria-label={t('selected')}>
             <header className="market-purchases-controls">
               <h3>
                 <Copy k="selected" />
