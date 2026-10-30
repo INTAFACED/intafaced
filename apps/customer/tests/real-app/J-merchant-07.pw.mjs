@@ -485,6 +485,13 @@ const serviceBalances = (api, merchantId) => async () =>
   (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances;
 /** What #1 left: a captured TEST card payment of 40.00 USDT waiting in clearing, nothing available. */
 const FROM_STEP_1 = [{ assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) }];
+/** What #2 leaves when it ran: the rail released those funds and the settlement posted, so nothing is clearing and its
+ * net (above zero, below the 40.00 gross) is available. */
+const FROM_STEP_2 = [
+  { assetCode: 'USDT', clearing: expect.stringMatching(/^0(\.0+)?$/), available: expect.stringMatching(/^(?:[1-3]?\d)(?:\.\d+)?$/) },
+];
+/** The figures the earlier steps left, so "unchanged" compares figures that could move. */
+const leftBefore = () => (journey().settlement ? FROM_STEP_2 : FROM_STEP_1);
 
 test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your account" and Request off; the balance is unchanged`, async ({
   page,
@@ -493,7 +500,8 @@ test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your acc
   const api = await ownerApi();
   const balances = serviceBalances(api, merchantId);
   const before = await balances();
-  expect(before, 'USDT 40.00 clearing from #1, so "unchanged" compares figures that could move').toEqual(FROM_STEP_1);
+  expect(before, 'the USDT left by #1 (and #2 when it ran), so "unchanged" compares figures that could move').toEqual(leftBefore());
+  expect(Number(before[0].clearing) + Number(before[0].available), 'a balance above zero').toBeGreaterThan(0);
 
   // Top up is reachable from Money.
   await signInOwner(page, '/pay/money');
@@ -542,7 +550,7 @@ test(`${J} #5 with a rail: a pending row with the deposit address and reference;
   const api = await ownerApi();
   const balances = serviceBalances(api, merchantId);
   const before = await balances();
-  expect(before).toEqual(FROM_STEP_1);
+  expect(before).toEqual(leftBefore());
 
   // A TEST top-up of 25.00 USDT, keyed by business so a retried step finds the same request.
   const requestId = uuidOf(`${J}:top-up:${merchantId}`);
