@@ -160,7 +160,13 @@ export class AccountAppeals {
   }
 
   private presentForStaff(row: AppealRow): AppealForStaff {
-    return { ...this.present(row), userId: row.user_id, restrictedBy: row.restricted_by, decidedBy: row.decided_by };
+    return {
+      ...this.present(row),
+      userId: row.user_id,
+      restrictedBy: row.restricted_by,
+      decidedBy: row.decided_by,
+      restrictionVersion: refVersion(row.restriction_ref),
+    };
   }
 
   /** The owner's window, and every appeal this person filed, newest first. */

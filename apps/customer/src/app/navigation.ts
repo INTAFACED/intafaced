@@ -47,6 +47,7 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
+  { path: '/appeal', title: 'Appeal a freeze', description: 'Ask staff to look again at a freeze', area: 'public', hidden: true },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },

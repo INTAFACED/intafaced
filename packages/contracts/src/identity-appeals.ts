@@ -88,9 +88,15 @@ export const appealsMineSchema = z
   .strict();
 export type AppealsMine = z.infer<typeof appealsMineSchema>;
 
-/** What compliance reads: the appeal, whose it is and who set the restriction it names. */
+/** What compliance reads: the appeal, whose it is, who set the restriction it names and at which version. */
 export const appealForStaffSchema = appealSchema
-  .extend({ userId: z.string().uuid(), restrictedBy: z.string().uuid().nullable(), decidedBy: z.string().uuid().nullable() })
+  .extend({
+    userId: z.string().uuid(),
+    restrictedBy: z.string().uuid().nullable(),
+    decidedBy: z.string().uuid().nullable(),
+    /** The restriction's version the appeal names: what a lift's approval and `restrictionVersion` bind. */
+    restrictionVersion: z.string().regex(/^\d+$/),
+  })
   .strict();
 export type AppealForStaff = z.infer<typeof appealForStaffSchema>;
 
