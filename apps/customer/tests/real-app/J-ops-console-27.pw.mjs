@@ -259,7 +259,8 @@ test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on t
   const after = await api.balances();
   expect(total(after, ASSET) - before).toBe(toUnits(credited.amount));
   expect(toUnits(after[ASSET].free)).toBe(toUnits(credited.amount));
-  run.write({ depositKey: key });
+  // #8 reuses the address and the transfer: a held deposit to it, and the chain taking this one back once it is spent.
+  run.write({ depositKey: key, depositAddress: address, depositLabel: label, depositId: credited.id, depositDepth: depth });
   record('deposit', { [ASSET]: [credited.amount] });
 });
 
@@ -360,7 +361,8 @@ test(`${J} #5 pays a person TEST ${PAY} ${ASSET}: the recipient is credited and 
 
   await signIn(page, who);
   await page.goto('/pay');
-  const to = page.getByLabel('Handle');
+  // The To field by its own role: Pay also shows a "Handle" discoverability switch.
+  const to = page.getByRole('textbox', { name: 'Handle', exact: true });
   await to.fill(recipient.handle);
   await to.press('Tab');
   await expect(page.getByText(`@${recipient.handle}`).first()).toBeVisible();
@@ -781,12 +783,50 @@ async function openItems(page) {
   return { total, net };
 }
 
+/**
+ * Opens two custody items of this run's own on crypto-native, so #8 judges named items, never only an empty list: a TEST
+ * deposit below the published minimum to #3's address (held: custody has it, the ledger booked nothing), and the TEST chain
+ * taking back #3's transfer after #4 to #7 spent part of it (an uncovered reversal: the ledger credited it, custody no
+ * longer has it). Each is read back from svc-pay's own record. A retry repeats the same two chain events, which svc-pay
+ * treats as the same reports.
+ */
+async function openItemsOfThisRun() {
+  const { depositAddress, depositLabel, depositId, depositDepth } = state();
+  if (!depositAddress || !depositLabel || !depositId) throw new Error(`${J} #3 kept no deposit address, label or id for #8`);
+  const api = await client();
+  const terms = await api.query('bank', 'deposits.assets');
+  expect(terms.ok, JSON.stringify(terms.body)).toBe(true);
+  const [network] = (terms.data.assets.find((a) => a.assetId === ASSET)?.networks ?? []).filter((n) => n.label === NETWORK);
+  const below = toUnits(network.minimumDeposit) / 2n;
+  expect(below, `half of the published ${ASSET} minimum is above 0`).toBeGreaterThan(0n);
+  const { tx: heldTx } = chainDeposit(depositAddress, fromUnits(below), depositDepth, `${depositLabel}-below-minimum`);
+  const [held] = await depositRecords(api, heldTx);
+  expect(held, 'svc-pay recorded the deposit below the minimum').toMatchObject({ status: 'below_minimum', reason: 'below_minimum' });
+  const free = total(await api.balances(), ASSET);
+  expect(free, `#4 to #7 spent part of #3's ${DEPOSIT} ${ASSET}, so a reversal can't be covered`).toBeLessThan(toUnits(DEPOSIT));
+  expect(tool('local-test-stack.mjs', 'chain-reorg', depositAddress, '--tx', depositLabel)).toContain('TEST chain reorg delivered');
+  const [, taken] = /^(0x[0-9a-f]{64}):/.exec(state().depositKey) ?? [];
+  const [reversed] = await depositRecords(api, taken);
+  expect(reversed, 'svc-pay holds the reversed deposit for review, unfunded').toMatchObject({
+    id: depositId,
+    status: 'needs_review',
+    reason: 'reversal_unfunded',
+  });
+  // The ledger posted nothing for either: the customer's balance is unchanged by both.
+  expect(total(await api.balances(), ASSET)).toBe(free);
+  return [
+    { id: held.id, kind: 'held', units: below, what: 'the held deposit below the minimum' },
+    { id: depositId, kind: 'reversal_unfunded', units: -toUnits(DEPOSIT), what: "the uncovered reversal of #3's deposit" },
+  ];
+}
+
 test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that rail's own statement`, async ({ browser }) => {
   test.setTimeout(600_000);
   const { moves = {} } = state();
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
+  const mine = await openItemsOfThisRun();
   const judged = [];
   for (const [rail, steps] of Object.entries(RAIL_STEPS)) {
     const crossed = [...new Set(steps.flatMap((step) => Object.keys(moves[step] ?? {})))].sort();
@@ -829,30 +869,38 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
       expect.soft(answer, `${rail}: no open items are read for this rail`).not.toContain('reconciling item');
       for (const [, asset, , , difference] of evidence) expect.soft(difference, `${rail} ${asset}: difference`).toBe('0');
       expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
-      continue;
+    } else {
+      // Lead ruling 2026-10-30: the rail PASSes only when its difference is exactly the open items svc-pay lists, each named
+      // on the run with its id and amount; the residual on every asset is 0. Branch by the count the founders read.
+      // This run opened two items of its own (openItemsOfThisRun), so the items branch always runs, never only "none open".
+      expect(before.total, `${rail}: the founders read at least this run's two open items`).toBeGreaterThanOrEqual(2);
+      console.log(`${J} #8 ${rail}: ${before.total} items open (${describeNet(before.net)}); expecting PASS with each named`);
+      const count = /(\d+) reconciling items?[:.]/.exec(answer);
+      expect.soft(count, `${rail}: the run says how many open items it took out`).not.toBeNull();
+      expect.soft(Number(count?.[1] ?? -1), `${rail}: the run took out exactly the items the founders read`).toBe(before.total);
+      const named = [...answer.matchAll(ITEM)];
+      expect.soft(named.length, `${rail}: each item is named on the run`).toBe(before.total);
+      expect.soft(new Set(named.map((m) => m[2])).size, `${rail}: each item is named once, by its own id`).toBe(named.length);
+      const sums = {};
+      for (const [, kind, , asset, amount] of named) {
+        expect.soft(toUnits(amount) > 0n, `${rail}: a ${kind} item carries its sign`).toBe(kind === 'held');
+        sums[asset] = (sums[asset] ?? 0n) + toUnits(amount);
+      }
+      expect.soft(describeNet(sums), `${rail}: the named items add up to the founders' read`).toBe(describeNet(before.net));
+      for (const [, asset, , , difference, items, residual] of evidence) {
+        expect.soft(difference, `${rail} ${asset}: the statement names this asset`).not.toBe('unset');
+        expect.soft(items, `${rail} ${asset}: the run states the items' sum`).toBe(fromUnits(before.net[asset] ?? 0n));
+        expect.soft(residual, `${rail} ${asset}: nothing is left once the items are taken out`).toBe('0');
+      }
+      // This run's own two items, each by its deposit id with its exact signed amount.
+      for (const want of mine) {
+        const hit = named.find((m) => m[2] === want.id);
+        expect.soft(hit?.[1], `${rail}: the run names ${want.what} ${want.id}`).toBe(want.kind);
+        expect.soft(hit?.[3], `${rail}: ${want.id} is in ${ASSET}`).toBe(ASSET);
+        expect.soft(toUnits(hit?.[4] ?? '0'), `${rail}: ${want.id} carries exactly ${fromUnits(want.units)}`).toBe(want.units);
+      }
+      expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
     }
-    // Lead ruling 2026-10-30: the rail PASSes only when its difference is exactly the open items svc-pay lists, each named
-    // on the run with its id and amount; the residual on every asset is 0. Branch by the count the founders read.
-    const branch = before.total > 0 ? 'items open' : 'none open';
-    console.log(`${J} #8 ${rail}: branch "${branch}" (${before.total} items; ${describeNet(before.net)}); expecting PASS with each named`);
-    const count = /(\d+) reconciling items?[:.]/.exec(answer);
-    expect.soft(count, `${rail}: the run says how many open items it took out`).not.toBeNull();
-    expect.soft(Number(count?.[1] ?? -1), `${rail}: the run took out exactly the items the founders read`).toBe(before.total);
-    const named = [...answer.matchAll(ITEM)];
-    expect.soft(named.length, `${rail}: each item is named on the run`).toBe(before.total);
-    expect.soft(new Set(named.map((m) => m[2])).size, `${rail}: each item is named once, by its own id`).toBe(named.length);
-    const sums = {};
-    for (const [, kind, , asset, amount] of named) {
-      expect.soft(toUnits(amount) > 0n, `${rail}: a ${kind} item carries its sign`).toBe(kind === 'held');
-      sums[asset] = (sums[asset] ?? 0n) + toUnits(amount);
-    }
-    expect.soft(describeNet(sums), `${rail}: the named items add up to the founders' read`).toBe(describeNet(before.net));
-    for (const [, asset, , , difference, items, residual] of evidence) {
-      expect.soft(difference, `${rail} ${asset}: the statement names this asset`).not.toBe('unset');
-      expect.soft(items, `${rail} ${asset}: the run states the items' sum`).toBe(fromUnits(before.net[asset] ?? 0n));
-      expect.soft(residual, `${rail} ${asset}: nothing is left once the items are taken out`).toBe('0');
-    }
-    expect.soft(answer, `${rail}: ${BREAK[rail]}`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
 
     // The scope can be non-zero (checklist point 9): a TEST transfer into custody that no item lists, written on the rail's
     // own records, FAILs the same control by exactly that amount, named as the residual. An equal TEST transfer out then
@@ -873,13 +921,15 @@ test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that r
       recordRailMovement(stackFile('.'), { rail, key: `${stray}:out`, direction: 'out', assetId: ASSET, amount: STRAY });
     }
     expect.soft(strayAnswer, `${rail}: a transfer no item lists FAILs the rail`).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+    // With items the residual decides (column 6); on a rail without items the difference does (column 4).
+    const decides = carries ? 6 : 4;
     const strayRow = [...strayAnswer.matchAll(EVIDENCE)].find((m) => m[1] === ASSET);
     const firstRow = evidence.find((m) => m[1] === ASSET);
-    expect.soft(strayRow?.[6], `${rail} ${ASSET}: the run names a residual`).toMatch(/^-?[\d.]+$/);
+    expect.soft(strayRow?.[decides], `${rail} ${ASSET}: the run names what is left over`).toMatch(/^-?[\d.]+$/);
     expect
       .soft(
-        fromUnits(toUnits(strayRow?.[6] ?? '0') - toUnits(firstRow?.[6] ?? '0')),
-        `${rail} ${ASSET}: the residual moved by exactly the unlisted transfer`,
+        fromUnits(toUnits(strayRow?.[decides] ?? '0') - toUnits(firstRow?.[decides] ?? '0')),
+        `${rail} ${ASSET}: what is left over moved by exactly the unlisted transfer`,
       )
       .toBe(STRAY);
   }
