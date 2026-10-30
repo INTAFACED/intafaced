@@ -269,7 +269,7 @@ test(`${J} #2 opens it with rewards in each state: earned, on hold and still ope
 
   // The history: one table holds every reward the account has, earned and waiting alike, each row once, and the earned
   // one is dated in it.
-  const history = hub.getByRole('table', { name: 'Rewards and history' });
+  const history = hub.getByRole('region', { name: 'Rewards and history' });
   await expect(history).toBeVisible();
   await expect(history.getByTestId('reward-row')).toHaveCount(3);
   for (const c of [posted, held, open]) await expect(history.locator(`[data-campaign="${c.id}"]`)).toHaveCount(1);
