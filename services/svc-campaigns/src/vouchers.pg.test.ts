@@ -211,7 +211,9 @@ if (!db) {
       for (const t of tries.filter((x) => x.status === 'rejected')) {
         expect(((t as PromiseRejectedResult).reason as CampaignsError).code).toBe('campaigns.voucher_invalid');
       }
-      const [{ n }] = await db.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.vouchers WHERE claimed_by IS NOT NULL`;
+      const [{ n }] = (await db.sql<
+        { n: number }[]
+      >`SELECT count(*)::int AS n FROM campaigns.vouchers WHERE claimed_by IS NOT NULL`) as unknown as [{ n: number }];
       expect(n).toBe(1);
     });
 
@@ -318,8 +320,8 @@ if (!db) {
       const [mine] = (await vouchers.mine({ accountId: ME })).vouchers;
       expect(mine).toMatchObject({ state: 'expired', used: '1', remaining: '9' });
       expect(mine!.expiredAt).toBeTruthy();
-      const [{ n }] = await db.sql<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM campaigns.audit_log WHERE action = 'campaign.voucher.expire'`;
+      const [{ n }] = (await db.sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM campaigns.audit_log WHERE action = 'campaign.voucher.expire'`) as unknown as [{ n: number }];
       expect(n).toBe(1);
       expect(await code(vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 2, accountId: ME }))).toBe('campaigns.voucher_expired');
       // The first redemption, asked again, still returns its answer.
