@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
 import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
@@ -53,6 +54,7 @@ import { draftScreeningSupport } from './risk-compliance/screening-draft.js';
 import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write.js';
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
+import { coachRunRoutes } from './coach/router.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
@@ -61,6 +63,7 @@ import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
+import { ownRouter } from './own/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -336,20 +339,6 @@ export interface AgentsRouterDeps {
   readonly portfolioLedger?: HoldingsLedger | null;
   /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
   readonly portfolioPrices?: PortfolioPriceSource | null;
-}
-
-/**
- * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
- * never an API key (`agents:execute` is interactive-only in packages/auth), a sub-account or delegated token, or a
- * service forwarding their principal.
- */
-function executeProcedure() {
-  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
-    }
-    return next();
-  });
 }
 
 /**
@@ -3906,6 +3895,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      */
     coach: router({
       policy: publicProcedure.query(() => describeCoachPolicy()),
+      ...coachRunRoutes(deps, guard),
 
       session: scopedProcedure('agents:read', { module: 'agents' })
         .input(
@@ -4199,6 +4189,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
 
     /** User spend caps (AG-spend-01). A blank cap refuses. A reservation is not a ledger post. */
     spend: spendRouter(sql),
+
+    /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
+    own: ownRouter(sql, { runtime, feeAssetId }),
   });
 }
 

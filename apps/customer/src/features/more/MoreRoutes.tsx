@@ -4,6 +4,8 @@ import { useSession } from '../session/session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
+import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
+import { agentBuilderCopy } from './agent-builder-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -73,6 +75,13 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/new') {
+    title = agentBuilderCopy.t('newAgent');
+    content = <NewAgent />;
+  } else if (ownAgentId(p)) {
+    const id = ownAgentId(p)!;
+    title = <OwnAgentTitle id={id} />;
+    content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
@@ -181,7 +190,7 @@ const section = (path: string) => (path.split(/[?#]/)[0] ?? '').split('/')[2] ??
 /** The tab each section's own address opens its room on, so /mining/workers is not the same page as /mining (Phantom 24 Oct). */
 export const SECTION_TABS: { launch: Record<string, LaunchTab>; token: Record<string, TokenTab>; mining: Record<string, MiningTab> } = {
   launch: { new: 'Journey', check: 'Check', requirements: 'Requirements' },
-  token: { governance: 'Governance', economy: 'Economy' },
+  token: { governance: 'Governance', economy: 'Economy', burn: 'Burn' },
   mining: { workers: 'Workers', shares: 'Shares', rewards: 'Rewards', status: 'Status' },
 };
 

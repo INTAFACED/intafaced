@@ -17,9 +17,14 @@ import {
   EmptyState,
   KeyValue,
   Table,
+  Tabs,
+  TabsList,
+  TabsPanel,
+  TabsTab,
   type BadgeTone,
   type TableColumn,
 } from '@intafaced/ui';
+import { CopiedPositions, SkippedCopies } from './FollowCopies';
 import { displayAmount } from '../../../shared/money';
 import type { z } from 'zod';
 import type { copyFollowSchema } from '../../../features/trade/tool-api';
@@ -31,6 +36,7 @@ import { InfoNote, RefusalNote } from './parts';
 
 export type Follow = z.infer<typeof copyFollowSchema>;
 export type FollowAction = 'pause' | 'resume' | 'stop' | 'detach' | 'flatten';
+type CopiesTab = 'orders' | 'positions' | 'skipped';
 
 /** The asset the follow's limits are counted in: the shared quote asset of its markets, or '' when they differ. */
 export function quoteAsset(follow: Follow): string {
@@ -43,13 +49,23 @@ export const STATE_TONE: Record<string, BadgeTone> = {
   ACTIVE: 'lime',
   PAUSED: 'warn',
   STOPPING: 'warn',
+  CLOSE_ONLY: 'warn',
   STOPPED: 'neutral',
   DETACHED: 'neutral',
 };
 export function stateWord(state: string): string {
-  const word: Record<string, string> = { ACTIVE: 'Active', PAUSED: 'Paused', STOPPING: 'Stopping', STOPPED: 'Stopped', DETACHED: 'Left' };
+  const word: Record<string, string> = {
+    ACTIVE: 'Active',
+    PAUSED: 'Paused',
+    STOPPING: 'Stopping',
+    // Stopped with close-only: no new trades, the leader's closes still close what was copied (CB-copy-09).
+    CLOSE_ONLY: 'Stopping',
+    STOPPED: 'Stopped',
+    DETACHED: 'Left',
+  };
   return word[state.toUpperCase()] ?? 'Unknown state';
 }
+export const isCloseOnly = (follow: Follow) => follow.relationshipState.toUpperCase() === 'CLOSE_ONLY';
 
 /** Which actions the follow's state allows, and the reason for the ones it does not (kept on screen, never hidden). */
 export function allowedActions(follow: Follow): Record<FollowAction, string | null> {
@@ -76,7 +92,8 @@ const ACTION_COPY: Record<FollowAction, { button: string; title: string; effect:
   stop: {
     button: 'Stop',
     title: 'Stop this follow?',
-    effect: 'New trades stop being copied and the permission is withdrawn. Positions already open stay yours. Nothing is sold for you.',
+    effect:
+      'New trades stop being copied. While automatic copying is on, when the leader closes a trade you copied, your copy is closed too. Nothing else is sold for you, and you can leave the leader at any time.',
   },
   detach: {
     button: 'Leave leader',
@@ -99,7 +116,12 @@ export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; 
     setAsking(null);
     void guard.run(
       { kind: 'copy', id: follow.followId, symbol: follow.permittedMarkets.join(','), operation: action },
-      () => (action === 'flatten' ? api.flatten(follow.followId) : api.followAction(action, follow.followId)),
+      () =>
+        action === 'flatten'
+          ? api.flatten(follow.followId)
+          : action === 'stop'
+            ? api.stop(follow.followId)
+            : api.followAction(action, follow.followId),
       onDone,
     );
   };
@@ -168,9 +190,11 @@ function CopyingSwitch({ follow, api, guard, onDone }: { follow: Follow; api: Ro
   return (
     <div className="cb-actions">
       <p>
-        {on
-          ? t('Each new trade the leader makes is copied for you, within your limits.')
-          : t('Trades are not copied for you until you turn on automatic copying.')}
+        {on && isCloseOnly(follow)
+          ? t('Only the leader’s closes are copied for you. Turning automatic copying off stops those too.')
+          : on
+            ? t('Each new trade the leader makes is copied for you, within your limits.')
+            : t('Trades are not copied for you until you turn on automatic copying.')}
       </p>
       <div className="cb-action-row">
         <Button variant="secondary" size={32} disabled={blocked !== null || guard.busy || guard.locked} onClick={send}>
@@ -240,6 +264,7 @@ export function FollowDetail({
   onChanged: () => void;
 }) {
   const { t } = roomCopy.useCopy();
+  const [tab, setTab] = useState<CopiesTab>('orders');
   return (
     <Dialog open={follow !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="cb-dialog">
@@ -254,6 +279,13 @@ export function FollowDetail({
                 {follow.newIntentFenced ? t('New trades are not being copied') : t('New trades are being copied')}
               </DialogDescription>
             </DialogHeader>
+            {isCloseOnly(follow) ? (
+              <InfoNote tone="warn">
+                {copyingSwitch(follow).on
+                  ? t('Close-only: the leader’s closes still close your copied positions.')
+                  : t('Close-only: turn on automatic copying for the leader’s closes to close your copied positions.')}
+              </InfoNote>
+            ) : null}
             <h3 className="cb-h3">{t('Your limits')}</h3>
             <KeyValue
               items={[
@@ -291,15 +323,30 @@ export function FollowDetail({
               items={[
                 { label: t('Profit or loss'), value: null, hint: t('The service does not report it') },
                 { label: t('Fees paid'), value: null, hint: t('The service does not report it') },
+                { label: t('Leader profit share'), value: null, hint: t('Not set by the platform') },
               ]}
             />
-            <h3 className="cb-h3">{t('Copied orders')}</h3>
-            <CopiedOrders follow={follow} api={api} />
+            <Tabs value={tab} onValueChange={(next) => setTab(next as CopiesTab)}>
+              <TabsList divider aria-label={t('What was copied')}>
+                <TabsTab value="orders">{t('Copied orders')}</TabsTab>
+                <TabsTab value="positions">{t('Positions')}</TabsTab>
+                <TabsTab value="skipped">{t('Skipped')}</TabsTab>
+              </TabsList>
+              <TabsPanel value="orders">{tab === 'orders' ? <CopiedOrders follow={follow} api={api} /> : null}</TabsPanel>
+              <TabsPanel value="positions">
+                {tab === 'positions' ? <CopiedPositions follow={follow} api={api} guard={guard} /> : null}
+              </TabsPanel>
+              <TabsPanel value="skipped">{tab === 'skipped' ? <SkippedCopies follow={follow} api={api} /> : null}</TabsPanel>
+            </Tabs>
             <h3 className="cb-h3">{t('Automatic copying')}</h3>
             <CopyingSwitch follow={follow} api={api} guard={guard} onDone={onChanged} />
             <h3 className="cb-h3">{t('Change this follow')}</h3>
             <FollowActions follow={follow} api={api} guard={guard} onDone={onChanged} />
-            <InfoNote>{t('Positions already open are never sold unless you choose Close copied positions.')}</InfoNote>
+            <InfoNote>
+              {t(
+                'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.',
+              )}
+            </InfoNote>
           </>
         ) : null}
       </DialogContent>

@@ -160,6 +160,11 @@
       "service": "bank",
       "value": "{\"reference\": [{\"deliveryMethod\": \"sepa\", \"maxLength\": 35}, {\"deliveryMethod\": \"bank_account\", \"maxLength\": 18}], \"purposeRequired\": [], \"sourceOfFunds\": []}",
       "note": "Made-up reference lengths for the stand-in's two delivery methods; no purpose or source-of-funds rule."
+    },
+    "BANK_EARN_RISK_WORDING_JSON": {
+      "service": "bank",
+      "value": "{\"slashing\": \"TEST wording, not the owner's: if the network penalises the staked funds, what you get back can be less than you put in.\", \"ownership\": \"TEST wording, not the owner's: the saving stays yours in the custodial ledger while it is staked or unbonding.\"}",
+      "note": "Made-up staking risk wording labelled TEST so the staking pool page has something to read (J-bank-08 #6); not the owner's disclosure."
     }
   }
 }
