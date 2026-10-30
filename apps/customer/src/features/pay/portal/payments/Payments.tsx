@@ -163,7 +163,7 @@ export function PaymentsView({
       {list.status === 'ready' &&
         (list.items.length === 0 ? (
           <EmptyState
-            title={t(filtered ? 'pay_emptyFilteredTitle' : 'noPayments')}
+            title={t(filtered ? 'pay_emptyFilteredTitle' : 'pay_emptyTitle')}
             action={
               filtered ? undefined : (
                 <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
@@ -172,7 +172,7 @@ export function PaymentsView({
               )
             }
           >
-            {t(filtered ? 'pay_emptyFilteredBody' : 'noPaymentsBody')}
+            {t(filtered ? 'pay_emptyFilteredBody' : 'pay_emptyBody')}
           </EmptyState>
         ) : (
           <>
