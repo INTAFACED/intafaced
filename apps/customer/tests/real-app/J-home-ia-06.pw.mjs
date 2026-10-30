@@ -10,7 +10,7 @@ import {
   publishedNotices,
 } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { ORIGIN, tool } from './stack.mjs';
+import { api, ORIGIN, tool } from './stack.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
 // "J-home-ia-06 #<n>" prove a whole step. The stack's two TEST founders draft and publish through the notice board's own
@@ -243,7 +243,7 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   const context = await browser.newContext({ baseURL: ORIGIN });
   await context.grantPermissions(['notifications']);
   const person = await context.newPage();
-  await signUp(person, 'hmo');
+  const who = await signUp(person, 'hmo');
   // Notifications: allowing this device needs the push delivery gateway, which the stack leaves unset.
   await person.goto('/notifications?view=settings');
   const push = person.locator('[data-testid="nf-channelcard"][data-channel="push"]');
@@ -274,12 +274,27 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   expect(pushed).toBe(sentence('Registering this device', 'a push delivery gateway', 'vendor.push'));
   expect(staked).toBe(sentence('Stake', 'the INTACHAIN launch go-ahead', 'chain.go'));
   expect(linked).toBe(sentence('Signing in with a social account', 'an outside sign-in provider', 'idp.social'));
-  // An own gap is not the notice: the bell on a new account opens its empty state, with no data-not-connected.
+  // An own gap is not the notice: the bell draws exactly this person's inbox as svc-notify holds it, the empty state when it
+  // holds nothing, and never data-not-connected. Other journeys on the same stack may publish notices to every inbox, so
+  // the popover is compared with the inbox read back, not assumed empty.
   await person.goto('/home');
   await person.getByTestId('tb-bell').click();
-  const empty = person.locator('[data-slot="state-block"][data-kind="empty"]', { hasText: "You're all caught up." });
-  await expect(empty).toHaveCount(1);
-  await expect(person.locator('.nf-pop__inner [data-not-connected]')).toHaveCount(0);
+  const pop = person.locator('.nf-pop__inner');
+  const empty = pop.locator('[data-slot="state-block"][data-kind="empty"]', { hasText: "You're all caught up." });
+  const rows = pop.getByTestId('nf-row');
+  await expect(empty.or(rows.first())).toBeVisible();
+  const client = await api(who);
+  const inbox = async () =>
+    (await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 8 }))}`)).body.result.data.items
+      .length;
+  // Each read holds the inbox's size, the rows drawn and whether the empty state shows; they must agree.
+  await expect
+    .poll(async () => {
+      const [held, drawn, shown] = [await inbox(), await rows.count(), await empty.count()];
+      return drawn === held && shown === (held === 0 ? 1 : 0) ? 'agree' : `inbox ${held}, rows ${drawn}, empty ${shown}`;
+    })
+    .toBe('agree');
+  await expect(pop.locator('[data-not-connected]')).toHaveCount(0);
   await context.close();
 });
 

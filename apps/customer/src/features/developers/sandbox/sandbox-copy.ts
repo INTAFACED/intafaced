@@ -65,6 +65,11 @@ const en = {
   stateActive: 'Active',
   stateRevoked: 'Revoked',
   stateExpired: 'Expired',
+  fundsHeading: 'TEST funds',
+  balanceLabel: 'Sandbox balance (TEST)',
+  balanceUnset: 'not set',
+  fund: 'Fund with TEST money',
+  'pay.sandbox_funds_unset': 'The owner has not set sandbox test funds. Nothing was added.',
   noKeys: 'This sandbox has no key yet.',
   newKey: 'Create a sandbox key',
   notFoundTitle: 'No such sandbox',
@@ -99,5 +104,5 @@ type RefusalKey = Extract<SandboxCopyKey, `${'identity' | 'env' | 'auth'}.${stri
 
 /** The room's sentence for a typed service code, or null when none is written (the page then shows the code). */
 export function sandboxRefusalKey(code: string | undefined): RefusalKey | null {
-  return code !== undefined && /^(identity|env|auth)\./.test(code) && code in en ? (code as RefusalKey) : null;
+  return code !== undefined && /^(identity|env|auth|pay)\./.test(code) && code in en ? (code as RefusalKey) : null;
 }

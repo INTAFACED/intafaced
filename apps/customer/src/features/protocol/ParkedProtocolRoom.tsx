@@ -27,6 +27,7 @@ import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } f
 import { ChainHome } from './explorer/ChainHome';
 import { BlocksList } from './explorer/pages';
 import { TokensNav } from './tokens/TokensRoom';
+import { PoolsList } from './pools/PoolsList';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -499,19 +500,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
   else if (slug === 'dex' && tab === 'pools')
     body = (
-      <Panel title={t('poolsTitle')}>
-        <p className="muted">{t('poolsNote')}</p>
-        <DataTable label={t('poolsTitle')} headers={[t('hdr_pool'), t('hdr_pair'), t('hdr_liquidity')]}>
-          <tr>
-            <td colSpan={3}>
-              <EmptyState title={t('poolsEmpty')} />
-            </td>
-          </tr>
-        </DataTable>
-        <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
-          {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
-        </Answer>
-      </Panel>
+      <>
+        <PoolsList />
+        <Panel title={t('poolsTitle')}>
+          <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
+            {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
+          </Answer>
+        </Panel>
+      </>
     );
   else if (slug === 'dex' && tab === 'positions')
     body = (

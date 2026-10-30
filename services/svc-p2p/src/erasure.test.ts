@@ -276,6 +276,7 @@ describe('p2p export and erasure', () => {
         disputes: [],
         orderReviews: [],
         offerEdits: [],
+        shareLinks: [],
         reputation: null,
         instruments: [],
         riskAcceptances: [],
@@ -372,6 +373,7 @@ describe('p2p export and erasure', () => {
       expect(report.erased).toEqual([
         { category: 'reputation', rows: 1 },
         { category: 'ad edits counted against the daily cap', rows: 0 },
+        { category: 'share links to ads', rows: 0 },
         { category: 'offers (never traded)', rows: 1 },
         { category: 'ads paused by a removed payment method', rows: 0 },
         { category: 'payment instrument details', rows: 1 },

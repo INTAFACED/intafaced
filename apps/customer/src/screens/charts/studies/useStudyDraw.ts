@@ -53,6 +53,7 @@ function dataOf(s: SeriesOut): Array<{ time: number; value?: number; color?: str
 function build(host: ChartHost, series: readonly SeriesOut[], tickSize: string): Drawn {
   const { lib, chart } = host;
   const apis: ChartSeries[] = [];
+  const paneOf: number[] = [];
   const paneOfGroup = new Map<string, number>();
   let panes = 0;
   for (const s of series) {
@@ -81,7 +82,19 @@ function build(host: ChartHost, series: readonly SeriesOut[], tickSize: string):
     );
     api.setData(dataOf(s));
     apis.push(api);
+    paneOf.push(pane);
   }
+  // What the library draws for each study series (its type, colour and pane), read back from the series itself, for the
+  // page and its journeys: a check on these is a check on the drawing, not on the study's settings.
+  host.element.dataset.studySeries = JSON.stringify(
+    apis.map((api, n) => ({
+      key: series[n]!.key,
+      pane: paneOf[n],
+      type: api.seriesType(),
+      // A token that does not resolve was drawn in the library's default colour: recorded as '', not as that colour.
+      color: colorOf(series[n]!.color) ? ((api.options() as { color?: string }).color ?? '') : '',
+    })),
+  );
   if (panes > 0) {
     const all = chart.panes();
     all.forEach((p, n) => p.setStretchFactor(n === 0 ? 3 : 1));
@@ -95,6 +108,7 @@ function teardown(drawn: Drawn): void {
   const { host, apis, panes } = drawn;
   const { chart } = host;
   delete host.element.dataset.studyPanes;
+  delete host.element.dataset.studySeries;
   for (const api of apis) {
     try {
       chart.removeSeries(api);

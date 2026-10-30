@@ -12,6 +12,7 @@
 - [Machine-readable specs](/developers/openapi.md): The same routes as files a program reads: an OpenAPI 3 description, a request collection and an index of these pages for assistants. Each lists the permission, the cost of a call and the refusals.
 - [Quickstart](/developers/quickstart.md): From nothing to a first call in four steps.
 - [Authentication](/developers/authentication.md): How a key proves that each request is yours.
+- [Errors](/developers/errors.md): Every error the trading REST API (/api/v1) links here: a refused order body, and an order call during the platform posting freeze. Branch on the code; the detail code names the decision behind it.
 - [Connectivity](/developers/connectivity.md): How to reach the API, and how to keep your clock in step with it.
 - [Market data terms](/developers/data-terms.md): Which market data products you may use, and on what terms.
 

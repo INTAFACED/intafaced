@@ -4,6 +4,7 @@ import { requireModulePage } from '@/lib/module-page-guard';
 import { RestoreRoom } from '@/components/restore/room';
 import { parseRestoreQuery } from '@/lib/restore/model';
 import { readRestoreRoom } from '@/lib/restore/read';
+import { restoreWritesParked } from '@/lib/restore/treasury';
 import '@/components/desk.css';
 
 /**
@@ -22,7 +23,7 @@ export default async function RestorePage({ searchParams }: { searchParams: Prom
       <p>
         <Link href="/ledger">Ledger ops</Link>
       </p>
-      <RestoreRoom room={room} runNo={runNo} userId={founder.session.userId} />
+      <RestoreRoom room={room} runNo={runNo} userId={founder.session.userId} writes={restoreWritesParked(founder)} />
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, journeyState } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -32,6 +32,19 @@ async function fill({ name, preset = 'Trade', ips = '', passkey = false }) {
   await page.getByLabel(preset, { exact: true }).check();
   await page.getByLabel('IP addresses (one per line, optional)').fill(ips);
   await page.getByRole('button', { name: passkey ? 'Create with a passkey' : 'Create key', exact: true }).click();
+}
+
+/** Identity restarted with the owner's key cap blank, or back on the stack's TEST cap (as J-identity-08 #5 does). */
+function identityKeyCap(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
+  else process.env.LOCAL_STACK_IDENTITY_KEY_CAP = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
+    else process.env.LOCAL_STACK_IDENTITY_KEY_CAP = before;
+  }
 }
 
 async function keysInList() {
@@ -146,8 +159,8 @@ test(`${J} #6 A second key named BOT-1 is refused: the name is taken`, async () 
   await expect(await keysInList()).toHaveCount(1);
 });
 
-test(`${J} #8 The fourth key is refused at the cap of three`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #8 The fourth key is refused at the cap of three, and every key while the cap is blank`, async () => {
+  test.setTimeout(300_000);
   for (const name of ['bot-2', 'bot-3']) {
     await openForm();
     await fill({ name, preset: 'Read only', passkey: true });
@@ -165,4 +178,27 @@ test(`${J} #8 The fourth key is refused at the cap of three`, async () => {
     'This account holds as many keys as it may. Revoke one to make another. Nothing was created.',
   );
   await expect(await keysInList()).toHaveCount(3);
+
+  // With the owner's cap blank, no key is made: the room says the cap is not set, and a create is refused with that
+  // cap's own sentence, never the cap-reached one, and nothing is written.
+  identityKeyCap(false);
+  try {
+    await expect(await keysInList()).toHaveCount(3);
+    await expect(page.getByText('The number of keys an account may hold is not set, so new keys are refused.')).toBeVisible();
+    await openForm();
+    const answered = page.waitForResponse((res) => res.url().includes('developerKeys.create'));
+    await fill({ name: 'bot-5', preset: 'Read only', passkey: true });
+    // Identity's own answer to the browser's create: the blank cap's code, not the cap-reached one.
+    const reply = await answered;
+    const text = await reply.text();
+    expect(reply.status(), text).toBe(412);
+    expect(text).toContain('identity.key_cap_unset');
+    expect(text).not.toContain('identity.key_cap_reached');
+    await expect(page.getByRole('alert')).toHaveText(
+      'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
+    );
+    await expect(await keysInList()).toHaveCount(3);
+  } finally {
+    identityKeyCap(true);
+  }
 });
