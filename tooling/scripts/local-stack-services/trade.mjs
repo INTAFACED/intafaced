@@ -7,6 +7,19 @@ function testValue(name) {
   return entry.value;
 }
 
+/**
+ * The TEST developer hosts. `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds a TEST regional host for every protocol,
+ * named from its production host under the reserved .test domain, so J-developer-01 #3 can see the redundant endpoint
+ * with its hosts set; the profile leaves regional out, so by default those rows read "host not set".
+ */
+function developerHosts() {
+  const hosts = JSON.parse(testValue('TRADE_DEVELOPER_HOSTS'));
+  if (process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'regional') {
+    for (const protocol of Object.keys(hosts)) hosts[protocol].regional = `regional.${hosts[protocol].production}`;
+  }
+  return JSON.stringify(hosts);
+}
+
 /** The TEST desk law, with its settle window, its minimum, its asset list or its level left out when the switch says so. */
 function otcDeskLaw() {
   const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
@@ -168,8 +181,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts, regional host rule and data terms
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`
     // or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves that setting blank, so its refusal can be
-    // seen too.
-    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: testValue('TRADE_DEVELOPER_HOSTS') }),
+    // seen too; `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds TEST regional hosts (developerHosts).
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: developerHosts() }),
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE === 'off'
       ? {}
       : { TRADE_DEVELOPER_REGIONAL_RULE: testValue('TRADE_DEVELOPER_REGIONAL_RULE') }),
