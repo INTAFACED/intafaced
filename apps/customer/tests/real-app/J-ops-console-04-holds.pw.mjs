@@ -155,16 +155,46 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
   await holds.getByLabel(/^Expires in hours/).fill('25');
   await expect(holds.getByTestId('hold-place-why')).toContainText('at most 24 hours');
 
-  // The stored expiry is moved to just past; svc-ops' worker checks it against its own clock and releases the rest.
-  tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
-  await expect.poll(async () => (await usdt(who)).free, { timeout: 60_000, message: 'the expiry worker released the 10' }).toBe('60');
-  // Worker ticks after the release keep the one stored release: no second number, no second post.
+  // The stored expiry is moved to just past while svc-ledger is down: svc-ops' worker checks it against its own clock, stores
+  // release 1 and cannot post it, so the release waits with its number. When the ledger is back the worker sends it again
+  // under that same number and key, and it posts once.
+  const releaseKey = `ops:hold-release:${holdNo}:1`;
+  tool('local-test-stack.mjs', 'stop', 'ledger');
+  let failure = null;
+  try {
+    tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
+    await expect
+      .poll(
+        async () => {
+          const movement = row(await openHolds(a, userId), holdNo)
+            .getByTestId('hold-movement')
+            .nth(1);
+          return (await movement.count()) ? movement.innerText() : '';
+        },
+        { timeout: 90_000, message: 'the expiry worker stored release 1 and could not post it while the ledger was down' },
+      )
+      .toMatch(
+        new RegExp(
+          `^Release 1: 10, the expiry, no approver, (waiting to be sent again|waiting for the ledger’s answer) · key ${releaseKey}$`,
+        ),
+      );
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    tool('local-test-stack.mjs', 'start', '--only', 'ledger');
+  } catch (restart) {
+    failure ??= restart;
+  }
+  if (failure) throw failure;
+  await expect.poll(async () => (await usdt(who)).free, { timeout: 120_000, message: 'the retried release posted the 10' }).toBe('60');
+  // The retry reused the stored release: still one release, number 1, its key, posted; worker ticks after it add nothing.
   await a.waitForTimeout(12_000);
   const listed = row(await openHolds(a, userId), holdNo);
   await expect(listed.getByTestId('hold-state')).toHaveText('Released when it expired');
   await expect(listed.getByTestId('hold-movement')).toHaveCount(2);
   await expect(listed.getByTestId('hold-movement').nth(1)).toContainText(
-    `Release 1: 10, the expiry, no approver, posted · key ops:hold-release:${holdNo}:1`,
+    `Release 1: 10, the expiry, no approver, posted · key ${releaseKey}`,
   );
   expect(await usdt(who)).toEqual({ free: '60', total: '100' });
 });
