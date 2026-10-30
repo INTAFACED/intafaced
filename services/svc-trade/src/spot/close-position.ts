@@ -1,7 +1,15 @@
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { formatAmount, LedgerError, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  classifyPostOutcome,
+  formatAmount,
+  LedgerError,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
@@ -16,6 +24,7 @@ import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
 import { privateWrite } from '../route-inventory.js';
 
 /**
@@ -236,6 +245,16 @@ export interface ClosePositionRestDeps {
   closeSpotPosition: (principal: Principal, input: CloseSpotPositionInput) => Promise<OrderRecord>;
 }
 
+/** A close one of whose settlement posts the ledger refused by name; the printed close waits for recovery. */
+export const CLOSE_SETTLEMENT_REFUSED = 'trade.close_settlement_refused';
+export const CLOSE_SETTLEMENT_PENDING_MESSAGE =
+  'The close reached the engine and its settlement is not confirmed: read the order before sending it again';
+export const CLOSE_SETTLEMENT_REFUSED_MESSAGE =
+  'The close reached the engine and the ledger refused a posting of its settlement; it is held for recovery: read the order before sending it again';
+/** Any other failure: nobody knows how far the close got. */
+export const CLOSE_OUTCOME_UNKNOWN_MESSAGE =
+  'The close did not finish and its outcome is not known: read the order before sending it again';
+
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
   return reply.code(status).send({ error: code, message });
 }
@@ -283,7 +302,24 @@ export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRes
         const status = error.code === 'trade.position_flat' ? 409 : error.code === 'trade.market_not_found' ? 404 : 400;
         return sendError(reply, status, error.code, error.message);
       }
-      throw error;
+      if (error instanceof LedgerError) {
+        // Every ledger post on a close comes after the engine printed the flatten, and the row is kept
+        // recovery_required (closeSpotPosition): the close exists either way. The body is typed by what the ledger
+        // said, in fixed words: the ledger's own message (a freeze's operator reason, an account id) is never sent.
+        //   - the posting freeze, or an outcome nobody knows (a timeout, a dropped reply, a refusal raised before the
+        //     key lookup such as `ledger.unauthenticated`): its settlement is pending.
+        //   - a refusal the ledger names by its engine (`classifyPostOutcome` 'refused') or a post that never left: a
+        //     posting was refused; earlier posts of the same close may have booked. Held for recovery, its own code.
+        const outcome = classifyPostOutcome(error);
+        if (error.code === 'ledger.frozen' || outcome === 'unknown') {
+          return sendError(reply, 503, SETTLEMENT_PENDING, CLOSE_SETTLEMENT_PENDING_MESSAGE);
+        }
+        return sendError(reply, 500, CLOSE_SETTLEMENT_REFUSED, CLOSE_SETTLEMENT_REFUSED_MESSAGE);
+      }
+      // Anything else (a ledger reply without a code, a transport deadline, a store error): the outcome is unknown, and
+      // its message, which can carry the ledger's raw reply, is never sent.
+      req.log.error({ err: error }, 'close-position failed with an untyped error');
+      return sendError(reply, 503, SETTLEMENT_PENDING, CLOSE_OUTCOME_UNKNOWN_MESSAGE);
     }
   });
 }

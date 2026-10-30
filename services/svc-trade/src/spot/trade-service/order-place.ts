@@ -28,6 +28,7 @@ import {
 import { slippageToleranceFor } from '../slippage-tolerance.js';
 import { assertOperatorRiskOnPlace } from '../../admin/risk.js';
 import { classifyHoldPostError } from '../hold-outcome.js';
+import { refusedBeforeEngine } from '../../ledger-public-code.js';
 import { BUYBACK_INVALID, isBuybackUser } from '../buyback-order.js';
 import { assertSubAccountOwned } from '../sub-account-ownership.js';
 import { assertEmailProved } from '../email-proof.js';
@@ -533,8 +534,11 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     if (outcome === 'refused' || outcome === 'unsent') {
       // The ledger named a refusal, or the socket never connected. The post
       // did not commit. Guarded on pending so a concurrent open is left alone.
-      await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      throw err;
+      const removed = await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending' RETURNING id`;
+      // Before the engine, with this call's delete proving the row gone and nothing held: the one place a posting
+      // freeze is published as the refusal `posting_frozen`. A row a concurrent request already moved may have reached
+      // the engine, so its freeze stays unmarked (`trade.settlement_pending`).
+      throw removed.length === 1 ? refusedBeforeEngine(err) : err;
     }
     // UNKNOWN. A timeout can land after the hold is booked. Keep the row
     // and read `order.hold:<orderId>`. The row was just stamped, so an

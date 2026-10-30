@@ -550,6 +550,11 @@ export type BankErrorCode =
    */
   | 'bank.interest_accrual_disabled'
   /**
+   * `ops.accrueInterest` was asked to pay a UTC day whose 00:00Z is still in
+   * the future. Only a day that has begun is paid.
+   */
+  | 'bank.accrual_day_not_begun'
+  /**
    * Loan interest capitalisation kill switch (`LOAN_ACCRUAL_ENABLED=false`).
    * Same parity rule as transfers / earn.
    */

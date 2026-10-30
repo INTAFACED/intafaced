@@ -1,9 +1,11 @@
 import 'server-only';
+import { payCustodyOpenItemsReplySchema } from '@intafaced/contracts/pay-custody-deposit';
 import { custodyApproverViewSchema, custodyTaskDetailSchema, custodyTaskViewSchema } from '@intafaced/contracts/custody-approval-tasks';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
 import { PENDING_WINDOW, RECENT_WINDOW, type CustodyOpsRead } from './server-types';
 import type { CustodyTask, CustodyTaskDetail, Decision } from './model';
+import { OPEN_ITEMS_WINDOW } from './open-items';
 
 /**
  * Custody approval tasks, read and decided as the signed-in founder. `founderAdmin.custody.*` is behind svc-pay's own founder
@@ -35,18 +37,27 @@ const list =
   };
 
 export async function loadCustodyOps(ctx: FounderCallContext, now: Date = new Date()): Promise<CustodyOpsRead> {
-  const [pending, recent, approvers] = await Promise.all([
+  const [pending, recent, approvers, openItems] = await Promise.all([
     founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.pending', 'GET', { limit: PENDING_WINDOW }, list(custodyTaskViewSchema)),
     founderCall(ctx, 'pay', 'founderAdmin.custody.tasks.list', 'GET', { limit: RECENT_WINDOW }, list(custodyTaskViewSchema)),
     founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.list', 'GET', {}, list(custodyApproverViewSchema), {
       sendEmptyInput: true,
     }),
+    founderCall(
+      ctx,
+      'pay',
+      'founderAdmin.depositOpenItems.list',
+      'GET',
+      { limit: OPEN_ITEMS_WINDOW },
+      parseWith(payCustodyOpenItemsReplySchema),
+    ),
   ]);
   return {
     asOf: now.toISOString(),
     pending: part(pending, (d) => d),
     recent: part(recent, (d) => d),
     approvers: part(approvers, (d) => d),
+    openItems: part(openItems, (d) => d),
   };
 }
 
