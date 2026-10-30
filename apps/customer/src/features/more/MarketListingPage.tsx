@@ -28,7 +28,14 @@ const listingDetailSchema = z.object({
   }),
   performance: z.object({ reported: z.literal(false) }),
 });
-const reviewRowSchema = z.object({ id: uuid, listingId: uuid, vendorId: uuid, score: z.number().int(), text: z.string().nullable(), createdAt: time });
+const reviewRowSchema = z.object({
+  id: uuid,
+  listingId: uuid,
+  vendorId: uuid,
+  score: z.number().int(),
+  text: z.string().nullable(),
+  createdAt: time,
+});
 const reviewListSchema = z.object({ reviews: z.array(reviewRowSchema), nextCursor: z.string().nullable() });
 const myPurchaseSchema = z.object({ id: uuid, listingId: uuid, buyerId: uuid, status: z.string(), createdAt: time });
 const reviewOutSchema = z.object({ id: uuid, purchaseId: uuid, listingId: uuid, score: z.number().int(), text: z.string().nullable() });
@@ -48,7 +55,10 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
       {t('backToMarket')}
     </a>
   );
-  if (detail.resource.status === 'failed' && (detail.resource.failure.code === 'market.listing_not_found' || !uuid.safeParse(listingId).success))
+  if (
+    detail.resource.status === 'failed' &&
+    (detail.resource.failure.code === 'market.listing_not_found' || !uuid.safeParse(listingId).success)
+  )
     return (
       <Panel title={t('notFound')}>
         <EmptyState title={t('notFound')} action={back}>
@@ -162,7 +172,10 @@ function ReviewList({ listingId }: { listingId: string }) {
   );
 }
 
-type Outcome = { kind: 'posted' } | { kind: 'refused'; text: string; code: string } | { kind: 'failed'; result: Extract<ApiResult<unknown>, { ok: false }> };
+type Outcome =
+  | { kind: 'posted' }
+  | { kind: 'refused'; text: string; code: string }
+  | { kind: 'failed'; result: Extract<ApiResult<unknown>, { ok: false }> };
 
 function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () => void }) {
   const api = useApi();

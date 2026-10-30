@@ -23,10 +23,17 @@ const page = (path: string) =>
 
 describe('More room sections and records (MC-order-01)', () => {
   it('shows a record with no data source as such, titled, with a way back to its room', () => {
-    const html = page('/market/listing-9');
-    expect(html).toContain('Market listing');
+    const html = page('/mining/workers/worker-9');
     expect(html).toContain('No details are shown for this record');
+    expect(html).toContain('href="/mining"');
+  });
+
+  it('opens a Market listing by id on its own page, with a way back to the Market (MC-market-01)', () => {
+    const html = page('/market/11111111-1111-4111-8111-111111111111');
+    expect(html).toContain('Market listing');
+    expect(html).not.toContain('No details are shown for this record');
     expect(html).toContain('href="/market"');
+    expect(html).toContain('Back to the Market');
   });
 
   it('refuses a malformed id without looking anything up', () => {

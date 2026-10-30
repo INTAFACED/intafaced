@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, fund, journeyState, ORIGIN, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { testStrategyListing } from './market-listing.mjs';
@@ -12,9 +12,7 @@ import { testStrategyListing } from './market-listing.mjs';
 // purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: /market has no listing-type switch and no four entry points to the copy, bot and signal rooms (MC-market-01).
 // - #3: no listings of other kinds and no placement label (RC-more-catalogue-18 to -20).
-// - #7: no reviews (MC-market-01).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -46,6 +44,24 @@ async function openListing(page) {
   return page.getByRole('dialog');
 }
 
+/** A tRPC read of svc-market as `who` (or signed out with no `who`): { status, body }. */
+async function marketRead(who, procedure, input) {
+  const route = `/api/market/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`;
+  if (who) return (await api(who)).get(route);
+  const res = await fetch(`${ORIGIN}${route}`);
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+/** The public listing read (`market.listing`) of this run's listing, as svc-market answers it. */
+async function listingRead(who) {
+  const res = await marketRead(who, 'listing', { listingId: run.read().listingId });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** The typed code of a refused tRPC call, as svc-market sends it. */
+const codeOf = (reply) => reply.body?.error?.message ?? reply.body?.error?.json?.message;
+
 test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller's TEST strategy listing`, async ({ page }) => {
   test.setTimeout(240_000);
   const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
@@ -60,29 +76,125 @@ test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST s
 test(`${J} #1 opens /market: listings with terms, a listing-type switch and four entry points to their own rooms, ordered by registration, price or title, never by returns`, async ({
   page,
 }) => {
+  const { title, listingId } = run.read();
   await openMarket(page);
+  const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
+  const mine = catalogue.find((row) => row.id === listingId);
+  expect(mine, 'the run listing is in the public catalogue').toBeDefined();
+  const cards = page
+    .getByRole('main')
+    .getByRole('article')
+    .filter({ has: page.getByRole('button', { name: /^View / }) });
+
+  // Listings with their terms: the run's card shows its price and asset as the service stores them.
+  const card = cards.filter({ hasText: title });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText(`${Number(mine.price).toLocaleString('en-US')}`);
+  await expect(card).toContainText(mine.assetId);
+  await expect(cards).toHaveCount(catalogue.length);
+
+  // The listing-type switch: each choice shows exactly the service's listings of that type.
   const types = page.getByRole('radiogroup', { name: 'Listing type' });
-  await expect(types.getByRole('radio', { name: 'Access listing' })).toBeVisible(UNBUILT);
-  await expect(types.getByRole('radio', { name: 'Strategy subscription' })).toBeVisible();
-  const doors = page.getByRole('navigation', { name: 'More in the Market' });
-  for (const door of ['Spot copy trading', 'Futures copy trading', 'Bot marketplace', 'Signal marketplace']) {
-    await expect(doors.getByRole('link', { name: new RegExp(door) })).toBeVisible();
+  await expect(types.getByRole('radio')).toHaveCount(3);
+  for (const [name, offerType] of [
+    ['Strategy subscription', 'subscription'],
+    ['Access listing', 'one_time'],
+  ]) {
+    await types.getByRole('radio', { name }).check();
+    const expected = catalogue.filter((row) => row.offerType === offerType).map((row) => row.title);
+    await expect(cards).toHaveCount(expected.length);
+    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual([...expected].sort());
+    await expect(card).toHaveCount(offerType === mine.offerType ? 1 : 0);
   }
+  await types.getByRole('radio', { name: 'All listings' }).check();
+  await expect(cards).toHaveCount(catalogue.length);
+
+  // Ordered by registration, price or title, and never by returns.
   const sort = page.getByRole('combobox', { name: 'Sort by' });
-  const options = await sort.getByRole('option').allInnerTexts();
-  expect(options).toEqual(expect.arrayContaining(['Newest', 'Price', 'Title']));
-  expect(options.join(' ')).not.toMatch(/return|profit|performance/i);
+  expect(await sort.getByRole('option').allInnerTexts()).toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
+  expect((await sort.getByRole('option').allInnerTexts()).join(' ')).not.toMatch(/return|profit|performance|rank/i);
+  await sort.selectOption({ label: 'Title' });
+  const titles = await cards.getByRole('heading', { level: 3 }).allInnerTexts();
+  expect(titles).toEqual([...catalogue.map((row) => row.title)].sort((a, b) => a.localeCompare(b)));
+  await sort.selectOption({ label: 'Price, low to high' });
+  const byPrice = [...catalogue].sort((a, b) =>
+    toUnits(a.price) < toUnits(b.price) ? -1 : toUnits(a.price) > toUnits(b.price) ? 1 : a.title.localeCompare(b.title),
+  );
+  expect(await cards.getByRole('heading', { level: 3 }).allInnerTexts()).toEqual(byPrice.map((row) => row.title));
+
+  // An empty state when nothing matches.
+  await page.getByRole('textbox', { name: 'Search listings' }).fill(`no listing is called this ${Date.now()}`);
+  await expect(cards).toHaveCount(0);
+  await expect(page.getByRole('main').getByText('No loaded listing matches these filters.')).toBeVisible();
+
+  // Four entry points, each opening its own section of the copy room that runs it.
+  const doors = page.getByRole('navigation', { name: 'More in the Market' });
+  await expect(doors.getByRole('link')).toHaveCount(4);
+  for (const [name, tab, href] of [
+    ['Spot copy trading', 'Spot', '/trade/copy?tab=spot'],
+    ['Futures copy trading', 'Futures', '/trade/copy?tab=futures'],
+    ['Bot marketplace', 'Bots', '/trade/copy?tab=bots'],
+    ['Signal marketplace', 'Signal', '/trade/copy?tab=signal'],
+  ]) {
+    await page.goto('/market');
+    const door = page.getByRole('navigation', { name: 'More in the Market' }).getByRole('link', { name });
+    await expect(door).toHaveAttribute('href', href);
+    await door.click();
+    await expect(page).toHaveURL((url) => url.pathname + url.search === href);
+    await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('main')).not.toContainText('No customer route');
+  }
 });
 
 test(`${J} #2 opens a listing by id: the seller profile, review summary and performance with its stated basis; an unknown id is a typed not-found`, async ({
   page,
 }) => {
-  const listing = await openListing(page);
-  await expect(listing.getByRole('region', { name: 'Seller' })).toBeVisible();
-  await expect(listing.getByRole('region', { name: 'Reviews' })).toBeVisible();
-  await expect(listing.getByRole('region', { name: 'Performance' })).toContainText(/Basis:/);
-  await page.goto('/market/listing/00000000-0000-4000-8000-000000000000');
-  await expect(page.getByRole('main')).toContainText('No listing has this id.');
+  const { title, listingId, seller } = run.read();
+  // The public read names the seller by their vendor profile, never by their user id.
+  const signedOut = await marketRead(null, 'listing', { listingId });
+  expect(signedOut.status, JSON.stringify(signedOut.body).slice(0, 300)).toBe(200);
+  const read = signedOut.body.result.data;
+  const vendor = (await marketRead(seller, 'mine', {})).body.result.data;
+  expect(vendor.id).toBe(read.vendor.id);
+  expect(JSON.stringify(read)).not.toContain(vendor.userId);
+
+  // From the catalogue: the listing's dialog links to its own page.
+  const dialog = await openListing(page);
+  await dialog.getByRole('link', { name: 'Open the listing page' }).click();
+  await expect(page).toHaveURL((url) => url.pathname === `/market/${listingId}`);
+  const main = page.getByRole('main');
+  await expect(main.getByText(title, { exact: true }).first()).toBeVisible();
+
+  const terms = main.getByRole('region', { name: 'Terms' });
+  await expect(terms).toContainText('Strategy subscription');
+  await expect(terms).toContainText(`${read.terms.price} ${read.terms.assetId}`);
+  await expect(terms).toContainText(`${read.terms.periodSeconds} seconds`);
+
+  const sellerPart = main.getByRole('region', { name: 'Seller' });
+  await expect(sellerPart).toContainText(read.vendor.displayName);
+  await expect(sellerPart).toContainText(read.vendor.description);
+  await expect(sellerPart).toContainText(`Active listings: ${read.activeListingCount}`);
+
+  const reviews = main.getByRole('region', { name: 'Reviews' });
+  if (read.reviews.count === '0') await expect(reviews.getByRole('status')).toHaveText('No reviews yet.');
+  else await expect(reviews.getByTestId('market-review-summary')).toContainText(`${read.reviews.count} reviews`);
+
+  // Performance with its stated basis: the service reports none, so no figure is drawn.
+  expect(read.performance).toEqual({ reported: false });
+  const performance = main.getByRole('region', { name: 'Performance' });
+  await expect(performance).toContainText('No performance reported.');
+  await expect(performance).toContainText(/Basis:/);
+  await expect(performance).not.toContainText(/%|\d+\.\d+/);
+
+  // An unknown id: the service's typed not-found, and the page says so, never a blank page.
+  const unknown = '00000000-0000-4000-8000-000000000000';
+  const missing = await marketRead(null, 'listing', { listingId: unknown });
+  expect(missing.status).toBe(404);
+  expect(codeOf(missing)).toBe('market.listing_not_found');
+  await page.goto(`/market/${unknown}`);
+  await expect(main).toContainText('No listing has this id.');
+  await expect(main.locator('code', { hasText: 'market.listing_not_found' })).toBeVisible();
+  await expect(main.getByRole('link', { name: 'Back to the Market' })).toHaveAttribute('href', '/market');
 });
 
 test(`${J} #3 browses vendor listings of other kinds (signals, data, indicators) and sees premium placement: the category taxonomy and lifecycle for every kind, and placement labelled`, async ({
@@ -407,15 +519,88 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
 
 test(`${J} #7 writes a review after a settled purchase: one review stored, a second refused as already reviewed, and a visitor with no purchase refused`, async ({
   page,
+  browser,
 }) => {
-  const listing = await openListing(page);
-  await listing.getByRole('button', { name: 'Write a review' }).click(UNBUILT);
+  test.setTimeout(180_000);
+  const { who, listingId, releasedId } = run.read();
+  expect(releasedId, 'the purchase #6 let its window end on').toBeTruthy();
+  const released = (await purchasesOf(who)).find((row) => row.id === releasedId);
+  expect(released?.status).toBe('released');
+  const reviewsOf = async () => {
+    const res = await marketRead(who, 'reviews.list', { listingId, limit: 50 });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data.reviews;
+  };
+  const before = await listingRead(who);
+  const listedBefore = await reviewsOf();
+
+  // A visitor with no purchase is refused, in the room and by the service.
+  const visitorContext = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const visitorPage = await visitorContext.newPage();
+    await signUp(visitorPage, 'mkv');
+    await visitorPage.goto(`/market/${listingId}`);
+    const visitorReviews = visitorPage.getByRole('main').getByRole('region', { name: 'Reviews' });
+    await visitorReviews.getByRole('button', { name: 'Write a review' }).click();
+    await expect(visitorReviews.getByRole('alert')).toContainText(
+      'Only a buyer whose purchase of this listing has been paid to the seller can review it.',
+    );
+    await expect(visitorReviews.locator('[data-code="market.review_not_settled"]')).toHaveCount(1);
+    await expect(visitorPage.getByRole('form', { name: 'Your review' })).toHaveCount(0);
+  } finally {
+    await visitorContext.close();
+  }
+  // The buyer's refunded purchase (#6) is not settled either: the service refuses it by name.
+  const refunded = (await purchasesOf(who)).find((row) => row.status === 'refunded');
+  expect(refunded, 'the purchase #6 refunded').toBeDefined();
+  const notSettled = await (
+    await api(who)
+  ).post('/api/market/trpc/reviews.submit', {
+    purchaseId: refunded.id,
+    score: 3,
+    text: 'TEST review of a refunded purchase',
+    clientRequestId: `${J}:${refunded.id}:refunded`,
+  });
+  expect([notSettled.status, codeOf(notSettled)]).toEqual([412, 'market.review_not_settled']);
+
+  // The buyer of the released purchase writes one review: stored once, read back from the service.
+  const text = `TEST review ${Date.now().toString(36)}`;
+  await signIn(page, who);
+  await page.goto(`/market/${listingId}`);
+  const reviews = page.getByRole('main').getByRole('region', { name: 'Reviews' });
+  await reviews.getByRole('button', { name: 'Write a review' }).click();
   const form = page.getByRole('form', { name: 'Your review' });
-  await form.getByRole('textbox', { name: 'Review' }).fill('TEST review');
+  await form.getByRole('combobox', { name: 'Score' }).selectOption({ label: '4 of 5' });
+  await form.getByRole('textbox', { name: 'Review' }).fill(text);
   await form.getByRole('button', { name: 'Post review' }).click();
-  await expect(page.getByRole('status')).toContainText('Review posted');
-  await listing.getByRole('button', { name: 'Write a review' }).click();
-  await expect(page.getByRole('alert')).toContainText('You have already reviewed this listing.');
+  await expect(reviews.getByRole('status').filter({ hasText: 'Review posted.' })).toBeVisible();
+  const listedAfter = await reviewsOf();
+  expect(listedAfter).toHaveLength(listedBefore.length + 1);
+  const stored = listedAfter.filter((row) => row.text === text);
+  expect(stored).toEqual([expect.objectContaining({ score: 4, listingId })]);
+  const after = await listingRead(who);
+  expect(BigInt(after.reviews.count)).toBe(BigInt(before.reviews.count) + 1n);
+  await expect(reviews.getByTestId('market-review-summary')).toContainText(`${after.reviews.count} reviews`);
+  await expect(reviews.locator(`[data-review="${stored[0].id}"]`)).toContainText(text);
+
+  // A second review of the same purchase is refused as already reviewed, and nothing more is stored.
+  await reviews.getByRole('button', { name: 'Write a review' }).click();
+  await form.getByRole('combobox', { name: 'Score' }).selectOption({ label: '2 of 5' });
+  await form.getByRole('textbox', { name: 'Review' }).fill(`${text}, again`);
+  await form.getByRole('button', { name: 'Post review' }).click();
+  await expect(reviews.getByRole('alert')).toContainText('You have already reviewed this listing.');
+  await expect(reviews.locator('[data-code="market.review_exists"]')).toHaveCount(1);
+  const again = await (
+    await api(who)
+  ).post('/api/market/trpc/reviews.submit', {
+    purchaseId: releasedId,
+    score: 1,
+    text: 'TEST review, a third try',
+    clientRequestId: `${J}:${releasedId}:third`,
+  });
+  expect([again.status, codeOf(again)]).toEqual([409, 'market.review_exists']);
+  expect(await reviewsOf()).toHaveLength(listedBefore.length + 1);
+  expect((await listingRead(who)).reviews.count).toBe(after.reviews.count);
 });
 
 test(`${J} #8 opens /market/purchases: price, window and status for each; a pending settlement is not shown as a receipt`, async ({
