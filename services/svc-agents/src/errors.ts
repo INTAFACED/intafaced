@@ -45,7 +45,9 @@ export type AgentErrorCode =
   /** A run of the person's own agent would pass one of the caps they set for it (per call, session or month). */
   | 'agents.spend.cap_exceeded'
   /** The person's own agent has no caps stored: nothing of it runs until they are set. */
-  | 'agents.spend.cap_unset';
+  | 'agents.spend.cap_unset'
+  /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
+  | 'agents.window_unpaid';
 
 export class AgentError extends Error {
   constructor(
@@ -89,6 +91,7 @@ export const AGENT_ERROR_CODES: readonly AgentErrorCode[] = [
   'agents.session_closed',
   'agents.agent_not_found',
   'agents.window_sealed',
+  'agents.window_unpaid',
   'agents.window_not_found',
   'agents.invalid_usage',
   'agents.request_id_replay',

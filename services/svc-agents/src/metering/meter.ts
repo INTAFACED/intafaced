@@ -93,6 +93,18 @@ export interface SettlementResult {
   readonly settled: boolean;
 }
 
+/** One usage window as a person's Usage page shows it. */
+export interface UsageWindowView {
+  readonly sessionId: string;
+  readonly windowId: string;
+  readonly state: 'open' | 'unpaid' | 'settled';
+  /** Null while the window is open: its amount is fixed only when it seals. */
+  readonly amount: Amount | null;
+  readonly assetId: string;
+  readonly chargeKey: string | null;
+  readonly openedAt: Date;
+}
+
 interface WindowRow {
   session_id: string;
   window_id: string;
@@ -393,10 +405,13 @@ export class UsageMeter {
     await this.notifyAgentsAffiliatePayout(chargeKey, input.userId, sealed.amount);
 
     // ── Step 3 · record the ledger id ───────────────────────────────────────
-    await this.sql`
+    // Two settles of one unpaid window at once (a run's retry beside a close or the sweep) both post, and the ledger
+    // key keeps that one charge; only the call that records its id reports a settlement, so it is logged once.
+    const recorded = await this.sql`
       UPDATE agents.usage_windows
          SET charge_tx_id = ${ledgerTx.id}
        WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId} AND charge_tx_id IS NULL
+      RETURNING window_id
     `;
 
     return {
@@ -405,7 +420,7 @@ export class UsageMeter {
       chargeKey,
       amount: sealed.amount,
       chargeTxId: ledgerTx.id,
-      settled: true,
+      settled: recorded.length > 0,
     };
   }
 
@@ -435,6 +450,62 @@ export class UsageMeter {
     );
   }
 
+  /** Whether this window of the session is sealed: it then refuses any further usage. */
+  /** A person's sealed windows the ledger has not paid, across their sessions, smallest first. */
+  async unpaidWindows(userId: string): Promise<Array<{ sessionId: string; windowId: string; amount: Amount }>> {
+    const rows = await this.sql<Array<{ session_id: string; window_id: string; charged_amount: string }>>`
+      SELECT w.session_id::text, w.window_id, w.charged_amount::text
+        FROM agents.usage_windows w
+        JOIN agents.agent_sessions s ON s.id = w.session_id
+       WHERE s.user_id = ${userId} AND ${unpaidWindow(this.sql)}
+       ORDER BY w.charged_amount, w.sealed_at, w.window_id
+    `;
+    return rows.map((r) => ({ sessionId: r.session_id, windowId: r.window_id, amount: parseAmount(r.charged_amount) }));
+  }
+
+  /**
+   * The usage windows of one agent's sessions of a person's, newest first: open, unpaid (sealed, and retried on its
+   * charge key before each run) or settled. A sealed window carries the amount and asset it was sealed at.
+   */
+  async windowsOf(userId: string, agentId: string, limit: number): Promise<UsageWindowView[]> {
+    const rows = await this.sql<
+      Array<{
+        session_id: string;
+        window_id: string;
+        sealed: boolean;
+        unpaid: boolean;
+        charged_amount: string | null;
+        charged_asset: string | null;
+        charge_key: string | null;
+        opened_at: Date;
+      }>
+    >`
+      SELECT w.session_id::text, w.window_id, w.sealed_at IS NOT NULL AS sealed, ${unpaidWindow(this.sql)} AS unpaid,
+             w.charged_amount::text, w.charged_asset, w.charge_key, w.opened_at
+        FROM agents.usage_windows w
+        JOIN agents.agent_sessions s ON s.id = w.session_id
+       WHERE s.user_id = ${userId} AND s.agent_id = ${agentId}
+       ORDER BY w.opened_at DESC, w.window_id DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      windowId: r.window_id,
+      state: !r.sealed ? 'open' : r.unpaid ? 'unpaid' : 'settled',
+      amount: r.sealed && r.charged_amount !== null ? parseAmount(r.charged_amount) : null,
+      assetId: r.charged_asset ?? this.assetId,
+      chargeKey: r.charge_key,
+      openedAt: r.opened_at,
+    }));
+  }
+
+  async isSealed(sessionId: string, windowId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ sealed: boolean }>>`
+      SELECT sealed_at IS NOT NULL AS sealed FROM agents.usage_windows WHERE session_id = ${sessionId} AND window_id = ${windowId}
+    `;
+    return rows[0]?.sealed ?? false;
+  }
+
   /**
    * Every window of a session that still needs settle work.
    *
@@ -450,16 +521,21 @@ export class UsageMeter {
    */
   async openWindows(sessionId: string): Promise<string[]> {
     const rows = await this.sql<Array<{ window_id: string }>>`
-      SELECT window_id FROM agents.usage_windows
-       WHERE session_id = ${sessionId}
-         AND (
-           sealed_at IS NULL
-           OR (charge_tx_id IS NULL AND charged_amount IS NOT NULL AND charged_amount > 0)
-         )
-       ORDER BY window_id ASC
+      SELECT w.window_id FROM agents.usage_windows w
+       WHERE w.session_id = ${sessionId}
+         AND (w.sealed_at IS NULL OR ${unpaidWindow(this.sql)})
+       ORDER BY w.window_id ASC
     `;
     return rows.map((r) => r.window_id);
   }
+}
+
+/**
+ * A window that is sealed but unpaid: its amount is fixed and the ledger has not taken it (a zero window is closed at
+ * seal with no charge). The one definition the retry, the Usage page and session settlement share.
+ */
+function unpaidWindow(sql: Sql) {
+  return sql`(w.sealed_at IS NOT NULL AND w.charge_tx_id IS NULL AND w.charged_amount > 0)`;
 }
 
 function isRestrictViolation(err: unknown): boolean {

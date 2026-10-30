@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { gridRouter } from './grid/router.js';
+import type { GridService } from './grid/grid-service.js';
 import {
   JurisdictionError,
   mergeRouters,
@@ -827,6 +829,7 @@ export function createTradeRouter(
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
+  grid?: GridService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -855,6 +858,8 @@ export function createTradeRouter(
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
+    bots: router({ grid: gridRouter(grid) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

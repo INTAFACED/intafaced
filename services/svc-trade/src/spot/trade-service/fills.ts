@@ -25,7 +25,8 @@ import {
   withLedgerAttribution,
   type AuthAttribution,
 } from '../auth-attribution.js';
-import { TradeError, type Market } from '../types.js';
+import { TradeError, type Market, type OrderRecord } from '../types.js';
+import { BUYBACK_HOUSE_MAKER, BUYBACK_INVALID, buybackAttribution, isBuybackUser } from '../buyback-order.js';
 import type { TradeServiceInternal } from '../trade-service.js';
 
 /** `TradeService` as the functions here that publish see it: they publish on its `@intafaced/events` bus. */
@@ -463,6 +464,13 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       `fill ${fill.sequence} references an order this service does not know (${fill.makerOrderId} / ${fill.takerOrderId})`,
       'trade.order_not_found',
     );
+  }
+  // ── Token buyback taker path (J-dex-protocol-17) ────────────────────────
+  // Routed by the order row's identity, before the house MM path: a buyback that crossed a house MM ask must be
+  // refused, never settled as a customer taker against the MM pots.
+  if (isBuybackUser(taker.userId) || (maker != null && isBuybackUser(maker.userId))) {
+    await settleBuybackFill(svc, market, fill, { qty, price, quoteAmount, taker, maker, makerIsHouseMm });
+    return;
   }
   if (!maker && !makerIsHouseMm) {
     throw new TradeError(
@@ -1012,4 +1020,206 @@ export async function notifyAffiliatePayout(
   },
 ): Promise<void> {
   await fireAffiliatePayout(svc.affiliatePayout, affiliateLegsAfterFill({ ...input, houseMmUserId: HOUSE_MM_USER_UUID }));
+}
+
+/**
+ * One fill of the token buyback's IOC buy against a resting customer ask (`buyback-order.ts`).
+ *
+ * Refused before any row or post: a house market-maker maker (house against house is wash volume), a buyback order on
+ * the maker side (an IOC never rests), and a buyback that sells. The customer maker is charged its own maker rate at
+ * its own tier, in what it receives or in the token as it chose; the house takes no taker fee from itself and the
+ * fill carries no maker rebate (a rebate is paid out of a taker fee, and this taker pays none).
+ *
+ * Same ordering as the classic path: both fill rows, then `buybackTakerFill`, keyed on the engine's (market, sequence).
+ */
+export async function settleBuybackFill(
+  svc: PublishingService,
+  market: Market,
+  fill: EngineFill,
+  parts: {
+    qty: Amount;
+    price: Amount;
+    quoteAmount: Amount;
+    taker: OrderRecord;
+    maker: OrderRecord | null;
+    makerIsHouseMm: boolean;
+  },
+): Promise<void> {
+  const { qty, price, quoteAmount, taker, maker } = parts;
+  if (parts.makerIsHouseMm || maker?.userId === HOUSE_MM_USER_UUID || (maker != null && isBuybackUser(maker.userId))) {
+    throw new TradeError(
+      `fill ${fill.sequence} on ${market.symbol} matches the token buyback against a house order; house against house is refused before any row or post`,
+      BUYBACK_HOUSE_MAKER,
+    );
+  }
+  if (!isBuybackUser(taker.userId) || fill.takerSide !== 'buy' || taker.side !== 'buy') {
+    throw new TradeError(`fill ${fill.sequence} on ${market.symbol}: the token buyback only ever takes a buy`, BUYBACK_INVALID);
+  }
+  if (!maker) {
+    throw new TradeError(
+      `fill ${fill.sequence} references an order this service does not know (${fill.makerOrderId} / ${fill.takerOrderId})`,
+      'trade.order_not_found',
+    );
+  }
+
+  const placed = await svc.ratesForFill(
+    maker.feeDiscountBps,
+    0,
+    market.kind,
+    market.symbol,
+    { maker: maker.createdAt, taker: maker.createdAt },
+    { maker: maker.feeTier, taker: REGULAR_FEE_TIER },
+  );
+  const rates = { makerFeeBps: placed.makerFeeBps, takerFeeBps: 0 };
+  svc.assertFillFeesPostable(fill.sequence, market.symbol, 'buy', qty, quoteAmount, rates);
+  const makerFee = mulBps(quoteAmount, rates.makerFeeBps);
+
+  const makerAttribution = attributionFromOrder(maker);
+  const houseAttribution = buybackAttribution();
+  const makerRow = (ifc: IfcLegDecision) => ({
+    id: fillLegIdFor(market.id, fill.sequence, 'maker'),
+    orderId: maker.id,
+    counterOrderId: taker.id,
+    marketId: market.id,
+    symbol: market.symbol,
+    userId: maker.userId,
+    side: 'sell' as const,
+    role: 'maker' as const,
+    price,
+    qty,
+    quoteAmount,
+    feeAsset: ifc.charged?.tokenAsset ?? market.quoteAsset,
+    feeAmount: ifc.charged?.net ?? makerFee,
+    feeBps: rates.makerFeeBps,
+    feeFallback: ifc.fallback,
+    rebate: null,
+    sequence: fill.sequence,
+    attribution: makerAttribution,
+  });
+
+  // A maker paying its fee in the token is charged it before its row (fee-ifc.ts); the fill then takes no maker fee.
+  let makerWritten = false;
+  const makerIfc = await settleIfcLeg(
+    ifcDeps(svc, makerAttribution),
+    {
+      legId: fillLegIdFor(market.id, fill.sequence, 'maker'),
+      marketId: market.id,
+      sequence: fill.sequence,
+      role: 'maker',
+      order: maker,
+      feeAsset: market.quoteAsset,
+      fee: makerFee,
+      rebateFill: false,
+    },
+    async (ifc, sql) => {
+      await insertFillLeg({ sql }, makerRow(ifc));
+      makerWritten = true;
+    },
+  );
+  if (!makerWritten) await svc.insertFillLeg(makerRow(makerIfc));
+  await svc.insertFillLeg({
+    id: fillLegIdFor(market.id, fill.sequence, 'taker'),
+    orderId: taker.id,
+    counterOrderId: maker.id,
+    marketId: market.id,
+    symbol: market.symbol,
+    userId: taker.userId,
+    side: 'buy',
+    role: 'taker',
+    price,
+    qty,
+    quoteAmount,
+    feeAsset: market.baseAsset,
+    feeAmount: 0n,
+    feeBps: 0,
+    sequence: fill.sequence,
+    attribution: houseAttribution,
+  });
+
+  for (const [order, role] of [
+    [maker, 'maker'],
+    [taker, 'taker'],
+  ] as const) {
+    await svc.refreshFilledQty(order.id);
+    await svc.notePartialIfOpen(order.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:${role}`);
+  }
+
+  await svc.ledger.post(
+    withFillLedgerAttribution(
+      recipes.buybackTakerFill({
+        fillId: fillIdFor(market.id, fill.sequence),
+        makerId: maker.userId,
+        makerOrderId: maker.id,
+        takerOrderId: taker.id,
+        baseAsset: market.baseAsset,
+        quoteAsset: market.quoteAsset,
+        qty,
+        quoteAmount,
+        makerFeeBps: makerIfc.charged ? 0 : rates.makerFeeBps,
+      }),
+      makerAttribution,
+      houseAttribution,
+    ),
+  );
+
+  const paid = makerRow(makerIfc);
+  const affiliateFees = {
+    fillId: fillIdFor(market.id, fill.sequence),
+    makerUserId: maker.userId,
+    takerUserId: taker.userId,
+    makerFee: paid.feeAmount,
+    takerFee: 0n,
+    makerFeeAsset: paid.feeAsset,
+    takerFeeAsset: market.baseAsset,
+  };
+  await svc.notifyAffiliateAccrue(affiliateFees);
+  await svc.notifyAffiliatePayout(affiliateFees);
+
+  await svc.notifyCopyMirrorFill({
+    orderId: maker.id,
+    fillId: paid.id,
+    side: 'sell',
+    price,
+    qty,
+  });
+
+  // Only the customer's leg is a user-visible fill; the house leg has no customer to tell.
+  const settledAt = new Date().toISOString();
+  await svc.bus.publish(
+    'fillSettled',
+    {
+      fillId: paid.id,
+      orderId: maker.id,
+      userId: maker.userId,
+      marketId: market.id,
+      side: 'sell',
+      liquidity: 'maker',
+      price: formatAmount(price),
+      qty: formatAmount(qty),
+      quoteAmount: formatAmount(quoteAmount),
+      feeAsset: paid.feeAsset,
+      feeAmount: formatAmount(paid.feeAmount),
+      feeBps: rates.makerFeeBps,
+      sequence: fill.sequence,
+      ts: settledAt,
+    },
+    { idempotencyKey: `trade.fill.settled:${market.id}:${fill.sequence}:maker` },
+  );
+  await svc.notifyDropCopyFill({
+    fillId: paid.id,
+    orderId: maker.id,
+    userId: maker.userId,
+    marketId: market.id,
+    side: 'sell',
+    price: formatAmount(price),
+    qty: formatAmount(qty),
+    quoteAmount: formatAmount(quoteAmount),
+    feeAsset: paid.feeAsset,
+    feeAmount: formatAmount(paid.feeAmount),
+    sequence: fill.sequence,
+    ts: settledAt,
+    order: maker,
+  });
+  const latest = await svc.findOrder(maker.id);
+  if (latest) await svc.publishOrderUpdated(latest);
 }

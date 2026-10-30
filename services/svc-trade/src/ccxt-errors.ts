@@ -249,6 +249,12 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** Operator kill-switch across the whole spot plane — venue-wide, retryable. */
   'trade.spot_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.seed_disabled': { ccxt: 'OnMaintenance', status: 503 },
+  /** The token buyback's own door (`spot/buyback-door.ts`); svc-token is its only caller. */
+  'trade.buyback_house_maker': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.buyback_invalid': { ccxt: 'BadRequest', status: 400 },
+  'trade.buyback_in_flight': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.buyback_conflict': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.buyback_book_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.seed_must_make': { ccxt: 'InvalidOrder', status: 400 },
   'trade.convert_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.standing_instruction_disabled': { ccxt: 'OnMaintenance', status: 503 },

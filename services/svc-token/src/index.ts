@@ -11,6 +11,8 @@ import { createLedgerClient } from './ledger-client.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createIdentityVoteSignatures } from './vote-signature.js';
 import { createTokenRouter, type TokenRouter } from './router.js';
+import { LaunchService } from './launch/launch-service.js';
+import { createParticipantClient, unwiredParticipants } from './launch/eligibility.js';
 import { registerInternalStake } from './internal-stake.js';
 import { registerInternalEmissions } from './internal-emissions.js';
 import { registerInternalYield } from './internal-yield.js';
@@ -143,6 +145,20 @@ export const appRouter = createTokenRouter(token, {
     placePublished: BUYBACK_PLACE_PUBLISHED,
   }),
   approvals: actionApprovals,
+  launch: {
+    service: new LaunchService(sql),
+    participants: env.IDENTITY_URL
+      ? createParticipantClient(
+          env.IDENTITY_URL,
+          env.INTERNAL_SERVICE_SECRET,
+          s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+        )
+      : unwiredParticipants(),
+    eligibilityEnv: () => ({
+      TOKEN_LAUNCH_MIN_KYC_TIER: env.TOKEN_LAUNCH_MIN_KYC_TIER,
+      TOKEN_LAUNCH_RESTRICTED_REGIONS: env.TOKEN_LAUNCH_RESTRICTED_REGIONS,
+    }),
+  },
 });
 export type AppRouter = typeof appRouter;
 
