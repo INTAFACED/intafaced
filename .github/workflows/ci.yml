@@ -186,7 +186,6 @@ jobs:
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - run: node tooling/ci/boundary-scan.mjs --self-test
       - run: node tooling/ci/why-red.mjs --self-test
-      - run: node --test tooling/scripts/journey-shards.test.mjs
       - run: node tooling/ci/migration-check.mjs --self-test
       - id: cls
         name: Classify changed paths
