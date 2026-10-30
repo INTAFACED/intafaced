@@ -134,5 +134,44 @@ if (!url) {
       const narrowed = await store.setKbAudience({ id: 'withdraw-time', baseRevision: 2, audience: 'signed_in', actorId: REVIEWER });
       expect(narrowed).toMatchObject({ status: 'ok', article: { version: 4, body: 'A withdrawal is sent once it is approved.' } });
     });
+
+    it('a publish written before a crash settles on retry; two publishes at once make one version and no raw error', async () => {
+      const { store, kb } = authoring();
+      await kb.saveDraft(AUTHOR, text());
+      await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 });
+      await kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 });
+      const raced = await Promise.all([
+        store.publishKbDraft({ id: 'withdraw-time', revision: 1 }),
+        store.publishKbDraft({ id: 'withdraw-time', revision: 1 }),
+      ]);
+      expect(raced.map((r) => r.status).sort()).toEqual(['ok', 'refuse']);
+      await kb.saveDraft(AUTHOR, text({ body: 'TEST Later edit.', baseRevision: 2 }));
+      expect(await kb.publish(AUTHOR, { id: 'withdraw-time', revision: 1 })).toMatchObject({ version: 2 });
+      const { trail, versions } = await kb.history('withdraw-time');
+      expect(trail.map((r) => r.action)).toEqual(['submit', 'approve', 'publish']);
+      expect(versions.map((v) => [v.revision, v.draft])).toEqual([
+        [1, true],
+        [2, false],
+        [3, true],
+      ]);
+    });
+
+    it('every template change is logged with who made it and why', async () => {
+      const book = new SqlKbReviewBook(db.sql);
+      const kb = new KbAuthoring(new PostgresSupportStore(db.sql), book);
+      await kb.saveTemplate(AUTHOR, { id: 'how-to', name: 'How-to', body: 'Steps:', expectedRevision: 0, reason: 'TEST first' });
+      await kb.saveTemplate(REVIEWER, {
+        id: 'how-to',
+        name: 'How-to',
+        body: 'Steps:',
+        retired: true,
+        expectedRevision: 1,
+        reason: 'TEST retire',
+      });
+      expect((await book.templateLog('how-to')).map((r) => [r.revision, r.actorId, r.reason, r.retired])).toEqual([
+        [1, AUTHOR, 'TEST first', false],
+        [2, REVIEWER, 'TEST retire', true],
+      ]);
+    });
   });
 }

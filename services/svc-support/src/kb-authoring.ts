@@ -139,15 +139,13 @@ export class KbAuthoring {
   }
 
   async approve(by: string, input: { id: string; revision: number }): Promise<SupportKbDraft> {
-    const draft = await this.store.getKbDraft(input.id, input.revision);
-    if (!draft) throw new KbAuthoringError(SUPPORT_KB_DRAFT_UNKNOWN);
+    const draft = await this.newestDraft(input.id, input.revision);
     const review = refused(await this.book.approve({ articleId: input.id, revision: input.revision, by, at: this.now() }));
     return view(draft, review);
   }
 
   async sendBack(by: string, input: { id: string; revision: number; reason: string }): Promise<SupportKbDraft> {
-    const draft = await this.store.getKbDraft(input.id, input.revision);
-    if (!draft) throw new KbAuthoringError(SUPPORT_KB_DRAFT_UNKNOWN);
+    const draft = await this.newestDraft(input.id, input.revision);
     const review = refused(
       await this.book.sendBack({ articleId: input.id, revision: input.revision, by, reason: input.reason, at: this.now() }),
     );
@@ -171,10 +169,11 @@ export class KbAuthoring {
     } else if (written.status === 'refuse' && written.reason === 'section_unknown') {
       throw new KbAuthoringError(SUPPORT_KB_SECTION_UNKNOWN);
     } else {
-      // Newer than the draft: either this draft's own publish (settle it) or an edit since (stale).
+      // Newer than the draft: either this draft's own publish, which landed before a crash (settle it, whatever was
+      // saved since), or an edit since (stale).
       const versions = await this.store.listKbHistory(input.id);
-      const own = versions.find((v) => v.revision === input.revision + 1 && !v.draft && v.authorId === draft.authorId);
-      if (!own || versions.some((v) => v.revision > input.revision + 1)) throw new KbAuthoringError(SUPPORT_KB_REVISION_STALE);
+      const own = versions.find((v) => !v.draft && v.sourceRevision === input.revision);
+      if (!own) throw new KbAuthoringError(SUPPORT_KB_REVISION_STALE);
       publishedRevision = own.revision;
     }
     refused(await this.book.published({ articleId: input.id, revision: input.revision, by, publishedRevision, at: this.now() }));

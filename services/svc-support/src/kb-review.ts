@@ -29,6 +29,15 @@ export interface KbReviewTrailRow {
   readonly at: string;
 }
 
+export interface KbTemplateLogRow {
+  readonly revision: number;
+  readonly name: string;
+  readonly retired: boolean;
+  readonly actorId: string;
+  readonly reason: string;
+  readonly at: string;
+}
+
 export type KbReviewRefusal = 'same_operator' | 'not_in_review' | 'not_approved' | 'already_reviewed' | 'template_stale';
 export type KbReviewResult = { status: 'ok'; review: KbReview; changed: boolean } | { status: 'refuse'; reason: KbReviewRefusal };
 
@@ -42,6 +51,8 @@ export interface KbReviewBook {
   /** Mark an approved review published, naming the live version it made. */
   published(input: { articleId: string; revision: number; by: string; publishedRevision: number; at: string }): Promise<KbReviewResult>;
   listTemplates(): Promise<SupportKbTemplate[]>;
+  /** Every change to one template, oldest first, with who made it and why. */
+  templateLog(id: string): Promise<KbTemplateLogRow[]>;
   getTemplate(id: string): Promise<SupportKbTemplate | null>;
   saveTemplate(
     input: SupportKbTemplateSaveInput & { by: string; at: string },
@@ -55,7 +66,8 @@ function move(
   by: string,
 ): { kind: 'apply' } | { kind: 'replay' } | { kind: 'refuse'; reason: KbReviewRefusal } {
   if (action === 'submit') {
-    if (!review || review.state === 'sent_back') return { kind: 'apply' };
+    // A draft sent back is not submitted again unchanged: the author saves a new draft, which has its own review.
+    if (!review) return { kind: 'apply' };
     return review.state === 'in_review' && review.submittedBy === by ? { kind: 'replay' } : { kind: 'refuse', reason: 'already_reviewed' };
   }
   if (!review) return { kind: 'refuse', reason: action === 'publish' ? 'not_approved' : 'not_in_review' };
@@ -76,6 +88,7 @@ export class MemoryKbReviewBook implements KbReviewBook {
   private readonly reviews = new Map<string, KbReview>();
   private readonly log: (KbReviewTrailRow & { articleId: string })[] = [];
   private readonly templates = new Map<string, SupportKbTemplate>();
+  private readonly templateChanges: (KbTemplateLogRow & { id: string })[] = [];
 
   private key(articleId: string, revision: number): string {
     return `${articleId}\0${revision}`;
@@ -176,7 +189,20 @@ export class MemoryKbReviewBook implements KbReviewBook {
       updatedAt: input.at,
     };
     this.templates.set(input.id, template);
+    this.templateChanges.push({
+      id: input.id,
+      revision: template.revision,
+      name: template.name,
+      retired: template.retired,
+      actorId: input.by,
+      reason: input.reason.trim(),
+      at: input.at,
+    });
     return { status: 'ok', template: { ...template } };
+  }
+
+  async templateLog(id: string): Promise<KbTemplateLogRow[]> {
+    return this.templateChanges.filter((row) => row.id === id).map(({ id: _id, ...row }) => ({ ...row }));
   }
 }
 
@@ -364,21 +390,43 @@ export class SqlKbReviewBook implements KbReviewBook {
     const name = input.name.trim();
     const body = input.body.trim();
     const retired = input.retired ?? false;
-    const rows =
-      input.expectedRevision === 0
-        ? await this.sql<PgTemplate[]>`
+    return this.sql.begin(async (tx) => {
+      const rows =
+        input.expectedRevision === 0
+          ? await tx<PgTemplate[]>`
             INSERT INTO support.kb_templates (id, name, body, revision, retired, updated_by, updated_at)
             VALUES (${input.id}, ${name}, ${body}, 1, ${retired}, ${input.by}, ${input.at})
             ON CONFLICT (id) DO NOTHING
             RETURNING id, name, body, revision, retired, updated_at
           `
-        : await this.sql<PgTemplate[]>`
+          : await tx<PgTemplate[]>`
             UPDATE support.kb_templates
             SET name = ${name}, body = ${body}, retired = ${retired}, revision = revision + 1, updated_by = ${input.by},
                 updated_at = ${input.at}
             WHERE id = ${input.id} AND revision = ${input.expectedRevision}
             RETURNING id, name, body, revision, retired, updated_at
           `;
-    return rows[0] ? { status: 'ok', template: templateFromPg(rows[0]) } : { status: 'refuse', reason: 'template_stale' };
+      if (!rows[0]) return { status: 'refuse', reason: 'template_stale' } as const;
+      const template = templateFromPg(rows[0]);
+      await tx`
+        INSERT INTO support.kb_template_log (template_id, revision, name, body, retired, actor_id, reason, at)
+        VALUES (${template.id}, ${template.revision}, ${name}, ${body}, ${retired}, ${input.by}, ${input.reason.trim()}, ${input.at})
+      `;
+      return { status: 'ok', template } as const;
+    }) as Promise<{ status: 'ok'; template: SupportKbTemplate } | { status: 'refuse'; reason: 'template_stale' }>;
+  }
+
+  async templateLog(id: string): Promise<KbTemplateLogRow[]> {
+    const rows = await this.sql<
+      { revision: number; name: string; retired: boolean; actor_id: string; reason: string; at: Date }[]
+    >`SELECT revision, name, retired, actor_id, reason, at FROM support.kb_template_log WHERE template_id = ${id} ORDER BY revision`;
+    return rows.map((r) => ({
+      revision: Number(r.revision),
+      name: r.name,
+      retired: r.retired,
+      actorId: r.actor_id,
+      reason: r.reason,
+      at: r.at.toISOString(),
+    }));
   }
 }

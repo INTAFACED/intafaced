@@ -409,6 +409,8 @@ export interface KbHistoryRow {
   /** True on the version public readers see now. */
   readonly live: boolean;
   readonly createdAt: string | null;
+  /** On a version published from a draft, that draft's revision. */
+  readonly sourceRevision: number | null;
 }
 
 export type PublishKbDraftResult =
@@ -975,6 +977,7 @@ export class MemorySupportStore implements SupportStore {
   private readonly kb = new Map<string, SupportKbArticle>();
   private readonly kbVersions = new Map<string, SupportKbArticle[]>();
   private readonly kbDrafts = new Map<string, KbDraft[]>();
+  private readonly kbPublishedFrom = new Map<string, { revision: number; authorId: string }>();
   private readonly kbAudienceChanges: KbAudienceChange[] = [];
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
@@ -1552,15 +1555,19 @@ export class MemorySupportStore implements SupportStore {
   async listKbHistory(id: string): Promise<KbHistoryRow[]> {
     const head = this.kb.get(id);
     const live = head?.published ? kbVersionOf(head) : null;
-    const versions: KbHistoryRow[] = (this.kbVersions.get(id) ?? []).map((a) => ({
-      revision: kbVersionOf(a),
-      draft: false,
-      authorId: null,
-      title: a.title ?? null,
-      audience: a.audience ?? 'public',
-      live: kbVersionOf(a) === live,
-      createdAt: null,
-    }));
+    const versions: KbHistoryRow[] = (this.kbVersions.get(id) ?? []).map((a) => {
+      const from = this.kbPublishedFrom.get(`${id}\0${kbVersionOf(a)}`);
+      return {
+        revision: kbVersionOf(a),
+        draft: false,
+        authorId: from?.authorId ?? null,
+        title: a.title ?? null,
+        audience: a.audience ?? 'public',
+        live: kbVersionOf(a) === live,
+        createdAt: null,
+        sourceRevision: from?.revision ?? null,
+      };
+    });
     const drafts: KbHistoryRow[] = (this.kbDrafts.get(id) ?? []).map((d) => ({
       revision: d.revision,
       draft: true,
@@ -1569,6 +1576,7 @@ export class MemorySupportStore implements SupportStore {
       audience: d.audience,
       live: false,
       createdAt: d.createdAt,
+      sourceRevision: null,
     }));
     return [...versions, ...drafts].sort((a, b) => a.revision - b.revision);
   }
@@ -1594,6 +1602,7 @@ export class MemorySupportStore implements SupportStore {
     });
     this.kb.set(input.id, article);
     this.rememberVersion(article);
+    this.kbPublishedFrom.set(`${input.id}\0${next}`, { revision: input.revision, authorId: draft.authorId });
     return { status: 'ok', article: { ...article } };
   }
 
@@ -2679,6 +2688,7 @@ export class PostgresSupportStore implements SupportStore {
     try {
       return await this.sql.begin(async (tx): Promise<SaveKbDraftResult> => {
         // The head row, when there is one, is the article's lock; a draft-only article is held by the version key below.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${'support.kb:' + input.id}))`;
         await tx`SELECT id FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE`;
         const next = await pgNextKbVersion(tx, input.id);
         if (input.baseRevision !== next - 1) return { status: 'refuse', reason: 'revision_stale' };
@@ -2747,9 +2757,10 @@ export class PostgresSupportStore implements SupportStore {
         audience: SupportKbAudience;
         live: boolean;
         created_at: Date | null;
+        source_revision: number | null;
       }[]
     >`
-      SELECT v.version, v.draft, v.author_id, v.title, v.audience, v.created_at,
+      SELECT v.version, v.draft, v.author_id, v.title, v.audience, v.created_at, v.source_revision,
              COALESCE(a.published AND a.revision = v.version, false) AS live
       FROM support.kb_article_versions v
       LEFT JOIN support.kb_articles a ON a.id = v.id
@@ -2764,11 +2775,24 @@ export class PostgresSupportStore implements SupportStore {
       audience: r.audience,
       live: r.live,
       createdAt: r.created_at ? toIso(r.created_at) : null,
+      sourceRevision: r.source_revision === null ? null : Number(r.source_revision),
     }));
   }
 
   async publishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult> {
+    try {
+      return await this.pgPublishKbDraft(input);
+    } catch (err) {
+      // Another write took the next version first: the caller re-reads the history to settle or refuse.
+      if ((err as { code?: string }).code === '23505') return { status: 'refuse', reason: 'revision_stale' };
+      throw err;
+    }
+  }
+
+  private pgPublishKbDraft(input: { id: string; revision: number }): Promise<PublishKbDraftResult> {
     return this.sql.begin(async (tx): Promise<PublishKbDraftResult> => {
+      // An article with only drafts has no head row to lock, so writes to one article take its advisory lock too.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'support.kb:' + input.id}))`;
       const locked = await tx<PgKb[]>`
         SELECT id, title_key, body_key, revision, published, updated_at FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE
       `;
@@ -2790,10 +2814,12 @@ export class PostgresSupportStore implements SupportStore {
       const tags = draft.tags.length > 0 ? tx.json([...draft.tags]) : null;
       await tx`
         INSERT INTO support.kb_article_versions
-          (id, version, title_key, body_key, tags, audience, title, body, language, section_id, author_id, template_id)
+          (id, version, title_key, body_key, tags, audience, title, body, language, section_id, author_id, template_id,
+           source_revision)
         VALUES (
           ${input.id}, ${next}, ${SUPPORT_KB_STORED_TITLE_KEY}, ${SUPPORT_KB_STORED_BODY_KEY}, ${tags}, ${draft.audience},
-          ${draft.title}, ${draft.body}, ${draft.language}, ${draft.sectionId}, ${draft.authorId}, ${draft.templateId}
+          ${draft.title}, ${draft.body}, ${draft.language}, ${draft.sectionId}, ${draft.authorId}, ${draft.templateId},
+          ${input.revision}
         )
       `;
       const head = locked[0]

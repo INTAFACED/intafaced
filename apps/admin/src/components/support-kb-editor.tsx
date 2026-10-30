@@ -103,8 +103,9 @@ export function KbEditor({ initial }: { initial: KbAuthoringView }) {
   const sections =
     view.library.kind === 'ok' ? view.library.data.categories.flatMap((c) => c.sections.map((s) => ({ ...s, category: c.name }))) : [];
   const templates: SupportKbTemplate[] = view.templates.kind === 'ok' ? view.templates.data.filter((t) => !t.retired) : [];
-  const history: SupportKbHistory | null = view.history?.kind === 'ok' ? view.history.data : null;
-  const draft: SupportKbDraft | null = view.draft?.kind === 'ok' ? view.draft.data : null;
+  // Only what was read for the id typed now: a save never names a revision read for another article.
+  const history: SupportKbHistory | null = view.history?.kind === 'ok' && view.history.data.id === id ? view.history.data : null;
+  const draft: SupportKbDraft | null = view.draft?.kind === 'ok' && view.draft.data.id === id ? view.draft.data : null;
   const base = baseRevisionOf(history);
   const ready = KB_ID.test(id) && title.trim() !== '' && body.trim() !== '' && sectionId !== '';
 

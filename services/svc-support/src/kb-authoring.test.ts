@@ -46,7 +46,7 @@ describe('help-article authoring and review', () => {
     expect((await kb.history('withdraw-time')).versions).toEqual([]);
   });
 
-  it('a submit repeated is one trail row; a send back needs review, and a sent-back draft can be submitted again', async () => {
+  it('a submit repeated is one trail row; a send back needs review, and a sent-back draft goes back only as a new draft', async () => {
     const { kb } = make();
     await kb.saveDraft(AUTHOR, text());
     await expect(kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb_not_in_review' });
@@ -54,11 +54,61 @@ describe('help-article authoring and review', () => {
     await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 });
     expect((await kb.sendBack(REVIEWER, { id: 'withdraw-time', revision: 1, reason: 'TEST shorter' })).state).toBe('sent_back');
     await expect(kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb_not_in_review' });
-    expect((await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 })).state).toBe('in_review');
-    expect((await kb.history('withdraw-time')).trail.map((r) => [r.action, r.reason])).toEqual([
-      ['submit', null],
-      ['send_back', 'TEST shorter'],
-      ['submit', null],
+    await expect(kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb_already_in_review' });
+    await kb.saveDraft(AUTHOR, text({ body: 'TEST Shorter.', baseRevision: 1 }));
+    expect((await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 2 })).state).toBe('in_review');
+    expect((await kb.history('withdraw-time')).trail.map((r) => [r.revision, r.action, r.reason])).toEqual([
+      [1, 'submit', null],
+      [1, 'send_back', 'TEST shorter'],
+      [2, 'submit', null],
+    ]);
+  });
+
+  it('a superseded draft cannot be approved or sent back', async () => {
+    const { kb } = make();
+    await kb.saveDraft(AUTHOR, text());
+    await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 });
+    await kb.saveDraft(AUTHOR, text({ body: 'TEST Newer.', baseRevision: 1 }));
+    await expect(kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 })).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
+    await expect(kb.sendBack(REVIEWER, { id: 'withdraw-time', revision: 1, reason: 'TEST' })).rejects.toMatchObject({
+      code: 'support.kb.revision_stale',
+    });
+  });
+
+  it('a publish whose write landed before a crash settles on retry, even after a newer draft', async () => {
+    const book = new MemoryKbReviewBook();
+    const store = new MemorySupportStore();
+    const kb = new KbAuthoring(store, book, () => '2026-10-30T14:00:00.000Z');
+    await kb.saveDraft(AUTHOR, text());
+    await kb.submit(AUTHOR, { id: 'withdraw-time', revision: 1 });
+    await kb.approve(REVIEWER, { id: 'withdraw-time', revision: 1 });
+    // The crash: the version is written, the review is not yet marked published.
+    expect((await store.publishKbDraft({ id: 'withdraw-time', revision: 1 })).status).toBe('ok');
+    await kb.saveDraft(AUTHOR, text({ body: 'TEST Later edit.', baseRevision: 2 }));
+    expect(await kb.publish(AUTHOR, { id: 'withdraw-time', revision: 1 })).toMatchObject({ version: 2 });
+    const { trail, versions } = await kb.history('withdraw-time');
+    expect(trail.map((r) => r.action)).toEqual(['submit', 'approve', 'publish']);
+    expect(versions.map((v) => [v.revision, v.draft])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+    ]);
+  });
+
+  it('every template change is logged with who made it and why', async () => {
+    const { kb, book } = make();
+    await kb.saveTemplate(AUTHOR, { id: 'how-to', name: 'How-to', body: 'Steps:', expectedRevision: 0, reason: 'TEST first' });
+    await kb.saveTemplate(REVIEWER, {
+      id: 'how-to',
+      name: 'How-to',
+      body: 'Steps:',
+      retired: true,
+      expectedRevision: 1,
+      reason: 'TEST retire',
+    });
+    expect((await book.templateLog('how-to')).map((r) => [r.revision, r.actorId, r.reason, r.retired])).toEqual([
+      [1, AUTHOR, 'TEST first', false],
+      [2, REVIEWER, 'TEST retire', true],
     ]);
   });
 
