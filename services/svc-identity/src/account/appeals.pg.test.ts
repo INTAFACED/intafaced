@@ -173,7 +173,11 @@ if (!available) {
     it('refuses once the window has passed (a restriction with no audit row counts from its row)', async () => {
       await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version, updated_at) VALUES (${target}, true, 1, now() - interval '8 days')`;
       expect(await codeOf(submit(desk(7)))).toBe('identity.appeal_window_closed');
-      expect((await submit(desk(9))).status).toBe('submitted');
+      const appeal = await submit(desk(9));
+      expect(appeal.status).toBe('submitted');
+      // No record of who set it, so no decider can be shown not to be its setter: the decision fails closed.
+      const uphold = { appealId: appeal.id, decision: 'uphold' as const, reasonCode: 'restriction_stands', expectedVersion: '1' };
+      expect(await codeOf(desk(9).decide(decider, uphold))).toBe('identity.appeal_setter_unknown');
     });
   });
 

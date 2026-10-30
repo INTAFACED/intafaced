@@ -42,6 +42,7 @@ export type AppealErrorCode =
   | 'identity.appeal_decided'
   | 'identity.appeal_version_conflict'
   | 'identity.appeal_decider_restricted'
+  | 'identity.appeal_setter_unknown'
   | 'identity.appeal_restriction_changed'
   | 'identity.appeal_lift_refused'
   | 'identity.appeal_lift_unconfigured';
@@ -322,13 +323,15 @@ export class AccountAppeals {
       .filter((id): id is string => id !== null)
       .map((id) => id.toLowerCase());
     if (deciderId === row.user_id || setters.includes(deciderId)) throw new AppealError('identity.appeal_decider_restricted');
+    // Fail closed: with no record of who set the restriction, nobody can be shown not to be its setter.
+    if (row.restricted_by === null) throw new AppealError('identity.appeal_setter_unknown');
   }
 }
 
 /**
- * Who set the trading restriction now in force, and when: the founder control change that set it at this version, its
+ * Who set the restriction now in force, and when: the founder control change that set it at this version, its
  * actor and its four-eyes approver. Null fields when identity keeps no such row (a restriction set before the audit named
- * it): the decision then still refuses the account holder, and the window runs from the row's last write.
+ * it): the window then runs from the row's last write, and no one can decide the appeal (`identity.appeal_setter_unknown`).
  */
 async function restrictionSetBy(
   tx: Sql | TransactionSql,
