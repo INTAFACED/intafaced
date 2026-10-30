@@ -499,6 +499,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recovery_claim_conflict': 'CONFLICT',
   'bank.recovery_claim_refused': 'PRECONDITION_FAILED',
   'bank.recovery_blocked': 'PRECONDITION_FAILED',
+  'bank.accrual_day_not_begun': 'PRECONDITION_FAILED',
 
   // Kill switches. Same 503 class as the matching HTTP job endpoints —
   // operator flipped the flag off; tRPC must not be a back door past it.

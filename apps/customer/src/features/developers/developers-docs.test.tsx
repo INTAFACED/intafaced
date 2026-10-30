@@ -39,8 +39,8 @@ describe('developer portal home', () => {
     expect(home).toContain('aria-label="Search the developer docs"');
   });
   it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/errors'))).toContain('It waits for DV-errors-01');
     expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
+    expect(text(html('/developers/rate-limits'))).toContain('It waits for DV-limits-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');

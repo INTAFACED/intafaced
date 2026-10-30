@@ -30,6 +30,7 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
+import { LeadDesk } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -390,6 +391,7 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
 // The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
 const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
@@ -406,7 +408,7 @@ const copy = new CopyService(ledger, {
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
   store: copyStore,
-  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
+  directory: leaderDirectory,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -523,6 +525,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  new LeadDesk({ sql, approvals: tradeOpsApprovals, directory: leaderDirectory, now: () => new Date() }),
   grid,
 );
 export type AppRouter = typeof appRouter;
