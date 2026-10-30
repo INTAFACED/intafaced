@@ -46,6 +46,13 @@ export const MARKET_PURCHASE_HOLD_NOT_POSTED = 'market.purchase_hold_not_posted'
 /** Seconds a hold whose refund or release post failed waits before the job tries it again. */
 const FINISH_RETRY_SECONDS = 60;
 
+/**
+ * A rejected claim that began a hold post is checked against the book this long after its last post began: twice the
+ * ledger's in-flight bound, so a post the sweep could not yet see, or one that ran past the bound, is caught and
+ * refunded.
+ */
+export const RECONCILE_AFTER_SECONDS = 2 * POST_IN_FLIGHT_BOUND_SECONDS;
+
 /** How a claim stands against the one-live-hold rule: cleared now (no post yet), cleared before, or refused. */
 export type HoldClearance = 'new' | 'resumed' | 'refused';
 
@@ -136,8 +143,7 @@ export class HeldPurchases {
    * is rejected before anything posts. Serialised per (listing, buyer), so of two claims racing, one goes on.
    *
    * A claim that cleared once stays cleared: a retry after its hold posted is never rejected for a newer claim, so its
-   * pot always gets its hold row. Each clearance stamps the hold post about to be made (`last_post_at`), under the same
-   * lock the stale-claim sweep takes, so the sweep never releases a claim whose post may still land.
+   * pot always gets its hold row. Clearing posts nothing; each hold post is begun separately (`beginHoldPost`).
    */
   async clearHold(input: { purchaseId: string; listingId: string; buyerId: string }): Promise<HoldClearance> {
     return transaction(
@@ -150,11 +156,7 @@ export class HeldPurchases {
            WHERE p.id = ${input.purchaseId}
         `;
         if (mine?.status !== 'pending') return 'refused';
-        const at = this.deps.now().toISOString();
-        if (mine.cleared) {
-          await tx`UPDATE market.purchase_hold_clearances SET last_post_at = ${at}::timestamptz WHERE purchase_id = ${input.purchaseId}`;
-          return 'resumed';
-        }
+        if (mine.cleared) return 'resumed';
         const [other] = await tx<Array<{ id: string }>>`
           SELECT p.id
             FROM market.purchases p
@@ -169,8 +171,8 @@ export class HeldPurchases {
         `;
         if (!other) {
           await tx`
-            INSERT INTO market.purchase_hold_clearances (purchase_id, cleared_at, last_post_at)
-            VALUES (${input.purchaseId}, ${at}::timestamptz, ${at}::timestamptz)
+            INSERT INTO market.purchase_hold_clearances (purchase_id, cleared_at)
+            VALUES (${input.purchaseId}, ${this.deps.now().toISOString()}::timestamptz)
           `;
           return 'new';
         }
@@ -186,16 +188,55 @@ export class HeldPurchases {
   }
 
   /**
-   * The first hold post of a freshly cleared claim failed in a way that proves nothing committed under its key: the
-   * claim is rejected with `code`, so the buyer may buy again. Any other failure keeps the claim for a retry or the
-   * sweep, which decide from the book.
+   * Begin one hold post of a cleared claim, right before it is sent: under the clearance lock, and only while the claim
+   * is still pending. Returns the post's attempt number, or null when the claim is no longer pending (the sweep released
+   * it, or another request settled it), in which case nothing may be posted. The sweep measures its in-flight bound
+   * from this stamp, so a claim is never released while a post begun here may still land.
    */
-  async releaseRefusedClaim(purchaseId: string, error: unknown, code: string): Promise<void> {
-    if (!provesPostNotCommitted(error)) return;
-    await this.deps.sql`
-      UPDATE market.purchases SET status = 'rejected', rejection_code = ${code}
-       WHERE id = ${purchaseId} AND status = 'pending'
-    `;
+  async beginHoldPost(input: { purchaseId: string; listingId: string; buyerId: string }): Promise<number | null> {
+    return transaction(
+      this.deps.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${holdLockKey(input.listingId, input.buyerId)}))`;
+        const [begun] = await tx<Array<{ attempt_no: number }>>`
+          UPDATE market.purchase_hold_clearances c
+             SET attempt_no = c.attempt_no + 1,
+                 last_post_at = GREATEST(c.last_post_at, ${this.deps.now().toISOString()}::timestamptz)
+            FROM market.purchases p
+           WHERE c.purchase_id = ${input.purchaseId} AND p.id = c.purchase_id AND p.status = 'pending'
+          RETURNING c.attempt_no
+        `;
+        return begun ? Number(begun.attempt_no) : null;
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /**
+   * A hold post failed in a way that proves nothing committed under its key. When it was the claim's only post ever
+   * begun (attempt 1, and no later one has begun since), no post of this claim can still land, so the claim is rejected
+   * with `code` and the buyer may buy again. Any other failure keeps the claim for a retry or the sweep, which decide
+   * from the book.
+   */
+  async releaseRefusedClaim(
+    claim: { purchaseId: string; listingId: string; buyerId: string },
+    attemptNo: number,
+    error: unknown,
+    code: string,
+  ): Promise<void> {
+    if (attemptNo !== 1 || !provesPostNotCommitted(error)) return;
+    await transaction(
+      this.deps.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${holdLockKey(claim.listingId, claim.buyerId)}))`;
+        await tx`
+          UPDATE market.purchases p SET status = 'rejected', rejection_code = ${code}
+            FROM market.purchase_hold_clearances c
+           WHERE p.id = ${claim.purchaseId} AND c.purchase_id = p.id AND p.status = 'pending' AND c.attempt_no = 1
+        `;
+      },
+      { isolation: 'read committed' },
+    );
   }
 
   /** The hold this claim's key booked, checked against the claim snapshot; null when the key booked nothing. */
@@ -209,9 +250,10 @@ export class HeldPurchases {
 
   /**
    * Settle or release every held claim left pending after a crash or a lost reply, once no hold post of it can still
-   * land (`POST_IN_FLIGHT_BOUND_SECONDS` since its last attempt). A hold the ledger booked settles from the claim
-   * snapshot, its window starting at this settle; a hold it never booked releases the claim with nothing moved.
-   * Recovery never waits on the buyer retrying the same purchase id. Returns how many claims it resolved.
+   * land (`POST_IN_FLIGHT_BOUND_SECONDS` since its last post began, or since it cleared when none began). A hold the
+   * ledger booked settles from the claim snapshot, its window starting at this settle; a hold it never booked releases
+   * the claim with nothing moved. Recovery never waits on the buyer retrying the same purchase id. Returns how many
+   * claims it resolved.
    */
   async sweepStaleClaims(limit = 20): Promise<number> {
     const cutoff = new Date(this.deps.now().getTime() - POST_IN_FLIGHT_BOUND_SECONDS * 1000).toISOString();
@@ -234,10 +276,19 @@ export class HeldPurchases {
 
   private async resolveStaleClaim(purchaseId: string, cutoff: string): Promise<boolean> {
     const [claim] = await this.deps.sql<
-      Array<{ listing_id: string; buyer_id: string; asset_id: string; price: string; refund_window_seconds: number | string }>
+      Array<{
+        listing_id: string;
+        buyer_id: string;
+        asset_id: string;
+        price: string;
+        refund_window_seconds: number | string;
+        attempt_no: number;
+      }>
     >`
-      SELECT listing_id, buyer_id, asset_id, price::text AS price, refund_window_seconds
-        FROM market.purchases WHERE id = ${purchaseId} AND status = 'pending' AND refund_window_seconds IS NOT NULL
+      SELECT p.listing_id, p.buyer_id, p.asset_id, p.price::text AS price, p.refund_window_seconds, c.attempt_no
+        FROM market.purchases p JOIN market.purchase_hold_clearances c ON c.purchase_id = p.id
+       WHERE p.id = ${purchaseId} AND p.status = 'pending' AND p.refund_window_seconds IS NOT NULL
+         AND COALESCE(c.last_post_at, c.cleared_at) <= ${cutoff}::timestamptz
     `;
     if (!claim) return false;
     const snapshot = {
@@ -247,17 +298,18 @@ export class HeldPurchases {
       assetId: claim.asset_id,
       price: parseAmount(claim.price),
     };
+    // Read the book before taking the lock; the lock then proves no post began since this read.
+    const posted = await this.postedHold(snapshot);
     return transaction(
       this.deps.sql,
       async (tx) => {
-        // The clearance lock: a buyer retry stamps its post under it, so a claim still stale here has no post in flight.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${holdLockKey(claim.listing_id, claim.buyer_id)}))`;
         const [still] = await tx<Array<{ id: string }>>`
           SELECT p.id FROM market.purchases p JOIN market.purchase_hold_clearances c ON c.purchase_id = p.id
-           WHERE p.id = ${purchaseId} AND p.status = 'pending' AND COALESCE(c.last_post_at, c.cleared_at) <= ${cutoff}::timestamptz
+           WHERE p.id = ${purchaseId} AND p.status = 'pending' AND c.attempt_no = ${claim.attempt_no}
+             AND COALESCE(c.last_post_at, c.cleared_at) <= ${cutoff}::timestamptz
         `;
         if (!still) return false;
-        const posted = await this.postedHold(snapshot);
         if (posted) {
           return this.settleHeldIn(tx, {
             purchaseId,
@@ -277,6 +329,63 @@ export class HeldPurchases {
       },
       { isolation: 'read committed' },
     );
+  }
+
+  /**
+   * A rejected claim that began a hold post is checked against the book once, `RECONCILE_AFTER_SECONDS` after its last
+   * post began. A hold that landed after all (a post the sweep could not see, or one whose refusal proved wrong)
+   * is refunded to the buyer whole under `market:refund:<id>:1`; a rejected claim never keeps the buyer's money in its
+   * pot. The claim stays rejected: no hold row is written, so nothing is released to the seller. Returns how many
+   * claims it reconciled.
+   */
+  async reconcileRejectedClaims(limit = 20): Promise<number> {
+    const cutoff = new Date(this.deps.now().getTime() - RECONCILE_AFTER_SECONDS * 1000).toISOString();
+    const due = await this.deps.sql<Array<{ id: string; listing_id: string; buyer_id: string; asset_id: string; price: string }>>`
+      SELECT p.id, p.listing_id, p.buyer_id, p.asset_id, p.price::text AS price
+        FROM market.purchases p JOIN market.purchase_hold_clearances c ON c.purchase_id = p.id
+       WHERE p.status = 'rejected' AND c.attempt_no > 0 AND c.reconciled_at IS NULL
+         AND c.last_post_at <= ${cutoff}::timestamptz
+       ORDER BY c.last_post_at ASC, p.id ASC
+       LIMIT ${limit}
+    `;
+    let done = 0;
+    for (const claim of due) {
+      try {
+        const snapshot = {
+          id: claim.id,
+          listingId: claim.listing_id,
+          buyerId: claim.buyer_id,
+          assetId: claim.asset_id,
+          price: parseAmount(claim.price),
+        };
+        const posted = await this.postedHold(snapshot);
+        let refundTxId: string | null = null;
+        if (posted) {
+          const refund = await this.post(
+            recipes.marketPurchaseRefund({
+              purchaseId: claim.id,
+              listingId: claim.listing_id,
+              buyerId: claim.buyer_id,
+              assetId: claim.asset_id,
+              amount: snapshot.price,
+              refundNo: REFUND_NO,
+            }),
+          );
+          refundTxId = refund.id;
+          this.deps.log?.(`market.hold_claim_refunded ${claim.id}: the hold landed after its claim was rejected`);
+        }
+        const rows = await this.deps.sql`
+          UPDATE market.purchase_hold_clearances
+             SET reconciled_at = ${this.deps.now().toISOString()}::timestamptz, reconcile_refund_tx_id = ${refundTxId}
+           WHERE purchase_id = ${claim.id} AND reconciled_at IS NULL
+          RETURNING purchase_id
+        `;
+        if (rows.length > 0) done += 1;
+      } catch (err) {
+        this.deps.log?.(`market.hold_claim_reconcile_failed ${claim.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return done;
   }
 
   /** The hold post for a claim snapshot. */

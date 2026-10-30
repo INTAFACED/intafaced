@@ -128,7 +128,7 @@ await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 // is posted. The window is the owner's and is snapshotted on each hold; this cadence only bounds how late after the
 // window's end a release posts. It runs with the window blank too, so holds taken before the setting was cleared
 // still finish. The same run settles or releases a held claim left pending after a crash or a lost reply, once no
-// post of it can still land. One run at a time.
+// post of it can still land, and refunds a hold that landed after its claim was rejected. One run at a time.
 const HOLD_RELEASE_EVERY_MS = 30_000;
 let releasing = false;
 const releaseTimer = setInterval(() => {
@@ -137,6 +137,7 @@ const releaseTimer = setInterval(() => {
   commerce.held
     .releaseDue()
     .then(() => commerce.held.sweepStaleClaims())
+    .then(() => commerce.held.reconcileRejectedClaims())
     .catch((err: unknown) => app.log.error({ err }, 'market.hold_release_run_failed'))
     .finally(() => {
       releasing = false;

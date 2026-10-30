@@ -6,13 +6,27 @@
 -- ── purchase_hold_clearances ───────────────────────────────────────────────
 -- A held claim's place, written once before its first hold post. Of two claims of one listing by one buyer, the one
 -- cleared first goes on; a cleared claim is never rejected for the other, so a retry after its hold posted always
--- settles it. `last_post_at` is its latest hold post attempt: a pending cleared claim whose hold is absent from the
--- ledger once the in-flight bound has passed since then is released (rejected, nothing moved), so a refused or
--- abandoned hold never keeps the buyer from buying.
+-- settles it.
+--
+-- Every hold post is begun under the clearance lock, only while the claim is still pending: `attempt_no` counts the
+-- posts begun and `last_post_at` is when the latest began. A pending cleared claim whose hold is absent from the ledger
+-- once the in-flight bound has passed since then is released (rejected, nothing moved), so a refused or abandoned hold
+-- never keeps the buyer from buying.
+--
+-- A rejected claim that ever began a post is checked against the ledger once more, twice the bound after its last post
+-- began (`reconciled_at`). A hold that landed anyway is refunded to the buyer whole (`reconcile_refund_tx_id`), so no
+-- rejected claim keeps the buyer's money in its pot.
 CREATE TABLE IF NOT EXISTS "market"."purchase_hold_clearances" (
-  "purchase_id"  uuid PRIMARY KEY REFERENCES "market"."purchases"("id"),
-  "cleared_at"   timestamptz NOT NULL DEFAULT now(),
-  "last_post_at" timestamptz
+  "purchase_id"            uuid PRIMARY KEY REFERENCES "market"."purchases"("id"),
+  "cleared_at"             timestamptz NOT NULL DEFAULT now(),
+  "last_post_at"           timestamptz,
+  "attempt_no"             integer NOT NULL DEFAULT 0
+    CONSTRAINT "purchase_hold_clearances_attempt_ck" CHECK ("attempt_no" >= 0),
+  "reconciled_at"          timestamptz,
+  "reconcile_refund_tx_id" uuid,
+  CONSTRAINT "purchase_hold_clearances_refund_reconciled_ck" CHECK (
+    "reconcile_refund_tx_id" IS NULL OR "reconciled_at" IS NOT NULL
+  )
 );
 
 CREATE OR REPLACE FUNCTION "market"."purchase_hold_clearances_lock"() RETURNS trigger
@@ -23,8 +37,15 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
   IF ROW(NEW."purchase_id", NEW."cleared_at") IS DISTINCT FROM ROW(OLD."purchase_id", OLD."cleared_at")
-     OR (OLD."last_post_at" IS NOT NULL AND (NEW."last_post_at" IS NULL OR NEW."last_post_at" < OLD."last_post_at")) THEN
+     OR (OLD."last_post_at" IS NOT NULL AND (NEW."last_post_at" IS NULL OR NEW."last_post_at" < OLD."last_post_at"))
+     OR NEW."attempt_no" < OLD."attempt_no" THEN
     RAISE EXCEPTION 'market.purchase_hold_clearances % only records a later post attempt', OLD."purchase_id"
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF OLD."reconciled_at" IS NOT NULL
+     AND ROW(NEW."reconciled_at", NEW."reconcile_refund_tx_id", NEW."attempt_no", NEW."last_post_at")
+         IS DISTINCT FROM ROW(OLD."reconciled_at", OLD."reconcile_refund_tx_id", OLD."attempt_no", OLD."last_post_at") THEN
+    RAISE EXCEPTION 'market.purchase_hold_clearances % is reconciled and final', OLD."purchase_id"
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;

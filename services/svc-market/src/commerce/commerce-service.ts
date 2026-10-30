@@ -34,7 +34,7 @@ import {
   requireListingCategory,
 } from './listing-categories.js';
 import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
-import { HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type HoldClearance, type PurchaseHold } from './held-purchase.js';
+import { HeldPurchases, MARKET_PURCHASE_ALREADY_HELD, type PurchaseHold } from './held-purchase.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -878,14 +878,13 @@ export class CommerceService {
 
     // A live hold on this listing makes "Buy again" one purchase: refuse before writing a claim. The claim itself
     // re-checks under a lock, for two claims racing.
-    if (this.config.refundWindowSeconds != null) {
-      const [live] = await this.sql<Array<{ purchase_id: string }>>`
-        SELECT purchase_id FROM market.purchase_holds
-         WHERE listing_id = ${listing.id} AND buyer_id = ${input.buyerId} AND state = 'held' AND purchase_id <> ${input.purchaseId}
-         LIMIT 1
-      `;
-      if (live) throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
-    }
+    // Checked with the window off too: a direct purchase never stacks on a purchase still held from before.
+    const [live] = await this.sql<Array<{ purchase_id: string }>>`
+      SELECT purchase_id FROM market.purchase_holds
+       WHERE listing_id = ${listing.id} AND buyer_id = ${input.buyerId} AND state = 'held' AND purchase_id <> ${input.purchaseId}
+       LIMIT 1
+    `;
+    if (live) throw new MarketError('A purchase of this listing is already held or settling', MARKET_PURCHASE_ALREADY_HELD);
 
     // Claim / idempotent resume. Payee, asset, and period are copied from the
     // listing and vendor rows inside the insert — not taken as separate arguments.
@@ -898,9 +897,8 @@ export class CommerceService {
       commissionBps,
       refundWindowSeconds: this.config.refundWindowSeconds ?? null,
     });
-    let clearance: HoldClearance | null = null;
     if (claimed.status === 'pending' && claimed.refundWindowSeconds !== null) {
-      clearance = await this.held.clearHold({ purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId });
+      const clearance = await this.held.clearHold({ purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId });
       if (clearance === 'refused') {
         const [now] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${claimed.id}`;
         if (now?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(now), listing);
@@ -947,7 +945,7 @@ export class CommerceService {
     const snapshotBps = claimed.commissionBps;
 
     if (claimed.refundWindowSeconds !== null) {
-      return this.postHeld(claimed, snapshotPrice, claimed.refundWindowSeconds, liveListing, clearance === 'new');
+      return this.postHeld(claimed, snapshotPrice, claimed.refundWindowSeconds, liveListing);
     }
 
     try {
@@ -1017,22 +1015,21 @@ export class CommerceService {
   }
 
   /**
-   * Post the claim's hold and settle the purchase with its hold row. The seller is paid nothing and no affiliate leg
-   * fires until release. A retry posts the same key and terms; the ledger answers the first post.
+   * Post the hold for a cleared claim and settle it. The seller is paid nothing and no affiliate leg fires until
+   * release. Each post is begun under the clearance lock first, only while the claim is still pending, so the
+   * stale-claim sweep never releases a claim whose post may still land. When the claim's only post fails in a way that
+   * proves nothing committed, the claim is released and the buyer may buy again; any other failure keeps it pending for
+   * a retry or the sweep. A retry posts the same key and terms; the ledger answers the first post.
    */
-  /**
-   * Post the hold for a cleared claim and settle it. `firstPost` is true when this claim was cleared just now, so no
-   * earlier post under its key exists: a failure that proves nothing committed then releases the claim, and the buyer
-   * may buy again. Any other failure keeps the claim pending for a retry or the stale-claim sweep.
-   */
-  private async postHeld(
-    claimed: PurchaseRecord,
-    price: Amount,
-    windowSeconds: number,
-    listing: ListingRecord,
-    firstPost: boolean,
-  ): Promise<PurchaseRecord> {
+  private async postHeld(claimed: PurchaseRecord, price: Amount, windowSeconds: number, listing: ListingRecord): Promise<PurchaseRecord> {
     const request = this.held.holdRequest({ ...claimed, price });
+    const claim = { purchaseId: claimed.id, listingId: claimed.listingId, buyerId: claimed.buyerId };
+    const attemptNo = await this.held.beginHoldPost(claim);
+    if (attemptNo === null) {
+      const [now] = await this.sql<PurchaseRow[]>`SELECT * FROM market.purchases WHERE id = ${claimed.id}`;
+      if (now?.status === 'settled') return this.ensureSubscriptionAccess(toPurchase(now), listing);
+      throw new MarketError(now?.rejection_code ?? 'Purchase previously rejected', 'market.purchase_conflict');
+    }
     let tx: LedgerTx;
     try {
       tx = await this.ledger.post(request).catch((error: unknown) => {
@@ -1045,9 +1042,12 @@ export class CommerceService {
       if (err instanceof MarketError) throw err;
       const insufficient =
         err !== null && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code === 'ledger.insufficient_funds';
-      if (firstPost) {
-        await this.held.releaseRefusedClaim(claimed.id, err, insufficient ? 'market.insufficient_funds' : 'market.purchase_hold_refused');
-      }
+      await this.held.releaseRefusedClaim(
+        claim,
+        attemptNo,
+        err,
+        insufficient ? 'market.insufficient_funds' : 'market.purchase_hold_refused',
+      );
       if (insufficient) throw new MarketError('Insufficient balance for this purchase', 'market.insufficient_funds');
       throw err;
     }

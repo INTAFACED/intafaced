@@ -20,6 +20,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MARKET_OPS_SCOPE, VendorService } from '../vendor-service.js';
 import { ReviewsService } from '../reviews/reviews-service.js';
 import { CommerceService } from './commerce-service.js';
+import { RECONCILE_AFTER_SECONDS } from './held-purchase.js';
 
 /**
  * A purchase held until its refund window ends (J-more-catalogue-02 #4 to #6), on Postgres and the in-memory ledger.
@@ -537,6 +538,155 @@ describe('market held purchase', () => {
     });
   });
 
+  const ledgerHold = (id: string) => ledger.getTxByKey(`market:hold:${id}`);
+  const clearanceRow = async (id: string) => {
+    const [row] = await sql<Array<{ attempt_no: number; reconciled: boolean; refunded: boolean }>>`
+      SELECT attempt_no, reconciled_at IS NOT NULL AS reconciled, reconcile_refund_tx_id IS NOT NULL AS refunded
+        FROM market.purchase_hold_clearances WHERE purchase_id = ${id}
+    `;
+    return row ?? null;
+  };
+  const afterReconcile = () => new Date(START.getTime() + (RECONCILE_AFTER_SECONDS + 1) * 1000);
+
+  it('a claim the sweep released while its gates were slow never posts its hold', async () => {
+    const slow = randomUUID();
+    // The claim clears, then its gates take longer than the in-flight bound; the sweep runs meanwhile.
+    const clearHold = held.held.clearHold.bind(held.held);
+    held.held.clearHold = async (input) => {
+      const clearance = await clearHold(input);
+      clock = afterBound();
+      expect(await held.held.sweepStaleClaims()).toBe(1);
+      return clearance;
+    };
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: slow })).rejects.toMatchObject({
+      code: 'market.purchase_conflict',
+    });
+    held.held.clearHold = clearHold;
+    expect(await purchaseRow(slow)).toEqual({ status: 'rejected', rejection_code: 'market.purchase_hold_not_posted' });
+    expect(await ledgerHold(slow)).toBeNull();
+    expect(await clearanceRow(slow)).toEqual({ attempt_no: 0, reconciled: false, refunded: false });
+    expect(await books(slow)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+  });
+
+  it('of two requests for one purchase id, the one provably refused never rejects the one that books', async () => {
+    const id = randomUUID();
+    // Request A begins post 1; request B begins post 2 and books; only then is A's post refused for funds.
+    const beginHoldPost = held.held.beginHoldPost.bind(held.held);
+    let begun = 0;
+    let aBegun!: () => void;
+    const first = new Promise<void>((resolve) => {
+      aBegun = resolve;
+    });
+    let bothBegun!: () => void;
+    const both = new Promise<void>((resolve) => {
+      bothBegun = resolve;
+    });
+    held.held.beginHoldPost = async (input) => {
+      const attempt = await beginHoldPost(input);
+      begun += 1;
+      if (begun === 1) aBegun();
+      if (begun === 2) bothBegun();
+      return attempt;
+    };
+    const post = ledger.post.bind(ledger);
+    let calls = 0;
+    let bBooked!: () => void;
+    const booked = new Promise<void>((resolve) => {
+      bBooked = resolve;
+    });
+    ledger.post = async (request) => {
+      if (request.idempotencyKey !== `market:hold:${id}`) return post(request);
+      calls += 1;
+      if (calls === 1) {
+        await both;
+        await booked;
+        const err = new LedgerError('Insufficient USDT', 'ledger.insufficient_funds');
+        stampPostAttempts(err, 1);
+        throw err;
+      }
+      const tx = await post(request);
+      bBooked();
+      return tx;
+    };
+    const [a, b] = await Promise.allSettled([
+      held.purchase({ buyerId: BUYER, listingId, purchaseId: id }),
+      first.then(() => held.purchase({ buyerId: BUYER, listingId, purchaseId: id })),
+    ]);
+    ledger.post = post;
+    held.held.beginHoldPost = beginHoldPost;
+    expect(a).toMatchObject({ status: 'rejected', reason: { code: 'market.insufficient_funds' } });
+    expect(b).toMatchObject({ status: 'fulfilled', value: { status: 'settled', hold: { state: 'held', heldAmount: '10' } } });
+    expect(await purchaseRow(id)).toEqual({ status: 'settled', rejection_code: null });
+    expect(await holdRow(id)).toEqual({ state: 'held', refund_requested_at: null });
+    expect(await clearanceRow(id)).toEqual({ attempt_no: 2, reconciled: false, refunded: false });
+    expect(await books(id)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+  });
+
+  it('a hold that books after the sweep released its claim is refunded to the buyer whole, once', async () => {
+    const late = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${late}`,
+      () => new Error('socket hang up'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: late })).rejects.toThrow('socket hang up');
+    restore();
+    clock = afterBound();
+    expect(await held.held.sweepStaleClaims()).toBe(1);
+    expect(await purchaseRow(late)).toEqual({ status: 'rejected', rejection_code: 'market.purchase_hold_not_posted' });
+
+    // The lost post lands after all: the buyer's money sits in the rejected claim's pot.
+    const [claim] = await sql<Array<{ asset_id: string; price: string }>>`
+      SELECT asset_id, price::text AS price FROM market.purchases WHERE id = ${late}
+    `;
+    await ledger.post(
+      held.held.holdRequest({ id: late, listingId, buyerId: BUYER, assetId: claim!.asset_id, price: parseAmount(claim!.price) }),
+    );
+    expect(await books(late)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+
+    // Not before twice the bound since its post began; then the pot goes back whole and the claim stays rejected.
+    expect(await held.held.reconcileRejectedClaims()).toBe(0);
+    clock = afterReconcile();
+    expect(await held.held.reconcileRejectedClaims()).toBe(1);
+    expect(await books(late)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+    expect((await ledger.getTxByKey(`market:refund:${late}:1`))?.id).toBeDefined();
+    expect(await clearanceRow(late)).toEqual({ attempt_no: 1, reconciled: true, refunded: true });
+    expect(await purchaseRow(late)).toEqual({ status: 'rejected', rejection_code: 'market.purchase_hold_not_posted' });
+    expect(await holdRow(late)).toBeNull();
+    expect(await held.held.reconcileRejectedClaims()).toBe(0);
+    expect(await books(late)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+    await expect(
+      sql`UPDATE market.purchase_hold_clearances SET reconcile_refund_tx_id = NULL WHERE purchase_id = ${late}`,
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('a refused claim with no hold on the book is reconciled with nothing moved', async () => {
+    const poor = randomUUID();
+    const restore = failPosts(
+      (r) => r.idempotencyKey === `market:hold:${poor}`,
+      () => new LedgerError('Insufficient USDT', 'ledger.insufficient_funds'),
+    );
+    await expect(held.purchase({ buyerId: BUYER, listingId, purchaseId: poor })).rejects.toMatchObject({
+      code: 'market.insufficient_funds',
+    });
+    restore();
+    clock = afterReconcile();
+    expect(await held.held.reconcileRejectedClaims()).toBe(1);
+    expect(await clearanceRow(poor)).toEqual({ attempt_no: 1, reconciled: true, refunded: false });
+    expect(await ledger.getTxByKey(`market:refund:${poor}:1`)).toBeNull();
+    expect(await books(poor)).toEqual({ buyer: '100', pot: '0', seller: '0', house: '0' });
+  });
+
+  it('with the refund window off, a direct purchase does not stack on a purchase still held', async () => {
+    const kept = randomUUID();
+    await held.purchase({ buyerId: BUYER, listingId, purchaseId: kept });
+    const direct = randomUUID();
+    await expect(service(null).purchase({ buyerId: BUYER, listingId, purchaseId: direct })).rejects.toMatchObject({
+      code: 'market.purchase_already_held',
+    });
+    expect(await purchaseRow(direct)).toBeNull();
+    expect(await books(kept)).toEqual({ buyer: '90', pot: '10', seller: '0', house: '0' });
+  });
+
   it('refuses the 0012 reversal while any purchase was claimed with a refund window', async () => {
     await held.purchase({ buyerId: BUYER, listingId, purchaseId: randomUUID() });
     await expect(sql.begin((tx) => tx.unsafe(down0012))).rejects.toMatchObject({ code: '23514' });
@@ -556,6 +706,13 @@ describe('market held purchase', () => {
     await expect(
       sql`UPDATE market.purchase_hold_clearances SET last_post_at = last_post_at - interval '1 hour' WHERE purchase_id = ${lost}`,
     ).rejects.toMatchObject({ code: '23514' });
+    await expect(sql`UPDATE market.purchase_hold_clearances SET attempt_no = 0 WHERE purchase_id = ${lost}`).rejects.toMatchObject({
+      code: '23514',
+    });
+    await expect(sql.begin((tx) => tx.unsafe(down0013))).rejects.toMatchObject({ code: '23514' });
+    // Rejected by the sweep, it is still unreconciled: the reversal stays refused until the reconcile has run.
+    clock = afterBound();
+    expect(await held.held.sweepStaleClaims()).toBe(1);
     await expect(sql.begin((tx) => tx.unsafe(down0013))).rejects.toMatchObject({ code: '23514' });
     const [table] = await sql<Array<{ t: string | null }>>`SELECT to_regclass('market.purchase_hold_clearances')::text AS t`;
     expect(table!.t).toBe('purchase_hold_clearances');

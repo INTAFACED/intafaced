@@ -1,6 +1,7 @@
 -- Reverse 0013_market_hold_claims.sql
 -- A clearance is the only record that a pending held claim may have a hold on the ledger; the reversal refuses while
--- any cleared claim is still pending, so no pot loses its way back.
+-- any cleared claim is still pending, or a rejected one that began a post is not yet reconciled, so no pot loses its
+-- way back.
 LOCK TABLE "market"."purchases" IN ACCESS EXCLUSIVE MODE;
 
 DO $$
@@ -9,8 +10,9 @@ BEGIN
     SELECT 1 FROM "market"."purchase_hold_clearances" c
       JOIN "market"."purchases" p ON p."id" = c."purchase_id"
      WHERE p."status" = 'pending'
+        OR (p."status" = 'rejected' AND c."attempt_no" > 0 AND c."reconciled_at" IS NULL)
   ) THEN
-    RAISE EXCEPTION 'market.hold_claims_downgrade_refused: a cleared held claim is still pending'
+    RAISE EXCEPTION 'market.hold_claims_downgrade_refused: a cleared held claim is still pending or unreconciled'
       USING ERRCODE = 'check_violation';
   END IF;
 END;
