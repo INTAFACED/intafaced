@@ -89,7 +89,6 @@ function workspaceGlobDirs() {
   return dirs;
 }
 
-
 /**
  * Every package under `vendor/`, at ANY depth. Used by check 7 below.
  *
