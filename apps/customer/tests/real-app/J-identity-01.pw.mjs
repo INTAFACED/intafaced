@@ -1,6 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, api, fund, journeyState, mailedCodes, mailedConfirmLinks, nextMailedCode, signOutBrowser } from './stack.mjs';
+import {
+  DEVICE_KEY,
+  EDGE,
+  api,
+  fund,
+  journeyState,
+  mailedCodes,
+  mailedConfirmLinks,
+  nextMailedCode,
+  signOutBrowser,
+  signUpInBrowser,
+  tool,
+} from './stack.mjs';
 import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } from './desk.mjs';
 
 // J-identity-01, in the running app (docs/roadmap/journeys.json): sign up with an email, get the code, land signed in.
@@ -30,6 +42,40 @@ async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', 
   await page.getByRole('button', { name: 'Create account' }).click();
 }
 
+/** identity's own sign-up step 1, sent as the page sends it: the status and the typed code of a refusal. */
+async function signUpStart(who, fields = {}) {
+  const res = await fetch(`${EDGE}/api/identity/trpc/auth.signUpStart`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      channel: 'email',
+      handle: who.handle,
+      email: who.email,
+      password: who.password,
+      country: 'DE',
+      dateOfBirth: '1990-05-01',
+      accountType: 'individual',
+      ...fields,
+    }),
+  });
+  const body = await res.json();
+  const data = body.error?.data;
+  return { status: res.status, result: body.result?.data, code: data?.intafacedCode ?? data?.cause?.code ?? data?.code, data };
+}
+
+/** Identity restarted with sign-up published as closed, or back on the stack's TEST "open". */
+function registration(open) {
+  const before = process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
+  if (open) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
+  else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = 'closed';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
+    else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = before;
+  }
+}
+
 /** Nothing was made for `who`: the password does not sign in. */
 async function noAccount(who) {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -55,10 +101,47 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await expect(notice(page)).toContainText('cannot open accounts for this country');
   await noAccount(who);
 
+  // A country that is not on the list at all is refused by its own code, before anything else is checked (the page's
+  // list cannot send one, so it goes as the page would send it).
+  expect((await signUpStart(who, { country: 'XQ' })).code).toBe('identity.country_invalid');
+  await noAccount(who);
+
+  // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
+  // no code mailed anywhere.
+  await page.goto('/register');
+  await page.getByRole('radio', { name: 'Phone' }).check();
+  await page.getByLabel('Phone number, international format (+…)').fill('+491701234567');
+  await page.getByLabel('Handle').fill(who.handle);
+  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByLabel('Date of birth').fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(notice(page)).toContainText(
+    'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
+  );
+  expect(mailedCodes(who.email)).toHaveLength(0);
+  await noAccount(who);
+
+  // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
+  registration(false);
+  try {
+    await details(page, who);
+    await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
+    await noAccount(who);
+  } finally {
+    registration(true);
+  }
+
   // A good record goes on to the code step; still no account until the code is entered.
   await details(page, who);
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await noAccount(who);
+});
+
+test(`${J} #1 a Business account type signs up the same way and goes on to business verification after the code`, async ({ page }) => {
+  const who = person();
+  await signUpInBrowser(page, who, { accountType: 'business' });
+  await expect(page).toHaveURL(/\/identbusiness/);
 });
 
 test(`${J} #2 a too-short password is refused with the rule in words before any account exists`, async ({ page }) => {
@@ -68,6 +151,11 @@ test(`${J} #2 a too-short password is refused with the rule in words before any 
   await details(page, who, { password: 'short9' });
   await expect(notice(page)).toContainText('at least 12 characters');
   expect(mailedCodes(who.email)).toHaveLength(0);
+  // A long enough password that is known from a breach (the stack's TEST breach list) is refused by name too.
+  await details(page, who, { password: 'TEST-breached-password-0001' });
+  await expect(notice(page)).toContainText('That password is known from a data breach. Choose a different one.');
+  expect(mailedCodes(who.email)).toHaveLength(0);
+  await noAccount(who);
 });
 
 test(`${J} #3 a social or wallet sign-in button says it needs an outside provider that is switched off, with the code`, async ({
@@ -249,6 +337,25 @@ test(`${J} #7b asking for more confirmation emails than the hour allows says how
   await expect(banner.getByRole('alert')).toContainText(/You can ask again in \d+ min\./);
   await expect(banner.getByRole('alert')).toContainText('auth.email_confirm_rate_limited');
   expect(mailedConfirmLinks(who.email)).toHaveLength(5);
+});
+
+test(`${J} #7 a new sign-up code asked for before the interval is refused with the seconds left, and nothing more is sent`, async () => {
+  const who = person();
+  const started = await signUpStart(who);
+  expect(started.status, JSON.stringify(started.data)).toBe(200);
+  await expect.poll(() => mailedCodes(who.email).length, { timeout: 20_000 }).toBe(1);
+  // Straight away, identity itself refuses the resend (the page's button is held, so it goes as the page would send it).
+  const res = await fetch(`${EDGE}/api/identity/trpc/auth.signUpResend`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ flowId: started.result.flowId }),
+  });
+  const data = (await res.json()).error?.data;
+  expect(data?.intafacedCode ?? data?.cause?.code ?? data?.code).toBe('identity.resend_too_soon');
+  // The stack's TEST interval is 30 seconds: the wait left is in seconds, within it.
+  expect(data.retryAfterSeconds).toBeGreaterThan(0);
+  expect(data.retryAfterSeconds).toBeLessThanOrEqual(30);
+  expect(mailedCodes(who.email)).toHaveLength(1);
 });
 
 test(`${J} #8 a verified, funded account with an email never proved is stopped at the trade room until it proves it`, async ({ page }) => {

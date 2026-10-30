@@ -232,7 +232,13 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
 }) => {
   test.setTimeout(150_000);
   const totp = await totpOf();
-  const { who, codes } = await withAuthenticator(page);
+  const { who, codes, secret, step: enrolled } = await withAuthenticator(page);
+  let step = enrolled;
+  const oldCode = async () => {
+    let code;
+    ({ code, step } = await nextCode(totp, secret, step));
+    return code;
+  };
 
   // On the new phone: sign in with a recovery code, then replace the app from Security. The old app is gone, so a
   // recovery code confirms it is them and a second one proves the old factor; each is spent.
@@ -247,6 +253,21 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
     .click();
   await expect(other).toHaveURL(/\/uc\/safe/);
   const card = other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' });
+  // Until the new app is proved, the old one still works: its code confirms the replace, and a wrong code from the new
+  // app is refused, which leaves the old app in place (it confirms again below) and the new key unused.
+  await card.getByRole('button', { name: 'Replace', exact: true }).click();
+  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const firstKey = (await card.locator('code').innerText()).trim();
+  const right = totp(firstKey);
+  await card.getByLabel('Code from the new app').fill(String((Number(right) + 1) % 1_000_000).padStart(6, '0'));
+  await card.getByLabel('Next code or a recovery code').fill(await oldCode());
+  const refused = other.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/totpManage.replaceConfirm'));
+  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
+  const wrong = await (await refused).json();
+  expect(wrong.error.data.intafacedCode ?? wrong.error.data.cause?.code ?? wrong.error.data.code).toBe('auth.mfa_invalid');
+  await expect(card.getByText('Authenticator app replaced')).toHaveCount(0);
+  await other.reload();
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -473,7 +494,12 @@ test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) =
   await page.getByRole('button', { name: /^Remove passkey / }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
   const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-  if (await sheet.isVisible({ timeout: 3_000 }).catch(() => false)) {
+  if (
+    await sheet.waitFor({ state: 'visible', timeout: 3_000 }).then(
+      () => true,
+      () => false,
+    )
+  ) {
     await confirmSheet();
     await page.getByRole('button', { name: /^Remove passkey / }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
@@ -486,11 +512,15 @@ test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) =
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(await code());
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-  const newKey = (await card.locator('code').innerText()).trim();
-  await card.getByLabel('Code from the new app').fill(totp(newKey));
-  await card.getByLabel('Next code or a recovery code').fill(await code());
-  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
-  await expect(card.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app replaced');
+  const setup = page
+    .locator('[data-testid="security__authenticator"]')
+    .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
+  await expect(setup).toHaveCount(1);
+  const newKey = (await setup.locator('code').innerText()).trim();
+  await setup.getByLabel('Code from the new app').fill(totp(newKey));
+  await setup.getByLabel('Next code or a recovery code').fill(await code());
+  await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
   await notified('totp_replaced', 'Authenticator app replaced');
 
   // The new app turned off, with its codes.
@@ -500,7 +530,13 @@ test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) =
   await card.getByLabel('6-digit code or a recovery code').fill(await code());
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
   const next = card.getByLabel('Next code or a recovery code');
-  if (await next.isVisible({ timeout: 3_000 }).catch(() => false)) await next.fill(await code());
+  if (
+    await next.waitFor({ state: 'visible', timeout: 3_000 }).then(
+      () => true,
+      () => false,
+    )
+  )
+    await next.fill(await code());
   await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
   await expect(card.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app turned off');
   await notified('totp_removed', 'Authenticator app turned off');

@@ -49,7 +49,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...c('svc-identity', PORTS.identity),
     DATABASE_URL: dbUrl('svc_identity', secrets),
     LEDGER_URL: urlOf('ledger'),
-    REGISTRATION_OPEN: 'true',
+    // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
+    // seen too (J-identity-01 #1).
+    REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
     // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
     // http://localhost:3210 for passkeys. Not the production relying party.
     WEBAUTHN_ENABLED: 'true',

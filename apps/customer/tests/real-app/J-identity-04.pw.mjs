@@ -354,13 +354,17 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   ({ code, step } = await nextCode(totp, secret, step));
   await real.getByLabel('6-digit code or a recovery code').fill(code);
   await real.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(real).toContainText('Add this key to your new authenticator app, then enter the code it shows.');
-  const newKey = (await real.locator('code').innerText()).trim();
-  await real.getByLabel('Code from the new app').fill(totp(newKey));
+  // The new key shows in its own setup card, under the same name.
+  const setup = page
+    .locator('[data-testid="security__authenticator"]')
+    .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
+  await expect(setup).toHaveCount(1);
+  const newKey = (await setup.locator('code').innerText()).trim();
+  await setup.getByLabel('Code from the new app').fill(totp(newKey));
   ({ code, step } = await nextCode(totp, secret, step));
-  await real.getByLabel('Next code or a recovery code').fill(code);
-  await real.getByRole('button', { name: 'Replace authenticator app' }).click();
-  await expect(real.locator('[data-testid="notice"][role=status]')).toContainText('Authenticator app replaced');
+  await setup.getByLabel('Next code or a recovery code').fill(code);
+  await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
 
   // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
   await page.context().clock.install({ time: new Date(Date.now() + 90_000) });

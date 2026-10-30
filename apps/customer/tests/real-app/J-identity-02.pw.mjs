@@ -232,6 +232,11 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
   const waiting = await fresh.newPage();
   await waiting.goto('/login');
   await fillSignIn(waiting, who.email, who.password);
+  // The account has an authenticator, so its code comes first; only then is the browser itself asked about.
+  let code;
+  ({ code, step } = await nextCode(totp, secret, step));
+  await waiting.fill('input[name=totp]', code);
+  await fillSignIn(waiting, who.email, who.password);
   await expect(waiting.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
 
   // The signed-in session sees the waiting sign-in and approves it, confirmed with its authenticator.
@@ -242,7 +247,6 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
   await expect(approve).toHaveCount(1);
   await approve.click();
   await expect(card.getByText('Confirm it is you. The waiting browser then signs in by itself.')).toBeVisible();
-  let code;
   ({ code, step } = await nextCode(totp, secret, step));
   await card.getByLabel('6-digit code from your authenticator app').fill(code);
   const approved = trusted.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/trustedDevices.approve'));
