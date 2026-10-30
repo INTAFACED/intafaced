@@ -41,6 +41,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     OPS_HOME_WORK_LIST_CAP: testValue('OPS_HOME_WORK_LIST_CAP'),
     OPS_HOME_WORK_LIST_ORDER: testValue('OPS_HOME_WORK_LIST_ORDER'),
     OPS_HOME_SEARCH_RESULT_CAP: testValue('OPS_HOME_SEARCH_RESULT_CAP'),
+    // Home's announcement strip count (J-home-ia-06), TEST in the same profile. `LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT=off`
+    // on a start or restart leaves it blank, so the strip's refusal (home.notice_strip_limit_unset) can be seen.
+    ...(process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT === 'off'
+      ? {}
+      : { OPS_HOME_NOTICE_STRIP_LIMIT: testValue('OPS_HOME_NOTICE_STRIP_LIMIT') }),
     // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
     // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
     OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),

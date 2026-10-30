@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
-import { ORIGIN, ROOT } from './stack.mjs';
+import { ORIGIN, ROOT, tool } from './stack.mjs';
 
 // J-home-ia-06's clauses that need a product change before they can run, each red by name. They sit in their own file
 // so a red here never skips a built step of J-home-ia-06.pw.mjs, whose steps run serially. When the product lands,
@@ -36,24 +36,35 @@ test(`${J} #5 every shell control (bell and inbox, avatar menu, mode switch, Web
   ).toBe(true);
 });
 
-test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the strip says "not set" (BLOCKED notice_strip_limit until Home reads the notice list with an owner-set limit)`, async ({
-  browser,
-}) => {
-  // Home reads only noticeStatus and the one announcement (src/screens/home/Notices.tsx); it never reads the notice list
-  // with a limit, so no owner value sets a strip count and there is no blank value to restart with.
+test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({ browser }) => {
+  test.setTimeout(180_000);
+  // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
+  // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
+  const blankCount = (blank) => {
+    const before = process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
+    if (blank) process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT = 'off';
+    else delete process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
+    try {
+      tool('local-test-stack.mjs', 'restart', 'ops');
+    } finally {
+      if (before === undefined) delete process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
+      else process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT = before;
+    }
+  };
   const context = await browser.newContext({ baseURL: ORIGIN });
   const page = await context.newPage();
+  blankCount(true);
   try {
     await signUp(page, 'hml');
-    // Built means: with the strip count left blank (the stack sets none), Home's strip says it is not set, with the typed
-    // code, rather than drawing any number of notices.
+    // With the strip count blank, Home's strip says it is not set, with the typed code, rather than drawing any number
+    // of notices.
     await page.goto('/home');
     await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
-    await expect(
-      page.locator('[data-code="home.notice_strip_limit_unset"]'),
-      'BLOCKED notice_strip_limit: Home never refuses a blank strip count with home.notice_strip_limit_unset',
-    ).toContainText(/not set/i, { timeout: 15_000 });
+    const unset = page.locator('[data-code="home.notice_strip_limit_unset"]');
+    await expect(unset).toContainText(/not set/i, { timeout: 15_000 });
+    await expect(page.getByTestId('home-notice').filter({ has: page.locator('[data-kind="announcement"]') })).toHaveCount(0);
   } finally {
+    blankCount(false);
     await context.close();
   }
 });

@@ -4,7 +4,8 @@ import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { StatusTag } from './deps';
 import { homeNotices, type HomeNotice } from './notice-model';
-import { readAnnouncement, readNoticeStatus } from '../../features/public/notices-api';
+import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import { readLatestAnnouncements, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
@@ -39,15 +40,26 @@ function useLogged(resource: Resource<unknown>, what: string) {
 
 /**
  * The notice board on Home (HM-widgets-03): a banner for each open incident or maintenance window, with its end time,
- * and a strip for the current announcement. Published notices only, plain text only, and nothing at all when there is
- * nothing to show or the board does not answer.
+ * and a strip of the latest announcements, as many as the owner's strip count (`home.config`). Published notices only,
+ * plain text only, and nothing at all when there is nothing to show or the board does not answer. While the strip count
+ * is blank the strip says so with `home.notice_strip_limit_unset`, and no number of notices is invented.
  */
 export function HomeNotices() {
   const { api } = useSession();
   const status = useResource((signal) => readNoticeStatus(api, signal), 'home-notice-status');
-  const announcement = useResource((signal) => readAnnouncement(api, signal), 'home-announcement');
+  const config = useResource(
+    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
+    'home-config',
+  );
+  const limit = config.resource.status === 'ready' ? config.resource.data.noticeStripLimit : null;
+  const announcement = useResource(
+    (signal) => (limit === null ? Promise.resolve({ ok: true as const, data: [] }) : readLatestAnnouncements(api, limit, signal)),
+    `home-announcements:${limit ?? 'unset'}`,
+  );
   useLogged(status.resource, 'notice status');
-  useLogged(announcement.resource, 'announcement');
+  useLogged(config.resource, 'owner values');
+  useLogged(announcement.resource, 'announcements');
+  const stripUnset = config.resource.status === 'ready' && limit === null;
   const [now, setNow] = useState(() => Date.now());
   const reread = useRef(() => {});
   reread.current = () => {
@@ -62,18 +74,34 @@ export function HomeNotices() {
   const lastStatus = useLastAnswer(status.resource);
   const lastAnnouncement = useLastAnswer(announcement.resource);
   const { banner, strip } = useMemo(() => homeNotices(lastStatus, lastAnnouncement, now), [lastStatus, lastAnnouncement, now]);
-  if (banner.length === 0 && strip === null) return null;
+  if (banner.length === 0 && strip.length === 0 && !stripUnset) return null;
   return (
     <div data-testid="home-notices" className="home-notices">
       {banner.map((notice) => (
         <NoticeRow key={notice.id} notice={notice} banner />
       ))}
-      {strip ? <NoticeRow notice={strip} banner={false} /> : null}
+      {strip.map((notice, index) => (
+        <NoticeRow key={notice.id} notice={notice} banner={false} all={index === 0} />
+      ))}
+      {stripUnset ? <StripUnset /> : null}
     </div>
   );
 }
 
-export function NoticeRow({ notice, banner }: { notice: HomeNotice; banner: boolean }) {
+/** The strip while the owner's strip count is blank: it says so, with the typed code, and lists no notice. */
+function StripUnset() {
+  const { t } = homeCopy.useCopy();
+  return (
+    <section data-testid="home-notice-strip-unset" className="home-notice" role="status" data-code={NOTICE_STRIP_LIMIT_UNSET}>
+      <p className="home-notice__title">{t('Notice strip unset')}</p>
+      <a className="home-notice__link" href="/notice">
+        {t('Notice all')}
+      </a>
+    </section>
+  );
+}
+
+export function NoticeRow({ notice, banner, all = !banner }: { notice: HomeNotice; banner: boolean; all?: boolean }) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
   const kind = KIND[notice.kind];
@@ -93,7 +121,7 @@ export function NoticeRow({ notice, banner }: { notice: HomeNotice; banner: bool
         {t('Notice read')}
         <ChevronRight size={14} aria-hidden="true" />
       </a>
-      {banner ? null : (
+      {banner || !all ? null : (
         <a className="home-notice__link" href="/notice">
           {t('Notice all')}
         </a>

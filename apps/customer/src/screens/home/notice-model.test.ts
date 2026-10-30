@@ -22,8 +22,8 @@ const incident = notice({ id: '00000000-0000-4000-8000-000000000003', kind: 'inc
 
 describe('Home notices (HM-widgets-03)', () => {
   it('draws nothing when nothing is published or the reads failed', () => {
-    expect(homeNotices({ incidents: [], maintenance: [] }, null, NOW)).toEqual({ banner: [], strip: null });
-    expect(homeNotices(null, null, NOW)).toEqual({ banner: [], strip: null });
+    expect(homeNotices({ incidents: [], maintenance: [] }, null, NOW)).toEqual({ banner: [], strip: [] });
+    expect(homeNotices(null, null, NOW)).toEqual({ banner: [], strip: [] });
   });
 
   it('puts incidents before maintenance windows in the banner, each once', () => {
@@ -33,10 +33,14 @@ describe('Home notices (HM-widgets-03)', () => {
     ]);
   });
 
-  it('shows the current announcement once in the strip, and keeps the banner when the announcement read failed', () => {
+  it('shows the latest announcements in the strip, each once and announcements only, and keeps the banner when their read failed', () => {
     const announcement = notice({});
-    expect(homeNotices({ incidents: [], maintenance: [] }, announcement, NOW).strip).toEqual(announcement);
-    expect(homeNotices({ incidents: [], maintenance: [window] }, null, NOW)).toEqual({ banner: [window], strip: null });
+    const later = notice({ id: '00000000-0000-4000-8000-000000000004' });
+    expect(homeNotices({ incidents: [], maintenance: [] }, [later, announcement, announcement, window], NOW).strip).toEqual([
+      later,
+      announcement,
+    ]);
+    expect(homeNotices({ incidents: [], maintenance: [window] }, null, NOW)).toEqual({ banner: [window], strip: [] });
   });
 
   it('drops a window that closed since the read', () => {
@@ -45,6 +49,6 @@ describe('Home notices (HM-widgets-03)', () => {
 
   it('never draws a draft, whatever the read held', () => {
     const draft = notice({ status: 'draft' });
-    expect(homeNotices({ incidents: [], maintenance: [{ ...window, status: 'draft' }] }, draft, NOW)).toEqual({ banner: [], strip: null });
+    expect(homeNotices({ incidents: [], maintenance: [{ ...window, status: 'draft' }] }, [draft], NOW)).toEqual({ banner: [], strip: [] });
   });
 });

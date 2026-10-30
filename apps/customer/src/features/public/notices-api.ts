@@ -16,6 +16,10 @@ export const feedNotices = (rows: readonly Notice[]): Notice[] => rows.filter((r
 export const readNotices = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
   api.query('notify', 'notify.notices', { limit: NOTICE_LIST_LIMIT }, z.array(entrySchema).max(NOTICE_LIST_LIMIT), { signal });
 
+/** The latest `limit` published announcements, newest first (Home's strip; `limit` is the owner's strip count). */
+export const readLatestAnnouncements = (api: ApiClient, limit: number, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
+  api.query('notify', 'notify.notices', { kind: 'announcement', limit }, z.array(entrySchema).max(limit), { signal });
+
 export type MaintenancePhase = 'scheduled' | 'in_progress' | 'completed' | 'end_unset' | 'time_unset';
 
 /**
@@ -49,10 +53,3 @@ export type NoticeStatus = z.infer<typeof noticeStatusSchema>;
 export const readNoticeStatus = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<NoticeStatus>> =>
   api.query('notify', 'notify.noticeStatus', undefined, noticeStatusSchema, { signal });
 
-export const ANNOUNCEMENT_UNSET = 'notify.announcement_unset';
-
-/** The current published announcement. None published is an answer, `null`, not a failed read. */
-export const readAnnouncement = async (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice | null>> => {
-  const result = await api.query('notify', 'notify.announcement', undefined, entrySchema, { signal });
-  return !result.ok && result.code === ANNOUNCEMENT_UNSET ? { ok: true, data: null } : result;
-};
