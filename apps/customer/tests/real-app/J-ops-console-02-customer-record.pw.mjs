@@ -10,8 +10,8 @@ import { tool } from './stack.mjs';
 // account, each read loading or refusing on its own, and a part no service can read for one account names why; with svc-trade
 // stopped only the trade tab's read refuses and every other read keeps its state (#3). And the risk card and indicator strip,
 // which say there is no risk level and nothing is set rather than show a number (#4).
-// Not proven here: #3's last clause, a staff member without the cards scope seeing "permission denied". The console signs in
-// founders only until staff access (OPS-admin-access-03) is built, so there is no such member to sign in. Step #5
+// #3's last clause, a staff member without the cards scope seeing "permission denied", fails by name: the console signs in
+// founders only until staff access (OPS-admin-access-03) is built, so there is no such member to sign in yet. Step #5
 // (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
 // The account looked at is the stack's second TEST founder, an account that always exists on the stack.
 
@@ -137,4 +137,12 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   await page.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
   await expect(page.getByTestId('customer-panel-trade')).toBeVisible({ timeout: 60_000 });
   expect(await readState(page.getByTestId('read-trade.controls'))).toBe('read');
+
+  // A staff member without the cards scope sees "permission denied" on the cards tab. The console has no staff sign-in yet,
+  // so this clause cannot run and the step stays red for that reason until staff access is built.
+  const staffWithoutCards = null;
+  expect(
+    staffWithoutCards,
+    'no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built',
+  ).not.toBeNull();
 });
