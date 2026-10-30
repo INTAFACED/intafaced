@@ -24,6 +24,7 @@ import {
   type DisputeRecord,
   type P2pService,
   type RemarkCase,
+  type ShareLinkRecord,
 } from './p2p-service.js';
 import {
   CASH_RELEASE_MAX_SECONDS,
@@ -147,12 +148,17 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
  * parser. `offers.page` is the cursor page. Cursor is not a list input.
  */
 /** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
+/** P-ads-merchant-07: a share token as `offers.shareLinks.create` makes it (32 base64url characters). */
+const shareTokenInput = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
+
 const takeAmountInput = z
   .object({
     offerId: z.string().guid(),
     amount: amountString.optional(),
     fiatAmount: amountString.optional(),
     method: z.string().min(1).max(64),
+    /** P-ads-merchant-07: the share link the taker came by; required for a private ad. */
+    shareToken: shareTokenInput.optional(),
   })
   .refine((value) => (value.amount === undefined) !== (value.fiatAmount === undefined), {
     message: 'p2p.invalid_amount: give the amount in the coin or in fiat, not both',
@@ -217,6 +223,8 @@ const offerOutput = z.object({
   pauseReason: z.enum(['method_removed']).nullable(),
   /** P-ads-merchant-06: why the ad is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
   closeReason: z.enum(['by_you', 'sold_out']).nullable(),
+  /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
+  visibility: z.enum(['public', 'private']),
   /** P-ads-merchant-06: when the ad came into its present status. */
   statusSince: z.string(),
   /** P-ads-merchant-06: the closed ad this one relisted, or null. */
@@ -225,6 +233,28 @@ const offerOutput = z.object({
   relistedAs: z.string().guid().nullable().optional(),
   createdAt: z.string(),
 });
+
+/** P-ads-merchant-07: one share link, as its maker reads it. */
+const shareLinkOutput = z.object({
+  id: z.string().guid(),
+  offerId: z.string().guid(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+
+function toShareLinkOut<T extends ShareLinkRecord>(
+  link: T,
+): z.infer<typeof shareLinkOutput> & (T extends { token: string } ? { token: string } : unknown) {
+  return {
+    id: link.id,
+    offerId: link.offerId,
+    createdAt: link.createdAt.toISOString(),
+    expiresAt: link.expiresAt.toISOString(),
+    revokedAt: link.revokedAt?.toISOString() ?? null,
+    ...('token' in link ? { token: (link as { token: string }).token } : {}),
+  } as never;
+}
 
 /** P-disputes-security-09: how money on a method arrives in one market. */
 const settlementOutput = z.union([
@@ -235,6 +265,8 @@ const settlementOutput = z.union([
 const tradeOutput = z.object({
   id: z.string().guid(),
   offerId: z.string().guid(),
+  /** P-ads-merchant-07: the order was taken through a share link. */
+  sharedFrom: z.boolean(),
   sellerId: z.string(),
   buyerId: z.string(),
   asset: z.string(),
@@ -657,6 +689,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.method_not_rail_validated':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
+      // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
+      case 'p2p.offer_private':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       // The caller can fix these: earn the record, or supply a reason. Not a
       // permission problem, so not FORBIDDEN — that would send an applicant
@@ -688,6 +722,9 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.buying_restricted':
       // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them).
       case 'p2p.offer_has_open_trades':
+      // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
+      case 'p2p.share_link_expired':
+      case 'p2p.share_link_revoked':
       // A reminder before the wait has passed (the error data says when it may go), or past the owner's count.
       case 'p2p.remind_too_early':
       case 'p2p.remind_rate_limited':
@@ -1364,9 +1401,11 @@ export function createP2pRouter(
         .query(async ({ ctx, input }) => guard(async () => presentBoard(ctx.principal.userId, input, true))),
 
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ offerId: z.string().guid() }))
+        .input(z.object({ offerId: z.string().guid(), shareToken: shareTokenInput.optional() }))
         .output(offerOutput)
-        .query(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.getOffer(input.offerId, ctx.principal.userId)))),
+        .query(async ({ ctx, input }) =>
+          guard(async () => presentOffer(await p2p.getOffer(input.offerId, ctx.principal.userId, input.shareToken))),
+        ),
 
       /** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. */
       mine: merchantApiProcedure('p2p:read')
@@ -1417,6 +1456,55 @@ export function createP2pRouter(
             );
           }),
         ),
+
+      /** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. */
+      setVisibility: merchantApiProcedure('p2p:write')
+        .input(z.object({ offerId: z.string().guid(), visibility: z.enum(['public', 'private']) }))
+        .output(offerOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => presentOffer(await p2p.setOfferVisibility(input.offerId, ctx.principal.userId, input.visibility))),
+        ),
+
+      /**
+       * P-ads-merchant-07: links to the caller's own ad. `create` returns the token once (only its hash is kept), living
+       * `seconds` or the owner's longest (`P2P_SHARE_LINK_MAX_SECONDS`, blank refuses); `list` never returns tokens;
+       * `revoke` ends a link at once.
+       */
+      shareLinks: router({
+        create: merchantApiProcedure('p2p:write')
+          .input(
+            z.object({
+              linkId: z.string().guid(),
+              offerId: z.string().guid(),
+              seconds: z.number().int().min(1).max(31_536_000).optional(),
+            }),
+          )
+          .output(shareLinkOutput.extend({ token: shareTokenInput }))
+          .mutation(async ({ ctx, input }) =>
+            guard(async () =>
+              toShareLinkOut(
+                await p2p.createShareLink({
+                  linkId: input.linkId,
+                  offerId: input.offerId,
+                  makerId: ctx.principal.userId,
+                  ...(input.seconds === undefined ? {} : { seconds: input.seconds }),
+                }),
+              ),
+            ),
+          ),
+        list: merchantApiProcedure('p2p:read')
+          .input(z.object({ offerId: z.string().guid() }))
+          .output(z.array(shareLinkOutput))
+          .query(async ({ ctx, input }) =>
+            guard(async () => (await p2p.listShareLinks(input.offerId, ctx.principal.userId)).map(toShareLinkOut)),
+          ),
+        revoke: merchantApiProcedure('p2p:write')
+          .input(z.object({ linkId: z.string().guid() }))
+          .output(shareLinkOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => toShareLinkOut(await p2p.revokeShareLink(input.linkId, ctx.principal.userId))),
+          ),
+      }),
 
       close: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().guid() }))
@@ -1586,6 +1674,8 @@ export function createP2pRouter(
             quoteId: z.string().guid().optional(),
             /** P-trade-orders-07: identity's single-use confirmation of exactly this take. Optional inside a live window. */
             stepUpApprovalId: z.string().min(1).max(128).optional(),
+            /** P-ads-merchant-07: the share link the taker came by; required for a private ad, and marks the order shared. */
+            shareToken: shareTokenInput.optional(),
           }),
         )
         .output(tradeOutput)
@@ -1614,6 +1704,7 @@ export function createP2pRouter(
                 method: input.method,
                 ...(input.quoteId ? { quoteId: input.quoteId } : {}),
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
+                ...(input.shareToken ? { shareToken: input.shareToken } : {}),
               }),
             );
           }),
@@ -1898,6 +1989,7 @@ export function createP2pRouter(
               method: input.method,
               ...takeAmountOf(input),
               ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
+              ...(input.shareToken ? { shareToken: input.shareToken } : {}),
             });
             return {
               amount: formatAmount(quoted.amount),
@@ -1941,6 +2033,7 @@ export function createP2pRouter(
               method: input.method,
               ...takeAmountOf(input),
               ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
+              ...(input.shareToken ? { shareToken: input.shareToken } : {}),
             });
             return {
               quoteId: locked.quoteId,
@@ -3901,6 +3994,7 @@ function toOfferOut(
     status: offer.status,
     pauseReason: offer.pauseReason ?? null,
     closeReason: offer.closeReason ?? null,
+    visibility: offer.visibility,
     statusSince: offer.statusSince.toISOString(),
     relistedFrom: offer.relistedFrom ?? null,
     ...(offer.relistedAs === undefined ? {} : { relistedAs: offer.relistedAs }),
@@ -4009,6 +4103,7 @@ function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOu
   return {
     id: trade.id,
     offerId: trade.offerId,
+    sharedFrom: trade.sharedFrom,
     sellerId: trade.sellerId,
     buyerId: trade.buyerId,
     asset: trade.asset,
