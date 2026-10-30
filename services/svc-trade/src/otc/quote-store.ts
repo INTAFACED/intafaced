@@ -130,7 +130,11 @@ export class MemoryOtcQuoteStore implements OtcQuoteStore {
   async saveBound(quote: OtcQuote, bound: BoundOtcFill): Promise<void> {
     // The partial unique index of the SQL store, kept here too: one bound or settled quote per request.
     for (const other of this.byId.values()) {
-      if (other.quote.rfqId === quote.rfqId && other.quote.quoteId !== quote.quoteId && (other.lifecycle === 'bound' || other.lifecycle === 'settled')) {
+      if (
+        other.quote.rfqId === quote.rfqId &&
+        other.quote.quoteId !== quote.quoteId &&
+        (other.lifecycle === 'bound' || other.lifecycle === 'settled')
+      ) {
         refuseSecondAccept(quote.rfqId);
       }
     }

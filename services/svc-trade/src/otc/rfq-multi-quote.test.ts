@@ -72,7 +72,15 @@ const ask = (makerIds: string[], side: 'buy' | 'sell' = 'buy') => ({ side, baseA
 
 describe('a provider spread in the directory (#5)', () => {
   it('a platform provider may carry an owner spread anywhere; left out, it has none', () => {
-    const dir = parseOtcMakerDirectoryJson(JSON.stringify({ selectCap: 2, makers: [{ ...HOUSE, spreadBps: 15 }, { ...HOUSE, id: 'h2' }] }));
+    const dir = parseOtcMakerDirectoryJson(
+      JSON.stringify({
+        selectCap: 2,
+        makers: [
+          { ...HOUSE, spreadBps: 15 },
+          { ...HOUSE, id: 'h2' },
+        ],
+      }),
+    );
     expect(dir.published && dir.makers.map((m) => m.spreadBps)).toEqual([15, undefined]);
     expect(dir.published && dir.localTest).toBeUndefined();
   });
@@ -83,7 +91,9 @@ describe('a provider spread in the directory (#5)', () => {
     expect(loadOtcMakerDirectory(JSON.stringify({ selectCap: 1, makers: [LP1] }), (m) => logged.push(m), false)).toEqual({
       published: false,
     });
-    expect(logged).toEqual(['Provider test-lp-1 is outside the platform; its spread is a LOCAL TEST value, refused outside APP_ENV dev or test']);
+    expect(logged).toEqual([
+      'Provider test-lp-1 is outside the platform; its spread is a LOCAL TEST value, refused outside APP_ENV dev or test',
+    ]);
     const local = loadOtcMakerDirectory(JSON.stringify({ selectCap: 1, makers: [LP1] }), () => undefined, true);
     expect(local.published && local.localTest).toBe(true);
     expect(local.published && local.makers[0]!.spreadBps).toBe(10);
@@ -92,7 +102,10 @@ describe('a provider spread in the directory (#5)', () => {
   it('a malformed spread refuses the directory with trade.otc_makers_unset', () => {
     for (const bad of [-1, 5001, 2.5, '10', true]) {
       expect(() => directory([{ ...LP1, spreadBps: bad }])).toThrow(
-        expect.objectContaining({ code: 'trade.otc_makers_unset', message: 'Provider test-lp-1 spreadBps must be an integer from 0 to 5000' }),
+        expect.objectContaining({
+          code: 'trade.otc_makers_unset',
+          message: 'Provider test-lp-1 spreadBps must be an integer from 0 to 5000',
+        }),
       );
     }
   });

@@ -112,7 +112,9 @@ export function parseOtcMakerDirectoryJson(raw: string | null | undefined, optio
     }
     makers.push({ id, name, route: row.route, spreadBps: spread });
   }
-  return options.localTest === true ? { published: true, makers, selectCap: cap, localTest: true } : { published: true, makers, selectCap: cap };
+  return options.localTest === true
+    ? { published: true, makers, selectCap: cap, localTest: true }
+    : { published: true, makers, selectCap: cap };
 }
 
 /**
