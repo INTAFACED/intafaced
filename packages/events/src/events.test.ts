@@ -1084,6 +1084,15 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       ledgerTxId: uid(),
       creditedAt: ts(),
     },
+    payWithdrawalStatusUpdated: {
+      withdrawalId: uid(),
+      userId: uid(),
+      attempt: 0,
+      from: 'held',
+      to: 'broadcast',
+      failureCode: null,
+      occurredAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),
