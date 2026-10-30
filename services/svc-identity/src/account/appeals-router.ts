@@ -5,6 +5,8 @@ import {
   appealSchema,
   appealsMineSchema,
   appealSubmitInputSchema,
+  appealSubmitSignedOutInputSchema,
+  publicProcedure,
   router,
   scopedProcedure,
   TRPCError,
@@ -12,6 +14,8 @@ import {
 } from '@intafaced/contracts';
 import { AppealError, type AccountAppeals, type AppealErrorCode } from './appeals.js';
 import { userCopy } from '../user-copy.js';
+import type { AuthService } from '../auth/auth-service.js';
+import { toTrpcError } from '../router.js';
 
 const STATUS: Readonly<Record<AppealErrorCode, TRPCError['code']>> = {
   'identity.appeal_window_unset': 'PRECONDITION_FAILED',
@@ -19,6 +23,8 @@ const STATUS: Readonly<Record<AppealErrorCode, TRPCError['code']>> = {
   'identity.appeal_no_restriction': 'PRECONDITION_FAILED',
   'identity.appeal_open': 'CONFLICT',
   'identity.appeal_request_conflict': 'CONFLICT',
+  'identity.appeal_not_allowed': 'PRECONDITION_FAILED',
+  'identity.appeal_sign_in': 'PRECONDITION_FAILED',
   'identity.appeal_reasons_unset': 'PRECONDITION_FAILED',
   'identity.appeal_reason_unlisted': 'BAD_REQUEST',
   'identity.appeal_not_found': 'NOT_FOUND',
@@ -38,7 +44,7 @@ function mapError(err: unknown): never {
       cause: err.detail ? { code: err.code, details: { control: err.detail } } : { code: err.code },
     });
   }
-  throw err;
+  throw toTrpcError(err);
 }
 
 /** The person's own appeals: a live session of the account holder, never an API key or a sub-account. */
@@ -61,13 +67,30 @@ function refuseNonOperator(ctx: Context): void {
 }
 
 /**
- * `accountAppeal` (I-account-lifecycle-12). `submit` and `mine` are the account holder's; `queue` and `decide` are
+ * `accountAppeal` (I-account-lifecycle-12). `submit` and `mine` are the account holder's, `submitSignedOut` a
+ * staff-frozen holder's; `queue` and `decide` are
  * compliance's (`admin:compliance`, a person with a second factor). Mounted on its own so it shares no file with the
  * `account.*` change doors or `accountStatus`.
  */
-export function createAppealsRouter(appeals: AccountAppeals) {
+export function createAppealsRouter(appeals: AccountAppeals, auth: Pick<AuthService, 'proveAppellant'>) {
   return router({
     accountAppeal: router({
+      /**
+       * A staff-frozen person cannot sign in, so their appeal is filed here, signed out: the sign-in name and password
+       * prove the account exactly as sign-in does (lockout, one answer for an unknown name and a wrong password), and only
+       * then is the state named.
+       */
+      submitSignedOut: publicProcedure
+        .input(appealSubmitSignedOutInputSchema)
+        .output(appealSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const proved = await auth.proveAppellant({ identifier: input.identifier, password: input.password });
+            return await appeals.submitSignedOut(proved, { text: input.text, clientRequestId: input.clientRequestId });
+          } catch (err) {
+            return mapError(err);
+          }
+        }),
       submit: scopedProcedure('identity:write')
         .input(appealSubmitInputSchema)
         .output(appealSchema)

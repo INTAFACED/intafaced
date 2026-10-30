@@ -1383,6 +1383,28 @@ export class AuthService {
   }
 
   /**
+   * The first factor alone, for a signed-out appeal (I-account-lifecycle-12, J-identity-11 #5): the same lockout and the
+   * same answer for an unknown name and a wrong password as sign-in, and the account's state only once the password
+   * verified. It opens no session and spends no second factor: an appeal only asks staff to look again.
+   */
+  async proveAppellant(input: {
+    identifier: string;
+    password: string;
+  }): Promise<{ userId: string; status: 'active' | 'frozen' | 'closed' }> {
+    try {
+      const user = await this.passFirstFactor(input);
+      return { userId: user.id, status: 'active' };
+    } catch (err) {
+      if (!(err instanceof AuthError) || err.code !== 'auth.account_frozen' || !err.details?.accountState) throw err;
+      const [user] = await this.sql<
+        Array<{ id: string }>
+      >`SELECT id FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      return { userId: user.id, status: err.details.accountState };
+    }
+  }
+
+  /**
    * The password as the first factor, for sign-in and for the locked-out reset: counted on the password lockout before it
    * is checked, the same answer for an unknown name and a wrong password, the account state named only after it verified.
    */
