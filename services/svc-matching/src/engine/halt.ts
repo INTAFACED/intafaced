@@ -90,14 +90,17 @@ export function haltedAmendResult(marketId: MarketId, orderId: string): AmendRes
   };
 }
 
-/** When each still-halted market's halt began: its first halt record's `at` since its last resume. */
+/**
+ * When each still-halted market's halt began: its first halt record's `at` since its last resume, exactly as the live
+ * engine keeps it. A first halt with no readable time stays unknown (null); a later halt does not stand in for it.
+ */
 export function replayHaltedSince(
   records: readonly { readonly kind: string; readonly marketId?: MarketId; readonly at?: string }[],
-): ReadonlyMap<MarketId, string> {
-  const since = new Map<MarketId, string>();
+): ReadonlyMap<MarketId, string | null> {
+  const since = new Map<MarketId, string | null>();
   for (const record of records) {
     if (record.marketId === undefined) continue;
-    if (record.kind === 'halt' && !since.has(record.marketId) && record.at) since.set(record.marketId, record.at);
+    if (record.kind === 'halt' && !since.has(record.marketId)) since.set(record.marketId, record.at || null);
     else if (record.kind === 'resume') since.delete(record.marketId);
   }
   return since;

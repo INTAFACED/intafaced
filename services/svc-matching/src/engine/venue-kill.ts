@@ -47,10 +47,16 @@ export function venueHaltedAmendResult(orderId: string): AmendResult {
 
 /** When a still-standing venue halt began: the first halt-all record's `at` since the last resume-all. */
 export function replayVenueHaltedSince(records: readonly { readonly kind: string; readonly at?: string }[]): string | null {
+  let halted = false;
   let since: string | null = null;
   for (const record of records) {
-    if (record.kind === 'halt_all' && since === null) since = record.at ?? null;
-    else if (record.kind === 'resume_all') since = null;
+    if (record.kind === 'halt_all' && !halted) {
+      halted = true;
+      since = record.at || null;
+    } else if (record.kind === 'resume_all') {
+      halted = false;
+      since = null;
+    }
   }
   return since;
 }

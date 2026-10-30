@@ -68,12 +68,23 @@ describe('when a halt began', () => {
     at('2026-10-30T10:04:00.000Z');
     await engine.resume(OTHER, OPS);
     const recovered = new MatchingEngine({ journal, bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
-    recovered.recover();
+    await recovered.recover();
     expect(recovered.haltedSinceOf(MARKET)).toBe('2026-10-30T10:00:00.000Z');
     expect(recovered.haltedSinceOf(OTHER)).toBeNull();
     expect(recovered.venueHaltedSince).toBe('2026-10-30T10:03:00.000Z');
     expect(Object.fromEntries(replayHaltedSince(journal.read()))).toEqual({ [MARKET]: '2026-10-30T10:00:00.000Z' });
     expect(replayVenueHaltedSince(journal.read())).toBe('2026-10-30T10:03:00.000Z');
+  });
+
+  it('replay keeps the first halt even when its time is unreadable, as the live engine does', () => {
+    const records = [
+      { kind: 'halt', marketId: MARKET, at: '' },
+      { kind: 'halt', marketId: MARKET, at: '2026-10-30T10:09:00.000Z' },
+      { kind: 'halt_all', at: '' },
+      { kind: 'halt_all', at: '2026-10-30T10:09:00.000Z' },
+    ];
+    expect([...replayHaltedSince(records)]).toEqual([[MARKET, null]]);
+    expect(replayVenueHaltedSince(records)).toBeNull();
   });
 
   it('the public market list serves each halted market’s start and the venue’s', async () => {

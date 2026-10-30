@@ -193,7 +193,7 @@ export class MatchingEngine {
   /** One-market operator halt. Not the process kill-switch. No duration. */
   private readonly halted = new Set<MarketId>();
   /** When each halted market's halt began (the journaled `at` of its first halt since the last resume). */
-  private readonly haltedSince = new Map<MarketId, string>();
+  private readonly haltedSince = new Map<MarketId, string | null>();
   /** One-market maintenance. Not halt. Customer cancels refuse. No duration. */
   private readonly maintenance = new Set<MarketId>();
   /** Books the expiry pass must not read. The resting order stays. */
