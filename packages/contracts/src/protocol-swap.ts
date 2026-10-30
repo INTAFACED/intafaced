@@ -199,3 +199,37 @@ export const protocolTokenPricesOutputSchema = z
   })
   .strict();
 export type ProtocolTokenPrices = z.infer<typeof protocolTokenPricesOutputSchema>;
+
+/**
+ * One leg of `protocol.amm.routes`: a factory pool for the pair, as one venue's ranked legs (D-swap-05 takes the pool
+ * venue beside the books from this shape). `best` is the highest output among usable legs; `lost` names its shortfall;
+ * `excluded` is a leg the person turned off; `unavailable` names why it cannot be used (`stale`: the pool's recorded
+ * reserves differ from the tokens it holds, an unsynced pool whose quote cannot be trusted; `no_liquidity`).
+ */
+export const protocolRouteLegSchema = z
+  .object({
+    pool: address,
+    feeBps: z.number().int().nonnegative(),
+    /** Null when the leg is unavailable: no quote is shown for a pool that cannot be used. */
+    amountOut: units.nullable(),
+    priceImpactBps: z.number().int().nullable(),
+    status: z.enum(['best', 'lost', 'excluded', 'unavailable']),
+    /** For `lost`: how much less it gives than the best leg, in the output token's base units. */
+    shortfall: units.nullable(),
+    reason: z.enum(['stale', 'no_liquidity']).nullable(),
+  })
+  .strict();
+export type ProtocolRouteLeg = z.infer<typeof protocolRouteLegSchema>;
+
+/** `protocol.amm.routes`: every factory pool for a pair ranked for one amount at one block, best first, none dropped. */
+export const protocolRouteOptionsOutputSchema = z
+  .object({
+    venue: z.literal('pool'),
+    blockNumber: units,
+    tokenIn: address,
+    tokenOut: address,
+    amountIn: units,
+    legs: z.array(protocolRouteLegSchema),
+  })
+  .strict();
+export type ProtocolRouteOptions = z.infer<typeof protocolRouteOptionsOutputSchema>;

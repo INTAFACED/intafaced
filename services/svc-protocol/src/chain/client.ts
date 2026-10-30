@@ -478,6 +478,13 @@ export class ProtocolChain {
     });
   }
 
+  /** `holder`'s balance of `token` at `blockNumber`, so a pool's holdings compare with its reserves at the same block. */
+  async tokenBalanceAt(token: Address, holder: Address, blockNumber: bigint): Promise<bigint> {
+    return this.#read('tokenBalanceAt', 'chain.tokenBalanceAt', async () =>
+      this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder], blockNumber }),
+    );
+  }
+
   /** `owner`'s allowance for `spender` at `blockNumber`. Null when the token reverts rather than answering. */
   async allowanceAt(token: Address, owner: Address, spender: Address, blockNumber: bigint): Promise<bigint | null> {
     return this.#read('allowanceAt', 'chain.allowanceAt', async () => {
