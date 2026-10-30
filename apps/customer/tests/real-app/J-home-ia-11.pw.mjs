@@ -142,7 +142,10 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
-  expect([...names].sort()).toEqual([...started].sort());
+  // Two rows are not ports of the marker: the TEST chain (when anvil is found) and the TEST market maker. Their health
+  // is still checked below.
+  const NOT_PORTS = ['chain', 'market-maker'];
+  expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
   for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
