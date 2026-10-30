@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-08, in the running app (docs/roadmap/journeys.json): I earn on my savings. One TEST saver funded with TEST 1000
@@ -25,13 +25,14 @@ import { signIn, signUp, verify } from './desk.mjs';
 // schedule names the next payout day; the job pays that day once however often it runs, and the schedule moves on a
 // day. Step 7: auto earn into the pool refuses a keep-amount of zero, then saves one. Step 8: the answer to taking the
 // saving back is lost on the way to the page; the bank took it back once, the page sends nothing again, and the empty
-// list afterwards does not settle the lost answer. Step 6 (BK-earn-04) follows as its slice lands; until then it stops
-// at the first control its slice adds, quickly.
+// list afterwards does not settle the lost answer. Step 6 (BK-earn-04): in a TEST staking-style pool of the journey's
+// own (7-day unbonding), the page shows the pool's kind, its unbonding period, the three states and the owner's risk
+// wording (or that none is published, never "no risk"); closed through the treasury door, the pool refuses a deposit
+// while the saving in it is still paid its day; taking it back starts unbonding, moves nothing and earns nothing, and at
+// its end the bank's release job (signed as its scheduler) pays it back once.
 const J = 'J-bank-08';
 const RUN = process.env.JOURNEY_RUN_ID ?? `local-${Date.now()}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-/** How long a check on a room a later slice builds may wait: the room is not there, so this fails fast. */
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -96,12 +97,41 @@ async function treasury(actionType, procedure, input, fields) {
   return ctx.edge.mutate('bank', procedure, { ...input, ...approval }, await sessions.a.treasuryToken());
 }
 /** A TEST pool the journey owns, opened through the treasury door. */
-async function openPool({ kind, aprBps, termDays = null, minDeposit, label }) {
+async function openPool({ kind, aprBps, termDays = null, minDeposit, label, unbondingDays = null }) {
   const input = { poolId: randomUUID(), assetId: 'USDT', kind, name: `TEST ${J} ${label} ${RUN}`, aprBps, termDays, minDeposit };
+  if (unbondingDays !== null) input.unbondingDays = unbondingDays;
   const fields = { ...input, aprBps: String(aprBps), termDays: termDays === null ? '' : String(termDays) };
+  if (unbondingDays !== null) fields.unbondingDays = String(unbondingDays);
   const res = await treasury('bank.ops.createEarnPool', 'ops.createEarnPool', input, fields);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return { id: input.poolId, name: input.name };
+}
+/**
+ * Close a pool to new savings, or open it again, through the treasury door. `revision` is the pool's next status
+ * revision (its current one plus one), bound into the approval like the status and the reason.
+ */
+async function setStatus(poolId, status, reason, revision) {
+  const res = await treasury(
+    'bank.ops.setEarnPoolStatus',
+    'ops.setEarnPoolStatus',
+    { poolId, status, reason, revision },
+    { poolId, status, reason, revision: String(revision) },
+  );
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
+}
+/** svc-bank restarted with the staking risk wording blank, or back on the stack's TEST wording. */
+function bankRiskWording(on) {
+  const name = 'LOCAL_STACK_BANK_EARN_RISK_WORDING';
+  const before = process.env[name];
+  if (on) delete process.env[name];
+  else process.env[name] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[name];
+    else process.env[name] = before;
+  }
 }
 async function setRate(poolId, rateBps, reason) {
   const res = await treasury(
@@ -133,6 +163,16 @@ async function job(procedure, input) {
 }
 /** One day of earn interest for one pool. */
 const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, at: at.toISOString() })).results[0];
+/** The unbonding release job for one pool, by the bank's own clock. */
+const release = (poolId) => job('ops.releaseUnbondedEarn', { poolId, limit: 10 });
+/** Ends one TEST saving's unbonding now on this stack (moves its two dates back), as seven days passing would. */
+function endUnbonding(positionId) {
+  return execFileSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'end-earn-unbonding', positionId, '--state', localStackState()],
+    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+  );
+}
 /** The renewal job for one pool, run at `at`. */
 const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
 /** The journey pool's TEST reserve, moved by the seed's own funding step; `ref` keys it, so a retry funds once. */
@@ -438,10 +478,134 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
 test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
   page,
 }) => {
-  const { who, pool } = state();
+  test.setTimeout(240_000);
+  const { who } = state();
+  const api = await bank(who);
+  // A TEST staking-style pool of the journey's own: flexible, a 7-day unbonding, below the seeded pools' rates.
+  const staking = await openPool({ kind: 'flexible', aprBps: 100, minDeposit: '10', label: 'staking', unbondingDays: 7 });
+  run.write({ stakingPool: staking.id });
+  expect(fundReserve(staking.id, '5', `${J}-${RUN}-staking`)).toContain('reserve funded 5 USDT');
   await signIn(page, who);
-  await page.goto(poolPage(pool));
-  await expect(page.getByTestId('earn-pool-unbonding')).toBeVisible(UNBUILT);
+  await page.goto(poolPage(staking.id));
+
+  // What the pool publishes: a staking-style pool, its unbonding period, and the three states a saving moves through.
+  const facts = page.getByTestId('earn-pool-facts');
+  await expect(facts.locator('[data-fact="program"] dd')).toContainText('Staking-style');
+  await expect(facts.locator('[data-fact="unbonding"] dd')).toHaveText('7 days after you ask, earning nothing meanwhile');
+  await expect(facts.locator('[data-fact="lock"] dd')).toHaveText('No lock, but taking it back starts 7 days of unbonding');
+  const states = page.getByTestId('earn-staking');
+  await expect(states.locator('li')).toHaveCount(3);
+  await expect(states.locator('li[data-state="unbonding"]')).toContainText('It waits 7 days and earns nothing');
+
+  // The risk disclosure is the owner's wording as the bank publishes it: on this stack the profile's TEST wording.
+  const wording = await api.query('earn.riskDisclosure');
+  expect(wording).toMatchObject({
+    ok: true,
+    data: { slashing: expect.stringContaining('TEST'), ownership: expect.stringContaining('TEST') },
+  });
+  const risk = page.getByTestId('earn-risk-disclosure');
+  await expect(risk).toHaveAttribute('data-state', 'published');
+  await expect(risk.locator('[data-risk="slashing"] dd')).toHaveText(wording.data.slashing);
+  await expect(risk.locator('[data-risk="ownership"] dd')).toHaveText(wording.data.ownership);
+  await expect(risk).toContainText('while a saving is unbonding it earns nothing and cannot be taken back early');
+  // Blank, the bank refuses by name and the page says the wording is not published, never that there is no risk.
+  bankRiskWording(false);
+  try {
+    expect(await api.query('earn.riskDisclosure')).toMatchObject({ ok: false, code: 'bank.earn_risk_wording_unset' });
+    await page.reload();
+    await expect(risk).toHaveAttribute('data-state', 'unset');
+    await expect(risk).toContainText('That is not a statement that there is no risk.');
+  } finally {
+    bankRiskWording(true);
+  }
+  expect(await api.query('earn.riskDisclosure')).toEqual(wording);
+  await page.reload();
+  await expect(risk).toHaveAttribute('data-state', 'published');
+
+  // TEST 100 staked.
+  const deposit = page.getByTestId('earn-pool-deposit');
+  await deposit.getByRole('button', { name: 'Deposit', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Amount (USDT)').fill('100');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await confirm(dialog, 'Deposit');
+  await close(page);
+  const [position] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(position).toMatchObject({ principal: '100', maturesAt: null, unbondsAt: null });
+
+  // The pool closes to new savings through the treasury door, as its first status change: the page and the bank refuse
+  // a deposit, and the record read again afterwards still holds the one saving and the closed status.
+  expect((await api.query('earn.pool', { poolId: staking.id })).data).toMatchObject({ status: 'open', statusRevision: 0 });
+  expect(await setStatus(staking.id, 'closed', 'TEST closing the staking pool', 1)).toMatchObject({
+    poolId: staking.id,
+    status: 'closed',
+    previousStatus: 'open',
+    revision: 1,
+  });
+  await page.reload();
+  await expect(page.getByTestId('earn-pool-status')).toHaveAttribute('data-status', 'closed');
+  await expect(deposit).toHaveAttribute('data-state', 'closed');
+  await expect(deposit).toContainText('Savings already in it keep earning and can be taken back.');
+  const refused = await api.mutate('earn.deposit', { poolId: staking.id, amount: '50', positionId: randomUUID() });
+  expect(refused).toMatchObject({ ok: false, code: 'bank.pool_closed' });
+  expect((await api.query('earn.pool', { poolId: staking.id })).data).toMatchObject({ status: 'closed', statusRevision: 1 });
+  const held = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  expect(held.map((p) => [p.id, p.principal])).toEqual([[position.id, '100']]);
+
+  // The saving already in it keeps earning: the bank's accrual job pays its first day in the closed pool.
+  const firstDay = Date.parse(position.accruesFrom);
+  const perDay = fromUnits(daily('100', 100));
+  expect(await accrue(staking.id, new Date(firstDay + 60 * 60 * 1000))).toMatchObject({ paid: perDay, recipients: 1 });
+  await page.reload();
+  const card = page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`);
+  await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'accruing');
+
+  // Taking it back starts unbonding: staked, then unbonding with its date, and nothing moves yet. A take back that does
+  // not ask to unbond is refused by the bank, so nobody starts a wait they cannot stop by accident.
+  const before = await mainUsdt(api);
+  expect(await api.mutate('earn.withdraw', { positionId: position.id })).toMatchObject({ ok: false, code: 'bank.unbond_not_confirmed' });
+  const take = card.getByTestId('earn-withdraw');
+  await expect(take).toHaveAttribute('data-state', 'staked');
+  await take.click();
+  await expect(dialog).toContainText('7 days after you ask');
+  await expect(dialog).toContainText('Unbonding cannot be stopped once it starts.');
+  await confirm(dialog, 'Start unbonding');
+  await close(page);
+  const [unbonding] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
+  // The last day it can be paid is the day it was asked back on, which is before its first day: no payout day is left.
+  expect(unbonding).toMatchObject({ id: position.id, accrual: 'unbonding', nextPayoutOn: null, unbondingDays: 7 });
+  const ends = Date.parse(unbonding.unbondsAt);
+  expect(Math.abs(ends - Date.now() - 7 * 24 * 60 * 60 * 1000)).toBeLessThan(10 * 60 * 1000);
+  expect(await mainUsdt(api)).toBe(before);
+  await page.reload();
+  await expect(take).toHaveAttribute('data-state', 'unbonding');
+  await expect(take).toHaveAttribute('data-until', unbonding.unbondsAt);
+  await expect(card.getByTestId('earn-pool-accrual')).toHaveAttribute('data-state', 'unbonding');
+  expect(await api.mutate('earn.withdraw', { positionId: position.id })).toMatchObject({ ok: false, code: 'bank.position_unbonding' });
+
+  // An unbonding saving earns nothing: the next day pays nobody in this pool.
+  expect(await accrue(staking.id, new Date(firstDay + 25 * 60 * 60 * 1000))).toMatchObject({ paid: '0', recipients: 0 });
+
+  // Nothing comes back before the period ends by the bank's clock, even when a caller names a later time; at its end
+  // the bank's job pays the saving back once.
+  expect(ends).toBeGreaterThan(Date.now());
+  expect(await job('ops.releaseUnbondedEarn', { poolId: staking.id, limit: 10, at: new Date(ends + 60_000).toISOString() })).toEqual({
+    released: [],
+    skipped: [],
+    next: null,
+  });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
+  expect(await mainUsdt(api)).toBe(before);
+  expect(endUnbonding(position.id)).toContain(`saving ${position.id}: unbonding ends`);
+  expect(await release(staking.id)).toEqual({
+    released: [{ positionId: position.id, principal: '100' }],
+    skipped: [],
+    next: null,
+  });
+  expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
+  expect(await mainUsdt(api)).toBe(before + toUnits('100'));
+  await page.reload();
+  await expect(page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`)).toHaveCount(0);
 });
 
 test(`${J} #7 turns on auto earn and opts in: the setting is saved, and a threshold must be above zero`, async ({ page }) => {

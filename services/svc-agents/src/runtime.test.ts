@@ -2135,6 +2135,30 @@ if (!available) {
       expect(gate.calls()).toBe(1);
     });
 
+    it('with a spend gate, a balance that cannot be read refuses as unread before the hold and the engine, and bills 0', async () => {
+      const gate = counting(gateway);
+      const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+        funds: {
+          available: async () => {
+            throw new Error('ledger down');
+          },
+        },
+      });
+      await rt.registerAgent({ ...PROBE, agentId: 'unread-gate', limits: { ...PROBE.limits, maxSpendPerSession: '1' } });
+      const session = await rt.openSession({ userId: USER_A, agentId: 'unread-gate' });
+      const err = await rt.think({ sessionId: session.id, requestId: 'unread-gate-1', task: 'plan', messages: MESSAGES }).catch((e) => e);
+      expect(refusalCode(err)).toBe('agents.funds_unread');
+      expect(gate.calls()).toBe(0);
+      expect(await sql`SELECT 1 FROM agents.spend_reservations WHERE session_id = ${session.id}`).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM agents.usage_records WHERE session_id = ${session.id}`).toHaveLength(0);
+      const log = await rt.sessionLog(session.id, 50);
+      expect(log.at(-1)).toMatchObject({ status: 'refused', refusalCode: 'agents.funds_unread' });
+      expect(await balanceOf(USER_A)).toBe('1000');
+    });
+
     it('refuses when the balance cannot be read: an unknown balance is not a covered one', async () => {
       const gate = counting(gateway);
       const rt = new AgentRuntime(sql, gate.gateway, meter, bus, {
@@ -2148,7 +2172,7 @@ if (!available) {
       });
       const session = await rt.openSession({ userId: USER_A, agentId: 'probe' });
       const err = await rt.think({ sessionId: session.id, requestId: 'unread', task: 'plan', messages: MESSAGES }).catch((e) => e);
-      expect(refusalCode(err)).toBe('agents.funds_insufficient');
+      expect(refusalCode(err)).toBe('agents.funds_unread');
       expect(gate.calls()).toBe(0);
     });
 

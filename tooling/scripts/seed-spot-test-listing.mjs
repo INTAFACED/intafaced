@@ -2,8 +2,8 @@
  * Local TEST spot listings. Not production config, and not a launch listing.
  *
  * `local-test-gates.mjs apply` lists these on the local stack so the journeys that price one coin in another
- * (J-portfolio-02 step 7) have a market with no dollar side. Each row is `test = true` (shown on GET /api/v1/markets
- * only with TRADE_FUTURES_TEST_SEED, which the stack sets) and its display name says TEST. The fees are the seeded
+ * (J-portfolio-02 step 7) have a market with no dollar side, and a book the market maker leaves alone
+ * (`UNQUOTED_TEST_SPOT`). Each row is `test = true` (shown on GET /api/v1/markets only with TRADE_FUTURES_TEST_SEED, which the stack sets) and its display name says TEST. The fees are the seeded
  * crypto pairs' (svc-trade drizzle/0001); the tick and minimums are sized for a price in BTC (about 0.04), and it is
  * listed on the default plane only. The database name must look local or test, and NODE_ENV production refuses.
  */
@@ -22,7 +22,23 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     makerBps: '10',
     takerBps: '20',
   }),
+  Object.freeze({
+    symbol: 'IFC/USDC',
+    baseAsset: 'IFC',
+    quoteAsset: 'USDC',
+    displayName: 'IFC in USD Coin (TEST, unquoted)',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '0.01',
+    makerBps: '10',
+    takerBps: '20',
+  }),
 ]);
+
+/** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
+ * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC']);
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {

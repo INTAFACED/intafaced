@@ -40,7 +40,12 @@ export type AgentErrorCode =
   | 'agents.spend_reservation_not_found'
   | 'agents.spend_reservation_closed'
   | 'agents.spend_hold_max_age_unset'
-  | 'agents.funds_insufficient';
+  | 'agents.funds_insufficient'
+  | 'agents.funds_unread'
+  /** A run of the person's own agent would pass one of the caps they set for it (per call, session or month). */
+  | 'agents.spend.cap_exceeded'
+  /** The person's own agent has no caps stored: nothing of it runs until they are set. */
+  | 'agents.spend.cap_unset';
 
 export class AgentError extends Error {
   constructor(
