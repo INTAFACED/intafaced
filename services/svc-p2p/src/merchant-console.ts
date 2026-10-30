@@ -159,7 +159,7 @@ export async function listTodos(sql: Sql, userId: string, limit: number): Promis
            t.fiat_currency, t.fiat_amount::text AS fiat_amount,
            CASE WHEN t.status = 'disputed' THEN d.deadline_at ELSE t.deadline_at END AS deadline_at
       FROM p2p.p2p_trades t
-      LEFT JOIN p2p.disputes d ON d.trade_id = t.id AND d.status = 'open'
+      LEFT JOIN p2p.p2p_disputes d ON d.trade_id = t.id AND d.status = 'open'
      WHERE (t.buyer_id = ${userId} OR t.seller_id = ${userId})
        AND t.status IN ('escrowed', 'fiat_sent', 'disputed')
      ORDER BY 9 ASC NULLS LAST, t.created_at ASC, t.id ASC
@@ -263,7 +263,7 @@ export async function bulkOffers(
             await sql<Array<{ id: string }>>`
               SELECT id FROM p2p.offers
                WHERE maker_id = ${input.makerId}
-                 AND status = ANY(${input.action === 'pause' ? ['active'] : input.action === 'resume' ? ['paused'] : ['active', 'paused']})
+                 AND (status = ${input.action === 'resume' ? 'paused' : 'active'} OR (${input.action === 'remove'} AND status = 'paused'))
                ORDER BY created_at, id
                LIMIT ${MAX_BULK_OFFERS}
             `

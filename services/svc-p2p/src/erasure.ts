@@ -107,6 +107,9 @@ export interface P2pExport {
   readonly offerEdits: unknown[];
   /** Links the person made to their ads: when made, when they end or were withdrawn. Tokens are not held (P-ads-merchant-07). */
   readonly shareLinks: unknown[];
+  /** The person's presence (online, offline or their weekly schedule) and their bulk ad actions' results (P-ads-merchant-08). */
+  readonly presence: unknown | null;
+  readonly bulkRuns: unknown[];
   readonly reputation: unknown | null;
   /**
    * The caller's payment destinations — **headers only, never the values.**
@@ -141,7 +144,7 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits, shareLinks] =
+      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances, offerEdits, shareLinks, presence, bulkRuns] =
         await Promise.all([
           this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
           this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
@@ -180,6 +183,8 @@ export class P2pErasure {
            WHERE maker_id = ${userId}
            ORDER BY created_at
         `,
+          this.sql`SELECT * FROM p2p.merchant_presence WHERE user_id = ${userId}`,
+          this.sql`SELECT * FROM p2p.offer_bulk_runs WHERE maker_id = ${userId} ORDER BY created_at`,
         ]);
 
       // The column list above is the export reader. `details` is not selected, so a
@@ -201,6 +206,8 @@ export class P2pErasure {
         remarkCases: [...remarkCases],
         offerEdits: [...offerEdits],
         shareLinks: [...shareLinks],
+        presence: presence[0] ?? null,
+        bulkRuns: [...bulkRuns],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
         riskAcceptances: [...riskAcceptances],
@@ -286,6 +293,12 @@ export class P2pErasure {
           // P-ads-merchant-07: links the person made to their ads, kept ones included. Only token hashes and times.
           const links = await tx`DELETE FROM p2p.offer_share_links WHERE maker_id = ${userId} RETURNING id`;
           erased.push({ category: 'share links to ads', rows: links.length });
+
+          // P-ads-merchant-08: the person's presence and their bulk ad actions' results. They name nobody else.
+          const presence = await tx`DELETE FROM p2p.merchant_presence WHERE user_id = ${userId} RETURNING user_id`;
+          erased.push({ category: 'presence and operating hours', rows: presence.length });
+          const bulk = await tx`DELETE FROM p2p.offer_bulk_runs WHERE maker_id = ${userId} RETURNING idempotency_key`;
+          erased.push({ category: 'bulk ad actions', rows: bulk.length });
 
           // Offers with no trades against them never became part of anyone
           // else's record. Ones that were traded are load-bearing: a trade row

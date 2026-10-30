@@ -3301,6 +3301,9 @@ export function createP2pRouter(
             offerEdits: z.array(z.unknown()),
             /** P-ads-merchant-07: links the person made to their ads (no tokens; only their hashes are held). */
             shareLinks: z.array(z.unknown()),
+            /** P-ads-merchant-08: the person's presence and their bulk ad actions' results. */
+            presence: z.unknown().nullable(),
+            bulkRuns: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which
