@@ -8,6 +8,7 @@ import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select } from './common';
 import { assetsOf, isFiltered, NO_FILTER, periodUnit, type ListingFilter, type ListingRow } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
+import { marketListingCopy } from './market-listing-copy';
 import type { ApiResult } from '../../shared/api';
 
 const sellerSchema = z.object({ id: z.string().guid(), displayName: z.string(), description: z.string(), createdAt: z.string() });
@@ -17,6 +18,36 @@ const accessSchema = z.object({
   buyerId: z.string().guid(),
   accessUntil: z.string(),
 });
+
+/**
+ * The Market's four doors to what the copy room runs (MC-market-01): spot and futures copy trading, the bot marketplace
+ * and the signal marketplace. Each opens its own section of `/trade/copy`, which owns the machinery; nothing is ranked.
+ */
+export const MARKET_DOORS = [
+  { key: 'doorSpot', note: 'doorSpotNote', href: '/trade/copy?tab=spot' },
+  { key: 'doorFutures', note: 'doorFuturesNote', href: '/trade/copy?tab=futures' },
+  { key: 'doorBots', note: 'doorBotsNote', href: '/trade/copy?tab=bots' },
+  { key: 'doorSignals', note: 'doorSignalsNote', href: '/trade/copy?tab=signal' },
+] as const;
+
+export function MarketDoors() {
+  const { t } = marketListingCopy.useCopy();
+  return (
+    <nav aria-label={t('doorsTitle')}>
+      <p className="muted">{t('doorsNote')}</p>
+      <ul className="market-doors">
+        {MARKET_DOORS.map((door) => (
+          <li key={door.key}>
+            <a className="text-link" href={door.href}>
+              {t(door.key)}
+            </a>
+            <small className="muted">{t(door.note)}</small>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
 
 export function MarketFilters({
   rows,
@@ -34,16 +65,27 @@ export function MarketFilters({
     <div className="more-grid">
       <div className="depth-filters">
         <Field label={t('search')} value={filter.query} maxLength={64} onChange={(e) => onChange({ ...filter, query: e.target.value })} />
-        <Select
-          label={t('offer')}
-          value={filter.offer}
-          onChange={(value) => onChange({ ...filter, offer: value as ListingFilter['offer'] })}
-          options={[
-            { value: 'all', label: t('offerAll') },
-            { value: 'one_time', label: t('offerOneTime') },
-            { value: 'subscription', label: t('offerSubscription') },
-          ]}
-        />
+        <fieldset className="market-listing-type" role="radiogroup" aria-label={t('offer')}>
+          <legend>{t('offer')}</legend>
+          {(
+            [
+              ['all', t('offerAll')],
+              ['one_time', t('offerOneTime')],
+              ['subscription', t('offerSubscription')],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="market-listing-type"
+                value={value}
+                checked={filter.offer === value}
+                onChange={() => onChange({ ...filter, offer: value })}
+              />{' '}
+              {label}
+            </label>
+          ))}
+        </fieldset>
         <Select
           label={t('asset')}
           value={filter.asset}
@@ -98,6 +140,7 @@ export function ListingDetail({
 }) {
   const api = useApi();
   const { Copy, t } = marketExplorerCopy.useCopy();
+  const listingCopy = marketListingCopy.useCopy();
   const preferences = usePreferences();
   const seller = useResource(
     (signal) => api.query('market', 'profile', { vendorId: row.vendorId }, sellerSchema, { signal }),
@@ -148,6 +191,9 @@ export function ListingDetail({
         </Read>
       )}
       <div className="depth-card-actions">
+        <a className="text-link" href={`/market/${encodeURIComponent(row.id)}`}>
+          {listingCopy.t('openPage')}
+        </a>
         <Button variant="secondary" onClick={() => onSeller(row.vendorId)}>
           <Copy k="moreFromSeller" />
         </Button>
