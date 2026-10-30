@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackSince, heroPrice, highLow, isUnpricedMarket, pickQuote, moveSince, startsLate, tickerMove } from './coin-math';
+import { fallbackSince, heroPrice, highLow, isUnpricedMarket, pickQuote, moveSince, positionOf, startsLate, tickerMove } from './coin-math';
 import type { Candle, Loadable, TickerRow } from './deps';
 
 const candle = (t: number, o: string, c: string): Candle => ({ t, o, h: c, l: o, c, v: '1', filled: false });
@@ -151,5 +151,28 @@ describe('pickQuote: price in a quote that has a book', () => {
   it('has no quote for a coin with no market, and ignores a chosen quote it does not have', () => {
     expect(pickQuote([], [], null)).toBeNull();
     expect(pickQuote(['USDT'], ['USDT'], 'EUR')).toBe('USDT');
+  });
+});
+
+describe('positionOf (J-portfolio-10 #4)', () => {
+  it('works out the average price, cost basis and result from the open lots, to the cent, half up', () => {
+    expect(positionOf({ openQty: '0.25', openCostUsd: '15000' }, '67812.40')).toEqual({
+      quantity: '0.25',
+      averagePrice: '60000.00',
+      costBasis: '15000.00',
+      result: '1953.10',
+    });
+    expect(positionOf({ openQty: '0.002997', openCostUsd: '195.925' }, '65000')?.costBasis).toBe('195.93');
+    expect(positionOf({ openQty: '1', openCostUsd: '100' }, '90')?.result).toBe('-10.00');
+  });
+  it('keeps an unknown cost unknown, never zero, and has no position without open coins', () => {
+    expect(positionOf({ openQty: '1', openCostUsd: null }, '90')).toEqual({
+      quantity: '1',
+      averagePrice: null,
+      costBasis: null,
+      result: null,
+    });
+    expect(positionOf({ openQty: '1', openCostUsd: '100' }, null)?.result).toBeNull();
+    expect(positionOf({ openQty: '0', openCostUsd: '0' }, '90')).toBeNull();
   });
 });

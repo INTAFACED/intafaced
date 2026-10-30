@@ -323,3 +323,113 @@ test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin
   await result.getByRole('button', { name: 'Summary' }).click();
   await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="margin_level_at_bar_low"]')).toHaveCount(1);
 });
+
+const REPORT_SECTIONS = ['parameters', 'statistics', 'charts', 'coverage', 'warnings', 'labels'];
+const CLAIM = 'Historical simulation — not a forecast';
+
+/** Opens #3's fifth variant again: its inputs read back the stored run, so the result tabs are that run's. */
+async function storedVariant(page) {
+  const { window, variants } = run.read();
+  if (!window || !variants) throw new Error(`${J} #3 stored no fifth variant, so this step has no result to report on`);
+  await signIn(page, developer());
+  const room = await backtestForm(page, variants.strategy, { ...window, slippage: '5' });
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toHaveAttribute('data-run-id', variants.runId);
+  return { result, runId: variants.runId, strategy: variants.strategy };
+}
+
+test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper with no empty section, under the historical-simulation label`, async ({
+  page,
+}) => {
+  const { result, runId } = await storedVariant(page);
+  await result.getByRole('button', { name: 'Report' }).click();
+  const report = result.getByTestId('quant-report-document');
+  await expect(report).toHaveAttribute('data-run-id', runId);
+  await expect(result.getByTestId('quant-report-claim')).toHaveText(CLAIM);
+  await expect(result.getByTestId('quant-report-claim')).toHaveAttribute('data-simulated', 'true');
+  await expect(result.getByTestId('quant-report-claim')).toHaveAttribute('data-live', 'false');
+  // Six sections in order, none empty: a print layout has no blank section.
+  for (const id of REPORT_SECTIONS) {
+    const section = report.getByTestId(`quant-report-section-${id}`);
+    await expect(section).toBeVisible();
+    expect(await section.getByTestId('quant-report-row').count(), `report section ${id} has no rows`).toBeGreaterThan(0);
+  }
+  // The statistics are this run's own: its net result matches the Summary tab's.
+  await result.getByRole('button', { name: 'Summary' }).click();
+  const net = await result.getByTestId('quant-bar-total-net').getAttribute('data-value');
+  await result.getByRole('button', { name: 'Report' }).click();
+  await expect(report.getByTestId('quant-report-section-statistics')).toContainText(net ?? '<no net>');
+  // On paper the report prints alone: every section shows, the Print button and the app around it do not.
+  await page.emulateMedia({ media: 'print' });
+  for (const id of REPORT_SECTIONS) await expect(report.getByTestId(`quant-report-section-${id}`)).toBeVisible();
+  await expect(result.getByTestId('quant-report-print')).toBeHidden();
+  await expect(page.getByTestId('quant-backtest-run')).toBeHidden();
+  await page.emulateMedia({ media: 'screen' });
+  // Print opens the browser's print window, which also saves a PDF.
+  await page.evaluate(() => {
+    window.__printed = 0;
+    window.print = () => {
+      window.__printed += 1;
+    };
+  });
+  await result.getByTestId('quant-report-print').click();
+  expect(await page.evaluate(() => window.__printed)).toBe(1);
+});
+
+test(`${J} #7 creates a share link twice, opens it signed out, then revokes it: one active link; the result under its label with no source; revoked, not found`, async ({
+  page,
+  browser,
+}) => {
+  const { result, strategy } = await storedVariant(page);
+  await result.getByRole('button', { name: 'Share' }).click();
+  const share = result.getByTestId('quant-share');
+  const state = share.getByTestId('quant-share-state');
+  // A link left active by an earlier try is revoked first, so this step starts from no active link.
+  await expect(state).toBeVisible();
+  if ((await state.getAttribute('data-active')) === 'true') {
+    await share.getByTestId('quant-share-revoke').click();
+    await expect(state).toHaveAttribute('data-active', 'false');
+  }
+  const before = Number(await state.getAttribute('data-links'));
+  // Create pressed twice: one link is stored and active, and the address is shown once.
+  await share.getByTestId('quant-share-create').dblclick();
+  const link = await share.getByTestId('quant-share-link').inputValue();
+  expect(link).toMatch(/\/quant\/share\/[^/]+$/);
+  await expect(state).toHaveAttribute('data-active', 'true');
+  await expect(state).toHaveAttribute('data-links', String(before + 1));
+  await expect(share.getByTestId('quant-share-create')).toHaveCount(0);
+  // The embed code frames that same link by its full address. The site's own frame policy still refuses outside frames,
+  // and the room says so rather than promising a frame that would show blank.
+  await expect(share.getByTestId('quant-share-embed-code')).toHaveValue(`<iframe src="${link}" title="${CLAIM}"></iframe>`);
+  await expect(share.getByTestId('quant-share-embed-blocked')).toContainText('frame policy');
+
+  // A signed-out reader opens the link: the result under its label, with its checks and coverage, and nothing private.
+  const visitor = await browser.newContext();
+  try {
+    const reader = await visitor.newPage();
+    await reader.goto(link);
+    const shared = reader.getByTestId('quant-shared-document');
+    await expect(shared).toBeVisible();
+    await expect(reader.getByTestId('quant-shared-claim')).toHaveText(CLAIM);
+    await expect(reader.getByTestId('quant-shared-window')).toContainText('BTC/USDT');
+    await expect(reader.getByTestId('quant-shared-coverage')).toContainText('Bars read:');
+    for (const name of CHECK_NAMES) await expect(shared.getByTestId(`quant-check-${name}`)).toHaveCount(1);
+    await expect(reader.getByTestId('quant-shared-variants')).toHaveText('Variants tried on this strategy: 5.');
+    const text = await shared.innerText();
+    expect(text).not.toContain(developer().email);
+    expect(text).not.toContain(strategy);
+    expect(text).not.toContain('Fast average');
+
+    // Revoked, the same link reads not found, and the owner's room says so.
+    await share.getByTestId('quant-share-revoke').click();
+    await expect(share.getByTestId('quant-share-revoked')).toBeVisible();
+    await expect(state).toHaveAttribute('data-active', 'false');
+    await reader.goto(link);
+    await expect(reader.getByTestId('quant-shared-result')).toContainText('This shared result was not found.');
+    await expect(reader.getByTestId('quant-shared-document')).toHaveCount(0);
+  } finally {
+    await visitor.close();
+  }
+});
