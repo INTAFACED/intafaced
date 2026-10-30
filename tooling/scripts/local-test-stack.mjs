@@ -2406,6 +2406,40 @@ function cmdExpireStaffHolds(args) {
 }
 
 /**
+ * `seed-notice <email-or-userId> <tradeId>`: one P2P escrow-locked notice in the TEST person's inbox, stored exactly as
+ * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
+ * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
+ * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ */
+function cmdSeedNotice(args) {
+  const [who, tradeId] = args;
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const id = psql(
+    secrets,
+    `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+     VALUES (:'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+             coalesce((SELECT params FROM notify.notifications
+                        WHERE user_id = :'uid' AND kind = 'p2p.escrow.locked' AND params->>'tradeId' = :'tid'
+                          AND source_idempotency_key NOT LIKE 'local-test-old-link:%'
+                        ORDER BY created_at LIMIT 1),
+                       jsonb_build_object('tradeId', :'tid'::text)),
+             '/p2p/trades/' || :'tid', 'action',
+             'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid')
+     ON CONFLICT (user_id, source_subject, source_idempotency_key)
+       DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+     RETURNING id::text`,
+    { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9a-f-]{36}$/.test(line.trim()));
+  if (!id) fail(`no notice was stored for ${who}`);
+  say(`  notice ${id.trim()} for ${who} links /p2p/trades/${tradeId}, as stored before PR 5435 (LOCAL TEST fixture)`);
+}
+
+/**
  * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
  * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
  * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
@@ -3254,6 +3288,7 @@ async function runCli() {
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
@@ -3263,7 +3298,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }
