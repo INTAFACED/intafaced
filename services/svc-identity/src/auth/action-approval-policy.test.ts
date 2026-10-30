@@ -121,6 +121,31 @@ describe('readApprovalPolicies', () => {
     expect(read['ops.ledger.adjust'].state).toBe('set');
   });
 
+  it('a founder row that needs more than one other founder can never be met, so it is no row', () => {
+    const read = readApprovalPolicies(
+      setting({
+        'ops.ledger.reverse': row({ approverAudience: 'founder', requiredApprovals: '2' }),
+        'ops.ledger.adjust': row({ approverAudience: 'founder', requiredApprovals: '1' }),
+      }),
+    );
+    expect(read['ops.ledger.reverse'].state).toBe('unset');
+    expect(read['ops.ledger.adjust'].state).toBe('set');
+  });
+
+  it('reads the setting again only when it changes', () => {
+    const raw = { value: setting({ 'ops.ledger.reverse': row() }) as string | undefined };
+    let reads = 0;
+    const source = approvalPolicySource(() => {
+      reads += 1;
+      return raw.value;
+    });
+    const first = source('ops.ledger.reverse');
+    expect(source('ops.ledger.reverse')).toBe(first);
+    raw.value = '';
+    expect(source('ops.ledger.reverse').state).toBe('unset');
+    expect(reads).toBe(3);
+  });
+
   it('lists every governed type, set or unset with the typed code, and never throws', () => {
     const entries = approvalPolicyEntries(approvalPolicySource(() => setting({ 'ops.ledger.adjust': row() })));
     expect(entries.map((e) => e.actionType)).toEqual([...POLICY_GOVERNED_ACTION_TYPES]);
@@ -210,6 +235,9 @@ describe('governed approve and consume', () => {
     const { svc, store } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
     const p = await svc.propose(REQ, reverse);
     await expect(svc.approve(REQ, p.approvalId, p.payloadHash)).rejects.toMatchObject({ code: 'action_approval.same_person' });
+    await expect(svc.approve(REQ.toUpperCase(), p.approvalId, p.payloadHash)).rejects.toMatchObject({
+      code: 'action_approval.same_person',
+    });
     await svc.approve(B, p.approvalId, p.payloadHash);
     await expect(svc.approve(B, p.approvalId, p.payloadHash)).rejects.toMatchObject({ code: 'action_approval.already_approved' });
     await expect(svc.approve(B.toUpperCase(), p.approvalId, p.payloadHash)).rejects.toMatchObject({
@@ -267,7 +295,7 @@ describe('governed approve and consume', () => {
     raw.value = setting({ 'ops.ledger.reverse': row() });
     await svc.approve(C, p.approvalId, p.payloadHash);
     // Any change of value, not only the count: a different applier or age.
-    for (const changed of [row({ maxAgeSeconds: '301' }), row({ approverAudience: 'founder' })]) {
+    for (const changed of [row({ maxAgeSeconds: '301' }), row({ approverAudience: 'founder', requiredApprovals: '1' })]) {
       raw.value = setting({ 'ops.ledger.reverse': changed });
       await expect(svc.consume('svc-ops', consumeOf(p))).rejects.toMatchObject({ code: 'action_approval.policy_changed' });
     }
@@ -316,14 +344,14 @@ describe('governed approve and consume', () => {
       {
         ttlSeconds: 600,
         founders: { isFounder: async (id) => founders.has(id) },
-        policies: approvalPolicySource(() => setting({ 'ops.ledger.adjust': row({ approverAudience: 'founder' }) })),
+        policies: approvalPolicySource(() => setting({ 'ops.ledger.adjust': row({ approverAudience: 'founder', requiredApprovals: '1' }) })),
       },
       () => NOW,
     );
     const p = await svc.propose(REQ, { ...reverse, actionType: 'ops.ledger.adjust' });
     await expect(svc.approve(D, p.approvalId, p.payloadHash)).rejects.toMatchObject({ code: 'action_approval.founder_only' });
+    // Production's founders are a fixed pair, so a founder row needs one other founder.
     await svc.approve(B, p.approvalId, p.payloadHash);
-    await svc.approve(C, p.approvalId, p.payloadHash);
     founders.delete(B);
     await expect(svc.consume('svc-ops', consumeOf(p))).rejects.toMatchObject({ code: 'action_approval.founder_only' });
     founders.add(B);

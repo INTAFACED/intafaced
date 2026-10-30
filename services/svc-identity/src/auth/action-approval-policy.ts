@@ -58,6 +58,9 @@ function readRow(actionType: PolicyGovernedActionType, raw: unknown): PolicyLook
   const applier = typeof raw.applier === 'string' ? raw.applier.trim() : '';
   if (requiredApprovals === null || maxAgeSeconds === null || !audience.success) return UNSET;
   if (!/^svc-[a-z0-9-]{1,60}$/.test(applier)) return UNSET;
+  // The founders are a fixed pair and the requester is one of them, so a founder row can never gather more than one
+  // other approver: a larger count could never be met, and is read as no row rather than a request that only expires.
+  if (audience.data === 'founder' && requiredApprovals > 1) return UNSET;
   const values = { requiredApprovals, approverAudience: audience.data, applier, maxAgeSeconds };
   return { state: 'set', policy: { ...values, version: policyVersionOf(actionType, values) } };
 }
@@ -87,9 +90,14 @@ export function readApprovalPolicies(raw: string | undefined): Record<PolicyGove
   return out;
 }
 
-/** A source over a raw setting. Production passes the env value; it is re-read on every call. */
+/** A source over a raw setting. Production passes the env value; it is read again only when the value changes. */
 export function approvalPolicySource(readRaw: () => string | undefined): ApprovalPolicySource {
-  return (actionType) => readApprovalPolicies(readRaw())[actionType];
+  let last: { raw: string | undefined; read: Record<PolicyGovernedActionType, PolicyLookup> } | null = null;
+  return (actionType) => {
+    const raw = readRaw();
+    if (last === null || last.raw !== raw) last = { raw, read: readApprovalPolicies(raw) };
+    return last.read[actionType];
+  };
 }
 
 /** Every governed type with its row or `unset`, for the founder and operator read. */

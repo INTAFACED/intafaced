@@ -118,7 +118,7 @@ describe('governed action types at the router', () => {
 
   it('a caller outside the policy audience is audience_mismatch at propose, approve and reject', async () => {
     // Founder audience: an operator who is not a founder may not propose or approve.
-    const founderOnly = rig({ value: policy({ approverAudience: 'founder' }) });
+    const founderOnly = rig({ value: policy({ approverAudience: 'founder', requiredApprovals: '1' }) });
     await expect(founderOnly.r.createCaller(await ctx(OPERATOR_C, OPERATOR)).actionApproval.propose(reverse)).rejects.toMatchObject({
       code: 'FORBIDDEN',
       message: expect.stringContaining('[action_approval.audience_mismatch]'),

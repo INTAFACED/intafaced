@@ -186,7 +186,8 @@ export class ActionApprovalService {
     if (row.status !== 'PENDING') {
       throw this.terminal(row, 'action_approval.not_pending');
     }
-    if (row.requesterId === approverId) {
+    // Ids compare as the vote counter does, ignoring case, so the four-eyes refusal is the one given.
+    if (row.requesterId.toLowerCase() === approverId.toLowerCase()) {
       throw new ActionApprovalError('the requester cannot approve their own action', 'action_approval.same_person');
     }
     // The approver signs off on the payload they reviewed, not on an id. Constant-time, on the stored hash.
