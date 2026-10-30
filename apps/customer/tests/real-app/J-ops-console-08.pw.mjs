@@ -6,8 +6,9 @@ import { tool } from './stack.mjs';
 // J-ops-console-08: check the ledger's integrity and prove a restore. #1-#3 are the ledger integrity panel
 // (OPS-ledger-desk-04), which the console does not have yet: they fail at once by name. #4-#7 are the joint restore desk
 // (OPS-ledger-desk-05): founder A and founder B, each on their own console, with svc-ops, identity and the four services'
-// own watermark doors on the stack. The stack serves the ops profile's TEST archive URL and restore target;
-// `LOCAL_STACK_OPS_RESTORE=off` leaves both blank for #4. Every stamp and the finalize are two-founder requests: A asks,
+// own watermark doors on the stack. #5-#7 need the stack to serve the ops profile's TEST archive URL and restore target
+// (tooling/scripts/local-stack-services/ops.mjs), with `LOCAL_STACK_OPS_RESTORE=off` leaving both blank for #4; until it
+// does, #4 sees the blank archive anyway and #5 fails at once by name. Every stamp and the finalize are two-founder requests: A asks,
 // B approves the exact request at identity, A runs it, and svc-ops spends the approval once.
 
 const J = 'J-ops-console-08';
@@ -171,6 +172,12 @@ test(`${J} #5 a stamp for each service is still listed after a restart; the same
   test.setTimeout(600_000);
   const { a, b } = await signedIn(browser);
   await a.goto(`${ADMIN}/restore`, { waitUntil: 'load' });
+  // A stamp needs the archive configured; on a stack without the TEST archive, say so at once instead of running the desk.
+  await expect(a.getByTestId('restore-room')).toBeVisible();
+  await expect(
+    a.getByTestId('backups-empty'),
+    'the stack serves no TEST restore archive (OPS_RESTORE_ARCHIVE_URL is blank)',
+  ).not.toContainText('ops.restore_archive_unconfigured', { timeout: 5_000 });
   const marks = Object.fromEntries(SERVICES.map((s, i) => [s, `${tag}-${i + 1}`]));
   let first = null;
   for (const service of SERVICES) {

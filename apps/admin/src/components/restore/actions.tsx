@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
+import { STAMP_KIND, WATERMARK } from '@/lib/desk/approval-packet';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import {
   RESTORE_NO,
@@ -168,7 +169,14 @@ export function RecordStamp({ userId }: { userId: string }) {
   const [watermark, setWatermark] = useState('');
   const kind = stampKind.trim().toLowerCase();
   const mark = watermark.trim();
-  const problem = kind === '' || mark === '' ? 'Enter what the position counts and the watermark you read.' : null;
+  const problem =
+    kind === '' || mark === ''
+      ? 'Enter what the position counts and the watermark you read.'
+      : !STAMP_KIND.test(kind)
+        ? 'What the position counts is lower-case letters, digits and . _ : - only, up to 64 characters.'
+        : !WATERMARK.test(mark)
+          ? 'The watermark is up to 256 characters with no spaces, exactly as the service reported it.'
+          : null;
   const action: ControlAction = {
     heading: 'Record a stamp',
     submitLabel: 'Ask a second founder to approve this stamp',

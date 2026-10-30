@@ -238,9 +238,13 @@ const HOLD_NO = /^[1-9][0-9]{0,18}$/;
 /** svc-pay's network id and deposit address shapes (`custody/deposits/freezes.ts`), and the platform's user and freeze ids. */
 export const NETWORK_ID = /^[A-Za-z0-9_-]{1,32}$/;
 export const DEPOSIT_ADDRESS = /^\S{1,256}$/;
-/** svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it) and a watermark of at most 256 characters. */
-const STAMP_KIND = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
-const WATERMARK = /^\S(?:[\x20-\x7e]{0,254}\S)?$/;
+/**
+ * svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it), and a watermark: printable with no spaces, at
+ * most 256 characters. Every service reports its position as a decimal string (contracts `restoreWatermarkReadSchema`), and a
+ * space could end the typed confirm phrase where no one can see it.
+ */
+export const STAMP_KIND = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+export const WATERMARK = /^[\x21-\x7e]{1,256}$/;
 /** svc-ledger's control version. A margin is the contract's decimal (`reconciliationDecimalSchema`). */
 const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
 

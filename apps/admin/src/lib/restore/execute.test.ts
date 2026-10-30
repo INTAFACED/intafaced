@@ -37,6 +37,8 @@ describe('restore requests in the approval packet', () => {
     expect(readDeskRequest({ ...stamp, stampKind: 'Ledger seq' })).toBeNull();
     expect(readDeskRequest({ ...stamp, watermark: ' 4711' })).toBeNull();
     expect(readDeskRequest({ ...stamp, watermark: '' })).toBeNull();
+    expect(readDeskRequest({ ...stamp, watermark: '12 34' })).toBeNull();
+    expect(readDeskRequest({ ...stamp, watermark: '9'.repeat(257) })).toBeNull();
     expect(readDeskRequest({ ...stamp, reason: 'TEST extra field here' })).toBeNull();
     // svc-ops signs the cut-off exactly as it stored it (`toISOString`); another spelling of the same instant is a different request.
     expect(readDeskRequest({ ...finalize, cutOff: '2026-10-30T12:00:00Z' })).toBeNull();
