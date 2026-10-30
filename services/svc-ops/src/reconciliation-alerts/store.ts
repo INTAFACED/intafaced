@@ -408,7 +408,7 @@ export class ReconciliationAlertStore {
     >`
       SELECT id::text AS id, at, kind, actor, note, run_id, notice, snooze_id, tx_ids::text[] AS tx_ids
         FROM ops.reconciliation_alert_timeline
-       WHERE alert_id = ${alertId} ORDER BY id ASC
+       WHERE alert_id = ${alertId} ORDER BY reconciliation_alert_timeline.id ASC
     `;
     const snoozes = await db<SnoozeRow[]>`
       SELECT id, starts_at, ends_at, snoozed_by, reason, expired_at FROM ops.reconciliation_alert_snoozes
