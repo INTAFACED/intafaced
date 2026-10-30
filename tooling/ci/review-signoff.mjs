@@ -5,7 +5,7 @@
  *
  *   issue_comment      a comment `Independent review: PASS <full head sha>` from a login in tooling/ci/reviewers.json,
  *                      for the PR's current head, becomes the success status `Independent review` on that head. A
- *                      comment from anyone else, for another sha, or naming a session on the PR's `Claude-Session:`
+ *                      comment from anyone else, for another sha, or naming a session on the PR's session-trailer
  *                      commit lines (its author's own session, OWNER 124 (4)) does nothing.
  *   pull_request_target on a push, the sign-off of the previous head is carried to the new head when the patch is the
  *                      same (a clean rebase). Any change to the patch needs a new review.
@@ -39,7 +39,7 @@ export function markerSha(body) {
 
 /**
  * Does this comment sign off this PR's current head? Pure, so the policy table is testable. `authorSessions` are the
- * sessions on the PR's `Claude-Session:` commit lines, or null when they could not all be read (then nothing signs off).
+ * sessions on the PR's session-trailer commit lines, or null when they could not all be read (then nothing signs off).
  */
 export function judgeComment({ commenter, body, pr, authorSessions = null }, config) {
   const login = String(commenter ?? '').toLowerCase();
@@ -113,7 +113,7 @@ async function gh(method, path, body, accept = 'application/vnd.github+json') {
   return { status: res.status, json, text };
 }
 
-/** The sessions on the PR's `Claude-Session:` commit lines, or null when they cannot be read whole for this head. */
+/** The sessions on the PR's session-trailer commit lines, or null when they cannot be read whole for this head. */
 async function prAuthorSessions(repo, n, sha) {
   const commits = [];
   for (let page = 1; page <= 3; page++) {
@@ -267,7 +267,7 @@ async function selfTest() {
   );
   assert(judgeComment({ commenter: 'phantom', body, pr, authorSessions: none }, strict).ok, 'another listed reviewer may');
   const own = new Set(['session_A1']);
-  const named = (s) => `${body}\nReviewer session: https://claude.ai/code/${s}`;
+  const named = (s) => `${body}\nReviewer session: https://example.test/code/${s}`;
   assert(judgeComment({ commenter: 'nino', body: named('session_R1'), pr, authorSessions: own }, cfg).ok, 'another session may sign off');
   assert(
     !judgeComment({ commenter: 'nino', body: named('session_A1'), pr, authorSessions: own }, cfg).ok,

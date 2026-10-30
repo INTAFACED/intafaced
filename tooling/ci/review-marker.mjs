@@ -40,13 +40,18 @@ export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 export const STATUS_CONTEXT = 'Independent review';
 
 const SESSION_ID = /session_[A-Za-z0-9]+/g;
+/**
+ * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md item 8 names. Any word before `-Session:`
+ * counts, so a renamed trailer still names its author (more author sessions, never fewer).
+ */
+const SESSION_TRAILER = /^[A-Za-z]+-Session:/i;
 
-/** The sessions that wrote a pull request: every session id on a `Claude-Session:` line of its commit messages. */
+/** The sessions that wrote a pull request: every session id on a session-trailer line of its commit messages. */
 export function commitSessions(messages) {
   const out = new Set();
   for (const msg of messages ?? []) {
     for (const line of String(msg ?? '').split('\n')) {
-      if (/^Claude-Session:/i.test(line.trim())) for (const id of line.match(SESSION_ID) ?? []) out.add(id);
+      if (SESSION_TRAILER.test(line.trim())) for (const id of line.match(SESSION_ID) ?? []) out.add(id);
     }
   }
   return out;
@@ -77,7 +82,7 @@ export function passSessions(body) {
 
 /**
  * Why a PASS does not count for the session it names, or null when it does. A PASS that names the PR's own session
- * does not count (owner decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's `Claude-Session:` commit
+ * does not count (owner decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit
  * lines. `authorSessions` is that Set, or null when the commits could not be read whole; then no PASS counts.
  */
 export function sessionRefusal(body, authorSessions) {
@@ -107,7 +112,7 @@ export function markerFits(c, { sha, reviewers, requireDistinctFromAuthor, autho
 
 /**
  * Does a PASS comment sign off this head? `comments` are issue comments; `authorSessions` the sessions on the PR's
- * `Claude-Session:` commit lines, or null (unknown: nothing counts). Returns { ok, refused }, where `refused` lists the
+ * session-trailer commit lines, or null (unknown: nothing counts). Returns { ok, refused }, where `refused` lists the
  * fitting PASSes the session rule turned down, with why.
  */
 export function commentSignoff({ comments, authorSessions = null, ...who }) {
@@ -232,13 +237,13 @@ function selfTest() {
     [input([pass('nino', `Independent review: PASS ${sha}`)], { requireDistinctFromAuthor: true }), false],
     [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), true],
     [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://claude.ai/code/session_R1`)], {
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_R1`)], {
         authorSessions: new Set(['session_A1']),
       }),
       true,
     ],
     [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://claude.ai/code/session_A1`)], {
+      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_A1`)], {
         authorSessions: new Set(['session_A1']),
       }),
       false,
@@ -266,7 +271,7 @@ function selfTest() {
     }
   }
   const cm = (sha, message) => ({ sha, commit: { message } });
-  const listed = [cm('h', 'b\nClaude-Session: session_A1'), cm('o', 'older but dated later')];
+  const listed = [cm('h', 'b\nAgent-Session: session_A1'), cm('o', 'older but dated later')];
   if (
     sessionsForHead(listed, 'h')?.has('session_A1') !== true ||
     sessionsForHead(listed, 'x') !== null ||
@@ -282,9 +287,9 @@ function selfTest() {
     process.exit(1);
   }
   const msgs = [
-    'feat: x\n\nCo-Authored-By: Claude\nClaude-Session: https://claude.ai/code/session_A1',
+    'feat: x\n\nCo-Authored-By: an agent\nAgent-Session: https://example.test/code/session_A1',
     'fix: y',
-    'z\nclaude-session: session_B2 ',
+    'z\ntool-session: session_B2 ',
   ];
   const got = [...commitSessions(msgs)].sort().join(',');
   if (got !== 'session_A1,session_B2' || commitSessions(['see session_C3 in the body']).size !== 0) {
@@ -418,7 +423,7 @@ async function readComments(repo, number, token) {
 }
 
 /**
- * The sessions on the pull request's `Claude-Session:` commit lines for this head (sessionsForHead), or null when the
+ * The sessions on the pull request's session-trailer commit lines for this head (sessionsForHead), or null when the
  * commits cannot be read whole: then no PASS comment counts here (a status from the sign-off workflow still does).
  */
 async function readAuthorSessions(repo, number, sha, token) {
@@ -455,7 +460,7 @@ async function main() {
   }
   const config = PR_NUMBER ? await readReviewConfig(REPO, GH_TOKEN) : null;
   const refusals = [];
-  let authorSessions; // read once, and only when a PASS comment for this head is there to judge
+  let authorSessions = null; // the PR's sessions once read whole (see the poll below)
   const told = new Set();
   const deadline = Date.now() + REVIEW_WAIT_MS;
   for (let attempt = 1; ; attempt++) {
@@ -466,9 +471,10 @@ async function main() {
     if (PR_NUMBER) {
       const who = { sha: HEAD_SHA, author: PR_AUTHOR, ...config };
       const comments = (await readComments(REPO, PR_NUMBER, GH_TOKEN)).filter((c) => markerFits(c, who));
-      if (comments.length > 0 && authorSessions === undefined)
+      // Read only when a PASS comment fits; an unreadable list (null) is read again on the next poll.
+      if (comments.length > 0 && !(authorSessions instanceof Set))
         authorSessions = await readAuthorSessions(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
-      const verdict = commentSignoff({ comments, authorSessions: authorSessions ?? null, ...who });
+      const verdict = commentSignoff({ comments, authorSessions, ...who });
       if (verdict.ok) {
         console.log(`review sign-off comment found for ${HEAD_SHA}`);
         return;

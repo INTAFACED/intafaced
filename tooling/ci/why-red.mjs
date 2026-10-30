@@ -150,7 +150,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     );
   else
     out.push(
-      `REVIEW: every other check is green; the seal waits for "Independent review: PASS ${sha}" from a listed reviewer, and the sign-off workflow re-runs the seal when it lands. Ask the review thread if nobody has yet; a PASS that names this PR's own session (a \`Claude-Session:\` line of its commits) does not count, so another session reviews. Nothing to fix in the code.`,
+      `REVIEW: every other check is green; the seal waits for "Independent review: PASS ${sha}" from a listed reviewer, and the sign-off workflow re-runs the seal when it lands. Ask the review thread if nobody has yet; a PASS that names this PR's own session (a session-trailer line of its commits, AGENTS.md item 8) does not count, so another session reviews. Nothing to fix in the code.`,
     );
   return out;
 }
