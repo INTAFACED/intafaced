@@ -2,9 +2,10 @@ import { useMemo, useRef, useState } from 'react';
 import { useResource } from '../../../shared/resource';
 import { EmptyState } from '../ui-kit';
 import type { ApiResult } from '../../../shared/api';
-import { PayDetails, PayFailure, PayState } from '../components';
+import { PayDetails, PayFailure, PayState, PayTime } from '../components';
 import type { PersonalPayApi } from '../pay-api';
-import { id, type Offer } from '../schemas';
+import { id, type Offer, type OfferUpdateInput } from '../schemas';
+import { myAdsCopy } from './p2p-my-ads-copy';
 import { p2pDepth } from './p2p-depth-copy';
 import {
   checkOfferForm,
@@ -26,7 +27,8 @@ import './p2p-depth.css';
  * Create offer (/uc/ad/create) and edit offer (/uc/ad/update?offerId=…).
  * Create (P-ads-merchant-01): the form, a summary of every field, the advertiser terms when they are not yet accepted,
  * then one ad, posted under a business key made once per form so a second press or a retry answers the same ad. Edit
- * keeps its exact-decimal checks and the list of what changed; saving an edit is off, with the reason on screen.
+ * keeps its exact-decimal checks and the list of what changed, and saves only the changed fields (P-ads-merchant-06),
+ * counted once against the day's edit cap; open orders keep the terms they were taken on.
  */
 export function OfferForm({
   pay,
@@ -63,7 +65,6 @@ export function OfferForm({
         <CreateOffer pay={pay} userId={userId} />
       ) : (
         <div data-testid="offer-form">
-          <P2PReason title={t('formOffEditTitle')}>{t('formOffEditBody')}</P2PReason>
           <EditLive pay={pay} userId={userId} offerId={offerId!.toLowerCase()} />
         </div>
       )}
@@ -223,14 +224,81 @@ function EditLive({ pay, userId, offerId }: { pay: PersonalPayApi; userId: strin
               {t('editNotYours')}
             </p>
           ) : (
-            <>
-              {live.status === 'closed' ? <p className="muted">{t('editClosed')}</p> : null}
-              <Fields key={live.id} pay={pay} baseline={offerToForm(live)} mode="edit" />
-            </>
+            <EditSave pay={pay} live={live} />
           )}
         </>
       )}
     </PayState>
+  );
+}
+
+/** The changed editable fields of an ad, as `offers.update` takes them. Coin, currency and side stay as posted. */
+function updateInput(before: OfferFormValues, after: OfferFormValues): OfferUpdateInput | 'pairFixed' | null {
+  const changed = offerChanges(before, after);
+  if (changed.includes('asset') || changed.includes('fiatCurrency')) return 'pairFixed';
+  if (changed.length === 0) return null;
+  const input = postInput(after);
+  return {
+    ...(changed.includes('price') ? { price: input.price } : {}),
+    ...(changed.includes('minAmount') ? { minAmount: input.minAmount } : {}),
+    ...(changed.includes('maxAmount') ? { maxAmount: input.maxAmount } : {}),
+    ...(changed.includes('totalAmount') && input.totalAmount !== undefined ? { totalAmount: input.totalAmount } : {}),
+    ...(changed.includes('methods') ? { methods: input.methods } : {}),
+    ...(changed.includes('terms') ? { terms: after.terms.trim() } : {}),
+  };
+}
+
+/** P-ads-merchant-06: edit a published ad and save it, once per press, under one key for this form. */
+function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
+  const { t } = p2pDepth.useCopy();
+  const myAds = myAdsCopy.useCopy();
+  const baseline = useMemo(() => offerToForm(live), [live]);
+  const [key] = useState(() => `p2p:offer-edit:${live.id}:${crypto.randomUUID()}`);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<ApiResult<Offer> | 'pairFixed' | 'unchanged' | null>(null);
+  const inFlight = useRef(false);
+  const save = async (values: OfferFormValues) => {
+    if (inFlight.current) return;
+    const input = updateInput(baseline, values);
+    if (input === 'pairFixed' || input === null) {
+      setResult(input ?? 'unchanged');
+      return;
+    }
+    inFlight.current = true;
+    setSaving(true);
+    const outcome = await pay.updateOffer(live.id, input, key);
+    inFlight.current = false;
+    setSaving(false);
+    setResult(outcome);
+  };
+  return (
+    <>
+      {live.status === 'closed' ? <p className="muted">{t('editClosed')}</p> : null}
+      <Fields key={live.id} pay={pay} baseline={baseline} mode="edit" onReview={(values) => void save(values)} />
+      {saving ? <p className="muted">{myAds.t('editSaving')}</p> : null}
+      {result === 'pairFixed' ? (
+        <p className="error-text" role="status">
+          {myAds.t('editPairFixed')}
+        </p>
+      ) : result === 'unchanged' ? (
+        <p className="muted" role="status">
+          {t('noChanges')}
+        </p>
+      ) : result?.ok ? (
+        <p role="status" data-testid="offer-edit-saved">
+          {myAds.t('editSaved')}{' '}
+          <a className="text-link" href="/uc/ad">
+            {myAds.t('editBack')}
+          </a>
+        </p>
+      ) : result && result.code === 'p2p.edit_quota_reached' && result.p2pLimit?.until ? (
+        <p className="error-text" role="status" data-testid="offer-edit-spent">
+          {myAds.t('editSpentAt', { limit: result.p2pLimit.cap ?? '' })} <PayTime value={result.p2pLimit.until} />
+        </p>
+      ) : result ? (
+        <PayFailure result={result} />
+      ) : null}
+    </>
   );
 }
 

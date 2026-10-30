@@ -3,6 +3,11 @@ import { defineCopy } from '../../../shared/i18n';
 // P-ads-merchant-06 (J-p2p-05 #1, #2): My Ads beyond the board. Each ad's state with why and since when, the daily edit
 // cap with when it starts again, closed ads with relist, and closing refused while orders are open.
 const en = {
+  editSaving: 'Saving…',
+  editSaved: 'Saved. Orders already open keep the terms they were taken on.',
+  editBack: 'Back to your ads',
+  editPairFixed: 'The coin and currency stay as posted. To trade another pair, post a new ad.',
+  editSpentAt: 'You have made all {limit} ad edits for today. Editing opens again at',
   listedSince: 'Listed since',
   pausedSince: 'Paused since',
   closedSince: 'Closed since',
@@ -25,6 +30,11 @@ const en = {
   closeHasOneOpenTrade: 'This ad has 1 open order. It can close once it finishes; closing never cancels an order.',
 } as const;
 const es = {
+  editSaving: 'Guardando…',
+  editSaved: 'Guardado. Los pedidos ya abiertos conservan las condiciones con que se tomaron.',
+  editBack: 'Volver a tus anuncios',
+  editPairFixed: 'La criptomoneda y la moneda quedan como se publicaron. Para otro par, publica un anuncio nuevo.',
+  editSpentAt: 'Has hecho las {limit} ediciones de anuncios de hoy. Podrás editar de nuevo a las',
   listedSince: 'Publicado desde',
   pausedSince: 'En pausa desde',
   closedSince: 'Cerrado desde',
@@ -48,6 +58,11 @@ const es = {
   closeHasOneOpenTrade: 'Este anuncio tiene 1 pedido abierto. Podrá cerrarse cuando termine; cerrarlo nunca cancela un pedido.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  editSaving: 'Enregistrement…',
+  editSaved: 'Enregistré. Les commandes déjà ouvertes gardent les conditions auxquelles elles ont été prises.',
+  editBack: 'Retour à vos annonces',
+  editPairFixed: 'La cryptomonnaie et la monnaie restent celles de la publication. Pour une autre paire, publiez une nouvelle annonce.',
+  editSpentAt: 'Vous avez fait les {limit} modifications d’annonces d’aujourd’hui. Vous pourrez modifier à nouveau à',
   listedSince: 'Publiée depuis',
   pausedSince: 'En pause depuis',
   closedSince: 'Fermée depuis',

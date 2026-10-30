@@ -655,6 +655,22 @@ export function createPersonalPayApi(
         s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
       );
     },
+    /**
+     * P-ads-merchant-06: saves an edit of the person's own ad, only the fields that changed. `idempotencyKey` is made once
+     * per edit form, so a second press or a retry is the same edit and counts once against the day's cap. Open orders keep
+     * the terms they were taken on.
+     */
+    updateOffer(offerId: string, changes: s.OfferUpdateInput, idempotencyKey: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.update',
+        { offerId, idempotencyKey, ...changes },
+        s.offerSchema.refine((offer) => offer.makerId === userId && offer.id === offerId.toLowerCase(), 'The edited ad is not this one'),
+      );
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>

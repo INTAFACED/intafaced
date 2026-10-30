@@ -769,3 +769,13 @@ export const offerEditQuotaSchema = z.object({
   remaining: z.number().int().nonnegative(),
   resetsAt: z.string().datetime(),
 });
+
+/** P-ads-merchant-06: the fields an edit of a published ad may change; only the changed ones are sent. */
+export type OfferUpdateInput = {
+  price?: string;
+  minAmount?: string;
+  maxAmount?: string;
+  totalAmount?: string;
+  methods?: string[];
+  terms?: string;
+};
