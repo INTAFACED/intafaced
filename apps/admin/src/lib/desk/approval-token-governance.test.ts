@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { tokenActionPayloadHash } from '../../../../../services/svc-token/src/action-approval-consume';
 import {
+  GOVERNANCE_ROLES as TOKEN_GOVERNANCE_ROLES,
   GOVERNANCE_ROLE_ACTION,
   GOVERNANCE_SETTINGS_ACTION,
   governanceRolePayload,
@@ -8,7 +9,7 @@ import {
 } from '../../../../../services/svc-token/src/governance-payload';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { confirmPhrase, describeRequest, readDeskRequest, requestReason } from './approval-packet';
-import { durationWords, hoursToMs } from '@/lib/token-governance/model';
+import { GOVERNANCE_ROLES, durationWords, hoursToMs, msToHours } from '@/lib/token-governance/model';
 
 /** J-more-catalogue-10: the console's governance requests hash exactly as svc-token consumes them. */
 describe('token governance desk requests', () => {
@@ -56,6 +57,10 @@ describe('token governance desk requests', () => {
     );
   });
 
+  it("knows exactly svc-token's roles", () => {
+    expect(GOVERNANCE_ROLES).toEqual(TOKEN_GOVERNANCE_ROLES);
+  });
+
   it('reads only what svc-token can run', () => {
     const ok = { kind: 'token.governance.settings.set', votingDelayMs: '0', votingPeriodMs: '3600000', revision: '0' };
     expect(readDeskRequest(ok)).not.toBeNull();
@@ -94,6 +99,9 @@ describe('governance figures', () => {
     expect(hoursToMs('0', 'period').ok).toBe(false);
     expect(hoursToMs('8761', 'delay').ok).toBe(false);
     expect(hoursToMs('1.5', 'delay').ok).toBe(false);
+    expect(msToHours('86400000')).toBe('24');
+    expect(msToHours(null)).toBe('');
+    expect(msToHours('1')).toBe('');
     expect(durationWords(null)).toBe('not set');
     expect(durationWords('0')).toBe('0 hours (no delay)');
     expect(durationWords('3600000')).toBe('1 hour');

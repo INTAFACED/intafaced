@@ -4,6 +4,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { ACCESS_TIERS, STAKE_TIERS } from './economics/staking.js';
 import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
+import { checkGovernanceSettings } from './governance-settings.js';
 import { createTokenRouter } from './router.js';
 import { TokenError, assertProposalListLimit, assertStakesListLimit, type StakeRecord, type TokenService } from './token-service.js';
 import { userCopy } from './user-copy.js';
@@ -1186,6 +1187,9 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
       })),
       setGovernanceRole: vi.fn(async (input) => ({ userId: input.userId, role: input.role, revision: input.expectedRevision + 1 })),
       cancelProposal: vi.fn(),
+      // The door's own range rule, as the service's precheck runs it before the approval is spent.
+      precheckGovernanceSettings: vi.fn(async (input) => checkGovernanceSettings(input)),
+      precheckGovernanceRole: vi.fn(async () => undefined),
     } as Partial<TokenService>);
 
   it('writes the approved pair over its revision, binds the approval to exactly it, and names the approver', async () => {
@@ -1271,6 +1275,21 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
         .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(token.setGovernanceRole).toHaveBeenCalledTimes(1);
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      async consume(i) {
+        consumed += 1;
+        return stubApprovalConsumer(CONFIRM).consume(i);
+      },
+    };
+    const stale = governed();
+    vi.mocked(stale.precheckGovernanceRole).mockRejectedValue(new TokenError('stale', 'token.role_stale'));
+    await expect(
+      createTokenRouter(stale, { approvals: counting })
+        .createCaller(writer())
+        .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', cause: { code: 'token.role_stale' } });
+    expect(consumed).toBe(0);
   });
 
   it('a cancel refused for the role is FORBIDDEN, and needs a signed principal', async () => {

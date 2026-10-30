@@ -64,6 +64,8 @@ import {
   governanceRoleOf,
   governanceRoles,
   governanceSettingsHistory,
+  precheckGovernanceRole,
+  precheckGovernanceSettings,
   proposalWindow,
   readGovernanceSettings,
   setGovernanceRole,
@@ -2806,6 +2808,16 @@ export class TokenService {
 
   governanceSettingsHistory() {
     return governanceSettingsHistory(this.sql);
+  }
+
+  /** Refuses, without writing, a settings change the write would refuse. */
+  precheckGovernanceSettings(input: Parameters<typeof precheckGovernanceSettings>[1]): Promise<void> {
+    return precheckGovernanceSettings(this.sql, input);
+  }
+
+  /** Refuses, without writing, a role move the write would refuse. */
+  precheckGovernanceRole(input: Parameters<typeof precheckGovernanceRole>[1]): Promise<void> {
+    return precheckGovernanceRole(this.sql, input);
   }
 
   setGovernanceSettings(input: Parameters<typeof setGovernanceSettings>[1]): Promise<GovernanceSettings> {

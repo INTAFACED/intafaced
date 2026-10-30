@@ -8,7 +8,9 @@ import { TokenError } from './token-service.js';
  * `moderator` cancel a draft or open proposal with a reason, `author` only creates. No value moves here.
  */
 
-export const GOVERNANCE_ROLES = ['controller', 'admin', 'moderator', 'author'] as const;
+import { GOVERNANCE_ROLES } from './governance-payload.js';
+
+export { GOVERNANCE_ROLES };
 export type GovernanceRole = (typeof GOVERNANCE_ROLES)[number];
 /** The roles that may cancel a proposal. */
 const CANCELLERS: readonly GovernanceRole[] = ['controller', 'admin', 'moderator'];
@@ -80,9 +82,49 @@ export function checkGovernanceSettings(input: { votingDelayMs: bigint | null; v
     throw new TokenError('The voting period must be more than 0 and at most 365 days', 'token.settings_invalid');
 }
 
+type SettingsVerdict = { kind: 'write'; ordinal: number } | { kind: 'replay'; settings: GovernanceSettings };
+
+/** Where a change at `expectedRevision` lands: a new move, a retry of the move already written, or stale. */
+async function settingsVerdict(
+  sql: Sql,
+  input: { votingDelayMs: bigint | null; votingPeriodMs: bigint | null; expectedRevision: number },
+  lock: boolean,
+): Promise<SettingsVerdict> {
+  const rows = lock
+    ? await sql<Array<{ revision: number }>>`SELECT revision FROM token.governance_settings WHERE id = 1 FOR UPDATE`
+    : await sql<Array<{ revision: number }>>`SELECT revision FROM token.governance_settings WHERE id = 1`;
+  const current = rows[0]?.revision ?? 0;
+  const ordinal = input.expectedRevision + 1;
+  const replay = await sql<Array<{ voting_delay_ms: string | null; voting_period_ms: string | null }>>`
+    SELECT voting_delay_ms::text, voting_period_ms::text FROM token.governance_settings_moves WHERE ordinal = ${ordinal}
+  `;
+  if (replay[0]) {
+    const delay = input.votingDelayMs?.toString() ?? null;
+    const period = input.votingPeriodMs?.toString() ?? null;
+    // A retry answers what that move wrote, at its own revision, never later figures as if they were this change.
+    if (replay[0].voting_delay_ms === delay && replay[0].voting_period_ms === period)
+      return { kind: 'replay', settings: { votingDelayMs: input.votingDelayMs, votingPeriodMs: input.votingPeriodMs, revision: ordinal } };
+    throw new TokenError(`The settings changed since revision ${input.expectedRevision}`, 'token.settings_stale');
+  }
+  if (current !== input.expectedRevision) throw new TokenError(`The settings are at revision ${current}`, 'token.settings_stale');
+  return { kind: 'write', ordinal };
+}
+
+/**
+ * Refuses, without writing, a change the write would refuse (out of range or stale), so the founders' approval is not
+ * spent on it. The write checks again under its lock.
+ */
+export async function precheckGovernanceSettings(
+  sql: Sql,
+  input: { votingDelayMs: bigint | null; votingPeriodMs: bigint | null; expectedRevision: number },
+): Promise<void> {
+  checkGovernanceSettings(input);
+  await settingsVerdict(sql, input, false);
+}
+
 /**
  * Writes the settings over the revision read, with one numbered audit row naming who asked and who approved. A retry
- * of the same change at the same revision answers the stored settings; any other change at a stale revision refuses.
+ * of the same change at the same revision answers what that change stored; any other change at a stale revision refuses.
  */
 export async function setGovernanceSettings(
   sql: Sql,
@@ -93,17 +135,9 @@ export async function setGovernanceSettings(
   const period = input.votingPeriodMs?.toString() ?? null;
   return transaction(sql, async (tx) => {
     await tx`INSERT INTO token.governance_settings (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING`;
-    const rows = await tx<Array<{ revision: number }>>`SELECT revision FROM token.governance_settings WHERE id = 1 FOR UPDATE`;
-    const current = rows[0]!.revision;
-    const ordinal = input.expectedRevision + 1;
-    const replay = await tx<Array<{ voting_delay_ms: string | null; voting_period_ms: string | null }>>`
-      SELECT voting_delay_ms::text, voting_period_ms::text FROM token.governance_settings_moves WHERE ordinal = ${ordinal}
-    `;
-    if (replay[0]) {
-      if (replay[0].voting_delay_ms === delay && replay[0].voting_period_ms === period) return readGovernanceSettings(tx);
-      throw new TokenError(`The settings changed since revision ${input.expectedRevision}`, 'token.settings_stale');
-    }
-    if (current !== input.expectedRevision) throw new TokenError(`The settings are at revision ${current}`, 'token.settings_stale');
+    const verdict = await settingsVerdict(tx, input, true);
+    if (verdict.kind === 'replay') return verdict.settings;
+    const { ordinal } = verdict;
     await tx`
       UPDATE token.governance_settings
          SET voting_delay_ms = ${delay}::bigint, voting_period_ms = ${period}::bigint, revision = ${ordinal}
@@ -159,49 +193,78 @@ export async function governanceRoleOf(sql: Sql, userId: string): Promise<Govern
   return rows[0]?.role ?? null;
 }
 
+type RoleVerdict = { kind: 'write'; from: GovernanceRole | null; ordinal: number } | { kind: 'replay'; row: GovernanceRoleRow };
+
+/** Where a role move at `expectedRevision` lands: a new move, a retry of the move already written, or a refusal. */
+async function roleVerdict(
+  sql: Sql,
+  input: { userId: string; role: GovernanceRole | null; expectedRevision: number; actorId: string },
+  lock: boolean,
+): Promise<RoleVerdict> {
+  if (input.role !== null && !(GOVERNANCE_ROLES as readonly string[]).includes(input.role))
+    throw new TokenError('That is not a governance role', 'token.role_invalid');
+  if (input.actorId === input.userId)
+    throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
+  const rows = lock
+    ? await sql<Array<{ role: GovernanceRole | null; revision: number }>>`
+        SELECT role, revision FROM token.governance_roles WHERE user_id = ${input.userId} FOR UPDATE
+      `
+    : await sql<Array<{ role: GovernanceRole | null; revision: number }>>`
+        SELECT role, revision FROM token.governance_roles WHERE user_id = ${input.userId}
+      `;
+  const current = rows[0] ?? { role: null, revision: 0 };
+  const ordinal = input.expectedRevision + 1;
+  const replay = await sql<Array<{ to_role: GovernanceRole | null }>>`
+    SELECT to_role FROM token.governance_role_moves WHERE user_id = ${input.userId} AND ordinal = ${ordinal}
+  `;
+  if (replay[0]) {
+    if (replay[0].to_role === input.role) return { kind: 'replay', row: { userId: input.userId, role: input.role, revision: ordinal } };
+    throw new TokenError(`The role changed since revision ${input.expectedRevision}`, 'token.role_stale');
+  }
+  if (current.revision !== input.expectedRevision) throw new TokenError(`The role is at revision ${current.revision}`, 'token.role_stale');
+  if (current.role === input.role) throw new TokenError('The account already has that role', 'token.role_invalid');
+  return { kind: 'write', from: current.role, ordinal };
+}
+
+/** Refuses, without writing, a role move the write would refuse, so the founders' approval is not spent on it. */
+export async function precheckGovernanceRole(
+  sql: Sql,
+  input: { userId: string; role: GovernanceRole | null; expectedRevision: number; actorId: string },
+): Promise<void> {
+  await roleVerdict(sql, input, false);
+}
+
 /**
  * Grants, changes or revokes (`role` null) one account's role over the revision read, with a numbered audit row. The
- * account that receives a role never asks for or approves it; a retry of the same move at the same revision answers the stored row.
+ * account that receives a role never asks for or approves it; a retry of the same move answers what that move stored.
  */
 export async function setGovernanceRole(
   sql: Sql,
   input: { userId: string; role: GovernanceRole | null; expectedRevision: number; actorId: string; approverId: string },
 ): Promise<GovernanceRoleRow> {
-  if (input.role !== null && !(GOVERNANCE_ROLES as readonly string[]).includes(input.role))
-    throw new TokenError('That is not a governance role', 'token.role_invalid');
-  if (input.actorId === input.userId || input.approverId === input.userId)
+  if (input.approverId === input.userId)
     throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
   return transaction(sql, async (tx) => {
-    const rows = await tx<Array<{ role: GovernanceRole | null; revision: number }>>`
-      SELECT role, revision FROM token.governance_roles WHERE user_id = ${input.userId} FOR UPDATE
-    `;
-    const current = rows[0] ?? { role: null, revision: 0 };
-    const ordinal = input.expectedRevision + 1;
-    const replay = await tx<Array<{ to_role: string | null }>>`
-      SELECT to_role FROM token.governance_role_moves WHERE user_id = ${input.userId} AND ordinal = ${ordinal}
-    `;
-    if (replay[0]) {
-      if (replay[0].to_role === input.role) return { userId: input.userId, role: current.role, revision: current.revision };
-      throw new TokenError(`The role changed since revision ${input.expectedRevision}`, 'token.role_stale');
-    }
-    if (current.revision !== input.expectedRevision)
-      throw new TokenError(`The role is at revision ${current.revision}`, 'token.role_stale');
-    if (current.role === input.role) throw new TokenError('The account already has that role', 'token.role_invalid');
+    // A first grant has no row to lock, so the account's moves are serialised on its own key.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`token:governance-role:${input.userId}`}))`;
+    const verdict = await roleVerdict(tx, input, true);
+    if (verdict.kind === 'replay') return verdict.row;
+    const { from, ordinal } = verdict;
     await tx`
       INSERT INTO token.governance_roles (user_id, role, revision) VALUES (${input.userId}, ${input.role}, ${ordinal})
       ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, revision = EXCLUDED.revision
     `;
     await tx`
       INSERT INTO token.governance_role_moves (user_id, ordinal, from_role, to_role, actor_id, approver_id)
-      VALUES (${input.userId}, ${ordinal}, ${current.role}, ${input.role}, ${input.actorId}, ${input.approverId})
+      VALUES (${input.userId}, ${ordinal}, ${from}, ${input.role}, ${input.actorId}, ${input.approverId})
     `;
     return { userId: input.userId, role: input.role, revision: ordinal };
   });
 }
 
 /**
- * Cancels a draft or open proposal with a reason. Only a controller, admin or moderator may; its votes stay, and votes
- * after it are refused because it is no longer open. A second cancel by anyone is refused as not cancellable.
+ * Cancels a draft or open proposal whose voting has not ended, with a reason. Only a controller, admin or moderator may;
+ * its votes stay, and votes after it are refused because it is no longer open. A second cancel is refused.
  */
 export async function cancelGovernanceProposal(
   sql: Sql,
@@ -210,14 +273,23 @@ export async function cancelGovernanceProposal(
   const reason = input.reason.trim();
   if (reason.length < REASON_MIN || reason.length > REASON_MAX)
     throw new TokenError(`A cancel needs a reason of ${REASON_MIN} to ${REASON_MAX} characters`, 'token.cancel_reason_invalid');
-  const role = await governanceRoleOf(sql, input.actorId);
-  if (role === null || !CANCELLERS.includes(role))
-    throw new TokenError('Only a governance moderator, admin or controller can cancel a proposal', 'token.permission_denied');
   return transaction(sql, async (tx) => {
-    const rows = await tx<Array<{ status: string }>>`SELECT status FROM token.proposals WHERE id = ${input.proposalId} FOR UPDATE`;
+    // The role is read under a share lock, so a revoke waits for this cancel or lands before it, never in between.
+    const held = await tx<Array<{ role: GovernanceRole | null }>>`
+      SELECT role FROM token.governance_roles WHERE user_id = ${input.actorId} FOR SHARE
+    `;
+    const role = held[0]?.role ?? null;
+    if (role === null || !CANCELLERS.includes(role))
+      throw new TokenError('Only a governance moderator, admin or controller can cancel a proposal', 'token.permission_denied');
+    const rows = await tx<Array<{ status: string; closes_at: Date }>>`
+      SELECT status, closes_at FROM token.proposals WHERE id = ${input.proposalId} FOR UPDATE
+    `;
     if (!rows[0]) throw new TokenError(`Proposal ${input.proposalId} not found`, 'token.proposal_not_found');
     if (rows[0].status !== 'draft' && rows[0].status !== 'open')
       throw new TokenError(`A ${rows[0].status} proposal cannot be cancelled`, 'token.proposal_not_cancellable');
+    // A vote whose window has ended waits for its close; a cancel never overturns a finished vote.
+    if (input.now.getTime() >= rows[0].closes_at.getTime())
+      throw new TokenError('Voting on this proposal has ended, so it waits for its close', 'token.proposal_not_cancellable');
     await tx`
       UPDATE token.proposals
          SET status = 'cancelled', cancel_reason = ${reason}, cancelled_by = ${input.actorId}, cancelled_at = ${input.now}

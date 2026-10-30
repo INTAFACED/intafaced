@@ -5,7 +5,15 @@ import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import type { Part } from '@/lib/desk/part';
-import { GOVERNANCE_ROLES, ROLE_USER, ROLE_WORDS, durationWords, hoursToMs, type GovernanceRole } from '@/lib/token-governance/model';
+import {
+  GOVERNANCE_ROLES,
+  ROLE_USER,
+  ROLE_WORDS,
+  durationWords,
+  hoursToMs,
+  msToHours,
+  type GovernanceRole,
+} from '@/lib/token-governance/model';
 import type { GovernanceRead } from '@/lib/token-governance/server';
 import '@/components/desk.css';
 
@@ -32,9 +40,10 @@ export function GovernancePanel({ read, userId }: { read: GovernanceRead; userId
   const settings = read.settings.kind === 'ok' ? read.settings.data : null;
   const roles = read.roles.kind === 'ok' ? read.roles.data : [];
 
-  // Settings: hours in the form, milliseconds in the request. Blank is "not set".
-  const [delay, setDelay] = useState('');
-  const [period, setPeriod] = useState('');
+  // Settings: hours in the form, milliseconds in the request. Blank is "not set", so the form starts from what is stored:
+  // changing one figure never clears the other.
+  const [delay, setDelay] = useState(() => msToHours(settings?.votingDelayMs ?? null));
+  const [period, setPeriod] = useState(() => msToHours(settings?.votingPeriodMs ?? null));
   const d = hoursToMs(delay, 'delay');
   const p = hoursToMs(period, 'period');
   const settingsHold = !d.ok ? d.why : !p.ok ? p.why : null;
@@ -58,13 +67,15 @@ export function GovernancePanel({ read, userId }: { read: GovernanceRead; userId
   const current = roles.find((r) => r.userId === target) ?? null;
   const roleHold = !ROLE_USER.test(target)
     ? 'Enter the account id.'
-    : role === ''
-      ? 'Choose a role.'
-      : role === 'none' && !current?.role
-        ? 'This account has no role to remove.'
-        : (current?.role ?? 'none') === role
-          ? 'The account already has that role.'
-          : null;
+    : !current && read.rolesFull
+      ? `Only the first ${roles.length} accounts with a role were read, and this one is not among them, so its role revision is not known here.`
+      : role === ''
+        ? 'Choose a role.'
+        : role === 'none' && !current?.role
+          ? 'This account has no role to remove.'
+          : (current?.role ?? 'none') === role
+            ? 'The account already has that role.'
+            : null;
   const roleAction: ControlAction = {
     heading: 'Change a governance role',
     submitLabel: 'Ask a second founder to approve this role change',
@@ -100,13 +111,9 @@ export function GovernancePanel({ read, userId }: { read: GovernanceRead; userId
         ) : (
           <dl className="dk-kv" data-testid="governance-settings">
             <dt>Voting delay</dt>
-            <dd data-testid="voting-delay">
-              {settings?.votingDelayMs === null ? 'delay not set' : durationWords(settings?.votingDelayMs ?? null)}
-            </dd>
+            <dd data-testid="voting-delay">{settings?.votingDelayMs ? durationWords(settings.votingDelayMs) : 'delay not set'}</dd>
             <dt>Voting period</dt>
-            <dd data-testid="voting-period">
-              {settings?.votingPeriodMs === null ? 'period not set' : durationWords(settings?.votingPeriodMs ?? null)}
-            </dd>
+            <dd data-testid="voting-period">{settings?.votingPeriodMs ? durationWords(settings.votingPeriodMs) : 'period not set'}</dd>
             <dt>Revision</dt>
             <dd>{settings?.revision}</dd>
           </dl>

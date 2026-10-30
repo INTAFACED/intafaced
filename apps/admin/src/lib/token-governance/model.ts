@@ -99,6 +99,13 @@ export function durationWords(ms: string | null): string {
   return `${hours} ${hours === 1n ? 'hour' : 'hours'}`;
 }
 
+/** A stored figure as the form's whole hours, or blank when it is not set or not a whole number of hours. */
+export function msToHours(ms: string | null): string {
+  if (ms === null) return '';
+  const n = BigInt(ms);
+  return n % HOUR === 0n ? (n / HOUR).toString() : '';
+}
+
 /**
  * The form's hours as the milliseconds svc-token stores: blank is "not set" (null); anything that is not a whole number
  * of hours within a year is refused here, as svc-token would refuse it. A period of 0 is refused; a delay of 0 is kept.

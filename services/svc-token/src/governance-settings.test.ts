@@ -191,6 +191,38 @@ describe('MC-token-02 governance settings, roles and cancel', () => {
     expect((await token.governanceSettingsHistory()).length).toBe(2);
   });
 
+  it('a delayed retry answers what its own change stored, and the prechecks refuse without writing', async () => {
+    await settle(0n, DAY, 0);
+    await settle(0n, 2n * DAY, 1);
+    expect(await settle(0n, DAY, 0)).toEqual({ votingDelayMs: 0n, votingPeriodMs: DAY, revision: 1 });
+    expect(await codeOf(token.precheckGovernanceSettings({ votingDelayMs: DAY, votingPeriodMs: DAY, expectedRevision: 1 }))).toBe(
+      'token.settings_stale',
+    );
+    expect(await codeOf(token.precheckGovernanceSettings({ votingDelayMs: 0n, votingPeriodMs: 0n, expectedRevision: 2 }))).toBe(
+      'token.settings_invalid',
+    );
+    expect(await codeOf(token.precheckGovernanceSettings({ votingDelayMs: DAY, votingPeriodMs: DAY, expectedRevision: 2 }))).toBeNull();
+    expect((await token.governanceSettingsHistory()).length).toBe(2);
+
+    await token.setGovernanceRole({ userId: MODERATOR, role: 'moderator', expectedRevision: 0, actorId: FOUNDER_A, approverId: FOUNDER_B });
+    await token.setGovernanceRole({ userId: MODERATOR, role: 'admin', expectedRevision: 1, actorId: FOUNDER_A, approverId: FOUNDER_B });
+    expect(
+      await token.setGovernanceRole({
+        userId: MODERATOR,
+        role: 'moderator',
+        expectedRevision: 0,
+        actorId: FOUNDER_A,
+        approverId: FOUNDER_B,
+      }),
+    ).toEqual({ userId: MODERATOR, role: 'moderator', revision: 1 });
+    const pre = (role: 'admin' | 'author', expectedRevision: number) =>
+      codeOf(token.precheckGovernanceRole({ userId: MODERATOR, role, expectedRevision, actorId: FOUNDER_A }));
+    expect(await pre('author', 1)).toBe('token.role_stale');
+    expect(await pre('admin', 2)).toBe('token.role_invalid');
+    expect(await pre('author', 2)).toBeNull();
+    expect(await token.governanceRoleOf(MODERATOR)).toBe('admin');
+  });
+
   it('the database refuses a change asked and approved by one person', async () => {
     await expect(
       token.setGovernanceSettings({
@@ -288,6 +320,13 @@ describe('MC-token-02 governance settings, roles and cancel', () => {
     expect(await codeOf(token.cancelProposal({ proposalId: proposal.id, reason, actorId: MODERATOR, now: NOW }))).toBe(
       'token.proposal_not_cancellable',
     );
+    // A proposal whose voting has ended waits for its close: a cancel never overturns a finished vote.
+    const ended = await token.createProposal({ kind: 'listing', createdBy: AUTHOR, handle: 'c2', now: NOW });
+    const after = new Date(ended.closesAt.getTime());
+    expect(await codeOf(token.cancelProposal({ proposalId: ended.id, reason, actorId: MODERATOR, now: after }))).toBe(
+      'token.proposal_not_cancellable',
+    );
+    expect((await token.getProposal(ended.id)).status).toBe('open');
     expect(await codeOf(token.cancelProposal({ proposalId: 'gov:proposal:none', reason, actorId: MODERATOR, now: NOW }))).toBe(
       'token.proposal_not_found',
     );

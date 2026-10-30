@@ -9,7 +9,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
-import { GOVERNANCE_ROLES, checkGovernanceSettings, type GovernanceSettings } from './governance-settings.js';
+import { GOVERNANCE_ROLES, type GovernanceSettings } from './governance-settings.js';
 import {
   GOVERNANCE_ROLE_ACTION,
   GOVERNANCE_SETTINGS_ACTION,
@@ -1203,8 +1203,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           guard(async () => {
             const votingDelayMs = input.votingDelayMs === null ? null : BigInt(input.votingDelayMs);
             const votingPeriodMs = input.votingPeriodMs === null ? null : BigInt(input.votingPeriodMs);
-            // Refuse what the door refuses before the founders' approval is spent on it.
-            checkGovernanceSettings({ votingDelayMs, votingPeriodMs });
+            // Refuse what the door refuses (range, stale revision) before the founders' approval is spent on it.
+            await token.precheckGovernanceSettings({ votingDelayMs, votingPeriodMs, expectedRevision: input.expectedRevision });
             const consumed = await consumeTokenApproval(
               approvals,
               input,
@@ -1253,6 +1253,13 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           guard(async () => {
             if (input.userId === ctx.principal.userId)
               throw new TokenError('A role is never asked for by the account that receives it', 'token.role_invalid');
+            // Refuse a role move the door would refuse (same role, stale revision) before the approval is spent on it.
+            await token.precheckGovernanceRole({
+              userId: input.userId,
+              role: input.role,
+              expectedRevision: input.expectedRevision,
+              actorId: ctx.principal.userId ?? '',
+            });
             const consumed = await consumeTokenApproval(
               approvals,
               input,

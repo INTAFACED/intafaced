@@ -22,7 +22,8 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
-  // svc-token governance founder doors (J-more-catalogue-10). Every one is refused before the approval is spent.
+  // svc-token governance founder doors (J-more-catalogue-10). Each is checked before the approval is spent, except a
+  // founder approving a role for their own account, which only the approval names.
   'token.settings_invalid': {
     title: 'Those settings are outside what governance stores',
     body: 'The voting delay is 0 to one year and the voting period more than 0 and at most one year. Nothing was changed.',
