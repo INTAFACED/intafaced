@@ -235,7 +235,7 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   // The release time is the service's average for that order, in the app's own rounding (whole seconds, minutes, or
   // hours and minutes), never a bare prefix.
   expect(Number.isInteger(record.avgReleaseSecs) && record.avgReleaseSecs >= 0).toBe(true);
-  const secs = Math.floor(record.avgReleaseSecs);
+  const secs = record.avgReleaseSecs;
   const releases =
     secs < 60
       ? `${secs} s`
@@ -254,13 +254,6 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   expect(eligible.canTake).toBe(true);
   expect(eligible.checks.map((c) => c.id)).toEqual(['verification', 'contact', 'jurisdiction', 'deposit']);
   expect(eligible.checks.map((c) => c.state)).toEqual(['met', 'met', 'met', 'met']);
-  // The take panel lists only what is unmet, so it is empty here; the hub shows each requirement as met.
-  await page.goto('/p2p');
-  await expect(eligibility(page)).toContainText('You meet every requirement to take an ad.');
-  for (const id of ['verification', 'contact', 'jurisdiction', 'deposit'])
-    await expect(check(page, id)).toHaveAttribute('data-state', 'met');
-  await expect(eligibility(page).locator('li[data-state]:not([data-state="met"])')).toHaveCount(0);
-  await page.goto(`/p2p?offerId=${state.offerId}`);
   // The fraud-safety guidance stays, read-only beside the take: nothing to tick or accept.
   const safe = take.getByTestId('p2p-stay-safe');
   await expect(safe).toBeVisible();
@@ -268,6 +261,12 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   await expect(safe).toContainText('Never cancel an order after you paid.');
   await expect(safe.getByRole('button')).toHaveCount(0);
   await expect(safe.getByRole('checkbox')).toHaveCount(0);
+  // The take panel lists only what is unmet, so it is empty here; the hub shows each requirement as met.
+  await page.goto('/p2p');
+  await expect(eligibility(page)).toContainText('You meet every requirement to take an ad.');
+  for (const id of ['verification', 'contact', 'jurisdiction', 'deposit'])
+    await expect(check(page, id)).toHaveAttribute('data-state', 'met');
+  await expect(eligibility(page).locator('li[data-state]:not([data-state="met"])')).toHaveCount(0);
 });
 
 test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quote past its window refuses by name', async ({ page }) => {
