@@ -29,7 +29,12 @@ describe('risk disclosure store on Postgres', () => {
 
   beforeAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0002_quant_disclosure.sql', 'drizzle/0003_quant_signal_rules.sql']) {
+    for (const file of [
+      'drizzle/0000_quant_strategies.sql',
+      'drizzle/0002_quant_disclosure.sql',
+      'drizzle/0003_quant_signal_rules.sql',
+      'drizzle/20261030134631_quant_strategy_heads.sql',
+    ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
     }

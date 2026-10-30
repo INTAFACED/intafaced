@@ -49,7 +49,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'fix', audience: 'institutional', waitsFor: 'DV-fix-01' },
   { id: 'protocols', audience: 'institutional', waitsFor: 'DV-websocket-01' },
   { id: 'webhooks', audience: 'embedded', published: { href: '/pay/developer/webhooks' } },
-  { id: 'sandbox', audience: 'embedded', published: { href: '/pay/developer/sandbox' } },
+  { id: 'sandbox', audience: 'embedded', published: { href: '/developers/sandbox' } },
   { id: 'apps', audience: 'broker', published: { href: '/developers/apps' } },
   { id: 'quickstart', audience: 'practice', page: true },
   { id: 'sdks', audience: 'practice', waitsFor: 'DV-tools-01' },

@@ -69,10 +69,11 @@ describe('J-copy-bots-otc-03 copy notice events', () => {
     }
   });
 
-  it('svc-notify reads the skip and the stop; the failure is still a class A socket at both ends', () => {
-    // The skip and stop consumers are in svc-notify (events.ts, copy-notify.test.ts); their publisher is svc-trade's.
+  it('the skip and the stop are wired end to end; the failure is still a class A socket at both ends', () => {
+    // Published by services/svc-trade/src/copy/copy-notices.ts, read by svc-notify (events.ts, copy-notify.test.ts).
     for (const k of ['copySkipped', 'copyStopped'] as const) {
-      expect(WIRING_SOCKETS.filter((s) => s.event === k && s.missing === 'subscriber')).toEqual([]);
+      expect(WIRING_SOCKETS.filter((s) => s.event === k)).toEqual([]);
+      expect(EVENT_BUS_MATRIX[k]).toEqual({ kind: 'live' });
     }
     expect(WIRING_SOCKETS.filter((s) => s.event === 'copyFailed').map((s) => [s.missing, s.class])).toEqual([
       ['publisher', 'A'],

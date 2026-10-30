@@ -125,8 +125,20 @@ const en = {
   scanCamera: 'Scan with the camera',
   scanFile: 'Choose an image of a QR code',
   scanShow: 'Show my QR code',
+  scanCameraStop: 'Stop the camera',
+  scanCameraLabel: 'Camera view',
+  scanReading: 'Reading the QR code…',
+  scanLooking: 'Point the camera at a QR code.',
+  scanRefusedTitle: 'Nothing was opened',
+  'scan.camera_denied':
+    'The camera is not allowed for this site. Choose an image of the QR code instead, or allow the camera in your browser settings.',
+  'scan.camera_unavailable': 'No camera could be opened on this device. Choose an image of the QR code instead.',
+  'scan.not_image': 'That file is not an image. Choose a photo or a screenshot of the QR code.',
+  'scan.image_too_large': 'That image is over 10 MB. Choose a smaller photo or a screenshot of the QR code.',
+  'scan.unreadable': 'No QR code could be read in that image. Try a sharper photo with the whole code in view.',
+  'scan.not_pay_code': 'That QR code is not a payment code from this app, so nothing was opened.',
   scanReason:
-    'This room reads no QR code: the camera and the image upload are off. Opening a payment link works, and so does Show my QR code.',
+    'A payment code or link from this app opens Send, filled in for you to check, from the camera or an image. A shop or in-store code is not read here, so it opens nothing.',
   // Payment link
   linkTitle: 'Payment link',
   linkLine: 'A link someone sent you to pay.',

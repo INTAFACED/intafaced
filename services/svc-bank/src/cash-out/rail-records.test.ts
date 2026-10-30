@@ -45,6 +45,28 @@ describe("the payout stand-in's own TEST records", () => {
     expect(statSync(path.join(dir, 'payout-sim.jsonl')).mode & 0o777).toBe(0o600);
   });
 
+  it("keeps the stand-in's own reference on the line, and refuses another reference or a malformed one under the key", async () => {
+    const dir = fresh();
+    const recorder = railRecorder(dir, 'payout-sim');
+    await recorder.record({ ...paid, ref: 'TEST-PAYOUT-c1' });
+    await recorder.record({ ...paid, ref: 'TEST-PAYOUT-c1' });
+    // A retry from before references were kept is the same movement, and writes nothing.
+    await recorder.record(paid);
+    await expect(recorder.record({ ...paid, ref: 'TEST-PAYOUT-c2' })).rejects.toThrow(/already recorded as "out USDT 20 TEST-PAYOUT-c1"/);
+    await expect(recorder.record({ ...paid, key: 'cash-out:c3:paid', ref: 'PAYOUT-c3' })).rejects.toThrow(/is not a TEST rail record/);
+    expect(lines(dir)).toEqual([
+      { label: 'TEST', rail: 'payout-sim', ...paid, amount: '20', ref: 'TEST-PAYOUT-c1', at: expect.any(String) },
+    ]);
+  });
+
+  it('accepts the referenced retry of a line written before references were kept, writing nothing new', async () => {
+    const dir = fresh();
+    const recorder = railRecorder(dir, 'payout-sim');
+    await recorder.record(paid);
+    await recorder.record({ ...paid, ref: 'TEST-PAYOUT-c1' });
+    expect(lines(dir)).toHaveLength(1);
+  });
+
   it('refuses the same key with other facts, and a movement of nothing, writing nothing', async () => {
     const dir = fresh();
     const { record } = railRecorder(dir, 'payout-sim');

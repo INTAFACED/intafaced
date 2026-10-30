@@ -28,6 +28,9 @@ describe('Address page', () => {
     expect(html).toContain('This explorer holds no funds');
     expect(html).toContain('aria-label="Summary"');
     expect(html).toContain('aria-label="Transactions"');
+    expect(html).toContain('aria-label="Holdings"');
+    expect(html).toContain('aria-label="Balance at a past point"');
+    expect(html).toMatch(/role="tab"[^>]*>Internal transactions</);
     expect(html).toContain('Sign in to keep a private watch');
     expect(html).not.toContain('Watch this address</button>');
     expect(html).not.toMatch(/\$\d/);

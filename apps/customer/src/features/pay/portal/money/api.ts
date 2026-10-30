@@ -42,6 +42,8 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
     query('settlement.list', { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, p.page(p.settlementSchema), signal),
   settlementLines: (settlementId: string, cursor: string | undefined, signal?: AbortSignal) =>
     query('settlement.lines', { settlementId, limit: 25, ...(cursor ? { cursor } : {}) }, p.page(m.settlementLineSchema), signal),
+  /** RC-merchant-10: captured payments the rail has not made available yet, with the day it named. */
+  clearing: (merchantId: string, signal?: AbortSignal) => query('settlement.clearing', { merchantId }, m.clearingSchema, signal),
   /** mirrors feat/pay-portal-be-reads-money settlement.lifecycle */
   settlementLifecycle: (settlementId: string, signal?: AbortSignal) =>
     query('settlement.lifecycle', { settlementId }, m.lifecycleSchema, signal),

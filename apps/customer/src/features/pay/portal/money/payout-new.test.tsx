@@ -72,6 +72,18 @@ describe('asking for a payout', () => {
     const { portal } = fakePortal({ ask: refusal });
     expect(await run(portal)).toEqual(refusal);
   });
+  it('says money still clearing in plain words, keeps the service code, and never sends (RC-merchant-10)', async () => {
+    const refusal = {
+      ok: false as const,
+      reason: 'error' as const,
+      code: 'pay.payout_clearing_pending',
+      message: 'Settlement bb000002 is still clearing: 40.00 USDT the rail has not made available yet, so there is nothing to pay out',
+    };
+    const { portal, sendPayout } = fakePortal({ ask: refusal });
+    const out = await run(portal);
+    expect(sendPayout).not.toHaveBeenCalled();
+    expect(out).toEqual({ ...refusal, message: t('rClearingPending') });
+  });
   it('tells a person who cannot send who can, and never calls the send', async () => {
     const { portal, sendPayout } = fakePortal({ ask: { ok: true, data: approvalRow('approved') } });
     const out = await run(portal, { maySend: false });

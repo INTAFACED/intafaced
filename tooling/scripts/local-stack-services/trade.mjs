@@ -126,6 +126,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // `LOCAL_STACK_TRADE_GRID_BAND=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #4 sees that refusal.
     TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS:
       process.env.LOCAL_STACK_TRADE_GRID_BAND === 'blank' ? '' : testValue('TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS'),
+    // LOCAL TEST, not an owner decision: the daily cap on grid bot profit withdrawals (owner setting
+    // trade.bots_withdraw_daily_cap). Blank refuses every withdrawal (trade.bots_withdraw_cap_unset, grid/policy.ts);
+    // production stays blank until the owner sets it. `LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank` on a restart leaves it
+    // blank, so J-copy-bots-otc-14 #7 sees that refusal.
+    TRADE_BOTS_WITHDRAW_DAILY_CAP:
+      process.env.LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP === 'blank' ? '' : testValue('TRADE_BOTS_WITHDRAW_DAILY_CAP'),
     // LOCAL TEST, not an owner decision: the window the operator module counts quotes in. Blank refuses the metrics read
     // (trade.ops_metrics_window_not_set, admin/copy-bots-otc.ts), which a unit test keeps proving.
     // `LOCAL_STACK_TRADE_OPS_METRICS_WINDOW=off` on a start or restart leaves it blank, so J-copy-bots-otc-13 #1 sees

@@ -91,10 +91,38 @@ export function defaultIntervalMs(durationMs: number): number {
 }
 
 export type PlanProblem =
-  'total' | 'lot' | 'duration' | 'interval' | 'tooManySlices' | 'sliceTooSmall' | 'sliceBelowMin' | 'limit' | 'participation';
+  | 'total'
+  | 'lot'
+  | 'duration'
+  | 'interval'
+  | 'tooManySlices'
+  | 'sliceTooSmall'
+  | 'sliceBelowMin'
+  | 'limit'
+  | 'participation'
+  | 'chaseDistance';
+
+/** 250 bps as "2.5": a chase's distance is typed and shown in percent. */
+export function bpsAsPercent(bps: number): string {
+  const cents = String(bps % 100)
+    .padStart(2, '0')
+    .replace(/0+$/, '');
+  return cents ? `${Math.floor(bps / 100)}.${cents}` : String(Math.floor(bps / 100));
+}
+
+/**
+ * A chase's maximum distance, typed as a percent with at most two decimals, in basis points (1 to 10000). Blank or
+ * anything else is null: a chase is never sent without its bound.
+ */
+export function chaseDistanceBps(text: string): number | null {
+  const m = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(text.trim());
+  if (!m) return null;
+  const bps = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+  return bps >= 1 && bps <= 10_000 ? bps : null;
+}
 
 export interface PlanDraft {
-  kind: 'twap' | 'vwap' | 'pov';
+  kind: 'twap' | 'vwap' | 'pov' | 'chase';
   total: string;
   durationMs: number | null;
   intervalMs: number | null;
@@ -106,6 +134,8 @@ export interface PlanDraft {
   last: string | null;
   taker: string | null;
   participationBps: number | null;
+  /** Chase only: the maximum distance as typed, a percent. */
+  chaseDistance?: string;
   startMs: number;
 }
 
@@ -127,16 +157,21 @@ export function planSchedule(draft: PlanDraft): { plan: Plan | null; problems: P
   else if (draft.lot !== null && !onStep(draft.total, draft.lot)) problems.push('lot');
   const { durationMs, intervalMs } = draft;
   if (durationMs === null || durationMs < MIN_DURATION_MS || durationMs > MAX_DURATION_MS) problems.push('duration');
-  if (intervalMs === null || intervalMs < MIN_DURATION_MS || (durationMs !== null && intervalMs > durationMs)) problems.push('interval');
-  if (draft.limit.trim() !== '') {
+  const chase = draft.kind === 'chase';
+  // A chase is one working order for its whole life: it has no slice interval and no limit price, only its distance.
+  if (!chase && (intervalMs === null || intervalMs < MIN_DURATION_MS || (durationMs !== null && intervalMs > durationMs)))
+    problems.push('interval');
+  if (chase && chaseDistanceBps(draft.chaseDistance ?? '') === null) problems.push('chaseDistance');
+  if (chase && draft.limit.trim() !== '') problems.push('limit');
+  else if (draft.limit.trim() !== '') {
     const limit = positive(draft.limit);
     if (limit === null || (draft.tick !== null && !onStep(draft.limit, draft.tick))) problems.push('limit');
   }
   if (draft.kind === 'pov' && (draft.participationBps === null || draft.participationBps < 1 || draft.participationBps > 10_000))
     problems.push('participation');
-  if (problems.length > 0 || durationMs === null || intervalMs === null) return { plan: null, problems };
+  if (problems.length > 0 || durationMs === null || (!chase && intervalMs === null)) return { plan: null, problems };
 
-  const slices = Math.ceil(durationMs / intervalMs);
+  const slices = chase ? 1 : Math.ceil(durationMs / intervalMs!);
   if (slices > MAX_SLICES) return { plan: null, problems: ['tooManySlices'] };
   const parts = draft.lot === null ? null : splitEqual(draft.total, slices, draft.lot);
   if (parts === null) return { plan: null, problems: ['sliceTooSmall'] };

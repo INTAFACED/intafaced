@@ -4,6 +4,7 @@
  *
  *   node tooling/ci/why-red.mjs 6064            a PR number (its current head)
  *   node tooling/ci/why-red.mjs <40-char sha>   one commit
+ *   node tooling/ci/why-red.mjs --orphans       every open PR nobody has pushed to since its CI run went stale
  *   node tooling/ci/why-red.mjs --self-test
  *
  * Measured on 2026-10-23 across ten thread transcripts: a red CI took 7 to 10 calls and 30-40K characters to explain,
@@ -18,6 +19,15 @@
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
  *
+ * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
+ * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
+ * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
+ *
+ * `--orphans` lists every open PR whose head's newest CI run was made more than three hours ago and was re-run more than
+ * three hours after that, in a job other than the seal: nobody has pushed to it, and the re-run tests an old merge commit.
+ * #6831, #6832 and #6834 sat 10.8 hours like that after their author sessions ended at the pause; this names them in one
+ * call.
+ *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
 import { fileURLToPath } from 'node:url';
@@ -31,6 +41,104 @@ const MAX_LINES = 8;
 const WIDTH = 200;
 
 const GREEN = new Set(['success', 'neutral', 'skipped']);
+const STALE_MS = 3 * 60 * 60_000;
+
+/** The Actions run id a check run belongs to, from its details URL, or null for another app's check. */
+export function runIdOf(check) {
+  return /\/actions\/runs\/(\d+)/.exec(check?.details_url ?? '')?.[1] ?? null;
+}
+
+/**
+ * One line per pull_request run, red or running in a job other than the seal, whose current attempt started more than
+ * STALE_MS after the run was made. The sign-off workflow's own re-run of the seal never counts (it reads only the
+ * jobs' results), and a prompt confirmation re-run (AGENTS.md "Check, then merge" 3) is not stale.
+ */
+export function staleLines(runs = {}, checks = []) {
+  const out = [];
+  for (const [id, r] of Object.entries(runs)) {
+    if (!r || r.event !== 'pull_request' || !(r.run_attempt > 1)) continue;
+    if (!(Date.parse(r.run_started_at) - Date.parse(r.created_at) > STALE_MS)) continue;
+    const jobs = checks.filter((c) => runIdOf(c) === id && c.name !== SEAL && (c.status !== 'completed' || !GREEN.has(c.conclusion)));
+    if (jobs.length === 0) continue;
+    out.push(
+      `STALE    run ${id} is attempt ${r.run_attempt} of a run made ${r.created_at}: it tests the merge commit made then, against main as it was then. To test today's main, merge main into the branch and push.`,
+    );
+  }
+  return out;
+}
+
+/**
+ * One line per open PR whose head's newest pull_request CI run was made more than STALE_MS before `now` and whose current
+ * attempt started more than STALE_MS after the run was made and re-ran a job other than the seal: nobody has pushed that
+ * head since, and the re-run tests an old merge commit. A prompt confirmation re-run and the sign-off workflow's re-run
+ * of the seal are not orphans, the same rule staleLines keeps. `prs` are `{ number, title, headSha }`; `runs` maps a head
+ * sha to `{ run, jobs }` (jobs: that attempt's jobs), `null` when the head has no CI run, or `undefined` when it could not
+ * be read, which is named, never passed as fine.
+ */
+export function orphanLines(prs = [], runs = {}, now = Date.now()) {
+  const out = [];
+  const unread = [];
+  for (const pr of prs) {
+    if (runs[pr.headSha] === undefined) {
+      unread.push(pr.number);
+      continue;
+    }
+    const { run: r, jobs = [] } = runs[pr.headSha] ?? {};
+    if (!r || !(r.run_attempt > 1) || !(now - Date.parse(r.created_at) > STALE_MS)) continue;
+    if (!(Date.parse(r.run_started_at) - Date.parse(r.created_at) > STALE_MS)) continue;
+    if (!jobs.some((j) => j.run_attempt === r.run_attempt && j.name !== SEAL)) continue;
+    const hours = ((now - Date.parse(r.created_at)) / 3_600_000).toFixed(1);
+    out.push(
+      `ORPHAN   #${pr.number} CI run ${r.id} was made ${hours}h ago (${r.created_at}) and re-run as attempt ${r.run_attempt} with no push since: its owner merges main and pushes, or the lead gives it one. ${pr.title}`.slice(
+        0,
+        WIDTH,
+      ),
+    );
+  }
+  if (unread.length > 0) out.push(`UNREAD   the CI runs of #${unread.join(', #')} could not be read: run --orphans again.`);
+  else if (out.length === 0) out.push('NO ORPHANS: no open PR has an old CI run that was re-run with no push since.');
+  return out;
+}
+
+/** The open PRs and, for each head, its newest CI run and that attempt's jobs, read with `gh api` (REST only). */
+export function collectOrphans(gh, repo) {
+  const prs = [];
+  for (let page = 1; ; page++) {
+    const batch = ghJson(gh, ['api', `repos/${repo}/pulls?state=open&per_page=100&page=${page}`]);
+    prs.push(...batch.map((p) => ({ number: p.number, title: p.title, headSha: p.head.sha })));
+    if (batch.length < 100) break;
+  }
+  const read = (path) => {
+    const r = gh(['api', path], { allowFail: true });
+    return r.status === 0 ? JSON.parse(r.stdout) : undefined;
+  };
+  // The CI workflow's recent pull_request runs in one listing (newest first), then one read per head it did not cover.
+  const newest = {};
+  const listed = read(`repos/${repo}/actions/workflows/ci.yml/runs?event=pull_request&per_page=100`);
+  for (const w of listed?.workflow_runs ?? []) newest[w.head_sha] ??= w;
+  const runs = {};
+  for (const { headSha } of prs) {
+    let run = newest[headSha];
+    if (!run) {
+      const one = read(`repos/${repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=${headSha}&per_page=1`);
+      if (one === undefined) continue; // unread: orphanLines names it
+      run = one.workflow_runs?.[0] ?? null;
+    }
+    if (!run) {
+      runs[headSha] = null;
+      continue;
+    }
+    // Only a candidate needs its attempt's jobs, to tell a re-run of the tests from the sign-off workflow's seal re-run.
+    const candidate = run.run_attempt > 1 && Date.parse(run.run_started_at) - Date.parse(run.created_at) > STALE_MS;
+    if (!candidate) {
+      runs[headSha] = { run, jobs: [] };
+      continue;
+    }
+    const jobs = read(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
+    if (jobs !== undefined) runs[headSha] = { run, jobs: jobs.jobs ?? [] };
+  }
+  return { prs, runs };
+}
 
 /** One annotation as one short line, or null for runner boilerplate that names nothing. */
 export function annotationLine(a) {
@@ -69,7 +177,7 @@ export function latestPerName(checks) {
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks: all, annotations, failedSteps, statuses }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs }) {
   const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
@@ -122,6 +230,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
   }
   for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
+  out.push(...staleLines(runs, checks));
   const sealSeen = checks.some((c) => c.name === SEAL);
   const othersRunning = running.filter((c) => c.name !== SEAL);
   // A newer push to the same PR cancels this head's run (ci.yml concurrency): nothing on this head to fix.
@@ -176,7 +285,15 @@ export function collect(gh, repo, ref) {
       failedSteps[c.id] = steps.filter((s) => s.conclusion === 'failure').map((s) => s.name);
     }
   }
-  return { sha, checks, annotations, failedSteps, statuses };
+  // The runs behind the head's checks that are red or still running, to name a stale re-run.
+  const runs = {};
+  for (const c of latestPerName(checks).filter((c) => c.status !== 'completed' || !GREEN.has(c.conclusion))) {
+    const id = runIdOf(c);
+    if (!id || id in runs) continue;
+    const r = gh(['api', `repos/${repo}/actions/runs/${id}`], { allowFail: true });
+    runs[id] = r.status === 0 ? JSON.parse(r.stdout) : null; // a failed read is not asked again
+  }
+  return { sha, checks, annotations, failedSteps, statuses, runs };
 }
 
 function selfTest() {
@@ -311,21 +428,78 @@ function selfTest() {
     bare.some((l) => l.includes('failed step: Doctrine gates')),
     'a red job with no annotations names its failed step',
   );
+  const job = (id, name, run, status = 'in_progress', conclusion = null) => ({
+    id,
+    name,
+    status,
+    conclusion,
+    details_url: `https://github.com/o/r/actions/runs/${run}/job/${id}`,
+  });
+  const old = { event: 'pull_request', run_attempt: 3, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:35:00Z' };
+  const stale = summarize({ ...base, checks: [job(9, 'Tests (changed)', 40993723454)], runs: { 40993723454: old } });
+  assert(
+    stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
+    'an old pull_request run re-run hours later is named stale (#6832, 30 Oct)',
+  );
+  assert(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
+  const at = (over) => ({ 1: { ...old, ...over } });
+  const testsJob = [job(5, 'Tests (changed)', 1)];
+  assert(staleLines(at({ run_started_at: '2026-10-30T03:30:00Z' }), testsJob).length === 0, 'a prompt confirmation re-run is not stale');
+  assert(staleLines(at({ run_attempt: 1 }), testsJob).length === 0, 'a first attempt that waited in the queue is not stale');
+  assert(staleLines(at({ event: 'push' }), testsJob).length === 0, 'a push run has no merge commit to go stale');
+  assert(staleLines(at({}), [job(6, SEAL, 1)]).length === 0, "the sign-off workflow's re-run of the seal is not stale");
+  assert(staleLines(at({}), [job(5, 'Tests (changed)', 1, 'completed', 'success')]).length === 0, 'a green run needs no advice');
+  assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
+  const now = Date.parse('2026-10-30T13:40:00Z');
+  const pr = { number: 6832, title: 'feat: x', headSha: 'b'.repeat(40) };
+  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:16:00Z', run_attempt: 3 };
+  const testsRerun = [
+    { name: 'Tests (changed)', run_attempt: 3 },
+    { name: SEAL, run_attempt: 3 },
+  ];
+  const orphan = (over = {}, jobs = testsRerun) => orphanLines([pr], { [pr.headSha]: { run: { ...run, ...over }, jobs } }, now);
+  assert(
+    orphan()[0].startsWith('ORPHAN   #6832 CI run 40993723454 was made 10.9h ago'),
+    'an old run re-run with no push is an orphan (#6832, 30 Oct)',
+  );
+  const clean = (lines) => lines.length === 1 && lines[0].startsWith('NO ORPHANS');
+  assert(clean(orphan({ run_attempt: 1 })), 'an old PR nobody re-ran is only waiting');
+  assert(clean(orphan({ created_at: '2026-10-30T12:00:00Z' })), 'a recent push is not an orphan');
+  assert(clean(orphan({ run_started_at: '2026-10-30T03:00:00Z' })), 'a prompt confirmation re-run is not an orphan');
+  assert(
+    clean(
+      orphan({}, [
+        { name: 'Tests (changed)', run_attempt: 1 },
+        { name: SEAL, run_attempt: 3 },
+      ]),
+    ),
+    "the sign-off workflow's seal re-run is not an orphan",
+  );
+  assert(clean(orphanLines([pr], { [pr.headSha]: null }, now)), 'a head with no CI run says nothing');
+  const unread = orphanLines([pr], {}, now);
+  assert(unread.length === 1 && unread[0].startsWith('UNREAD   the CI runs of #6832'), 'an unread head is named, never passed as fine');
   console.log('why-red self-test ok');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  const ri = args.indexOf('--repo');
+  const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
+  const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
+  const usage = () => {
+    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name] | --self-test');
+    process.exit(2);
+  };
   if (args.includes('--self-test')) {
     selfTest();
+  } else if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    usage();
+  } else if (args.includes('--orphans')) {
+    if (ref) usage();
+    const { prs, runs } = collectOrphans(makeGh(), repo);
+    for (const line of orphanLines(prs, runs)) console.log(line);
   } else {
-    const ri = args.indexOf('--repo');
-    const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
-    const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
-    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref) || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-      console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --self-test');
-      process.exit(2);
-    }
+    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref)) usage();
     for (const line of summarize(collect(makeGh(), repo, ref))) console.log(line);
   }
 }

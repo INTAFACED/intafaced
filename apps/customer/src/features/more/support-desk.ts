@@ -194,16 +194,24 @@ const SUBJECT_MAX = 200;
  */
 export type SupportRoute =
   | { view: 'help' }
-  | { view: 'new'; subject: string }
+  | { view: 'new'; subject: string; follows?: string }
   | { view: 'requests' }
   | { view: 'request'; id: string }
   | { view: 'badRequest' }
   | { view: 'unknown' };
 
+/** The address of a new request that follows the closed request `ticketId`. */
+export const supportFollowUpHref = (ticketId: string) => `/support/new?follows=${encodeURIComponent(ticketId)}`;
+
 export function supportRoute(pathname: string, search: string): SupportRoute {
   const path = pathname.replace(/\/+$/, '') || '/';
-  if (path === '/support/new')
-    return { view: 'new', subject: (new URLSearchParams(search).get('subject') ?? '').trim().slice(0, SUBJECT_MAX) };
+  if (path === '/support/new') {
+    const params = new URLSearchParams(search);
+    const subject = (params.get('subject') ?? '').trim().slice(0, SUBJECT_MAX);
+    // A follow-up names the closed request it follows in the address, so the link survives a reload or a fresh page.
+    const follows = params.get('follows') ?? '';
+    return REQUEST_ID.test(follows) ? { view: 'new', subject, follows: follows.toLowerCase() } : { view: 'new', subject };
+  }
   if (path === '/support/tickets') return { view: 'requests' };
   const one = /^\/support\/tickets\/([^/]+)$/.exec(path);
   if (one) {
