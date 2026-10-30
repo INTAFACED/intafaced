@@ -13,6 +13,8 @@ const J = 'J-portfolio-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ZONE = 'Pacific/Auckland';
 const SPACE = 'Rent TEST';
+const SAVED = '30';
+const WITHDRAWN = '10';
 
 test.describe.configure({ mode: 'default' });
 // A zone far from UTC, so a time shown in UTC would not pass for local time.
@@ -171,6 +173,41 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   await move.getByRole('button', { name: 'Review' }).click();
   await move.getByRole('button', { name: 'Confirm' }).click();
   await expect(move.getByText(/ledger/i).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // TEST 30 USDT into the stack's instant-access savings, made in the app: an earn line.
+  const pools = (await bankRead(who, 'earn.pools', { limit: 50 })).data;
+  const pool = pools.find((row) => row.assetId === 'USDT' && row.kind === 'flexible');
+  expect(pool, 'the stack seeds a TEST instant-access USDT pool').toBeTruthy();
+  await page.goto('/bank/spaces');
+  await page
+    .getByTestId('instant-savings')
+    .locator(`[data-testid="instant-savings-pool"][data-pool="${pool.id}"]`)
+    .getByRole('button', { name: 'Open instant-access savings', exact: true })
+    .click();
+  const save = page.getByRole('dialog');
+  await save.getByLabel('Amount (USDT)').fill(SAVED);
+  await save.getByRole('button', { name: 'Review' }).click();
+  await save.getByRole('button', { name: 'Open instant-access savings' }).click();
+  await expect
+    .poll(async () => (await bankRead(who, 'earn.positions', { limit: 50 })).data.filter((p) => p.poolId === pool.id).length)
+    .toBe(1);
+  await page.keyboard.press('Escape');
+
+  // A TEST withdrawal of 10 USDT, held: sending out is switched off on this stack, so the stack books the hold through the
+  // ledger's own recipe exactly as svc-pay's withdraw does (local-test-stack.mjs seed-withdrawal, as J-wallet-06 does).
+  const seeded = tool(
+    'local-test-stack.mjs',
+    'seed-withdrawal',
+    who.email,
+    'USDT',
+    WITHDRAWN,
+    '--state',
+    'held',
+    '--ref',
+    `${J}-${Date.now()}`,
+  );
+  expect(seeded).toMatch(/withdrawal\s+[0-9a-f-]{36}/);
   run.write({ resting: resting.id, cancelled: cancelled.id, space: space.id });
 
   // The bank's lines add up to the ledger: per coin, what came in less what went out is what the main account holds.
@@ -191,6 +228,20 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   await expect(list.filter({ hasText: 'Set aside for an order' })).toHaveCount(1);
   await expect(list.filter({ hasText: 'Order cancelled · nothing spent' })).toHaveCount(1);
   await expect(list.filter({ hasText: /Transfer|Moved/ })).not.toHaveCount(0);
+  // Earn and withdrawal, each in its own words with its signed amount, as the bank's lines hold them.
+  const earned = lines.filter((l) => l.kind === 'earn');
+  expect(earned.map((l) => [l.direction, l.amount, l.asset])).toEqual([['out', SAVED, 'USDT']]);
+  await expect(list.filter({ hasText: 'Moved to savings' })).toHaveCount(1);
+  await expect(list.filter({ hasText: 'Moved to savings' }).locator('td').nth(2)).toHaveText(`−${SAVED} USDT`);
+  const withdrawn = lines.filter((l) => l.kind === 'withdrawal');
+  expect(withdrawn.map((l) => [l.direction, l.amount, l.asset])).toEqual([['out', WITHDRAWN, 'USDT']]);
+  await expect(list.filter({ hasText: /^Withdrawal/ })).toHaveCount(1);
+  await expect(
+    list
+      .filter({ hasText: /^Withdrawal/ })
+      .locator('td')
+      .nth(2),
+  ).toHaveText(`−${WITHDRAWN} USDT`);
   // Signed amounts and local time, from the bank's own lines.
   const funds = lines.find((l) => l.kind === 'welcome_funds');
   const fundsRow = list.filter({ hasText: 'Welcome test funds' });
@@ -205,6 +256,15 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   ).toHaveText(`+${trade.amount} BTC`);
   await expect(list.filter({ hasText: 'Set aside for an order' }).getByTestId('money-act__status')).toHaveText('Set aside');
   await expect(fundsRow.getByTestId('money-act__status')).toHaveText('Completed');
+});
+
+// #1's convert part: a conversion settles as ordinary trade fills (svc-trade convert/settle.ts), and the bank's activity has
+// no convert kind to tell it from a desk trade. This part goes green when svc-bank lists conversions as their own kind.
+test(`${J} #1 a conversion is listed as a convert, not as a desk trade (BLOCKED convert_kind)`, async () => {
+  const who = run.read().account;
+  expect(who, '#1 made no account').toBeTruthy();
+  const res = await bankRead(who, 'activity.list', { kind: ['convert'], limit: 1 });
+  expect(res.status, `BLOCKED convert_kind: svc-bank has no convert activity kind (${res.status})`).toBe(200);
 });
 
 /** The local calendar day `days` from today, as a date input takes it. */
