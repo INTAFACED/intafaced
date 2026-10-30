@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { createTranslator } from '@intafaced/i18n';
@@ -48,17 +49,19 @@ export type GuestVerificationMail = {
   readonly transportKey: string;
 };
 
+export type GuestMailOutcome = { readonly status: 'accepted' | 'refused' | 'unknown'; readonly reference?: string | null };
+
 /** How a verification email leaves: the owner's email gateway, the LOCAL TEST outbox, or nothing. */
 export interface GuestMailSender {
   /** `vendor.email` when nothing can send: the row is refused as unconfigured and nothing is attempted. */
   readonly notConnected: 'vendor.email' | null;
   /** `unknown` when the sender may or may not have taken it: never sent again under that key. */
-  send(mail: GuestVerificationMail): Promise<'accepted' | 'refused' | 'unknown'>;
+  send(mail: GuestVerificationMail): Promise<GuestMailOutcome>;
 }
 
 export const NO_GUEST_MAIL_SENDER: GuestMailSender = {
   notConnected: 'vendor.email',
-  send: async () => 'refused',
+  send: async () => ({ status: 'refused' }),
 };
 
 /** The owner's email gateway channel. A permanent refusal (4xx other than 408, 425, 429) is refused; anything else unknown. */
@@ -68,7 +71,7 @@ export function channelGuestMailSender(channel: NotificationChannel | undefined 
     notConnected: null,
     async send(mail) {
       try {
-        await channel.deliver({
+        const result = await channel.deliver({
           notificationId: mail.transportKey,
           userId: 'support-guest',
           channel: 'email',
@@ -83,9 +86,9 @@ export function channelGuestMailSender(channel: NotificationChannel | undefined 
           address: mail.to,
           idempotencyKey: mail.transportKey,
         });
-        return 'accepted';
+        return { status: 'accepted', reference: result.reference };
       } catch (error) {
-        if (error instanceof ChannelRefusal) return 'refused';
+        if (error instanceof ChannelRefusal) return { status: 'refused' };
         if (
           error instanceof ChannelDeliveryError &&
           error.status !== null &&
@@ -93,8 +96,8 @@ export function channelGuestMailSender(channel: NotificationChannel | undefined 
           error.status < 500 &&
           ![408, 425, 429].includes(error.status)
         )
-          return 'refused';
-        return 'unknown';
+          return { status: 'refused' };
+        return { status: 'unknown' };
       }
     },
   };
@@ -113,7 +116,7 @@ export function outboxGuestMailSender(mailer: StatusMailer): GuestMailSender {
         key: mail.transportKey,
         purpose: 'guest-verify',
       });
-      return outcome.status === 'accepted' ? 'accepted' : outcome.status === 'refused' ? 'refused' : 'unknown';
+      return { status: outcome.status === 'accepted' || outcome.status === 'refused' ? outcome.status : 'unknown' };
     },
   };
 }
@@ -158,12 +161,22 @@ function receipt(row: Row): GuestVerificationReceipt {
 }
 
 /** A row that never reached a sender may be tried again under its key: nothing was sent. */
-const RETRYABLE: readonly (GuestVerificationCode | null)[] = ['guest.notification_unconfigured', 'guest.address_rate_limited'];
+const RETRYABLE: readonly (GuestVerificationCode | null)[] = [
+  'guest.notification_unconfigured',
+  'guest.configuration_unverified',
+  'guest.address_rate_limited',
+];
+
+/** A gateway's handle for the mail, kept only when it is a plain id: never an error body or a URL that could hold a token. */
+const safeReference = (reference: string | null | undefined) =>
+  reference && /^[A-Za-z0-9._:-]{1,256}$/.test(reference) && !reference.includes('://') ? reference : null;
+
+const addressHash = (email: string) => createHash('sha256').update(`guest-verify:${email.toLowerCase()}`).digest('hex');
 
 export interface GuestVerificationOptions {
   /** The customer app origin the link must open. Blank refuses every send. */
   readonly origin: string | null | undefined;
-  /** False while out-of-app sending is switched off: refused as no sender. */
+  /** False while out-of-app sending is switched off: refused `guest.configuration_unverified`, retried once it is on. */
   readonly enabled?: boolean;
   readonly timeoutMs?: number;
   readonly addressMaxPerWindow?: number;
@@ -177,6 +190,8 @@ export class GuestVerificationService {
     private readonly sender: GuestMailSender,
     private readonly options: GuestVerificationOptions,
   ) {}
+
+  private readonly t = createTranslator('en', undefined, { mode: 'prod' });
 
   private now(): Date {
     return this.options.now?.() ?? new Date();
@@ -194,6 +209,8 @@ export class GuestVerificationService {
     const requestId = input.guestRequestId.toLowerCase();
     const timeoutMs = this.options.timeoutMs ?? 5000;
     const leaseMs = 2 * timeoutMs + 1000;
+    const print = fingerprint(input);
+    const claimStartedAt = performance.now();
     let prepared: { row: Row; attempt: boolean };
     try {
       prepared = await transaction(
@@ -206,36 +223,46 @@ export class GuestVerificationService {
           await this.expire(tx, producer, input.businessKey);
           const [prior] = await tx<Row[]>`SELECT * FROM notify.guest_verifications
             WHERE producer = ${producer} AND business_key = ${input.businessKey}`;
-          if (prior && prior.fingerprint !== fingerprint(input)) throw new GuestVerificationError('guest.request_conflict');
+          if (prior && prior.fingerprint !== print) throw new GuestVerificationError('guest.request_conflict');
           if (
             prior &&
             !(prior.status === 'queued' || (prior.status === 'refused' && prior.attempted_at === null && RETRYABLE.includes(prior.code)))
           )
             return { row: prior, attempt: false };
-          // Before anything is written or tried: the link opens the customer app, and is still good. A send already made
-          // answered above, whatever the link's origin or expiry is now.
-          if (origin === '') throw new GuestVerificationError('guest.link_origin_unset');
-          if (!guestVerificationLinkMatches(input.link, origin)) throw new GuestVerificationError('guest.link_origin_mismatch');
-          if (Date.parse(input.expiresAt) <= this.now().getTime()) throw new GuestVerificationError('guest.link_expired');
+          // No sender, or sending switched off, is a stored refusal svc-support shows by name and retries later. It comes
+          // before the link checks, which run again on that retry.
+          const blocked: GuestVerificationCode | null =
+            this.sender.notConnected !== null
+              ? 'guest.notification_unconfigured'
+              : this.options.enabled === false
+                ? 'guest.configuration_unverified'
+                : null;
+          // Before anything is tried: the link opens the customer app, and is still good. A send already made answered
+          // above, whatever the link's origin or expiry is now.
+          if (!blocked) {
+            if (origin === '') throw new GuestVerificationError('guest.link_origin_unset');
+            if (!guestVerificationLinkMatches(input.link, origin)) throw new GuestVerificationError('guest.link_origin_mismatch');
+            if (Date.parse(input.expiresAt) <= this.now().getTime()) throw new GuestVerificationError('guest.link_expired');
+          }
           let row = prior;
           if (!row) {
             [row] = await tx<Row[]>`INSERT INTO notify.guest_verifications
               (producer, business_key, fingerprint, guest_request_id, recipient_email, token_id, expires_at, status)
-              VALUES (${producer}, ${input.businessKey}, ${fingerprint(input)}, ${requestId}, ${input.recipientEmail},
+              VALUES (${producer}, ${input.businessKey}, ${print}, ${requestId}, ${input.recipientEmail},
                 ${input.tokenId}, ${input.expiresAt}, 'queued')
               RETURNING *`;
           }
-          if (this.sender.notConnected !== null || this.options.enabled === false) {
-            [row] = await tx<Row[]>`UPDATE notify.guest_verifications SET status = 'refused', code = 'guest.notification_unconfigured',
+          if (blocked) {
+            [row] = await tx<Row[]>`UPDATE notify.guest_verifications SET status = 'refused', code = ${blocked},
               updated_at = now() WHERE id = ${row!.id} RETURNING *`;
             return { row: row!, attempt: false };
           }
-          const addressHash = createHash('sha256').update(`guest-verify:${input.recipientEmail.toLowerCase()}`).digest('hex');
+          const address = addressHash(input.recipientEmail);
           const windowMs = this.options.addressWindowMs ?? 900000;
           await tx`DELETE FROM notify.guest_verification_rate_windows
-            WHERE address_hash = ${addressHash} AND window_start < floor(extract(epoch FROM clock_timestamp()) * 1000 / ${windowMs})::bigint - 1`;
+            WHERE window_start < floor(extract(epoch FROM clock_timestamp()) * 1000 / ${windowMs})::bigint - 1`;
           const budget = await tx`INSERT INTO notify.guest_verification_rate_windows (address_hash, window_start, attempts)
-            VALUES (${addressHash}, floor(extract(epoch FROM clock_timestamp()) * 1000 / ${windowMs})::bigint, 1)
+            VALUES (${address}, floor(extract(epoch FROM clock_timestamp()) * 1000 / ${windowMs})::bigint, 1)
             ON CONFLICT (address_hash, window_start) DO UPDATE SET attempts = guest_verification_rate_windows.attempts + 1
             WHERE guest_verification_rate_windows.attempts < ${this.options.addressMaxPerWindow ?? 3}
             RETURNING attempts`;
@@ -258,13 +285,19 @@ export class GuestVerificationService {
     }
     if (!prepared.attempt) return receipt(prepared.row);
 
-    const t = createTranslator('en', undefined, { mode: 'prod' });
+    const t = this.t;
     let status: 'accepted' | 'refused' | 'unresolved';
     let code: GuestVerificationCode | null = null;
+    let reference: string | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      // The lease outlives two deadlines; a claim that cannot finish inside it is left unresolved, never sent late.
-      if (prepared.row.lease_until && prepared.row.lease_until.getTime() - Date.now() < timeoutMs) throw new Error('lease too short');
+      // The lease outlives two deadlines; a claim that cannot finish inside it is left unresolved, never sent late. The
+      // monotonic clock since the claim caps it, so neither a delayed COMMIT nor a skewed wall clock can stretch it.
+      const leaseUntil = prepared.row.lease_until?.getTime() ?? NaN;
+      const attemptedAt = prepared.row.attempted_at?.getTime() ?? NaN;
+      const elapsed = performance.now() - claimStartedAt;
+      const remaining = Math.min(Math.min(leaseMs, leaseUntil - attemptedAt) - elapsed, leaseUntil - Date.now());
+      if (!Number.isFinite(remaining) || elapsed < 0 || remaining < timeoutMs) throw new Error('lease too short');
       const outcome = await Promise.race([
         this.sender.send({
           to: input.recipientEmail,
@@ -276,8 +309,8 @@ export class GuestVerificationService {
           timer = setTimeout(() => reject(new Error('guest verification mail deadline')), timeoutMs);
         }),
       ]);
-      if (outcome === 'accepted') status = 'accepted';
-      else if (outcome === 'refused') [status, code] = ['refused', 'guest.gateway_refused'];
+      if (outcome.status === 'accepted') [status, reference] = ['accepted', safeReference(outcome.reference)];
+      else if (outcome.status === 'refused') [status, code] = ['refused', 'guest.gateway_refused'];
       else [status, code] = ['unresolved', 'guest.acceptance_unknown'];
     } catch {
       [status, code] = ['unresolved', 'guest.acceptance_unknown'];
@@ -285,7 +318,9 @@ export class GuestVerificationService {
       if (timer) clearTimeout(timer);
     }
     try {
-      const [finished] = await this.sql<Row[]>`UPDATE notify.guest_verifications SET status = ${status}, code = ${code},
+      const [finished] = await this.sql<
+        Row[]
+      >`UPDATE notify.guest_verifications SET status = ${status}, code = ${code}, reference = ${reference},
         accepted_at = CASE WHEN ${status} = 'accepted' THEN greatest(attempted_at, clock_timestamp()) ELSE NULL END,
         lease_until = NULL, updated_at = now()
         WHERE id = ${prepared.row.id} AND claim_token = ${prepared.row.claim_token} AND status = 'attempting'
@@ -330,8 +365,14 @@ export class GuestVerificationService {
           if (busy.length) throw new GuestVerificationError('guest.delivery_in_progress');
           await tx`UPDATE notify.guest_verifications SET status = 'unresolved', code = 'guest.acceptance_unknown', lease_until = NULL,
             updated_at = now() WHERE producer = ${producer} AND guest_request_id = ${requestId} AND status = 'attempting'`;
+          // The address's rate windows go too: its hash is a dictionary away from the address.
+          const addresses = await tx<{ recipient_email: string }[]>`SELECT DISTINCT recipient_email FROM notify.guest_verifications
+            WHERE producer = ${producer} AND guest_request_id = ${requestId} AND recipient_email IS NOT NULL`;
+          if (addresses.length)
+            await tx`DELETE FROM notify.guest_verification_rate_windows
+              WHERE address_hash IN ${tx(addresses.map((a) => addressHash(a.recipient_email)))}`;
           const erased =
-            await tx`UPDATE notify.guest_verifications SET recipient_email = NULL, fingerprint = 'erased', erased_at = now(), updated_at = now()
+            await tx`UPDATE notify.guest_verifications SET recipient_email = NULL, fingerprint = 'erased', reference = NULL, erased_at = now(), updated_at = now()
             WHERE producer = ${producer} AND guest_request_id = ${requestId} AND erased_at IS NULL RETURNING id`;
           const [stone] = await tx<{ erased_at: Date }[]>`INSERT INTO notify.guest_verification_erasures
             (producer, guest_request_id, erased_count) VALUES (${producer}, ${requestId}, ${erased.length}) RETURNING erased_at`;

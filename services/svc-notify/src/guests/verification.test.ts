@@ -1,16 +1,24 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { guestVerificationKey, retainRawBody, S2S_KID_HEADER, serviceAuthHeadersForBody, type ServiceVerifier } from '@intafaced/contracts';
+import {
+  guestVerificationKey,
+  retainRawBody,
+  S2S_KID_HEADER,
+  S2S_NONCE_HEADER,
+  serviceAuthHeadersForBody,
+  type ServiceVerifier,
+} from '@intafaced/contracts';
 import { createGuestIngressContext } from './context.js';
 import { ChannelDeliveryError, type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
 import {
   channelGuestMailSender,
   GuestVerificationService,
   NO_GUEST_MAIL_SENDER,
+  type GuestMailOutcome,
   type GuestMailSender,
   type GuestVerificationMail,
 } from './verification.js';
@@ -26,11 +34,11 @@ class Recorder implements GuestMailSender {
   readonly notConnected = null;
   readonly sent: GuestVerificationMail[] = [];
   answer: 'accepted' | 'refused' | 'unknown' | 'hang' | 'throw' = 'accepted';
-  async send(mail: GuestVerificationMail): Promise<'accepted' | 'refused' | 'unknown'> {
+  async send(mail: GuestVerificationMail): Promise<GuestMailOutcome> {
     this.sent.push(mail);
     if (this.answer === 'throw') throw new Error('transport down');
     if (this.answer === 'hang') return new Promise(() => undefined);
-    return this.answer;
+    return { status: this.answer, reference: this.answer === 'accepted' ? 'gw.ref-1' : null };
   }
 }
 
@@ -70,7 +78,7 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
   it('mails the link once and never stores it; a replay answers the same receipt', async () => {
     const sent = input();
     const first = await service().send('svc-support', sent);
-    expect(first).toMatchObject({ businessKey: sent.businessKey, status: 'accepted', code: null });
+    expect(first).toMatchObject({ businessKey: sent.businessKey, status: 'accepted', code: null, reference: 'gw.ref-1' });
     expect(mailer.sent).toHaveLength(1);
     expect(mailer.sent[0]).toMatchObject({ to: sent.recipientEmail });
     // The transport key is opaque: the request id never reaches an outside sender.
@@ -105,7 +113,12 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
     const sent = input();
     const waiting = await service({}, NO_GUEST_MAIL_SENDER).send('svc-support', sent);
     expect(waiting).toMatchObject({ status: 'refused', code: 'guest.notification_unconfigured', attemptedAt: null });
-    expect(await service({ enabled: false }).send('svc-support', sent)).toMatchObject({ code: 'guest.notification_unconfigured' });
+    // No sender comes before the link checks: a stack with neither a sender nor an origin still names the sender.
+    expect(await service({ origin: '' }, NO_GUEST_MAIL_SENDER).send('svc-support', sent)).toMatchObject({
+      code: 'guest.notification_unconfigured',
+    });
+    // Sending switched off names the switch, not a missing sender.
+    expect(await service({ enabled: false }).send('svc-support', sent)).toMatchObject({ code: 'guest.configuration_unverified' });
     expect(mailer.sent).toHaveLength(0);
     expect(await service().send('svc-support', sent)).toMatchObject({ status: 'accepted' });
     expect(mailer.sent).toHaveLength(1);
@@ -171,6 +184,10 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
     expect(rows.map((r) => r.recipient_email)).toEqual([null, null]);
     const marks = await db.sql`SELECT fingerprint FROM notify.guest_verifications WHERE guest_request_id = ${requestId}`;
     expect(marks.map((r) => r.fingerprint)).toEqual(['erased', 'erased']);
+    const hash = createHash('sha256')
+      .update(`guest-verify:${input(requestId).recipientEmail}`)
+      .digest('hex');
+    expect(await db.sql`SELECT 1 FROM notify.guest_verification_rate_windows WHERE address_hash = ${hash}`).toHaveLength(0);
     await expect(service().send('svc-support', input(requestId, 3))).rejects.toMatchObject({ code: 'guest.request_erased' });
     expect(await service().get('svc-support', { businessKey: guestVerificationKey(requestId, 1) })).toMatchObject({ status: 'accepted' });
     expect(await service().get('svc-support', { businessKey: guestVerificationKey(randomUUID(), 1) })).toBeNull();
@@ -187,12 +204,14 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
     const mail = { to: 'g@example.org', subject: 's', text: 't', transportKey: 'guest-verify-v1:x' };
     expect(
       await channelGuestMailSender(failing(new ChannelDeliveryError('email', 'bad', { retryable: false, status: 422 }))).send(mail),
-    ).toBe('refused');
+    ).toEqual({ status: 'refused' });
     for (const status of [408, 425, 429, 500])
-      expect(await channelGuestMailSender(failing(new ChannelDeliveryError('email', 'x', { retryable: true, status }))).send(mail)).toBe(
-        'unknown',
+      expect(await channelGuestMailSender(failing(new ChannelDeliveryError('email', 'x', { retryable: true, status }))).send(mail)).toEqual(
+        {
+          status: 'unknown',
+        },
       );
-    expect(await channelGuestMailSender(failing(new Error('socket'))).send(mail)).toBe('unknown');
+    expect(await channelGuestMailSender(failing(new Error('socket'))).send(mail)).toEqual({ status: 'unknown' });
     expect(channelGuestMailSender(null).notConnected).toBe('vendor.email');
     expect(channelGuestMailSender({ ...failing(new Error('x')), unavailableReason: 'channel.not_configured' }).notConnected).toBe(
       'vendor.email',
@@ -263,6 +282,7 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
         }) as unknown as Parameters<typeof context>[0];
       expect(context(request({})).service).toBe('svc-support');
       expect(context(request({ [S2S_KID_HEADER]: 'svc-support:1' })).service).toBeNull();
+      expect(context(request({ [S2S_NONCE_HEADER]: 'n' })).service).toBeNull();
     });
 
     it('refuses a link elsewhere by its code', async () => {
