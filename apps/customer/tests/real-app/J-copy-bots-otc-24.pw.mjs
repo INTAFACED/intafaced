@@ -9,7 +9,7 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
 // The region-block clause of #1 and the settlement name-match clause of #3 are compliance gates and wait for launch
-// prep (owner decision 2026-10-27); the level gate of #3 stays (identity verification). The region block and the name
+// prep (owner decision 2026-10-27: no compliance work until launch prep); the level gate of #3 stays (identity verification). The region block and the name
 // match each have their own test (#1 and #3), red by name with that blocker until they are built.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
@@ -158,27 +158,27 @@ async function stake(who, client, amount) {
 
 /**
  * A TEST account registered in `region`. Not built: the stack has no way to register an account in a region yet, and
- * region gates wait for launch prep (owner decision 2026-10-27), so this fails by that name.
+ * region gates wait for launch prep (owner decision 2026-10-27: no compliance work until launch prep), so this fails by that name.
  */
 async function signUpIn(page, region) {
-  throw new Error(`no TEST account can be registered in ${region} yet: region gates wait for launch prep (owner decision 2026-10-27)`);
+  throw new Error(`no TEST account can be registered in ${region} yet: no compliance work until launch prep (owner decision 2026-10-27)`);
 }
 
 /**
  * Names a settlement account for the trader whose holder name differs from its verified name, and returns the service's
  * own record of it ({ id, holderName, verifiedName }). Not built: the stack has no settlement-account step, and name
- * matching waits for launch prep (owner decision 2026-10-27), so this fails by that name.
+ * matching waits for launch prep (owner decision 2026-10-27: no compliance work until launch prep), so this fails by that name.
  */
 async function nameOtherSettlementAccount(who) {
   throw new Error(
-    `no settlement account can be named for ${who.handle} yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+    `no settlement account can be named for ${who.handle} yet: no compliance work until launch prep (owner decision 2026-10-27)`,
   );
 }
 
 /** Removes the settlement account named by nameOtherSettlementAccount, so the steps after #3 are not refused by it. */
 async function removeSettlementAccount(who, account) {
   throw new Error(
-    `settlement account ${account.id} of ${who.handle} cannot be removed yet: settlement name matching waits for launch prep (owner decision 2026-10-27)`,
+    `settlement account ${account.id} of ${who.handle} cannot be removed yet: no compliance work until launch prep (owner decision 2026-10-27)`,
   );
 }
 
@@ -308,7 +308,7 @@ test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses tr
   expect((await deskStatus(me)).assets).toEqual(['BTC']);
 });
 
-// BLOCKED: compliance gates wait for launch prep (owner decision 2026-10-27). This test stays red, by this name, until
+// BLOCKED: no compliance work until launch prep (owner decision 2026-10-27). This test stays red, by this name, until
 // the desk publishes the regions it refuses (CB-otc-21); it fails at that first missing part, quickly.
 test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27): the desk publishes the regions it refuses, an account in one sees the banner and is refused, nothing kept`, async ({
   page,
@@ -320,7 +320,7 @@ test(`${J} #1 region block (BLOCKED until launch prep, owner decision 2026-10-27
   // never a missing field.
   expect(
     status,
-    'the desk publishes no region block list: compliance gates wait for launch prep (owner decision 2026-10-27)',
+    'the desk publishes no region block list: no compliance work until launch prep (owner decision 2026-10-27)',
   ).toHaveProperty('blockedRegions');
   expect(Array.isArray(status.blockedRegions)).toBe(true);
   expect(status.blockedRegions.length, 'a region block proves a refusal only with a region on the list').toBeGreaterThan(0);
@@ -484,7 +484,7 @@ test(`${J} #3 settlement name match (BLOCKED until launch prep, owner decision 2
   // The service's own statement that a request checks the settlement account holder against the verified name.
   expect(
     status,
-    'the desk publishes no settlement name check: compliance gates wait for launch prep (owner decision 2026-10-27)',
+    'the desk publishes no settlement name check: no compliance work until launch prep (owner decision 2026-10-27)',
   ).toHaveProperty('settlementNameMatch');
   expect(status.settlementNameMatch).toBe(true);
 
@@ -989,9 +989,27 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
   const settled = await rfq(answer.quoteId);
   expect(settled.lifecycle).toBe('settled');
   expect(settled.fillPrice).toBe(answer.quotedPrice);
+  expect(settled.qty).toBe('0.2');
+  // The notional is the desk's own arithmetic on the recorded mid at the published desk spread: mid × qty, plus the
+  // spread on it rounded up.
+  const deskSpread = (await (await api(run.read().who)).get('/api/trade/trpc/otc.deskStatus')).body.result.data.statusLine;
+  const spreadBps = Number(/(?:^| )spreadBps=(\d+)/.exec(deskSpread)?.[1]);
+  expect(settled.spreadBps).toBe(spreadBps);
+  const SCALE = 10n ** 18n;
+  const ceilDiv = (a, b) => (a + b - 1n) / b;
+  const midNotional = (units(settled.midPrice) * units('0.2')) / SCALE;
+  expect(units(settled.userNotional)).toBe(midNotional + ceilDiv(midNotional * BigInt(spreadBps), 10_000n));
   const after = await balances();
-  expect(held(after, 'BTC') - held(before, 'BTC')).toBe(units(settled.qty));
+  expect(held(after, 'BTC') - held(before, 'BTC')).toBe(units('0.2'));
   expect(held(before, 'USDT') - held(after, 'USDT')).toBe(units(settled.userNotional));
+  // Settling it again, twice, answers the one fill under the quote's own key and moves nothing more.
+  const again = await me.post('/api/trade/trpc/otc.settle', { quoteId: answer.quoteId });
+  const twice = await me.post('/api/trade/trpc/otc.settle', { quoteId: answer.quoteId });
+  expect([again.status, twice.status], JSON.stringify(again.body).slice(0, 300)).toEqual([200, 200]);
+  expect(typeof again.body.result.data.fillId).toBe('string');
+  expect(twice.body.result.data.fillId).toBe(again.body.result.data.fillId);
+  expect(await balances()).toEqual(after);
+  expect((await rfq(answer.quoteId)).lifecycle).toBe('settled');
 
   // The range left blank: the page says "Not set", a request refuses with its one code, no quote is kept and nothing moves.
   try {
@@ -1003,13 +1021,13 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
     await expect(panel.getByTestId('convert-otc-range')).toHaveText(
       'Desk size range:Not setThe desk has no size range for conversions, so a request refuses.',
     );
-    const quotesBefore = (await listedQuotes(me)).length;
+    const quotesBefore = await listedQuotes(me);
     const balancesBefore = await balances();
     const refused = await askConvert(page, '0.2');
     expect(refused.error?.data?.cause?.code).toBe('trade.convert_bounds_not_set');
     await expect(panel.getByText('Desk size range not set')).toBeVisible();
     await expect(panel.getByTestId('convert-otc-price')).toHaveCount(0);
-    expect((await listedQuotes(me)).length).toBe(quotesBefore);
+    expect(await listedQuotes(me)).toEqual(quotesBefore);
     expect(await balances()).toEqual(balancesBefore);
   } finally {
     tradeConvertBounds(true);
