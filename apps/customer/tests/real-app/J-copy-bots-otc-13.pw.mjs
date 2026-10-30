@@ -340,6 +340,16 @@ test(`${J} #3 looks up as an agent without the lookup scope: refused`, async ({ 
         WHERE kind = 'copy_bots_otc.lookup' AND operator_id = ${operatorId} AND account_id = ${customerId} AND occurred_at >= ${since}`
     )[0].n;
   try {
+    // What the lookup reads just before the refusal. #2's own snapshot can be stale here: when a step of this file fails
+    // (the support-operator step always does, by name), Playwright starts a fresh worker and runs afterAll, which
+    // cancels the bots. The follow is read against #2's snapshot too, since afterAll never touches it.
+    const before = await reads.lookup(customerId);
+    const project = (r) => ({
+      follows: r.follows.map((f) => ({ followId: f.followId, state: f.state })),
+      bots: r.bots.map((b) => ({ botId: b.botId, status: b.status })).sort(byBot),
+    });
+    expect(project(before).follows).toEqual(seen.follows);
+    expect(project(before).bots.map((b) => b.botId)).toEqual(seen.bots.map((b) => b.botId));
     const [{ since }] = await sql`SELECT now() AS since`;
     await page.goto(`${ADMIN}/login`);
     const out = JSON.parse(tool('local-test-gates.mjs', 'scoped-session', '--without', 'support:lookup'));
@@ -357,11 +367,10 @@ test(`${J} #3 looks up as an agent without the lookup scope: refused`, async ({ 
     for (const label of Object.values(COUNTS)) await expect(metricValue(metrics, label)).toHaveText(/^\d+$/);
     // The scoped session (founder a, lookup left out) read nothing, so svc-trade audited no lookup by it.
     expect(await audited(reads.pair.a.op.userId, since)).toBe(0);
-    // The refusal changed nothing: founder b's own lookup reads the follow and both bots as #2 saw them, and that read
-    // is audited once, which shows the audit query sees a lookup when there is one.
+    // The refusal changed nothing: founder b's own lookup reads the follow and both bots exactly as just before it, and
+    // that read is audited once, which shows the audit query sees a lookup when there is one.
     const again = await reads.lookup(customerId);
-    expect(again.follows.map((f) => ({ followId: f.followId, state: f.state }))).toEqual(seen.follows);
-    expect(again.bots.map((b) => ({ botId: b.botId, status: b.status })).sort(byBot)).toEqual(seen.bots);
+    expect(project(again)).toEqual(project(before));
     expect(await audited(reads.pair.b.op.userId, since)).toBe(1);
   } finally {
     await sql.end();
