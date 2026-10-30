@@ -656,6 +656,22 @@ async function liveCloses() {
   return candles.slice(-2).map((c) => toUnits(c[4]));
 }
 
+/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
+async function drawn(card) {
+  return card.locator('svg[data-chart="value-over-time"]').evaluate((svg) => {
+    const xs = [...svg.querySelectorAll('[data-run]')].flatMap((run) =>
+      run.tagName === 'polyline'
+        ? run
+            .getAttribute('points')
+            .trim()
+            .split(/\s+/)
+            .map((pair) => Number(pair.split(',')[0]))
+        : [Number(run.getAttribute('x1'))],
+    );
+    return { vertices: xs.length, lastX: Math.max(...xs) };
+  });
+}
+
 async function valueCards(page, query) {
   await page.goto(`/money/pnl${query}`);
   const card = page.getByRole('region', { name: 'What your money was worth' });
@@ -707,7 +723,7 @@ test(`${J} #6 bridges the change in value: start, deposits, withdrawals, fees, m
 });
 
 test(`${J} #7 draws what the money was worth over time: a moment with no price is missing, never zero`, async ({ page }) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   const { who, left } = state();
   // The withdrawal in #1 is the last movement before XAU. From the first 5-minute edge after its bucket, every moment holds
   // what is held now; wait until one such moment is past, so the line has one to check by hand (at most five minutes).
@@ -767,29 +783,50 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   expect(told.interval).toBe(before.interval);
   expect(told.points[0]).toMatchObject({ at: before.points[0].at, valueUsd: expect.any(String), missing: [] });
   expect(toUnits(told.points[0].valueUsd)).toBe(0n);
-  for (const p of before.points.slice(0, -1)) {
-    const same = told.points.find((q) => q.at === p.at);
-    expect(same, `the service has the moment ${p.at}`).toBeTruthy();
-    expect(toUnits(same.valueUsd), `the moment ${p.at}`).toBe(toUnits(p.usd));
-  }
+  // One for one: the same moments in the same order (the live end aside, which moves), each with the same value.
+  expect(told.points.slice(0, -1).map((q) => q.at)).toEqual(before.points.slice(0, -1).map((p) => p.at));
+  before.points.slice(0, -1).forEach((p, i) => expect(toUnits(told.points[i].valueUsd), `the moment ${p.at}`).toBe(toUnits(p.usd)));
+  // The drawing has a vertex for every moment: nothing is missing, so the line is unbroken.
+  expect(await drawn(card)).toEqual({ vertices: before.points.length, lastX: 1000 });
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
+  const funded = Date.now();
   expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
+  // A movement counts from the 5-minute edge after its bucket starts. Wait past that edge, so a moment already gone by, not
+  // only the live end, holds XAU (at most five minutes).
+  const unpriced = Math.floor(funded / 300_000) * 300_000 + 300_000;
+  if (Date.now() < unpriced + 5_000) await page.waitForTimeout(unpriced + 5_000 - Date.now());
   await page.reload();
   await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
   await expect.poll(async () => (await readValue(page)).points.at(-1)?.usd, { timeout: 90_000 }).toBe('missing');
   const after = await readValue(page);
   expect(after.missing).toBe(after.points.filter((p) => p.usd === 'missing').length);
-  expect(after.missing).toBeGreaterThan(0);
   expect(after.missingCoins).toEqual(['XAU']);
-  // The service says the same: those moments have no value (null, never zero) and name XAU's missing price.
+  // Missing are exactly the moments from that edge on, at least one of them past, and the live end.
+  const pastGaps = after.points.slice(0, -1).filter((p) => p.usd === 'missing');
+  expect(pastGaps.length).toBeGreaterThan(0);
+  expect(pastGaps.map((p) => p.at)).toEqual(
+    after.points
+      .slice(0, -1)
+      .filter((p) => Date.parse(p.at) >= unpriced)
+      .map((p) => p.at),
+  );
+  // The service says the same, one for one: those moments have no value (null, never zero) and name XAU's missing price.
   const toldAfter = await (await bank()).query('portfolio.valueOverTime', { from: after.points[0].at });
-  const gaps = toldAfter.points.filter((q) => q.valueUsd === null);
-  expect(gaps.length).toBeGreaterThan(0);
-  for (const q of gaps) expect(q.missing).toEqual([{ assetId: 'XAU', reason: 'no_price' }]);
-  for (const p of after.points.filter((p) => p.usd === 'missing').slice(0, -1)) {
-    expect(toldAfter.points.find((q) => q.at === p.at)?.valueUsd, `the moment ${p.at}`).toBeNull();
-  }
+  expect(toldAfter.points.slice(0, -1).map((q) => q.at)).toEqual(after.points.slice(0, -1).map((p) => p.at));
+  expect(
+    toldAfter.points
+      .slice(0, -1)
+      .filter((q) => q.valueUsd === null)
+      .map((q) => q.at),
+  ).toEqual(pastGaps.map((p) => p.at));
+  for (const q of toldAfter.points.filter((q) => q.valueUsd === null)) expect(q.missing).toEqual([{ assetId: 'XAU', reason: 'no_price' }]);
+  // The drawing leaves them out: a vertex for each priced moment only, and the line stops before the first missing one.
+  const t0 = Date.parse(after.points[0].at);
+  const gapX = ((Date.parse(pastGaps[0].at) - t0) / (Date.parse(after.points.at(-1).at) - t0)) * 1000;
+  const line = await drawn(card);
+  expect(line.vertices).toBe(after.points.length - after.missing);
+  expect(line.lastX).toBeLessThan(gapX);
   await expect(card.locator('[data-label="value-missing"]')).toContainText('no price for XAU at that time');
   // The moments before it arrived keep their figures; none of the missing ones is a zero.
   const firstMissing = after.points.findIndex((p) => p.usd === 'missing');
