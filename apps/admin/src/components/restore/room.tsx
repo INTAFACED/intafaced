@@ -3,6 +3,7 @@ import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { DISAGREE_WORDS, RESTORE_SERVICES, SERVICE_LABEL, STEP_LABEL, refusalWords, runHref, type RunDetail } from '@/lib/restore/model';
 import type { RestoreRoom as Room } from '@/lib/restore/read';
 import type { Part } from '@/lib/desk/part';
+import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { FinalizeDesk, RecordStamp, StartRun, StepButton } from './actions';
 import '../desk.css';
 
@@ -104,7 +105,29 @@ function Run({ detail, userId }: { detail: RunDetail; userId: string }) {
   );
 }
 
-export function RestoreRoom({ room, runNo, userId }: { room: Room; runNo: string | null; userId: string }) {
+/** Why this founder cannot send restore writes from this console: shown before the controls, which still refuse on press. */
+function WritesParked({ writes }: { writes: RefusalView }) {
+  return (
+    <div className="adm-callout" data-tone="warn" role="status" data-testid="restore-writes-parked">
+      <strong>{writes.title}</strong>
+      <p>{writes.body}</p>
+      <p className="dk-muted">{writes.next}</p>
+      {writes.code && <p className="dk-muted">Code: {writes.code}</p>}
+    </div>
+  );
+}
+
+export function RestoreRoom({
+  room,
+  runNo,
+  userId,
+  writes = null,
+}: {
+  room: Room;
+  runNo: string | null;
+  userId: string;
+  writes?: RefusalView | null;
+}) {
   return (
     <div className="dk-stack" data-testid="restore-room">
       <h2>Joint restore</h2>
@@ -112,6 +135,7 @@ export function RestoreRoom({ room, runNo, userId }: { room: Room; runNo: string
         A restore is one cut-off that the ledger, identity, bank and pay must all agree on. Each service is read live and compared with its
         own stamp. As of {formatAsOf(room.asOf)}.
       </p>
+      {writes && <WritesParked writes={writes} />}
 
       <section className="dk-stack" aria-label="Backups">
         <h3>Backups</h3>

@@ -158,6 +158,10 @@
       "types": "./dist/support-kb-library.d.ts",
       "default": "./dist/support-kb-library.js"
     },
+    "./support-kb-review": {
+      "types": "./dist/support-kb-review.d.ts",
+      "default": "./dist/support-kb-review.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
@@ -258,6 +262,10 @@
       "types": "./dist/auth-errors.d.ts",
       "default": "./dist/auth-errors.js"
     },
+    "./developer-sandboxes": {
+      "types": "./dist/developer-sandboxes.d.ts",
+      "default": "./dist/developer-sandboxes.js"
+    },
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"
@@ -338,6 +346,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./pay-payment-views": {
+      "types": "./dist/pay-payment-views.d.ts",
+      "default": "./dist/pay-payment-views.js"
+    },
     "./merchant-activation": {
       "types": "./dist/merchant-activation.d.ts",
       "default": "./dist/merchant-activation.js"
@@ -353,6 +365,10 @@
     "./support-macros": {
       "types": "./dist/support-macros.d.ts",
       "default": "./dist/support-macros.js"
+    },
+    "./agents-team": {
+      "types": "./dist/agents-team.d.ts",
+      "default": "./dist/agents-team.js"
     }
   },
   "scripts": {

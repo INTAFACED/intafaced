@@ -216,6 +216,7 @@ const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['chan
   totp_replaced: 'notify.identity.security.totp_replaced.title',
   passkey_added: 'notify.identity.security.passkey_added.title',
   passkey_removed: 'notify.identity.security.passkey_removed.title',
+  password_changed: 'notify.identity.security.password_changed.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -616,7 +617,10 @@ export async function subscribeNotificationEvents(
           userId: payload.userId,
           kind: `identity.security.${payload.change}`,
           titleKey: FACTOR_CHANGED_TITLE_KEYS[payload.change],
-          bodyKey: 'notify.identity.security.factor_changed.body',
+          bodyKey:
+            payload.change === 'password_changed'
+              ? 'notify.identity.security.password_changed.body'
+              : 'notify.identity.security.factor_changed.body',
           params: {},
           href: '/uc/safe',
           severity: 'action',

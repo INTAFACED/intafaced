@@ -59,6 +59,8 @@ export async function listPayments(
      * name a live payment the caller must not see.
      */
     railMode?: 'sandbox';
+    /** False for a caller who reads the rail reference masked, so a search cannot confirm a guessed reference. */
+    searchRailRef?: boolean;
   },
 ): Promise<PaymentPage> {
   await svc.getMerchant(input.merchantId);
@@ -104,7 +106,7 @@ export async function listPayments(
     AND (
       ${filters.search}::text IS NULL
       OR p.id::text = lower(${filters.search})
-      OR p.rail_ref = ${filters.search}
+      OR (${input.searchRailRef !== false}::boolean AND p.rail_ref = ${filters.search})
       OR EXISTS (
         SELECT 1 FROM pay.payment_events e
          WHERE e.payment_id = p.id

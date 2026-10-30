@@ -24,6 +24,7 @@ import {
   type BadgeTone,
   type TableColumn,
 } from '@intafaced/ui';
+import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
 import { CopiedPositions, SkippedCopies } from './FollowCopies';
 import { displayAmount } from '../../../shared/money';
 import type { z } from 'zod';
@@ -107,23 +108,26 @@ const ACTION_COPY: Record<FollowAction, { button: string; title: string; effect:
   },
 };
 
+// One key per close-all: the step-up confirms exactly this follow and this key, so each new close-all gets a new one.
+const newFlattenKey = () => `flatten-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
 export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; api: RoomApi; guard: WriteGuard; onDone: () => void }) {
   const { t } = roomCopy.useCopy();
   const [asking, setAsking] = useState<FollowAction | null>(null);
+  // A close-all sells at market, so it is confirmed with a passkey or authenticator code first (J-copy-bots-otc-03 #4).
+  const [confirmingFlatten, setConfirmingFlatten] = useState<string | null>(null);
   const allowed = allowedActions(follow);
   const order: FollowAction[] = ['pause', 'resume', 'stop', 'detach', 'flatten'];
+  const run = (action: FollowAction, call: () => ReturnType<RoomApi['stop']>) =>
+    void guard.run({ kind: 'copy', id: follow.followId, symbol: follow.permittedMarkets.join(','), operation: action }, call, onDone);
   const send = (action: FollowAction) => {
     setAsking(null);
-    void guard.run(
-      { kind: 'copy', id: follow.followId, symbol: follow.permittedMarkets.join(','), operation: action },
-      () =>
-        action === 'flatten'
-          ? api.flatten(follow.followId)
-          : action === 'stop'
-            ? api.stop(follow.followId)
-            : api.followAction(action, follow.followId),
-      onDone,
-    );
+    if (action === 'flatten') return setConfirmingFlatten(newFlattenKey());
+    run(action, () => (action === 'stop' ? api.stop(follow.followId) : api.followAction(action, follow.followId)));
+  };
+  const flatten = (requestId: string, stepUpApprovalId: string | null) => {
+    setConfirmingFlatten(null);
+    run('flatten', () => api.flatten({ followId: follow.followId, requestId, stepUpApprovalId }));
   };
   return (
     <div className="cb-actions">
@@ -166,6 +170,34 @@ export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; 
           ) : null}
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={confirmingFlatten !== null} onOpenChange={(open) => !open && setConfirmingFlatten(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Confirm it’s you')}</DialogTitle>
+            <DialogDescription>{t('Your copied positions are closed at the market price, then the follow ends.')}</DialogDescription>
+          </DialogHeader>
+          {confirmingFlatten !== null ? (
+            <StepUpConfirm
+              request={() => ({
+                scope: 'trade.step_up.copy.flatten',
+                purpose: 'copy.flatten',
+                target: follow.followId,
+                fields: { followId: follow.followId, requestId: confirmingFlatten },
+              })}
+              words={{
+                why: t('Confirm it’s you to close your copied positions and leave this leader.'),
+                code: t('Authenticator code'),
+                codeHint: t('The 6-digit code from your authenticator app'),
+                codeShort: t('Enter all 6 digits'),
+                noFactor: t('You have no passkey or authenticator app, so closing everything cannot be confirmed.'),
+                sendWithout: t('Send without confirming'),
+              }}
+              disabled={guard.busy}
+              onApproved={(id) => flatten(confirmingFlatten, id)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
