@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
@@ -343,20 +343,37 @@ if (!available) {
       delayMs = 400;
       const { person } = people();
       const { id, sessionId } = await readyAgent(person);
+      await person.own.usageLimits.set({ id, alertAt: TINY, hardLimit: '1', email: false });
+      const inFlight = person.own.run({ id, sessionId, requestId: 'usage-flight-a', ask: ASK });
+      await vi.waitFor(async () => expect(await holds()).toEqual(['held']), { timeout: 2_000, interval: 20 });
+      // The limit drops below what the held run will cost while the engine is still answering it.
       await person.own.usageLimits.set({ id, alertAt: TINY, hardLimit: TINY2, email: false });
-      const results = await Promise.allSettled([
-        person.own.run({ id, sessionId, requestId: 'usage-flight-a', ask: ASK }),
-        person.own.run({ id, sessionId, requestId: 'usage-flight-b', ask: ASK }),
-      ]);
-      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
-      expect(await holds()).toEqual(['committed', 'committed']);
+      await expect(inFlight).resolves.toBeDefined();
+      expect(await holds()).toEqual(['committed']);
       delayMs = 0;
       await expect(person.own.run({ id, sessionId, requestId: 'usage-flight-c', ask: ASK })).rejects.toMatchObject({
         message: 'agents.usage.hard_limit_reached',
       });
-      expect(calls).toBe(2);
+      expect(calls).toBe(1);
+      expect(await holds()).toEqual(['committed']);
       expect(await alertRows()).toHaveLength(1);
       expect(bus.emitted('agentUsageAlertCrossed')).toHaveLength(1);
+    });
+
+    it('two runs started together at the limit: held runs count at their worst case, so exactly one is admitted', async () => {
+      delayMs = 400;
+      const { person } = people();
+      const { id, sessionId } = await readyAgent(person);
+      await person.own.usageLimits.set({ id, alertAt: TINY, hardLimit: TINY2, email: false });
+      const results = await Promise.allSettled([
+        person.own.run({ id, sessionId, requestId: 'usage-pair-a', ask: ASK }),
+        person.own.run({ id, sessionId, requestId: 'usage-pair-b', ask: ASK }),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+      const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(refused.reason).toMatchObject({ message: 'agents.usage.hard_limit_reached' });
+      expect(calls).toBe(1);
+      expect(await holds()).toEqual(['committed']);
     });
 
     it('an agent with no usage limits set is never refused by them and records no alert', async () => {
