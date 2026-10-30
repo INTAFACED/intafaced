@@ -423,6 +423,47 @@ export function ageAccount(secrets, handle, seconds) {
   return rows[0][0];
 }
 
+const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const COPY_REWIND_FILL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * LOCAL TEST: the one statement that moves a follow's copy cursor back to just before a named leader fill, so the copy
+ * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). The
+ * cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time at millisecond
+ * precision, then id), or that millisecond with no fill when none is. Only a follow of that fill's leader moves.
+ */
+export function copyCursorRewindSql(followId, fillId) {
+  const fill = String(fillId ?? '').toLowerCase();
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '') || !COPY_REWIND_FILL_ID.test(fill))
+    throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  return `WITH f AS (SELECT id, user_id::text AS leader, date_trunc('milliseconds', created_at) AS at
+                FROM trade.fills WHERE id = '${fill}'::uuid),
+       prev AS (SELECT max(p.id::text) AS id FROM trade.fills p, f
+                 WHERE p.user_id::text = f.leader AND date_trunc('milliseconds', p.created_at) = f.at AND p.id::text < f.id::text)
+  UPDATE trade.copy_follows c SET copy_cursor_at = f.at, copy_cursor_fill = prev.id
+    FROM f, prev
+   WHERE c.follow_id = '${followId}' AND c.leader_id = f.leader
+  RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
+}
+
+/** Runs copyCursorRewindSql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
+export function rewindCopyCursor(secrets, followId, fillId) {
+  const sql = copyCursorRewindSql(followId, fillId);
+  const [follower] = psqlRead(secrets, 'svc_trade', `SELECT follower_id FROM trade.copy_follows WHERE follow_id = '${followId}'`);
+  if (!follower) throw new Error(`no copy follow ${followId}`);
+  if (!/^[0-9a-f-]{36}$/i.test(follower[0])) throw new Error(`copy follow ${followId} has no account id`);
+  const [account] = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
+  );
+  if (!account) throw new Error(`copy-rewind refuses ${followId}: its follower is not a LOCAL TEST journey account`);
+  const rows = psqlRead(secrets, 'svc_trade', sql);
+  if (rows.length !== 1) throw new Error(`copy-rewind: fill ${fillId} is not a fill of follow ${followId}'s leader`);
+  const [, at, fill] = rows[0];
+  return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
+}
+
 export function pendingKycCount(secrets) {
   return Number(psqlRead(secrets, 'svc_identity', `SELECT count(*) FROM identity.kyc_records WHERE status = 'pending'`)[0][0]);
 }
@@ -549,20 +590,54 @@ export function nextTotpStep(lastStep, current) {
   return step <= current + TOTP_SKEW_STEPS ? step : null;
 }
 
+/**
+ * The step to count as spent after identity refused a code as `auth.mfa_invalid`: the step sent, or the latest step
+ * identity can have consumed by now (it accepts at most one step past its own clock), whichever is later. A sign-in from
+ * there waits for the next window and cannot replay a step identity holds, whoever spent it (failure it prevents: main
+ * run 833, shard 9, stopped in setup on founder a's refused code and 93 journeys never ran).
+ */
+export function stepAfterRefusal(sentStep, current) {
+  const sent = Number(sentStep ?? 0);
+  return Math.max(Number.isFinite(sent) ? sent : 0, current + TOTP_SKEW_STEPS);
+}
+
+/** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
+const stepOf = (ctx) => (ctx.clock ? Math.floor(ctx.clock() / STEP_MS) : stepNow());
+
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
   let step;
-  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  while ((step = nextTotpStep(op.lastStep, stepOf(ctx))) === null) await (ctx.sleep ?? sleep)(1000);
   op.lastStep = step;
   return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
-async function operatorLogin(ctx, op) {
+const mfaRefused = (res) => res.status === 401 && JSON.stringify(res.json?.error ?? null).includes('auth.mfa_invalid');
+
+/**
+ * Sign an operator or founder in, with a fresh TOTP step when they have a second factor. A code identity refuses as
+ * `auth.mfa_invalid` is tried once more, at a step after any identity can hold (`stepAfterRefusal`), and both steps are
+ * logged; a second refusal stops the run. MFA is not loosened: every code sent is a real, unused step.
+ */
+export async function operatorLogin(ctx, op) {
   const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
-  const res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let res = await ctx.edge.mutate('identity', 'auth.login', input);
+  let retried = '';
+  if (op.totpSecret && !data(res)?.accessToken && mfaRefused(res)) {
+    const refused = op.lastStep;
+    const current = stepOf(ctx);
+    ctx.log(
+      `operator ${op.handle}: identity refused TOTP step ${refused} at step ${current} (auth.mfa_invalid); signing in once more at the next window`,
+    );
+    op.lastStep = stepAfterRefusal(refused, current);
+    input.totpCode = await freshCode(ctx, op);
+    res = await ctx.edge.mutate('identity', 'auth.login', input);
+    retried = ` (retried at TOTP step ${op.lastStep} after step ${refused} was refused)`;
+    if (data(res)?.accessToken) ctx.log(`operator ${op.handle}: signed in at TOTP step ${op.lastStep} on the retry`);
+  }
   const d = data(res);
-  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}`);
+  if (!d?.accessToken) throw new Error(`operator ${op.handle} login refused (${res.status}): ${refusalText(res)}${retried}`);
   op.userId = d.userId;
   op.sessionId = decodeJwtPayload(d.accessToken).sid;
   return d.accessToken;
@@ -2917,6 +2992,9 @@ async function main() {
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
     } else if (cmd === 'charts') {
       sayCharts(await publishCharts(ctx));
+    } else if (cmd === 'copy-rewind') {
+      const r = rewindCopyCursor(ctx.secrets, process.argv[3], process.argv[4]);
+      say(`  copy      ${r.followId} (${r.handle}) cursor now ${r.cursorAt} ${r.cursorFill ?? '(no fill)'} (LOCAL TEST)`);
     } else if (cmd === 'chart-class') {
       // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
       const [symbol, dataClass] = process.argv.slice(3);

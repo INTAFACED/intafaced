@@ -18,6 +18,7 @@
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
+    "@intafaced/events": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@trpc/server": "^11.19.0",

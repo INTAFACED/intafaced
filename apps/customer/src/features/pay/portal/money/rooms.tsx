@@ -17,6 +17,7 @@ import { Pricing } from './Pricing';
 import { RefundDetail, RefundNew, Refunds } from './Refunds';
 import { SettlementDetailPage, Settlements } from './Settlements';
 import { Statement } from './Statement';
+import { TopUp } from './TopUp';
 
 const t = mc.t;
 const go = (href: string, label: string, primary = false): ReactNode => (
@@ -103,6 +104,19 @@ export const moneyRooms: RoomTable = {
         {({ merchantId }) => (
           <Requires need="settlements.read">
             <Statement portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
+  },
+  'money-top-up': {
+    header: () => ({ title: t('pageTopUp'), purpose: t('purposeTopUp'), action: go('/pay/money', t('pageMoney')) }),
+    here: '/pay/money',
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="payments.read">
+            <TopUp portal={portal} merchantId={merchantId} />
           </Requires>
         )}
       </WithAccount>
