@@ -48,6 +48,7 @@ import {
 } from './copy-flatten.js';
 import {
   applyCopyDetach,
+  applyCopyLeave,
   applyCopyPause,
   applyCopyResume,
   applyCopyStop,
@@ -1211,7 +1212,7 @@ export class CopyService {
   async detach(principal: Principal, input: FollowRef) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
-      const next = applyCopyDetach(follow);
+      const next = applyCopyLeave(follow);
       await store.saveFollow(next);
       return presentCopyControlAck(next, 'DETACH_KEEP');
     });

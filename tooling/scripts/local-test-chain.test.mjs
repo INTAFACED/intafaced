@@ -7,7 +7,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { anvilBin, CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import {
+  anvilBin,
+  CHAIN_PORTS,
+  GATE_URL,
+  SECOND_CHAIN_ID,
+  SECOND_CHAIN_PORTS,
+  SECOND_GATE_URL,
+  TEST_CHAIN_ID,
+} from './local-test-chain.mjs';
+import indexer from './local-stack-services/indexer.mjs';
 import protocol from './local-stack-services/protocol.mjs';
 
 const script = join(dirname(fileURLToPath(import.meta.url)), 'local-test-chain.mjs');
@@ -26,6 +35,23 @@ test('the TEST chain is the app network id on loopback, gate apart from anvil', 
   assert.equal(GATE_URL, `http://127.0.0.1:${CHAIN_PORTS.gate}`);
   assert.notEqual(CHAIN_PORTS.gate, CHAIN_PORTS.anvil);
   for (const port of Object.values(CHAIN_PORTS)) assert.ok(![8545, 8546].includes(port), 'never the unit-test chains');
+});
+
+test('the second TEST network is the local test chain id, on its own loopback ports', () => {
+  assert.equal(SECOND_CHAIN_ID, 31337);
+  assert.notEqual(SECOND_CHAIN_ID, TEST_CHAIN_ID);
+  assert.equal(SECOND_GATE_URL, `http://127.0.0.1:${SECOND_CHAIN_PORTS.gate}`);
+  const ports = Object.values(CHAIN_PORTS);
+  assert.equal(new Set(ports).size, ports.length, 'no port shared between the two chains');
+  for (const port of Object.values(SECOND_CHAIN_PORTS)) assert.ok(ports.includes(port), 'the stack checks the second network’s ports too');
+  for (const port of ports) assert.ok(![8545, 8546].includes(port), 'never the unit-test chains');
+});
+
+test('svc-indexer searches the second TEST network only when the stack runs the chains', () => {
+  const env = (testChain) => indexer({ ...ctx(testChain), PORTS: { indexer: 14523 } }).env();
+  assert.equal(env(() => null).INDEXER_SEARCH_NETWORKS, '');
+  const chain = { rpcUrl: GATE_URL, factory: '0x1', router: '0x2' };
+  assert.deepEqual(JSON.parse(env(() => chain).INDEXER_SEARCH_NETWORKS), [{ chainId: 31337, rpcUrl: SECOND_GATE_URL }]);
 });
 
 test('svc-protocol keeps UNUSED and the zero factory when the stack runs no TEST chain', () => {
@@ -72,4 +98,5 @@ test('with no TEST chain: status says absent, gate is a no-op, fund refuses by n
   assert.match(fund.stderr, /local-test-chain\.no_chain/);
   assert.equal(run('fund', 'not-an-address').status, 1);
   assert.equal(run('gate', 'ajar').status, 1);
+  assert.equal(run('gate', 'closed', 'third').status, 1, 'only the second network has a gate of its own');
 });
