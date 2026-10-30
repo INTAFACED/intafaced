@@ -239,8 +239,9 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
               { event: payload },
               '0',
             );
-            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
-            return { ...(await launch.createEvent(event)), confirmOperatorId };
+            const actorId = signed(ctx.principal.userId);
+            const confirmOperatorId = requireDualControl(actorId, consumed.approverId);
+            return { ...(await launch.createEvent(event, { actorId, approverId: confirmOperatorId })), confirmOperatorId };
           }),
         ),
 

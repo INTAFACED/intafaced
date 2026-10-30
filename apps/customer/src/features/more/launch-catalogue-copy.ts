@@ -77,7 +77,7 @@ const en = {
   basisAmount: 'Basis',
   basisValue: '{amount} IFC staked',
   basisNoSnapshot: 'No snapshot has been taken, so there is no basis to read.',
-  basisNoHoldings: 'You held no staked IFC at the snapshot, so your basis is zero.',
+  basisNoHoldings: 'You held no staked IFC at the snapshot, so you have no basis for this launch.',
   takenAt: 'Snapshot taken',
   ticketCount: 'Tickets',
   tierWeight: 'Tier weight',

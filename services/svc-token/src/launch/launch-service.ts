@@ -426,7 +426,7 @@ export class LaunchService {
          ${where.type === undefined ? db`` : db`AND e.type = ${where.type}`}
        ORDER BY e.open_at DESC, e.id
        ${where.limit === undefined ? db`` : db`LIMIT ${where.limit}`}
-       ${where.forUpdate ? db`FOR UPDATE OF e` : db``}
+       ${where.forUpdate ? db`FOR UPDATE OF e FOR SHARE OF i` : db``}
     `;
   }
 
@@ -537,7 +537,11 @@ export class LaunchService {
    * Creates a draft. The launch id is the business key: the same id with the same fields returns the stored draft
    * (a retry), and the same id with any other field refuses `launch.event_conflict`.
    */
-  async createEvent(input: CreateEventInput): Promise<{ id: string; status: LaunchStatus; revision: number }> {
+  /** Creates a draft, recording who created it and who approved it. A replay with the same details answers the stored draft. */
+  async createEvent(
+    input: CreateEventInput,
+    by: { actorId: string; approverId: string },
+  ): Promise<{ id: string; status: LaunchStatus; revision: number }> {
     const e = canonicalEvent(input);
     return transaction(this.sql, async (tx) => {
       const issuer = await tx<Array<{ id: string }>>`SELECT id FROM token.launch_issuers WHERE id = ${e.issuerId}`;
@@ -555,12 +559,12 @@ export class LaunchService {
       await tx`
         INSERT INTO token.launch_events (
           id, issuer_id, type, project_name, symbol, announce_at, snapshot_at, open_at, close_at, distribution_at,
-          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source
+          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source, created_by, approved_by
         ) VALUES (
           ${e.id}, ${e.issuerId}, ${e.type}, ${e.projectName}, ${e.symbol},
           ${e.periods.announceAt}, ${e.periods.snapshotAt}, ${e.periods.openAt}, ${e.periods.closeAt}, ${e.periods.distributionAt},
           ${e.method}, ${fmt(e.perUserCap)}::numeric, ${fmt(e.ticketSize)}::numeric, ${weights},
-          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource}
+          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource}, ${by.actorId}, ${by.approverId}
         )
       `;
       return { id: e.id, status: 'draft' as const, revision: 0 };
@@ -582,6 +586,8 @@ export class LaunchService {
     now: Date;
   }): Promise<LaunchEvent> {
     return transaction(this.sql, async (tx) => {
+      // The event row is locked for the move and its issuer row shared, so an issuer review cannot change the state
+      // this move checks until it commits.
       const row = (await this.selectEvents(tx, { id: input.id, forUpdate: true }))[0];
       if (!row) throw new LaunchError(`Launch ${input.id} not found`, 'launch.event_not_found');
       const event = eventFromRow(row);

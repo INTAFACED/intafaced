@@ -14,7 +14,7 @@ export const LAUNCH_REFUSAL_COPY = {
   'launch.issuer_stale': 'This issuer changed since you read it. Read it again.',
   'launch.period_not_due': 'That period of the launch has not started yet.',
   'launch.period_passed': 'That period of the launch is already over.',
-  'launch.allocation_unwired': 'Allocation and distribution are not wired yet, so the launch cannot move past closed.',
+  'launch.allocation_unwired': 'Allocation and distribution have no ledger recipe wired, so the launch cannot move past closed.',
   'launch.event_invalid': 'The launch details are not valid.',
   'launch.events_list_limit_unset': 'A page size is required.',
   'launch.min_kyc_tier_unset': 'Who may take part is not set: the least identity verification is blank.',

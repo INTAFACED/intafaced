@@ -26,6 +26,7 @@ const APPROVER = '22222222-2222-4222-8222-222222222222';
 const HOLDER_A = '33333333-3333-4333-8333-333333333333';
 const HOLDER_B = '44444444-4444-4444-8444-444444444444';
 const NOBODY = '55555555-5555-4555-8555-555555555555';
+const BY = { actorId: ACTOR, approverId: APPROVER };
 
 const T0 = new Date('2026-11-01T00:00:00.000Z');
 const at = (hours: number) => new Date(T0.getTime() + hours * 3_600_000);
@@ -142,33 +143,42 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('a draft is not published: the list leaves it out and a read is not found', async () => {
     await onboardedIssuer();
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     expect(await launch.listEvents({ limit: 50 })).toEqual([]);
     expect(await refusal(launch.getEvent('test-open-launch'))).toBe('launch.event_not_found');
   });
 
   it('creating is idempotent on the launch id; other details under the same id conflict', async () => {
     await onboardedIssuer();
-    const first = await launch.createEvent(event());
-    expect(await launch.createEvent(event())).toEqual(first);
-    expect(await refusal(launch.createEvent(event({ terms: { price: '0.6', paymentAsset: 'USDT', rateSource: null } })))).toBe(
+    const first = await launch.createEvent(event(), BY);
+    expect(await launch.createEvent(event(), BY)).toEqual(first);
+    expect(await refusal(launch.createEvent(event({ terms: { price: '0.6', paymentAsset: 'USDT', rateSource: null } }), BY))).toBe(
       'launch.event_conflict',
     );
     const [{ n }] = await sql<[{ n: number }]>`SELECT count(*)::int AS n FROM token.launch_events`;
     expect(n).toBe(1);
   });
 
+  it('records who created a draft and who approved it, and refuses one person as both', async () => {
+    await onboardedIssuer();
+    await launch.createEvent(event(), BY);
+    expect(await sql`SELECT created_by, approved_by FROM token.launch_events`).toEqual([{ created_by: ACTOR, approved_by: APPROVER }]);
+    await expect(launch.createEvent(event({ id: 'test-self-approved' }), { actorId: ACTOR, approverId: ACTOR })).rejects.toThrow(
+      /launch_events_two_people_ck/,
+    );
+  });
+
   it('refuses invalid details and an unknown issuer', async () => {
-    expect(await refusal(launch.createEvent(event()))).toBe('launch.issuer_not_found');
+    expect(await refusal(launch.createEvent(event(), BY))).toBe('launch.issuer_not_found');
     await onboardedIssuer();
     const bad = event({ periods: { announceAt: at(2), snapshotAt: at(1), openAt: at(3), closeAt: at(4), distributionAt: at(5) } });
-    expect(await refusal(launch.createEvent(bad))).toBe('launch.event_invalid');
-    expect(await refusal(launch.createEvent(event({ terms: { price: '1', paymentAsset: null, rateSource: null } })))).toBe(
+    expect(await refusal(launch.createEvent(bad, BY))).toBe('launch.event_invalid');
+    expect(await refusal(launch.createEvent(event({ terms: { price: '1', paymentAsset: null, rateSource: null } }), BY))).toBe(
       'launch.event_invalid',
     );
     expect(
       await refusal(
-        launch.createEvent(event({ allocation: { method: 'pro_rata', perUserCap: '0', ticketSize: null, tierWeights: null } })),
+        launch.createEvent(event({ allocation: { method: 'pro_rata', perUserCap: '0', ticketSize: null, tierWeights: null } }), BY),
       ),
     ).toBe('launch.event_invalid');
   });
@@ -199,7 +209,7 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('an issuer that is not onboarded cannot announce a launch', async () => {
     await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0, ...who });
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     expect(await refusal(launch.moveEvent({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, ...who, now: at(0.5) }))).toBe(
       'launch.issuer_not_onboarded',
     );
@@ -207,7 +217,7 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('each step waits for its period, and a window that already closed cannot open', async () => {
     await onboardedIssuer();
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     expect(await refusal(launch.moveEvent({ id: 'test-open-launch', to: 'announced', expectedRevision: 0, ...who, now: at(-1) }))).toBe(
       'launch.period_not_due',
     );
@@ -223,7 +233,7 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('past closed, allocation refuses as unwired; a move retry replays and a stale one refuses', async () => {
     await onboardedIssuer();
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     const open = await toOpen();
     expect(open).toMatchObject({ status: 'open', state: 'open', revision: 3 });
     expect((await launch.moveEvent({ id: 'test-open-launch', to: 'open', expectedRevision: 2, ...who, now: at(3) })).revision).toBe(3);
@@ -254,7 +264,7 @@ describe('J-more-catalogue-11 launch service', () => {
     );
     expect(await refusal(launch.checkCreate(event({ issuerId: 'other-issuer' })))).toBe('launch.issuer_not_found');
     await launch.checkCreate(event());
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     await launch.checkCreate(event());
     expect(await refusal(launch.checkCreate(event({ terms: { price: '0.6', paymentAsset: 'USDT', rateSource: null } })))).toBe(
       'launch.event_conflict',
@@ -283,7 +293,7 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('filters by state and type, newest opening first, each with its issuer state', async () => {
     await onboardedIssuer();
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     await toOpen();
     await launch.createEvent(
       event({
@@ -293,6 +303,7 @@ describe('J-more-catalogue-11 launch service', () => {
         allocation: { method: null, perUserCap: null, ticketSize: null, tierWeights: null },
         terms: { price: null, paymentAsset: null, rateSource: null },
       }),
+      BY,
     );
     await launch.moveEvent({ id: 'test-past-launch', to: 'cancelled', expectedRevision: 0, ...who, now: at(0) });
 
@@ -311,7 +322,7 @@ describe('J-more-catalogue-11 launch service', () => {
 
   it('the snapshot stores each account’s active stake at the move, and the basis is that stored row', async () => {
     await onboardedIssuer();
-    await launch.createEvent(event());
+    await launch.createEvent(event(), BY);
     await stake(HOLDER_A, '100.5', at(-5));
     await stake(HOLDER_A, '20', at(-4));
     await stake(HOLDER_B, '7', at(-3));

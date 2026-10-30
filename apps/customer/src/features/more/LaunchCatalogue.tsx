@@ -141,7 +141,9 @@ export function LaunchCatalogue() {
                       <a className="text-link" href={`/launch/${encodeURIComponent(e.id)}`}>
                         {`${e.projectName} (${e.symbol})`}
                       </a>
-                      <span className="launch-catalogue-badge">{stateWord(e, t)}</span>
+                      <span className="launch-catalogue-badge" data-testid="launch-state">
+                        {stateWord(e, t)}
+                      </span>
                       <Details
                         items={[
                           [t('type'), t(e.type)],

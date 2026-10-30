@@ -39,6 +39,31 @@ async function openCatalogue(page) {
   await expect(page.getByRole('group', { name: 'Launch sections' }).getByRole('button', { name: 'Launches', pressed: true })).toBeVisible();
 }
 
+/** Each requirement's label on the page, by the service's requirement id. */
+const REQUIREMENT_LABELS = {
+  identity_verification: 'Identity verification',
+  region: 'Region',
+  account_active: 'Active account',
+  main_account: 'Main account (not a sub-account)',
+  issuer_onboarded: 'Issuer onboarded',
+  event_open: 'Launch open',
+};
+const requirementItems = (page) => page.getByRole('list', { name: 'Requirements' }).getByRole('listitem');
+const requirement = (page, id) =>
+  requirementItems(page).filter({ has: page.locator('strong').getByText(REQUIREMENT_LABELS[id], { exact: true }) });
+
+/** The page lists exactly the service's requirements, each once, met or not met as the service answered. */
+async function expectRequirements(page, requirements) {
+  expect(requirements.map((r) => r.id).sort()).toEqual(Object.keys(REQUIREMENT_LABELS).sort());
+  await expect(requirementItems(page)).toHaveCount(requirements.length);
+  for (const r of requirements) {
+    const item = requirement(page, r.id);
+    await expect(item).toHaveCount(1);
+    await expect(item).toHaveAttribute('data-met', String(r.met));
+    await expect(item.locator('.launch-catalogue-badge')).toHaveText(r.met ? 'Met' : 'Not met');
+  }
+}
+
 async function openLaunch(page, launch) {
   await openCatalogue(page);
   await card(page, launch.label).getByRole('link', { name: launch.label }).click();
@@ -134,7 +159,7 @@ test(`${J} #2 Opens it with two events and filters by state: only matching cards
   await expect(card(page, open.label)).toHaveCount(1);
   await expect(cards(page)).toHaveCount((await published({ state: 'open' })).length);
   for (const c of await cards(page).all()) {
-    await expect(c).toContainText('Open');
+    await expect(c.getByTestId('launch-state')).toHaveText('Open');
     await expect(c.getByTestId('launch-issuer-state')).toBeVisible();
   }
   await expect(card(page, open.label).getByTestId('launch-issuer-state')).toHaveText('Onboarded');
@@ -144,7 +169,7 @@ test(`${J} #2 Opens it with two events and filters by state: only matching cards
   await expect(card(page, past.label)).toHaveCount(1);
   await expect(cards(page)).toHaveCount((await published({ state: 'past' })).length);
   for (const c of await cards(page).all()) {
-    await expect(c).toContainText('Ended');
+    await expect(c.getByTestId('launch-state')).toHaveText('Ended');
     await expect(c.getByTestId('launch-issuer-state')).toBeVisible();
   }
   await expect(card(page, past.label).getByTestId('launch-issuer-state')).toHaveText('Onboarded');
@@ -176,18 +201,13 @@ test(`${J} #4 Checks my eligibility: the requirements list with unmet items (ide
   test.setTimeout(180_000);
   const { open } = run.read();
   const unverified = await signUp(page, 'lu');
+  run.write({ unverified });
   await signIn(page, unverified);
   await openLaunch(page, open);
   await page.getByRole('button', { name: 'Check my eligibility' }).click();
-  const items = page.getByRole('list', { name: 'Requirements' }).getByRole('listitem');
-  await expect(items).toHaveCount(6);
-  const identity = items.filter({ hasText: 'Identity verification' });
-  await expect(identity).toContainText('Not met');
-  await expect(identity).toContainText('Needs basic; yours: none');
-  for (const met of ['Issuer onboarded', 'Launch open']) await expect(items.filter({ hasText: met })).not.toContainText('Not met');
   await expect(page.getByText(/^You do not meet every requirement\./)).toBeVisible();
 
-  // The page shows the service's own answer for this account, item for item.
+  // The service's own answer for this account: identity verification is unmet, needing basic with none held.
   const answer = data(await (await api(unverified)).get(`/api/token/trpc/launch.eligibility${trpcInput({ id: open.id })}`));
   expect(answer.eligible).toBe(false);
   expect(answer.requirements.find((r) => r.id === 'identity_verification')).toEqual({
@@ -196,6 +216,9 @@ test(`${J} #4 Checks my eligibility: the requirements list with unmet items (ide
     required: 'basic',
     actual: 'none',
   });
+  // The page lists every requirement the service answered, each exactly once, met or not met as the service says.
+  await expectRequirements(page, answer.requirements);
+  await expect(requirement(page, 'identity_verification')).toContainText('Needs basic; yours: none');
 });
 
 test(`${J} #5 Reads my basis for an allocation by holdings: my basis equals the stored snapshot row, the cap as a decimal string`, async ({
@@ -214,4 +237,30 @@ test(`${J} #5 Reads my basis for an allocation by holdings: my basis equals the 
   await expect(basis.getByTestId('launch-basis')).toHaveText(`${stored.basis} IFC staked`);
   await expect(basis.getByTestId('launch-cap')).toHaveText(`${stored.perUserCap} TSTO`);
   await expect(basis.getByTestId('launch-cap')).toHaveText(/^\d+(\.\d+)? \w+$/);
+});
+
+test(`${J} ends: I know the issuer state, allocation rule, price and who may take part, and the page told me what blocks me`, async ({
+  page,
+}) => {
+  const { open, unverified } = run.read();
+  if (!unverified) throw new Error(`${J} #4 made no unverified account, so the end has no one to act as`);
+  await signIn(page, unverified);
+  await openLaunch(page, open);
+  // Each figure on the page is the service's own, read back for this launch.
+  const event = data(await (await api(unverified)).get(`/api/token/trpc/launch.events.get${trpcInput({ id: open.id })}`));
+  expect(event).toMatchObject({ id: open.id, issuer: { state: 'onboarded' }, allocation: { method: 'pro_rata' } });
+  await expect(page.getByRole('main').getByTestId('launch-issuer-state').first()).toHaveText('Onboarded');
+  const allocation = page.getByRole('region', { name: 'Allocation' });
+  await expect(allocation).toContainText(/Method\s*Pro rata by holdings/);
+  await expect(allocation).toContainText(new RegExp(`Cap\\s*${event.allocation.perUserCap} ${event.symbol}`));
+  await expect(page.getByRole('region', { name: 'Terms' })).toContainText(
+    new RegExp(`Price\\s*${event.terms.price} ${event.terms.paymentAsset}`),
+  );
+  // Who may take part, and what blocks me: every requirement as the service answers it, and the unmet one named.
+  await page.getByRole('button', { name: 'Check my eligibility' }).click();
+  await expect(page.getByText(/^You do not meet every requirement\./)).toBeVisible();
+  const answer = data(await (await api(unverified)).get(`/api/token/trpc/launch.eligibility${trpcInput({ id: open.id })}`));
+  await expectRequirements(page, answer.requirements);
+  const unmet = answer.requirements.filter((r) => !r.met).map((r) => r.id);
+  expect(unmet).toEqual(['identity_verification']);
 });

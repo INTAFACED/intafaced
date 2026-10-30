@@ -335,6 +335,13 @@ describe('operator doors', () => {
       expect.objectContaining({ actorId: USER, approverId: APPROVER, to: 'closed', expectedRevision: 3 }),
     );
   });
+
+  it('create passes the actor and the approver to the service', async () => {
+    const consume = vi.fn(stubApprovalConsumer(APPROVER).consume);
+    const service = fakeService();
+    await caller(admin(), service, { approvals: { consume } }).events.create({ ...createInput, approvalId: 'a', operationId: 'op-1' });
+    expect(service.createEvent).toHaveBeenCalledWith(expect.anything(), { actorId: USER, approverId: APPROVER });
+  });
 });
 
 describe('eligibility rule', () => {

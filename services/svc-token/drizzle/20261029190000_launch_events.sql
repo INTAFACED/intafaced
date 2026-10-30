@@ -51,7 +51,11 @@ CREATE TABLE IF NOT EXISTS "token"."launch_events" (
   "snapshot_hash" text,
   "snapshot_taken_at" timestamptz,
   "revision" integer NOT NULL DEFAULT 0,
+  -- Who announced the draft, and the second person whose approval let them.
+  "created_by" text NOT NULL,
+  "approved_by" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "launch_events_two_people_ck" CHECK ("created_by" <> "approved_by"),
   CONSTRAINT "launch_events_id_ck" CHECK ("id" ~ '^[a-z0-9][a-z0-9-]{2,62}$'),
   CONSTRAINT "launch_events_type_ck" CHECK ("type" IN ('token_sale', 'whitelist_drop', 'primary_subscription')),
   CONSTRAINT "launch_events_project_ck" CHECK (char_length("project_name") BETWEEN 1 AND 120),
