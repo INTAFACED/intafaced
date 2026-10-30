@@ -332,7 +332,50 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toBeDisabled();
   await expect.poll(async () => Number((await locked.textContent()).match(/in (\d+) seconds/)[1])).toBeLessThan(seconds);
   await expect(cases).toHaveCount(2);
+
+  // Identity's own answer, not only the page's words: the limit and when it opens, and a third request refused by its
+  // typed code with the seconds left.
+  const own = await api(who);
+  const read = await own.get('/api/identity/trpc/kyc.attempts.read');
+  expect(read.body.result.data).toMatchObject({ limit: { maxDenials: 2 }, denialsInWindow: 2 });
+  const opensIn = (Date.parse(read.body.result.data.lockedUntil) - Date.now()) / 1000;
+  expect(opensIn).toBeGreaterThan(3500);
+  expect(opensIn).toBeLessThanOrEqual(3600);
+  const third = await own.post('/api/identity/trpc/kyc.submit', { tier: 'basic', jurisdiction: 'DE' });
+  expect(third.status).toBe(429);
+  const data = third.body.error.data;
+  expect(data.intafacedCode ?? data.cause?.code ?? data.code).toBe('kyc.attempts_exhausted');
+  if (data.retryAfterSeconds !== undefined) expect(data.retryAfterSeconds).toBeGreaterThan(3500);
+  await page.reload();
+  await expect(cases).toHaveCount(2);
+
+  // With the owner's limit blank (identity restarted without it), the page says no limit is set and the form is open:
+  // the lockout does not invent a limit.
+  identityKycAttempts(false);
+  try {
+    await page.reload();
+    await expect(attempts).toHaveAttribute('data-state', 'unset', { timeout: 30_000 });
+    await expect(attempts).toContainText('No attempt limit is set.');
+    await expect(attempts.getByTestId('verification__attempts-locked')).toHaveCount(0);
+    const unset = await (await api(who)).get('/api/identity/trpc/kyc.attempts.read');
+    expect(unset.body.result.data).toMatchObject({ limit: null, denialsInWindow: null, lockedUntil: null });
+  } finally {
+    identityKycAttempts(true);
+  }
 });
+
+/** Identity restarted with the owner's verification attempt limit blank, or back on the stack's TEST limit. */
+function identityKycAttempts(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+  else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+    else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = before;
+  }
+}
 
 /** Identity restarted with the owner's proof-of-address recency rule blank, or back on the stack's TEST rule. */
 function identityPoaRule(on) {
