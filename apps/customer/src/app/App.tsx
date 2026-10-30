@@ -19,7 +19,7 @@ import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
-import { SignInPanel } from './SignInPanel';
+import { SessionRetryPanel, SignInPanel } from './SignInPanel';
 import { matchMoreRoute } from '../features/more/more-room-routes';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
@@ -177,9 +177,7 @@ export function App() {
     body = (
       <div className="legacy-room">
         <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-          <EmptyState title={t('We could not check your sign-in')} action={<Button onClick={retryRestore}>{t('Retry')}</Button>}>
-            {t('The account service did not answer. Your sign-in is not lost; try again.')}
-          </EmptyState>
+          <SessionRetryPanel retry={retryRestore} />
         </Page>
       </div>
     );

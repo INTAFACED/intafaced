@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { SubNav } from '@intafaced/ui';
-import { Tabs } from '../../shared/ui';
-import { SignInPanel } from '../../app/SignInPanel';
+import { Loading, Tabs } from '../../shared/ui';
+import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
 import { useSession } from '../session/session';
 import { launchCopy } from './launch-copy';
 import { launchDepthCopy } from './launch-depth-copy';
@@ -17,12 +17,23 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
   const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Catalogue'));
   const { t } = launchDepthCopy.useCopy();
   const catalogue = launchCatalogueCopy.useCopy();
-  const { userId, restoring } = useSession();
-  // The catalogue opens signed out (J-more-catalogue-11); every other section needs an account. A signed-out visitor
-  // gets the sign-in panel the other More rooms use (J-more-catalogue-01 #6): above the catalogue, and in place of a
-  // private section. Nothing is shown for it while the boot refresh has not answered.
-  const signedOut = !userId && !restoring;
-  const priv = (section: ReactNode) => (userId ? section : signedOut ? <SignInPanel /> : null);
+  const { userId, restoring, restoreFailed, retryRestore } = useSession();
+  // The catalogue opens signed out (J-more-catalogue-11), and so does Requirements, which shows no account data. The
+  // issuer journey, the pre-listing check and participation need an account: a signed-out visitor gets the sign-in
+  // panel the other More rooms use (J-more-catalogue-01 #6) in their place, returning to the section's own address,
+  // and the same panel above the catalogue. Until the boot refresh answers, a private section shows Loading; if it
+  // could not answer, Retry, never a false "signed out".
+  const signedOut = !userId && !restoring && !restoreFailed;
+  const priv = (section: ReactNode, returnTo: string) =>
+    userId ? (
+      section
+    ) : restoring ? (
+      <Loading />
+    ) : restoreFailed ? (
+      <SessionRetryPanel retry={retryRestore} />
+    ) : (
+      <SignInPanel returnTo={returnTo} />
+    );
   return (
     <div className="more-grid">
       <Tabs
@@ -44,11 +55,11 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
           <LaunchCatalogue />
         </>
       ) : tab === 'Journey' ? (
-        priv(<LaunchJourney onTab={setTab} />)
+        priv(<LaunchJourney onTab={setTab} />, '/launch/new')
       ) : tab === 'Check' ? (
-        priv(<LaunchCheck />)
+        priv(<LaunchCheck />, '/launch/check')
       ) : tab === 'Participation' ? (
-        priv(<LaunchParticipation />)
+        priv(<LaunchParticipation />, '/uc/innovation/myorders')
       ) : (
         <LaunchRequirements orders={false} />
       )}
