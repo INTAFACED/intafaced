@@ -12,7 +12,16 @@
 name: Real-app journeys
 
 on:
+  # A manual run on a branch other than main may name journey files; it then runs only those (owner decision
+  # 2026-10-30), so a builder proves its own journey on CI's stack without the whole suite. Runs on main, on push and on
+  # the schedule always run the full suite, and Main trust and the shard planner read main's runs only.
   workflow_dispatch:
+    inputs:
+      journeys:
+        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main.'
+        required: false
+        default: ''
+        type: string
   # One full run a day on main's newest commit, even on a day nothing merges under the paths below, so a finished run
   # is never more than about a day old (#6416). It starts about three hours before the 00:00 UTC daily line, so it has
   # usually finished by then even when it waits behind a push run. On the same commit as the run before it, a step
@@ -47,6 +56,8 @@ permissions:
 
 env:
   TURBO_TELEMETRY_DISABLED: 1
+  # The journey files of a targeted run; empty (the full suite) on main and for every push or scheduled run.
+  JOURNEYS_TARGET: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys || '' }}
   # Playwright stops a shard's journeys after an hour, before the job's own limit, so the shard still sends its report;
   # the planner warns when a shard comes near it.
   JOURNEY_GLOBAL_TIMEOUT_MS: 3600000
@@ -97,7 +108,9 @@ jobs:
           node --test tooling/scripts/journey-shards.test.mjs
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
-          shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}")
+          only=()
+          [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
+          shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
           {
             echo "shards=$shards"
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
@@ -124,6 +137,17 @@ jobs:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
+      # A targeted run never falls back to the full suite: without its plan (a name that is not a journey file, or a
+      # broken planner) it stops here.
+      - name: Targeted run has its plan
+        if: env.JOURNEYS_TARGET != ''
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+        run: |
+          if [ -z "$SHARDS" ]; then
+            echo "::error::the journeys input ($JOURNEYS_TARGET) has no shard plan; see the Plan the shards job for the file it refused"
+            exit 1
+          fi
       # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
       - name: Paths
         run: |

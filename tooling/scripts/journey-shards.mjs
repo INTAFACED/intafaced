@@ -3,7 +3,7 @@
 // (Failure it prevents: Playwright's own --shard splits by test count, in file-name order. In run 338 the bank journeys
 // sat together and shard 2 ran 36 minutes while shard 4 ran 3, so every run waited about 20 minutes on one shard.)
 //
-// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]...
+// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"]
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
 // separated by spaces. Each file counts its longest time across the reports, so a shard that was cut short or a file
 // that failed early in one run does not make it look fast, plus the suite's time per step for each step no report
@@ -14,6 +14,9 @@
 // MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app tests
 // for about 2,364 more steps were on their way; a fixed 8 would have pushed shards past the limit, and a shard that hits
 // it loses its whole report.)
+//
+// `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
+// passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +44,25 @@ export function journeyFiles(dir) {
     .map((f) => String(f).split(path.sep).join('/'))
     .filter((f) => JOURNEY_FILE.test(f) && !f.split('/').includes('node_modules'))
     .sort();
+}
+
+/**
+ * The journey files a targeted run asked for (the Real-app journeys workflow's manual `journeys` input), checked against
+ * the journey files that exist. Entries are separated by spaces, commas or new lines and may carry the folder
+ * (`apps/customer/tests/real-app/`) and leave out `.pw.mjs`. Anything that is not an existing journey file is refused
+ * by name, so a typo never runs the full suite or nothing.
+ */
+export function targetFiles(asked, files) {
+  const known = new Set(files);
+  const wanted = String(asked ?? '')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((f) => f.replace(`${JOURNEY_DIR}/`, ''))
+    .map((f) => (JOURNEY_FILE.test(f) ? f : `${f}.pw.mjs`));
+  if (wanted.length === 0) throw new Error('the journeys input names no journey file');
+  const unknown = wanted.filter((f) => !known.has(f));
+  if (unknown.length) throw new Error(`not a journey file under ${JOURNEY_DIR}: ${unknown.join(', ')}`);
+  return [...new Set(wanted)].sort();
 }
 
 /** Milliseconds per journey file in a Playwright JSON report: every result of every test in the file, retries included. */
@@ -157,9 +179,11 @@ function readReport(file) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2);
   const asked = argv[argv.indexOf('--shards') + 1];
+  const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
   if (!reports.length) console.error('journey-shards: no report from a finished run, so every step counts the same');
-  const files = journeyFiles(JOURNEY_DIR);
+  const files = only === null ? journeyFiles(JOURNEY_DIR) : targetFiles(only, journeyFiles(JOURNEY_DIR));
+  if (only !== null) console.error(`journey-shards: a targeted run of ${files.length} journey file(s): ${files.join(' ')}`);
   const read = reports.map(readReport);
   const durations = estimateDurations(
     files,

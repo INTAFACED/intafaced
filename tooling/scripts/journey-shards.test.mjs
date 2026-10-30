@@ -12,6 +12,7 @@ import {
   planShards,
   shardCount,
   stepCounts,
+  targetFiles,
   timedSteps,
 } from './journey-shards.mjs';
 
@@ -206,4 +207,23 @@ test('the shard count keeps each shard near the target, within its floor and cei
   assert.equal(shardCount(5000 * min, 25 * min), 24);
   assert.equal(shardCount(200 * min, 25 * min), 8);
   assert.equal(shardCount(201 * min, 25 * min), 9);
+});
+
+test('a targeted run takes only existing journey files, with or without the folder and the suffix', () => {
+  const files = ['J-bank-04.pw.mjs', 'J-wallet-05.pw.mjs', 'nested/J-p2p-01.pw.mjs'];
+  assert.deepEqual(targetFiles('J-wallet-05.pw.mjs', files), ['J-wallet-05.pw.mjs']);
+  assert.deepEqual(targetFiles(' apps/customer/tests/real-app/J-wallet-05.pw.mjs,J-bank-04\nnested/J-p2p-01 J-bank-04 ', files), [
+    'J-bank-04.pw.mjs',
+    'J-wallet-05.pw.mjs',
+    'nested/J-p2p-01.pw.mjs',
+  ]);
+});
+
+test('a targeted run refuses a name that is not a journey file, and an empty list', () => {
+  const files = ['J-bank-04.pw.mjs'];
+  assert.throws(() => targetFiles('J-bank-4.pw.mjs', files), /not a journey file.*J-bank-4\.pw\.mjs/);
+  assert.throws(() => targetFiles('../../../etc/passwd', files), /not a journey file/);
+  assert.throws(() => targetFiles('*.pw.mjs', files), /not a journey file/);
+  assert.throws(() => targetFiles(' , ', files), /names no journey file/);
+  assert.throws(() => targetFiles(undefined, files), /names no journey file/);
 });
