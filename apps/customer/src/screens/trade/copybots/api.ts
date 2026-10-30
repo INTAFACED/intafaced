@@ -122,6 +122,23 @@ export const copyPositionSchema = z.object({
 });
 export type CopyPosition = z.infer<typeof copyPositionSchema>;
 
+/** One copied buy and what of it is still open (CB-copy-09/10). Amounts are in the market's base asset. */
+export const copiedPositionSchema = z.object({
+  positionId: z.string(),
+  market: z.string(),
+  bought: decimalSchema,
+  open: decimalSchema,
+  closing: decimalSchema,
+  status: z.enum(['buying', 'open', 'closing', 'closed']),
+  placedAt: z.string(),
+});
+export type CopiedPosition = z.infer<typeof copiedPositionSchema>;
+const closePositionSchema = z.object({ positionId: z.string(), orderId: z.string(), qty: decimalSchema, duplicate: z.boolean() });
+
+/** A leader fill this follow did not copy (CB-copy-11). The reason is an id; the screen says it in words. */
+export const copySkipSchema = z.object({ leaderFillId: z.string(), reason: z.string(), at: z.string() });
+export type CopySkip = z.infer<typeof copySkipSchema>;
+
 export const LEADER_PAGE = 50;
 export const LEADER_TRADES_PAGE = 20;
 
@@ -185,6 +202,15 @@ export function createRoomApi(api: ApiClient) {
     stopCopying: (followId: string) => api.mutate('trade', 'copy.killSessionKey', { followId }, copyFollowSchema),
     followPositions: (followId: string, signal?: AbortSignal) =>
       api.query('trade', 'copy.followPositions', { followId }, z.object({ positions: z.array(copyPositionSchema) }), { signal }),
+    /** Stop is close-only: new trades are fenced, the leader's closes still close what was copied (CB-copy-09). */
+    stop: (followId: string) => api.mutate('trade', 'copy.stop', { followId, closeOnly: true }, ackSchema.passthrough()),
+    copiedPositions: (followId: string, signal?: AbortSignal) =>
+      api.query('trade', 'copy.copiedPositions', { followId }, z.object({ positions: z.array(copiedPositionSchema) }), { signal }),
+    /** Closes one copied position, whole or by an amount. The service runs one close per position and amount. */
+    closePosition: (followId: string, positionId: string, qty?: string) =>
+      api.mutate('trade', 'copy.closeCopiedPosition', { followId, positionId, ...(qty ? { qty } : {}) }, closePositionSchema.passthrough()),
+    skipLog: (followId: string, signal?: AbortSignal) =>
+      api.query('trade', 'copy.skipLog', { followId }, z.object({ items: z.array(copySkipSchema) }), { signal }),
     flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),

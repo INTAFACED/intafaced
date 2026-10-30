@@ -39,6 +39,7 @@ const pool = (id: string, kind: 'flexible' | 'fixed') => ({
   aprBps: 400,
   termDays: kind === 'fixed' ? 30 : null,
   minDeposit: '0',
+  unbondingDays: null,
 });
 
 beforeEach(() => {

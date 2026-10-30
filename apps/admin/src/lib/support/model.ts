@@ -133,6 +133,8 @@ export type EscalationReason = (typeof ESCALATION_REASONS)[number]['id'];
 export const REPLY_MAX = 10_000;
 /** An internal note's longest text: svc-support's `SUPPORT_NOTE_MAX`. */
 export const INTERNAL_NOTE_MAX = 10_000;
+/** The most comments the desk reads for one ticket. A read this long may have stopped short of the latest notes. */
+export const DESK_COMMENTS_READ = 100;
 export const NOTE_MAX = 500;
 export const SUMMARY_MAX = 2_000;
 
@@ -145,6 +147,19 @@ export function replyGate(ticket: { status: string }, body: string, busy: boolea
   if (body.trim() === '') return { ok: false, why: 'Write the reply first.' };
   if (body.length > REPLY_MAX) return { ok: false, why: `A reply can be at most ${REPLY_MAX} characters.` };
   return GO;
+}
+
+/**
+ * Why a note cannot be keyed yet, or null when it can. A note adds no trail row, so its key counts the notes on the ticket:
+ * that count needs the comments read, and read whole (a read that fills the desk's limit may miss the latest notes, and a
+ * stalled count would make a new note replay an earlier one).
+ */
+export function noteKeyBlock(notesRead: number | null, capped: boolean): string | null {
+  if (notesRead === null)
+    return 'The comments on this ticket could not be read, so a note cannot be told apart from one already sent. Read the ticket again first.';
+  if (capped)
+    return `This ticket has ${DESK_COMMENTS_READ} or more comments, more than the desk reads, so a note cannot be told apart from one already sent.`;
+  return null;
 }
 
 /** An internal note may go on any request the desk reads, closed ones included: it is the desk's own annotation. */

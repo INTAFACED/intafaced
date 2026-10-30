@@ -78,7 +78,11 @@ await sql`SELECT 1 FROM agents.agent_definitions LIMIT 1`.catch(() => {
  */
 function buildPrimaryProvider(): ModelProvider {
   if (env.AGENTS_PROVIDER === 'mock') {
-    return new MockModelProvider({ id: 'primary', ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}) });
+    return new MockModelProvider({
+      id: 'primary',
+      ...(env.AGENTS_MOCK_DELAY_MS ? { answerDelayMs: env.AGENTS_MOCK_DELAY_MS } : {}),
+      ...(env.AGENTS_MOCK_HOLD_FILE ? { holdFile: env.AGENTS_MOCK_HOLD_FILE } : {}),
+    });
   }
 
   if (!env.AGENTS_UPSTREAM_BASE_URL || !env.AGENTS_UPSTREAM_API_KEY) {
