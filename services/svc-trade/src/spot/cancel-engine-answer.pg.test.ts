@@ -1,6 +1,6 @@
 /**
- * J-copy-bots-otc-23 #5 (review 3 on #6818): a chase re-price sizes its replacement from what the engine still held
- * when it cancelled the child, because a fill the engine matched just before the cancel lands later.
+ * J-copy-bots-otc-23 #5 (review 3 on #6818): an order row keeps what the engine still held when it took the order off
+ * the book, so a chase re-price never places again what the engine matched just before the cancel.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -11,8 +11,6 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TradeService } from '../controls/test-admission.js';
-import type { TradeServiceInternal } from './trade-service.js';
-import { cancelOrderWithEngineAnswer } from './trade-service/order-change.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
 import type { Market } from './types.js';
 
@@ -37,7 +35,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
-describe('a cancel answers what the engine still held (chase re-price sizing, PG-hard)', () => {
+describe('engine_left_qty: what the engine still held at a cancel (PG-hard)', () => {
   let stop: () => Promise<void> = async () => undefined;
   let db: TestDatabase;
 
@@ -82,33 +80,43 @@ describe('a cancel answers what the engine still held (chase re-price sizing, PG
       price: amt('50'),
       clientOrderId: 'cea-1',
     });
-    // The service's own internals, as the algo engine's cancel port reaches them.
-    const internal = (trade as unknown as { internal: TradeServiceInternal }).internal;
-    return { trade, matching, market, placed, internal };
+    const engineLeft = async () =>
+      (await db.sql<Array<{ q: string | null }>>`SELECT engine_left_qty::text AS q FROM trade.orders WHERE id = ${placed.id}`)[0]!.q;
+    return { trade, matching, market, placed, engineLeft };
   }
 
-  it("a cancel reports the engine's remaining quantity, not the order row's", async () => {
-    const { matching, market, placed, internal } = await setup();
+  it("a cancel keeps the engine's remaining quantity on the order row, not the row's own counter", async () => {
+    const { trade, matching, market, placed, engineLeft } = await setup();
+    expect(await engineLeft()).toBeNull();
     // The engine matched 0.4 a moment ago; the taker's settlement has not written that fill yet.
     matching.scriptLive(placed.id, market.id, '0.6');
-    const { order, engineRemainingQty } = await cancelOrderWithEngineAnswer(internal, alice, placed.id);
-    expect(engineRemainingQty).toBe(amt('0.6'));
+    const order = await trade.cancelOrder(alice, placed.id);
     expect(order.status).toBe('cancelled');
     expect(order.filledQty).toBe(0n);
+    expect(amt((await engineLeft())!)).toBe(amt('0.6'));
   });
 
-  it('an engine with nothing live answers 0: the whole order may have matched', async () => {
-    const { matching, placed, internal } = await setup();
+  it('an acknowledged order the engine no longer has keeps 0: the whole order may have matched', async () => {
+    const { trade, matching, placed, engineLeft } = await setup();
     matching.scriptCancelMiss(placed.id);
-    const { order, engineRemainingQty } = await cancelOrderWithEngineAnswer(internal, alice, placed.id);
-    expect(engineRemainingQty).toBe(0n);
-    expect(order.status).toBe('cancelled');
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('cancelled');
+    expect(amt((await engineLeft())!)).toBe(0n);
   });
 
-  it('cancelOrder still answers the order record alone', async () => {
-    const { trade, placed } = await setup();
-    const cancelled = await trade.cancelOrder(alice, placed.id);
-    expect(cancelled.id).toBe(placed.id);
-    expect(cancelled.status).toBe('cancelled');
+  it("the engine's own cancel event writes its real remainder over a cancel's 0", async () => {
+    const { trade, matching, placed, engineLeft } = await setup();
+    matching.scriptCancelMiss(placed.id);
+    await trade.cancelOrder(alice, placed.id);
+    // The engine had pulled the order itself (a self-trade pull) and its event lands after the person's cancel.
+    await trade.releaseOnCancelEvent(placed.id, '1', 'self_trade_prevention');
+    expect(amt((await engineLeft())!)).toBe(amt('1'));
+  });
+
+  it('a repeated cancel never overwrites the first answer', async () => {
+    const { trade, matching, market, placed, engineLeft } = await setup();
+    matching.scriptLive(placed.id, market.id, '0.6');
+    await trade.cancelOrder(alice, placed.id);
+    await expect(trade.cancelOrder(alice, placed.id)).rejects.toMatchObject({ code: 'trade.order_not_open' });
+    expect(amt((await engineLeft())!)).toBe(amt('0.6'));
   });
 });

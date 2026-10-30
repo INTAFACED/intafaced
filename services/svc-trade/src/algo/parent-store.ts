@@ -42,7 +42,6 @@ type ChildJson = {
   placedAt: string;
   basisQty?: string;
   price?: string;
-  cancelRemainingQty?: string;
 };
 
 type MissJson = {
@@ -61,7 +60,6 @@ function childrenToJson(children: readonly AlgoChildRef[]): ChildJson[] {
     placedAt: c.placedAt.toISOString(),
     ...(c.basisQty != null ? { basisQty: formatAmount(c.basisQty) } : {}),
     ...(c.price != null ? { price: formatAmount(c.price) } : {}),
-    ...(c.cancelRemainingQty != null ? { cancelRemainingQty: formatAmount(c.cancelRemainingQty) } : {}),
   }));
 }
 
@@ -77,7 +75,6 @@ function childrenFromJson(raw: unknown): AlgoChildRef[] {
       placedAt: new Date(row.placedAt),
       ...(typeof row.basisQty === 'string' ? { basisQty: parseAmount(row.basisQty) } : {}),
       ...(typeof row.price === 'string' ? { price: parseAmount(row.price) } : {}),
-      ...(typeof row.cancelRemainingQty === 'string' ? { cancelRemainingQty: parseAmount(row.cancelRemainingQty) } : {}),
     };
   });
 }

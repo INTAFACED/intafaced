@@ -44,29 +44,12 @@ export const CHASE_EXPIRED_HALT = 'chase_expired';
 /** What the chase reads of its children: the summed fills of all of them and which are still resting. */
 export interface ChaseChildState {
   readonly filledQty: Amount;
-  /** The same fills per child order id; an id with no fill is absent. */
-  readonly filledByOrderId: ReadonlyMap<string, Amount>;
   readonly openOrderIds: ReadonlySet<string>;
-}
-
-/** What the engine still held of a cancelled child: its `remainingQty`, 0 when it had nothing live, null when unknown. */
-export interface ChildCancelOutcome {
-  readonly engineRemainingQty: Amount | null;
-}
-
-/**
- * Quantity the engine matched on children the chase cancelled that their fills do not show yet: the taker's settlement
- * writes those fills after the cancel, so until they land this quantity is bought (or sold) but not yet counted.
- */
-export function chaseUnsettledMatched(children: readonly AlgoChildRef[], state: ChaseChildState): Amount {
-  let unsettled = 0n;
-  for (const child of children) {
-    if (child.cancelRemainingQty == null) continue;
-    const matched = child.qty - child.cancelRemainingQty;
-    const filled = state.filledByOrderId.get(child.orderId) ?? 0n;
-    if (matched > filled) unsettled += matched - filled;
-  }
-  return unsettled;
+  /**
+   * What the engine matched on these children that their fills do not show yet: a cancel can land just after a match,
+   * before the taker's settlement writes the fill. Until it lands, that quantity is bought (or sold) but not counted.
+   */
+  readonly unsettledQty: Amount;
 }
 
 /** Whether `price` lies past `maxBps` of `start`, on the side a chase on `side` follows (up for a buy). */
@@ -99,11 +82,8 @@ export interface PlaceChildResult {
 
 export interface TwapEnginePorts {
   placeChild(req: PlaceChildRequest): Promise<PlaceChildResult>;
-  /**
-   * Cancel disposition for in-flight children on parent cancel. A chase re-price also reads the engine's answer: what
-   * it still held of the child. Void or a null remainder: unknown, and the child's fills are taken as the whole story.
-   */
-  cancelChild(orderId: string): Promise<ChildCancelOutcome | void>;
+  /** Cancel disposition for in-flight children on parent cancel. */
+  cancelChild(orderId: string): Promise<void>;
   /**
    * Best opposing price for band check + liquidity probe.
    * Null / empty = no liquidity (record miss, do not invent fill).
@@ -746,7 +726,7 @@ export class TwapEngine {
     });
     const ids = parent.children.map((c) => c.orderId);
     let state: ChaseChildState =
-      ids.length > 0 ? await readChildren(ids) : { filledQty: 0n, filledByOrderId: new Map(), openOrderIds: new Set<string>() };
+      ids.length > 0 ? await readChildren(ids) : { filledQty: 0n, openOrderIds: new Set<string>(), unsettledQty: 0n };
     if (this.parents.get(parent.id) !== parent) return superseded();
     if (parent.totalQty - state.filledQty <= 0n) {
       this.replace(parent.id, { ...parent, status: 'completed' });
@@ -768,9 +748,6 @@ export class TwapEngine {
       return this.stopChase(parent, open, CHASE_MAX_DISTANCE_HALT);
     }
     if (!follow) return { kind: 'idle', reason: 'paused' };
-    // The engine matched part of a child the chase cancelled, and its fills have not landed yet: placing now would buy
-    // that quantity twice. Wait for the taker's settlement to write them.
-    if (chaseUnsettledMatched(parent.children, state) > 0n) return { kind: 'idle', reason: 'awaiting_fills' };
     if (lastOpen && last.price != null) {
       const improved = parent.side === 'buy' ? best > last.price : best < last.price;
       if (!improved) return { kind: 'idle', reason: 'no_book_move' };
@@ -797,38 +774,25 @@ export class TwapEngine {
       return { kind: 'idle', reason: 'adopted' };
     }
 
-    let current = parent;
+    for (const child of open) {
+      const parked = await this.cancelChaseChild(parent, child);
+      if (parked) return parked;
+    }
     if (open.length > 0) {
-      const remainders = new Map<string, Amount>();
-      for (const child of open) {
-        const cancelled = await this.cancelChaseChild(parent, child);
-        if (cancelled.parked) return cancelled.parked;
-        // An unknown answer is kept as nothing left: the wait below then never treats that quantity as free.
-        remainders.set(child.orderId, cancelled.engineRemainingQty ?? 0n);
-      }
       if (this.parents.get(parent.id) !== parent) return superseded();
-      // Keep what the engine still held of each cancelled child, so the matched part is never placed again, on this
-      // tick or after a restart, before its fills land.
-      current = {
-        ...parent,
-        children: parent.children.map((c) => {
-          const remaining = remainders.get(c.orderId);
-          return remaining === undefined ? c : { ...c, cancelRemainingQty: remaining };
-        }),
-      };
-      this.parents.set(parent.id, current);
-      await this.emitChange(current);
-      if (this.parents.get(parent.id) !== current) return superseded();
+      // The cancelled children's fills are final now; the new child carries only what is left.
       state = await readChildren(ids);
-      if (this.parents.get(parent.id) !== current) return superseded();
+      if (this.parents.get(parent.id) !== parent) return superseded();
       // Never two working orders: a child that still reads open after its cancel is waited out, not placed over.
       if (state.openOrderIds.size > 0) return { kind: 'idle', reason: 'child_open' };
-      if (chaseUnsettledMatched(current.children, state) > 0n) return { kind: 'idle', reason: 'awaiting_fills' };
     }
-    const rest = current.totalQty - state.filledQty;
+    // The engine matched part of a cancelled child and its fills have not landed: placing now would buy that quantity
+    // twice. The order rows keep the engine's answer, so this holds across ticks, pauses and restarts.
+    if (state.unsettledQty > 0n) return { kind: 'idle', reason: 'awaiting_fills' };
+    const rest = parent.totalQty - state.filledQty;
     const qty = rest - (rest % lot);
     if (qty <= 0n) {
-      this.replace(parent.id, { ...current, status: 'completed' });
+      this.replace(parent.id, { ...parent, status: 'completed' });
       return { kind: 'completed' };
     }
 
@@ -847,23 +811,22 @@ export class TwapEngine {
       });
     } catch (err) {
       const live = this.parents.get(parent.id);
-      if (live !== current) return superseded();
+      if (live !== parent) return superseded();
       const message = err instanceof Error ? err.message : String(err);
       const insufficient =
         (err instanceof TradeError && (err.code === 'trade.algo_insufficient_balance' || err.code.startsWith('ledger'))) ||
         message.toLowerCase().includes('insufficient');
-      if (insufficient)
-        return this.halt(current, `insufficient balance for the chase child: ${message}`, 'trade.algo_insufficient_balance');
+      if (insufficient) return this.halt(parent, `insufficient balance for the chase child: ${message}`, 'trade.algo_insufficient_balance');
       if (err instanceof TradeError && err.code === 'trade.algo_principal_unavailable') {
-        return this.halt(current, message, 'trade.algo_principal_unavailable');
+        return this.halt(parent, message, 'trade.algo_principal_unavailable');
       }
       // The old child is already cancelled; a refused new one stops the chase rather than retrying every tick.
-      return this.halt(current, `chase child refused: ${message}`, 'trade.algo_child_refused');
+      return this.halt(parent, `chase child refused: ${message}`, 'trade.algo_child_refused');
     }
     const child: AlgoChildRef = { sliceIndex, orderId: placed.orderId, clientOrderId, qty, placedAt: now, price: best };
     // The child is recorded on whatever the parent is now, so it is never untracked; the save is awaited so a crash
     // after this line cannot lose it (and a crash before it is adopted on the next tick).
-    const live = this.parents.get(parent.id) ?? current;
+    const live = this.parents.get(parent.id) ?? parent;
     const recorded: TwapParent = {
       ...live,
       nextSliceIndex: Math.max(live.nextSliceIndex, sliceIndex + 1),
@@ -872,23 +835,17 @@ export class TwapEngine {
     };
     this.parents.set(parent.id, recorded);
     await this.emitChange(recorded);
-    if (live === current || recorded.status === 'active') return { kind: 'placed', child };
+    if (live === parent || recorded.status === 'active') return { kind: 'placed', child };
     // A cancel or pause landed while the child was being placed: it must not keep working for a stopped chase.
-    const { parked } = await this.cancelChaseChild(recorded, child);
+    const parked = await this.cancelChaseChild(recorded, child);
     return parked ?? superseded();
   }
 
-  /**
-   * Cancel a chase's resting child and answer what the engine still held of it. A failure parks the parent as
-   * cancel-incomplete and returns the result to report.
-   */
-  private async cancelChaseChild(
-    parent: TwapParent,
-    child: AlgoChildRef,
-  ): Promise<{ parked: SliceTickResult | null; engineRemainingQty: Amount | null }> {
+  /** Cancel a chase's resting child. A failure parks the parent as cancel-incomplete and returns the result to report. */
+  private async cancelChaseChild(parent: TwapParent, child: AlgoChildRef): Promise<SliceTickResult | null> {
     try {
-      const outcome = await this.ports.cancelChild(child.orderId);
-      return { parked: null, engineRemainingQty: outcome ? outcome.engineRemainingQty : null };
+      await this.ports.cancelChild(child.orderId);
+      return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Park whatever the parent is now: a cancel that landed meanwhile must not be overwritten by a stale copy.
@@ -896,17 +853,14 @@ export class TwapEngine {
       const parked: TwapParent = { ...live, status: 'paused', pausedAt: this.ports.now(), haltReason: CANCEL_INCOMPLETE_HALT };
       this.parents.set(parent.id, parked);
       await this.emitChange(parked);
-      return {
-        parked: { kind: 'halted', reason: `chase child cancel failed: ${message}`, code: 'trade.algo_child_refused' },
-        engineRemainingQty: null,
-      };
+      return { kind: 'halted', reason: `chase child cancel failed: ${message}`, code: 'trade.algo_child_refused' };
     }
   }
 
   /** End a chase on its own: cancel each resting child once, then halt with `reason`. */
   private async stopChase(parent: TwapParent, open: readonly AlgoChildRef[], reason: string): Promise<SliceTickResult> {
     for (const child of open) {
-      const { parked } = await this.cancelChaseChild(parent, child);
+      const parked = await this.cancelChaseChild(parent, child);
       if (parked) return parked;
     }
     const live = this.parents.get(parent.id);
