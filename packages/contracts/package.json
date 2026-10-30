@@ -218,6 +218,10 @@
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
     },
+    "./protocol-tokens": {
+      "types": "./dist/protocol-tokens.d.ts",
+      "default": "./dist/protocol-tokens.js"
+    },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
