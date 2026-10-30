@@ -80,17 +80,20 @@ async function confirmItsMe(page) {
   await dialog.getByRole('button', { name: 'Confirm' }).click();
 }
 
-/** The customer's own reads through Edge, signed in with the password and an authenticator code. */
-async function customerApi() {
-  const state = account();
+/**
+ * The customer's own reads through Edge: the journey's person, signed in with the password and an authenticator code, or
+ * another person with no second factor (`who` from signUp), signed in with the password.
+ */
+async function customerApi(who) {
+  const person = who ?? account().account;
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({
       deviceKey: DEVICE_KEY,
-      identifier: state.account.email,
-      password: state.account.password,
-      totpCode: await freshCode(),
+      identifier: person.email,
+      password: person.password,
+      ...(who ? {} : { totpCode: await freshCode() }),
     }),
   }).then((res) => res.json());
   const token = login?.result?.data?.accessToken;
@@ -726,13 +729,14 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
      * The withdrawal's page, read between two reads of svc-pay's record: it shows a state the record held in that time
      * (the one read before, the one read after, or a step between them on the way to Settled), in its word.
      */
-    const look = async (tab, id) => {
-      const before = (await api.withdrawal(id)).customerStatus;
+    const look = async (tab, id, reader = api, reads = []) => {
+      const before = (await reader.withdrawal(id)).customerStatus;
       await tab.goto(`/uc/withdraw?withdrawalId=${id}`);
       const status = tab.getByTestId('withdrawal-status');
       await expect(status).toBeVisible({ timeout: 15_000 });
       const shown = { state: await status.getAttribute('data-status'), text: (await status.textContent())?.trim() };
-      const after = (await api.withdrawal(id)).customerStatus;
+      const after = (await reader.withdrawal(id)).customerStatus;
+      reads.push(before, after);
       const [from, to, at] = [before, after, shown.state].map((state) => order.indexOf(state));
       const between = from >= 0 && to >= 0 && from <= at && at <= to;
       expect(
@@ -777,15 +781,26 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
       )
       .not.toBeNull();
     const seen = [];
+    const reads = [];
     const until = Date.now() + 60_000;
     while (seen.at(-1) !== 'settled' && Date.now() < until) {
-      const state = await look(own, watching.id);
+      const state = await look(own, watching.id, api, reads);
       if (seen.at(-1) !== state) seen.push(state);
     }
     expect(seen.at(-1), `seen: ${seen.join(' → ')}`).toBe('settled');
     forwards(seen);
-    // While the TEST chain waits, svc-pay holds the money and its record reads `held`: the page must show that, in its word.
-    expect(seen, `the page read the send held before it settled: ${seen.join(' → ')}`).toContain('held');
+    // While the TEST chain waits, svc-pay has asked the chain to send and does not yet know the outcome: its record reads
+    // `dispatching`, and the page must show that, in its word (Sending).
+    expect(seen, `the page read the send on its way before it settled: ${seen.join(' → ')}`).toContain('dispatching');
+    expect(reads, `svc-pay itself read the send on its way: ${reads.join(', ')}`).toContain('dispatching');
+    // Requested, Held and Broadcast stay red by name: a real send passes them inside the one create request, because
+    // svc-pay has no confirm-later flow yet, so the page can never read them on a real send. Soft, so the rest of #8 is
+    // proven; the seeded rows below check only their words.
+    for (const state of ['requested', 'held', 'broadcast']) {
+      expect
+        .soft(seen, `blocked until svc-pay has a confirm-later flow: the page never read a real send ${state} (${seen.join(' → ')})`)
+        .toContain(state);
+    }
     await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
     const made12 = await record(watching.id);
     expect(made12.status).toBe('settled');
@@ -823,6 +838,16 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
   const tag = `jw05-${who.handle}-r${testInfo.retry}`;
   const words = { requested: word.requested, held: word.held, broadcast: word.broadcast, sent: word.settled };
   const ids = Object.fromEntries(Object.keys(words).map((state) => [state, seedWithdrawal(who, state, '1', `${tag}-${state}`)]));
+  // Each row as svc-pay itself reads it back (an old `sent` row reads settled), then its own page in that word.
+  const theirs = await customerApi(who);
+  const expected = { requested: 'requested', held: 'held', broadcast: 'broadcast', sent: 'settled' };
+  for (const [state, id] of Object.entries(ids)) {
+    expect((await theirs.withdrawal(id)).customerStatus, `svc-pay reads the ${state} row`).toBe(expected[state]);
+    await page.goto(`/uc/withdraw?withdrawalId=${id}`);
+    const status = page.getByTestId('withdrawal-status');
+    await expect(status).toHaveAttribute('data-status', expected[state], { timeout: 15_000 });
+    await expect(status).toHaveText(words[state]);
+  }
 
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
