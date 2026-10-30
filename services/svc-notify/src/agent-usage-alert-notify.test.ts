@@ -57,9 +57,8 @@ describe('own agent usage alert notice (J-agents-02 #6)', () => {
   });
 
   it('the title and body are words in the catalog, naming every param the row carries', () => {
-    const words = en as Record<string, string>;
-    expect(words['notify.agents.usage_alert.crossed.title']).toBe('Agent spend passed your alert');
-    const body = words['notify.agents.usage_alert.crossed.body']!;
+    expect(en['notify.agents.usage_alert.crossed.title']).toBe('Agent spend passed your alert');
+    const body: string = en['notify.agents.usage_alert.crossed.body'];
     for (const param of ['amount', 'alertAt', 'asset', 'month']) expect(body).toContain(`{${param}}`);
   });
 });
