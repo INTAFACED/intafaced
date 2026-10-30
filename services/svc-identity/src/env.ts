@@ -385,6 +385,12 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
       /**
+       * Signing key for pay QR codes and payment links (PP-send-request-11), at least 32 characters. Blank / unset →
+       * not set up: issuing and resolving a code both refuse `identity.qr_key_unset`. A `local-test:` key is the local
+       * stack's TEST key and is refused at boot unless APP_ENV is exactly dev or test (profile/pay-qr.ts).
+       */
+      IDENTITY_PAY_QR_KEY: z.string().optional().default(''),
+      /**
        * Owner-published lifetime cap on handle changes per account (PP-send-request-03). Blank / unset → unpublished;
        * every handle change refuses (`identity.handle_change_cap_unset`). Never invent a default: the stack sets a
        * labelled TEST value only.

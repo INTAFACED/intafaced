@@ -83,3 +83,38 @@ export async function resolveHandle(api: ApiClient, handle: string, signal?: Abo
   if (result.data.handle.toLowerCase() !== clean.toLowerCase()) return { kind: 'failed' };
   return { kind: 'found', userId: result.data.userId, handle: result.data.handle, self: result.data.self };
 }
+
+// ── Signed pay codes (PP-send-request-11) ───────────────────────────────────────────────────────────────────────
+// `identity.qr.mine` signs the caller's own account id; `identity.qr.resolve({ payload })` says who a scanned code pays,
+// by account id, whatever their "find me by handle" switch says. A blank signing key is the owner's setting not yet
+// made: both refuse `identity.qr_key_unset`. A code that does not verify is `identity.qr_invalid`.
+
+export const PAY_QR_KEY_UNSET = 'identity.qr_key_unset';
+export const PAY_QR_INVALID = 'identity.qr_invalid';
+export const PAY_QR_PAYEE_UNAVAILABLE = 'identity.qr_payee_unavailable';
+
+const payQrSchema = z.object({ payload: z.string().min(1) });
+const payQrPreviewSchema = z.object({ userId: z.string().guid(), handle: z.string().min(1), self: z.boolean() });
+
+export type PayQrOutcome = { kind: 'ok'; payload: string } | { kind: 'unset' } | { kind: 'failed' };
+
+export type PayQrResolveOutcome =
+  | { kind: 'found'; userId: string; handle: string; self: boolean }
+  | { kind: 'invalid' }
+  | { kind: 'payeeUnavailable' }
+  | { kind: 'unset' }
+  | { kind: 'failed' };
+
+export async function fetchMyPayQr(api: ApiClient, signal?: AbortSignal): Promise<PayQrOutcome> {
+  const result = await api.query('identity', 'qr.mine', undefined, payQrSchema, { signal });
+  if (result.ok) return { kind: 'ok', payload: result.data.payload };
+  return result.code === PAY_QR_KEY_UNSET ? { kind: 'unset' } : { kind: 'failed' };
+}
+
+export async function resolvePayQr(api: ApiClient, payload: string, signal?: AbortSignal): Promise<PayQrResolveOutcome> {
+  const result = await api.query('identity', 'qr.resolve', { payload }, payQrPreviewSchema, { signal });
+  if (result.ok) return { kind: 'found', ...result.data };
+  if (result.code === PAY_QR_INVALID) return { kind: 'invalid' };
+  if (result.code === PAY_QR_PAYEE_UNAVAILABLE) return { kind: 'payeeUnavailable' };
+  return result.code === PAY_QR_KEY_UNSET ? { kind: 'unset' } : { kind: 'failed' };
+}
