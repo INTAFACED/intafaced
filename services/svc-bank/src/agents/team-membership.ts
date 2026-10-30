@@ -16,8 +16,20 @@ import {
 } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 
-/** The business team as the asking person may see it. */
-export async function teamMembershipFor(sql: Sql, userId: string, businessId: string): Promise<AgentsTeamMembershipResponse> {
+/** A business holds at most this many members in one answer; more is refused, never a cut-off team. */
+export const TEAM_MEMBERSHIP_MAX = 200;
+
+export class TeamMembershipIncomplete extends Error {
+  readonly code = 'bank.team_membership_incomplete' as const;
+  constructor() {
+    super(`business team has more than ${TEAM_MEMBERSHIP_MAX} members`);
+  }
+}
+
+/** The business team as the asking person may see it. Ids are compared in lower case, as svc-bank stores them. */
+export async function teamMembershipFor(sql: Sql, rawUserId: string, rawBusinessId: string): Promise<AgentsTeamMembershipResponse> {
+  const userId = rawUserId.toLowerCase();
+  const businessId = rawBusinessId.toLowerCase();
   const rows = await sql<Array<{ status: string; user_id: string; role: AgentsTeamBusinessRole; asker: boolean }>>`
     SELECT a.status, m.user_id, m.role::text AS role, (m.user_id = ${userId}) AS asker
       FROM bank.business_accounts a
@@ -25,7 +37,9 @@ export async function teamMembershipFor(sql: Sql, userId: string, businessId: st
      WHERE a.id = ${businessId}
        AND EXISTS (SELECT 1 FROM bank.business_members me WHERE me.account_id = a.id AND me.user_id = ${userId})
      ORDER BY m.created_at, m.user_id
+     LIMIT ${TEAM_MEMBERSHIP_MAX + 1}
   `;
+  if (rows.length > TEAM_MEMBERSHIP_MAX) throw new TeamMembershipIncomplete();
   const me = rows.find((row) => row.asker);
   if (!me) return { ok: false, reason: 'not_member' };
   if (me.status !== 'active') return { ok: false, reason: 'business_closed' };
@@ -59,12 +73,15 @@ export function registerAgentsTeamMembership(
     }
     const parsed = agentsTeamMembershipRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'userId and businessId must be uuids', code: 'bank.team_membership_input' });
+      return reply.code(400).send({ error: 'team membership request is invalid', code: 'bank.team_membership_input' });
     }
     try {
       const checked = agentsTeamMembershipResponseSchema.safeParse(await deps.read(parsed.data.userId, parsed.data.businessId));
       if (checked.success) return checked.data;
-    } catch {
+    } catch (err) {
+      if (err instanceof TeamMembershipIncomplete) {
+        return reply.code(503).send({ error: 'business team is too large to answer whole', code: err.code });
+      }
       // Falls through: a failed read is never an empty team and never the database's own words.
     }
     return reply.code(503).send({ error: 'business team could not be read', code: 'bank.team_membership_unavailable' });

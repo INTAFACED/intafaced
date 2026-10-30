@@ -39,8 +39,8 @@ export const agentsTeamMembershipResponseSchema = z.discriminatedUnion('ok', [
       businessId: z.string().uuid(),
       /** The asking person's own role on the business. */
       role: z.enum(AGENTS_TEAM_BUSINESS_ROLES),
-      /** Every member, by when they joined (then by account id). */
-      members: z.array(agentsTeamMemberSchema).min(1),
+      /** Every member, by when they joined (then by account id). svc-bank refuses a team over 200, never cuts it. */
+      members: z.array(agentsTeamMemberSchema).min(1).max(200),
     })
     .strict(),
   /** `not_member`: no such business, or the person is not on it (one answer, so membership of others never leaks). */

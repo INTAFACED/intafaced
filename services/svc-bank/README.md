@@ -322,7 +322,7 @@ Raising the call and delivering it stay two facts. svc-bank publishes; whether t
 
 Publishing moves no value. Every recipe in the Ledger table below still goes through `packages/ledger-client` and nothing else.
 
-The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (AGENT*PROTOCOL §1: *"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."\_ §2 makes publishing an undeclared subject a hard prohibition):
+The subjects below are still unwritten, and go in an events PR before svc-bank publishes any of them (`AGENT_PROTOCOL` §1: _"A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own. … Never the reverse. Never both at once."_ §2 makes publishing an undeclared subject a hard prohibition):
 
 | Planned subject                    | When                                                 |
 | ---------------------------------- | ---------------------------------------------------- |

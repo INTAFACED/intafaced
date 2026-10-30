@@ -15,7 +15,7 @@ import {
 } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { BUSINESS_ROLES } from '../business/business-policy.js';
-import { registerAgentsTeamMembership, teamMembershipFor } from './team-membership.js';
+import { TEAM_MEMBERSHIP_MAX, TeamMembershipIncomplete, registerAgentsTeamMembership, teamMembershipFor } from './team-membership.js';
 
 function adminUrl(): string {
   const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -105,6 +105,28 @@ describe('teamMembershipFor', () => {
     });
   });
 
+  it('matches ids in any case', async () => {
+    expect(await teamMembershipFor(db.sql, MAKER.toUpperCase(), business.toUpperCase())).toEqual({
+      ok: true,
+      businessId: business,
+      role: 'maker',
+      members: team(),
+    });
+  });
+
+  it('refuses a team over the cap whole, never a cut-off list', async () => {
+    await db.sql`
+      INSERT INTO bank.business_members (account_id, user_id, role)
+      SELECT ${business}, gen_random_uuid()::text, 'viewer' FROM generate_series(1, ${TEAM_MEMBERSHIP_MAX - 3 + 1})`;
+    await expect(teamMembershipFor(db.sql, ADMIN, business)).rejects.toBeInstanceOf(TeamMembershipIncomplete);
+    await db.sql`
+      DELETE FROM bank.business_members
+       WHERE account_id = ${business}
+         AND user_id = (SELECT user_id FROM bank.business_members WHERE account_id = ${business} AND role = 'viewer' AND user_id <> ${VIEWER} LIMIT 1)`;
+    const whole = await teamMembershipFor(db.sql, ADMIN, business);
+    expect(whole.ok && whole.members.length).toBe(TEAM_MEMBERSHIP_MAX);
+  });
+
   it('answers business_closed, never the team, to a member of a closed business', async () => {
     await db.sql`UPDATE bank.business_accounts SET status = 'closed' WHERE id = ${business}`;
     for (const userId of [ADMIN, MAKER]) {
@@ -164,6 +186,16 @@ describe('POST /internal/agents/team-membership', () => {
       expect(bad.json().code).toBe('bank.team_membership_input');
     }
     expect(seen).toEqual([]);
+    await app.close();
+  });
+
+  it('answers 503 bank.team_membership_incomplete for a team over the cap', async () => {
+    const app = await appWith(async () => {
+      throw new TeamMembershipIncomplete();
+    });
+    const res = await app.inject(post({ userId: ADMIN, businessId: business }));
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ error: 'business team is too large to answer whole', code: 'bank.team_membership_incomplete' });
     await app.close();
   });
 
