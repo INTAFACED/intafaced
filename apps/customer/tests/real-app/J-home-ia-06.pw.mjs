@@ -1,12 +1,9 @@
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { makeContext, approverSessions } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { signUp } from './desk.mjs';
 import { NOTICE_DRAIN_MINUTES, draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { EDGE, ORIGIN, ROOT } from './stack.mjs';
+import { EDGE, ORIGIN, tool } from './stack.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
 // "J-home-ia-06 #<n>" prove a whole step. The stack's two TEST founders draft and publish through the notice board's own
@@ -16,7 +13,7 @@ const RUN = Date.now().toString(36);
 // This run's own notices end inside the wait the next run gives them.
 const WINDOW_MINUTES = NOTICE_DRAIN_MINUTES - 1;
 
-// Serial: each step builds on the board the one before left. The BLOCKED steps are in J-home-ia-06-blocked.pw.mjs, so
+// Serial: each step builds on the board the one before left; the service-down case, which restarts svc-notify, is last. The BLOCKED steps are in J-home-ia-06-blocked.pw.mjs, so
 // their red by name never skips a built step.
 test.describe.configure({ mode: 'serial' });
 
@@ -43,9 +40,10 @@ async function openHome() {
 const refusalCode = (json) => json?.error?.data?.cause?.code;
 
 /** The founders' notice desk, drafts included: the row svc-notify holds for `id`, read back from the service. */
+let desk;
 async function deskNotice(id) {
-  const ctx = await makeContext({ log: () => {} });
-  const pair = await approverSessions(ctx);
+  desk ??= await makeContext({ log: () => {} }).then(async (ctx) => ({ ctx, pair: await approverSessions(ctx) }));
+  const { ctx, pair } = desk;
   const res = await ctx.edge.query('notify', 'notify.operatorNotices', { limit: 100 }, await pair.a.tradeOpsToken());
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   const rows = res.json.result.data.filter((n) => n.id === id);
@@ -56,7 +54,13 @@ async function deskNotice(id) {
 /** The signed-out read of one notice by id: its typed refusal code, or null when the feed holds it. */
 async function publicNoticeCode(id) {
   const res = await fetch(`${EDGE}/api/notify/trpc/notify.notice?input=${encodeURIComponent(JSON.stringify({ id }))}`);
-  const json = await res.json();
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return `unparsed ${res.status}: ${text.slice(0, 200)}`;
+  }
   return json?.result?.data ? null : (refusalCode(json) ?? `unparsed ${res.status}: ${JSON.stringify(json).slice(0, 200)}`);
 }
 
@@ -64,8 +68,9 @@ async function publicNoticeCode(id) {
 async function expectNoNoticeRows() {
   await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByTestId('home-notice')).toHaveCount(0);
-  for (const name of ['Incident', 'Maintenance', 'Announcement']) await expect(page.getByRole('status', { name })).toHaveCount(0);
+  // An incident banner is an alert; a maintenance banner and the announcement strip are status rows (Notices.tsx).
   await expect(page.getByRole('alert', { name: 'Incident' })).toHaveCount(0);
+  for (const name of ['Maintenance', 'Announcement']) await expect(page.getByRole('status', { name })).toHaveCount(0);
 }
 
 /** Both of Home's notice reads answered ok: a failed read also draws nothing, so "nothing" must be an answer. */
@@ -74,22 +79,22 @@ function expectAnswered({ status, current }) {
   expect(current.ok || refusalCode(current.json) === 'notify.announcement_unset', JSON.stringify(current.json)).toBe(true);
 }
 
-/** svc-notify stopped for `run`, then the stack started again whatever happened. */
+/** svc-notify stopped for `run`, then started again whatever happened; a failed start never hides `run`'s own failure. */
 async function withNotifyStopped(run) {
-  const stack = (...args) => {
-    const out = spawnSync(process.execPath, ['tooling/scripts/local-test-stack.mjs', ...args], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 10 * 60_000,
-    });
-    expect(out.status, `${out.stdout}${out.stderr}`).toBe(0);
-  };
-  stack('stop', 'notify');
+  tool('local-test-stack.mjs', 'stop', 'notify');
+  let failure = null;
   try {
     await run();
-  } finally {
-    stack('start');
+  } catch (error) {
+    failure = error;
   }
+  try {
+    tool('local-test-stack.mjs', 'start', '--only', 'notify');
+  } catch (error) {
+    if (!failure) throw error;
+    console.warn(`svc-notify not started again after a failed step: ${error.message}`);
+  }
+  if (failure) throw failure;
 }
 
 /** "23 Oct, 05:00", as Home words an end time in the browser's own zone (UTC here). */
@@ -135,31 +140,6 @@ test(`${J} #1 with nothing published, Home draws no strip and no banner`, async 
   // The shell around Home draws no banner either: not on Home, and not on another room of the same shell.
   await page.goto('/money');
   await expect(page.getByTestId('home-notice')).toHaveCount(0);
-});
-
-test(`${J} #1 with the notice service down, Home draws no strip and no banner, the rest of Home is unaffected, and one line is logged`, async () => {
-  test.setTimeout(15 * 60_000);
-  await withNotifyStopped(async () => {
-    const warnings = [];
-    const onConsole = (msg) => msg.type() === 'warning' && msg.text().startsWith('home notices:') && warnings.push(msg.text());
-    page.on('console', onConsole);
-    try {
-      const { status, current } = await openHome();
-      expect(status.ok).toBe(false);
-      expect(current.ok).toBe(false);
-      await expectNoNoticeRows();
-      // The rest of Home still draws: its heading and its own sections, with no page-level error.
-      await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
-      await expect(page.getByRole('main')).not.toContainText('Something went wrong');
-      await expect.poll(() => warnings.length).toBe(2);
-      expect(warnings.sort()).toEqual([
-        expect.stringMatching(/^home notices: announcement unread \(\S+\)$/),
-        expect.stringMatching(/^home notices: notice status unread \(\S+\)$/),
-      ]);
-    } finally {
-      page.off('console', onConsole);
-    }
-  });
 });
 
 test(`${J} #4 a founder's draft never reaches the customer`, async () => {
@@ -290,12 +270,12 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   expect(refusalCode(refused), JSON.stringify(refused)).toBe('idp.social');
   const linked = await expectServiceOff(methods.locator('[data-not-connected]'), 'idp.social', 'Signing in with a social account');
   // The whole sentence, its dependency words included, is the shared copy's own, for each code.
-  const source = readFileSync(path.join(ROOT, 'apps/customer/src/shared/service-off.tsx'), 'utf8');
-  const dependency = (code) => new RegExp(`^\\s+'${code.replace('.', '\\.')}': '([^']+)',$`, 'm').exec(source)?.[1];
-  const sentence = (action, code) => `${action} needs ${dependency(code)}. It is switched off in this build. ${code}`;
-  expect(pushed).toBe(sentence('Registering this device', 'vendor.push'));
-  expect(staked).toBe(sentence('Stake', 'chain.go'));
-  expect(linked).toBe(sentence('Signing in with a social account', 'idp.social'));
+  // The dependency words are written here, not read from the app's copy (src/shared/service-off.tsx), so a wrong
+  // wording there turns this red.
+  const sentence = (action, dependency, code) => `${action} needs ${dependency}. It is switched off in this build. ${code}`;
+  expect(pushed).toBe(sentence('Registering this device', 'a push delivery gateway', 'vendor.push'));
+  expect(staked).toBe(sentence('Stake', 'the INTACHAIN launch go-ahead', 'chain.go'));
+  expect(linked).toBe(sentence('Signing in with a social account', 'an outside sign-in provider', 'idp.social'));
   // An own gap is not the notice: the bell on a new account opens its empty state, with no data-not-connected.
   await person.goto('/home');
   await person.getByTestId('tb-bell').click();
@@ -303,4 +283,30 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   await expect(empty).toHaveCount(1);
   await expect(person.locator('.nf-pop__inner [data-not-connected]')).toHaveCount(0);
   await context.close();
+});
+
+// Last: it stops and starts svc-notify, so a red here skips no other step.
+test(`${J} #1 with the notice service down, Home draws no strip and no banner, the rest of Home is unaffected, and one line per failed read is logged`, async () => {
+  test.setTimeout(15 * 60_000);
+  await withNotifyStopped(async () => {
+    const warnings = [];
+    const onConsole = (msg) => msg.type() === 'warning' && msg.text().startsWith('home notices:') && warnings.push(msg.text());
+    page.on('console', onConsole);
+    try {
+      const { status, current } = await openHome();
+      expect(status.ok).toBe(false);
+      expect(current.ok).toBe(false);
+      await expectNoNoticeRows();
+      // The rest of Home still draws: its heading and its own sections, with no page-level error.
+      await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
+      await expect(page.getByRole('main')).not.toContainText('Something went wrong');
+      await expect.poll(() => warnings.length).toBe(2);
+      expect(warnings.sort()).toEqual([
+        expect.stringMatching(/^home notices: announcement unread \(\S+\)$/),
+        expect.stringMatching(/^home notices: notice status unread \(\S+\)$/),
+      ]);
+    } finally {
+      page.off('console', onConsole);
+    }
+  });
 });
