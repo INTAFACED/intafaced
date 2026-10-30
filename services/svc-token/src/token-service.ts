@@ -250,6 +250,7 @@ export class TokenError extends Error {
        * does not match. Not replaced with zero.
        */
       | 'token.treasury_figure_unreadable'
+      | 'token.vote_history_unreadable'
       /** Stored proposer rule is blank. Never fall back to a compiled stake tier. */
       | 'token.proposer_rule_unset'
       /** Per-period proposal cap or its period is blank. Never invent a window. */
@@ -434,18 +435,20 @@ export interface PayoutHistoryPage {
   readonly nextCursor: string | null;
 }
 
-export interface VoteHistoryItem {
+export type VoteHistoryItem = {
   readonly proposalId: string;
   readonly title: string | null;
   readonly titleReason: 'proposal_title_unset' | null;
-  /** For/against/abstain on a basic proposal. Null when `ballot` holds the vote. */
-  readonly choice: 'for' | 'against' | 'abstain' | null;
-  /** A non-basic ballot as stored (approval, weighted, ranked and the rest). Exactly one of choice or ballot is set. */
-  readonly ballot: Ballot | null;
+  /** The proposal's voting type, so an approval and a ranked `pick` read apart. */
+  readonly votingType: VotingType;
   /** Weight stored on the ballot. Never recomputed from a later stake. */
   readonly weight: string;
   readonly castAt: string;
-}
+} & (
+  | { readonly choice: 'for' | 'against' | 'abstain'; readonly ballot: null }
+  /** A non-basic ballot as stored (approval, weighted, ranked and the rest); choice is null. */
+  | { readonly choice: null; readonly ballot: Ballot }
+);
 
 export interface VoteHistoryPage {
   readonly items: VoteHistoryItem[];
@@ -1337,6 +1340,7 @@ export class TokenService {
       Array<{
         proposal_id: string;
         body: unknown;
+        voting_type: string;
         choice: 'for' | 'against' | 'abstain' | null;
         ballot: unknown;
         weight: string;
@@ -1345,7 +1349,7 @@ export class TokenService {
         id: string;
       }>
     >`
-      SELECT v.proposal_id, p.body, v.choice, v.ballot, v.weight::text AS weight, v.cast_at, v.id,
+      SELECT v.proposal_id, p.body, p.voting_type, v.choice, v.ballot, v.weight::text AS weight, v.cast_at, v.id,
              to_char(v.cast_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_cursor
         FROM token.governance_votes v
         JOIN token.proposals p ON p.id = v.proposal_id
@@ -1357,17 +1361,21 @@ export class TokenService {
     const kept = rows.slice(0, page);
     const last = kept[kept.length - 1];
     return {
-      items: kept.map((row) => {
+      items: kept.map((row): VoteHistoryItem => {
         const title = proposalTitle(row.body);
-        return {
+        const shared = {
           proposalId: row.proposal_id,
           title: title.title,
           titleReason: title.reason,
-          choice: row.choice,
-          ballot: asBallotError(() => parseStoredBallot(row.ballot)),
+          votingType: storedVoteHistoryType(row.voting_type),
           weight: formatAmount(parseAmount(row.weight)),
           castAt: row.cast_at.toISOString(),
         };
+        const ballot = storedVoteHistoryBallot(row.ballot);
+        // The table holds exactly one of choice or ballot. A row with both or neither is unreadable, not guessed.
+        if (row.choice !== null && ballot === null) return { ...shared, choice: row.choice, ballot: null };
+        if (row.choice === null && ballot !== null) return { ...shared, choice: null, ballot };
+        throw voteHistoryUnreadable();
       }),
       nextCursor: rows.length > page && last ? encodeHistoryCursor(last.cast_cursor, last.id) : null,
     };
@@ -3396,6 +3404,27 @@ export function foldTally(rows: Array<{ choice: VoteChoice; weight: string; n: s
 }
 
 /** Ballot rules raise `BallotError`; the service speaks `TokenError` with the same code. */
+/** A stored row this read cannot show. It is the service's data at fault, never the caller's input. */
+function voteHistoryUnreadable(): TokenError {
+  return new TokenError('A stored vote could not be read', 'token.vote_history_unreadable');
+}
+
+function storedVoteHistoryType(value: string): VotingType {
+  try {
+    return assertVotingType(value);
+  } catch {
+    throw voteHistoryUnreadable();
+  }
+}
+
+function storedVoteHistoryBallot(raw: unknown): Ballot | null {
+  try {
+    return parseStoredBallot(raw);
+  } catch {
+    throw voteHistoryUnreadable();
+  }
+}
+
 function asBallotError<T>(fn: () => T): T {
   try {
     return fn();

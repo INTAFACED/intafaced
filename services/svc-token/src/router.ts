@@ -288,6 +288,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.governance_execute_unwired':
       case 'token.delegation_unavailable':
       case 'token.treasury_figure_unreadable':
+      case 'token.vote_history_unreadable':
       case 'token.proposal_list_limit_unset':
       case 'token.proposer_rule_unset':
       case 'token.proposal_limit_unset':
@@ -696,15 +697,17 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(
         z.object({
           items: z.array(
-            z.object({
-              proposalId: proposalIdWire,
-              title: z.string().nullable(),
-              titleReason: z.literal('proposal_title_unset').nullable(),
-              choice: voteChoice.nullable(),
-              ballot: ballotWire.nullable(),
-              weight: amountString,
-              castAt: z.string(),
-            }),
+            z
+              .object({
+                proposalId: proposalIdWire,
+                title: z.string().nullable(),
+                titleReason: z.literal('proposal_title_unset').nullable(),
+                votingType,
+                weight: amountString,
+                castAt: z.string(),
+              })
+              // Exactly one of a basic choice or a stored ballot, as the table holds it.
+              .and(z.union([z.object({ choice: voteChoice, ballot: z.null() }), z.object({ choice: z.null(), ballot: ballotWire })])),
           ),
           nextCursor: z.string().nullable(),
         }),

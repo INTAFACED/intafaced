@@ -72,6 +72,7 @@ export const TOKEN_REFUSAL_COPY = {
   'token.delegation_delegatee_invalid': 'That delegation target is not a member.',
   'token.delegation_unavailable': 'There is no chain service and no on-chain delegate registry.',
   'token.treasury_figure_unreadable': 'A treasury figure recorded by this service could not be read.',
+  'token.vote_history_unreadable': 'A vote recorded by this service could not be read.',
   'token.proposer_rule_unset': 'Who may open a proposal is not set.',
   'token.proposal_limit_unset': 'The proposal limit is not set.',
   'token.proposal_limit_reached': 'You have reached the proposal limit for this period.',

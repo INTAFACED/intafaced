@@ -344,16 +344,12 @@ describe('token owner reads', () => {
   });
 
   it('lists an approval, a weighted and a ranked ballot through the router, each with its stored ballot and no basic choice', async () => {
-    const ballots = [
+    const votes = [
+      { n: 1, type: 'approval', choice: null, ballot: { kind: 'pick', choices: [0, 2] } },
       {
-        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1',
-        type: 'approval',
-        ballot: { kind: 'pick', choices: [0, 2] },
-        at: '2026-06-01T00:00:00.000001Z',
-      },
-      {
-        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',
+        n: 2,
         type: 'weighted',
+        choice: null,
         ballot: {
           kind: 'split',
           parts: [
@@ -361,36 +357,52 @@ describe('token owner reads', () => {
             { choice: 1, bps: 4_000 },
           ],
         },
-        at: '2026-06-02T00:00:00.000001Z',
       },
-      {
-        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3',
-        type: 'ranked_choice',
-        ballot: { kind: 'pick', choices: [2, 0, 1] },
-        at: '2026-06-03T00:00:00.000001Z',
-      },
+      { n: 3, type: 'ranked_choice', choice: null, ballot: { kind: 'pick', choices: [2, 0, 1] } },
+      { n: 4, type: 'approval', choice: null, ballot: { kind: 'abstain' } },
+      { n: 5, type: 'basic', choice: 'for', ballot: null },
     ] as const;
-    for (const vote of ballots) {
+    const idOf = (n: number) => `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${n}`;
+    for (const vote of votes) {
       await sql`
         INSERT INTO token.proposals (id, kind, body, status, opens_at, closes_at, voting_type, choices)
         VALUES (
-          ${vote.id}, 'fee_param', ${sql.json({ title: `TEST ${vote.type}` })}, 'open',
-          '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z', ${vote.type}, ${sql.json(['A', 'B', 'C'])}
+          ${idOf(vote.n)}, 'fee_param', ${sql.json({ title: `TEST ${vote.type} ${vote.n}` })}, 'open',
+          '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z', ${vote.type}, ${vote.type === 'basic' ? null : sql.json(['A', 'B', 'C'])}
         )
       `;
       await sql`
         INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, ballot, cast_at)
-        VALUES (${crypto.randomUUID()}, ${vote.id}, ${USER_A}, '3'::numeric, NULL, ${sql.json(vote.ballot)}, ${vote.at}::timestamptz)
+        VALUES (
+          ${crypto.randomUUID()}, ${idOf(vote.n)}, ${USER_A}, '3'::numeric, ${vote.choice},
+          ${vote.ballot === null ? null : sql.json(vote.ballot)}, ${`2026-06-0${vote.n}T00:00:00.000001Z`}::timestamptz
+        )
       `;
     }
 
     const page = await createTokenRouter(token).createCaller(signedReader(USER_A)).myVotes({ limit: 10 });
     expect(page.nextCursor).toBeNull();
-    expect(page.items.map((vote) => [vote.proposalId, vote.title, vote.choice, vote.ballot, vote.weight])).toEqual([
-      [ballots[2].id, 'TEST ranked_choice', null, ballots[2].ballot, '3'],
-      [ballots[1].id, 'TEST weighted', null, ballots[1].ballot, '3'],
-      [ballots[0].id, 'TEST approval', null, ballots[0].ballot, '3'],
-    ]);
+    expect(page.items.map((vote) => [vote.proposalId, vote.title, vote.votingType, vote.choice, vote.ballot, vote.weight])).toEqual(
+      [...votes].reverse().map((vote) => [idOf(vote.n), `TEST ${vote.type} ${vote.n}`, vote.type, vote.choice, vote.ballot, '3']),
+    );
+  });
+
+  it('refuses my vote history with a typed precondition, not a 500 or a bad request, when a stored ballot cannot be read', async () => {
+    const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb9';
+    await sql`
+      INSERT INTO token.proposals (id, kind, body, status, opens_at, closes_at, voting_type, choices)
+      VALUES (${id}, 'fee_param', ${sql.json({ title: 'TEST unreadable' })}, 'open', '2026-06-01T00:00:00Z', '2026-07-01T00:00:00Z',
+              'approval', ${sql.json(['A', 'B'])})
+    `;
+    await sql`
+      INSERT INTO token.governance_votes (id, proposal_id, user_id, weight, choice, ballot, cast_at)
+      VALUES (${crypto.randomUUID()}, ${id}, ${USER_A}, '3'::numeric, NULL, ${sql.json({ kind: 'pick', choices: 'A' })}, now())
+    `;
+    await expect(createTokenRouter(token).createCaller(signedReader(USER_A)).myVotes({ limit: 10 })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'A vote recorded by this service could not be read.',
+      cause: { code: 'token.vote_history_unreadable' },
+    });
   });
 
   it('returns blank emission parameters as null and projects epochs with epochReward without writing a row', async () => {
