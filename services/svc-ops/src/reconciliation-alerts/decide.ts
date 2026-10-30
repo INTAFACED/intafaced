@@ -40,3 +40,37 @@ export function repeatNotice(options: {
   if (options.snoozed) return 'snoozed';
   return 'sent';
 }
+
+/** What one alert is raised for: a failing asset (or none) to finance, or a run that could not finish to the platform team. */
+export type AlertTarget =
+  { cause: 'fail'; asset: AssetEvidence | null } | { cause: 'error'; asset: null; errorCode: string; phase: string | null };
+
+/**
+ * The alerts an evaluation raises. A FAIL raises one per failing asset (finance); an ERROR raises one with no asset
+ * (platform), naming the run's own code and phase, or `unset` when the ledger stored none. PASS and UNSET raise none.
+ */
+export function alertTargets(evaluation: ReconciliationEvaluation): AlertTarget[] {
+  const { run } = evaluation;
+  if (run.status === 'ERROR') {
+    return [
+      {
+        cause: 'error',
+        asset: null,
+        errorCode: run.errorCode.status === 'set' ? run.errorCode.value : 'unset',
+        phase: run.phase.status === 'set' ? run.phase.value : null,
+      },
+    ];
+  }
+  return failingTargets(evaluation).map((asset) => ({ cause: 'fail' as const, asset }));
+}
+
+/**
+ * Whether a repeat failure shows the figures an accepted discrepancy froze: the same difference for the same asset (or
+ * no asset on both). The same figures change nothing; different ones open a new alert.
+ */
+export function sameFrozenFigures(frozen: AssetEvidence | null, now: AssetEvidence | null): boolean {
+  if (!frozen || !now) return frozen === now;
+  if (frozen.assetId !== now.assetId) return false;
+  if (frozen.difference === 'unset' || now.difference === 'unset') return frozen.difference === now.difference;
+  return parseAmount(frozen.difference) === parseAmount(now.difference);
+}
