@@ -25,12 +25,10 @@ const en = {
   tuFormTitle: 'Request a top-up',
   tuFormBody: 'Say how much you want to add. The money counts towards your balance only once it has arrived.',
   tuAmount: 'Amount',
-  tuAmountHint: 'Digits and a decimal point, up to 18 places.',
+  tuAmountHint: 'Digits and a decimal point.',
   tuRequest: 'Request',
-  tuOffTitle: 'Top up is not set up for your account',
-  tuOffBody: 'No way to bring money into this business is connected yet, so nothing can be requested. Your balance is unchanged.',
   tuOffWhy: 'Request is off because top up is not set up for your account.',
-  tuBack: 'Back to balances',
+  tuOffPending: 'Request is off until we know top up is set up for your account.',
   pageLimits: 'Limits and tier',
   purposeLimits: 'How much you can take in and pay out, how much of each limit is used, and when it resets.',
   colGross: 'Gross',
@@ -799,7 +797,8 @@ const en = {
   rConversionNotFound: 'We couldn’t find that conversion.',
   rDestInFlight: 'A payout to this destination is waiting for approval or still on its way, so it can’t be removed until it has finished.',
   rDestNotFound: 'That destination is already gone. Refresh the list.',
-  rTopUpUnconfigured: 'Top up is not set up for your account.',
+  rTopUpUnconfigured:
+    'Top up is not set up for your account. No way to bring money into this business is connected yet, so nothing can be requested. Your balance is unchanged.',
 } as const;
 
 export const moneyCopy = defineCopy('pay.portal.money', en);

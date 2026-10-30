@@ -21,7 +21,8 @@ describe('Top up (J-merchant-07 #5, M-money-out-02)', () => {
 
   it('with no top-up rail: says it is not set up, keeps the form, and Request is off with the reason', () => {
     const out = draw(refused('pay.topup_unconfigured'));
-    expect(out).toContain('Top up is not set up for your account');
+    // The shared not-live card (PortalFailure through registerNotLive), not a refusal the room draws itself.
+    expect(out).toMatch(/data-testid="pfo-soon"[^>]*>.*Top up is not set up for your account\./s);
     expect(out).toContain('Your balance is unchanged.');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Request<\/button>/);
     expect(out).toContain('Request is off because top up is not set up for your account.');
@@ -34,10 +35,17 @@ describe('Top up (J-merchant-07 #5, M-money-out-02)', () => {
   it('any other failure is that failure, never the rail refusal, and Request stays off', () => {
     const out = draw(refused('pay.merchant_not_found'));
     expect(out).not.toContain('Top up is not set up for your account');
+    expect(out).toContain('data-testid="failure"');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Request<\/button>/);
+    expect(out).toContain('Request is off until we know top up is set up for your account.');
+    expect(out).not.toContain('Request is off because');
   });
 
-  it('while loading Request is off', () => {
-    expect(draw({ status: 'loading' })).toMatch(/<button[^>]*disabled=""[^>]*>Request<\/button>/);
+  it('while loading Request is off and the note still names why', () => {
+    const out = draw({ status: 'loading' });
+    expect(out).toMatch(
+      /<button[^>]*aria-describedby="[^"]+"[^>]*disabled=""[^>]*>Request<\/button>|<button[^>]*disabled=""[^>]*aria-describedby="[^"]+"[^>]*>Request<\/button>/,
+    );
+    expect(out).toContain('Request is off until we know top up is set up for your account.');
   });
 });

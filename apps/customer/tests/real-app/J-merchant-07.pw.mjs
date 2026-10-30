@@ -308,8 +308,14 @@ test(`${J} #5 requests a top-up: with no rail "Top up is not set up for your acc
   // With no rail the service refuses with its own typed code, and the room says so.
   const res = await asked;
   expect(res.status()).toBe(412);
-  expect(await res.text()).toContain('"pay.topup_unconfigured"');
-  await expect(page.getByTestId('failure').filter({ hasText: 'Top up is not set up for your account' })).toHaveCount(1);
+  // Matched by its exact typed code, not by the page's words: the tRPC error the service sent for this call.
+  const body = await res.json();
+  const error = (Array.isArray(body) ? body[0] : body).error;
+  expect(error.data.code).toBe('PRECONDITION_FAILED');
+  expect(error.data.cause?.code ?? error.message).toBe('pay.topup_unconfigured');
+  expect(error.message).toBe('pay.topup_unconfigured');
+  await expect(page.getByTestId('pfo-soon').filter({ hasText: 'Top up is not set up for your account.' })).toHaveCount(1);
+  await expect(page.getByTestId('failure')).toHaveCount(0);
   await expect(api.query('merchantControl.topUp.options', { merchantId })).rejects.toThrow(/refused: 412 .*pay\.topup_unconfigured/);
 
   // Request is off, and says why; the form is there, never a "coming soon" page.

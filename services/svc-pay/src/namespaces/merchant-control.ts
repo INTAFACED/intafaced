@@ -82,7 +82,11 @@ export function createMerchantControlRouter(control?: ControlService) {
           .output(merchantReserveViewSchema)
           .query(() => notBuilt('merchantControl.reserve')),
         topUp: router({
-          options: read.input(merchantControlGetInputSchema).query(() => notBuilt('merchantControl.topUp.options')),
+          // No answer shape until a top-up rail exists: any answer at all fails the output check.
+          options: read
+            .input(merchantControlGetInputSchema)
+            .output(z.never())
+            .query(() => notBuilt('merchantControl.topUp.options')),
         }),
         approvals: router({
           list: read
@@ -126,12 +130,16 @@ export function createMerchantControlRouter(control?: ControlService) {
        * check it always refuses `pay.topup_unconfigured` and never invents an instruction (merchant-pay-dev-out/top-up.ts).
        */
       topUp: router({
-        options: read.input(merchantControlGetInputSchema).query(({ ctx, input }) =>
-          guarded(async () => {
-            await control.assertCanView(principalOf(ctx), input.merchantId);
-            return refuseTopUpUnwired();
-          }),
-        ),
+        // No answer shape until a top-up rail exists: any answer at all fails the output check.
+        options: read
+          .input(merchantControlGetInputSchema)
+          .output(z.never())
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return refuseTopUpUnwired();
+            }),
+          ),
       }),
       usage: read
         .input(usageInputSchema)

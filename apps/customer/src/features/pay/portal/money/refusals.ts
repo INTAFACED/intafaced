@@ -43,7 +43,6 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.statement_busy': 'rStatementBusy',
   'pay.payout_destination_in_flight': 'rDestInFlight',
   'pay.payout_destination_not_found': 'rDestNotFound',
-  'pay.topup_unconfigured': 'rTopUpUnconfigured',
 };
 const known = new Set(knownRefusalCodes());
 registerRefusals(
@@ -70,3 +69,7 @@ export function isConversionOff(result: Extract<ApiResult<unknown>, { ok: false 
     (result.reason === 'not_mounted' && !code.startsWith('pay.'))
   );
 }
+
+/** No top-up rail is wired for this business (svc-pay merchant-pay-dev-out/top-up.ts): a not-live card naming that. */
+export const TOP_UP_OFF = 'pay.topup_unconfigured';
+registerNotLive({ [TOP_UP_OFF]: () => mc.t('rTopUpUnconfigured') });
