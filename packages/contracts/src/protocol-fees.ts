@@ -56,4 +56,6 @@ export const PROTOCOL_FEE_POLICY_FIELDS = [
   'release thresholds',
 ] as const;
 
-export const protocolRequestProtocolFeeInputSchema = z.object({ pool: address }).strict();
+/** `protocol.amm.poolFees` and `protocol.amm.requestProtocolFee` both take one pool address. */
+export const protocolPoolFeesInputSchema = z.object({ pool: address }).strict();
+export const protocolRequestProtocolFeeInputSchema = protocolPoolFeesInputSchema;

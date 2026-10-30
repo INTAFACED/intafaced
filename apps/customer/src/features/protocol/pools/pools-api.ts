@@ -1,6 +1,6 @@
 // hand-declared-ok: svc-indexer's explorer output schemas are declared in its router, not in @intafaced/contracts.
 import { z } from 'zod';
-import { protocolPoolFeesOutputSchema, type ProtocolPoolFees } from '@intafaced/contracts';
+import { protocolPoolFeesOutputSchema, type ProtocolPoolFees } from '@intafaced/contracts/protocol-fees';
 import type { ApiClient } from '../../../shared/api';
 
 /**

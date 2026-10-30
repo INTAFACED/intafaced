@@ -67,16 +67,28 @@ const en = {
   asOf: 'As of {time}',
   feesTitle: 'Fees',
   feesSwap: 'Swap fee {percent}% of each swap’s input, fixed in the pool contract when it was created.',
-  feesShares: 'All of it stays in the pool for its liquidity providers.',
+  feesSharesLabel: 'Who gets the swap fee',
+  feesShare: '{to}: {percent}% of the swap fee',
+  shareLiquidityProviders: 'Liquidity providers, kept in the pool',
+  shareCreator: 'The token creator',
+  sharePlatform: 'The platform',
+  shareGovernance: 'Governance',
+  feesDiffer:
+    'The indexer recorded a {indexed}% fee when the pool was created; the pool contract now answers {read}%. The contract’s answer is shown.',
+  reasonProtocolNotConnected: 'the protocol service is not running here',
+  reasonProtocolNoAnswer: 'the protocol service didn’t answer',
+  reasonNodeNoAnswer: 'the network’s node didn’t answer',
+  reasonFactoryUnset: 'the pool factory address is not published',
+  feesRequestAnswered:
+    'The protocol service answered without refusing, but no protocol fee is set up: the pool contract has no fee recipient.',
   feesNoThird: 'There is no third share: no creator, platform or governance share. The pool contract has no fee recipient.',
-  feesThird: 'This pool sends part of its swap fee to someone other than its liquidity providers.',
   feesReadAt: 'Read from the pool contract at block {height}.',
   feesRefused: 'The pool’s fee fields were not read: {reason}',
   feesNotFactoryPool:
     'The protocol service does not recognise this pool as one the published pool factory created, so it says nothing about its fees.',
   feesRequest: 'Request a protocol fee',
   feesRequestNote:
-    'A protocol fee would take a share of the swap fee for the platform. It needs a published policy and new contracts; the existing pools stay fee-free.',
+    'A protocol fee would take a share of the swap fee for the platform. It needs a published policy and new contracts; the existing pools take no protocol fee.',
   feesRequestPolicyUnset:
     'Not requested: the protocol fee policy is not set. The owner has not published the share, the pools it applies to, the collector or the release rules.',
   feesRequestRefused: 'Not requested: {reason}',

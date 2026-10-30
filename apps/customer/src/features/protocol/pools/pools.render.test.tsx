@@ -195,7 +195,10 @@ describe('Pool fees (D-fees-governance-04)', () => {
     answers.set('amm.poolFees', { ok: true, data: fees });
     await show(<PoolPage address={POOL} />);
     expect(region()?.textContent).toContain('Swap fee 0.30% of each swap’s input');
-    expect(region()?.textContent).toContain('All of it stays in the pool for its liquidity providers.');
+    expect(Array.from(region()!.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
+      'Liquidity providers, kept in the pool: 100.00% of the swap fee',
+    ]);
+    expect(region()?.textContent).not.toContain('The indexer recorded');
     expect(host.querySelector('[data-testid="pool-fee-third"]')?.textContent).toMatch(/^There is no third share/);
     expect(region()?.textContent).toContain('Read from the pool contract at block 42.');
     expect(calls.find((call) => call.procedure === 'amm.poolFees')?.input).toEqual({ pool: POOL });
@@ -225,6 +228,41 @@ describe('Pool fees (D-fees-governance-04)', () => {
     await act(async () => requestButton().click());
     await act(async () => undefined);
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('Not requested: The service did not answer.');
+  });
+
+  it('a protocol outage is worded as the protocol service, never the indexer, and never as a machine code', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: false, reason: 'unreachable', code: 'edge.upstream_unavailable', message: 'x' });
+    await show(<PoolPage address={POOL} />);
+    expect(region()?.textContent).toContain('The pool’s fee fields were not read: the protocol service didn’t answer');
+    expect(region()?.textContent).not.toContain('indexer');
+    answers.set('amm.poolFees', { ok: false, reason: 'refused', message: 'protocol.chain_unreachable: The chain did not answer.' });
+    await act(async () =>
+      Array.from(region()!.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Try again')!
+        .click(),
+    );
+    await act(async () => undefined);
+    expect(region()?.textContent).toContain('not read: the network’s node didn’t answer');
+    expect(region()?.textContent).not.toContain('protocol.chain_unreachable');
+  });
+
+  it('an unexpected acceptance is never shown as a refusal', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: true, data: fees });
+    answers.set('amm.requestProtocolFee', { ok: true, data: {} });
+    await show(<PoolPage address={POOL} />);
+    await act(async () => requestButton().click());
+    await act(async () => undefined);
+    expect(host.querySelector('[role="alert"]')?.textContent).not.toContain('Not requested');
+  });
+
+  it('a fee the contract answers differently from the indexer’s record is named, and the contract’s is shown', async () => {
+    answers.set('explorer.pools.get', { ok: true, data: day });
+    answers.set('amm.poolFees', { ok: true, data: { ...fees, feeBps: 100 } });
+    await show(<PoolPage address={POOL} />);
+    expect(host.querySelector('[data-testid="pool-fee"]')?.textContent).toMatch(/^Swap fee 1\.00%/);
+    expect(region()?.textContent).toContain('The indexer recorded a 0.30% fee');
   });
 
   it('a pool the protocol service does not recognise gets no fee claim', async () => {

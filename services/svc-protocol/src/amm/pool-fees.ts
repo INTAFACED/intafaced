@@ -4,6 +4,7 @@ import {
   PROTOCOL_FEE_POLICY_FIELDS,
   PROTOCOL_FEE_POLICY_UNSET,
   PROTOCOL_NOT_FACTORY_POOL,
+  protocolPoolFeesInputSchema,
   protocolPoolFeesOutputSchema,
   protocolRequestProtocolFeeInputSchema,
   publicJurisdictionProcedure,
@@ -11,7 +12,6 @@ import {
   TRPCError,
   type ProtocolPoolFees,
 } from '@intafaced/contracts';
-import { z } from 'zod';
 import { classifyChainError, isZeroAddress } from '../chain/availability.js';
 import { factoryAbi, poolAbi } from './abi.js';
 
@@ -103,8 +103,6 @@ export interface PoolFeesRouterDeps {
   toTrpcError: (err: unknown) => TRPCError;
 }
 
-const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
-
 /**
  * `protocol.amm.poolFees` and `protocol.amm.requestProtocolFee` (D-fees-governance-04 (a), (b)). Public chain reads
  * behind the same permissionless guard as `amm.pairs`. The request moves nothing and records nothing: with the owner's
@@ -113,7 +111,7 @@ const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 export function createPoolFeesProcedures(deps: PoolFeesRouterDeps) {
   return {
     poolFees: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(z.object({ pool: addressSchema }).strict())
+      .input(protocolPoolFeesInputSchema)
       .output(protocolPoolFeesOutputSchema)
       .query(async ({ input }) => {
         const factory = deps.factory();
@@ -136,7 +134,7 @@ export function createPoolFeesProcedures(deps: PoolFeesRouterDeps) {
           code: 'PRECONDITION_FAILED',
           message:
             `${PROTOCOL_FEE_POLICY_UNSET}: the protocol fee policy is not set. The owner has not published ` +
-            `${PROTOCOL_FEE_POLICY_FIELDS.join(', ')}; a protocol fee would also need new contracts, and the existing pools stay fee-free.`,
+            `${PROTOCOL_FEE_POLICY_FIELDS.join(', ')}; a protocol fee would also need new contracts, and the existing pools take no protocol fee.`,
         });
       }),
   };
