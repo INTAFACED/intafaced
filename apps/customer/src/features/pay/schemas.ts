@@ -67,6 +67,12 @@ export const offerSchema = z.object({
   status: z.enum(['active', 'paused', 'closed']),
   /** P-ads-merchant-18: why the service paused the ad; null when it was not the service (or it is not paused). */
   pauseReason: z.enum(['method_removed']).nullable().optional(),
+  /** P-ads-merchant-06: why the ad is closed (by the person, or sold out); null when not closed or closed before reasons. */
+  closeReason: z.enum(['by_you', 'sold_out']).nullable().optional(),
+  /** P-ads-merchant-06: when the ad came into its present status. */
+  statusSince: z.string().optional(),
+  /** P-ads-merchant-06: the closed ad this one relisted. */
+  relistedFrom: id.nullable().optional(),
   createdAt: z.string(),
   /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
   referencePrice: amount.nullable().optional(),
@@ -754,4 +760,12 @@ export const methodRemovalImpactSchema = z.object({
   methodId: z.string(),
   fiatCurrency: z.string(),
   ads: z.array(z.object({ offerId: id, asset, fiatCurrency: z.string(), pauses: z.boolean() })),
+});
+
+/** P-ads-merchant-06: the person's ad edits today against the daily cap, and when the count starts again. */
+export const offerEditQuotaSchema = z.object({
+  limit: z.number().int().positive(),
+  used: z.number().int().nonnegative(),
+  remaining: z.number().int().nonnegative(),
+  resetsAt: z.string().datetime(),
 });

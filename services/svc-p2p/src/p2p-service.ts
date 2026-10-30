@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
@@ -232,7 +233,6 @@ export type P2pErrorCode =
   | 'p2p.insufficient_balance'
   | 'p2p.offer_has_open_trades'
   | 'p2p.edit_quota_reached'
-  | 'p2p.offer_already_relisted'
   | 'p2p.offer_unfunded'
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
@@ -914,6 +914,16 @@ export interface OfferRecord {
 }
 
 export type OfferPauseReason = 'method_removed';
+
+/**
+ * P-ads-merchant-06: the id of the ad that relists closed ad `offerId`, the same every time (a UUID made from a SHA-256 of
+ * the closed id), so a relist retried after a lost reply finds the ad it already posted.
+ */
+export function relistedOfferId(offerId: string): string {
+  const hex = createHash('sha256').update(`p2p.offer.relist:${offerId.toLowerCase()}`).digest('hex');
+  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 export type OfferCloseReason = 'by_you' | 'sold_out';
 
 /** P-ads-merchant-06: a person's ad edits today against the owner's daily cap. */
@@ -2322,55 +2332,39 @@ export class P2pService {
    * P-ads-merchant-06: relist a closed ad. A closed ad never reopens (its orders keep the terms they were taken on), so
    * relisting posts a new ad from it, with a fresh create time, through every check a new ad passes (`createOffer`):
    * advertiser terms, posting thresholds, level limits, content rules, free balance, payable methods. One relist per
-   * closed ad; a retry with the same key returns the same new ad.
+   * closed ad: the new ad's id and key come from the closed ad's id, so a retry, a second press or a race is the same
+   * relist, and asking again later returns that ad.
    */
-  async relistOffer(input: {
-    offerId: string;
-    makerId: string;
-    newOfferId: string;
-    idempotencyKey: string;
-    makerTier?: string;
-  }): Promise<OfferRecord> {
+  async relistOffer(input: { offerId: string; makerId: string; makerTier?: string }): Promise<OfferRecord> {
+    const newOfferId = relistedOfferId(input.offerId);
     const closed = await this.loadOfferRaw(input.offerId);
     if (closed.makerId !== input.makerId) throw new P2pError('Only the maker can relist an offer', 'p2p.not_a_party');
     if (closed.status !== 'closed') {
       throw new P2pError(`Offer ${closed.id} is ${closed.status}; only a closed ad is relisted`, 'p2p.offer_not_active');
     }
+    // Relisted already: that ad is the answer, whatever it has done since (an ad is relisted once).
     const [already] = await this.sql<Array<{ id: string }>>`
       SELECT id FROM p2p.offers WHERE relisted_from = ${closed.id}
     `;
-    if (already && already.id !== input.newOfferId) {
-      throw new P2pError(`Offer ${closed.id} was relisted already as ${already.id}`, 'p2p.offer_already_relisted');
-    }
-    try {
-      return await this.createOffer({
-        makerId: input.makerId,
-        side: closed.side,
-        asset: closed.asset,
-        fiatCurrency: closed.fiatCurrency,
-        priceType: closed.priceType,
-        price: closed.price,
-        minAmt: closed.minAmt,
-        maxAmt: closed.maxAmt,
-        totalAmt: closed.totalAmt,
-        methods: closed.methods,
-        terms: closed.terms,
-        offerId: input.newOfferId,
-        idempotencyKey: input.idempotencyKey,
-        ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
-        acceptsNonInstant: closed.acceptsNonInstant,
-        relistedFrom: closed.id,
-      });
-    } catch (err) {
-      // Two relists of one closed ad at once: the unique index lets one in.
-      if (
-        (err as { code?: string }).code === '23505' &&
-        String((err as { constraint_name?: string }).constraint_name) === 'offers_relisted_from_uq'
-      ) {
-        throw new P2pError(`Offer ${closed.id} was relisted already`, 'p2p.offer_already_relisted');
-      }
-      throw err;
-    }
+    if (already) return this.loadOfferRaw(already.id);
+    return this.createOffer({
+      makerId: input.makerId,
+      side: closed.side,
+      asset: closed.asset,
+      fiatCurrency: closed.fiatCurrency,
+      priceType: closed.priceType,
+      price: closed.price,
+      minAmt: closed.minAmt,
+      maxAmt: closed.maxAmt,
+      totalAmt: closed.totalAmt,
+      methods: closed.methods,
+      terms: closed.terms,
+      offerId: newOfferId,
+      idempotencyKey: `relist:${closed.id}`,
+      ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
+      acceptsNonInstant: closed.acceptsNonInstant,
+      relistedFrom: closed.id,
+    });
   }
 
   /** Maker management / take path — unfiltered methods as stored. */

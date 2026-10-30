@@ -684,10 +684,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.active_order_cap':
       // Buying is paused after too many cancelled orders; the error data says until when.
       case 'p2p.buying_restricted':
-      // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them); a closed ad is
-      // relisted once.
+      // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them).
       case 'p2p.offer_has_open_trades':
-      case 'p2p.offer_already_relisted':
       // A reminder before the wait has passed (the error data says when it may go), or past the owner's count.
       case 'p2p.remind_too_early':
       case 'p2p.remind_rate_limited':
@@ -1400,10 +1398,10 @@ export function createP2pRouter(
 
       /**
        * P-ads-merchant-06: post a closed ad again, as a new ad that names it, through every check `create` makes. One
-       * relist per closed ad; the same key returns the same new ad.
+       * relist per closed ad; asking again returns the same new ad.
        */
       relist: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid(), newOfferId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
+        .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
@@ -1412,8 +1410,6 @@ export function createP2pRouter(
               await p2p.relistOffer({
                 offerId: input.offerId,
                 makerId: ctx.principal.userId,
-                newOfferId: input.newOfferId,
-                idempotencyKey: input.idempotencyKey,
                 makerTier: ctx.principal.tier,
               }),
             );

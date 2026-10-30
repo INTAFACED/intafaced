@@ -7,7 +7,7 @@ import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
-import { P2pError, P2pService } from './p2p-service.js';
+import { P2pError, P2pService, relistedOfferId } from './p2p-service.js';
 
 /**
  * P-ads-merchant-06 (J-p2p-05 #1, #2): My Ads lists closed ads with why; closing an ad with an open order refuses with
@@ -145,10 +145,9 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
   it('relists a closed ad as a new active ad with a fresh create time that names it, once', async () => {
     const offer = await sellOffer();
     await p2p.closeOffer(offer.id, MAKER);
-    const newOfferId = crypto.randomUUID();
-    const relisted = await p2p.relistOffer({ offerId: offer.id, makerId: MAKER, newOfferId, idempotencyKey: `relist:${offer.id}` });
+    const relisted = await p2p.relistOffer({ offerId: offer.id, makerId: MAKER });
     expect(relisted).toMatchObject({
-      id: newOfferId,
+      id: relistedOfferId(offer.id),
       status: 'active',
       relistedFrom: offer.id,
       price: offer.price,
@@ -157,22 +156,31 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
       totalAmt: offer.totalAmt,
       remainingAmt: offer.totalAmt,
     });
+    expect(relisted.id).not.toBe(offer.id);
     expect(relisted.createdAt.getTime()).toBeGreaterThan(offer.createdAt.getTime());
-    // The closed ad stays closed with its reason; a retry is the same new ad; a second relist refuses.
-    expect((await p2p.getOffer(offer.id, MAKER)).status).toBe('closed');
-    expect((await p2p.relistOffer({ offerId: offer.id, makerId: MAKER, newOfferId, idempotencyKey: `relist:${offer.id}` })).id).toBe(
-      newOfferId,
-    );
-    const twice = await refusal(
-      p2p.relistOffer({ offerId: offer.id, makerId: MAKER, newOfferId: crypto.randomUUID(), idempotencyKey: `relist:2:${offer.id}` }),
-    );
-    expect(twice.code).toBe('p2p.offer_already_relisted');
+    // The closed ad stays closed with its reason; asking again, even after the new ad is closed, is the same new ad.
+    expect(await p2p.getOffer(offer.id, MAKER)).toMatchObject({ status: 'closed', closeReason: 'by_you' });
+    await p2p.closeOffer(relisted.id, MAKER);
+    expect((await p2p.relistOffer({ offerId: offer.id, makerId: MAKER })).id).toBe(relisted.id);
+    expect(await sql`SELECT id FROM p2p.offers WHERE relisted_from = ${offer.id}`).toHaveLength(1);
+  });
+
+  it('two relists of one closed ad at once post one ad', async () => {
+    const offer = await sellOffer();
+    await p2p.closeOffer(offer.id, MAKER);
+    const both = await Promise.allSettled([
+      p2p.relistOffer({ offerId: offer.id, makerId: MAKER }),
+      p2p.relistOffer({ offerId: offer.id, makerId: MAKER }),
+    ]);
+    const posted = both.filter((r) => r.status === 'fulfilled').map((r) => (r as PromiseFulfilledResult<{ id: string }>).value.id);
+    expect(new Set(posted)).toEqual(new Set([relistedOfferId(offer.id)]));
+    expect(await sql`SELECT id FROM p2p.offers WHERE relisted_from = ${offer.id}`).toHaveLength(1);
   });
 
   it('relisting runs the checks a new ad does: the free balance must still cover it', async () => {
     const offer = await sellOffer('400', '10', '50');
     await p2p.closeOffer(offer.id, MAKER);
-    // The maker spends most of the balance meanwhile; the new sell ad would offer more than is free.
+    // The maker moves most of the balance out meanwhile; the new sell ad would offer more than is free.
     const strict = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
       instruments,
       feeBps: 0,
@@ -182,23 +190,16 @@ describe('svc-p2p ad lifecycle (P-ads-merchant-06)', () => {
     await ledger.post(
       recipes.withdrawHold({ userId: MAKER, assetId: ASSET, amount: parseAmount('300'), rail: 'test', withdrawalId: 'w-1' }),
     );
-    const err = await refusal(
-      strict.relistOffer({ offerId: offer.id, makerId: MAKER, newOfferId: crypto.randomUUID(), idempotencyKey: `relist:${offer.id}` }),
-    );
+    const err = await refusal(strict.relistOffer({ offerId: offer.id, makerId: MAKER }));
     expect(err.code).toBe('p2p.insufficient_balance');
     expect(await sql`SELECT id FROM p2p.offers WHERE relisted_from = ${offer.id}`).toHaveLength(0);
   });
 
   it('refuses to relist an ad that is not closed, or someone else’s', async () => {
     const offer = await sellOffer();
-    const key = `relist:${offer.id}`;
-    expect(
-      (await refusal(p2p.relistOffer({ offerId: offer.id, makerId: MAKER, newOfferId: crypto.randomUUID(), idempotencyKey: key }))).code,
-    ).toBe('p2p.offer_not_active');
+    expect((await refusal(p2p.relistOffer({ offerId: offer.id, makerId: MAKER }))).code).toBe('p2p.offer_not_active');
     await p2p.closeOffer(offer.id, MAKER);
-    expect(
-      (await refusal(p2p.relistOffer({ offerId: offer.id, makerId: OTHER, newOfferId: crypto.randomUUID(), idempotencyKey: key }))).code,
-    ).toBe('p2p.not_a_party');
+    expect((await refusal(p2p.relistOffer({ offerId: offer.id, makerId: OTHER }))).code).toBe('p2p.not_a_party');
   });
 
   it('caps edits per person per UTC day with the reset time; a retried edit counts once; a refused edit counts nothing', async () => {

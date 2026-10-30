@@ -89,6 +89,7 @@ const migrations = [
   '20261024133500_p2p_trade_mismatches.sql',
   '20261024141500_p2p_rail_exceptions.sql',
   '20261025020000_p2p_method_rules.sql',
+  '20261030125739_p2p_ad_lifecycle.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';
