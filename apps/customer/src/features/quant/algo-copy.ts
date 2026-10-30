@@ -4,6 +4,7 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   rooms: 'Algo dev rooms',
   home: 'Start',
+  strategiesRoom: 'Strategies',
   studio: 'Studio',
   backtest: 'Backtest',
   sandbox: 'Sandbox',
