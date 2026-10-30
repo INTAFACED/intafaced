@@ -45,6 +45,36 @@
       "service": "protocol",
       "value": "10",
       "note": "TEST maximum wallet groups per wallet. Blank in production refuses protocol.wallet_groups_max_unset."
+    },
+    "PROTOCOL_GAS_PERCENTILES": {
+      "service": "protocol",
+      "value": "10,50,90",
+      "note": "TEST percentiles of the last blocks' priority fees for the Slow, Normal and Fast network fee levels and the gas tracker. Blank in production refuses protocol.gas_percentiles_unset."
+    },
+    "PROTOCOL_GAS_HISTORY_BLOCKS": {
+      "service": "protocol",
+      "value": "20",
+      "note": "TEST count of recent blocks the fee levels are read from. Blank in production refuses protocol.gas_percentiles_unset."
+    },
+    "PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI": {
+      "service": "protocol",
+      "value": "100000000000",
+      "note": "TEST fee cap (100 gwei per gas) on the local TEST chain: the most any fee level or custom fee may offer. Blank in production refuses protocol.swap_fee_cap_unset."
+    },
+    "PROTOCOL_PRICE_USD_TOKENS": {
+      "service": "protocol",
+      "value": "0x000000000000000000000000000000000000d011",
+      "note": "TEST USD on the local TEST chain, counted as one dollar for the swap form's prices. Blank in production refuses protocol.price_settings_unset."
+    },
+    "PROTOCOL_PRICE_MIN_RESERVE_USD": {
+      "service": "protocol",
+      "value": "1000",
+      "note": "TEST reliability filter: a pool must hold 1,000 TEST USD worth on its priced side for its price to show. Blank in production refuses protocol.price_settings_unset."
+    },
+    "PROTOCOL_TOKENS_QUOTE_TOKEN": {
+      "service": "protocol",
+      "value": "0x00000000000000000000000000000000000b0b00",
+      "note": "LOCAL TEST ONLY, not an owner decision: TEST Token B on the local TEST chain, the token the token pages state prices and volumes in. Blank in production refuses protocol.tokens_quote_unset."
     }
   }
 }

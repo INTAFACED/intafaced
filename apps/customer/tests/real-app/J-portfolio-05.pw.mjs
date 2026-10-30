@@ -644,6 +644,46 @@ async function btcBand(from) {
 /** `usd` is `qty` BTC at some price inside the band (to the cent each side). */
 const inBand = (usdUnits, qty, band) => usdUnits >= times(qty, band.lo) - CENT && usdUnits <= times(qty, band.hi) + CENT;
 
+/** The closes of the newest two BTC/USDT 5-minute candles, from the public candles: now's price is the newest one's, or
+ * the one before it if a candle opened between this read and the line's. */
+async function liveCloses() {
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${Date.now() - 900_000}&limit=10`, {
+    headers: { origin: ORIGIN },
+  });
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  expect(candles.length).toBeGreaterThan(0);
+  return candles.slice(-2).map((c) => toUnits(c[4]));
+}
+
+/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
+/**
+ * The service's moments up to the screen's last grid moment (the live end aside on both). The two are read seconds apart:
+ * a 5-minute edge passing between them may add one newer moment to the service's line, never more, and nothing earlier.
+ */
+function sharedMoments(told, shown) {
+  const last = Date.parse(shown.points.at(-2).at);
+  const grid = told.points.slice(0, -1);
+  const shared = grid.filter((q) => Date.parse(q.at) <= last);
+  expect(grid.length - shared.length).toBeLessThanOrEqual(1);
+  return shared;
+}
+
+async function drawn(card) {
+  return card.locator('svg[data-chart="value-over-time"]').evaluate((svg) => {
+    const xs = [...svg.querySelectorAll('[data-run]')].flatMap((run) =>
+      run.tagName === 'polyline'
+        ? run
+            .getAttribute('points')
+            .trim()
+            .split(/\s+/)
+            .map((pair) => Number(pair.split(',')[0]))
+        : [Number(run.getAttribute('x1'))],
+    );
+    return { vertices: xs.length, lastX: Math.max(...xs) };
+  });
+}
+
 async function valueCards(page, query) {
   await page.goto(`/money/pnl${query}`);
   const card = page.getByRole('region', { name: 'What your money was worth' });
@@ -695,11 +735,30 @@ test(`${J} #6 bridges the change in value: start, deposits, withdrawals, fees, m
 });
 
 test(`${J} #7 draws what the money was worth over time: a moment with no price is missing, never zero`, async ({ page }) => {
-  test.setTimeout(240_000);
-  const { who } = state();
+  test.setTimeout(900_000);
+  const { who, left } = state();
+  expect(left, '#1 recorded when the withdrawal left').toHaveLength(2);
+  // The withdrawal in #1 is the last movement before XAU. From the first 5-minute edge after its bucket, every moment holds
+  // what is held now; wait until one such moment is past, so the line has one to check by hand (at most five minutes).
+  const settled = Math.floor(left[1] / 300_000) * 300_000 + 300_000;
+  if (Date.now() < settled + 5_000) await page.waitForTimeout(settled + 5_000 - Date.now());
   await signInWithCode(page);
-  const card = await valueCards(page, '?range=1D');
+  // One sign-in to the service for this half, before any read, so no code wait falls between the screen's line and the service's.
+  const svc = await bank();
+  // The day is picked with the range control, as a person picks it, not typed into the link.
+  await valueCards(page, '');
+  const range = page.getByRole('group', { name: 'Range' }).first();
+  await range.getByRole('button', { name: '1D', exact: true }).click();
+  await expect(page).toHaveURL(/range=1D/);
+  await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const card = page.getByRole('region', { name: 'What your money was worth' });
+  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
+  // Now's BTC price, read just before and just after the line is read: the live end is valued at the newest 5-minute candle's close.
+  const liveBefore = await liveCloses();
   const before = await readValue(page);
+  const liveAfter = await liveCloses();
+  const told = await svc.query('portfolio.valueOverTime', { from: before.points[0].at });
   // A day at one point every 5 minutes, ordered, on candle edges, every one known: BTC and USDT both have prices.
   expect(before.interval).toBe('5m');
   expect(before.points.length).toBeGreaterThan(280);
@@ -710,16 +769,80 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   expect(before.missing).toBe(0);
   // Each moment is never below zero and the line ends at what is held now.
   for (const p of before.points) expect(toUnits(p.usd) >= 0n).toBe(true);
+  // By hand: the ledger's USDT plus its BTC at now's price, exactly, nothing else held yet.
+  const held = await svc.balances();
+  expect(Object.entries(held).filter(([asset, b]) => !['USDT', 'BTC'].includes(asset) && toUnits(b.total) !== 0n)).toEqual([]);
+  const worth = [...new Set([...liveBefore, ...liveAfter])].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
+  const end = toUnits(before.points.at(-1).usd);
+  expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
+  // The account was opened in #1, inside this day: the line starts at zero.
+  expect(toUnits(before.points[0].usd)).toBe(0n);
+  // Every moment after the last movement, up to the live end, is the same holdings at the close of the last 5-minute candle
+  // that had ended by then, exactly.
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${settled - 600_000}&limit=300`, {
+    headers: { origin: ORIGIN },
+  });
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  const quiet = before.points.slice(0, -1).filter((p) => Date.parse(p.at) >= settled);
+  expect(quiet.length).toBeGreaterThan(0);
+  for (const p of quiet) {
+    const ended = candles.filter((c) => c[0] <= Date.parse(p.at) - 300_000).at(-1);
+    expect(ended, `a candle ended by ${p.at}`).toBeTruthy();
+    const byHand = total(held, 'USDT') + (total(held, 'BTC') * toUnits(ended[4])) / ONE;
+    expect(toUnits(p.usd), `the moment ${p.at}`).toBe(byHand);
+  }
+  // The line is the service's own answer, read back over the same range just after the screen's: the start is a real zero
+  // (nothing missing), and every moment before the live end matches.
+  expect(told.interval).toBe(before.interval);
+  expect(told.points[0]).toMatchObject({ at: before.points[0].at, valueUsd: expect.any(String), missing: [] });
+  expect(toUnits(told.points[0].valueUsd)).toBe(0n);
+  // One for one: the same moments in the same order (the live end aside, which moves), each with the same value. A
+  // 5-minute edge passing between the two reads adds one newer moment to the service's line, and nothing else.
+  const shared = sharedMoments(told, before);
+  expect(shared.map((q) => q.at)).toEqual(before.points.slice(0, -1).map((p) => p.at));
+  before.points.slice(0, -1).forEach((p, i) => expect(toUnits(shared[i].valueUsd), `the moment ${p.at}`).toBe(toUnits(p.usd)));
+  // The drawing has a vertex for every moment: nothing is missing, so the line is unbroken.
+  expect(await drawn(card)).toEqual({ vertices: before.points.length, lastX: 1000 });
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
+  const fundFrom = Date.now();
   expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
+  const fundTo = Date.now();
+  // A movement counts from the 5-minute edge after its bucket starts; the posting landed between those two clocks, so that
+  // edge is one of theirs. Wait past the later one, so a moment already gone by, not only the live end, holds XAU (at
+  // most five minutes).
+  const edgeAfter = (t) => Math.floor(t / 300_000) * 300_000 + 300_000;
+  if (Date.now() < edgeAfter(fundTo) + 5_000) await page.waitForTimeout(edgeAfter(fundTo) + 5_000 - Date.now());
+  const svcAfter = await bank();
   await page.reload();
   await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
   await expect.poll(async () => (await readValue(page)).points.at(-1)?.usd, { timeout: 90_000 }).toBe('missing');
   const after = await readValue(page);
+  const toldAfter = await svcAfter.query('portfolio.valueOverTime', { from: after.points[0].at });
   expect(after.missing).toBe(after.points.filter((p) => p.usd === 'missing').length);
-  expect(after.missing).toBeGreaterThan(0);
   expect(after.missingCoins).toEqual(['XAU']);
+  // Missing are exactly the moments from that edge on, at least one of them past, and the live end.
+  const pastGaps = after.points.slice(0, -1).filter((p) => p.usd === 'missing');
+  expect(pastGaps.length).toBeGreaterThan(0);
+  expect([edgeAfter(fundFrom), edgeAfter(fundTo)]).toContain(Date.parse(pastGaps[0].at));
+  expect(pastGaps.map((p) => p.at)).toEqual(
+    after.points
+      .slice(0, -1)
+      .filter((p) => Date.parse(p.at) >= Date.parse(pastGaps[0].at))
+      .map((p) => p.at),
+  );
+  // The service says the same, one for one: those moments have no value (null, never zero) and name XAU's missing price.
+  const sharedAfter = sharedMoments(toldAfter, after);
+  expect(sharedAfter.map((q) => q.at)).toEqual(after.points.slice(0, -1).map((p) => p.at));
+  expect(sharedAfter.filter((q) => q.valueUsd === null).map((q) => q.at)).toEqual(pastGaps.map((p) => p.at));
+  for (const q of toldAfter.points.filter((q) => q.valueUsd === null)) expect(q.missing).toEqual([{ assetId: 'XAU', reason: 'no_price' }]);
+  // The drawing leaves them out: a vertex for each priced moment only, and the line stops before the first missing one.
+  const t0 = Date.parse(after.points[0].at);
+  const gapX = ((Date.parse(pastGaps[0].at) - t0) / (Date.parse(after.points.at(-1).at) - t0)) * 1000;
+  const line = await drawn(card);
+  expect(line.vertices).toBe(after.points.length - after.missing);
+  expect(line.lastX).toBeLessThan(gapX);
   await expect(card.locator('[data-label="value-missing"]')).toContainText('no price for XAU at that time');
   // The moments before it arrived keep their figures; none of the missing ones is a zero.
   const firstMissing = after.points.findIndex((p) => p.usd === 'missing');

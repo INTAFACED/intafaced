@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import type { CampaignService } from './campaigns.js';
+import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import { createCampaignsRouter } from './router.js';
 import type { TaskService } from './tasks.js';
@@ -64,6 +65,9 @@ function setup(schedule: string | undefined = undefined) {
       created: true,
     })),
     listForOps: vi.fn(async () => []),
+    getForOps: vi.fn(async () => {
+      throw new CampaignsError('campaign.unknown', 'No such campaign');
+    }),
     transition: vi.fn(),
   };
   const tasks = {
@@ -172,6 +176,7 @@ describe('campaigns router', () => {
     await expect(api(await ctx(['campaigns:ops'], { mfa: false })).ops.campaigns.list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(campaigns.transition).not.toHaveBeenCalled();
     await expect(api(await ctx(['campaigns:ops'])).ops.campaigns.list()).resolves.toEqual([]);
+    await expect(api(await ctx(['campaigns:ops'])).ops.campaigns.get({ id: 'cmp_missing' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('refuses signed out, and without the scope', async () => {

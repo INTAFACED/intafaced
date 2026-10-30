@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reconciliationRailSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { parseClockSkewBoundMs } from './ledger/clock-skew.js';
 import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
@@ -124,11 +125,78 @@ const schema = serviceEnvSchema
        * Boot/cron freeze does not call identity.
        */
       IDENTITY_URL: z.string().url().optional(),
+
+      /**
+       * Owner value, no default: where an outside-balance control reads the rail's balance snapshot
+       * (OPS-reconciliation-01/-02). Blank / unset → the outside side is `unset`. Set but unreadable → that run is
+       * ERROR (`ledger.reconcile_source_unavailable`), never PASS. The balances a money control trusts travel only over
+       * https; plain http is accepted for a loopback host alone (the local TEST stack), and anything else refuses boot.
+       */
+      LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.string().url().refine(isOutsideSnapshotUrl, 'must be https (plain http only for a loopback host)').optional(),
+      ),
     }),
   );
 
+/** https anywhere, or http on a loopback host only. */
+function isOutsideSnapshotUrl(value: string): boolean {
+  const url = new URL(value);
+  if (url.protocol === 'https:') return true;
+  return url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+}
+
 export const env = loadEnv(schema);
 export type Env = typeof env;
+
+const RAIL_STATEMENT_KEY = /^LEDGER_RECONCILE_RAIL_(.*)_URL$/i;
+
+/**
+ * Per-rail outside statement URLs (OPS-reconciliation-04): `LEDGER_RECONCILE_RAIL_<RAIL>_URL`, RAIL upper-cased with `-` as
+ * `_` (`crypto-native` reads `LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL`). Owner values with no default: a blank one leaves
+ * that rail's outside side unset. A name that is not a rail id, or a URL that is not https (plain http only for a loopback
+ * host), refuses boot rather than being ignored.
+ */
+export function railStatementUrlsFrom(source: Record<string, string | undefined>): Map<string, string> {
+  return railUrlsFrom(source, RAIL_STATEMENT_KEY);
+}
+
+/** One URL per rail from the keys `key` matches, its group the rail spelled upper case with `_` for `-`. */
+function railUrlsFrom(source: Record<string, string | undefined>, key: RegExp): Map<string, string> {
+  const urls = new Map<string, string>();
+  for (const [name, value] of Object.entries(source)) {
+    const match = key.exec(name);
+    if (!match || value === undefined || value === '') continue;
+    // Only the canonical spelling maps back to a rail id; anything else (lower case, a dash, an empty rail) refuses boot.
+    const rail = match[1]!.toLowerCase().replaceAll('_', '-');
+    if (!/^[A-Z0-9_]+$/.test(match[1]!) || !reconciliationRailSchema.safeParse(rail).success) throw new Error(`${name}: not a rail id`);
+    let ok = false;
+    try {
+      ok = isOutsideSnapshotUrl(value);
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new Error(`${name}: must be https (plain http only for a loopback host)`);
+    urls.set(rail, value);
+  }
+  return urls;
+}
+
+export const railStatementUrls: ReadonlyMap<string, string> = railStatementUrlsFrom(process.env);
+
+const OPEN_ITEMS_KEY = /^LEDGER_RECONCILE_OPEN_ITEMS_(.*)_URL$/i;
+
+/**
+ * Per-rail open-items URLs (lead ruling 2026-10-30): `LEDGER_RECONCILE_OPEN_ITEMS_<RAIL>_URL`, spelled like the statement
+ * URLs (`crypto-native` reads `LEDGER_RECONCILE_OPEN_ITEMS_CRYPTO_NATIVE_URL`), each the svc-pay door that lists that rail's
+ * open items. A blank one leaves the rail without items, as today. A name that is not a rail id, or a URL that is not https
+ * (plain http only for a loopback host), refuses boot.
+ */
+export function openItemsUrlsFrom(source: Record<string, string | undefined>): Map<string, string> {
+  return railUrlsFrom(source, OPEN_ITEMS_KEY);
+}
+
+export const openItemsUrls: ReadonlyMap<string, string> = openItemsUrlsFrom(process.env);
 
 /** Parsed owner bound. Blank stays null; a bad string refuses boot rather than becoming a number. */
 export const clockSkewBoundMs: number | null = parseClockSkewBoundMs(env.LEDGER_CLOCK_SKEW_BOUND_MS);

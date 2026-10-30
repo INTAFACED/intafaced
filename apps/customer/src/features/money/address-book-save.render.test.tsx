@@ -165,7 +165,11 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     await type('Asset', 'USDT');
     await type('Address', GOOD.replace('E0F7', 'e0F7'));
     await submit(addForm());
-    expect(query.mock.calls[0]!.slice(0, 3)).toEqual(['bank', 'ramps.destinations.check', { ref: GOOD.replace('E0F7', 'e0F7') }]);
+    expect(query.mock.calls[0]!.slice(0, 3)).toEqual([
+      'bank',
+      'ramps.destinations.check',
+      { ref: GOOD.replace('E0F7', 'e0F7'), network: 'base' },
+    ]);
     expect(document.body.textContent).toContain('a character may have been changed');
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
     expect(mint).not.toHaveBeenCalled();
@@ -237,7 +241,7 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     await act(async () => answerFirst({ ok: true, data: { address: 'ok', lookalike: null } }));
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
     await submit(addForm());
-    expect(query.mock.calls[1]![2]).toEqual({ ref: GOOD });
+    expect(query.mock.calls[1]![2]).toEqual({ ref: GOOD, network: 'base' });
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).not.toBeNull();
   });
 
@@ -251,6 +255,59 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     await submit(addForm());
     await confirmWithCode();
     expect(document.body.textContent).toContain('This address looks like one you saved, so it was not saved.');
+  });
+
+  it('refuses an address on the fraud list at the form, in words, before asking for a code (J-wallet-05 #2)', async () => {
+    query.mockResolvedValue({ ok: true, data: { address: 'ok', lookalike: null, fraudListed: true } });
+    await mount();
+    await type('Label', 'TEST fraud-listed wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    expect(addForm().querySelector('[role="alert"]')?.textContent).toBe(
+      'This address is on our fraud list, so it can’t be saved. Nothing was saved.',
+    );
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    expect(mint).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('drops a look-alike tick when the network changes, and checks the address again on the new network', async () => {
+    query.mockResolvedValueOnce({
+      ok: true,
+      data: { address: 'ok', lookalike: { destinationId: '11111111-1111-4111-8111-111111111111', label: null, refMasked: '0x5290…9EE7' } },
+    });
+    query.mockResolvedValueOnce({ ok: true, data: { address: 'ok', lookalike: null, fraudListed: true } });
+    await mount();
+    await type('Label', 'New wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    await act(async () => tick().click());
+    await type('Network', 'ethereum');
+    expect(document.querySelector('[data-testid="address-lookalike"]')).toBeNull();
+    await submit(addForm());
+    expect(query.mock.calls[1]![2]).toEqual({ ref: GOOD, network: 'ethereum' });
+    expect(addForm().querySelector('[role="alert"]')?.textContent).toContain('on our fraud list');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+  });
+
+  it('puts a fraud-list refusal on save in the customer’s words', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
+    mutate.mockResolvedValue({
+      ok: false,
+      reason: 'error',
+      message: 'This address is on the fraud list',
+      code: 'bank.destination_fraud_listed',
+    });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    await confirmWithCode();
+    expect(document.body.textContent).toContain('This address is on our fraud list, so it can’t be saved. Nothing was saved.');
+    expect(reloads.book).toBe(0);
   });
 
   it('saves nothing and asks for no code when the check itself fails', async () => {

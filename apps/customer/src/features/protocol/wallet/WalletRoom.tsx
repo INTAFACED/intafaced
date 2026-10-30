@@ -12,6 +12,7 @@ import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
 import { AddressBookPanel } from './AddressBookPanel';
+import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';
 import { ReceivePanel } from './ReceivePanel';
 import { ScanPanel } from './ScanPanel';
@@ -25,7 +26,6 @@ type Section = WalletSection;
 /** The sections that show a table of what the wallet holds or did; the others are their own panels. */
 const HEADERS: Partial<Record<Section, readonly string[]>> = {
   activity: ['hdr_time', 'hdr_event', 'hdr_status'],
-  approvals: ['hdr_token', 'hdr_spender', 'hdr_allowance'],
   sessionKeys: ['hdr_name', 'hdr_address', 'hdr_status'],
   accounts: ['hdr_name', 'hdr_address', 'hdr_status'],
   safety: ['hdr_event', 'hdr_status'],
@@ -167,7 +167,12 @@ export function WalletRoom({
       )
     ) : (
       <>
-        {section === 'approvals' && <PermitForm />}
+        {section === 'approvals' && (
+          <>
+            <ApprovalsPanel />
+            <PermitForm />
+          </>
+        )}
         {headers && (
           <Panel title={t(`section_${section}`)}>
             {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}

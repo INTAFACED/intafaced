@@ -24,6 +24,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_CHAIN_ID: '84532',
       PROTOCOL_RPC_URL: chain ? chain.rpcUrl : UNUSED,
       ...(chain ? { PROTOCOL_AMM_FACTORY_ADDRESS: chain.factory } : {}),
+      // LOCAL TEST price reference: the seeded TEST USD token counts as one dollar, and a pool must hold 1,000 TEST USD
+      // worth on its priced side (labelled in tooling/profiles/test-owner-values/protocol.json). Blank in production.
+      ...(chain?.usdToken ? { PROTOCOL_PRICE_USD_TOKENS: chain.usdToken, PROTOCOL_PRICE_MIN_RESERVE_USD: '1000' } : {}),
       PROTOCOL_ENTRYPOINT_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
       // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/protocol.json: the representation a
       // wallet signs once before its first signing action. Production stays blank and every signing action refuses
@@ -45,6 +48,15 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
+      // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
+      // Slow, Normal and Fast, how many blocks they are read from, and the fee cap per gas (100 gwei). Production stays
+      // blank and the fee levels refuse by name (protocol.gas_percentiles_unset, protocol.swap_fee_cap_unset).
+      PROTOCOL_GAS_PERCENTILES: '10,50,90',
+      PROTOCOL_GAS_HISTORY_BLOCKS: '20',
+      PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
+      // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
+      ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),
     };
   },
 });

@@ -34,16 +34,16 @@
     "MINING_POOL_HOST": {
       "service": "mining-pool",
       "value": "127.0.0.1",
-      "note": "TEST pool host a miner copies. Not a product default."
+      "note": "TEST pool host a miner copies: the local stack's own miner door on loopback, so a TEST rig dials the address the room shows. Not a product default."
     },
     "MINING_POOL_PORT": {
       "service": "mining-pool",
       "value": "3999",
-      "note": "TEST pool port a miner copies. Not a product default."
+      "note": "TEST pool port a miner copies: the miner door's TEST listen port. Not a product default."
     },
     "MINING_POOL_SECURE_URL": {
       "service": "mining-pool",
-      "value": "stratum+ssl://127.0.0.1:3999",
+      "value": "stratum+ssl://198.51.100.1:3999",
       "note": "TEST secure URL, published only in this profile."
     },
     "MINING_WORKER_NAME_PATTERN": {
@@ -65,6 +65,36 @@
       "service": "mining-pool",
       "value": "1000",
       "note": "TEST how long one reachability press waits. Not a product default."
+    },
+    "MINING_POW_DIMENSION": {
+      "service": "mining-pool",
+      "value": "8",
+      "note": "TEST matrix size of the pool's reference proof-of-work check, testnet only. Not the token's live proof of work and not a product default."
+    },
+    "MINING_POW_TARGET_BITS": {
+      "service": "mining-pool",
+      "value": "8",
+      "note": "TEST leading zero bits a share's work must have, small so a TEST submitter finds a nonce at once. Not a product default."
+    },
+    "MINING_POW_TESTNET": {
+      "service": "mining-pool",
+      "value": "true",
+      "note": "TEST testnet flag: testnet windows earn no credit. Mainnet refuses audit.external. Not a product default."
+    },
+    "MINING_STRATUM_LISTEN_PORT": {
+      "service": "mining-pool",
+      "value": "3999",
+      "note": "TEST port the pool's miner door listens on, the same as the TEST port a miner copies. Not a product default."
+    },
+    "MINING_STRATUM_WINDOW_SECONDS": {
+      "service": "mining-pool",
+      "value": "604800",
+      "note": "TEST length of one miner-door share window (seven days), so a journey's shares land in one window. Not a product default."
+    },
+    "MINING_STRATUM_ASSET_ID": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST asset a miner-door window is mined for. Not a product default."
     }
   }
 }

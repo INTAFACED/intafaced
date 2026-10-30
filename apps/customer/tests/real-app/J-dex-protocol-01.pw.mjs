@@ -51,7 +51,8 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   await page.goto('/chain/blocks/123');
   await expect(page.locator('main h1')).toHaveText('Block 123');
   await expect(page.locator('main [data-blocker="indexer"]')).toBeVisible();
-  await expect(page.locator('main')).toContainText('The indexer reader for this page is not built in this build.');
+  // The indexer reads blocks now; with this journey's node gated off it names why this one could not be read.
+  await expect(page.locator('main')).toContainText('This block could not be read: indexer.chain_unreachable');
   await expect(page.locator('main table th').first()).toBeVisible();
 
   await page.goto('/chain/blocks/abc');
@@ -73,13 +74,13 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
   await expect(listed.first()).toContainText('The chain is unreachable');
-  // The indexer is not started on this stack: the venue and finality checks both wait on it, and the list says so once
-  // (no reply, or still checking while the room asks again).
+  // The venue and finality checks wait on the indexer. Not answering, the list says so once (no reply, or still checking
+  // while the room asks again); answering with the node gated off, it names both: no live venue, height behind unknown.
   const order = await listed.evaluateAll((items) => items.map((item) => item.getAttribute('data-blocker')));
-  expect(order).toHaveLength(5);
   expect(order[0]).toBe('chain_unreachable');
-  expect(['source_no_reply', 'source_checking']).toContain(order[1]);
-  expect(order.slice(2)).toEqual(['no_execution_path', 'not_audited', 'network_label']);
+  const indexerSaid = order.slice(1, -3);
+  expect([['source_no_reply'], ['source_checking'], ['venue_not_live', 'behind_unknown']]).toContainEqual(indexerSaid);
+  expect(order.slice(-3)).toEqual(['no_execution_path', 'not_audited', 'network_label']);
   await expect(listed.last()).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(swap).not.toContainText(/INTACHAIN mainnet/i);
 });

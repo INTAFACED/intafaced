@@ -1,0 +1,55 @@
+import { defineCopy } from '../../../shared/i18n';
+
+/**
+ * Authored copy for the address page and the account's watched addresses (/chain/address/:address, /chain/watchlist).
+ * English only for now; other languages fall back to it. A watch is private to its account and moves nothing.
+ */
+const en = {
+  pageTitle: 'Address {address}',
+  notFoundTitle: 'Not an address',
+  notFoundBody: 'This page opens a 20-byte hex address. Check it and try again.',
+  noFunds: 'This explorer holds no funds. It reads public chain data, and a watch only keeps a note for you.',
+  summary: 'Summary',
+  summaryAddress: 'Address',
+  summaryKind: 'Kind',
+  summaryBalance: 'Balance',
+  notRead: 'Not read',
+  notAvailable: 'Not available',
+  summaryBlocked: 'Balance and account kind are not read: the indexer has no balance reader for addresses.',
+  transactions: 'Transactions',
+  holdings: 'Holdings',
+  holdingsBlocked: 'No holding is listed: this build has no indexer reader for token balances.',
+  watch: 'Watch this address',
+  watchSignIn: 'Sign in to keep a private watch on this address.',
+  signIn: 'Sign in',
+  watchTag: 'Tag',
+  watchNote: 'Private note',
+  watchNoteHint: 'Only you can read this note.',
+  watchSave: 'Save',
+  watchCancel: 'Cancel',
+  watchSaved: 'Saved to your watched addresses.',
+  watchFailed: 'The watch was not saved. Nothing was changed.',
+  watchFull: 'You watch as many addresses as the list can hold. Remove one before adding another.',
+  watchUnknown: 'The save could not be confirmed. Your watched addresses show what your account holds now.',
+  tryAgain: 'Try again',
+  watchTagRequired: 'Give the watch a tag.',
+  watchedAs: 'You watch this address as “{tag}”.',
+  yourNote: 'Your note: {note}',
+  watchReadFailed: 'Your watched addresses could not be read, so this watch is not shown.',
+  watchlistTitle: 'Your watched addresses',
+  watchlistDescription: 'Addresses you watch, with your tag and private note. Only your account can read this list.',
+  watchlistSignIn: 'Sign in to see the addresses you watch.',
+  watchlistEmpty: 'You are not watching any address.',
+  hdrAddress: 'Address',
+  hdrTag: 'Tag',
+  hdrNote: 'Note',
+  hdrActions: 'Actions',
+  remove: 'Remove',
+  removeFailed: 'The watch was not removed. Nothing was changed.',
+  removeUnknown: 'The removal could not be confirmed. The list shows what your account holds now.',
+  openWatchlist: 'Your watched addresses',
+  back: 'Back to Chain',
+} as const;
+
+export const watchCopy = defineCopy('customer.protocol.watch', en);
+export type WatchTranslate = ReturnType<typeof watchCopy.forLocale>['t'];

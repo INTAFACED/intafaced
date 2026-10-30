@@ -28,6 +28,14 @@ export interface OtcQuoteInput {
   readonly counterpartyId: string;
   readonly now: Date;
   readonly quoteTtlMs: number;
+  /** The request this quote answers; one request asks several providers (#5). Left out: the quote is its own request. */
+  readonly rfqId?: string;
+  /** This quote's place in its request, from 1, in the order the providers were asked: a tie goes to the lower. */
+  readonly rfqSeq?: number;
+  /** The provider that quoted, from the owner's list; null for a convert, which asks no provider. */
+  readonly makerId?: string | null;
+  /** True when the price comes from a LOCAL TEST spread: the room labels it TEST. */
+  readonly test?: boolean;
 }
 
 export interface OtcQuote {
@@ -48,6 +56,10 @@ export interface OtcQuote {
   readonly createdAt: string;
   readonly expiresAt: string;
   readonly status: 'open';
+  readonly rfqId: string;
+  readonly rfqSeq: number;
+  readonly makerId: string | null;
+  readonly test: boolean;
 }
 
 export interface BoundOtcFill {
@@ -119,6 +131,10 @@ export function buildOtcQuote(input: OtcQuoteInput): OtcQuote {
     createdAt: input.now.toISOString(),
     expiresAt: expires.toISOString(),
     status: 'open',
+    rfqId: input.rfqId ?? input.quoteId,
+    rfqSeq: input.rfqSeq ?? 1,
+    makerId: input.makerId ?? null,
+    test: input.test === true,
   };
 }
 
@@ -175,7 +191,25 @@ export function presentOtcQuote(q: OtcQuote) {
     createdAt: q.createdAt,
     expiresAt: q.expiresAt,
     status: q.status,
+    rfqId: q.rfqId,
+    rfqSeq: q.rfqSeq,
+    makerId: q.makerId,
+    test: q.test,
   };
+}
+
+/**
+ * The quotes of one request, best first: for a buy the lowest price, for a sell the highest. Equal prices go to the
+ * quote asked earlier (lower rfqSeq), never to whichever row came back first.
+ */
+export function rankRfqQuotes<T extends Pick<OtcQuote, 'side' | 'quotedPrice' | 'rfqSeq'>>(quotes: readonly T[]): T[] {
+  return [...quotes].sort((a, b) => {
+    if (a.quotedPrice !== b.quotedPrice) {
+      const lower = a.quotedPrice < b.quotedPrice ? -1 : 1;
+      return a.side === 'buy' ? lower : -lower;
+    }
+    return a.rfqSeq - b.rfqSeq;
+  });
 }
 
 export function presentBoundOtcFill(f: BoundOtcFill) {
@@ -248,6 +282,10 @@ export function presentFirmRfq(
     lifecycle: FirmRfqLifecycle;
     acceptedAt?: string | null;
     fillPrice?: Amount | null;
+    /** When a bound quote stops settling: the owner window from the accept, or the quote's expiry when it is blank. */
+    settleBy?: string | null;
+    /** The owner's deferred-settle window in ms; null when it is blank ("Not set": no deferral past the expiry). */
+    settleWindowMs?: number | null;
   },
 ) {
   return {
@@ -255,6 +293,8 @@ export function presentFirmRfq(
     lifecycle: extras.lifecycle,
     acceptedAt: extras.acceptedAt ?? null,
     fillPrice: extras.fillPrice == null ? null : formatAmount(extras.fillPrice),
+    settleBy: extras.settleBy ?? null,
+    settleWindowMs: extras.settleWindowMs ?? null,
     bookFill: false as const,
     midInvented: false as const,
   };

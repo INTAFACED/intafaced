@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { FileJournal, FileJournalLockedError } from './journal-io.js';
 
 /**
@@ -18,6 +18,17 @@ const cancel = {
   orderId: '00000000-0000-4000-8000-000000000003',
 };
 
+/**
+ * The parent polls for a status file and reads it as soon as it exists, so a
+ * file must appear with its whole content: write a side file, then rename it
+ * (writeFileSync alone creates the file empty before the bytes land, #6629).
+ */
+function publish(name: string, data: string | Buffer): void {
+  const tmp = `${barrier}/.tmp-${name}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, `${barrier}/${name}`);
+}
+
 function sleepMs(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -25,7 +36,7 @@ function sleepMs(ms: number): void {
 try {
   const journal = new FileJournal(journalPath);
   journal.append(cancel);
-  writeFileSync(`${barrier}/appended-${process.pid}`, readFileSync(`${journalPath}.lock`));
+  publish(`appended-${process.pid}`, readFileSync(`${journalPath}.lock`));
   const deadline = Date.now() + 8_000;
   while (!existsSync(`${barrier}/done`)) {
     if (Date.now() > deadline) throw new Error('timed out waiting for done');
@@ -35,5 +46,5 @@ try {
 } catch (err) {
   const code = err instanceof FileJournalLockedError ? err.code : '';
   const message = err instanceof Error ? err.message : String(err);
-  writeFileSync(`${barrier}/failed-${process.pid}`, `${code}\n${message}\n`);
+  publish(`failed-${process.pid}`, `${code}\n${message}\n`);
 }

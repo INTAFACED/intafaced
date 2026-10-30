@@ -1,0 +1,68 @@
+.tokens-room .tokens-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-2);
+  margin-block-end: var(--if-space-4);
+}
+.tokens-room .tokens-tabs [role='tab'] {
+  padding: var(--if-space-2) var(--if-space-3);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.tokens-room .tokens-tabs [role='tab'][aria-selected='true'] {
+  border-color: var(--if-line-strong);
+  font-weight: 600;
+}
+.tokens-room .tokens-panel > * + * {
+  margin-block-start: var(--if-space-3);
+}
+.tokens-room .tokens-window {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--if-space-2);
+}
+.tokens-room .tokens-search {
+  inline-size: 100%;
+  max-inline-size: 28rem;
+}
+.tokens-room .tokens-chart {
+  margin: 0;
+  min-block-size: 12rem;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--if-line);
+  border-radius: var(--if-r-md);
+}
+.tokens-room .tokens-watch {
+  display: grid;
+  gap: var(--if-space-1);
+  justify-items: end;
+}
+.protocol-room .tokens-nav {
+  display: flex;
+  gap: var(--if-space-3);
+}
+.tokens-room .tokens-candles {
+  inline-size: 100%;
+  block-size: auto;
+}
+.tokens-room .tokens-candles .up {
+  stroke: var(--if-up);
+  fill: var(--if-up);
+}
+.tokens-room .tokens-candles .down {
+  stroke: var(--if-down);
+  fill: var(--if-down);
+}
+.tokens-room .tokens-plain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tokens-room .tokens-alert {
+  color: var(--if-danger);
+  font-weight: 600;
+}

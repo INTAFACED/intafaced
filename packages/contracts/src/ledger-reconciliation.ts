@@ -17,11 +17,33 @@ export const LEDGER_RECONCILE_ASOF_INVALID = 'ledger.reconcile_asof_invalid' as 
 export const LEDGER_RECONCILE_SOURCE_UNAVAILABLE = 'ledger.reconcile_source_unavailable' as const;
 export const LEDGER_RECONCILE_BUILTIN_IMMUTABLE = 'ledger.reconcile_builtin_immutable' as const;
 export const LEDGER_RECONCILE_CONTROL_NOT_FOUND = 'ledger.reconcile_control_not_found' as const;
+/** A control names a rail whose outside statement URL is blank: the outside side is unset, never zero. */
+export const LEDGER_RECONCILE_RAIL_SOURCE_UNSET = 'ledger.reconcile_rail_source_unset' as const;
+/** A past-instant run on a rail that takes out open items: the items are read as they are now only, so the run is UNSET. */
+export const LEDGER_RECONCILE_ITEMS_NOW_ONLY = 'ledger.reconcile_items_now_only' as const;
+/** The open items read before and after the ledger snapshot differ: one moved while the run read, so it is ERROR. Run it again. */
+export const LEDGER_RECONCILE_ITEMS_MOVED = 'ledger.reconcile_items_moved' as const;
+
+/** A rail id as the ledger's boundary accounts carry it (`rail:<id>`), and as its statement env name is derived from. */
+export const reconciliationRailSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
 
 export const RECONCILIATION_TEMPLATES = ['ledger_invariant', 'outside_balance', 'threshold', 'source_parity'] as const;
 export const RECONCILIATION_SEVERITIES = ['info', 'warning', 'critical'] as const;
 export const RECONCILIATION_PERIODS = ['hour', 'day', 'iso_week', 'month'] as const;
 export const RECONCILIATION_CHECK_KINDS = ['replay', 'chain', 'netting', 'replay_and_netting'] as const;
+/** OPS-reconciliation-02. Paused runs nothing until resumed; retired is final and keeps its history. */
+export const RECONCILIATION_STATES = ['draft', 'active', 'paused', 'retired'] as const;
+export const RECONCILIATION_LIFECYCLE = ['pause', 'resume', 'retire'] as const;
+export type ReconciliationLifecycle = (typeof RECONCILIATION_LIFECYCLE)[number];
+export type ReconciliationState = (typeof RECONCILIATION_STATES)[number];
+/** The one transition table: the states each move leaves from, and the state it lands in. Anything else is illegal. */
+export const RECONCILIATION_LIFECYCLE_MOVES: Readonly<
+  Record<ReconciliationLifecycle, { readonly from: readonly ReconciliationState[]; readonly to: ReconciliationState }>
+> = {
+  pause: { from: ['active'], to: 'paused' },
+  resume: { from: ['paused'], to: 'active' },
+  retire: { from: ['draft', 'active', 'paused'], to: 'retired' },
+};
 
 /** Decimal string. No exponent. Zero is `0`, never a blank. */
 export const reconciliationDecimalSchema = z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/);
@@ -89,13 +111,25 @@ const queryAccountSetSchema = z
     mode: z.literal('query'),
     ownerType: ownerTypeSchema.optional(),
     ownerIdPrefix: z.string().trim().min(1).max(128).optional(),
+    /**
+     * One rail's boundary: treasury accounts whose owner id is exactly `rail:<rail>`. Excludes ownerType and ownerIdPrefix,
+     * and a kind other than `available` (a boundary account is always `available`).
+     */
+    rail: reconciliationRailSchema.optional(),
     kind: accountKindSchema.optional(),
     purpose: z.string().max(128).optional(),
     assetId: assetIdSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (
+      value.rail !== undefined &&
+      (value.ownerType !== undefined || value.ownerIdPrefix !== undefined || (value.kind !== undefined && value.kind !== 'available'))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_POLICY_UNSET, path: ['rail'] });
+    }
     const predicated =
+      value.rail !== undefined ||
       value.ownerType !== undefined ||
       value.ownerIdPrefix !== undefined ||
       value.kind !== undefined ||
@@ -148,8 +182,29 @@ export const updateReconciliationControlInputSchema = z
     threshold: reconciliationThresholdSchema.optional(),
     reason: reasonSchema,
     activate: z.boolean().optional(),
+    /**
+     * A lifecycle move travels alone: with it, only the control id, the reason and the two-founder approval it consumes.
+     * The approval ids ride only with a lifecycle move, and a lifecycle move always carries them.
+     */
+    lifecycle: z.enum(RECONCILIATION_LIFECYCLE).optional(),
+    approvalId: z.string().min(1).max(128).optional(),
+    operationId: z.string().min(1).max(128).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const present = Object.keys(value).filter((key) => value[key as keyof typeof value] !== undefined);
+    if (value.lifecycle === undefined) {
+      const stray = present.filter((key) => key === 'approvalId' || key === 'operationId');
+      if (stray.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_STATE_ILLEGAL, path: stray });
+      return;
+    }
+    const allowed = ['controlId', 'reason', 'lifecycle', 'approvalId', 'operationId'];
+    const extra = present.filter((key) => !allowed.includes(key));
+    if (extra.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_CONTROL_STATE_ILLEGAL, path: extra });
+    for (const key of ['approvalId', 'operationId'] as const) {
+      if (value[key] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'action_approval.missing', path: [key] });
+    }
+  });
 export type UpdateReconciliationControlInput = z.infer<typeof updateReconciliationControlInputSchema>;
 
 export const runReconciliationControlInputSchema = z
@@ -166,13 +221,19 @@ export type RunReconciliationControlInput = z.infer<typeof runReconciliationCont
 
 const unsetSchema = z.object({ status: z.literal('unset') }).strict();
 
+/** A control's severity: set to one of the severities, or blank. */
+export const reconciliationSeveritySetSchema = z.union([
+  unsetSchema,
+  z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict(),
+]);
+
 export const reconciliationControlViewSchema = z
   .object({
     id: z.string().uuid(),
     builtin: z.boolean(),
     template: z.enum(RECONCILIATION_TEMPLATES),
     checkKind: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_CHECK_KINDS) }).strict()]),
-    state: z.enum(['draft', 'active']),
+    state: z.enum(RECONCILIATION_STATES),
     explanation: z.string(),
     labels: z.array(z.string()),
     schedule: z.union([
@@ -185,7 +246,7 @@ export const reconciliationControlViewSchema = z
         })
         .strict(),
     ]),
-    severity: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.enum(RECONCILIATION_SEVERITIES) }).strict()]),
+    severity: reconciliationSeveritySetSchema,
     tolerance: z.union([
       unsetSchema,
       z
@@ -227,8 +288,33 @@ export const reconciliationAssetEvidenceSchema = z
     expected: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     difference: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     tolerance: z.union([reconciliationDecimalSchema, z.literal('unset')]),
+    /**
+     * A rail control with its open items read: their signed sum on this asset, and what is left of the difference once they
+     * are taken out. Only a residual of exactly 0 passes; the tolerance does not apply to it.
+     */
+    reconcilingItems: reconciliationSignedDecimalSchema.optional(),
+    residual: reconciliationSignedDecimalSchema.optional(),
   })
   .strict();
+
+/** The most open items one rail control names on a run. A rail holding more answers ERROR, never a partial list. */
+export const RECONCILIATION_ITEMS_MAX = 2000;
+
+/**
+ * One open item that explains part of a rail's difference (lead ruling 2026-10-30): an item the rail holds that the ledger
+ * does not (positive), or the other way round (negative), named by the service that holds its record.
+ */
+export const reconciliationReconcilingItemSchema = z
+  .object({
+    source: z.literal('svc-pay'),
+    id: z.string().min(1).max(128),
+    kind: z.enum(['held', 'reversal_unfunded']),
+    assetId: assetIdSchema,
+    /** Rail minus ledger for this item, in the rail's own terms. */
+    amount: reconciliationSignedDecimalSchema,
+  })
+  .strict();
+export type ReconciliationReconcilingItem = z.infer<typeof reconciliationReconcilingItemSchema>;
 
 export const reconciliationControlRunSchema = z
   .object({
@@ -252,9 +338,88 @@ export const reconciliationControlRunSchema = z
     periodEnd: z.string().datetime({ offset: true }),
     accounts: z.array(z.string().uuid()),
     assets: z.array(reconciliationAssetEvidenceSchema),
+    /** A rail control whose rail has an open-items source: every item the run took out of the difference, by name. */
+    reconcilingItems: z.array(reconciliationReconcilingItemSchema).max(RECONCILIATION_ITEMS_MAX).optional(),
   })
   .strict();
 export type ReconciliationControlRunView = z.infer<typeof reconciliationControlRunSchema>;
+
+/** OPS-reconciliation-02: a control's evaluations, newest first. A paused or retired control keeps every one readable. */
+export const RECONCILIATION_RUN_LIST_MAX = 500;
+/** How many runs a list returns when it names no limit. */
+export const RECONCILIATION_RUN_LIST_DEFAULT = 100;
+export const listReconciliationControlRunsInputSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    limit: z.number().int().min(1).max(RECONCILIATION_RUN_LIST_MAX).optional(),
+  })
+  .strict();
+export type ListReconciliationControlRunsInput = z.infer<typeof listReconciliationControlRunsInputSchema>;
+export const reconciliationControlRunListSchema = z
+  .object({
+    controlId: z.string().uuid(),
+    /** Every evaluation the control has; `runs` holds the newest `limit` of them, by when each run started. */
+    total: z.number().int().nonnegative(),
+    runs: z.array(reconciliationControlRunSchema),
+  })
+  .strict();
+export type ReconciliationControlRunList = z.infer<typeof reconciliationControlRunListSchema>;
+
+/**
+ * OPS-reconciliation-03: every finished evaluation, oldest first, for svc-ops' alert store. A service door (svc-ops
+ * alone) read with a cursor on (finishedAt, id). A run only shows once it has been finished for a settle window, so a
+ * reader that has passed a cursor does not miss a row committed just behind it; a reader keeps its own write idempotent
+ * by run id, so re-reading from an earlier cursor is safe.
+ */
+export const RECONCILIATION_EVALUATION_FEED_MAX = 500;
+export const reconciliationEvaluationCursorSchema = z
+  .object({ finishedAt: z.string().datetime({ offset: true }), id: z.string().uuid() })
+  .strict();
+export type ReconciliationEvaluationCursor = z.infer<typeof reconciliationEvaluationCursorSchema>;
+export const reconciliationEvaluationFeedInputSchema = z
+  .object({
+    /** Null reads from the first evaluation. */
+    after: reconciliationEvaluationCursorSchema.nullable(),
+    limit: z.number().int().min(1).max(RECONCILIATION_EVALUATION_FEED_MAX),
+  })
+  .strict();
+export type ReconciliationEvaluationFeedInput = z.infer<typeof reconciliationEvaluationFeedInputSchema>;
+export const reconciliationEvaluationSchema = z
+  .object({
+    /** The run as `controls.runs` shows it, without the account list: an alert keys on the control, asset and period. */
+    run: reconciliationControlRunSchema.omit({ accounts: true }),
+    finishedAt: z.string().datetime({ offset: true }),
+    /** The control's severity when the feed is read (a run does not store it). A blank one stays blank. */
+    severity: reconciliationSeveritySetSchema,
+  })
+  .strict();
+export type ReconciliationEvaluation = z.infer<typeof reconciliationEvaluationSchema>;
+export const reconciliationEvaluationFeedSchema = z
+  .object({
+    evaluations: z.array(reconciliationEvaluationSchema),
+    /** Where the next read starts: the last evaluation returned, or the cursor asked for when none was. */
+    next: reconciliationEvaluationCursorSchema.nullable(),
+  })
+  .strict();
+export type ReconciliationEvaluationFeed = z.infer<typeof reconciliationEvaluationFeedSchema>;
+
+/**
+ * OPS-reconciliation-04: which of a few ledger transaction ids exist, for svc-ops resolving an alert as fixed with the
+ * corrective transactions an operator names. A service door (svc-ops alone). It answers ids only: no amounts, accounts
+ * or entries, so it is not a ledger read of balances or history.
+ */
+export const LEDGER_TRANSACTIONS_EXIST_MAX = 20;
+export const ledgerTransactionsExistInputSchema = z
+  .object({ txIds: z.array(z.string().guid()).min(1).max(LEDGER_TRANSACTIONS_EXIST_MAX) })
+  .strict();
+export type LedgerTransactionsExistInput = z.infer<typeof ledgerTransactionsExistInputSchema>;
+export const ledgerTransactionsExistSchema = z
+  .object({
+    /** The asked ids that name a booked transaction, in the order asked, each once. */
+    found: z.array(z.string().guid()),
+  })
+  .strict();
+export type LedgerTransactionsExist = z.infer<typeof ledgerTransactionsExistSchema>;
 
 /** What a rail snapshot must look like when a partner has one. Amounts are decimal strings. */
 export const railBalanceSnapshotSchema = z
@@ -272,3 +437,24 @@ export const railBalanceSnapshotSchema = z
   })
   .strict();
 export type RailBalanceSnapshot = z.infer<typeof railBalanceSnapshotSchema>;
+
+/**
+ * One rail's outside statement (OPS-reconciliation-04 per-rail controls): a rail snapshot that names its rail. Amounts are in
+ * the ledger's signed form for that rail's boundary account (`rail:<rail>`), never flipped by the reader.
+ */
+export const railStatementSchema = z
+  .object({
+    source: z.literal('rail'),
+    rail: reconciliationRailSchema,
+    asOf: z.string().datetime({ offset: true }),
+    balances: z.array(
+      z
+        .object({
+          assetId: assetIdSchema,
+          amount: reconciliationSignedDecimalSchema,
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type RailStatement = z.infer<typeof railStatementSchema>;

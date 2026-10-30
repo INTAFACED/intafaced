@@ -1,5 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ProtocolPoolQuote, ProtocolSwapPool, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
+import { formatAsOf } from '@intafaced/ui';
+import {
+  PRICE_SETTINGS_UNSET,
+  type ProtocolPoolQuote,
+  type ProtocolSwapPool,
+  type ProtocolSwapToken,
+} from '@intafaced/contracts/protocol-swap';
 import { navigate } from '../../../app/location';
 import { Button, Dialog, Failure, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
@@ -14,7 +20,9 @@ import { shortContract, tokenLabel, toBaseUnits } from '../wallet/transfer';
 import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
-import { bpsToPercent, formatUnits, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
+import { chosenFee, feeFields, toGwei, type FeeChoice } from './fee';
+import { feeRefusal, NetworkFee } from './NetworkFee';
+import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
 
 type Quote = { pool: ProtocolSwapPool; quote: ProtocolPoolQuote; amountIn: bigint; readAt: number };
 type Track = {
@@ -56,6 +64,8 @@ export function SwapForm() {
   const network = networkLabel(APP_CHAIN_ID).name;
   const pairs = useResource((signal) => api.ammPairs(signal), 'swap:pairs');
   const settings = useResource((signal) => api.swapSettings(signal), 'swap:settings');
+  const [refresh, setRefresh] = useState(0);
+  const prices = useResource((signal) => api.tokenPrices(signal), `swap:prices:${refresh}`);
   const tokens = pairs.resource.status === 'ready' ? pairs.resource.data.tokens : [];
   const pools = pairs.resource.status === 'ready' ? pairs.resource.data.pools : [];
   const setting = settings.resource.status === 'ready' ? settings.resource.data : null;
@@ -68,7 +78,6 @@ export function SwapForm() {
   const [tokenOutAddress, setTokenOut] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('');
-  const [refresh, setRefresh] = useState(0);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteProblem, setQuoteProblem] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -76,6 +85,8 @@ export function SwapForm() {
   const [representation, setRepresentation] = useState<{ address: string; status: RepresentationStatus } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
+  const [feeChoice, setFeeChoice] = useState<FeeChoice>('normal');
+  const [customFee, setCustomFee] = useState('');
   const ids = { pay: useId(), receive: useId(), note: useId() };
 
   const tokenIn = tokens.find((token) => token.address.toLowerCase() === tokenInAddress.toLowerCase()) ?? null;
@@ -122,6 +133,11 @@ export function SwapForm() {
   // Price impact is already in the quote; the note says how far this trade moves the pool when that is more than the
   // slippage in use, so a person sees a thin pool before they swap. It does not stop the swap.
   const impactNoted = quote !== null && slippageBps !== null && quote.quote.priceImpactBps > slippageBps;
+  // The network fee levels are read again with every quote, so they describe the same few blocks.
+  const fees = useResource((signal) => api.feeLevels(signal), `swap:fees:${refresh}:${quote?.readAt ?? 0}`);
+  const feeRead = fees.resource.status === 'ready' ? fees.resource.data : null;
+  const fee = feeRead ? chosenFee(feeRead, feeChoice, customFee) : null;
+  const feeAlert = feeRefusal(feeRead, fee, customFee, language);
 
   const choose = (next: SwapMode) => {
     setMode(next);
@@ -163,7 +179,13 @@ export function SwapForm() {
                           ? t('slippageOver', { ceiling: bpsToPercent(setting!.slippageCeilingBps) })
                           : minOut === null
                             ? t('minimumNone')
-                            : null;
+                            : fees.resource.status === 'failed'
+                              ? t('feeUnread')
+                              : !fee
+                                ? t('feeLoading')
+                                : !fee.ok
+                                  ? (feeAlert ?? t('feeCustomNeeded'))
+                                  : null;
   const following = track?.state === 'submitted' || track?.state === 'confirming';
   const canSwap = reason === null && !busy && !following;
 
@@ -184,6 +206,12 @@ export function SwapForm() {
     const min = minimumOut(BigInt(fresh.data.amountOut), bps);
     if (min === null) return setProblem(t('minimumNone'));
     const amountText = formatUnits(from.amountIn, inToken.decimals, inToken.decimals);
+    // The fee levels are read again too, so the fee sent is priced from the latest blocks; a refused one stops here.
+    const feesNow = await api.feeLevels();
+    if (!feesNow.ok) return setProblem(t('feeUnread'));
+    const feeNow = chosenFee(feesNow.data, feeChoice, customFee);
+    if (!feeNow.ok) return setProblem(feeRefusal(feesNow.data, feeNow, customFee, language) ?? t('feeCustomNeeded'));
+    const feeRequest = feeFields(feeNow);
     const [approval, call] = await Promise.all([
       api.checkApproval({ owner, token: inToken.address, spender: from.pool.pool, amount: from.amountIn.toString() }),
       api.buildSwap({
@@ -202,7 +230,7 @@ export function SwapForm() {
           approval.data.resetFirst && index === 0
             ? t('stepReset', { token: inToken.name })
             : t('stepApprove', { amount: amountText, token: inToken.name }),
-        request: { kind: 'transaction' as const, to: approve.to, data: approve.data },
+        request: { kind: 'transaction' as const, to: approve.to, data: approve.data, ...feeRequest },
       })),
       {
         label: t('stepSwap', {
@@ -211,7 +239,7 @@ export function SwapForm() {
           min: formatUnits(min, outToken.decimals),
           tokenOut: outToken.name,
         }),
-        request: { kind: 'transaction' as const, to: call.data.to, data: call.data.data },
+        request: { kind: 'transaction' as const, to: call.data.to, data: call.data.data, ...feeRequest },
       },
     ];
     const base = { amountIn: from.amountIn, minOut: min, tokenIn: inToken, tokenOut: outToken, pool: from.pool.pool };
@@ -219,6 +247,14 @@ export function SwapForm() {
     const facts = [
       { label: t('contractOf', { token: inToken.name }), value: inToken.address },
       { label: t('contractOf', { token: outToken.name }), value: outToken.address },
+      {
+        label: t('feeFact'),
+        value: t('feeFactValue', {
+          level: t(`fee_${feeChoice}`),
+          max: toGwei(feeNow.maxFeePerGas),
+          priority: toGwei(feeNow.maxPriorityFeePerGas),
+        }),
+      },
     ];
     const result = await wallet.sendSequence({ title: t('stepsTitle'), steps, facts });
     // Steps already sent stay sent: say so with their hashes, never "nothing was sent".
@@ -301,6 +337,25 @@ export function SwapForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.hash, following, setting, wallet.address]);
 
+  // A token's USD price as the pools read it, with the block's time; a token the filter leaves out says why.
+  const priceLine = (address: string): string => {
+    if (prices.resource.status === 'loading') return t('priceReading');
+    if (prices.resource.status === 'failed') {
+      // A refusal names its blocker; only an unexplained failure reads as a passing one.
+      const code = prices.resource.failure.code;
+      if (code === PRICE_SETTINGS_UNSET) return t('priceSettingsUnset');
+      if (code === REGION_BLOCKED_CODE) return t('regionBlocked');
+      if (code === 'protocol.amm_factory_unset') return t('priceFactoryUnset');
+      return t('priceUnread');
+    }
+    const found = prices.resource.data.prices.find((entry) => entry.address.toLowerCase() === address.toLowerCase());
+    // Pairs and prices are two reads and may land on different blocks: a token missing from the prices was not read.
+    if (!found) return t('priceUnread');
+    if (found.usd === null) return t(found.reason === 'thin_reserve' ? 'priceNone_thin_reserve' : 'priceNone_no_route');
+    const time = formatAsOf(prices.resource.data.asOf, { locale: language, now }) ?? prices.resource.data.asOf;
+    return t('priceLine', { price: formatUsd(found.usd), time });
+  };
+
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
     <label className="field">
       <span id={id}>{label}</span>
@@ -319,6 +374,11 @@ export function SwapForm() {
         ))}
       </select>
       {value && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
+      {value && (
+        <small className="numeric" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
+          {priceLine(value)}
+        </small>
+      )}
     </label>
   );
   const seconds = expiresAt === null ? null : Math.max(0, Math.ceil((expiresAt - now) / 1000));
@@ -422,10 +482,19 @@ export function SwapForm() {
             </>
           )}
           {overCeiling && setting && <p role="alert">{t('slippageOver', { ceiling: bpsToPercent(setting.slippageCeilingBps) })}</p>}
+          <NetworkFee
+            fees={fees.resource}
+            retry={fees.reload}
+            choice={feeChoice}
+            onChoice={setFeeChoice}
+            custom={customFee}
+            onCustom={setCustomFee}
+            refusal={feeAlert}
+          />
           <Button type="submit" disabled={!canSwap}>
             {t('swap')}
           </Button>
-          {reason && !overCeiling && (
+          {reason && !overCeiling && reason !== feeAlert && (
             <p className="protocol-actions__reason" data-swap-reason>
               {reason}
             </p>

@@ -10,6 +10,7 @@ import {
   type ActionApprovalConsumer,
 } from '../../action-approval-consume.js';
 import { requireDualControl, DualControlError } from '../../dual-control.js';
+import { PayError } from '../../payment-service.js';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { assetCodeSchema, reasonSchema } from '../../registries/schemas.js';
@@ -181,6 +182,35 @@ export function amountOutsideRules(rules: State, amount: Amount): 'below_minimum
 export interface WithdrawalNetworkRuleServiceDeps {
   readonly sql: Sql;
   readonly approvals: ActionApprovalConsumer;
+}
+
+/**
+ * J-wallet-05 #1: a tag or memo named on a send is refused, never dropped. On a network whose rules take no tag it refuses
+ * `pay.withdrawal_tag_not_taken`, and so does a send that names no network (a send inside the platform has no tag). On a
+ * network that takes one it refuses `pay.withdrawal_tag_unsupported`: no withdrawal row keeps a tag, so sending without
+ * it would lose the money at the receiving wallet. A pair with no rules refuses `withdrawal_network_rules.unset`. Runs before
+ * the claim, so nothing is claimed or held.
+ */
+export async function refuseWithdrawalTag(sql: Sql | null, assetId: string, networkId: string | undefined): Promise<never> {
+  if (!networkId) throw new PayError('A send with no network takes no tag or memo; nothing was held', 'pay.withdrawal_tag_not_taken');
+  if (!sql) throw new WithdrawalNetworkRuleError('withdrawal_network_rules.unwired', 'withdrawal rules need the pay database');
+  const rules = await readWithdrawalNetworkRules(sql, assetId, networkId);
+  if (rules.tag === 'none') {
+    throw new PayError(
+      `${networkId} takes no tag or memo, so a send with one is refused; nothing was held`,
+      'pay.withdrawal_tag_not_taken',
+      {
+        networkId,
+      },
+    );
+  }
+  throw new PayError(
+    `A send with a tag on ${networkId} is refused: no send keeps a tag; nothing was held`,
+    'pay.withdrawal_tag_unsupported',
+    {
+      networkId,
+    },
+  );
 }
 
 /** The customer's read of one pair's rules. A pair with no row refuses `withdrawal_network_rules.unset`. */

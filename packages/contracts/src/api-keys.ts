@@ -28,6 +28,7 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_unset',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
+  'identity.key_signing_unset',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 
@@ -57,6 +58,21 @@ export const apiKeyCreateInputSchema = z
   .strict();
 export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
 
+/**
+ * Why a key stopped working before its end date, as the service recorded it at the revoke: the person revoked it
+ * (`owner`), one of the account's API keys or sub-accounts revoked it (`delegate`), the account was frozen (`account_freeze`, by the person or by staff), an operator revoked this one key
+ * (`operator`), the account was closed (`account_closed`), our team revoked it during an account recovery
+ * (`support`), or the service undid a key it made but never handed over (`system`, a create or rotation that failed
+ * part-way). Null on a key revoked before causes were recorded.
+ */
+export const API_KEY_REVOKED_BY = ['owner', 'delegate', 'account_freeze', 'operator', 'account_closed', 'support', 'system'] as const;
+export type ApiKeyRevokedBy = (typeof API_KEY_REVOKED_BY)[number];
+/** Longest reason the person may give when they revoke their own key, in code points (as the service and database count). */
+export const API_KEY_REVOKE_REASON_MAX = 200;
+
+/** A string of at most `max` code points: an emoji counts once, as Postgres `char_length` counts it. */
+export const codePointsAtMost = (max: number) => z.string().refine((value) => [...value].length <= max, `at most ${max} characters`);
+
 export const apiKeyRecordSchema = z
   .object({
     id: z.string().guid(),
@@ -70,6 +86,11 @@ export const apiKeyRecordSchema = z
     expiresAt: isoInstant.nullable(),
     lastUsedAt: isoInstant.nullable(),
     revoked: z.boolean(),
+    /** When the key was revoked. Null while live, and on a key revoked before this was recorded. */
+    revokedAt: isoInstant.nullable(),
+    revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
+    /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
+    revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
@@ -79,6 +100,11 @@ export const apiKeyCreateOutputSchema = z
     record: apiKeyRecordSchema,
     /** The key, in this reply only. Null when this reply answers a repeat of the same request id. */
     key: z.string().nullable(),
+    /**
+     * The key's request-signing secret, in this reply only (DV-auth-01). A key that may place orders (`trade:write`)
+     * signs every request by default, so it is minted with one. Null for a key that does not sign, and on a repeat.
+     */
+    signingSecret: z.string().nullable(),
     replayed: z.boolean(),
   })
   .strict();
@@ -98,6 +124,60 @@ export const apiKeyListOutputSchema = z
   .refine((list) => new Set(list.keys.map((key) => key.id)).size === list.keys.length, 'each key once');
 export type ApiKeyList = z.infer<typeof apiKeyListOutputSchema>;
 
+/** One key of the signed-in person, by id (`developerKeys.get`). */
+export const apiKeyGetInputSchema = z.object({ keyId: z.string().guid() }).strict();
+
+/**
+ * The key detail page (`/uc/safe/api-keys/:keyId`): the record, its IP policy and the owner's idle expiry.
+ * `idleExpirySeconds: null` means the owner has not set an idle period (`not set`); nothing is ever defaulted.
+ */
+export const apiKeyDetailSchema = z
+  .object({
+    key: apiKeyRecordSchema,
+    /** When true, an empty IP list refuses every call instead of leaving the key open to any address. */
+    requireNonEmptyIpAllowlist: z.boolean(),
+    idleExpirySeconds: z.number().int().positive().nullable(),
+  })
+  .strict();
+export type ApiKeyDetail = z.infer<typeof apiKeyDetailSchema>;
+
+/** Typed refusals of the revoke and end-date doors, second-factor and delegate ones included. */
+export const API_KEY_CHANGE_REFUSALS = [
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'auth.delegate_cannot_grant',
+  'identity.delegated_refused',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_expiry_invalid',
+  'identity.key_revoke_reason_invalid',
+] as const;
+export type ApiKeyChangeRefusal = (typeof API_KEY_CHANGE_REFUSALS)[number];
+
+/**
+ * The person's own revoke (`developerKeys.revoke`). It never needs a second factor, so a key can always be switched
+ * off. A repeat on a revoked key changes nothing and returns the record as it is (the first reason stays).
+ */
+export const apiKeyRevokeInputSchema = z
+  .object({
+    keyId: z.string().guid(),
+    reason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).optional(),
+  })
+  .strict();
+export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;
+export const apiKeyRevokeOutputSchema = z.object({ record: apiKeyRecordSchema, changed: z.boolean() }).strict();
+export type ApiKeyRevokeOutput = z.infer<typeof apiKeyRevokeOutputSchema>;
+
+/**
+ * A new end date for a live key (`developerKeys.setExpiry`). An earlier end (or a first one) only narrows the key and
+ * needs no second factor; a later one widens it and needs a fresh one, as create does. A key can never call this.
+ */
+export const apiKeySetExpiryInputSchema = z.object({ keyId: z.string().guid(), expiresAt: isoInstant }).strict();
+export type ApiKeySetExpiryInput = z.infer<typeof apiKeySetExpiryInputSchema>;
+export const apiKeySetExpiryOutputSchema = z.object({ record: apiKeyRecordSchema }).strict();
+
 /**
  * Why a scope cannot sit on a key: it moves value off the platform or is interactive-only (`interactive_only`), it is
  * granted only under a pay step-up (`step_up_only`), or it belongs to an operator's desk (`operator_only`).
@@ -114,6 +194,41 @@ export const apiKeyScopeEntrySchema = z
   .strict();
 export type ApiKeyScopeEntry = z.infer<typeof apiKeyScopeEntrySchema>;
 export const apiKeyScopesOutputSchema = z.object({ scopes: z.array(apiKeyScopeEntrySchema).max(200) }).strict();
+
+/** The scope that makes a key sign its requests by default: a key that may place orders (DV-auth-01). */
+export const SIGNING_REQUIRED_SCOPE = 'trade:write';
+
+/** The request-signing scheme's name, the first line of every canonical request. */
+export const REQUEST_SIGN_VERSION = 'INTAFACED-REQ-V1';
+
+/**
+ * The published request-signing policy (`apiKeys.signingPolicy`, public). `windowSeconds` is the owner's timestamp
+ * window: how far a request's signed time may be from the server's, either way. Null while the owner has not set it,
+ * and then every signed request refuses `auth.request_window_unset`. `vector` is one request signed with a published
+ * TEST secret, computed by the service's own signer, so a developer can check their signer against it.
+ */
+export const requestSigningVectorSchema = z
+  .object({
+    method: z.string(),
+    path: z.string(),
+    timestamp: z.string(),
+    nonce: z.string(),
+    body: z.string(),
+    bodySha256: z.string(),
+    secret: z.string(),
+    canonical: z.string(),
+    signature: z.string(),
+  })
+  .strict();
+export const requestSigningPolicySchema = z
+  .object({
+    version: z.literal(REQUEST_SIGN_VERSION),
+    windowSeconds: z.number().int().min(1).nullable(),
+    headers: z.object({ timestamp: z.string(), nonce: z.string(), signature: z.string() }).strict(),
+    vector: requestSigningVectorSchema,
+  })
+  .strict();
+export type RequestSigningPolicy = z.infer<typeof requestSigningPolicySchema>;
 
 /** FNV-1a, 64 bits: a short stable digest, so a request id stays well under 200 characters. */
 function digest(text: string): string {

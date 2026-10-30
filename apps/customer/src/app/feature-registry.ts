@@ -436,8 +436,8 @@ export const features: readonly Feature[] = [
     label: 'Scan to pay',
     paths: ['/pay/scan'],
     status: 'blocked',
-    reason: 'Scanning is not connected: a real QR code cannot be told from a forged one; Show my QR code works',
-    unlock: 'the QR signing key and scanner (PP-send-request-11)',
+    reason: "Scan to pay reads a person's pay code from the camera or an image and opens Send; shop and in-store codes are not read",
+    unlock: 'shop and in-store codes, then a proof run of this room (PP-send-request-11)',
     tab: 'pay',
   },
   {
@@ -509,7 +509,7 @@ export const features: readonly Feature[] = [
     unlock: 'already live',
     tab: 'pay',
     checked:
-      '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
+      '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs and, since 2026-10-29, the room walk in J-merchant-01-team.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
   },
   {
     id: 'more-rooms',
@@ -526,6 +526,8 @@ export const features: readonly Feature[] = [
       '/academy/learning/course/:slug/assignment/:itemId',
       '/academy/:slug',
       '/agents',
+      '/agents/new',
+      '/agents/:agentId',
       '/quant',
       '/quant/sandbox',
       '/quant/studio',
@@ -552,6 +554,7 @@ export const features: readonly Feature[] = [
       '/token',
       '/token/governance',
       '/token/economy',
+      '/token/burn',
       '/token/governance/:proposalId',
       '/blueprint',
       '/blueprint/crew',

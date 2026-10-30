@@ -534,6 +534,38 @@ describe('svc-pay user money PG-hard', () => {
       expect(await holdOf(record.id, 0)).toBe('0');
     });
 
+    it('REVERSES THE HOLD when the chain refuses a send before broadcast, and the books stay square (J-wallet-05 #8)', async () => {
+      // The TEST pace the local stack uses: the in-memory chain refuses every send of exactly 13.
+      chain = new MemoryChain({ refuseAmount: amt('13') });
+      rails = new RailRegistry([card, new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+      money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'] });
+      await deposit();
+      const send = (clientRef: string, amount: string) =>
+        withdraw({
+          rail: 'crypto-native',
+          amount: amt(amount),
+          destination: { kind: 'crypto', ref: '0x52908400098527886E0F7030069857D2E4169EE7' },
+          clientRef,
+        });
+
+      await expect(send('chain-refused', '13')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await availableOf()).toBe('100');
+      const [refused] = await money.listWithdrawals(USER, 50);
+      expect(refused).toMatchObject({ status: 'failed', failureCode: 'rail.refused' });
+      const journal = await sql<
+        Array<{ outcome: string }>
+      >`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${refused!.id}`;
+      expect(journal).toEqual([{ outcome: 'refused' }]);
+      expect(await holdOf(refused!.id, 0)).toBe('0');
+      expect(chain.totalSent('USDT')).toBe('0');
+      expect(await boundaryOf('crypto-native')).toBe('0');
+
+      // Any other amount goes out, and what left the user is what the chain sent.
+      expect((await send('chain-sent', '12')).status).toBe('sent');
+      expect(await availableOf()).toBe('88');
+      expect(chain.totalSent('USDT')).toBe('12');
+    });
+
     it('durable refusal before failure-code interruption resumes original reversal without another rail call', async () => {
       let railCalls = 0;
       const payout = card.payout.bind(card);

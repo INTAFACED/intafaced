@@ -244,8 +244,10 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
   // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by the range alone: `view=` or `by=` keeps the same read
   const ask = useMemo(() => parsed, [askKey]);
   const first = firstActivity(book);
-  // Read the clock only when the range changes, so a preset's start stays put while the page is open.
-  const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, offset, first]);
+  // Read the clock only when the range or the zone changes (a new zone is a new read anyway), so a preset's start stays
+  // put while the page is open.
+  const now = useMemo(() => Date.now(), [ask, offset]);
+  const range = useMemo(() => resolveRange(ask, now, offset, first), [ask, now, offset, first]);
   const result = usePnlOverTime(range === null ? null : { ...range, utcOffsetMinutes: offset });
 
   let body;

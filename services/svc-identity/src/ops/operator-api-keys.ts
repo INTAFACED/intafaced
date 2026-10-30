@@ -90,7 +90,7 @@ export async function revokeApiKeyForUser(
       };
     }
     if (key.revoked) return { userId, keyId, changed: false, revocation: null };
-    await tx`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId}`;
+    await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'operator' WHERE id = ${keyId} AND user_id = ${userId}`;
     const [row] = await tx<Array<{ revoked_at: Date }>>`
       INSERT INTO api_key_operator_revocations (key_id, user_id, actor_id, reason, client_request_id)
       VALUES (${keyId}, ${userId}, ${actor.userId}, ${reason}, ${clientRequestId})

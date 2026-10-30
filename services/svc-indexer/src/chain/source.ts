@@ -120,6 +120,19 @@ export interface ChainBlock {
    * An empty array means the block was read and holds no transactions.
    */
   readonly transactions?: readonly ChainTx[];
+  /**
+   * D-explorer-03. What each contract first seen emitting an ERC-20 Transfer in this block said about itself.
+   * Absent when the source does not read them; a contract already read earlier is not repeated.
+   */
+  readonly tokens?: readonly ChainToken[];
+}
+
+/** A token contract's own answers. Null is "it did not answer that call" (no such function, a revert), never a guess. */
+export interface ChainToken {
+  readonly address: string;
+  readonly symbol: string | null;
+  readonly name: string | null;
+  readonly decimals: number | null;
 }
 
 export interface ChainBlockHeader {

@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
-import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
-import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
+import { deskPairLabel, findRoom, resolveAlias, roomTitle, type Room } from './navigation';
+import { useLocation, navigate } from './location';
 import { Shell } from './Shell';
 import { preloadMerchantChrome } from './TopBar';
 import { useSession } from '../features/session/session';
@@ -19,6 +19,8 @@ import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
+import { SessionRetryPanel, SignInPanel } from './SignInPanel';
+import { matchMoreRoute } from '../features/more/more-room-routes';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
 const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
@@ -67,27 +69,18 @@ function DevRibbon({ feature }: { feature: Feature }) {
 }
 
 const isAcademyPath = (path: string) => path === '/academy' || path.startsWith('/academy/');
+// The launch catalogue and a launch's page open signed out too (J-more-catalogue-11): they read only published events.
+// Eligibility and basis inside them still ask the visitor to sign in. The issuer forms under /launch stay private.
+const isLaunchCataloguePath = (path: string) => {
+  if (path === '/launch') return true;
+  const hit = matchMoreRoute(path);
+  return hit?.route.room === 'launch' && hit.route.kind === 'detail' && hit.id !== undefined;
+};
 
 function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
     ? room.area
     : undefined;
-}
-
-function RoomSignIn({ children }: { children: ReactNode }) {
-  const current = useReturnLocation();
-  return (
-    <a
-      className="button button--primary"
-      href={`/login?redirect=${encodeURIComponent(safeReturnTo(current))}`}
-      onClick={(event) => {
-        // Native hashchange is queued; capture again at link activation.
-        event.currentTarget.href = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
-      }}
-    >
-      {children}
-    </a>
-  );
 }
 
 export function App() {
@@ -143,7 +136,11 @@ export function App() {
   }
   // The Academy opens for a visitor with no account too (J-academy-01): its signed-out view reads only published content.
   const needsSession =
-    room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout' && !isAcademyPath(path);
+    room &&
+    ['home', 'money', 'pay', 'more', 'person'].includes(room.area) &&
+    path !== '/pay/checkout' &&
+    !isAcademyPath(path) &&
+    !isLaunchCataloguePath(path);
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
@@ -180,9 +177,7 @@ export function App() {
     body = (
       <div className="legacy-room">
         <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-          <EmptyState title={t('We could not check your sign-in')} action={<Button onClick={retryRestore}>{t('Retry')}</Button>}>
-            {t('The account service did not answer. Your sign-in is not lost; try again.')}
-          </EmptyState>
+          <SessionRetryPanel retry={retryRestore} />
         </Page>
       </div>
     );
@@ -190,9 +185,7 @@ export function App() {
     body = (
       <div className="legacy-room">
         <Page title={room ? roomTitle(room, requestedLocale) : t('Sign in')}>
-          <EmptyState title={t('Sign in to continue')} action={<RoomSignIn>{t('Sign in')}</RoomSignIn>}>
-            {t('Your account context is needed before this room can show private information.')}
-          </EmptyState>
+          <SignInPanel />
         </Page>
       </div>
     );

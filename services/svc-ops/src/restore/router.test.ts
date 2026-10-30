@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, type ActionApproval } from '@intafaced/contracts';
 import {
-  OPS_ALERT_PROBE_UNCONFIGURED,
-  OPS_ALERT_SOURCE_UNCONFIGURED,
   OPS_CUSTODY_CHAIN_UNWIRED,
   OPS_CUSTODY_KEYS_UNPUBLISHED,
   OPS_CUSTODY_LEDGER_UNWIRED,

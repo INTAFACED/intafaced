@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
-import { s2sFromEnv } from '@intafaced/contracts';
-import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
+import { s2sFromEnv, serviceCallSigner } from '@intafaced/contracts';
+import { clockSkewBoundMs, env, idempotencyConflictMode, openItemsUrls, railStatementUrls } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -11,6 +11,7 @@ import { createReconcileTickState, runScheduledReconciliationTick } from './ledg
 import { registerS2sHttp } from './s2s-http.js';
 import { reconcileGauges, registerMetrics } from './metrics.js';
 import { registerOperatorHttp } from './operator-http.js';
+import { reconciliationSourcesFrom } from './ledger/reconciliation-sources.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './ledger/action-approval-consume.js';
 import { registerLedgerStatusHttp } from './status-http.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -49,11 +50,28 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['ledger'],
 });
 
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every door on the
+// shared secret alone, and each door still names the services that may call it.
+const s2s = s2sFromEnv(env, 'svc-ledger');
+
+// Blank snapshot URL: an outside-balance control's outside side is unset. Set but unreadable: that run is ERROR.
+// A rail with an open-items URL reads svc-pay's open items too, signed as svc-ledger; one it cannot read is ERROR.
+const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, railStatementUrls, fetch, undefined, {
+  urls: openItemsUrls,
+  sign: serviceCallSigner({
+    service: 'svc-ledger',
+    audience: 'svc-pay',
+    legacySecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+  }),
+});
+
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
   clockSkewBoundMs,
+  reconciliationSources,
 });
 
 // Before the first request, never after: a frozen database stays frozen, and
@@ -86,9 +104,6 @@ registerLedgerStatusHttp(app, ledger, env.SERVICE_NAME);
 
 // Body digest is required on the live money plane. Isolated tests may still
 // mount accept-both; compose / config default stays accept-both.
-// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every door on the
-// shared secret alone, and each door still names the services that may call it.
-const s2s = s2sFromEnv(env, 'svc-ledger');
 registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, {
   bodyBind: 'require',
   ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
@@ -115,6 +130,7 @@ registerOperatorHttp(
     accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
   },
   actionApprovals,
+  reconciliationSources,
 );
 
 // Outbox recover is NOT inside applyStartupPolicy. That path is freeze-only

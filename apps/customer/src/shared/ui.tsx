@@ -81,6 +81,7 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
 }
 /** Refusals that come from something not being switched on, allowed or listed. A second attempt cannot change them. */
 const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
+  'spaceLocked',
   'screening',
   'region',
   'verify',
@@ -99,6 +100,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'marketLimitOnly',
   'optionUnsupported',
   'accountOnHold',
+  'tradingOnHold',
   'notFound',
   'notSetUp',
   'feeScheduleUnset',

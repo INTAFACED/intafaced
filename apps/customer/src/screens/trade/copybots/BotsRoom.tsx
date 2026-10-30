@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -22,40 +22,23 @@ import { usePortfolio } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
 import { displayAmount } from '../../../shared/money';
-import { createRoomApi, type StudioStrategy } from './api';
+import { BOT_LIST_MAX, BOT_LIST_PAGE, createRoomApi, type BotListRow, type StudioStrategy } from './api';
 import { BOT_TONE, BOT_WORD, BotDetail, percentFilled, type Algo, type Progress } from './BotDetail';
+import { botName } from './bot-name';
 import { roomCopy } from './copy';
 import { algoServiceId, useWriteGuard, type Failure } from './guard';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 import { TwapWizard, type BotKind } from './TwapWizard';
+import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
+import type { GridBot } from './api';
+import { roomRefusal } from './refusals';
 
-type TabId = 'catalogue' | 'mine' | 'paper';
-const TABS: readonly TabId[] = ['catalogue', 'mine', 'paper'];
+type TabId = 'catalogue' | 'paper';
+const TABS: readonly TabId[] = ['catalogue', 'paper'];
+const SETUP_KINDS: readonly BotKind[] = ['twap', 'vwap', 'pov'];
 
-type Ref = { id: string; symbol: string; kind: string; at: number };
-const refsKey = (userId: string | null) => `bots-created:${userId ?? 'signed-out'}`;
-function readRefs(key: string): Ref[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
-    return Array.isArray(parsed)
-      ? parsed.filter(
-          (r): r is Ref =>
-            typeof r === 'object' && r !== null && typeof (r as Ref).id === 'string' && typeof (r as Ref).symbol === 'string',
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-function writeRefs(key: string, refs: Ref[]) {
-  try {
-    localStorage.setItem(key, JSON.stringify(refs.slice(0, 100)));
-  } catch {
-    /* the list is a convenience; the service still holds every schedule */
-  }
-}
-
+/** A bot's kind as the hub and My bots name it. */
 interface CatalogueRow {
   id: 'twap' | 'vwap' | 'pov' | 'grid' | 'dca' | 'studio';
   name: string;
@@ -85,7 +68,7 @@ const CATALOGUE: readonly CatalogueRow[] = [
     id: 'grid',
     name: 'Grid',
     does: 'Buys low and sells high inside a price range',
-    needs: 'A price range, grid count, and a grid service',
+    needs: 'Market, investment, a price range and a grid count',
   },
   {
     id: 'dca',
@@ -101,14 +84,57 @@ const CATALOGUE: readonly CatalogueRow[] = [
   },
 ];
 
-interface BotRow {
-  ref: Ref;
-  algo: Algo | null;
-  progress: Progress | null;
-  failure: Failure | null;
-}
+/** Each bot type in the hub, its own room or setup, and the name the hub gives it. */
+const TYPE_LINK: Record<CatalogueRow['id'], { name: string; href: string }> = {
+  twap: { name: 'Time-weighted (TWAP)', href: '/trade/bots?setup=twap' },
+  vwap: { name: 'Volume-weighted (VWAP)', href: '/trade/bots?setup=vwap' },
+  pov: { name: 'Participation (POV)', href: '/trade/bots?setup=pov' },
+  grid: { name: 'Spot grid', href: '/trade/bots/grid' },
+  dca: { name: 'Recurring buy (DCA)', href: '/trade/bots/dca' },
+  studio: { name: 'Strategy from Quant Studio', href: '/trade/bots?tab=paper' },
+};
+
+type OpenBot = { algo: Algo | null; progress: Progress | null; failure: Failure | null };
+
+/** Why a bot type with no engine can't be set up, in the catalogue and in its own room. */
+const NOT_BUILT: Record<'dca', string> = {
+  dca: 'No recurring-order service exists. Use Convert for a single trade.',
+};
+
+/** Bot types with no engine yet: the room is reachable and says why nothing can be set up. */
+const PARKED: Record<string, { title: string; reason: string }> = {
+  [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
+};
+
+const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that address.' };
 
 export function BotsRoom({ path }: { path: string }) {
+  const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
+  if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
+  const parked = PARKED[pathname];
+  if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
+  // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
+  if (pathname.startsWith('/trade/bots/')) return <ParkedBotRoom title={UNKNOWN_KIND.title} reason={UNKNOWN_KIND.reason} />;
+  return <BotsHub path={path} />;
+}
+
+function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
+  const { t } = roomCopy.useCopy();
+  return (
+    <Page width="full" className="cb-page">
+      <ModeNav active="bots" />
+      <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
+      <EmptyState
+        variant="refused"
+        title={t('Not available')}
+        reason={t(reason as 'Spot grid')}
+        action={{ label: t('Back to Bots'), href: '/trade/bots', variant: 'secondary' }}
+      />
+    </Page>
+  );
+}
+
+function BotsHub({ path }: { path: string }) {
   const { t } = roomCopy.useCopy();
   const transport = useApi();
   const { session, userId } = useSession();
@@ -117,46 +143,75 @@ export function BotsRoom({ path }: { path: string }) {
   const params = new URL(path, 'http://x').searchParams;
   const requested = params.get('tab');
   const tab: TabId = TABS.find((id) => id === requested) ?? 'catalogue';
-  const setTab = (id: string) => navigate(`/trade/bots?tab=${id}`, true);
-
-  const key = refsKey(userId ?? null);
-  const [refs, setRefs] = useState<Ref[]>(() => readRefs(key));
-  const remember = useCallback(
-    (ref: Ref) => {
-      const next = [ref, ...readRefs(key).filter((r) => r.id !== ref.id)];
-      writeRefs(key, next);
-      setRefs(next);
-    },
-    [key],
-  );
+  // Each change reads the address as it is now, so one never undoes another (a create opens its bot, then the wizard
+  // closes) and the tab survives opening and closing a bot.
+  const go = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(window.location.search);
+    for (const [name, value] of Object.entries(patch))
+      if (value === null) next.delete(name);
+      else next.set(name, value);
+    const query = next.toString();
+    if (query === new URLSearchParams(window.location.search).toString()) return;
+    navigate(query ? `/trade/bots?${query}` : '/trade/bots', true);
+  };
+  const setTab = (id: string) => go({ tab: id });
 
   const policy = useLive((signal) => api.algoPolicy(signal), 'bots-policy', 60_000);
   const markets = useLive((signal) => tradeApi.markets(signal), 'bots-markets', 300_000);
   const studio = useLive((signal) => api.studio(signal), 'bots-studio', 60_000);
-  const idsKey = refs.map((r) => r.id).join(',');
-  const rows = useLive<BotRow[]>(
-    async (signal) => {
-      const out: BotRow[] = await Promise.all(
-        refs.map(async (ref): Promise<BotRow> => {
-          const [algo, progress] = await Promise.all([api.algoGet(ref.id, signal), api.algoProgress(ref.id, signal)]);
-          return {
-            ref,
-            algo: algo.ok ? algo.data : null,
-            progress: progress.ok ? progress.data : null,
-            failure: algo.ok ? (progress.ok ? null : progress) : algo,
-          };
-        }),
-      );
-      return { ok: true, data: out };
-    },
-    `bots-rows:${session ? 'in' : 'out'}:${idsKey}`,
+  // The grid service answers for this person: below the owner's verification level (or with none set) it refuses.
+  const gridSetup = useLive(
+    (signal) => (session ? api.gridSetup(signal) : Promise.resolve({ ok: true as const, data: null })),
+    `bots-grid-setup:${session ? (userId ?? 'in') : 'out'}`,
+    60_000,
+  );
+  const grids = useLive(
+    (signal) => (session ? api.gridList(signal) : Promise.resolve({ ok: true as const, data: [] as GridBot[] })),
+    `bots-grids:${session ? (userId ?? 'in') : 'out'}`,
     10_000,
   );
+  // My bots is the service's own list of this person's bots, so a new browser shows the same bots.
+  const [mineLimit, setMineLimit] = useState(BOT_LIST_PAGE);
+  const mine = useLive(
+    (signal) => (session ? api.algoList(mineLimit, signal) : Promise.resolve({ ok: true as const, data: { rows: [], nextCursor: null } })),
+    // The limit stays out of the key: showing more is a reload of the same list, so the rows on screen stay.
+    `bots-mine:${session ? (userId ?? 'in') : 'out'}`,
+    10_000,
+  );
+  const moreMine = mine.data?.nextCursor != null;
+  const showMoreMine = () => {
+    setMineLimit((n) => Math.min(n + BOT_LIST_PAGE, BOT_LIST_MAX));
+    mine.reload();
+  };
+  const openId = params.get('bot');
+  const setOpenId = (id: string | null) => go({ bot: id });
+  // An ID the service refused is not polled again; Retry reads it once more.
+  const [refusedId, setRefusedId] = useState<string | null>(null);
+  const opened = useLive<OpenBot | null>(
+    async (signal) => {
+      if (!openId) return { ok: true, data: null };
+      const [algo, progress] = await Promise.all([api.algoGet(openId, signal), api.algoProgress(openId, signal)]);
+      return {
+        ok: true,
+        data: {
+          algo: algo.ok ? algo.data : null,
+          progress: progress.ok ? progress.data : null,
+          failure: algo.ok ? (progress.ok ? null : progress) : algo,
+        },
+      };
+    },
+    `bots-open:${openId ?? 'none'}`,
+    openId !== null && openId === refusedId ? null : 10_000,
+  );
+  // Only the service's own answer about this ID (a 4xx) stops the poll; a network error or a 5xx keeps reading.
+  const openFailure = opened.data !== null && !opened.data.algo ? opened.data.failure : null;
+  const openRefused = openFailure !== null && openFailure.status !== undefined && openFailure.status >= 400 && openFailure.status < 500;
+  useEffect(() => {
+    setRefusedId(openRefused ? openId : null);
+  }, [openRefused, openId]);
   const guard = useWriteGuard();
   const [wizard, setWizard] = useState<{ open: boolean; kind: BotKind }>({ open: false, kind: 'twap' });
-  const [openId, setOpenId] = useState<string | null>(null);
   const [byId, setById] = useState('');
-  const [byIdFailure, setByIdFailure] = useState<Failure | null>(null);
   const [checking, setChecking] = useState(false);
   const [verdict, setVerdict] = useState<string | null>(null);
 
@@ -164,21 +219,15 @@ export function BotsRoom({ path }: { path: string }) {
   // The wizard asks for one asset's balance at a time; the data layer's balance read answers for the asset it is given.
   const balanceOf = useBalanceLookup();
 
-  const open = rows.data?.find((r) => r.ref.id === openId) ?? null;
+  const open = opened.data;
+  const setup = params.get('setup');
+  const setupKind = SETUP_KINDS.find((k) => k === setup) ?? null;
 
-  const openById = async () => {
-    setByIdFailure(null);
+  const openById = () => {
     const id = byId.trim();
     if (!id) return;
-    const result = await api.algoGet(id);
-    if (!result.ok) {
-      setByIdFailure(result);
-      return;
-    }
-    remember({ id: result.data.id, symbol: result.data.symbol, kind: result.data.kind, at: Date.now() });
     setById('');
-    setOpenId(result.data.id);
-    setTab('mine');
+    setOpenId(id);
   };
 
   const check = async () => {
@@ -195,13 +244,12 @@ export function BotsRoom({ path }: { path: string }) {
     const result = await api.algoGet(serviceId);
     setChecking(false);
     if (result.ok) {
-      remember({ id: result.data.id, symbol: result.data.symbol, kind: result.data.kind, at: Date.now() });
       setVerdict(
         pending.operation
           ? t('That bot is now {state}.', { state: t((BOT_WORD[result.data.status] ?? 'Unknown state') as 'Running') })
           : t('The bot was created. It is in My bots.'),
       );
-      rows.reload();
+      mine.reload();
       guard.settle(pending);
     } else if (result.code === 'trade.algo_not_found') {
       setVerdict(t('No bot exists with that request, so it did not go through. You can set it up again.'));
@@ -211,8 +259,13 @@ export function BotsRoom({ path }: { path: string }) {
     }
   };
 
-  const catalogueStatus = (row: CatalogueRow): { tone: BadgeTone; word: string; reason: string | null; ready: boolean } => {
+  // `worded` marks a reason already in customer words (a refusal from refusals.ts), so it is shown as it is.
+  const catalogueStatus = (
+    row: CatalogueRow,
+  ): { tone: BadgeTone; word: string; reason: string | null; ready: boolean; worded?: boolean } => {
     if (row.id === 'twap' || row.id === 'vwap' || row.id === 'pov') {
+      if (!policy.data && policy.status === 'error')
+        return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
       if (policy.data && !policy.data.capability.createEnabled)
         return { tone: 'warn', word: 'Switched off', reason: 'New bots can’t be created right now', ready: false };
       if (policy.data?.immatureKinds.includes(row.id))
@@ -226,16 +279,31 @@ export function BotsRoom({ path }: { path: string }) {
     }
     if (row.id === 'studio')
       return { tone: 'warn', word: 'Paper only', reason: 'A strategy can’t trade live. It runs on paper.', ready: true };
-    return {
-      tone: 'neutral',
-      word: 'Not built',
-      reason:
-        row.id === 'grid'
-          ? 'No grid service exists. Nothing is simulated.'
-          : 'No recurring-order service exists. Use Convert for a single trade.',
-      ready: false,
-    };
+    if (row.id === 'grid') {
+      if (!session) return { tone: 'neutral', word: 'Sign in', reason: 'Sign in to set up a bot.', ready: false };
+      if (gridSetup.failure && !gridSetup.data) {
+        const words = roomRefusal(gridSetup.failure);
+        return { tone: 'warn', word: words.title, reason: words.title, ready: false, worded: true };
+      }
+      return { tone: 'lime', word: gridSetup.data ? 'Ready' : 'Checking', reason: null, ready: true };
+    }
+    return { tone: 'neutral', word: 'Not built', reason: NOT_BUILT.dca, ready: false };
   };
+
+  // A setup link opens the wizard only where the catalogue's Set up button would, once the policy has answered; where it
+  // can't, the hub says why.
+  const setupStatus = setupKind ? catalogueStatus(CATALOGUE.find((row) => row.id === setupKind)!) : null;
+  const setupBlocked = !setupStatus
+    ? null
+    : !session
+      ? t('Sign in to set up a bot.')
+      : !setupStatus.ready
+        ? t('Not available: {reason}', { reason: t((setupStatus.reason ?? setupStatus.word) as 'Ready') })
+        : null;
+  const setupReady = setupKind !== null && setupBlocked === null && policy.data !== null;
+  useEffect(() => {
+    if (setupKind && setupReady) setWizard({ open: true, kind: setupKind });
+  }, [setupKind, setupReady]);
 
   const catalogueColumns: TableColumn<CatalogueRow>[] = [
     { id: 'name', header: t('Bot'), value: (r) => t(r.name as 'Grid'), pin: 'start', width: 220 },
@@ -248,8 +316,8 @@ export function BotsRoom({ path }: { path: string }) {
         const s = catalogueStatus(r);
         return (
           <span className="cb-statuscell">
-            <Badge tone={s.tone}>{t(s.word as 'Ready')}</Badge>
-            {s.reason ? <small>{t(s.reason as 'Ready')}</small> : null}
+            <Badge tone={s.tone}>{s.worded ? s.word : t(s.word as 'Ready')}</Badge>
+            {s.reason && !s.worded ? <small>{t(s.reason as 'Ready')}</small> : null}
           </span>
         );
       },
@@ -273,6 +341,12 @@ export function BotsRoom({ path }: { path: string }) {
               {t('Set up')}
             </Button>
           );
+        if (r.id === 'grid')
+          return (
+            <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.grid.href)}>
+              {t('Set up')}
+            </Button>
+          );
         return (
           <Button variant="secondary" size={28} disabled>
             {t('Not built')}
@@ -282,54 +356,69 @@ export function BotsRoom({ path }: { path: string }) {
     },
   ];
 
-  const mineColumns: TableColumn<BotRow>[] = [
-    { id: 'id', header: t('Bot'), value: (r) => `${(r.algo?.kind ?? r.ref.kind).toUpperCase()} ${r.ref.symbol}`, pin: 'start', width: 200 },
-    { id: 'side', header: t('Side'), value: (r) => (r.algo ? (r.algo.side === 'buy' ? t('Buy') : t('Sell')) : null) },
+  const nameOf = (r: BotListRow) => botName(r.kind, r.market, t);
+  const mineColumns: TableColumn<BotListRow>[] = [
+    {
+      id: 'id',
+      header: t('Bot'),
+      value: nameOf,
+      cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
+      pin: 'start',
+      width: 200,
+    },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
     {
       id: 'status',
       header: t('State'),
-      cell: (r) =>
-        r.algo ? (
-          <Badge tone={BOT_TONE[r.algo.status] ?? 'neutral'}>{t((BOT_WORD[r.algo.status] ?? 'Unknown state') as 'Running')}</Badge>
-        ) : (
-          <Badge tone="warn">{t('Can’t load')}</Badge>
-        ),
+      cell: (r) => <Badge tone={BOT_TONE[r.status] ?? 'neutral'}>{t((BOT_WORD[r.status] ?? 'Unknown state') as 'Running')}</Badge>,
     },
     {
       id: 'progress',
       header: t('Filled'),
-      value: (r) => (r.algo && r.progress ? (percentFilled(r.progress.filledQty, r.algo.totalQty)?.replace('%', '') ?? null) : null),
+      value: (r) => percentFilled(r.filledQty, r.totalQty)?.replace('%', '') ?? null,
       numeric: true,
-      cell: (r) => (r.algo && r.progress ? (percentFilled(r.progress.filledQty, r.algo.totalQty) ?? '—') : '—'),
+      cell: (r) => percentFilled(r.filledQty, r.totalQty) ?? '—',
     },
-    {
-      id: 'slices',
-      header: t('Slices placed'),
-      value: (r) => (r.algo ? `${r.progress?.childrenEmitted ?? r.algo.childrenEmitted} / ${r.algo.slicesPlanned}` : null),
-    },
-    {
-      id: 'total',
-      header: t('Total'),
-      value: (r) => r.algo?.totalQty ?? null,
-      numeric: true,
-      cell: (r) => (r.algo ? displayAmount(r.algo.totalQty) : '—'),
-    },
-    {
-      id: 'ends',
-      header: t('Expected to finish'),
-      value: (r) => (r.algo ? new Date(r.algo.projectedEndsAt).toLocaleString() : null),
-      width: 200,
-    },
+    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty) },
+    { id: 'created', header: t('Started'), value: (r) => new Date(r.created).toLocaleString(), width: 200 },
     {
       id: 'open',
       header: t('Manage'),
       headerLabel: t('Manage'),
       cell: (r) => (
-        <Button variant="secondary" size={28} onClick={() => setOpenId(r.ref.id)}>
+        <Button variant="secondary" size={28} onClick={() => setOpenId(r.id)}>
           {t('Manage')}
         </Button>
       ),
     },
+  ];
+
+  const gridColumns: TableColumn<GridBot>[] = [
+    {
+      id: 'id',
+      header: t('Bot'),
+      value: (r) => t('Spot grid {symbol}', { symbol: r.symbol }),
+      cell: (r) => (
+        <a href={`${TYPE_LINK.grid.href}?bot=${encodeURIComponent(r.botId)}`}>{t('Spot grid {symbol}', { symbol: r.symbol })}</a>
+      ),
+      pin: 'start',
+      width: 200,
+    },
+    {
+      id: 'status',
+      header: t('State'),
+      cell: (r) => <Badge tone={GRID_TONE[r.status]}>{t(GRID_WORD[r.status] as 'Stopped')}</Badge>,
+      width: 280,
+    },
+    {
+      id: 'range',
+      header: t('Range'),
+      value: (r) => `${displayAmount(r.lowerPrice)} – ${displayAmount(r.upperPrice)}`,
+      numeric: true,
+    },
+    { id: 'invest', header: t('Investment'), value: (r) => r.investment, numeric: true, cell: (r) => displayAmount(r.investment) },
+    { id: 'profit', header: t('Grid profit'), value: (r) => r.gridProfit, numeric: true, cell: (r) => displayAmount(r.gridProfit) },
+    { id: 'created', header: t('Started'), value: (r) => new Date(r.createdAt).toLocaleString(), width: 200 },
   ];
 
   const paperColumns: TableColumn<StudioStrategy>[] = [
@@ -378,10 +467,129 @@ export function BotsRoom({ path }: { path: string }) {
         </InfoNote>
       ) : null}
 
+      {setupBlocked ? <InfoNote tone="warn">{setupBlocked}</InfoNote> : null}
+
+      <PageSection title={t('Bot types')} headingLevel={2}>
+        <ul className="cb-types" aria-label={t('Bot types')}>
+          {CATALOGUE.map((row) => {
+            const s = catalogueStatus(row);
+            const word = !s.ready
+              ? null
+              : row.id === 'studio'
+                ? t('Available on paper only')
+                : s.word === 'Checking'
+                  ? t('Checking')
+                  : s.reason
+                    ? t('Available. {reason}', { reason: t(s.reason as 'Ready') })
+                    : t('Available');
+            return (
+              <li key={row.id}>
+                <a href={TYPE_LINK[row.id].href}>{t(TYPE_LINK[row.id].name as 'Spot grid')}</a>
+                <span data-testid="bot-type-status">
+                  {word ?? t('Not available: {reason}', { reason: s.worded && s.reason ? s.reason : t((s.reason ?? s.word) as 'Ready') })}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </PageSection>
+
+      <PageSection
+        title={t('My bots')}
+        headingLevel={2}
+        actions={
+          <span className="cb-meta">
+            <Freshness live={mine} staleAfterMs={45_000} />
+            <Button variant="ghost" size={28} onClick={mine.reload}>
+              {t('Refresh')}
+            </Button>
+          </span>
+        }
+      >
+        {!session ? (
+          <EmptyState
+            variant="refused"
+            title={t('You are signed out')}
+            reason={t('Sign in to see your bots.')}
+            action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fbots' }}
+          />
+        ) : (
+          <>
+            {mine.status === 'ready' && mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : null}
+            <Table
+              label={t('My bots')}
+              columns={mineColumns}
+              rows={mine.data?.rows ?? []}
+              getRowId={(r) => r.id}
+              status={mine.status}
+              onRetry={mine.reload}
+              errorState={mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : undefined}
+              refreshing={mine.refreshing && mine.data !== null}
+              onRowActivate={(r) => setOpenId(r.id)}
+              minWidth={940}
+              emptyState={
+                <EmptyState
+                  size="inline"
+                  title={t('No bots')}
+                  reason={t('Bots you start appear here, on every device you sign in on.')}
+                  action={{ label: t('Set up a bot'), href: TYPE_LINK.twap.href, variant: 'secondary' }}
+                />
+              }
+            />
+            {grids.failure && !grids.data ? (
+              <RefusalNote failure={grids.failure} retry={grids.reload} />
+            ) : grids.data && grids.data.length > 0 ? (
+              <Table
+                label={t('My grid bots')}
+                columns={gridColumns}
+                rows={grids.data}
+                getRowId={(r) => r.botId}
+                refreshing={grids.refreshing}
+                onRowActivate={(r) => navigate(`${TYPE_LINK.grid.href}?bot=${encodeURIComponent(r.botId)}`)}
+                minWidth={940}
+              />
+            ) : null}
+            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
+            {moreMine ? (
+              <div className="cb-action-row">
+                {mineLimit < BOT_LIST_MAX ? (
+                  <Button variant="secondary" onClick={showMoreMine}>
+                    {t('Show more bots')}
+                  </Button>
+                ) : (
+                  <InfoNote>{t('These are your {count} newest bots.', { count: String(BOT_LIST_MAX) })}</InfoNote>
+                )}
+              </div>
+            ) : null}
+            <form
+              className="cb-byid"
+              onSubmit={(event) => {
+                event.preventDefault();
+                openById();
+              }}
+            >
+              <Field label={t('Open a bot by ID')}>
+                <Input kind="text" value={byId} onValueChange={setById} autoComplete="off" />
+              </Field>
+              <Button type="submit" variant="secondary" disabled={!byId.trim()}>
+                {t('Open')}
+              </Button>
+            </form>
+            {open && openRefused && open.failure ? (
+              <div className="cb-action-row">
+                <RefusalNote failure={open.failure} retry={opened.reload} />
+                <Button variant="ghost" size={28} onClick={() => setOpenId(null)}>
+                  {t('Close')}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </PageSection>
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList divider aria-label={t('Bot sections')}>
           <TabsTab value="catalogue">{t('Catalogue')}</TabsTab>
-          <TabsTab value="mine">{t('My bots')}</TabsTab>
           <TabsTab value="paper">{t('Paper strategies')}</TabsTab>
         </TabsList>
 
@@ -389,68 +597,6 @@ export function BotsRoom({ path }: { path: string }) {
           <PageSection title={t('Bot catalogue')} headingLevel={2}>
             <Table label={t('Bot catalogue')} columns={catalogueColumns} rows={CATALOGUE} getRowId={(r) => r.id} minWidth={1000} />
             <InfoNote>{t('Bots that are not built show their real status. Nothing here is simulated unless it says Paper.')}</InfoNote>
-          </PageSection>
-        </TabsPanel>
-
-        <TabsPanel value="mine">
-          <PageSection
-            title={t('Your bots')}
-            headingLevel={2}
-            actions={
-              <span className="cb-meta">
-                <Freshness live={rows} staleAfterMs={45_000} />
-                <Button variant="ghost" size={28} onClick={rows.reload}>
-                  {t('Refresh')}
-                </Button>
-              </span>
-            }
-          >
-            {!session ? (
-              <EmptyState
-                variant="refused"
-                title={t('You are signed out')}
-                reason={t('Sign in to see your bots.')}
-                action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fbots%3Ftab%3Dmine' }}
-              />
-            ) : (
-              <>
-                <Table
-                  label={t('My bots')}
-                  columns={mineColumns}
-                  rows={rows.data ?? []}
-                  getRowId={(r) => r.ref.id}
-                  status={rows.status === 'loading' && refs.length > 0 ? 'loading' : 'ready'}
-                  refreshing={rows.refreshing && rows.data !== null}
-                  onRowActivate={(r) => setOpenId(r.ref.id)}
-                  minWidth={940}
-                  emptyState={
-                    <EmptyState
-                      size="inline"
-                      title={t('No bots started on this device')}
-                      reason={t(
-                        'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.',
-                      )}
-                      action={{ label: t('Set up a bot'), onClick: () => setTab('catalogue'), variant: 'secondary' }}
-                    />
-                  }
-                />
-                <form
-                  className="cb-byid"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void openById();
-                  }}
-                >
-                  <Field label={t('Open a bot by ID')}>
-                    <Input kind="text" value={byId} onValueChange={setById} autoComplete="off" />
-                  </Field>
-                  <Button type="submit" variant="secondary" disabled={!byId.trim()}>
-                    {t('Open')}
-                  </Button>
-                </form>
-                {byIdFailure ? <RefusalNote failure={byIdFailure} /> : null}
-              </>
-            )}
           </PageSection>
         </TabsPanel>
 
@@ -495,16 +641,18 @@ export function BotsRoom({ path }: { path: string }) {
       <TwapWizard
         open={wizard.open}
         kind={wizard.kind}
-        onOpenChange={(o) => setWizard((w) => ({ ...w, open: o }))}
+        onOpenChange={(o) => {
+          setWizard((w) => ({ ...w, open: o }));
+          if (!o) go({ setup: null });
+        }}
         api={api}
         guard={guard}
         policy={policy.data}
         markets={spot}
         available={balanceOf}
         onCreated={(algo) => {
-          remember({ id: algo.id, symbol: algo.symbol, kind: algo.kind, at: Date.now() });
-          setTab('mine');
-          setOpenId(algo.id);
+          mine.reload();
+          go({ setup: null, bot: algo.id });
         }}
       />
       <BotDetail
@@ -514,7 +662,10 @@ export function BotsRoom({ path }: { path: string }) {
         onClose={() => setOpenId(null)}
         api={api}
         guard={guard}
-        onChanged={rows.reload}
+        onChanged={() => {
+          mine.reload();
+          opened.reload();
+        }}
       />
     </Page>
   );

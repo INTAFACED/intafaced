@@ -13,7 +13,7 @@ import { parseOtcMidPrice } from './rfq.js';
 import { FixedOtcStake } from './stake-source.js';
 
 const USER = '00000000-0000-4000-8000-000000000088';
-const principal = { userId: USER } as import('@intafaced/auth').Principal;
+const principal = { userId: USER, tier: 'basic' } as import('@intafaced/auth').Principal;
 
 const published: OtcDeskLaw = {
   published: true,
@@ -22,6 +22,10 @@ const published: OtcDeskLaw = {
   counterparty: 'platform',
   quoteTtlMs: 60_000,
   maxMidAgeSeconds: 60,
+  // A zero desk minimum is an owner value: these quotes are not held by the CB-otc-07 minimum.
+  minNotional: { USDT: 0n },
+  assets: ['BTC'],
+  minTier: 'basic',
 };
 
 describe('OTC RFQ — blank mid and unset owner tiers refuse', () => {
@@ -53,11 +57,15 @@ describe('OTC RFQ — blank mid and unset owner tiers refuse', () => {
   it('quote refuses unset owner desk law even when a mid is present', async () => {
     const now = new Date('2026-08-15T10:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: UNPUBLISHED_OTC_DESK_LAW,
       midSource: () => ({ mid: '200', asOf: now }),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_desk_law_blank',
     });
   });
@@ -65,11 +73,15 @@ describe('OTC RFQ — blank mid and unset owner tiers refuse', () => {
   it('quote refuses a blank sourced mid string — no invented mid', async () => {
     const now = new Date('2026-08-15T10:00:00.000Z');
     const svc = new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('1000')), {
+      // The house desk is the one provider these requests ask (CB-otc-01).
+      makerDirectory: { published: true, makers: [{ id: 'house', name: 'House desk', route: 'platform' }], selectCap: 1 },
       law: published,
       midSource: () => ({ mid: '', asOf: now }),
       now: () => now,
     });
-    await expect(svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' })).rejects.toMatchObject({
+    await expect(
+      svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerIds: ['house'] }),
+    ).rejects.toMatchObject({
       code: 'trade.otc_no_reference_price',
     });
   });

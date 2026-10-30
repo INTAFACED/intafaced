@@ -45,11 +45,20 @@ function toAccountTrpc(err: unknown): never {
       err.code === 'auth.domain_not_allowed' ||
       err.code === 'auth.request_unsigned' ||
       err.code === 'auth.request_stale' ||
+      err.code === 'auth.request_future' ||
       err.code === 'auth.request_tampered' ||
       err.code === 'auth.request_replay' ||
-      err.code === 'auth.ip_allowlist_required'
+      err.code === 'auth.ip_allowlist_required' ||
+      err.code === 'auth.api_key_expired' ||
+      err.code === 'auth.edge_unauthenticated'
     ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    }
+    if (err.code === 'auth.request_window_unset') {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    }
+    if (err.code === 'auth.api_key_revoked') {
+      throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
     if (err.code === 'auth.account_frozen' || err.code === 'auth.sub_account_denied' || err.code === 'auth.delegate_cannot_grant') {
       throw new TRPCError({ code: 'FORBIDDEN', message: err.code === 'auth.delegate_cannot_grant' ? err.message : message, cause: err });

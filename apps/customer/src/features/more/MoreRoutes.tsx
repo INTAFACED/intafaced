@@ -4,6 +4,8 @@ import { useSession } from '../session/session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
+import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
+import { agentBuilderCopy } from './agent-builder-copy';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
@@ -13,6 +15,7 @@ import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
+import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support, supportPageTitleKey } from './Support';
@@ -20,6 +23,7 @@ import { supportRoute } from './support-desk';
 import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
 import { launchCopy } from './launch-copy';
+import { LaunchDetail } from './LaunchCatalogue';
 import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
@@ -73,6 +77,13 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/new') {
+    title = agentBuilderCopy.t('newAgent');
+    content = <NewAgent />;
+  } else if (ownAgentId(p)) {
+    const id = ownAgentId(p)!;
+    title = <OwnAgentTitle id={id} />;
+    content = <OwnAgentPage key={id} id={id} />;
   } else if (p === '/blueprint') {
     room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
@@ -141,6 +152,10 @@ function MoreRooms({ path }: { path: string }) {
       content =
         hit.route.kind === 'part' ? (
           page.content(path, paper)
+        ) : room === 'launch' && hit.id && !hit.invalid ? (
+          <LaunchDetail key={hit.id} eventId={hit.id} />
+        ) : room === 'market' && hit.id && !hit.invalid ? (
+          <MarketListingPage key={hit.id} listingId={hit.id} />
         ) : (
           <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
@@ -181,7 +196,7 @@ const section = (path: string) => (path.split(/[?#]/)[0] ?? '').split('/')[2] ??
 /** The tab each section's own address opens its room on, so /mining/workers is not the same page as /mining (Phantom 24 Oct). */
 export const SECTION_TABS: { launch: Record<string, LaunchTab>; token: Record<string, TokenTab>; mining: Record<string, MiningTab> } = {
   launch: { new: 'Journey', check: 'Check', requirements: 'Requirements' },
-  token: { governance: 'Governance', economy: 'Economy' },
+  token: { governance: 'Governance', economy: 'Economy', burn: 'Burn' },
   mining: { workers: 'Workers', shares: 'Shares', rewards: 'Rewards', status: 'Status' },
 };
 

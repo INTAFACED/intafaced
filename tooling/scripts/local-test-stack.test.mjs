@@ -2,7 +2,7 @@
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { request as httpRequest } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import {
   existsSync,
@@ -21,7 +21,182 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The env a child gets when it should find its state under its own HOME. An inherited LOCAL_STACK_STATE (the INTAFACED
+// cloud environment sets it to the machine's real stack) would point the child at that stack instead.
+function homeEnv(home, extra = {}) {
+  const { LOCAL_STACK_STATE: _state, ...env } = process.env;
+  return { ...env, ...extra, HOME: home };
+}
 const script = resolve(here, 'local-test-stack.mjs');
+
+// Start order: a service waits for every earlier service its env names (matching checks resting-order holds against
+// the ledger as it boots), edge waits for every service, and services that call nothing start at once.
+{
+  const { startDependencies, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const defs = localTestServiceEnvs();
+  const envOf = (d) => d.env;
+  const waitsOf = (name) =>
+    startDependencies(
+      defs,
+      defs.find((d) => d.name === name),
+      envOf,
+    ).map((d) => d.name);
+  assert.deepEqual(waitsOf('ledger'), []);
+  assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
+  assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
+  // Every service but svc-ws, which is not behind the edge: the Customer server proxies /ws to it directly.
+  assert.deepEqual(
+    waitsOf('edge').sort(),
+    defs
+      .map((d) => d.name)
+      .filter((n) => n !== 'edge' && n !== 'ws')
+      .sort(),
+  );
+  const wsPort = `:${defs.find((d) => d.name === 'ws').env.HTTP_PORT}`;
+  assert.ok(
+    !Object.values(defs.find((d) => d.name === 'edge').env).some((value) => String(value).includes(wsPort)),
+    'the edge names no svc-ws port',
+  );
+  // Only services listed earlier are waited for, so the order can never deadlock.
+  for (const def of defs) {
+    for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
+  }
+  // A port is matched whole: 1450 is not 14501.
+  const a = { name: 'a', env: { HTTP_PORT: '14501' } };
+  const b = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:1450' } };
+  assert.deepEqual(startDependencies([a, b], b, envOf), []);
+  const b2 = { name: 'b', env: { HTTP_PORT: '14502', A_URL: 'http://127.0.0.1:14501/x' } };
+  assert.deepEqual(
+    startDependencies([a, b2], b2, envOf).map((d) => d.name),
+    ['a'],
+  );
+}
+
+// Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
+// shared public keyring and its own matching signing key, and keypair is refused.
+{
+  const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS, newServiceKey, serviceKeyMatches } =
+    await import('./local-test-stack.mjs');
+  const { createPrivateKey, createPublicKey } = await import('node:crypto');
+  const contractsNames = [
+    ...readFileSync(resolve(here, '../../packages/contracts/src/service-keys.ts'), 'utf8')
+      .match(/export const SERVICE_NAMES = \[([^\]]*)\]/)[1]
+      .matchAll(/'(svc-[a-z0-9-]+)'/g),
+  ].map((m) => m[1]);
+  const stackSvcs = localTestServiceEnvs().map((d) => d.env.SERVICE_NAME);
+  assert.deepEqual(
+    [...S2S_SERVICES].sort(),
+    stackSvcs.filter((n) => contractsNames.includes(n)).sort(),
+    'every stack service that packages/contracts names has a key, and no other',
+  );
+  const s2sKeys = Object.fromEntries(S2S_SERVICES.map((svc) => [svc, newServiceKey(svc)]));
+  // A stored key is kept only when its kid is the service's and its private key gives its public x.
+  assert.ok(serviceKeyMatches('svc-trade', s2sKeys['svc-trade']));
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], kid: 'svc-trade.old' }), 'another kid');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], x: s2sKeys['svc-ledger'].x }), 'another public key');
+  assert.ok(!serviceKeyMatches('svc-trade', { ...s2sKeys['svc-trade'], key: 'not-a-key' }), 'a broken private key');
+  assert.ok(!serviceKeyMatches('svc-trade', undefined), 'no key');
+  const prior = process.env.LOCAL_STACK_S2S;
+  try {
+    delete process.env.LOCAL_STACK_S2S;
+    for (const { name, env } of localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys })) {
+      assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S env by default`);
+    }
+    assert.deepEqual(s2sEnv({ s2sKeys }, 'svc-trade', 'off'), {});
+    process.env.LOCAL_STACK_S2S = 'dual';
+    const keyed = localTestServiceEnvs({ ...PLAN_SECRETS, s2sKeys });
+    const rings = new Set();
+    for (const { name, env } of keyed) {
+      const svc = env.SERVICE_NAME;
+      if (!S2S_SERVICES.includes(svc)) {
+        assert.ok(!Object.keys(env).some((k) => k.startsWith('S2S_')), `${name}: no S2S role, no S2S env`);
+        continue;
+      }
+      assert.equal(env.S2S_AUTH_MODE, 'dual', name);
+      assert.equal(env.S2S_SIGNING_KID, `${svc}.local`, name);
+      rings.add(env.S2S_KEYRING);
+      const entry = JSON.parse(env.S2S_KEYRING).keys.find((k) => k.kid === env.S2S_SIGNING_KID);
+      assert.equal(entry.svc, svc, name);
+      const priv = createPrivateKey({ key: Buffer.from(env.S2S_SIGNING_KEY, 'base64url'), format: 'der', type: 'pkcs8' });
+      assert.equal(createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'), entry.x, name);
+    }
+    assert.equal(rings.size, 1, 'one keyring for every service');
+    const ring = JSON.parse([...rings][0]).keys;
+    assert.equal(ring.length, S2S_SERVICES.length);
+    assert.ok(
+      ring.every((k) => Object.keys(k).sort().join() === 'kid,svc,use,x' && k.use === 's2s'),
+      'public keys only',
+    );
+    assert.throws(() => s2sEnv({ s2sKeys }, 'svc-trade', 'keypair'), /off or dual/);
+    assert.throws(() => s2sEnv({}, 'svc-trade', 'dual'), /no stack key for svc-academy/);
+    // `plan` under dual shows the keyed env from placeholders, without reading secrets.json.
+    assert.equal(localTestServiceEnvs().find((d) => d.env.SERVICE_NAME === 'svc-trade').env.S2S_SIGNING_KID, 'svc-trade.local');
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_S2S;
+    else process.env.LOCAL_STACK_S2S = prior;
+  }
+}
+
+// LOCAL_STACK_S2S is checked before a restart stops anything: a bad value, or a value other than the one the running
+// services were started with, is refused with exit 2 and the running service is left alone.
+{
+  const { readProcessIdentity } = await import('./local-test-state.mjs');
+  const s2sHome = mkdtempSync(join(tmpdir(), 'local-test-stack-s2s-'));
+  const s2sState = join(s2sHome, '.intafaced', 'local-test-stack');
+  const child = spawn('sleep', ['60'], { stdio: 'ignore' });
+  try {
+    let id = null;
+    for (let i = 0; i < 50 && !id; i++) {
+      id = readProcessIdentity(child.pid);
+      if (!id) await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(id, 'the stand-in ledger process is visible to ps');
+    mkdirSync(join(s2sState, 'run'), { recursive: true });
+    writeFileSync(
+      join(s2sState, 'run', 'processes.json'),
+      JSON.stringify({ ledger: { pid: child.pid, argv: id.command.split(' '), startedAt: new Date(id.startedAt).toISOString() } }),
+    );
+    const { LOCAL_STACK_STATE: _state, ...env } = process.env;
+    const restart = (mode) =>
+      spawnSync(process.execPath, [script, 'restart', 'ledger'], {
+        env: { ...env, HOME: s2sHome, LOCAL_STACK_S2S: mode },
+        encoding: 'utf8',
+      });
+    let r = restart('keypair');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /LOCAL_STACK_S2S must be off or dual, not "keypair"/);
+    r = restart('dual');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=off \(ledger\); set the same value, or stop the stack first/);
+    writeFileSync(join(s2sState, 'run', 's2s-mode'), 'dual\n');
+    r = restart('');
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /services run with LOCAL_STACK_S2S=dual \(ledger\)/);
+    assert.equal(child.exitCode, null, 'the running service was not stopped');
+    console.log('local-test-stack: a restart with a bad or different LOCAL_STACK_S2S is refused before anything stops');
+  } finally {
+    child.kill();
+    rmSync(s2sHome, { recursive: true, force: true });
+  }
+}
+
+// inPool runs every item, never more than the limit at once.
+{
+  const { inPool } = await import('./local-test-stack.mjs');
+  let running = 0;
+  let peak = 0;
+  const seen = [];
+  await inPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 5));
+    seen.push(n);
+    running -= 1;
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5, 6, 7]);
+  await inPool([], 4, async () => assert.fail('no items, no calls'));
+}
 
 // p2p is the only service that carries the local-test instrument key, and only under APP_ENV=dev.
 {
@@ -54,7 +229,10 @@ const script = resolve(here, 'local-test-stack.mjs');
       .map((service) => service.name)
       .sort(),
     files,
+    'every file in local-stack-services/ is a started service; a LOCAL TEST tool goes beside it as tooling/scripts/local-test-<name>.mjs',
   );
+  // The rig the stack's `mining-share` command loads (cmdMiningShare) is one of those tools.
+  assert.equal(typeof (await import('./local-test-mining-rig.mjs')).rigShare, 'function');
   console.log('local-test-stack: one service file per started service');
 }
 
@@ -66,6 +244,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   const bank = envs.find((service) => service.name === 'bank');
   const pay = envs.find((service) => service.name === 'pay');
   assert.equal(bank.env.PAY_URL, `http://127.0.0.1:${pay.env.HTTP_PORT}`);
+  assert.match(pay.env.PAY_TEST_RAIL_RECORDS_DIR, /\/test-rail-records$/);
   console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
 }
 
@@ -93,6 +272,55 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank can start with deposit custody unset');
 }
 
+// svc-ledger reads no outside snapshot by default; `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable` points it at a closed
+// local port so a run shows ERROR (J-ops-console-07 #5), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const ledgerEnv = () => localTestServiceEnvs().find((service) => service.name === 'ledger').env;
+  const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+  try {
+    delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    const unset = ledgerEnv();
+    assert.equal('LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL' in unset, false);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
+    const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
+    assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
+    assert.deepEqual(rest, unset);
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
+    assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
+    else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
+  }
+  console.log('local-test-stack: ledger can start with an unreachable outside snapshot');
+}
+
+// `LOCAL_STACK_MINING_POOL_PUBLISHED=off` starts the pool with every LOCAL TEST owner value blank (J-more-catalogue-05 #1, #2),
+// and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const poolEnv = () => localTestServiceEnvs().find((service) => service.name === 'mining-pool').env;
+  const before = process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+  try {
+    delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    const on = poolEnv();
+    assert.ok(on.MINING_POOL_HOST);
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'off';
+    const off = poolEnv();
+    assert.equal(
+      Object.keys(off).some((key) => key.startsWith('MINING_')),
+      false,
+    );
+    assert.deepEqual(off, Object.fromEntries(Object.entries(on).filter(([key]) => !key.startsWith('MINING_'))));
+    process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = 'OFF';
+    assert.throws(poolEnv, /LOCAL_STACK_MINING_POOL_PUBLISHED is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_MINING_POOL_PUBLISHED;
+    else process.env.LOCAL_STACK_MINING_POOL_PUBLISHED = before;
+  }
+  console.log('local-test-stack: the mining pool can start with nothing published');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
@@ -107,6 +335,51 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
+// journey meets the rule instead of the unset refusal.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const token = localTestServiceEnvs().find((service) => service.name === 'token');
+  const profile = loadProfile().values;
+  for (const name of ['TOKEN_PROPOSER_RULE', 'TOKEN_PROPOSAL_LIMIT', 'EMISSIONS_EPOCH_MS']) {
+    assert.equal(profile[name]?.service, 'token', `${name} is not in the token profile`);
+    assert.equal(token.env[name], profile[name].value, `token env ${name} differs from the token profile`);
+  }
+  // LOCAL_STACK_TOKEN_PROPOSER_RULE=off leaves the rule blank, so a journey can restart the lane to show its refusal.
+  process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'token');
+    assert.equal('TOKEN_PROPOSER_RULE' in blank.env, false, 'the off switch must leave TOKEN_PROPOSER_RULE unset');
+    assert.equal(blank.env.TOKEN_PROPOSAL_LIMIT, profile.TOKEN_PROPOSAL_LIMIT.value);
+  } finally {
+    delete process.env.LOCAL_STACK_TOKEN_PROPOSER_RULE;
+  }
+  console.log('local-test-stack: token governance TEST values come from the token profile');
+}
+
+// The agents process routes the TEST Coach task on the stand-in engine at the profile's TEST route, verbatim, and
+// LOCAL_STACK_AGENTS_COACH_ROUTE=off drops only that route, so a journey can restart the lane to show "no Coach model".
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const coachRoute = JSON.parse(profile.AGENTS_COACH_ROUTE.value);
+  const baseRoutes = JSON.parse(profile.AGENTS_ROUTING_TABLE.value).routes;
+  assert.equal(profile.AGENTS_COACH_ROUTE.service, 'agents');
+  assert.equal(coachRoute.task, 'coach.answer');
+  assert.deepEqual(coachRoute.price, { inputPerMillion: '0', outputPerMillion: '0' }, 'the TEST Coach route bills 0');
+  const routesOf = () => JSON.parse(localTestServiceEnvs().find((service) => service.name === 'agents').env.AGENTS_ROUTING_TABLE).routes;
+  assert.deepEqual(routesOf(), [...baseRoutes, coachRoute]);
+  process.env.LOCAL_STACK_AGENTS_COACH_ROUTE = 'off';
+  try {
+    assert.deepEqual(routesOf(), baseRoutes, 'the off switch must drop the Coach route and keep every other route');
+  } finally {
+    delete process.env.LOCAL_STACK_AGENTS_COACH_ROUTE;
+  }
+  console.log('local-test-stack: agents TEST Coach route comes from the agents profile, and its off switch drops it');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
@@ -117,6 +390,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
+  assert.match(bank.env.BANK_PAYOUT_SIM_RECORDS_DIR, /\/test-rail-records$/);
   assert.equal(bank.env.BANK_DD_SCHEME, 'dd-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
@@ -136,7 +410,7 @@ const script = resolve(here, 'local-test-stack.mjs');
 }
 
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
-  return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  return spawnSync(process.execPath, [script, 'fund', ...args], { env: homeEnv(home), encoding: 'utf8' });
 }
 
 const home = mkdtempSync(join(tmpdir(), 'local-test-stack-test-'));
@@ -184,6 +458,7 @@ try {
 const serviceDir = join(here, 'local-stack-services');
 const source = [
   script,
+  join(here, 'local-test-mining-rig.mjs'),
   ...readdirSync(serviceDir)
     .filter((f) => f.endsWith('.mjs'))
     .map((f) => join(serviceDir, f)),
@@ -232,7 +507,7 @@ console.log('local-test-stack: 6 refusal checks passed');
 const repo = resolve(here, '..', '..');
 const planHome = mkdtempSync(join(tmpdir(), 'local-test-stack-plan-'));
 try {
-  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: { ...process.env, HOME: planHome }, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [script, 'plan', '--json'], { env: homeEnv(planHome), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(existsSync(join(planHome, '.intafaced')), false, 'plan must not create the state directory');
   assert.equal(/x{32}/.test(r.stdout), false, 'plan output must not carry any secret value');
@@ -329,7 +604,7 @@ const outside = mkdtempSync(join(tmpdir(), 'local-test-stack-outside-'));
 try {
   const run = (args, env = {}) =>
     spawnSync(process.execPath, [script, ...args], {
-      env: { ...process.env, LOCAL_STACK_CUSTOMER_DIST: '', ...env, HOME: distHome },
+      env: homeEnv(distHome, { LOCAL_STACK_CUSTOMER_DIST: '', ...env }),
       encoding: 'utf8',
     });
   const saved = join(distHome, '.intafaced', 'local-test-stack', 'customer-dist.json');
@@ -409,7 +684,7 @@ try {
     });
   });
   const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-    env: { ...process.env, HOME: distHome },
+    env: homeEnv(distHome),
     stdio: 'ignore',
   });
   try {
@@ -477,7 +752,7 @@ console.log('local-test-stack: customer folder override checks passed');
   const mkHome = mkdtempSync(join(tmpdir(), 'local-test-stack-market-'));
   try {
     const state = join(mkHome, '.intafaced', 'local-test-stack');
-    const status = () => spawnSync(process.execPath, [script, 'status'], { env: { ...process.env, HOME: mkHome }, encoding: 'utf8' });
+    const status = () => spawnSync(process.execPath, [script, 'status'], { env: homeEnv(mkHome), encoding: 'utf8' });
     // Never started: shown, and not an error by itself.
     assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
     // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
@@ -490,15 +765,16 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  // The founder console starts after the Customer app and the invitation site and before the market check, and stops first.
+  // The founder console starts after the Customer app, the invitation site, the apex site and the host check, and before
+  // the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
   assert.match(
     source,
-    /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'nats'\];/,
+    /const order = \['admin', 'apex', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'chain', 'video-store', 'nats'\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -508,22 +784,25 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: market supervision checks passed');
 }
 
-// /ws names the missing upstream. The upgrade body is the same JSON, not an empty 503.
+// /ws: blank CUSTOMER_WS_URL names the missing upstream (the upgrade body is the same JSON, not an empty 503); set, the
+// Customer server proxies /ws/* to it with the prefix stripped, HTTP and WebSocket upgrade alike.
 {
-  const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
-  const port = await new Promise((ok) => {
-    const probe = createServer();
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const pt = typeof address === 'object' && address ? address.port : 0;
-      probe.close(() => ok(pt));
+  const freePort = () =>
+    new Promise((ok) => {
+      const probe = createServer();
+      probe.listen(0, '127.0.0.1', () => {
+        const address = probe.address();
+        const pt = typeof address === 'object' && address ? address.port : 0;
+        probe.close(() => ok(pt));
+      });
     });
-  });
-  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-    env: { ...process.env, HOME: home, CUSTOMER_WS_URL: 'ws://127.0.0.1:4014' },
-    stdio: 'ignore',
-  });
-  try {
+  const serve = async (wsUrl) => {
+    const home = mkdtempSync(join(tmpdir(), 'local-test-stack-ws-'));
+    const port = await freePort();
+    const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+      env: homeEnv(home, { CUSTOMER_WS_URL: wsUrl }),
+      stdio: 'ignore',
+    });
     const get = async (path) => {
       for (let i = 0; i < 50; i++) {
         try {
@@ -535,18 +814,12 @@ console.log('local-test-stack: customer folder override checks passed');
       }
       throw new Error('throwaway server did not answer');
     };
-    const http = await get('/ws/stream');
-    assert.equal(http.status, 503);
-    const body = JSON.parse(http.text);
-    assert.equal(body.code, 'ws.upstream_unset');
-    assert.equal(body.key, 'CUSTOMER_WS_URL');
-    assert.match(body.message, /CUSTOMER_WS_URL is not wired/);
-    const upgrade = await new Promise((resolve, reject) => {
-      const req = httpRequest(
-        {
+    const upgrade = (path) =>
+      new Promise((resolve, reject) => {
+        const req = httpRequest({
           host: '127.0.0.1',
           port,
-          path: '/ws/stream',
+          path,
           method: 'GET',
           headers: {
             Host: `127.0.0.1:${port}`,
@@ -555,25 +828,95 @@ console.log('local-test-stack: customer folder override checks passed');
             'Sec-WebSocket-Version': '13',
             'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
           },
-        },
-        (res) => {
+        });
+        // The first bytes after the 101 may already be in `head`, so read them there before waiting on the socket.
+        req.on('upgrade', (res, socket, head) => {
+          const done = (chunk) => {
+            socket.destroy();
+            resolve({ status: res.statusCode, text: chunk.toString('utf8') });
+          };
+          if (head.length) done(head);
+          else socket.once('data', done);
+        });
+        req.on('response', (res) => {
           const chunks = [];
           res.on('data', (chunk) => chunks.push(chunk));
           res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
-        },
-      );
-      req.on('error', reject);
-      req.end();
-    });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    const stop = () => {
+      server.kill('SIGTERM');
+      rmSync(home, { recursive: true, force: true });
+    };
+    return { get, upgrade, stop };
+  };
+
+  const blank = await serve('');
+  try {
+    const http = await blank.get('/ws/stream');
+    assert.equal(http.status, 503);
+    const body = JSON.parse(http.text);
+    assert.equal(body.code, 'ws.upstream_unset');
+    assert.equal(body.key, 'CUSTOMER_WS_URL');
+    assert.match(body.message, /CUSTOMER_WS_URL is not wired/);
+    const upgrade = await blank.upgrade('/ws/stream');
     assert.equal(upgrade.status, 503);
     assert.equal(upgrade.text.length > 0, true);
     const upgradeBody = JSON.parse(upgrade.text);
     assert.equal(upgradeBody.key, 'CUSTOMER_WS_URL');
     assert.equal(upgradeBody.code, 'ws.upstream_unset');
-    console.log('local-test-stack: /ws refusal names CUSTOMER_WS_URL');
+    console.log('local-test-stack: blank /ws refusal names CUSTOMER_WS_URL');
   } finally {
-    server.kill('SIGTERM');
-    rmSync(home, { recursive: true, force: true });
+    blank.stop();
+  }
+
+  // A stand-in upstream that answers each request with the path it saw, and upgrades /stream by writing one frame-free line.
+  const seen = [];
+  const upstream = createHttpServer((req, res) => {
+    seen.push(req.url);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ path: req.url }));
+  });
+  upstream.on('upgrade', (req, socket) => {
+    seen.push(`upgrade ${req.url}`);
+    if (req.url.endsWith('&channel=chunked')) {
+      socket.end(
+        'HTTP/1.1 400 Bad Request\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nbad\r\n8\r\n chunked\r\n0\r\n\r\n',
+      );
+      return;
+    }
+    if (req.url !== '/stream?market=BTC-USDT') {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 11\r\n\r\nbad channel');
+      return;
+    }
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+    socket.write(`hello ${req.url}`);
+  });
+  await new Promise((ok) => upstream.listen(0, '127.0.0.1', ok));
+  const wired = await serve(`http://127.0.0.1:${upstream.address().port}`);
+  try {
+    const http = await wired.get('/ws/streams');
+    assert.equal(http.status, 200);
+    assert.deepEqual(JSON.parse(http.text), { path: '/streams' });
+    const upgraded = await wired.upgrade('/ws/stream?market=BTC-USDT');
+    assert.deepEqual(upgraded, { status: 101, text: 'hello /stream?market=BTC-USDT' });
+    const refused = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=balance');
+    assert.deepEqual(refused, { status: 400, text: 'bad channel' });
+    // A chunked refusal reaches the client whole, not as a chunked frame Node has already undone.
+    const chunked = await wired.upgrade('/ws/stream?market=BTC-USDT&channel=chunked');
+    assert.deepEqual(chunked, { status: 400, text: 'bad chunked' });
+    assert.deepEqual(seen, [
+      '/streams',
+      'upgrade /stream?market=BTC-USDT',
+      'upgrade /stream?market=BTC-USDT&channel=balance',
+      'upgrade /stream?market=BTC-USDT&channel=chunked',
+    ]);
+    console.log('local-test-stack: wired /ws proxies HTTP and upgrades with the prefix stripped');
+  } finally {
+    wired.stop();
+    upstream.close();
   }
 }
 

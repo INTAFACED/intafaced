@@ -7,7 +7,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, orderHoldAccount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
+import { holdAccountOf } from '../spot/buyback-order.js';
 import type { ListMarketInput } from '../spot/trade-service.js';
 import type { Market, ReconcileResult } from '../spot/types.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../spot/hold-outcome.js';
@@ -63,6 +64,8 @@ import { feeScheduleAt, feeScheduleHistory, latestFeeScheduleVersion, type FeeSc
 import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
+import { CopyBotsOtcAdmin } from './copy-bots-otc.js';
+import type { OtcDeskLaw } from '../otc/desk-law.js';
 
 export interface TradeOpsDeps {
   readonly sql: Sql;
@@ -78,6 +81,10 @@ export interface TradeOpsDeps {
   readonly feeSchedule?: OwnerFeeSchedule;
   /** The VIP proof key (TRADE_VIP_PROOF_KEY). Absent or null: proofs cannot be opened. */
   readonly vipProofKey?: Buffer | null;
+  /** The quote desk law (TRADE_OTC_DESK_LAW), for settle deadlines. Absent: unpublished, so the quote desk read refuses. */
+  readonly otcLaw?: OtcDeskLaw;
+  /** TRADE_OPS_METRICS_WINDOW_SECONDS, parsed. Absent or null: the module counts refuse. */
+  readonly metricsWindowSeconds?: number | null;
   readonly now?: () => Date;
 }
 
@@ -120,8 +127,16 @@ export class TradeOpsAdmin {
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
   /** VIP application review and trial grants (SP-fees-vip-04, J-cex-spot-10 #7). */
   readonly vipApplications: VipReviewAdmin;
+  /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
+  readonly copyBotsOtc: CopyBotsOtcAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.copyBotsOtc = new CopyBotsOtcAdmin({
+      sql: deps.sql,
+      otcLaw: deps.otcLaw ?? { published: false },
+      metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
+      now: () => nowOf(deps),
+    });
     this.vipApplications = new VipReviewAdmin({
       sql: deps.sql,
       approvals: deps.approvals,
@@ -223,7 +238,7 @@ export class TradeOpsAdmin {
     const fills = await this.deps.sql<Array<{ id: string; price: string; qty: string; quote_amount: string; fee_amount: string }>>`
       SELECT id, price::text, qty::text, quote_amount::text, fee_amount::text
         FROM trade.fills WHERE order_id = ${orderId} ORDER BY ts ASC, id ASC`;
-    const hold = orderHoldAccount(order.user_id, order.hold_asset, order.id);
+    const hold = holdAccountOf({ id: order.id, userId: order.user_id, holdAsset: order.hold_asset });
     await writeOperatorAudit(this.deps.sql, {
       kind: 'orders.get',
       operatorId: principal.userId,

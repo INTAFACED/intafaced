@@ -109,6 +109,7 @@
   .home-total {
     display: flex;
     align-items: center;
+    column-gap: var(--if-space-2);
     height: 56px;
     margin-top: var(--if-space-1);
   }
@@ -717,6 +718,16 @@
   }
   .home-notice__link:hover {
     color: var(--if-fg);
+  }
+  /* The newest inbox row, drawn by the inbox's own row (notifications.css). */
+  .home-inbox {
+    margin-block-end: var(--if-space-6);
+    border-radius: var(--if-r-md);
+    background: var(--if-panel);
+  }
+  .home-inbox .home-section__head {
+    padding-block: var(--if-space-2) 0;
+    padding-inline: var(--if-space-4);
   }
   /* Needs you (work list) */
   .home-work__rows {

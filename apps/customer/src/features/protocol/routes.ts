@@ -8,8 +8,7 @@ import { matchPath } from '../../app/path-match';
 export type Web3Room = 'dex' | 'chain' | 'protocol' | 'wallet';
 /** What a not-yet-built route waits on: our own indexer reader, the wallet connection, or the INTACHAIN network. */
 export type PendingBlocker = 'indexer' | 'wallet' | 'chain';
-export type PendingPage =
-  'poolNew' | 'poolDetail' | 'positionDetail' | 'tokenDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
+export type PendingPage = 'poolNew' | 'poolDetail' | 'positionDetail' | 'blockDetail' | 'txDetail' | 'validatorDetail';
 
 /** The wallet room's sections, each at its own path so Back returns to the section the person left. */
 export const WALLET_SECTIONS = {
@@ -35,12 +34,20 @@ export interface Web3Route {
   wallet?: WalletSection;
   /** The wallet room's page for one wallet group (`groupId`), under its address book section. */
   walletGroup?: true;
+  /** The Tokens room, or one token's page by its address. */
+  tokens?: 'list' | 'detail';
+  /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
+  explorer?: 'address' | 'watchlist' | 'block' | 'tx';
+  /** The shape the route's parameter must have; anything else is answered not found without a lookup. */
+  param?: { name: string; shape: RegExp };
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
-const digits = /^\d{1,20}$/;
+// A block height up to 15 digits: every such number is exact in a JavaScript number, so the page asks for the block named.
+const digits = /^\d{1,15}$/;
 const txHash = /^0x[0-9a-fA-F]{64}$/;
-const address = /^0x[0-9a-fA-F]{40}$/;
+/** A 20-byte hex address, the shape every address route and the token page accept. */
+export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 const id = /^[A-Za-z0-9_.:-]{1,128}$/;
 /** A wallet group's id, as svc-protocol issues it. */
 export const WALLET_GROUP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -58,27 +65,17 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     room: 'dex',
     pending: { page: 'positionDetail', blocker: 'wallet', param: { name: 'positionId', shape: id } },
   },
-  {
-    path: '/dex/tokens/:address',
-    room: 'dex',
-    pending: { page: 'tokenDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
-  },
+  { path: '/dex/tokens', room: 'dex', tokens: 'list' },
+  { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
-  {
-    path: '/chain/blocks/:height',
-    room: 'chain',
-    pending: { page: 'blockDetail', blocker: 'indexer', param: { name: 'height', shape: digits } },
-  },
-  { path: '/chain/tx/:hash', room: 'chain', pending: { page: 'txDetail', blocker: 'indexer', param: { name: 'hash', shape: txHash } } },
-  {
-    path: '/chain/address/:address',
-    room: 'chain',
-    pending: { page: 'addressDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
-  },
+  { path: '/chain/blocks/:height', room: 'chain', explorer: 'block', param: { name: 'height', shape: digits } },
+  { path: '/chain/tx/:hash', room: 'chain', explorer: 'tx', param: { name: 'hash', shape: txHash } },
+  { path: '/chain/address/:address', room: 'chain', explorer: 'address' },
+  { path: '/chain/watchlist', room: 'chain', explorer: 'watchlist' },
   { path: '/chain/validators', room: 'chain', tab: 'validators' },
   {
     path: '/chain/validators/:validatorId',

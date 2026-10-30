@@ -18,7 +18,7 @@ import {
   StateBlock,
   type Loadable,
 } from './deps';
-import { sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
+import { ledgerKindKey, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 import { clockMinutes, dayTime } from './time';
 
 const PAGE = 50;
@@ -27,35 +27,6 @@ type Read =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; entries: LedgerEntry[]; next: string | null; more: boolean; failed: boolean };
-
-type KindKey =
-  | 'Ledger kind fill'
-  | 'Ledger kind fee'
-  | 'Ledger kind hold'
-  | 'Ledger kind amend'
-  | 'Ledger kind release'
-  | 'Ledger kind deposit'
-  | 'Ledger kind withdrawal'
-  | 'Ledger kind reward'
-  | 'Ledger kind other';
-
-/** The words for a ledger line's kind; anything else reads "Other" rather than a service code. */
-const KINDS: Record<string, KindKey> = {
-  'trade.fill': 'Ledger kind fill',
-  'trade.fill.mm_maker': 'Ledger kind fill',
-  'trade.fee': 'Ledger kind fee',
-  'order.hold': 'Ledger kind hold',
-  'order.hold.amend': 'Ledger kind amend',
-  'order.hold.released': 'Ledger kind release',
-  'campaigns.task.reward': 'Ledger kind reward',
-};
-function kindKey(e: LedgerEntry): KindKey {
-  const known = KINDS[e.type];
-  if (known) return known;
-  if (e.type.startsWith('deposit')) return 'Ledger kind deposit';
-  if (e.type.startsWith('withdraw')) return 'Ledger kind withdrawal';
-  return 'Ledger kind other';
-}
 
 /**
  * Ledger history (J-cex-spot-07 #6): every change to the person's available balances, newest first, each with the
@@ -135,7 +106,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
                     {e.direction === 'in' ? '+' : '−'}
                     <Amount value={fmtAmount(e.amount, { places: 8 })} />
                   </td>
-                  <td>{t(kindKey(e))}</td>
+                  <td>{t(ledgerKindKey(e))}</td>
                   <td data-testid="dk-ledger-ref" className="dk-ledger-ref" title={t('Ledger entry', { id: e.id })}>
                     {e.referenceId}
                   </td>

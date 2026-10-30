@@ -6,11 +6,12 @@ import { useSession } from '../../features/session/session';
 import { stamp } from '../money/time';
 import { centreCopy } from './centre-copy';
 import { notifyCopy } from './copy';
+import { TestFigureTag } from './NotificationRow';
 import { NotifyNav } from './NotifyNav';
 import { deliveries, type Delivery, type Notification } from './notify-api';
 import { describe } from './notify-view';
 import { deliveryWords, refusalKey, sortDeliveries } from './prefs';
-import { useInbox, useMarketNames } from './use-notifications';
+import { useInboxView } from './use-notifications';
 
 const CHANNEL = { inapp: 'channelInbox', email: 'channelEmail', push: 'channelPush', sms: 'channelSms' } as const;
 
@@ -22,9 +23,7 @@ export default function DeliveryLog() {
   const copy = centreCopy.useCopy();
   const base = notifyCopy.useCopy();
   const { timeZone } = usePreferences();
-  const inbox = useInbox({ limit: 20, unreadOnly: false });
-  const markets = useMarketNames();
-  const { state } = inbox;
+  const { inbox, state, markets } = useInboxView({ limit: 20, unreadOnly: false });
   return (
     <div data-testid="if-notify" className="if-notify">
       <div className="nf-head">
@@ -81,7 +80,7 @@ function Row({
   zone,
 }: {
   item: Notification;
-  markets: ReturnType<typeof useMarketNames>;
+  markets: ReturnType<typeof useInboxView>['markets'];
   zone: ReturnType<typeof usePreferences>['timeZone'];
 }) {
   const copy = centreCopy.useCopy();
@@ -109,6 +108,7 @@ function Row({
             {words.body ? `${words.body} · ` : ''}
             <span lang="zxx">{stamp(item.createdAt, zone)}</span>
           </span>
+          <TestFigureTag item={item} />
         </span>
         <button type="button" className="nf-link nf-linkbutton" aria-expanded={open} onClick={() => void toggle()}>
           {copy.t(open ? 'hideDelivery' : 'showDelivery')}
