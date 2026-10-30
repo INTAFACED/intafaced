@@ -271,7 +271,7 @@ export const ledgerReconciliationFailed = defineEvent(
  * An incomplete reconciliation run: Postgres or the connection failed before a
  * verdict. Emitted on every such run, including the one that freezes posting
  * after N consecutive failures (`reconcile_unproven`, D-128). Not a drift.
- * No subscriber is wired; the freeze itself does not depend on this event.
+ * svc-ops stores each one as a platform incident (OPS-reconciliation-04); the freeze itself does not depend on it.
  */
 export const ledgerReconciliationRunFailed = defineEvent(
   'ledger',
@@ -1739,6 +1739,74 @@ export const payDepositCreditPosted = defineEvent(
   'A crypto deposit was credited to the customer (the ledger deposit post is the credit). For the inbox notice; deduplicated by depositId.',
 );
 
+// ── pay: a customer withdrawal moved to a new status (W-withdraw-06, ENGINE W-1) ─
+
+/**
+ * The customer withdrawal status vocabulary (ENGINE W-1). svc-pay's `WITHDRAWAL_STATUSES` is the same twelve words, and
+ * its transition table decides which moves are legal; this list only fixes the words on the wire.
+ */
+export const WITHDRAWAL_STATUS_VALUES = [
+  'requested',
+  'pending_review',
+  'approved',
+  'held',
+  'dispatching',
+  'broadcast',
+  'confirming',
+  'settled',
+  'rejected',
+  'canceled',
+  'failed',
+  'needs_review',
+] as const;
+export const withdrawalStatusSchema = z.enum(WITHDRAWAL_STATUS_VALUES);
+export type WithdrawalStatusValue = z.infer<typeof withdrawalStatusSchema>;
+
+/**
+ * One move of a customer withdrawal, published by svc-pay after the move committed (the row and, for a hold, settle or
+ * reverse, the ledger post are the record; this only says it happened). `seq` counts the withdrawal's moves from 1, in
+ * the order svc-pay committed them, so a withdrawal that goes back into review or is retried after a proved refusal is
+ * a new move, never a repeat of an earlier one. A new withdrawal's first move has `from` null and is `requested`.
+ * `attempt` is the rail attempt the move belongs to. `failureCode` is the stored cause when there is one: required on
+ * `failed` and `rejected`, and carried on any other status that has one (a `needs_review` after an unknown send). Business
+ * key `pay:withdrawal-status:<withdrawalId>:<seq>`: the same move published twice is one fact, and a consumer keys on
+ * (withdrawalId, seq). No amount is carried: the ledger is the record of value.
+ */
+export const payWithdrawalStatusUpdatedPayloadSchema = z
+  .object({
+    withdrawalId: z.string().guid(),
+    userId: userIdSchema,
+    seq: z.number().int().min(1),
+    attempt: z.number().int().min(0),
+    from: withdrawalStatusSchema.nullable(),
+    to: withdrawalStatusSchema,
+    failureCode: z
+      .string()
+      .regex(/^[a-z][a-z0-9_.]{0,63}$/, 'failureCode is a lower-case dotted token')
+      .nullable(),
+    occurredAt: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .refine((e) => e.from !== e.to, { message: 'a move changes the status', path: ['to'] })
+  .refine((e) => (e.from === null) === (e.seq === 1) && (e.from !== null || e.to === 'requested'), {
+    message: 'only the first move (seq 1) has no previous status, and it is requested',
+    path: ['from'],
+  })
+  .refine((e) => !(e.to === 'failed' || e.to === 'rejected') || e.failureCode !== null, {
+    message: 'a failed or rejected withdrawal names its failure code',
+    path: ['failureCode'],
+  });
+export type PayWithdrawalStatusUpdatedPayload = z.infer<typeof payWithdrawalStatusUpdatedPayloadSchema>;
+
+export const payWithdrawalStatusUpdated = defineEvent(
+  'pay',
+  'withdrawal_status',
+  'updated',
+  1,
+  payWithdrawalStatusUpdatedPayloadSchema,
+  'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -1774,6 +1842,7 @@ export const EVENT_CATALOG = {
   coreOpsRestoreFailed,
   payCustodyAuditCreated,
   payDepositCreditPosted,
+  payWithdrawalStatusUpdated,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -2051,13 +2120,6 @@ export const WIRING_SOCKETS = [
       'svc-ledger publishes when snapshot and replay disagree, but the freeze it triggers is performed by svc-ledger itself in-process — the event is the external announcement, not the mechanism. It stays unconsumed until the alerting path (§4.2 "pages the operator") is built, and the freeze does not depend on that path existing.',
   },
   {
-    event: 'ledgerReconciliationRunFailed',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
-  },
-  {
     event: 'coreOpsAlertRuleUpdated',
     missing: 'publisher',
     class: 'A',
@@ -2157,24 +2219,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'coreOpsReconciliationAlertOpened',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertOpened',
     missing: 'subscriber',
     class: 'A',
     reason:
       'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
   },
   {
     event: 'coreOpsReconciliationAlertUpdated',
@@ -2185,24 +2233,10 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'coreOpsReconciliationAlertResolved',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
     missing: 'subscriber',
     class: 'A',
     reason:
       'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the OPS-reconciliation-04 events PR. svc-ops publishes it from its outbox when the reconciliation alert transitions land (svc-ops PR, next). The alert is a durable row that /alerts reads.',
   },
   {
     event: 'coreOpsReconciliationAlertAccepted',
@@ -2591,6 +2625,20 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'The append-only audit store that /custody-ops reads subscribes in the service PR for W-security-accounts-05. Producers keep the entry as a durable row first, so an entry published before its consumer exists is replayed, not lost.',
+  },
+  {
+    event: 'payWithdrawalStatusUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the W-withdraw-06 events PR. svc-pay publishes one per move from its outbox in the W-withdraw-06 service PR, next. The withdrawal row is the record, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'payWithdrawalStatusUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The customer notice of a withdrawal move subscribes in a later svc-notify change, idempotent on (withdrawalId, seq). The customer reads the status from svc-pay meanwhile, so nobody is promised a notice.',
   },
 ] satisfies readonly WiringSocket[];
 

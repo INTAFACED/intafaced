@@ -16,6 +16,8 @@ export const COPY_CLOSE_ERROR_STATUS = {
   'trade.copy_position_closed': 'PRECONDITION_FAILED',
   /** The close cannot be priced or placed: no place port, flag off, or no spot tables. */
   'trade.copy_close_unavailable': 'PRECONDITION_FAILED',
+  /** The close key is already recorded, but not as a close this follow can read: nothing is placed. */
+  'trade.copy_close_conflict': 'CONFLICT',
 } as const satisfies Record<string, TRPCError['code']>;
 
 export type CopyCloseErrorCode = keyof typeof COPY_CLOSE_ERROR_STATUS;

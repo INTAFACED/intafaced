@@ -56,6 +56,7 @@ import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
 import { HomeNotices } from './Notices';
+import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 
@@ -627,6 +628,7 @@ export function HomePro() {
     <div data-testid="if-home-pro" className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
+      <HomeInbox />
       {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
       <div className="hp-toolbar">
         <CustomiseHome home={home} mode="pro" />

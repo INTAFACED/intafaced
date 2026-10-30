@@ -239,7 +239,9 @@ describe('market.purchases access window (L1231)', () => {
   it('does not match a pending or rejected row from the access index', async () => {
     const pred = await accessIndexPredicate();
     expect(pred).toContain('access_until is not null');
-    expect(pred).toContain("status = 'settled'");
+    // A paid purchase: settled, or held and released (MC-market-02). Never pending, rejected or refunded.
+    expect(pred).toContain("status = any (array['settled', 'held', 'released'])");
+    expect(pred).not.toMatch(/pending|rejected|refunded/);
     expect(pred).toContain('ledger_tx_id is not null');
 
     await expectSqlState(() => insertPurchase({ status: 'pending', accessUntil: FUTURE }), '23514');
@@ -337,7 +339,7 @@ describe('market.purchases access window (L1231)', () => {
     expect(row?.period_seconds).toBe(PERIOD);
   });
 
-  it('copies period_seconds from the listing and writes access_until only on the settled path', () => {
+  it('copies period_seconds from the listing and writes access_until only on a paid path', () => {
     const src = readFileSync(join(here, 'commerce-service.ts'), 'utf8');
     const claim = src.slice(src.indexOf('private async claimPurchase'));
     expect(claim).toContain('l.period_seconds');
@@ -351,7 +353,7 @@ describe('market.purchases access window (L1231)', () => {
     expect(ensure).not.toContain('requireSubscriptionPeriod(listing)');
     expect(ensure).not.toContain('listing.periodSeconds');
     expect(ensure).toMatch(
-      /SET access_until = \$\{untilIso\}::timestamptz\s+WHERE id = \$\{purchase\.id\}\s+AND status = 'settled'\s+AND ledger_tx_id IS NOT NULL\s+AND access_until IS NULL/,
+      /SET access_until = \$\{untilIso\}::timestamptz\s+WHERE id = \$\{purchase\.id\}\s+AND status IN \('settled', 'held', 'released'\)\s+AND ledger_tx_id IS NOT NULL\s+AND access_until IS NULL/,
     );
     expect(src).not.toContain('2592000');
     expect(src).not.toContain("interval '1 month'");

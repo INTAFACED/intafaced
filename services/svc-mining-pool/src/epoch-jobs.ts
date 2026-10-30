@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { createJobHost, type JobHost } from './job-host.js';
 import { postPayouts } from './ledger.js';
 import { TESTNET_NO_CREDIT } from './pow.js';
+import { stratumWindowEndsAt } from './stratum-door.js';
 import { EMISSION_UNPUBLISHED, EPOCH_UNSET } from './window-store.js';
 
 export const MINING_EPOCH_PAYOUT_JOB = 'mining.epoch_payout';
@@ -87,10 +88,18 @@ export async function payWindow(sql: Sql, ledger: Pick<LedgerClient, 'post'>, wi
   if (outcome === 'no_credit') throw new Error(TESTNET_NO_CREDIT);
 }
 
-export async function runEpochPayoutTick(deps: { sql: Sql; ledger: Pick<LedgerClient, 'post'> }): Promise<EpochPayoutTickResult> {
-  const open = await deps.sql<{ window_id: string }[]>`
-    SELECT window_id FROM mining_pool.windows WHERE status = 'open'
-  `;
+export async function runEpochPayoutTick(deps: {
+  sql: Sql;
+  ledger: Pick<LedgerClient, 'post'>;
+  now?: () => number;
+}): Promise<EpochPayoutTickResult> {
+  const nowMs = (deps.now ?? Date.now)();
+  // A miner-door window is paid only once its time is over: rigs are still mining in the current one.
+  const open = (
+    await deps.sql<{ window_id: string }[]>`
+      SELECT window_id FROM mining_pool.windows WHERE status = 'open'
+    `
+  ).filter((row) => (stratumWindowEndsAt(row.window_id) ?? 0) <= nowMs);
   const paid: string[] = [];
   const refused: string[] = [];
   const refuseCodes = new Set<string>();

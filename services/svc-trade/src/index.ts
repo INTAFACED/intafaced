@@ -30,6 +30,7 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
+import { LeadDesk } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -167,6 +168,10 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
 import { CopyService } from './copy/copy-service.js';
+import { freeSpotBalance } from './copy/follow-gate.js';
+import { GridService } from './grid/grid-service.js';
+import { loadGridPolicy } from './grid/policy.js';
+import { SqlGridStore } from './grid/store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -175,6 +180,7 @@ import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
+import { registerBuybackDoor } from './spot/buyback-door.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
 import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
@@ -269,6 +275,11 @@ const trailingPlacementMarkSource: QuotedMarkSource | undefined =
         quote: async (input) => (trailingMarketIds.has(input.marketId) ? trailingMarkSource.quote(input) : null),
       }
     : undefined;
+// CB-bots-10: one policy for every bot door (algo and grid), read once at boot.
+const botVerification = loadBotVerificationPolicy({
+  TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
+  TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
+});
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,
@@ -282,10 +293,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
-  botVerification: loadBotVerificationPolicy({
-    TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
-    TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
-  }),
+  botVerification,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
@@ -383,6 +391,9 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   );
   return { orderId: order.id };
 };
+const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
+// The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
+const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
 const copyBestBid = async (marketId: string) => {
   const depth = await matching.depth(marketId, 1);
@@ -390,13 +401,14 @@ const copyBestBid = async (marketId: string) => {
   return best ? parseAmount(best[0]) : null;
 };
 const copy = new CopyService(ledger, {
+  gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
   store: copyStore,
-  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
+  directory: leaderDirectory,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -481,6 +493,22 @@ const copy = new CopyService(ledger, {
   },
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
+// The spot grid bot (CB-bots-02, -05, -10): its reserve and level rows are svc-trade's own; its orders go through the
+// trade service's place path as delegated children of the bot's admitted start.
+const grid = new GridService({
+  store: gridStore,
+  policy: loadGridPolicy(process.env),
+  verification: () => botVerification,
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  depth: (marketId) => matching.depth(marketId, 1),
+  freeBalance: async (userId, asset) => freeSpotBalance(await ledger.balances('user', userId), asset),
+  copyUnusedReserves: (userId, asset) => copyStore.sumUnusedReserves(userId, asset),
+  admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
+  placeLevel: (principal, input, botId) => trade.placeGridLevel(principal, input, botId),
+  findOrder: (orderId) => trade.findOrder(orderId),
+  cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
+  fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
+});
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
@@ -497,6 +525,8 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  new LeadDesk({ sql, approvals: tradeOpsApprovals, directory: leaderDirectory, now: () => new Date() }),
+  grid,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -830,6 +860,9 @@ if (parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR)) {
     if (result.refused > 0) app.log.warn(result, 'copy mirror sweep — some leader fills were not copied (reasons on the mirror trail)');
   });
 }
+// The grid's tick runs with the algo scheduler: off, a grid places its first levels and then waits.
+const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'grid tick failed') });
+if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1163,6 +1196,12 @@ registerMarketLifecycleRoutes(app, {
   store: marketLifecycleStore,
   installRawBody: false,
 });
+registerBuybackDoor(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  placeBuybackIocBuy: (input) => trade.placeBuybackIocBuy(input),
+  installRawBody: false,
+});
 if (localTestTapeRetime) {
   registerLocalTestTapeRoutes(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, sql, installRawBody: false });
 }
@@ -1406,6 +1445,7 @@ app.log.info(
     algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
     algoJobs: algoJobs.host.list(),
     copyMirrorJobs: copyMirrorJobs.list(),
+    gridJobs: gridJobs.list(),
     optionsJobsEnabled: env.TRADE_OPTIONS_JOBS_ENABLED,
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
@@ -1427,6 +1467,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();
+      gridJobs.stopAll();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
       holdUnknownSweep.stop();

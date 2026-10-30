@@ -15,14 +15,16 @@ import {
   toUnits,
 } from './stack.mjs';
 import { free, fundedTrader, held, openOrders, signIn, signUp } from './desk.mjs';
-import { tableIn } from './tables.mjs';
+import { bodyRows, tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
 // iceberg on /execution. One test per step, titled "J-copy-bots-otc-23 #<n>", run in order. The trader starts signed
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: the order form offers no Chase; #8: the list and blotter do not read the service.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT): #5, the order form
+// offers no Chase.
+// #8 stops the stack's matching engine for a moment (local-test-stack.mjs stop matching), so a child cancel fails the
+// way it would with the engine unreachable, and restarts it before the step ends.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -285,7 +287,8 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   expect(toUnits(partial.filledQty)).toBeGreaterThan(0n);
   expect(toUnits(partial.filledQty)).toBeLessThan(toUnits(partial.totalQty));
   const list = schedules(page);
-  await expect(list.getByText('Active')).toBeVisible();
+  // The list holds every schedule the service keeps for the account; this one's row says Active.
+  await expect(list.getByRole('row', { name: new RegExp(id) }).getByText('Active', { exact: true })).toBeVisible();
 
   await list.getByRole('button', { name: `Pause ${id}` }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Pause schedule' }).click();
@@ -645,41 +648,173 @@ test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book
   }
 });
 
-test(`${J} #8 opens the algo list and blotter, and cancels with a child failing: statuses, average fill price, cancel incomplete, halt and resume refused`, async ({
+const STATUS_WORD = { active: 'Active', paused: 'Paused', halted: 'Halted', completed: 'Completed', cancelled: 'Cancelled' };
+
+/** The schedule's average fill price as the service reports it (null while nothing has filled). */
+async function averageOf(who, algoId) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.result?input=${encodeURIComponent(JSON.stringify({ algoId }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data.quotes.find((q) => q.averageFillPrice !== null)?.averageFillPrice ?? null;
+}
+
+/** A pause or resume sent straight to the service: its typed refusal code, or null when it was accepted. */
+async function actionCode(who, action, algoId) {
+  const { status, body } = await (await api(who)).post(`/api/trade/trpc/algo.${action}`, { algoId });
+  return status < 300 ? null : (codeOf(body) ?? `${status} ${JSON.stringify(body).slice(0, 300)}`);
+}
+
+function stack(...args) {
+  return tool('local-test-stack.mjs', ...args);
+}
+
+test(`${J} #8 opens the algo list and blotter and cancels with one child failing: rows with statuses and an average fill price ("Not set" with zero fills); the cancel is reported incomplete and halt and resume are refused`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const trader = state('trader');
   await signIn(page, trader);
   // A new browser: the list comes from the service, not from ids this device remembered.
   await page.evaluate(() => localStorage.clear());
   await page.goto('/execution');
   const list = schedules(page);
-  for (const id of [state('running'), state('triggered')]) await expect(list.getByRole('row', { name: new RegExp(id) })).toBeVisible();
-  // The waiting schedule has no fills, so its average price is not a number.
+  await expect(list.getByRole('columnheader', { name: 'Average fill price' })).toBeVisible();
+  const headers = await list.getByRole('columnheader').allInnerTexts();
+  const averageColumn = headers.findIndex((h) => h.trim() === 'Average fill price');
+  expect(averageColumn).toBeGreaterThan(-1);
+  const cellOf = (id, column) =>
+    list
+      .getByRole('row', { name: new RegExp(id) })
+      .getByRole('gridcell')
+      .nth(column);
+
+  // Each row carries the service's status. The schedule that ran (#4) shows the average price of its real fills; the
+  // one still waiting for its trigger (#3) has no fills, so its average is "Not set".
+  // The service and the room are read again together until they agree, so a fill or status change landing between the
+  // two reads cannot fail it.
+  for (const id of [state('running'), state('triggered')]) {
+    await expect(async () => {
+      const parent = await parentOf(trader, id);
+      await expect(list.getByRole('row', { name: new RegExp(id) }).getByText(STATUS_WORD[parent.status], { exact: true })).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 30_000 });
+  }
+  // The cell shows the service's average rounded to the digits it draws (a mean of several fill prices can run long):
+  // it is within half of its last digit of the service's number.
+  await expect(async () => {
+    const ranAverage = await averageOf(trader, state('running'));
+    expect(ranAverage).not.toBeNull();
+    const shown = (await cellOf(state('running'), averageColumn).innerText()).replace(/,/g, '').trim();
+    expect(shown).toMatch(/^\d+(\.\d+)?$/);
+    const digits = shown.split('.')[1]?.length ?? 0;
+    const step = toUnits(digits ? `0.${'0'.repeat(digits - 1)}1` : '1');
+    const gap = toUnits(shown) - toUnits(ranAverage);
+    expect((gap < 0n ? -gap : gap) * 2n).toBeLessThanOrEqual(step);
+  }).toPass({ timeout: 30_000 });
+  expect(await averageOf(trader, state('triggered'))).toBeNull();
+  await expect(cellOf(state('triggered'), averageColumn)).toHaveText('Not set');
   await list.getByRole('row', { name: new RegExp(state('triggered')) }).click();
-  await expect(detail(page).getByText(/Average fill price\s*Not set/)).toBeVisible();
+  await expect(
+    detail(page)
+      .getByRole('definition')
+      .filter({ hasText: /^\s*Not set/ }),
+  ).toBeVisible();
 
-  // The blotter links each child to its parent.
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
-  await pick(page, 'Parent', state('running'));
-  const blotter = page.getByRole('grid', { name: 'Orders and fills' });
-  await expect(blotter.getByRole('row').nth(1)).toBeVisible();
+  // The blotter opens with the account's child orders and fills.
+  const tabs = page.getByRole('tablist', { name: 'Execution sections' });
+  await tabs.getByRole('tab', { name: 'Child orders and fills', exact: true }).click();
+  await expect(bodyRows(tableIn(page, 'Orders and fills')).first()).toBeVisible();
 
-  // A limit TWAP whose resting child cannot be cancelled (the stack's TEST cancel fault on this parent): the cancel is
-  // reported incomplete, the parent halts, and resume is refused.
-  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Algo orders', exact: true }).click();
-  const { bid } = await bestPrices();
-  await fillSchedule(page, { total: '0.002', seconds: 120, every: 15 });
-  await form(page)
-    .getByLabel('Limit price')
-    .fill(String((toUnits(bid) * 97n) / 100n / toUnits('1')));
+  // A TWAP buy on the unquoted TEST book, where the other trader rests a bid and a small ask: its first child (1 IFC at
+  // the ask, the band's edge) takes the 0.5 resting and leaves the rest open. The next slice is five minutes away, so
+  // nothing else is placed while the matching engine is stopped: the child cancel fails for real.
+  const maker = otherTrader();
+  const other = await api(maker);
+  expect(fund(maker.email, 'USDC', '100').tx).toBeTruthy();
+  expect(fund(maker.email, 'IFC', '100').tx).toBeTruthy();
+  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  await clearIfc(maker);
+  await clearIfc(trader);
+  const tag = state('tag');
+  for (const [side, amount, price] of [
+    ['buy', '1', '0.99'],
+    ['sell', '0.5', '1.01'],
+  ]) {
+    const rest = await other.post('/api/v1/orders', {
+      symbol: UNQUOTED,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      clientOrderId: `${J}-8-${side}-${tag}`,
+    });
+    expect(rest.status, JSON.stringify(rest.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await expect
+    .poll(async () => (await ifcBook()).asks.map(([price, size]) => [toUnits(price), toUnits(size)]), { timeout: 15_000 })
+    .toEqual([[toUnits('1.01'), toUnits('0.5')]]);
+  await tabs.getByRole('tab', { name: 'Algo orders', exact: true }).click();
+  await fillSchedule(page, { market: UNQUOTED, total: '2', seconds: 600, every: 300 });
+  await form(page).getByLabel('Limit price (optional)').fill('1.01');
   const id = await confirmSchedule(page);
-  await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBeGreaterThan(0);
-  tool('local-test-gates.mjs', 'fail-cancel', (await parentOf(trader, id)).children[0].orderId);
-  await list.getByRole('button', { name: `Cancel ${id}` }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
-  await expect(page.getByText('trade.algo_cancel_incomplete', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(list.getByRole('row', { name: new RegExp(id) }).getByText('Halted')).toBeVisible();
-  await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+  let stopped = false;
+  try {
+    await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBe(1);
+    const child = (await parentOf(trader, id)).children[0].orderId;
+    await expect.poll(async () => (await openOrders(trader, UNQUOTED)).map((o) => o.id), { timeout: 15_000 }).toContain(child);
+    // Marked first, so a stop that times out after its signal still brings the engine back.
+    stopped = true;
+    stack('stop', 'matching');
+    await list.getByRole('button', { name: `Cancel ${id}` }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
+    await expect(page.getByText('trade.algo_child_cancel_failed', { exact: true })).toBeVisible({ timeout: 30_000 });
+    // Reported incomplete: parked, not cancelled, with the cancel-incomplete reason.
+    const parked = await parentOf(trader, id);
+    expect(parked.status).toBe('paused');
+    expect(parked.haltReason).toBe('cancel_incomplete');
+    await list.getByRole('row', { name: new RegExp(id) }).click();
+    await expect(detail(page).getByText('Cancel only partly done: some child orders may still be open.', { exact: false })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The room offers neither halt (pause) nor resume.
+    await expect(list.getByRole('button', { name: `Pause ${id}` })).toBeDisabled();
+    await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeDisabled();
+
+    // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
+    // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and
+    // nothing about it changes (its child is still open).
+    stack('start', '--only', 'matching');
+    stopped = false;
+    await expect
+      .poll(async () => actionCode(trader, 'pause', id), { timeout: 60_000, intervals: [2_000] })
+      .toBe('trade.algo_cancel_incomplete');
+    expect(await actionCode(trader, 'resume', id)).toBe('trade.algo_cancel_incomplete');
+    const after = await parentOf(trader, id);
+    expect(after.status).toBe('paused');
+    expect(after.haltReason).toBe('cancel_incomplete');
+    expect(after.children.map((c) => c.orderId)).toEqual([child]);
+    expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).toContain(child);
+
+    // Cancelling again finishes: the schedule is cancelled and its child is no longer open.
+    await expect.poll(async () => actionCode(trader, 'cancel', id), { timeout: 60_000, intervals: [2_000] }).toBeNull();
+    expect((await parentOf(trader, id)).status).toBe('cancelled');
+    expect((await openOrders(trader, UNQUOTED)).map((o) => o.id)).not.toContain(child);
+  } finally {
+    // The engine comes back before anything else, and a failed restart still lets the rest of the clean-up run.
+    let restart = null;
+    if (stopped) {
+      try {
+        stack('start', '--only', 'matching');
+      } catch (err) {
+        restart = err;
+      }
+    }
+    await (await api(trader)).post('/api/trade/trpc/algo.cancel', { algoId: id });
+    await clearIfc(maker);
+    await clearIfc(trader);
+    if (restart) throw restart;
+  }
 });

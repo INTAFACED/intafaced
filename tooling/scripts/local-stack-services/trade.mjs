@@ -7,13 +7,19 @@ function testValue(name) {
   return entry.value;
 }
 
-/** The TEST desk law, with its settle window, its minimum or its asset list left out when the switch says so. */
+/** The TEST desk law, with its settle window, its minimum, its asset list or its level left out when the switch says so. */
 function otcDeskLaw() {
   const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
   if (process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW === 'off') delete law.settleWindowMs;
   if (process.env.LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL === 'off') delete law.minNotional;
   if (process.env.LOCAL_STACK_TRADE_OTC_ASSETS === 'off') delete law.assets;
+  if (process.env.LOCAL_STACK_TRADE_OTC_MIN_TIER === 'off') delete law.minTier;
   return JSON.stringify(law);
+}
+
+/** The TEST size range for a conversion at the desk price, left blank when the switch says so. */
+function otcConvertBounds() {
+  return process.env.LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS === 'off' ? '' : testValue('TRADE_OTC_CONVERT_BOUNDS');
 }
 
 /** The TEST provider list, left blank when the switch says so. */
@@ -105,7 +111,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
     // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
-    TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
+    // `LOCAL_STACK_TRADE_BOTS_LEVEL=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #2 sees every bot refused.
+    TRADE_BOTS_VERIFICATION_LEVEL: process.env.LOCAL_STACK_TRADE_BOTS_LEVEL === 'blank' ? '' : testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
+    // LOCAL TEST, not owner decisions: the grid counts a spot grid bot may use. Either blank refuses every grid create
+    // (trade.grid_count_range_not_set, grid/policy.ts); production stays blank until the owner sets them.
+    TRADE_GRID_COUNT_MIN: testValue('TRADE_GRID_COUNT_MIN'),
+    TRADE_GRID_COUNT_MAX: testValue('TRADE_GRID_COUNT_MAX'),
+    // LOCAL TEST, not an owner decision: how far a grid bound may sit from the market price. Blank refuses every grid
+    // create (trade.bots_grid_bounds_band_not_set, grid/policy.ts); production stays blank until the owner sets it.
+    // `LOCAL_STACK_TRADE_GRID_BAND=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #4 sees that refusal.
+    TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS:
+      process.env.LOCAL_STACK_TRADE_GRID_BAND === 'blank' ? '' : testValue('TRADE_GRID_BOUNDS_MAX_DISTANCE_BPS'),
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',
@@ -122,9 +138,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // desk minimum blank, so a request refuses `trade.rfq_size_not_set` (J-copy-bots-otc-24 #4).
     // `LOCAL_STACK_TRADE_OTC_MAKERS=off` leaves the provider list blank, so a request refuses "No providers set" (#2).
     // `LOCAL_STACK_TRADE_OTC_ASSETS=off` leaves the desk's asset list blank, so the overview reads "Not set" and a request
-    // refuses `trade.otc_assets_unset` (#1).
+    // refuses `trade.otc_assets_unset` (#1). `LOCAL_STACK_TRADE_OTC_MIN_TIER=off` leaves the desk's verification level
+    // blank, so every request refuses `trade.otc_level_unset` (#3). `LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS=off` leaves the
+    // size range for a conversion at the desk price blank, so Convert reads "Not set" and refuses
+    // `trade.convert_bounds_not_set` (#9).
     TRADE_OTC_DESK_LAW: otcDeskLaw(),
     TRADE_OTC_MAKER_DIRECTORY: otcMakerDirectory(),
+    TRADE_OTC_CONVERT_BOUNDS: otcConvertBounds(),
     TRADE_OTC_MIDS: testValue('TRADE_OTC_MIDS'),
     // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts, regional host rule and data terms
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`

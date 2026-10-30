@@ -120,6 +120,7 @@ import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
 import * as twap from './trade-service/algo.js';
+import * as buyback from './trade-service/buyback.js';
 
 export {
   assertSamePlaceCommand,
@@ -953,6 +954,11 @@ export class TradeService {
     return this.placeOrderInner(principal, input, 'copy.mirror', `copy.follow:${followId}`);
   }
 
+  /** Owning GridService supplies its bot id: one level order, a delegated child of the bot's admitted `strategy.start`. */
+  async placeGridLevel(principal: Principal, input: PlaceOrderInput, botId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'algo.child', `grid:${botId}`);
+  }
+
   /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
   async recoverAdmittedOrder(userId: string, orderId: string): Promise<OrderRecord | null> {
     const existing = await this.findOrder(orderId);
@@ -1126,6 +1132,11 @@ export class TradeService {
 
   async placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
     return orderPlace.placeOrder(this.internal, principal, input);
+  }
+
+  /** The token buyback's IOC buy, for svc-token only (`buyback-door.ts`). Its money is the rewards engine's. */
+  async placeBuybackIocBuy(input: buyback.BuybackIocBuyInput): Promise<buyback.BuybackIocBuyResult> {
+    return buyback.placeBuybackIocBuy(this.internal, input);
   }
 
   private async placeOrderInner(
@@ -1652,6 +1663,11 @@ export class TradeService {
    */
   async fillsForOrder(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]> {
     return reads.fillsForOrder(this.internal, principal, orderId, limit);
+  }
+
+  /** Every fill of one owned order (the grid bot's fee and pair sums). */
+  async everyFillOfOrder(principal: Principal, orderId: string): Promise<FillRecord[]> {
+    return reads.everyFillOfOrder(this.internal, principal, orderId);
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {

@@ -17,6 +17,8 @@ import {
   createPriceWalk,
   crossingSide,
   bookMid,
+  parseShift,
+  shiftedMid,
   quoteOrder,
   crossesOn,
   fromScaled,
@@ -460,3 +462,19 @@ try {
 }
 
 console.log('local-test-market: supervision and exit-logging checks passed');
+
+// `move`: a percent becomes whole basis points within -50% to +100%; the walk mid moves by it, floored to the tick.
+assert.equal(parseShift('+2%'), 200n);
+assert.equal(parseShift('-6%'), -600n);
+assert.equal(parseShift('0.5%'), 50n);
+assert.equal(parseShift('0%'), 0n);
+assert.equal(parseShift('-50%'), -5000n);
+assert.equal(parseShift('-51%'), null);
+assert.equal(parseShift('101%'), null);
+assert.equal(parseShift('2'), null);
+assert.equal(parseShift('1.234%'), null);
+assert.equal(parseShift(undefined), null);
+assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02'));
+assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
+assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
+assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));

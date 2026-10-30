@@ -30,6 +30,9 @@ import { algoServiceId, useWriteGuard, type Failure } from './guard';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 import { TwapWizard, type BotKind } from './TwapWizard';
+import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
+import type { GridBot } from './api';
+import { roomRefusal } from './refusals';
 
 type TabId = 'catalogue' | 'paper';
 const TABS: readonly TabId[] = ['catalogue', 'paper'];
@@ -65,7 +68,7 @@ const CATALOGUE: readonly CatalogueRow[] = [
     id: 'grid',
     name: 'Grid',
     does: 'Buys low and sells high inside a price range',
-    needs: 'A price range, grid count, and a grid service',
+    needs: 'Market, investment, a price range and a grid count',
   },
   {
     id: 'dca',
@@ -94,14 +97,12 @@ const TYPE_LINK: Record<CatalogueRow['id'], { name: string; href: string }> = {
 type OpenBot = { algo: Algo | null; progress: Progress | null; failure: Failure | null };
 
 /** Why a bot type with no engine can't be set up, in the catalogue and in its own room. */
-const NOT_BUILT: Record<'grid' | 'dca', string> = {
-  grid: 'No grid service exists. Nothing is simulated.',
+const NOT_BUILT: Record<'dca', string> = {
   dca: 'No recurring-order service exists. Use Convert for a single trade.',
 };
 
 /** Bot types with no engine yet: the room is reachable and says why nothing can be set up. */
 const PARKED: Record<string, { title: string; reason: string }> = {
-  [TYPE_LINK.grid.href]: { title: TYPE_LINK.grid.name, reason: NOT_BUILT.grid },
   [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
 };
 
@@ -109,6 +110,7 @@ const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that addr
 
 export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
+  if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
   const parked = PARKED[pathname];
   if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
   // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
@@ -157,6 +159,17 @@ function BotsHub({ path }: { path: string }) {
   const policy = useLive((signal) => api.algoPolicy(signal), 'bots-policy', 60_000);
   const markets = useLive((signal) => tradeApi.markets(signal), 'bots-markets', 300_000);
   const studio = useLive((signal) => api.studio(signal), 'bots-studio', 60_000);
+  // The grid service answers for this person: below the owner's verification level (or with none set) it refuses.
+  const gridSetup = useLive(
+    (signal) => (session ? api.gridSetup(signal) : Promise.resolve({ ok: true as const, data: null })),
+    `bots-grid-setup:${session ? (userId ?? 'in') : 'out'}`,
+    60_000,
+  );
+  const grids = useLive(
+    (signal) => (session ? api.gridList(signal) : Promise.resolve({ ok: true as const, data: [] as GridBot[] })),
+    `bots-grids:${session ? (userId ?? 'in') : 'out'}`,
+    10_000,
+  );
   // My bots is the service's own list of this person's bots, so a new browser shows the same bots.
   const [mineLimit, setMineLimit] = useState(BOT_LIST_PAGE);
   const mine = useLive(
@@ -246,7 +259,10 @@ function BotsHub({ path }: { path: string }) {
     }
   };
 
-  const catalogueStatus = (row: CatalogueRow): { tone: BadgeTone; word: string; reason: string | null; ready: boolean } => {
+  // `worded` marks a reason already in customer words (a refusal from refusals.ts), so it is shown as it is.
+  const catalogueStatus = (
+    row: CatalogueRow,
+  ): { tone: BadgeTone; word: string; reason: string | null; ready: boolean; worded?: boolean } => {
     if (row.id === 'twap' || row.id === 'vwap' || row.id === 'pov') {
       if (!policy.data && policy.status === 'error')
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
@@ -263,12 +279,15 @@ function BotsHub({ path }: { path: string }) {
     }
     if (row.id === 'studio')
       return { tone: 'warn', word: 'Paper only', reason: 'A strategy can’t trade live. It runs on paper.', ready: true };
-    return {
-      tone: 'neutral',
-      word: 'Not built',
-      reason: NOT_BUILT[row.id === 'grid' ? 'grid' : 'dca'],
-      ready: false,
-    };
+    if (row.id === 'grid') {
+      if (!session) return { tone: 'neutral', word: 'Sign in', reason: 'Sign in to set up a bot.', ready: false };
+      if (gridSetup.failure && !gridSetup.data) {
+        const words = roomRefusal(gridSetup.failure);
+        return { tone: 'warn', word: words.title, reason: words.title, ready: false, worded: true };
+      }
+      return { tone: 'lime', word: gridSetup.data ? 'Ready' : 'Checking', reason: null, ready: true };
+    }
+    return { tone: 'neutral', word: 'Not built', reason: NOT_BUILT.dca, ready: false };
   };
 
   // A setup link opens the wizard only where the catalogue's Set up button would, once the policy has answered; where it
@@ -297,8 +316,8 @@ function BotsHub({ path }: { path: string }) {
         const s = catalogueStatus(r);
         return (
           <span className="cb-statuscell">
-            <Badge tone={s.tone}>{t(s.word as 'Ready')}</Badge>
-            {s.reason ? <small>{t(s.reason as 'Ready')}</small> : null}
+            <Badge tone={s.tone}>{s.worded ? s.word : t(s.word as 'Ready')}</Badge>
+            {s.reason && !s.worded ? <small>{t(s.reason as 'Ready')}</small> : null}
           </span>
         );
       },
@@ -319,6 +338,12 @@ function BotsHub({ path }: { path: string }) {
         if (r.id === 'twap' || r.id === 'vwap' || r.id === 'pov')
           return (
             <Button size={28} disabled={!s.ready || !session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>
+              {t('Set up')}
+            </Button>
+          );
+        if (r.id === 'grid')
+          return (
+            <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.grid.href)}>
               {t('Set up')}
             </Button>
           );
@@ -366,6 +391,34 @@ function BotsHub({ path }: { path: string }) {
         </Button>
       ),
     },
+  ];
+
+  const gridColumns: TableColumn<GridBot>[] = [
+    {
+      id: 'id',
+      header: t('Bot'),
+      value: (r) => t('Spot grid {symbol}', { symbol: r.symbol }),
+      cell: (r) => (
+        <a href={`${TYPE_LINK.grid.href}?bot=${encodeURIComponent(r.botId)}`}>{t('Spot grid {symbol}', { symbol: r.symbol })}</a>
+      ),
+      pin: 'start',
+      width: 200,
+    },
+    {
+      id: 'status',
+      header: t('State'),
+      cell: (r) => <Badge tone={GRID_TONE[r.status]}>{t(GRID_WORD[r.status] as 'Stopped')}</Badge>,
+      width: 280,
+    },
+    {
+      id: 'range',
+      header: t('Range'),
+      value: (r) => `${displayAmount(r.lowerPrice)} – ${displayAmount(r.upperPrice)}`,
+      numeric: true,
+    },
+    { id: 'invest', header: t('Investment'), value: (r) => r.investment, numeric: true, cell: (r) => displayAmount(r.investment) },
+    { id: 'profit', header: t('Grid profit'), value: (r) => r.gridProfit, numeric: true, cell: (r) => displayAmount(r.gridProfit) },
+    { id: 'created', header: t('Started'), value: (r) => new Date(r.createdAt).toLocaleString(), width: 200 },
   ];
 
   const paperColumns: TableColumn<StudioStrategy>[] = [
@@ -433,7 +486,7 @@ function BotsHub({ path }: { path: string }) {
               <li key={row.id}>
                 <a href={TYPE_LINK[row.id].href}>{t(TYPE_LINK[row.id].name as 'Spot grid')}</a>
                 <span data-testid="bot-type-status">
-                  {word ?? t('Not available: {reason}', { reason: t((s.reason ?? s.word) as 'Ready') })}
+                  {word ?? t('Not available: {reason}', { reason: s.worded && s.reason ? s.reason : t((s.reason ?? s.word) as 'Ready') })}
                 </span>
               </li>
             );
@@ -483,6 +536,19 @@ function BotsHub({ path }: { path: string }) {
                 />
               }
             />
+            {grids.failure && !grids.data ? (
+              <RefusalNote failure={grids.failure} retry={grids.reload} />
+            ) : grids.data && grids.data.length > 0 ? (
+              <Table
+                label={t('My grid bots')}
+                columns={gridColumns}
+                rows={grids.data}
+                getRowId={(r) => r.botId}
+                refreshing={grids.refreshing}
+                onRowActivate={(r) => navigate(`${TYPE_LINK.grid.href}?bot=${encodeURIComponent(r.botId)}`)}
+                minWidth={940}
+              />
+            ) : null}
             <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
             {moreMine ? (
               <div className="cb-action-row">

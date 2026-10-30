@@ -11,6 +11,12 @@ export {
   AmountInput,
   Button,
   CoinIcon,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Select,
   SelectContent,
   SelectItem,
@@ -18,6 +24,7 @@ export {
   SelectValue,
   Skeleton,
   StateBlock,
+  Switch,
   Tabs,
   TabsList,
   TabsTab,
@@ -32,6 +39,13 @@ export { dec, str } from '../../data/decimal';
 export { formatAmount, parseAmount } from '../../shared/money';
 export { fractionDigits } from '../../data/decimal';
 export { fetchMe, resolveHandle, cleanHandle, type MeOutcome, type ResolveOutcome } from '../../data/identity';
+export {
+  changeHandle,
+  fetchHandleSettings,
+  setHandleDiscoverable,
+  type HandleChangeCode,
+  type HandleSettings,
+} from '../../data/handle-settings';
 
 export { useSession } from '../../features/session/session';
 export { createPersonalPayApi, type PersonalPayApi } from '../../features/pay/pay-api';
