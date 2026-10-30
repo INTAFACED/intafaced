@@ -202,7 +202,7 @@ export class ActionApprovalService {
     }
     const governed = this.governedPolicyOf(row);
     if (governed) {
-      if (governed.approverAudience === 'founder') await this.requireFounders(row, { approverId });
+      if (governed.approverAudience === 'founder' || inFounderNamespace(row)) await this.requireFounders(row, { approverId });
       const vote = await this.store.casVote(approvalId, approverId, this.clock());
       if (vote.kind === 'already_approved') {
         throw new ActionApprovalError('this person has already approved this request', ACTION_APPROVAL_ALREADY_APPROVED);
@@ -288,7 +288,7 @@ export class ActionApprovalService {
       if (approvers.length < governed.requiredApprovals) {
         throw new ActionApprovalError('the request does not yet have the approvals its policy requires', 'action_approval.not_approved');
       }
-      if (governed.approverAudience === 'founder') {
+      if (governed.approverAudience === 'founder' || inFounderNamespace(row)) {
         for (const approverId of approvers) founderAttestation = await this.requireFounders(row, { approverId });
       }
     } else if (audienceOfApproval(row) === 'founder') {

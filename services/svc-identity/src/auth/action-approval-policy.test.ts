@@ -236,6 +236,16 @@ describe('governed approve and consume', () => {
     ).toThrow(expect.objectContaining({ code: 'action_approval.policy_unset' }));
   });
 
+  it('a founder-namespaced request needs live founders at approve and again at consume, whatever its row names', async () => {
+    const founders: string[] = [REQ, B];
+    const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row({ requiredApprovals: '1' }) }) }, { founders });
+    const p = await svc.propose(REQ, { ...reverse, targetId: 'treasury.sweep:tx-1' });
+    await expect(svc.approve(C, p.approvalId, p.payloadHash)).rejects.toMatchObject({ code: 'action_approval.founder_only' });
+    await svc.approve(B, p.approvalId, p.payloadHash);
+    const applied = await svc.consume('svc-ops', consumeOf(p));
+    expect(applied).toMatchObject({ status: 'CONSUMED', approverIsFounder: true, requesterIsFounder: true });
+  });
+
   it('a voter no longer sees the row in their pending list while it waits on others', async () => {
     const { svc } = rig({ value: setting({ 'ops.ledger.reverse': row() }) });
     const p = await svc.propose(REQ, reverse);
