@@ -57,7 +57,7 @@ import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
 import { listAllowances } from './amm/allowances.js';
-import { routeOptions } from './amm/routes.js';
+import { blockBalances, routeOptions } from './amm/routes.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
@@ -498,6 +498,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   // The ownership proof's chain reads, built once: the challenge's chain id and the verify reads come from this one object.
   let ownership: OwnershipChain | null = null;
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
+  const routeBalances = blockBalances(chain);
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -1541,7 +1542,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
             throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.route_same_token: pay and receive name the same token.' });
           try {
-            return await routeOptions(chain, await readPairs(factory), {
+            return await routeOptions(routeBalances, await readPairs(factory), {
               tokenIn: input.tokenIn as Address,
               tokenOut: input.tokenOut as Address,
               amountIn: BigInt(input.amountIn),

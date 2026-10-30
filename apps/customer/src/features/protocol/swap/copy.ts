@@ -35,7 +35,10 @@ const en = {
   routeExcluded: 'Excluded',
   routeStale: 'unavailable: stale (its token balances differ from the reserves it prices from)',
   routeNoLiquidity: 'unavailable: no liquidity',
+  routeUnreadable: 'unavailable: the network did not answer for this pool',
   routeNone: 'No pool you have left in can quote this swap. Include a pool again.',
+  noUsablePool:
+    'No pool for these two tokens can quote this amount just now: each is stale, empty or did not answer. Try again or change the amount.',
   slippage: 'Slippage (%)',
   slippageHint: 'How far the price may move before the swap fails instead of filling.',
   swap: 'Swap',
