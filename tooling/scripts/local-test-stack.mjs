@@ -1224,7 +1224,7 @@ async function startNats() {
 function testChain() {
   if (!ownedAlive(readProcs().chain) || !fs.existsSync(chainRecordPath(STATE))) return null;
   const record = readJson(chainRecordPath(STATE));
-  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router };
+  return { rpcUrl: GATE_URL, factory: record.factory, router: record.router, usdToken: record.tokens?.USD?.address ?? null };
 }
 
 /**
