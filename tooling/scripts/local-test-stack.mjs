@@ -767,6 +767,8 @@ export async function inPool(items, limit, task) {
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+/** What the running Node services are built from: a Customer-only change rebuilds no service process. */
+const BACKEND_SOURCE_PATHS = ['services', 'packages', 'pnpm-lock.yaml'];
 
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
 function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
@@ -780,11 +782,14 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
  * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
  */
-function worktreeEdits(paths) {
-  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths], { cwd: REPO });
-  if (status.status !== 0) return `unreadable:${Date.now()}`; // never "same as before"
+function worktreeEdits(paths, exclude = []) {
+  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+  // A read that fails or is cut short is never "same as before".
+  if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
   if (status.stdout.length === 0) return '';
-  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...paths], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
   const hash = crypto
     .createHash('sha256')
     .update(status.stdout)
@@ -822,9 +827,20 @@ export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
 
-/** The stamp's id for one part's last build (`backendBuild`, `adminBuild`), or undefined before any build had one. */
+/** The stamp's id for one part's last build (`backendBuild`, `adminBuild`, …), or undefined before any build had one. */
 function currentBuild(part) {
   return fs.existsSync(P.buildStamp) ? readJson(P.buildStamp)[part] : undefined;
+}
+
+/**
+ * Stops `name` when it runs on another build than `build`: a running process keeps serving what it loaded, so it would
+ * hide the new build. Waits for its port to close, so the start that follows does not mistake it for a stranger.
+ */
+async function stopForNewBuild(name, rec, build, port) {
+  if (!ownedAlive(rec) || onCurrentBuild(rec, build)) return;
+  say(`  ${name}: restarting onto the new build`);
+  await stopProc(name, rec);
+  for (let i = 0; i < 50 && (await portOpen(port)); i++) await sleep(200);
 }
 
 const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
@@ -957,7 +973,8 @@ const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
 function ensureAdminBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  const edits = worktreeEdits(ADMIN_SOURCE_PATHS);
+  // next-env.d.ts is rewritten by `next dev` and `next build` themselves, so it is no edit of the founder's.
+  const edits = worktreeEdits(ADMIN_SOURCE_PATHS, ['apps/admin/next-env.d.ts']);
   const unchanged = (a, b) => sourceUnchangedSince(a, b, ADMIN_SOURCE_PATHS);
   const now = { repo: REPO, head, edits };
   if (
@@ -989,7 +1006,10 @@ function ensureInvitationBuilt(rebuild) {
   say('  build: invitation site (apps/invitation)…');
   runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
   const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head, invitationRepo: REPO, invitationEdits: edits }, null, 2));
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...now, invitationHead: head, invitationRepo: REPO, invitationEdits: edits, invitationBuild: newBuildId() }, null, 2),
+  );
 }
 
 function ensureBuilt(rebuild) {
@@ -1016,6 +1036,15 @@ function ensureBuilt(rebuild) {
     ensureAdminBuilt(rebuild);
     return;
   }
+  // The services restart onto this build only when their own source moved (not for a Customer-only change).
+  const backendEdits = worktreeEdits(BACKEND_SOURCE_PATHS);
+  const backendChanged =
+    rebuild ||
+    !buildStillFresh(
+      { stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.backendEdits },
+      { repo: REPO, head, edits: backendEdits },
+      (a, b) => sourceUnchangedSince(a, b, BACKEND_SOURCE_PATHS),
+    );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
   if (!override) {
@@ -1032,7 +1061,9 @@ function ensureBuilt(rebuild) {
         edits,
         builtAt: new Date().toISOString(),
         customerBuilt: !override,
-        backendBuild: newBuildId(),
+        backendEdits,
+        backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
+        customerBuild: override ? stamp.customerBuild : newBuildId(),
       },
       null,
       2,
@@ -1441,11 +1472,8 @@ async function startNodeService(def) {
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
-  if (ownedAlive(procs[def.name]) && !onCurrentBuild(procs[def.name], build)) {
-    // Rebuilt since it started: a running process keeps serving the code it loaded, so it would hide the new build.
-    say(`  ${def.name}: restarting onto the new build`);
-    await stopProc(def.name, procs[def.name]);
-  } else if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
+  await stopForNewBuild(def.name, procs[def.name], build, port);
+  if (ownedAlive(readProcs()[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
@@ -1508,12 +1536,14 @@ async function pinOpsFounders() {
 }
 
 async function startCustomer() {
+  const build = currentBuild('customerBuild');
+  await stopForNewBuild('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
   const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
-  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO);
+  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
 
@@ -1542,12 +1572,14 @@ async function startRailStatements() {
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
+  const build = currentBuild('invitationBuild');
+  await stopForNewBuild('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
-  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
+  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
@@ -1620,12 +1652,8 @@ async function startAdmin(secrets) {
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
   const build = currentBuild('adminBuild');
-  if (ownedAlive(procs.admin) && !onCurrentBuild(procs.admin, build)) {
-    // A rebuilt console in apps/admin/.next is not what the running process loaded.
-    say('  admin: restarting onto the new build');
-    await stopProc('admin', procs.admin);
-    procs = readProcs();
-  }
+  await stopForNewBuild('admin', procs.admin, build, PORTS.admin);
+  procs = readProcs();
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
     // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.

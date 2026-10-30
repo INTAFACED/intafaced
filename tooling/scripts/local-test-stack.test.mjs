@@ -1047,10 +1047,9 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
   assert.equal(onCurrentBuild({}, undefined), true, 'no build id yet: nothing to compare');
 
-  // Every freshness check and every start of a built part goes through them.
+  // Each built part's start stops a process on another build first (services, console, Customer app, invitation site).
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
-  assert.equal((source.match(/buildStillFresh\(/g) ?? []).length, 4, 'buildPlan, admin and invitation use it (plus its definition)');
-  assert.match(source, /if \(ownedAlive\(procs\[def\.name\]\) && !onCurrentBuild\(procs\[def\.name\], build\)\)/);
-  assert.match(source, /if \(ownedAlive\(procs\.admin\) && !onCurrentBuild\(procs\.admin, build\)\)/);
+  for (const part of ['def.name', "'admin'", "'customer'", "'invitation'"])
+    assert.ok(source.includes(`await stopForNewBuild(${part},`), `${part} restarts onto a new build`);
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
