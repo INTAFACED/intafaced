@@ -288,25 +288,14 @@ describe('a send out of the platform confirms later (W-withdraw-06, real Postgre
     await invariant(made);
   });
 
-  it('without the worker a create still sends in the request, and still settles only at the depth', async () => {
+  it('without the worker a create sends and settles in the request, as before, whatever the depth', async () => {
     const service = money({ confirmLater: false });
-    await quotes.quote(USER, { quoteRef: 'q-w-1', assetId: 'USDT', networkId: 'ethereum', amount: '25' });
-    const pending = await service.withdraw({
-      userId: USER,
-      assetId: 'USDT',
-      amount: amt('25'),
-      rail: RAIL,
-      destination: { kind: 'crypto', ref: ADDRESS },
-      clientRef: 'w-1',
-      networkId: 'ethereum',
-      quoteRef: 'q-w-1',
-    });
-    expect(pending).toMatchObject({ status: 'held', journal: 'accepted' });
+    const done = await send(service, 'w-1');
+    expect(done).toMatchObject({ status: 'sent' });
     expect(chain.outboundTransfers()).toHaveLength(1);
-    const [row] = await sql<Array<{ id: string }>>`SELECT id FROM pay.withdrawals`;
-    chain.setSendDepth(key(row!), 6);
-    expect(await service.advanceWithdrawal(row!.id)).toMatchObject({ status: 'sent' });
-    await invariant(row!);
+    expect(await held(done)).toBe(0n);
+    expect(await railOut()).toBe(amt('25'));
+    await invariant(done);
   });
 
   describe('the worker pass', () => {

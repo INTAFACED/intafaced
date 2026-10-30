@@ -985,7 +985,8 @@ export class UserMoneyService {
           // owner's minimum depth. Below it, or when the chain cannot say, the hold stays, the depth read is saved (the page
           // reads `broadcast` at zero and `confirming` above it) and the next pass asks again. Nothing is reversed here: a send
           // the rail accepted may be on the chain, so its hold is never released from this state (ENGINE W-3).
-          if (confirmsAtDepth && claimed.networkId !== null) {
+          // Only with the advance worker on: without it nothing would ask again, so the send settles in the request as before.
+          if (this.confirmLater && confirmsAtDepth && claimed.networkId !== null) {
             const depth = await adapter.payoutDepth!(instruction);
             if (depth === null || depth.confirmations < depth.required) {
               if (depth !== null) {

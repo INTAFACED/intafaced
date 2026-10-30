@@ -150,15 +150,15 @@ export function isTerminal(status: WithdrawalStatus): boolean {
   return TRANSITIONS[status].length === 0;
 }
 
-/** The outcome of a withdrawal's current attempt in `pay.withdrawal_rail_attempts`, or `null` when none is journalled. */
-export type DispatchJournal = 'requested' | 'accepted' | 'confirming' | 'refused' | null;
-
 /**
+ * The outcome of a withdrawal's current attempt in `pay.withdrawal_rail_attempts`, or `null` when none is journalled.
+ *
  * The journal outcome as the reads see it: a send the rail accepted whose chain depth was read above zero but below the
  * owner's minimum is `confirming` (W-withdraw-06). Depth zero, or not read, stays `accepted`. Every read that shows a row
  * (`getWithdrawal`, `listWithdrawals`, the history and its filter) selects the same expression,
  * `CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END`, so they draw one split.
  */
+export type DispatchJournal = 'requested' | 'accepted' | 'confirming' | 'refused' | null;
 
 /**
  * What the customer sees for one row (W-withdraw-07). A stored `held` row is split by its current attempt's journal

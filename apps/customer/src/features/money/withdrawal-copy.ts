@@ -1025,7 +1025,7 @@ const fr = {
   lUnset: 'Aucune limite de retrait n’est fixée pour ton niveau de compte et cet actif : rien ne peut être envoyé.',
   lOff: 'Les limites de retrait ne sont pas activées : rien ne peut être envoyé.',
   lTier: 'Ton niveau de compte n’a pas pu être lu : rien ne peut être envoyé.',
-  xRequested: 'Nous avons reçu votre demande et l’enregistrons. Attendez la réponse ici ; ne la confirmez pas à nouveau.',
+  xRequested: 'Nous avons reçu ta demande et l’enregistrons. Attends la réponse ici ; ne la confirme pas à nouveau.',
   xDoneTitle: 'Retrait enregistré',
   xDone: 'Le retrait {id} est enregistré. Suis son statut ci-dessous.',
   xUnknownTitle: 'Réponse non reçue',
