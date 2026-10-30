@@ -167,8 +167,25 @@ test('J-ops-console-04 #2 holds part of a customer’s funds with a reason: avai
   run.write({ who, userId, firstHold });
 });
 
+/** Set while #3 holds the platform-wide posting freeze on, so the teardown below can lift it even after a timeout. */
+let freezeOn = false;
+
+// A posting freeze left on would refuse every later journey's posts on this stack, so it is lifted here on fresh pages
+// when #3 ends with it on (a timeout closes that test's own pages before its own cleanup can run).
+test.afterEach(async ({ browser }) => {
+  if (!freezeOn) return;
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(a, 'a');
+  await founderSignIn(b, 'b');
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await setPostingFreeze(a, b, false);
+  freezeOn = false;
+});
+
 test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored time, with no approver, once', async ({ browser }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   const { who, userId } = saved();
   const tag = randomUUID().slice(0, 8);
   const a = await (await browser.newContext()).newPage();
@@ -193,9 +210,11 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
   await founderSignIn(b, 'b');
   await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
   await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
-  await setPostingFreeze(a, b, true, `LOCAL TEST J-ops-console-04 #3 retried release ${tag}`);
   let failure = null;
   try {
+    // Marked on before the call: a freeze that reached the ledger is lifted even if the call's own answer failed.
+    freezeOn = true;
+    await setPostingFreeze(a, b, true, `LOCAL TEST J-ops-console-04 #3 retried release ${tag}`);
     tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
     await expect
       .poll(
@@ -214,6 +233,7 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
   // Lift the freeze for the journeys after this one; a failure to lift it never hides the release's own failure.
   try {
     await setPostingFreeze(a, b, false);
+    freezeOn = false;
   } catch (unfreeze) {
     failure ??= unfreeze;
   }

@@ -49,9 +49,9 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   await expect(page.getByTestId('search-accounts')).toContainText('Identity was not asked');
 
   // svc-bank down: its section refuses in its own words and no other section changes.
-  tool('local-test-stack.mjs', 'stop', 'bank');
   let failure = null;
   try {
+    tool('local-test-stack.mjs', 'stop', 'bank');
     await page.goto(searchUrl, { waitUntil: 'load' });
     await payments.getByRole('button', { name: 'Read the transfer record' }).click();
     await expect(payments.getByTestId('transfer-failed')).toContainText('svc-bank did not answer.', { timeout: 30_000 });

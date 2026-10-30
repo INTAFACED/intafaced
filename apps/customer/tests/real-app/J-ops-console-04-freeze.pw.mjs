@@ -27,14 +27,17 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   expect((await fetch(`${LEDGER}/ready`)).status, 'posting is open before the freeze').toBe(200);
 
   /** A console page that has inspected the customer's identity account, holding the version it read. */
-  async function inspected() {
-    const page = await (await browser.newContext()).newPage();
-    const founder = await founderSignIn(page, 'a');
+  async function inspect(page, state) {
     await page.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
     await page.getByLabel('Account area').selectOption('identity');
     await page.getByLabel('Platform user ID').fill(userId);
     await page.getByRole('button', { name: 'Inspect account' }).click();
-    await expect(page.getByRole('heading', { name: 'Access permitted' })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole('heading', { name: state })).toBeVisible({ timeout: 60_000 });
+  }
+  async function inspected() {
+    const page = await (await browser.newContext()).newPage();
+    const founder = await founderSignIn(page, 'a');
+    await inspect(page, 'Access permitted');
     return { page, founder };
   }
   const { page, founder } = await inspected();
@@ -50,7 +53,8 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   await expect(page.getByRole('heading', { name: 'Restricted' })).toBeVisible();
 
   // The version check: the stale page sends the version it read, and identity refuses it because the account changed since.
-  await stale.getByRole('textbox', { name: 'Reason', exact: true }).fill(`LOCAL TEST stale restrict ${tag}`);
+  const staleReason = `LOCAL TEST stale restrict ${tag}`;
+  await stale.getByRole('textbox', { name: 'Reason', exact: true }).fill(staleReason);
   await stale.getByLabel(/I reviewed this account/).check();
   await stale.getByRole('button', { name: 'Restrict access' }).click();
   await expect(stale.getByRole('alert').filter({ hasText: 'The account changed since inspection. Review the current state.' })).toHaveCount(
@@ -66,12 +70,14 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   await expect(row).toContainText('changed');
   await expect(row).toContainText(founder.userId.slice(0, 8));
   // The stale attempt changed nothing: the account is restricted once, by the first founder's request.
-  await page.reload();
-  await page.getByLabel('Account area').selectOption('identity');
-  await page.getByLabel('Platform user ID').fill(userId);
-  await page.getByRole('button', { name: 'Inspect account' }).click();
-  await expect(page.getByRole('heading', { name: 'Restricted' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator('table tbody tr').filter({ hasText: 'changed' })).toHaveCount(1);
+  await inspect(page, 'Restricted');
+  await expect(page.locator('table tbody tr').filter({ hasText: reason })).toHaveCount(1);
+  await expect(
+    page
+      .locator('table tbody tr')
+      .filter({ hasText: staleReason })
+      .filter({ hasText: /\bchanged\b/ }),
+  ).toHaveCount(0);
 
   // The freeze is identity's: the customer's sessions are revoked and sign-in refuses, while the ledger keeps posting.
   const again = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
