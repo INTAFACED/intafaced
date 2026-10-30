@@ -208,9 +208,13 @@ test(`${J} #6 presses Swap with no allowance: one approve step for the exact amo
   await quoteAB(page, '10');
   await swapButton(page).click();
   const steps = page.getByRole('list', { name: 'Swap steps' });
+  // Exactly two steps: one approve for the exact amount (TEST Token A needs no reset pair), then the swap of that amount.
+  await expect(steps.getByRole('listitem')).toHaveCount(2);
   await expect(steps.getByRole('listitem').first()).toHaveText('Approve exactly 10 TEST Token A');
-  await expect(steps.getByRole('listitem').last()).toContainText('Swap');
+  await expect(steps.getByRole('listitem').last()).toHaveText(/^Swap 10 TEST Token A for at least [\d,.]+ TEST Token B$/);
+  // Nothing is signed or sent before the person continues in the wallet.
   expect(wallet.requests).toHaveLength(0);
+  expect(wallet.sends).toHaveLength(0);
 });
 
 test(`${J} #7 chooses a network fee level and reads the fee line: three levels from the last blocks; a custom value over the cap refused; who pays named`, async ({
