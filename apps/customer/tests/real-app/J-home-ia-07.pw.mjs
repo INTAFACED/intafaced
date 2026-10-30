@@ -128,8 +128,8 @@ test(`${J} #3 has the membership removed by an owner, then reloads: the app fall
   await expect(page).toHaveURL((url) => url.pathname === '/pay/merchant');
 
   await bankWrite(owner, 'business.removeMember', { accountId, userId: personId, requestId: uuidOf(`${J}:remove:${RUN}`) });
+  // A fresh load of Home reads the memberships again.
   await page.goto('/home');
-  await page.reload();
   await expect(page.getByText(`Business: ${businessName}`)).toHaveCount(0);
   menu = await openMenu(page);
   await expect(menu.getByTestId('profile-gone')).toHaveText('That business is not one of your accounts, so Personal is shown.');
@@ -151,6 +151,10 @@ test(`${J} #4 signs out from the menu: the session ends and the public home show
   await expect(page.getByRole('navigation', { name: 'Public navigation' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
   await expect(page.getByRole('link', { name: 'Create your account' })).toBeVisible();
+  // The server ended the session: a fresh load of the public home stays public instead of opening Home.
+  await page.reload();
+  await expect(page).toHaveURL((url) => url.pathname === '/');
+  await expect(page.getByRole('navigation', { name: 'Public navigation' })).toBeVisible();
   // The session is over: a private room asks to sign in again.
   await page.goto('/uc/account');
   await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
