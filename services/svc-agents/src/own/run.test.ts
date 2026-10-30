@@ -173,12 +173,19 @@ if (!available) {
     it('reads no limits until set; stores all three and the lower of the person’s per-session value and the agent’s cap applies', async () => {
       const { person } = people();
       const id = await agentWith(person, '1');
-      expect(await person.own.limits.get({ id })).toEqual({ limits: null, agentCap: '1', effectivePerSession: null, assetId: 'USDT' });
+      expect(await person.own.limits.get({ id })).toEqual({
+        limits: null,
+        agentCap: '1',
+        effectivePerSession: null,
+        overageGrace: null,
+        assetId: 'USDT',
+      });
       const set = await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
       expect(set).toEqual({
         limits: { perCall: '0.012', perSession: '0.02', perPeriod: '5', period: 'month' },
         agentCap: '1',
         effectivePerSession: '0.02',
+        overageGrace: null,
         assetId: 'USDT',
       });
       // Saving the same values again is the same row.

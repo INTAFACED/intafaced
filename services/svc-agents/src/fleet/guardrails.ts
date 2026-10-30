@@ -300,6 +300,12 @@ export const REFUSAL_CODES = [
   // Refused at the hold for an agent the person built: a run past one of the caps they set for it, or no caps set.
   'agents.spend.cap_exceeded',
   'agents.spend.cap_unset',
+  // Refused by the runtime while a usage window the person owes could not be paid: past the owner's overage grace, or
+  // with no grace published.
+  'agents.overage_grace_exceeded',
+  'agents.overage_grace_unset',
+  // Refused by the runtime when the session's current usage window is already sealed: it takes no more usage.
+  'agents.window_sealed',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
