@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { SignJWT, jwtVerify, errors as joseErrors, type JWTPayload } from 'jose';
 import { z } from 'zod';
 import { type Scope } from './scopes.js';
-import { STAFF_PERMISSIONS, isStaffPermission, type StaffPermission } from './staff-permissions.js';
+import { STAFF_AREA_VERBS, STAFF_ENVS, isStaffAreaVerb, type StaffAreaVerb } from './staff-permissions.js';
 
 /**
  * Token issuing and verification (§1 Auth: "Own service — JWT (short) +
@@ -15,12 +15,12 @@ import { STAFF_PERMISSIONS, isStaffPermission, type StaffPermission } from './st
  */
 
 /**
- * The staff permissions claim: valid catalogue strings, each once, at most the whole catalogue. A token carrying a
- * malformed or repeated entry is malformed, not trimmed.
+ * The staff permissions claim: `<area>:<verb>` entries for the one environment named in `staffEnv`, each once, at most
+ * 11 × 8 = 88. A token carrying a malformed or repeated entry is malformed, not trimmed.
  */
 const staffPermissionsClaimSchema = z
-  .array(z.custom<StaffPermission>((value) => isStaffPermission(value), { message: 'not a staff permission' }))
-  .max(STAFF_PERMISSIONS.length)
+  .array(z.custom<StaffAreaVerb>((value) => isStaffAreaVerb(value), { message: 'not a staff <area>:<verb>' }))
+  .max(STAFF_AREA_VERBS.length)
   .refine((list) => new Set(list).size === list.length, 'a staff permission is listed twice');
 
 export const accessClaimsSchema = z.object({
@@ -66,7 +66,13 @@ export const accessClaimsSchema = z.object({
    */
   stp: z.array(z.string()).optional(),
   /**
-   * Staff permissions (OPS-admin-access-03), a SNAPSHOT of `resolveStaffPermissions` at minting. Absent means none.
+   * Staff permissions (OPS-admin-access-03), a SNAPSHOT of `resolveStaffPermissions` at minting, as `<area>:<verb>`
+   * entries for the one environment in `staffEnv` (`staffPermissionsForEnv`). Absent means none. `staffEnv` is present
+   * exactly when this is, and neither is ever on a token with `kid` or `sub_account`; `verifyAccessToken` refuses any
+   * other combination as `token.malformed`.
+   *
+   * A service compares `staffEnv` with its own configured environment (`parseStaffEnv`) and treats a mismatch as no
+   * permissions (`staffPermissionsFromClaim`): a token minted for staging grants nothing in production.
    *
    * identity mints it only on an interactive session (never an API key or a sub-account token) of a staff member who
    * was invited and approved. The console may gate reads and which screens it shows on it. It is never authority for a
@@ -75,6 +81,8 @@ export const accessClaimsSchema = z.object({
    * live founder entitlement.
    */
   staffPermissions: staffPermissionsClaimSchema.optional(),
+  /** The environment `staffPermissions` was minted for. Present exactly when `staffPermissions` is. */
+  staffEnv: z.enum(STAFF_ENVS).optional(),
 });
 
 export type AccessClaims = z.infer<typeof accessClaimsSchema>;
@@ -177,8 +185,13 @@ export interface IssueAccessInput {
   familyId?: string | null;
   /** The trusted device the session is bound to (`dev`). */
   trustedDeviceId?: string | null;
-  /** Staff permissions snapshot (`staffPermissions`). Interactive sessions only; empty or absent mints no claim. */
+  /**
+   * Staff permissions snapshot (`staffPermissions`, `<area>:<verb>` from `staffPermissionsForEnv`) and the environment
+   * it is for (`staffEnv`, required with a non-empty list). Interactive sessions only. An empty or absent list mints
+   * neither claim.
+   */
   staffPermissions?: readonly string[];
+  staffEnv?: string;
 }
 
 const SESSION_CLAIM_ID = z.string().guid();
@@ -202,7 +215,10 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
       );
     }
     if (!staffPermissionsClaimSchema.safeParse(staffPermissions).success) {
-      throw new AuthError('staffPermissions must be distinct catalogue permissions', 'token.invalid');
+      throw new AuthError('staffPermissions must be distinct <area>:<verb> entries', 'token.invalid');
+    }
+    if (!z.enum(STAFF_ENVS).safeParse(input.staffEnv).success) {
+      throw new AuthError('staffPermissions needs the staffEnv it was resolved for', 'token.invalid');
     }
   }
   const now = Math.floor(Date.now() / 1000);
@@ -219,7 +235,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
     ...(input.stepUpScopes && input.stepUpScopes.length > 0 ? { stp: [...input.stepUpScopes] } : {}),
-    ...(staffPermissions.length > 0 ? { staffPermissions: [...staffPermissions] } : {}),
+    ...(staffPermissions.length > 0 ? { staffPermissions: [...staffPermissions], staffEnv: input.staffEnv } : {}),
   } satisfies JWTPayload)
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT', ...(config.keyId ? { kid: config.keyId } : {}) })
     .setSubject(input.userId)
@@ -279,6 +295,14 @@ export async function verifyAccessToken(token: string, config: TokenConfig): Pro
 
   const claims = accessClaimsSchema.safeParse(payload);
   if (!claims.success) throw new AuthError('Access token payload is malformed', 'token.malformed');
+  // Checked here, not as a refinement on the schema, because svc-edge's principal header `.extend`s it.
+  const staff = claims.data.staffPermissions !== undefined;
+  if (
+    staff !== (claims.data.staffEnv !== undefined) ||
+    (staff && (claims.data.kid !== undefined || claims.data.sub_account !== undefined))
+  ) {
+    throw new AuthError('Access token payload is malformed', 'token.malformed');
+  }
 
   // No `?? 0`. `requiredClaims` above means the claim is present or we never
   // reached this line — and the fallback was the tell: it manufactured a 1970

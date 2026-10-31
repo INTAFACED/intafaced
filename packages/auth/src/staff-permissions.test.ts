@@ -10,7 +10,12 @@ import {
   assertGrantWithinHolder,
   assertNotSelfChange,
   assertStaffRoleHolderEligible,
+  assertRedefineWithinHolder,
+  isStaffAreaVerb,
   parseStaffEnv,
+  STAFF_AREA_VERBS,
+  staffPermissionsForEnv,
+  staffPermissionsFromClaim,
   builtinStaffRoleForAssignment,
   explainStaffPermissions,
   hasStaffPermission,
@@ -56,8 +61,6 @@ describe('staff permission catalogue', () => {
     ]);
     expect(STAFF_VERBS).toEqual(['read', 'write', 'create', 'update', 'delete', 'approve', 'apply', 'skip']);
     expect(STAFF_ENVS).toEqual(['local', 'staging', 'production']);
-    expect(STAFF_AREAS).toHaveLength(11);
-    expect(STAFF_PERMISSIONS).toHaveLength(11 * 8 * 3);
     expect(STAFF_PERMISSIONS).toHaveLength(STAFF_AREAS.length * STAFF_VERBS.length * STAFF_ENVS.length);
     expect(isStaffPermission('staff:staff:create:production')).toBe(true);
     expect(new Set(STAFF_PERMISSIONS).size).toBe(STAFF_PERMISSIONS.length);
@@ -239,18 +242,24 @@ describe('assertGrantWithinHolder', () => {
     expect(err.detail).toEqual(['staff:staff:update:production']);
   });
 
-  it('counts a redefine that lifts a deny as a widening the holder must hold', () => {
+  it('assertRedefineWithinHolder counts a lifted deny as a widening the holder must hold', () => {
     const previous = role('g', ['staff:accounts:read:production'], ['staff:accounts:update:production', 'staff:cards:delete:production']);
     // Lifts the accounts:update deny (held) and the cards:delete deny (not held).
     const next = role('g', ['staff:accounts:read:production'], []);
-    const err = refusal(() => assertGrantWithinHolder(holder, next, previous));
+    const err = refusal(() => assertRedefineWithinHolder(holder, next, previous));
     expect(err.code).toBe('identity.role_grant_exceeds_holder');
     expect(err.detail).toEqual(['staff:cards:delete:production']);
     // Keeping the unheld deny passes; lifting only the held one passes.
     const keep = role('g', ['staff:accounts:read:production'], ['staff:cards:delete:production']);
-    expect(() => assertGrantWithinHolder(holder, keep, previous)).not.toThrow();
-    // Without `previous` the lifted deny is invisible, which is why the argument exists.
-    expect(() => assertGrantWithinHolder(holder, next)).not.toThrow();
+    expect(() => assertRedefineWithinHolder(holder, keep, previous)).not.toThrow();
+    // A redefine also refuses a new allow the holder lacks.
+    expect(refusal(() => assertRedefineWithinHolder(holder, role('g', ['staff:flags:read:local']), previous)).code).toBe(
+      'identity.role_grant_exceeds_holder',
+    );
+    // A malformed previous row refuses rather than hiding a lifted deny.
+    expect(refusal(() => assertRedefineWithinHolder(holder, next, role('g', [], ['staff:all' as StaffPermission]))).code).toBe(
+      'identity.staff_permission_invalid',
+    );
   });
 
   it('refuses granting something the holder is explicitly denied', () => {
@@ -326,6 +335,54 @@ describe('parseStaffEnv', () => {
   it('refuses anything else with identity.staff_permission_invalid', () => {
     for (const bad of [undefined, null, '', 'prod', 'Production', ' production', 'dev', 'test']) {
       expect(refusal(() => parseStaffEnv(bad)).code, String(bad)).toBe('identity.staff_permission_invalid');
+    }
+  });
+
+  it('echoes at most 32 characters of a bad value', () => {
+    const err = refusal(() => parseStaffEnv('x'.repeat(500)));
+    expect(err.detail).toEqual([`env:${'x'.repeat(32)}`]);
+    expect(refusal(() => parseStaffEnv(undefined)).detail).toEqual(['env:(unset)']);
+  });
+});
+
+describe('the one-environment token snapshot', () => {
+  const effective = resolveStaffPermissions([
+    role('r', ['staff:accounts:read:production']),
+    role(
+      's',
+      ['staff:ledger:approve:production', 'staff:ledger:apply:staging', 'staff:accounts:read:staging'],
+      ['staff:ledger:approve:production'],
+    ),
+  ]);
+
+  it('lists <area>:<verb> for one environment only, in catalogue order, without denied entries', () => {
+    expect(STAFF_AREA_VERBS).toHaveLength(STAFF_AREAS.length * STAFF_VERBS.length);
+    expect(STAFF_AREA_VERBS.every((e) => isStaffAreaVerb(e))).toBe(true);
+    expect(staffPermissionsForEnv(effective, 'production')).toEqual(['accounts:read']);
+    expect(staffPermissionsForEnv(effective, 'staging')).toEqual(['accounts:read', 'ledger:apply']);
+    expect(staffPermissionsForEnv(effective, 'local')).toEqual([]);
+  });
+
+  it('reads the claim back only when staffEnv matches the configured environment', () => {
+    const claims = { staffEnv: 'staging', staffPermissions: staffPermissionsForEnv(effective, 'staging') };
+    const read = staffPermissionsFromClaim(claims, 'staging');
+    expect(hasStaffPermission(read, 'ledger', 'apply', 'staging')).toBe(true);
+    expect(hasStaffPermission(read, 'ledger', 'apply', 'production')).toBe(false);
+  });
+
+  it('treats a mismatch, an absent claim or a malformed entry as no permissions', () => {
+    const claims = { staffEnv: 'staging', staffPermissions: ['accounts:read', 'ledger:apply'] };
+    for (const [c, env] of [
+      [claims, 'production'],
+      [claims, 'local'],
+      [{}, 'staging'],
+      [{ staffPermissions: ['accounts:read'] }, 'staging'],
+      [{ staffEnv: 'staging' }, 'staging'],
+      [{ ...claims, staffPermissions: ['accounts:read', 'accounts:all'] }, 'staging'],
+    ] as const) {
+      const read = staffPermissionsFromClaim(c, env);
+      expect(read.allow.size).toBe(0);
+      expect(hasStaffPermission(read, 'accounts', 'read', env)).toBe(false);
     }
   });
 });

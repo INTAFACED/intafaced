@@ -14,7 +14,8 @@
  *      unless `apply` is granted too. An audit of what someone can do is a lookup, never an inference.
  *   3. Several roles merge: an allow from any role counts, and an explicit deny from any role wins over every allow.
  *   4. Anything not explicitly allowed is denied.
- *   5. A person can grant only what they hold (`assertGrantWithinHolder`).
+ *   5. A person can grant only what they hold (`assertGrantWithinHolder` for a new role or an assign,
+ *      `assertRedefineWithinHolder` for a redefine, where lifting a deny is a widening too).
  *   6. The five built-in roles have NO permissions until the owner publishes their mapping (decision note: the mapping
  *      needs counsel and owner review). An unset mapping refuses `identity.role_mapping_unset`; nothing here invents one.
  *   7. Business users never get staff roles (ORD-013).
@@ -34,7 +35,10 @@
  * a query string): a caller who could name the environment could turn a staging grant into a production one.
  *
  * The optional `staffPermissions` access-token claim (`tokens.ts`) is a snapshot of `resolveStaffPermissions` at
- * minting. It may gate reads and screens; every privileged write, approve or apply is re-checked live in identity.
+ * minting, for ONE environment: `<area>:<verb>` entries (`staffPermissionsForEnv`) with that environment alongside in
+ * `staffEnv`. A service compares `staffEnv` with its own configured environment and treats a mismatch as no
+ * permissions (`staffPermissionsFromClaim`). The claim may gate reads and screens; every privileged write, approve or
+ * apply is re-checked live in identity.
  */
 
 /** Console areas a staff permission names. Closed. */
@@ -91,7 +95,10 @@ export function isStaffPermission(value: unknown): value is StaffPermission {
  */
 export function parseStaffEnv(value: string | undefined | null): StaffEnv {
   if (typeof value === 'string' && ENV_SET.has(value)) return value as StaffEnv;
-  throw new StaffPermissionError(STAFF_PERMISSION_INVALID, [`env:${value ?? '(unset)'}`]);
+  // The echo is for the operator reading the boot error; it is cut so a long or hostile value cannot flood the log.
+  throw new StaffPermissionError(STAFF_PERMISSION_INVALID, [
+    `env:${value === undefined || value === null ? '(unset)' : value.slice(0, 32)}`,
+  ]);
 }
 
 /** Every permission in the catalogue, area then verb then environment order. The access overview walks this list. */
@@ -224,13 +231,66 @@ export function explainStaffPermissions(roles: readonly StaffRole[]): readonly S
  * longer denies (lifting a deny gives access back to the role's holders). A deny `role` adds narrows and needs no
  * holding.
  */
-export function assertGrantWithinHolder(holderEffective: StaffEffectivePermissions, role: StaffRole, previous?: StaffRole): void {
+export function assertGrantWithinHolder(holderEffective: StaffEffectivePermissions, role: StaffRole): void {
   assertCataloguePermissions(role);
-  if (previous !== undefined) assertCataloguePermissions(previous);
-  const widened = new Set<StaffPermission>(role.allow);
-  for (const p of previous?.deny ?? []) if (!role.deny.includes(p)) widened.add(p);
-  const missing = [...widened].filter((p) => holderEffective.deny.has(p) || !holderEffective.allow.has(p));
+  assertHolderHolds(holderEffective, role.allow);
+}
+
+/**
+ * A redefine of an existing role. `previous` is required, so the lifted-deny check cannot be skipped: every permission
+ * `next` allows, and every permission `previous` denied that `next` no longer denies, must be held by the holder.
+ * Refuses `identity.role_grant_exceeds_holder` naming each one that is not.
+ */
+export function assertRedefineWithinHolder(holderEffective: StaffEffectivePermissions, next: StaffRole, previous: StaffRole): void {
+  assertCataloguePermissions(next);
+  assertCataloguePermissions(previous);
+  const widened = new Set<StaffPermission>(next.allow);
+  for (const p of previous.deny) if (!next.deny.includes(p)) widened.add(p);
+  assertHolderHolds(holderEffective, [...widened]);
+}
+
+function assertHolderHolds(holderEffective: StaffEffectivePermissions, wanted: readonly StaffPermission[]): void {
+  const missing = wanted.filter((p) => holderEffective.deny.has(p) || !holderEffective.allow.has(p));
   if (missing.length > 0) throw new StaffPermissionError(STAFF_ROLE_GRANT_EXCEEDS_HOLDER, missing);
+}
+
+// ── The token snapshot (one environment) ────────────────────────────────────
+
+/** `<area>:<verb>`: a permission with its environment taken off, as the token claim carries it. */
+export type StaffAreaVerb = `${StaffArea}:${StaffVerb}`;
+
+/** Every `<area>:<verb>`, area then verb order. 11 × 8 = 88, the claim's maximum length. */
+export const STAFF_AREA_VERBS: readonly StaffAreaVerb[] = STAFF_AREAS.flatMap((area) =>
+  STAFF_VERBS.map((verb) => `${area}:${verb}` as const),
+);
+
+const AREA_VERB_SET: ReadonlySet<string> = new Set(STAFF_AREA_VERBS);
+
+export function isStaffAreaVerb(value: unknown): value is StaffAreaVerb {
+  return typeof value === 'string' && AREA_VERB_SET.has(value);
+}
+
+/** What identity mints into `staffPermissions` for one environment: the allowed `<area>:<verb>` in catalogue order. */
+export function staffPermissionsForEnv(effective: StaffEffectivePermissions, env: StaffEnv): StaffAreaVerb[] {
+  return STAFF_AREAS.flatMap((area) =>
+    STAFF_VERBS.filter((verb) => hasStaffPermission(effective, area, verb, env)).map((verb) => `${area}:${verb}` as const),
+  );
+}
+
+/**
+ * Read the token snapshot back as an effective set for this service. `configEnv` is the service's own configured
+ * environment (`parseStaffEnv`), never a request value. An absent claim, a `staffEnv` different from `configEnv`, or
+ * a malformed entry gives no permissions at all.
+ */
+export function staffPermissionsFromClaim(
+  claims: { readonly staffEnv?: string; readonly staffPermissions?: readonly string[] },
+  configEnv: StaffEnv,
+): StaffEffectivePermissions {
+  const none: StaffEffectivePermissions = { allow: new Set(), deny: new Set() };
+  if (claims.staffEnv !== configEnv || claims.staffPermissions === undefined) return none;
+  if (!claims.staffPermissions.every((entry) => isStaffAreaVerb(entry))) return none;
+  const allow = new Set<StaffPermission>(claims.staffPermissions.map((entry) => `staff:${entry}:${configEnv}` as StaffPermission));
+  return { allow, deny: new Set() };
 }
 
 // ── Built-in roles ──────────────────────────────────────────────────────────

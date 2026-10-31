@@ -1,6 +1,6 @@
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
-import { STAFF_PERMISSIONS } from './staff-permissions.js';
+import { STAFF_AREA_VERBS } from './staff-permissions.js';
 import { issueAccessToken, verifyAccessToken } from './tokens.js';
 
 const config = {
@@ -33,56 +33,78 @@ async function signRaw(extra: Record<string, unknown>): Promise<string> {
     .sign(new TextEncoder().encode(config.secret));
 }
 
-describe('staffPermissions on access tokens', () => {
+describe('staffPermissions and staffEnv on access tokens', () => {
   const base = { userId: USER, sessionId: SESSION, scopes: ['identity:read'] };
 
-  it('carries the snapshot on an interactive session', async () => {
-    const staffPermissions = ['staff:accounts:read:production', 'staff:staff:read:production'];
-    const { token } = await issueAccessToken({ ...base, mfa: true, staffPermissions }, config);
+  it('carries the one-environment snapshot on an interactive session', async () => {
+    const staffPermissions = ['accounts:read', 'staff:read'];
+    const { token } = await issueAccessToken({ ...base, mfa: true, staffPermissions, staffEnv: 'production' }, config);
     const principal = await verifyAccessToken(token, config);
     expect(principal.staffPermissions).toEqual(staffPermissions);
+    expect(principal.staffEnv).toBe('production');
   });
 
-  it('leaves the claim out when none is given or the list is empty, so absence means none', async () => {
-    for (const extra of [{}, { staffPermissions: [] }]) {
+  it('leaves both claims out when the list is absent or empty, so absence means none', async () => {
+    for (const extra of [{}, { staffPermissions: [] }, { staffPermissions: [], staffEnv: 'staging' }]) {
       const { token } = await issueAccessToken({ ...base, ...extra }, config);
-      expect(Object.prototype.hasOwnProperty.call(decodePayload(token), 'staffPermissions')).toBe(false);
-      expect((await verifyAccessToken(token, config)).staffPermissions).toBeUndefined();
+      const raw = decodePayload(token);
+      expect(Object.prototype.hasOwnProperty.call(raw, 'staffPermissions')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(raw, 'staffEnv')).toBe(false);
+      const principal = await verifyAccessToken(token, config);
+      expect(principal.staffPermissions).toBeUndefined();
+      expect(principal.staffEnv).toBeUndefined();
     }
   });
 
-  it('refuses to mint malformed or repeated entries', async () => {
-    for (const staffPermissions of [
-      ['staff:accounts:read'],
-      ['admin:write'],
-      ['staff:accounts:read:production', 'staff:accounts:read:production'],
-      [...STAFF_PERMISSIONS, 'staff:accounts:read:production'],
+  it('refuses to mint malformed or repeated entries, or a list without a valid staffEnv', async () => {
+    for (const extra of [
+      { staffPermissions: ['staff:accounts:read:production'], staffEnv: 'production' },
+      { staffPermissions: ['accounts:all'], staffEnv: 'production' },
+      { staffPermissions: ['accounts:read', 'accounts:read'], staffEnv: 'production' },
+      { staffPermissions: [...STAFF_AREA_VERBS, 'accounts:read'], staffEnv: 'production' },
+      { staffPermissions: ['accounts:read'] },
+      { staffPermissions: ['accounts:read'], staffEnv: 'prod' },
     ]) {
-      await expect(issueAccessToken({ ...base, staffPermissions }, config)).rejects.toMatchObject({ code: 'token.invalid' });
+      await expect(issueAccessToken({ ...base, ...extra }, config)).rejects.toMatchObject({ code: 'token.invalid' });
     }
   });
 
   it('refuses to mint it on an API-key or sub-account token', async () => {
-    const staffPermissions = ['staff:accounts:read:production'];
-    await expect(issueAccessToken({ ...base, apiKeyId: KEY, staffPermissions }, config)).rejects.toMatchObject({ code: 'token.invalid' });
-    await expect(issueAccessToken({ ...base, subAccountId: SUB, staffPermissions }, config)).rejects.toMatchObject({
-      code: 'token.invalid',
-    });
+    const staff = { staffPermissions: ['accounts:read'], staffEnv: 'production' };
+    await expect(issueAccessToken({ ...base, apiKeyId: KEY, ...staff }, config)).rejects.toMatchObject({ code: 'token.invalid' });
+    await expect(issueAccessToken({ ...base, subAccountId: SUB, ...staff }, config)).rejects.toMatchObject({ code: 'token.invalid' });
   });
 
-  it('accepts the whole catalogue and nothing more', async () => {
-    const { token } = await issueAccessToken({ ...base, staffPermissions: [...STAFF_PERMISSIONS] }, config);
-    expect((await verifyAccessToken(token, config)).staffPermissions).toHaveLength(STAFF_PERMISSIONS.length);
+  it('accepts every <area>:<verb> once and nothing more', async () => {
+    const { token } = await issueAccessToken({ ...base, staffPermissions: [...STAFF_AREA_VERBS], staffEnv: 'local' }, config);
+    expect((await verifyAccessToken(token, config)).staffPermissions).toHaveLength(STAFF_AREA_VERBS.length);
   });
 
   it('refuses a token whose claim is malformed, repeated or not a list', async () => {
     for (const bad of [
-      { staffPermissions: ['staff:ledger:all:production'] },
-      { staffPermissions: ['staff:ledger:read:production', 'staff:ledger:read:production'] },
-      { staffPermissions: 'staff:ledger:read:production' },
-      { staffPermissions: [42] },
+      { staffPermissions: ['ledger:all'], staffEnv: 'production' },
+      { staffPermissions: ['staff:ledger:read:production'], staffEnv: 'production' },
+      { staffPermissions: ['ledger:read', 'ledger:read'], staffEnv: 'production' },
+      { staffPermissions: 'ledger:read', staffEnv: 'production' },
+      { staffPermissions: [42], staffEnv: 'production' },
+      { staffPermissions: ['ledger:read'], staffEnv: 'prod' },
     ]) {
       await expect(verifyAccessToken(await signRaw(bad), config)).rejects.toMatchObject({ code: 'token.malformed' });
+    }
+  });
+
+  it('refuses staffPermissions without staffEnv, and staffEnv without staffPermissions', async () => {
+    for (const bad of [{ staffPermissions: ['ledger:read'] }, { staffEnv: 'production' }]) {
+      await expect(verifyAccessToken(await signRaw(bad), config)).rejects.toMatchObject({ code: 'token.malformed' });
+    }
+  });
+
+  it('refuses the claim on a token that also carries kid or sub_account', async () => {
+    const staff = { staffPermissions: ['ledger:read'], staffEnv: 'production' };
+    for (const extra of [{ kid: KEY }, { sub_account: SUB }]) {
+      await expect(verifyAccessToken(await signRaw({ ...staff, ...extra }), config)).rejects.toMatchObject({ code: 'token.malformed' });
+      // The same token without the staff claim verifies, so the refusal is the combination.
+      await expect(verifyAccessToken(await signRaw(extra), config)).resolves.toMatchObject({ userId: USER });
     }
   });
 });
