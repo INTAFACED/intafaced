@@ -4,31 +4,42 @@
  *
  * Until this ran, only gate-tools.test.mjs (two files) ran here and journey-shards.test.mjs ran in the journeys workflow;
  * the other test files in tooling/scripts/ ran only when someone remembered `pnpm local:stack:test`, so a change to the stack
- * script could land with its own tests red. This runs every `tooling/scripts/*.test.mjs` it finds, so a new test file
- * is covered the day it lands, with no list to forget to update.
+ * script could land with its own tests red. This runs every `*.test.mjs` it finds under tooling/ (not in node_modules,
+ * and not pay-sim's vitest files, which turbo runs), so a new test file is covered the day it lands, with no list to forget
+ * to update. The one file that needs a build first runs in CI's build job instead (NEEDS_BUILD).
  *
  * It is a gate in tooling/ci/gates.mjs (`tooling-tests`), so `pnpm verify` runs what CI runs. A tree with no test
  * files refuses by name instead of reporting zero failures over nothing (tooling/ci/empty-denominator-gate.mjs).
  *
  * Usage: node tooling/scripts/tooling-tests.mjs   (from the repo root)
  */
-import { readdirSync, existsSync, realpathSync } from 'node:fs';
+import { readdirSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = process.cwd();
-const DIR = join(ROOT, 'tooling', 'scripts');
+const DIR = join(ROOT, 'tooling');
 // gate-tools.test.mjs only imports two of the files below; running it too would run those twice.
-const ENTRY_ONLY = new Set(['gate-tools.test.mjs']);
+const ENTRY_ONLY = new Set(['tooling/scripts/gate-tools.test.mjs']);
+// It reads packages/contracts/dist and skips itself without it, so here it would only ever skip: CI's build job runs it
+// after the build (.github/workflows/ci.yml, "Tooling tests that need the build").
+export const NEEDS_BUILD = ['tooling/preview/outreach/fixture.test.mjs'];
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo']);
 const TIMEOUT_MS = 5 * 60_000;
 
 export function testFiles(dir = DIR) {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.test.mjs') && !ENTRY_ONLY.has(f))
-    .sort()
-    .map((f) => relative(ROOT, join(dir, f)));
+  const found = [];
+  const walk = (d) => {
+    for (const name of readdirSync(d)) {
+      if (SKIP_DIRS.has(name)) continue;
+      const full = join(d, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith('.test.mjs')) found.push(relative(ROOT, full).split('\\').join('/'));
+    }
+  };
+  if (existsSync(dir)) walk(dir);
+  return found.filter((f) => !ENTRY_ONLY.has(f) && !NEEDS_BUILD.includes(f)).sort();
 }
 
 /**
@@ -54,7 +65,7 @@ export function tapCounts(output) {
 function main() {
   const files = testFiles();
   if (files.length === 0) {
-    console.error(`TOOLING TESTS FAILED — no tooling/scripts/*.test.mjs under ${ROOT}. NOTHING WAS RUN.`);
+    console.error(`TOOLING TESTS FAILED — no tooling/**/*.test.mjs under ${ROOT}. NOTHING WAS RUN.`);
     process.exit(1);
   }
   // One file at a time: several start throwaway servers and child processes, and a clash would read as a flaky gate.

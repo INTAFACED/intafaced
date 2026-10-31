@@ -168,7 +168,7 @@ export const ENFORCED = {
   },
   'tooling-tests': {
     kind: 'guard',
-    must: /TOOLING TESTS FAILED — no tooling\/scripts\/\*\.test\.mjs under .*NOTHING WAS RUN\./,
+    must: /TOOLING TESTS FAILED — no tooling\/\*\*\/\*\.test\.mjs under .*NOTHING WAS RUN\./,
     note: 'roots at the working folder, so an empty tree has no test files and it refuses by name instead of passing zero tests.',
   },
   brand: {
