@@ -62,9 +62,14 @@ test(`${J} #8 a private address while signed out goes to sign-in and back to tha
   await expect(page).toHaveURL(/\/login\?redirect=/);
   await fillSignIn(page, who.email, who.password);
   await expect(page).toHaveURL(/\/money\?asset=BTC$/);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
+  // A reload keeps the sign-in: the same room, still signed in, and identity still answers for this person.
   await page.reload();
   await expect(page).toHaveURL(/\/money\?asset=BTC$/);
   await expect(page.locator('input[name=password]')).toHaveCount(0);
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toHaveCount(0);
+  await expect(page.getByRole('main').getByRole('link', { name: 'Sign in' })).toHaveCount(0);
 });
 
 test(`${J} #2 several wrong passwords give a typed lockout with the minutes left`, async ({ page, browser }) => {
