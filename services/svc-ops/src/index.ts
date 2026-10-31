@@ -29,6 +29,7 @@ import { createPgRestoreStore } from './restore-store.js';
 import { probeRestoreArchive } from './restore/archive-probe.js';
 import { createRestoreDesk } from './restore/desk.js';
 import { createPgRestoreRunStore } from './restore/run-store.js';
+import { createLedgerFreezeReader } from './restore/platform-halt.js';
 import { createWatermarkReader } from './restore/watermark-reader.js';
 import { createPgVenueCostStore } from './venue-cost-store.js';
 import { createListingDesk } from './protocol-listing/wiring.js';
@@ -190,6 +191,7 @@ const appRouter = createOpsRouter(
             secret: env.INTERNAL_SERVICE_SECRET,
             ...(s2sKey ? { s2s: s2sKey } : {}),
           }),
+          halt: createLedgerFreezeReader({ ledgerUrl: env.LEDGER_URL }),
           approvals: approvalConsumer,
           archiveUrl: () => env.OPS_RESTORE_ARCHIVE_URL,
           target: () => env.OPS_RESTORE_TARGET ?? null,

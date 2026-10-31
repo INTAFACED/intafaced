@@ -26,6 +26,17 @@ import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
 import { memorySecurityLock } from '../security-lock.js';
 import { memoryAssetRegistry } from '../assets/supported-assets.js';
 
+// The owner's destination sanctions list, a TEST entry for this file: without one every save and send refuses
+// bank.destination_sanctions_unset. No address these tests use is on it.
+const sanctionsBefore = process.env.BANK_DESTINATION_SANCTIONS;
+beforeAll(() => {
+  process.env.BANK_DESTINATION_SANCTIONS = '*:0x5a7c7100000000000000000000000000000ba5ed';
+});
+afterAll(() => {
+  if (sanctionsBefore === undefined) delete process.env.BANK_DESTINATION_SANCTIONS;
+  else process.env.BANK_DESTINATION_SANCTIONS = sanctionsBefore;
+});
+
 const SECRET = 'bank-customer-ramps-deposits-edge-secret';
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';

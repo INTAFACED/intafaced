@@ -150,6 +150,10 @@
       "types": "./dist/guest-verification.d.ts",
       "default": "./dist/guest-verification.js"
     },
+    "./support-record-ownership": {
+      "types": "./dist/support-record-ownership.d.ts",
+      "default": "./dist/support-record-ownership.js"
+    },
     "./support-trade-summary": {
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"
@@ -189,6 +193,10 @@
     "./support-forms": {
       "types": "./dist/support-forms.d.ts",
       "default": "./dist/support-forms.js"
+    },
+    "./support-guest": {
+      "types": "./dist/support-guest.d.ts",
+      "default": "./dist/support-guest.js"
     },
     "./support-categories": {
       "types": "./dist/support-categories.d.ts",

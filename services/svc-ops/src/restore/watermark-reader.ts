@@ -27,7 +27,8 @@ const DOORS: Record<
   pay: { audience: 'svc-pay', method: 'POST', path: '/internal/restore/watermark' },
 };
 
-function baseOf(raw: string | undefined): string | null {
+/** An internal service base URL: http(s), no credentials, query or fragment, no trailing slash. Null otherwise. */
+export function baseOf(raw: string | undefined): string | null {
   try {
     const url = new URL(raw ?? '');
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return null;

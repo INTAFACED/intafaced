@@ -7,6 +7,7 @@ import {
   oauthAuthorizeRequestSchema,
   oauthDecideInputSchema,
   oauthDecideOutputSchema,
+  oauthLifetimesSchema,
   oauthListAppsOutputSchema,
   oauthRegisterAppInputSchema,
   oauthRegisterAppOutputSchema,
@@ -79,6 +80,9 @@ export function createOAuthRouter(service: OAuthService) {
           .output(oauthDecideOutputSchema)
           .mutation(({ ctx, input }) => guarded(() => service.decide(ctx, input))),
       }),
+      lifetimes: scopedProcedure('identity:read')
+        .output(oauthLifetimesSchema)
+        .query(() => service.lifetimes()),
       token: publicProcedure
         .input(oauthTokenInputSchema)
         .output(oauthTokenOutputSchema)

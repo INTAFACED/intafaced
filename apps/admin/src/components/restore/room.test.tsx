@@ -27,6 +27,7 @@ const detail = (over: Partial<RunDetail> = {}): RunDetail => ({
       ],
     },
     reads: [{ service: 'bank', ok: false, code: 'ops.restore_watermark_unavailable', message: 'timed out' }],
+    halt: { halted: true },
   },
   ...over,
 });
@@ -68,6 +69,20 @@ describe('restore room', () => {
     expect(html).toContain('data-testid="stamps-failed"');
     expect(html).toContain('data-testid="backups-failed"');
     expect(html).not.toContain('data-testid="runs-empty"');
+  });
+
+  it('says the counts prove nothing while the posting freeze is off, whatever they show', () => {
+    const live = {
+      ...detail().live,
+      joint: { ...detail().live.joint, agree: true },
+      halt: { halted: false as const, code: 'ops.restore_platform_not_halted', message: 'the posting freeze is off' },
+    };
+    const html = renderToStaticMarkup(
+      <RestoreRoom room={room({ run: { kind: 'ok', data: detail({ live }) } })} runNo="R-1" userId="u-1" />,
+    );
+    expect(html).toContain('The ledger posting freeze is off, so the services can still write.');
+    expect(html).toContain('Not compared: the counts prove nothing while the services can still write.');
+    expect(html).not.toContain('Every service agrees with its stamp');
   });
 
   it('names each disagreeing service and why, and offers only the next step', () => {

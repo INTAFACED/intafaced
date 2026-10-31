@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, formatAmount, parseAmount as amt, userAvailable, type LedgerClient } from '@intafaced/ledger-client';
@@ -15,6 +15,18 @@ import { memoryWalletProofs } from './ramps/wallet-ownership.js';
 import { createIdentitySecurityLock, memorySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
 import { memoryWithdrawDestinations } from './withdraw-destination.js';
 import { memoryFraudList } from './ramps/fraud-list.js';
+import { memorySanctions } from './ramps/sanctions-list.js';
+
+// The owner's destination sanctions list, a TEST entry for this file: without one every save and send refuses
+// bank.destination_sanctions_unset. No address these tests use is on it.
+const sanctionsBefore = process.env.BANK_DESTINATION_SANCTIONS;
+beforeAll(() => {
+  process.env.BANK_DESTINATION_SANCTIONS = '*:0x5a7c7100000000000000000000000000000ba5ed';
+});
+afterAll(() => {
+  if (sanctionsBefore === undefined) delete process.env.BANK_DESTINATION_SANCTIONS;
+  else process.env.BANK_DESTINATION_SANCTIONS = sanctionsBefore;
+});
 
 /**
  * W-withdraw-09, svc-bank's half of the customer security lock (J-wallet-04 #7): while the owner's lock holds, no
@@ -156,6 +168,7 @@ describe('the address book while the security lock holds', () => {
   function ramps(lock = memorySecurityLock(), destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' })) {
     const service = new RampService({} as Sql, {} as LedgerClient, {
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       securityLock: lock,
       destinations,
       withdrawNetworks: registry,
@@ -254,6 +267,7 @@ describe('whether a saved address can be used now', () => {
     const service = (hours: string) =>
       new RampService({} as Sql, {} as LedgerClient, {
         fraudList: memoryFraudList(),
+        sanctions: memorySanctions(),
         securityLock: lock,
         destinations,
         withdrawNetworks: registry,

@@ -657,7 +657,10 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
       if (typed.current !== asked) return;
       if (!answer.ok) {
-        setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
+        // The sanctions refusals before the confirmation code, in the same words as on save.
+        if (answer.code === 'bank.destination_sanctions_listed') setCheckProblem(t('aSanctionsListed'));
+        else if (answer.code === 'bank.destination_sanctions_unset') setCheckProblem(t('aSanctionsUnset'));
+        else setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
         return;
       }
       if (answer.data.address !== 'ok') {
@@ -796,10 +799,12 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           why={t('aSaveWhy')}
           run={async (token) => {
             const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
-            // The three address refusals in the customer's own words; the check above makes them rare.
+            // The address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
             if (!answer.ok && answer.code === 'bank.destination_fraud_listed') return { ...answer, message: t('aFraudListed') };
+            if (!answer.ok && answer.code === 'bank.destination_sanctions_listed') return { ...answer, message: t('aSanctionsListed') };
+            if (!answer.ok && answer.code === 'bank.destination_sanctions_unset') return { ...answer, message: t('aSanctionsUnset') };
             // The security lock's refusals in the customer's words; any other refusal keeps the bank's own sentence.
             return !answer.ok && lockRefusal(answer.code) ? { ...answer, message: moneyRefusalWords(answer.code)! } : answer;
           }}

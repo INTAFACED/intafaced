@@ -1059,6 +1059,19 @@
           }
         },
         {
+          "name": "publishOutcomeMarket",
+          "description": "Service to service only; no key or session reaches it",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outcomes/markets/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "outcomes", "markets", "publish"]
+            }
+          }
+        },
+        {
           "name": "settleOutcomeMarket",
           "description": "Service to service only; no key or session reaches it",
           "request": {

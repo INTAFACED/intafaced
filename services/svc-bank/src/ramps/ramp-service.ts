@@ -66,6 +66,13 @@ import {
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
 import { sendableDestination } from './send-destination.js';
+import {
+  assertNotSanctioned,
+  BANK_DESTINATION_SANCTIONS_ENV,
+  destinationSanctions,
+  sanctionsRefusal,
+  type DestinationSanctionsPort,
+} from './sanctions-list.js';
 import type { BankSendDestination, BankSendDestinationInput } from '@intafaced/contracts';
 import { DestinationFraudList, fraudAddressKey, refuseFraudListed, type DestinationFraudListPort } from './fraud-list.js';
 import {
@@ -281,6 +288,8 @@ export interface RampServiceOptions {
   trustedDevices?: TrustedDevicePort;
   /** The destination fraud list (W-withdraw-03). Defaults to the bank's own table. */
   fraudList?: DestinationFraudListPort;
+  /** The owner's destination sanctions list; read from `BANK_DESTINATION_SANCTIONS` when not given. */
+  sanctions?: DestinationSanctionsPort;
 }
 
 export class RampService {
@@ -303,6 +312,7 @@ export class RampService {
   private readonly trustedDevices: TrustedDevicePort;
   /** The owner's destination fraud list: read by the address book, written by compliance's desk door. */
   readonly fraudList: DestinationFraudListPort;
+  readonly sanctions: DestinationSanctionsPort;
 
   constructor(
     private readonly sql: Sql,
@@ -331,6 +341,7 @@ export class RampService {
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
     this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
     this.fraudList = options.fraudList ?? new DestinationFraudList(sql);
+    this.sanctions = options.sanctions ?? destinationSanctions(() => process.env[BANK_DESTINATION_SANCTIONS_ENV]);
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -372,6 +383,7 @@ export class RampService {
       securityLock: this.securityLock,
       approvalLinks: this.approvalLinks,
       fraudList: this.fraudList,
+      sanctions: this.sanctions,
     };
   }
 
@@ -408,6 +420,8 @@ export class RampService {
     await assertSecurityLockOpen(this.securityLock, input.userId, 'changing a withdrawal address');
     // An address on the owner's fraud list is never stored as the withdrawal address (W-withdraw-03), on any network.
     if (await this.fraudList.isListed(null, input.ref)) refuseFraudListed();
+    // The same for the sanctions list, and with no list set no address is screened, so none is stored.
+    assertNotSanctioned(this.sanctions, null, input.ref);
     return this.destinations.persist(input);
   }
 
@@ -660,8 +674,19 @@ export class RampService {
     };
     const offered = input.destinationRef?.trim();
     if (offered && (await this.fraudList.isListed(null, offered)) && !(await resumesWith(offered))) refuseFraudListed();
+    // The sanctions list is stricter, as the owner's self-freeze is: a listed address, or any while the list is unset, starts
+    // no new send, and a send already claimed to it carries on only to answer as before when it has finished (settled or
+    // rejected). One still held or in flight refuses and stays held: nothing moves on to a sanctioned address.
+    const answersAsBefore = async (ref: string) => {
+      const claim = await this.offrampClaim(input.offrampId, input.userId);
+      return claim !== null && sameAs(ref, claim.destinationRef) && (claim.status === 'settled' || claim.status === 'rejected');
+    };
+    const sanctionedOffer = offered ? sanctionsRefusal(this.sanctions, null, offered) : null;
+    if (sanctionedOffer && offered && !(await answersAsBefore(offered))) throw sanctionedOffer;
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     if ((await this.fraudList.isListed(dest.network, dest.ref)) && !(await resumesWith(dest.ref))) refuseFraudListed();
+    const sanctionedDest = sanctionsRefusal(this.sanctions, dest.network, dest.ref);
+    if (sanctionedDest && !(await answersAsBefore(dest.ref))) throw sanctionedDest;
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
 
     return withMoneySpan(
@@ -818,6 +843,14 @@ export class RampService {
   }
 
   /** The address this customer's off-ramp under this id was claimed with (whatever its state), or null when there is none. */
+  private async offrampClaim(offrampId: string, userId: string): Promise<{ destinationRef: string; status: string } | null> {
+    const rows = await this.sql<Array<{ destination_ref: string; status: string }>>`
+      SELECT destination_ref, status FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
+    `;
+    const row = rows[0];
+    return row ? { destinationRef: row.destination_ref, status: row.status } : null;
+  }
+
   private async offrampClaimedTo(offrampId: string, userId: string): Promise<string | null> {
     const rows = await this.sql<Array<{ destination_ref: string }>>`
       SELECT destination_ref FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
