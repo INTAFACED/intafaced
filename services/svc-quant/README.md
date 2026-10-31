@@ -35,6 +35,9 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 | `sandbox.run`            | `publicJurisdictionProcedure('quant','fiat')`             | `{ language, source, cash, idempotencyKey }`                                              | fills, cash, pnl (strings); one run row                                                          |
 | `marketplace.claim`      | session                                                   | `{ runId, idempotencyKey }` — a client `pnl` is rejected                                  | stored simulated pnl and stamp; no listing                                                       |
 | `ops.runs`               | `admin:read`                                              | `{ limit, from?, to?, kind?, userId?, cursor? }`                                          | kind, user, started, duration, outcome; no result                                                |
+| `quota.get`              | session or allow-listed service                           | —                                                                                         | profile, and per resource the limit (null is not set) and what is used                           |
+| `ops.quota.set`          | `admin:write` (module quant)                              | `{ profile, resource, limit or null, reason, idempotencyKey }`                            | the next row for that limit; a reused key with other content refuses                             |
+| `ops.quota.assign`       | `admin:write` (module quant)                              | `{ accountId, profile, reason, idempotencyKey }`                                          | the next assignment of that account                                                              |
 | `disclosure.current`     | session or allow-listed service                           | —                                                                                         | the published risk disclosure (`published: false` when none)                                     |
 | `disclosure.status`      | session or allow-listed service                           | `{ strategyId, strategyVersion }`                                                         | disclosure, and whether this account accepted it for that version                                |
 | `disclosure.accept`      | session or allow-listed service                           | `{ strategyId, strategyVersion, disclosureVersion }`                                      | one stored acceptance under `quant.disclose:<id>:v<n>:<d>`                                       |
@@ -158,6 +161,23 @@ is the owner's length cap for it (1 to 2000). Blank, a save with a note refuses 
 without one still works. A note over the cap refuses `quant.params_invalid` naming `releaseNote`. A replayed save answers
 with the note its first press stored. `backtest.history` takes an optional `strategyId` and then lists only that
 strategy's runs, each with the version it ran.
+
+Quotas by plan (AL-limits-01). A quota profile is a name with one limit per resource: saved strategies, versions per
+strategy, runs in progress, paper runs, stored runs, stored log lines, stored source and result bytes, collaborators per
+strategy and notifications per day. Every limit is an owner value, set by an operator with `ops.quota.set` (`admin:write`,
+a reason, keyed `quant.quota:<profile>:<resource>:<seq>`). An account is put on a profile with `ops.quota.assign`, and an
+account with none falls under `QUANT_DEFAULT_QUOTA_PROFILE`. Each row is its own audit record and is never rewritten;
+the latest one is in force.
+
+- A new strategy, a new version and a new run are counted in the transaction that writes them, behind a lock per account
+  and resource, so two writes racing at a limit cannot both pass.
+- At the limit the write refuses `quant.quota_exceeded`, naming the resource, the limit and the count. A blank limit
+  refuses `quant.quota_unset` by name, `0` refuses every create, and an account with no profile and no default refuses
+  `quant.quota_profile_unset`.
+- `quota.get` shows the caller their profile and, per resource, what is used and the limit, or null ("not set").
+- A run counts as in progress until it finishes. A run cut off by a crash stays in progress, because no restart sweep
+  exists yet (AL-limits-02).
+- Collaborators and notifications do not exist in this service yet, so their usage is 0.
 
 `backtest.report` builds the print document from the stored run on each read. It does not write a row.
 
