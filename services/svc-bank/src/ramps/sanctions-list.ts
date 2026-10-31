@@ -12,8 +12,7 @@
  * An EVM address is matched in lower case, however it was typed or listed; any other address exactly as written.
  */
 import { BankError } from '../errors.js';
-import { isEvmAddressRef } from '../withdraw-destination.js';
-import { ANY_NETWORK } from './fraud-list.js';
+import { ANY_NETWORK, fraudAddressKey, fraudNetworkKey } from './fraud-list.js';
 
 export const BANK_DESTINATION_SANCTIONS_ENV = 'BANK_DESTINATION_SANCTIONS';
 
@@ -25,7 +24,8 @@ export interface DestinationSanctionsPort {
   check(network: string | null, ref: string): SanctionsCheck;
 }
 
-const keyOf = (ref: string): string => (isEvmAddressRef(ref.trim()) ? ref.trim().toLowerCase() : ref.trim());
+/** Matched as the fraud list matches: an EVM address in lower case, anything else exactly as written. */
+const keyOf = fraudAddressKey;
 
 /** The list as entries, or null when it is unset, blank or unreadable. */
 export function readSanctionsList(raw: string | undefined): ReadonlyArray<{ network: string; ref: string }> | null {
@@ -33,9 +33,15 @@ export function readSanctionsList(raw: string | undefined): ReadonlyArray<{ netw
   const entries: Array<{ network: string; ref: string }> = [];
   for (const part of raw.split(',')) {
     const at = part.indexOf(':');
-    const network = at < 0 ? '' : part.slice(0, at).trim().toLowerCase();
     const ref = at < 0 ? '' : part.slice(at + 1).trim();
-    if (!network || !ref) return null;
+    if (at < 0 || !ref) return null;
+    // A network that is not a network id or `*` makes the whole list unreadable: a mistyped one would match nothing.
+    let network: string;
+    try {
+      network = fraudNetworkKey(part.slice(0, at));
+    } catch {
+      return null;
+    }
     entries.push({ network, ref: keyOf(ref) });
   }
   return entries;
@@ -48,7 +54,7 @@ function matchIn(list: ReadonlyArray<{ network: string; ref: string }>, network:
   return list.some((e) => e.ref === key && (e.network === ANY_NETWORK || net === null || e.network === net)) ? 'listed' : 'clear';
 }
 
-/** A port over a raw setting, read on every check so the answer is the setting as it stands. */
+/** A port over a raw setting, read at each check: the server passes its parsed env, tests change `process.env`. */
 export function destinationSanctions(readRaw: () => string | undefined): DestinationSanctionsPort {
   return {
     check(network, ref) {
@@ -58,21 +64,28 @@ export function destinationSanctions(readRaw: () => string | undefined): Destina
   };
 }
 
-/** The save's refusal, before anything is written. */
-export function assertNotSanctioned(port: DestinationSanctionsPort, network: string | null, ref: string): void {
+/** The refusal for a save or a send to `ref` on `network`: none while the list is set and the address is not on it. */
+export function sanctionsRefusal(port: DestinationSanctionsPort, network: string | null, ref: string): BankError | null {
   const answer = port.check(network, ref);
   if (answer === 'unset') {
-    throw new BankError(
-      'The destination sanctions list is not set, so no address can be screened and none is saved. Nothing was saved',
+    return new BankError(
+      'The destination sanctions list is not set, so no address can be screened, saved or sent to. Nothing was saved or sent',
       'bank.destination_sanctions_unset',
     );
   }
   if (answer === 'listed') {
-    throw new BankError(
-      'This address is on the sanctions list, so it cannot be saved to your address book. Nothing was saved',
+    return new BankError(
+      'This address is on the sanctions list, so it cannot be saved or sent to. Nothing was saved or sent',
       'bank.destination_sanctions_listed',
     );
   }
+  return null;
+}
+
+/** Refuses as `sanctionsRefusal` says, before anything is written. */
+export function assertNotSanctioned(port: DestinationSanctionsPort, network: string | null, ref: string): void {
+  const refusal = sanctionsRefusal(port, network, ref);
+  if (refusal) throw refusal;
 }
 
 /**
@@ -80,7 +93,7 @@ export function assertNotSanctioned(port: DestinationSanctionsPort, network: str
  * address is clear. A test of the blank list builds the bank without it, or with `destinationSanctions(() => undefined)`.
  */
 export function memorySanctions(listed: Array<{ network: string; address: string }> = []): DestinationSanctionsPort {
-  const entries = listed.map((l) => ({ network: l.network.trim().toLowerCase(), ref: keyOf(l.address) }));
+  const entries = listed.map((l) => ({ network: fraudNetworkKey(l.network), ref: keyOf(l.address) }));
   return {
     check(network, ref) {
       return matchIn(entries, network, ref);

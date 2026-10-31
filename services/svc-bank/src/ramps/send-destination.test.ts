@@ -52,6 +52,8 @@ function book(clock: { now: Date }, hours = '24') {
   const listed: Array<{ network: string; address: string }> = [];
   // The same for the sanctions list.
   const sanctioned: Array<{ network: string; address: string }> = [];
+  // Set when a test takes the owner's setting away.
+  const list = { unset: false };
   const service = new RampService({} as Sql, {} as LedgerClient, {
     securityLock: lock,
     destinations,
@@ -60,9 +62,9 @@ function book(clock: { now: Date }, hours = '24') {
     approvalLinks: memoryApprovalLinks(),
     offrampCoolingHours: hours,
     fraudList: { isListed: (network, ref) => memoryFraudList(listed).isListed(network, ref) },
-    sanctions: { check: (network, ref) => memorySanctions(sanctioned).check(network, ref) },
+    sanctions: { check: (network, ref) => (list.unset ? 'unset' : memorySanctions(sanctioned).check(network, ref)) },
   });
-  return { lock, destinations, service, listed, sanctioned };
+  return { lock, destinations, service, listed, sanctioned, list };
 }
 
 /** Saved and approved 25 hours ago: past a 24-hour cooling-off. */
@@ -151,6 +153,12 @@ describe('whether money may be sent to an address on a network now', () => {
   it('answers blocked for a saved, ready entry whose address is sanctioned afterwards', async () => {
     const { service, sanctioned, saved } = await readyEntry();
     sanctioned.push({ network: 'ethereum', address: ADDRESS.toLowerCase() });
+    await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'blocked', destinationId: saved.destinationId });
+  });
+
+  it('answers blocked for a saved, ready entry once the sanctions list is unset: nothing is screened, so nothing is sent', async () => {
+    const { service, saved, list } = await readyEntry();
+    list.unset = true;
     await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'blocked', destinationId: saved.destinationId });
   });
 

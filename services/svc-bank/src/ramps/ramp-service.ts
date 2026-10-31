@@ -66,7 +66,13 @@ import {
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
 import { sendableDestination } from './send-destination.js';
-import { BANK_DESTINATION_SANCTIONS_ENV, destinationSanctions, type DestinationSanctionsPort } from './sanctions-list.js';
+import {
+  assertNotSanctioned,
+  BANK_DESTINATION_SANCTIONS_ENV,
+  destinationSanctions,
+  sanctionsRefusal,
+  type DestinationSanctionsPort,
+} from './sanctions-list.js';
 import type { BankSendDestination, BankSendDestinationInput } from '@intafaced/contracts';
 import { DestinationFraudList, fraudAddressKey, refuseFraudListed, type DestinationFraudListPort } from './fraud-list.js';
 import {
@@ -414,6 +420,8 @@ export class RampService {
     await assertSecurityLockOpen(this.securityLock, input.userId, 'changing a withdrawal address');
     // An address on the owner's fraud list is never stored as the withdrawal address (W-withdraw-03), on any network.
     if (await this.fraudList.isListed(null, input.ref)) refuseFraudListed();
+    // The same for the sanctions list, and with no list set no address is screened, so none is stored.
+    assertNotSanctioned(this.sanctions, null, input.ref);
     return this.destinations.persist(input);
   }
 
@@ -666,8 +674,13 @@ export class RampService {
     };
     const offered = input.destinationRef?.trim();
     if (offered && (await this.fraudList.isListed(null, offered)) && !(await resumesWith(offered))) refuseFraudListed();
+    // The sanctions list the same way: a listed address, or any while the list is unset, starts no new send and is not stored.
+    const sanctionedOffer = offered ? sanctionsRefusal(this.sanctions, null, offered) : null;
+    if (sanctionedOffer && offered && !(await resumesWith(offered))) throw sanctionedOffer;
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     if ((await this.fraudList.isListed(dest.network, dest.ref)) && !(await resumesWith(dest.ref))) refuseFraudListed();
+    const sanctionedDest = sanctionsRefusal(this.sanctions, dest.network, dest.ref);
+    if (sanctionedDest && !(await resumesWith(dest.ref))) throw sanctionedDest;
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
 
     return withMoneySpan(

@@ -657,7 +657,10 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
       const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
       if (typed.current !== asked) return;
       if (!answer.ok) {
-        setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
+        // The sanctions refusals before the confirmation code, in the same words as on save.
+        if (answer.code === 'bank.destination_sanctions_listed') setCheckProblem(t('aSanctionsListed'));
+        else if (answer.code === 'bank.destination_sanctions_unset') setCheckProblem(t('aSanctionsUnset'));
+        else setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
         return;
       }
       if (answer.data.address !== 'ok') {

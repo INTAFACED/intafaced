@@ -116,6 +116,24 @@ describe('saving a withdrawal address against the sanctions list (J-wallet-05 #2
     expect(await destinations.list(USER)).toEqual([]);
   });
 
+  it('refuses the check before the confirmation code as the save would', async () => {
+    process.env[BANK_DESTINATION_SANCTIONS_ENV] = `ethereum:${LISTED}`;
+    const { service } = bank();
+    await expect(service.checkDestination({ userId: USER, ref: LISTED, network: 'ethereum' })).rejects.toMatchObject({
+      code: 'bank.destination_sanctions_listed',
+    });
+    await expect(service.checkDestination({ userId: USER, ref: CLEAN, network: 'ethereum' })).resolves.toMatchObject({ address: 'ok' });
+    delete process.env[BANK_DESTINATION_SANCTIONS_ENV];
+    await expect(bank().service.checkDestination({ userId: USER, ref: CLEAN, network: 'ethereum' })).rejects.toMatchObject({
+      code: 'bank.destination_sanctions_unset',
+    });
+  });
+
+  it('reads a list with a network that is not a network id as unset, so a typo never fails open', () => {
+    expect(readSanctionsList(`ether um:${LISTED}`)).toBeNull();
+    expect(destinationSanctions(() => `ether um:${LISTED}`).check('ethereum', LISTED)).toBe('unset');
+  });
+
   it('refuses saving again an entry saved before it was listed, rather than answering the replay', async () => {
     const sanctioned: Array<{ network: string; address: string }> = [];
     const { service, destinations } = bank({ check: (network, ref) => memorySanctions(sanctioned).check(network, ref) });

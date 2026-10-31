@@ -329,6 +329,18 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     expect(reloads.book).toBe(0);
   });
 
+  it('says a sanctioned address before it asks for a code, from the check', async () => {
+    query.mockResolvedValueOnce({ ok: false, reason: 'error', message: 'refused', code: 'bank.destination_sanctions_listed' });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    expect(addForm().querySelector('[role="alert"]')?.textContent).toContain('on the sanctions list');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
   it('saves nothing and asks for no code when the check itself fails', async () => {
     query.mockResolvedValue({ ok: false, reason: 'network', message: 'offline' });
     await mount();
