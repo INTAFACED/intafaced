@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ORIGIN, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
@@ -24,6 +27,34 @@ async function console_(browser) {
   const page = await context.newPage();
   await founderSignIn(page, 'a');
   return page;
+}
+
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One read on svc-academy's own database role on the stack: what the service holds, to compare the desk's numbers with. */
+async function academyDb(read) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
+
+/** A list read's own words for n rows on a page of `page`: its row count, or its empty sentence when there are none. */
+async function expectListOf(read, n, page, emptyText) {
+  if (n === 0) {
+    await expect(read.getByTestId('list-empty')).toHaveText(emptyText);
+    return;
+  }
+  const shown = Math.min(n, page);
+  await expect(read.getByTestId('list-count')).toHaveText(new RegExp(`^${shown} ${shown === 1 ? 'row' : 'rows'}\\b`));
 }
 
 const SECTIONS = [
@@ -54,15 +85,56 @@ test(`${J} #1 the Academy desk has catalogue, certificates, programmes, ambassad
     await expect(page.getByTestId(`read-${s.read}`)).toBeVisible();
   }
 
-  // The catalogue counts the courses staff created, by state, as svc-academy reports them.
+  // Every number the sections show is what svc-academy holds: its own tables, or its code-seeded certificate catalogue.
+  const held = await academyDb(async (sql) => {
+    const states = await sql`SELECT state, count(*)::int AS n FROM academy.courses GROUP BY state`;
+    const [seasons] = await sql`SELECT count(*)::int AS n FROM academy.tournament_seasons`;
+    const [ambassadors] = await sql`SELECT count(*)::int AS n FROM academy.ambassadors`;
+    const [grants] = await sql`SELECT count(*)::int AS n FROM academy.cert_grants`;
+    return {
+      states: Object.fromEntries(states.map((r) => [r.state, r.n])),
+      seasons: seasons.n,
+      ambassadors: ambassadors.n,
+      grants: grants.n,
+    };
+  });
+  const catalogue = await import(pathToFileURL(join(REPO, 'services', 'svc-academy', 'dist', 'certs', 'catalog.js')).href);
+
+  // The catalogue counts the courses staff created, in each state, as svc-academy's table holds them.
   await page.goto('/academy-ops/catalogue');
   const courses = page.getByTestId('read-academy.courses');
-  await expect(courses.getByText('Drafts', { exact: true })).toBeVisible();
-  await expect(courses.getByText('Published', { exact: true })).toBeVisible();
+  for (const [label, state] of [
+    ['Drafts', 'draft'],
+    ['Published', 'published'],
+    ['Concluded', 'concluded'],
+    ['Archived', 'archived'],
+    ['Deleted', 'deleted'],
+  ]) {
+    await expect(
+      courses
+        .locator('.dk-kv-row')
+        .filter({ has: page.getByText(label, { exact: true }) })
+        .locator('dd'),
+    ).toHaveText(String(held.states[state] ?? 0));
+  }
   await expect(page.getByRole('link', { name: 'Courses', exact: true }).first()).toHaveAttribute('href', '/academy-ops/catalogue/courses');
+  // Certificates, seasons, ambassadors and grants: the row count svc-academy holds (up to the read's page), or its
+  // own empty sentence when it holds none.
+  await page.goto('/academy-ops/certificates');
+  await expectListOf(
+    page.getByTestId('read-academy.cert-defs'),
+    catalogue.listCertCatalog().length,
+    Infinity,
+    'svc-academy defines no certificates.',
+  );
+  await page.goto('/academy-ops/programmes');
+  await expectListOf(page.getByTestId('read-academy.seasons'), held.seasons, 50, 'svc-academy lists no seasons.');
+  await page.goto('/academy-ops/ambassadors');
+  await expectListOf(page.getByTestId('read-academy.ambassadors'), held.ambassadors, 100, 'svc-academy lists no ambassadors.');
   // Grants: rows from svc-academy, or its own empty sentence; never a "not available" line.
   await page.goto('/academy-ops/grants');
   await expect(page.getByText('Not available:')).toHaveCount(0);
+  await expectListOf(page.getByTestId('read-academy.grant-audit'), held.grants, 50, 'svc-academy records no certificate grants.');
   await page.context().close();
 });
 

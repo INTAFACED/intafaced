@@ -9,6 +9,7 @@ import { changeHub, isHubOp, loadHub } from '@/lib/academy/hub-server';
  *
  *   GET                                   the featured slot and the topics, up to the owner's list limit
  *   POST { op: 'clear', reason }          nothing is featured
+ *   POST { op: 'item', itemSlug, reason } a curriculum article is featured, replacing whatever the slot held
  *   POST { op: 'topic', slug, name }      a topic; an Academy tab's address is refused (academy.slug_reserved)
  *
  * A lesson is featured from its own page (/api/academy-lessons, op 'feature'). Founder-only; svc-academy records the

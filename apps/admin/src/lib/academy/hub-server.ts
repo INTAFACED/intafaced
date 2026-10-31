@@ -2,7 +2,9 @@ import 'server-only';
 import {
   academyClearFeaturedInputSchema,
   academyCreateTopicInputSchema,
+  academyFeaturedChoiceSchema,
   academyFeaturedSlotSchema,
+  academySetFeaturedItemInputSchema,
   academyTopicListSchema,
   academyTopicSchema,
 } from '@intafaced/contracts/academy-courses';
@@ -24,6 +26,7 @@ const ACADEMY: PartLabels = {
 };
 
 const readSlot = parseWith(academyFeaturedSlotSchema);
+const readChoice = parseWith(academyFeaturedChoiceSchema);
 const readTopics = parseWith(academyTopicListSchema);
 const readTopic = parseWith(academyTopicSchema);
 
@@ -56,8 +59,8 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
   }
 }
 
-export type HubOp = 'clear' | 'topic';
-export const isHubOp = (op: unknown): op is HubOp => op === 'clear' || op === 'topic';
+export type HubOp = 'clear' | 'item' | 'topic';
+export const isHubOp = (op: unknown): op is HubOp => op === 'clear' || op === 'item' || op === 'topic';
 
 export async function changeHub(
   ctx: FounderCallContext,
@@ -69,6 +72,12 @@ export async function changeHub(
     const parsed = academyClearFeaturedInputSchema.safeParse(input);
     if (!parsed.success) return { why: 'Why clear the featured slot? Say why in up to 500 characters.' };
     return reply(await founderCall(ctx, 'academy', 'admin.clearFeatured', 'POST', parsed.data, readSlot), 'nothing is featured');
+  }
+  if (op === 'item') {
+    const parsed = academySetFeaturedItemInputSchema.safeParse(input);
+    if (!parsed.success)
+      return { why: 'Feature which article, and why? Give its address (up to 120 characters) and a reason (up to 500).' };
+    return reply(await founderCall(ctx, 'academy', 'admin.setFeatured', 'POST', parsed.data, readChoice), 'featured on the Learn hub');
   }
   const parsed = academyCreateTopicInputSchema.safeParse(input);
   if (!parsed.success)

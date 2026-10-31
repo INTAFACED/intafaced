@@ -99,6 +99,25 @@ describe('academy Learn hub desk BFF (AC-articles-01)', () => {
     expect(await (await POST(post({ op: 'clear', reason: 'TEST' }))).json()).toEqual({ ok: true, what: 'nothing is featured' });
   });
 
+  it('a curriculum article is featured by its address with a reason; an unknown address is refused by name; blanks never reach the service', async () => {
+    configure();
+    const c = upstream({ 'admin.setFeatured': () => ok({ itemSlug: 'risk-basics', reason: 'TEST', chosenAt: NOW.toISOString() }) });
+    expect(await (await POST(post({ op: 'item', itemSlug: 'risk-basics', reason: 'TEST' }))).json()).toEqual({
+      ok: true,
+      what: 'featured on the Learn hub',
+    });
+    expect(sent(c, 'admin.setFeatured')).toEqual({ itemSlug: 'risk-basics', reason: 'TEST' });
+    const before = calls(c).length;
+    expect((await POST(post({ op: 'item', itemSlug: '', reason: 'TEST' }))).status).toBe(400);
+    expect((await POST(post({ op: 'item', itemSlug: 'risk-basics', reason: '  ' }))).status).toBe(400);
+    expect((await POST(post({ op: 'item', itemSlug: 'risk-basics', reason: 'TEST', extra: 1 }))).status).toBe(400);
+    expect(calls(c).length).toBe(before);
+    upstream({ 'admin.setFeatured': () => refusal('academy.curriculum_not_found', 404) });
+    const gone = await POST(post({ op: 'item', itemSlug: 'no-such-item', reason: 'TEST' }));
+    expect(gone.status).toBe(404);
+    expect(await gone.json()).toMatchObject({ ok: false, code: 'academy.curriculum_not_found' });
+  });
+
   it('a change without the CSRF nonce is refused before any service call', async () => {
     configure();
     const c = upstream({});

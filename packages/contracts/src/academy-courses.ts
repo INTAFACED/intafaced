@@ -483,6 +483,19 @@ export type AcademyFeatureLessonInput = z.infer<typeof academyFeatureLessonInput
 /** `admin.clearFeatured`: nothing is featured, with the reason. */
 export const academyClearFeaturedInputSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
+/** `admin.setFeatured`: staff feature a curriculum article by its slug, with a reason; it replaces whatever the slot held. */
+export const academySetFeaturedItemInputSchema = z
+  .object({ itemSlug: z.string().trim().min(1).max(120), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademySetFeaturedItemInput = z.infer<typeof academySetFeaturedItemInputSchema>;
+
+/** What `admin.setFeatured` answers: the article now in the slot, why, and when (all null once cleared). */
+export const academyFeaturedChoiceSchema = z.object({
+  itemSlug: z.string().nullable(),
+  reason: z.string().nullable(),
+  chosenAt: z.coerce.date().nullable(),
+});
+
 /** `admin.createTopic`: a topic keyed by its address; a repeat with the same name answers with the stored topic. */
 export const academyCreateTopicInputSchema = z.object({ slug: academyCourseSlugSchema, name: z.string().trim().min(1).max(60) }).strict();
 export type AcademyCreateTopicInput = z.infer<typeof academyCreateTopicInputSchema>;

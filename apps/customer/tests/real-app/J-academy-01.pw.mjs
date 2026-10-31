@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { EDGE, ORIGIN, restartWith } from './stack.mjs';
 
 // J-academy-01, in the running app (docs/roadmap/journeys.json): look around the Academy and open a lesson before I
@@ -23,24 +24,90 @@ async function door(procedure, input) {
 }
 const published = (input) => door('publicCurriculum', input);
 
+/** Founder A on the console, in a context of its own: staff choose what the hub features. */
+async function console_(browser) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, 'a');
+  return page;
+}
+
 /** The panel under a level-2 heading: the section the heading titles. */
 const panelOf = (scope, title) => scope.getByRole('heading', { name: title, level: 2, exact: true }).locator('xpath=ancestor::section[1]');
 const tabStrip = (page) => page.getByRole('group', { name: /academy sections/i }).getByRole('button');
 const pressed = (page, name) => tabStrip(page).filter({ hasText: name });
 
-test(`${J} #1 /academy is a hub with exactly the five tabs; the featured slot shows only what staff chose`, async ({ page }) => {
-  const { featured, lesson } = await door('publicHub');
+test(`${J} #1 /academy is a hub with exactly the five tabs, none hidden; the featured slot shows only what staff chose`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
   await page.goto('/academy');
   await expect(tabStrip(page)).toHaveText(TABS.map(([name]) => name));
+  // None hidden: every control in the strip, hidden ones included, is one of the five, and each of them is visible.
+  const every = page.getByRole('group', { name: /academy sections/i }).locator('button, a, [role="tab"]');
+  await expect(every).toHaveCount(TABS.length);
+  for (let i = 0; i < TABS.length; i += 1) await expect(every.nth(i)).toBeVisible();
+
   const hub = page.locator('[data-academy-hub="true"]');
-  await expect(hub.getByRole('heading', { name: 'Featured', exact: true })).toBeVisible();
-  if (featured) {
-    await expect(hub.getByRole('link', { name: featured.title })).toBeVisible();
-  } else if (lesson) {
-    await expect(hub.locator('[data-featured-lesson="true"]').getByRole('heading', { level: 3 })).toHaveText(lesson.title);
-  } else {
-    await expect(hub.getByText('Nothing is featured yet.')).toBeVisible();
-    await expect(hub.locator('article')).toHaveCount(0);
+  const featuredPanel = panelOf(hub, 'Featured');
+  const desk = await console_(browser);
+  const outcome = desk.getByTestId('course-desk-outcome');
+  const slot = desk.getByTestId('hub-featured');
+  await desk.goto('/academy-ops/catalogue/featured');
+  await desk.waitForLoadState('networkidle');
+  // What staff had chosen before this step, so it is put back afterwards: a curriculum article or a course lesson.
+  const before = await door('publicHub');
+  const lessonHref = before.lesson ? await slot.getByRole('link').first().getAttribute('href') : null;
+  try {
+    // Staff choose nothing: the slot says so and holds no article, sample or otherwise.
+    if (before.featured || before.lesson) {
+      await desk.getByLabel('Why clear it', { exact: true }).fill(`TEST ${J}: an empty slot first`);
+      await desk.getByRole('button', { name: 'Clear the featured slot' }).click();
+      await expect(outcome).toContainText('Done: nothing is featured');
+    }
+    await expect(slot).toHaveText('Nothing is featured. Feature a lesson learners can read from that lesson’s page.');
+    expect(await door('publicHub')).toMatchObject({ featured: null, lesson: null });
+    await page.reload();
+    await expect(featuredPanel.getByText('Nothing is featured yet.')).toBeVisible();
+    await expect(featuredPanel.locator('article')).toHaveCount(0);
+    await expect(featuredPanel.getByRole('link')).toHaveCount(0);
+
+    // Staff choose an article: the slot shows exactly that one, and no other.
+    const [first] = await published({ limit: 1 });
+    await desk.getByLabel('Article address', { exact: true }).fill(first.slug);
+    await desk.getByLabel('Why feature the article', { exact: true }).fill(`TEST ${J}: the first article for visitors`);
+    await expect(desk.getByLabel('Article address', { exact: true })).toHaveValue(first.slug);
+    await desk.getByRole('button', { name: 'Feature the article' }).click();
+    await expect(outcome).toContainText('Done: featured on the Learn hub');
+    await expect(slot).toContainText(first.title);
+    await page.reload();
+    await expect(featuredPanel.locator('article')).toHaveCount(1);
+    await expect(featuredPanel.getByRole('link')).toHaveText([first.title]);
+    await expect(featuredPanel.getByRole('link')).toHaveAttribute('href', `/academy/${encodeURIComponent(first.slug)}`);
+    await expect(featuredPanel.getByText('Nothing is featured yet.')).toHaveCount(0);
+  } finally {
+    // Put back what staff had chosen: the same article, the same lesson, or nothing.
+    await desk.goto('/academy-ops/catalogue/featured');
+    await desk.waitForLoadState('networkidle');
+    if (before.featured) {
+      await desk.getByLabel('Article address', { exact: true }).fill(before.featured.slug);
+      await desk.getByLabel('Why feature the article', { exact: true }).fill(`TEST ${J}: put back as it was`);
+      await desk.getByRole('button', { name: 'Feature the article' }).click();
+      await expect(outcome).toContainText('Done: featured on the Learn hub');
+    } else {
+      await desk.getByLabel('Why clear it', { exact: true }).fill(`TEST ${J}: put back as it was`);
+      await desk.getByRole('button', { name: 'Clear the featured slot' }).click();
+      await expect(outcome).toContainText('Done: nothing is featured');
+      if (lessonHref) {
+        await desk.goto(lessonHref);
+        await desk.waitForLoadState('networkidle');
+        await desk.getByLabel('Why feature it', { exact: true }).fill(`TEST ${J}: put back as it was`);
+        await desk.getByRole('button', { name: 'Feature on the Learn hub' }).click();
+        await expect(outcome).toContainText('Done: featured on the Learn hub');
+      }
+    }
+    await desk.context().close();
   }
 });
 

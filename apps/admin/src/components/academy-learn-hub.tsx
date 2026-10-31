@@ -22,6 +22,8 @@ export function AcademyLearnHub({ initial }: { initial: HubView | null }) {
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<HubDeskReply | null>(null);
   const [clearWhy, setClearWhy] = useState('');
+  const [itemSlug, setItemSlug] = useState('');
+  const [itemWhy, setItemWhy] = useState('');
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
 
@@ -110,6 +112,25 @@ export function AcademyLearnHub({ initial }: { initial: HubView | null }) {
               </div>
               <button type="submit" className="adm-btn" disabled={busy || (!lesson && !curriculum)}>
                 Clear the featured slot
+              </button>
+            </form>
+            <form
+              className="dk-row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send({ op: 'item', itemSlug, reason: itemWhy });
+              }}
+            >
+              <div className="adm-field">
+                <label htmlFor="hub-item-slug">Article address</label>
+                <input id="hub-item-slug" value={itemSlug} maxLength={120} onChange={(e) => setItemSlug(e.target.value)} />
+              </div>
+              <div className="adm-field">
+                <label htmlFor="hub-item-reason">Why feature the article</label>
+                <input id="hub-item-reason" value={itemWhy} maxLength={500} onChange={(e) => setItemWhy(e.target.value)} />
+              </div>
+              <button type="submit" className="adm-btn" disabled={busy}>
+                Feature the article
               </button>
             </form>
           </>
