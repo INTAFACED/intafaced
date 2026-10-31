@@ -1521,7 +1521,7 @@
     "/api/v1/outcomes/markets/publish": {
       "post": {
         "operationId": "publishOutcomeMarket",
-        "summary": "Service to service only: publish an outcome market. It refuses owner.decision until the owner decides who determines a result",
+        "summary": "Service to service only: publish an outcome market. Today it answers 412 owner.decision (the owner has not decided who determines a result) and publishes nothing",
         "tags": ["derivatives"],
         "security": [],
         "x-access": "internal",

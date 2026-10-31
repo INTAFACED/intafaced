@@ -751,7 +751,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'derivatives',
     access: 'internal',
     summary:
-      'Service to service only: publish an outcome market. It refuses owner.decision until the owner decides who determines a result',
+      'Service to service only: publish an outcome market. Today it answers 412 owner.decision (the owner has not decided who determines a result) and publishes nothing',
     signedOut: SERVICE_CREDENTIALS_REQUIRED,
   },
   {

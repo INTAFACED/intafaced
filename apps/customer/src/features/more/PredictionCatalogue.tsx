@@ -22,7 +22,7 @@ export function PredictionCatalogue({
       </h2>
       {/* Why the list is empty and stays so: publishing waits for the owner's determination decision (ENGINE E-1). */}
       <div className="prediction-catalogue-blocker" data-testid="prediction-blocker">
-        <ServiceOffNotice code="owner.decision" action={t('publishAction')} role="status" />
+        <ServiceOffNotice code="owner.decision" action={t('publishAction')} role="note" />
         <p className="muted">
           <Copy k="publishWhy" />
         </p>

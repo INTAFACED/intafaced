@@ -150,9 +150,34 @@ describe('outcome markets REST', () => {
         payload: body,
       });
     };
-    const malformed = await signed({ marketId: 'Not An Id' });
-    expect(malformed.statusCode).toBe(400);
-    expect(malformed.json()).toMatchObject({ error: 'trade.outcome_move_invalid' });
+    for (const payload of [
+      { marketId: 'Not An Id' },
+      { marketId: 'test-market', expectedOrdinal: 1, move: 'halted' },
+      { marketId: 'test-market', expectedOrdinal: 1, extra: 1 },
+    ]) {
+      const malformed = await signed(payload);
+      expect(malformed.statusCode, JSON.stringify(payload)).toBe(400);
+      expect(malformed.json()).toMatchObject({ error: 'trade.outcome_move_invalid' });
+    }
+    // A signature over one body does not carry another, and a wrong secret signs nothing.
+    const signedBody = JSON.stringify({ marketId: 'test-market', expectedOrdinal: 1 });
+    const tampered = await app.inject({
+      method: 'POST',
+      url,
+      headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-admin', INTERNAL_SECRET, signedBody) },
+      payload: JSON.stringify({ marketId: 'other-market', expectedOrdinal: 1 }),
+    });
+    expect(tampered.statusCode).toBe(401);
+    const forged = await app.inject({
+      method: 'POST',
+      url,
+      headers: {
+        'content-type': 'application/json',
+        ...serviceAuthHeadersForBody('svc-admin', 'not-the-internal-secret-long-enough', signedBody),
+      },
+      payload: signedBody,
+    });
+    expect(forged.statusCode).toBe(401);
     const refused = await signed({ marketId: 'test-market', expectedOrdinal: 1 });
     expect(refused.statusCode).toBe(412);
     expect(refused.json()).toMatchObject({ error: 'owner.decision' });

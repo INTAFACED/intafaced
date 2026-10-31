@@ -157,21 +157,28 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
     return reply.send(presentCcxtOrder(order, parsed.data.symbol));
   });
 
+  /** A service-signed request bound to its body, or a 401 sent and false. */
+  function fromService(req: FastifyRequest, reply: FastifyReply): boolean {
+    const service = verifyServiceRequest(req, {
+      verifier: deps.s2s?.verifier,
+      mode: deps.s2s?.mode,
+      legacySecret: deps.internalSecret,
+      bodyBindMode: 'require',
+    }).service;
+    if (service === null) sendError(reply, 401, 'trade.unauthenticated', 'service credentials required');
+    return service !== null;
+  }
+
   // Publishing a market waits for the owner's decision on who determines a result, from which sources, the challenge window
   // and the dispute path (ENGINE E-1, PM-2). Until then the door is there and refuses, typed; it publishes nothing.
   app.post('/api/v1/outcomes/markets/publish', internalRoute, async (req, reply) => {
-    if (
-      verifyServiceRequest(req, {
-        verifier: deps.s2s?.verifier,
-        mode: deps.s2s?.mode,
-        legacySecret: deps.internalSecret,
-        bodyBindMode: 'require',
-      }).service === null
-    ) {
-      return sendError(reply, 401, 'trade.unauthenticated', 'service credentials required');
+    if (!fromService(req, reply)) return reply;
+    const body = req.body;
+    const record = typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+    const parsed = record ? outcomeMarketMoveInputSchema.safeParse({ move: 'published', ...record }) : null;
+    if (!parsed?.success || parsed.data.move !== 'published') {
+      return sendError(reply, 400, 'trade.outcome_move_invalid', 'a publish request is { marketId, expectedOrdinal } and nothing else');
     }
-    const parsed = outcomeMarketMoveInputSchema.safeParse({ ...(req.body as Record<string, unknown> | null), move: 'published' });
-    if (!parsed.success) return sendError(reply, 400, 'trade.outcome_move_invalid', 'marketId and expectedOrdinal are required');
     return sendError(
       reply,
       412,
@@ -181,16 +188,7 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
   });
 
   app.post('/api/v1/outcomes/settle', internalRoute, async (req, reply) => {
-    if (
-      verifyServiceRequest(req, {
-        verifier: deps.s2s?.verifier,
-        mode: deps.s2s?.mode,
-        legacySecret: deps.internalSecret,
-        bodyBindMode: 'require',
-      }).service === null
-    ) {
-      return sendError(reply, 401, 'trade.unauthenticated', 'service credentials required');
-    }
+    if (!fromService(req, reply)) return reply;
     const body = req.body as Record<string, unknown> | null;
     const marketId = typeof body?.marketId === 'string' ? body.marketId.trim() : '';
     const settlementSource = typeof body?.settlementSource === 'string' ? body.settlementSource.trim() : '';
