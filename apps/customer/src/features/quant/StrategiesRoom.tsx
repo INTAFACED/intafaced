@@ -13,6 +13,7 @@ import { Read, Select } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { QuantRooms } from './QuantRooms';
+import { QuotaUsage } from './QuotaUsage';
 import { strategiesCopy } from './strategies-copy';
 import { MorePages, useStrategyPages } from './strategy-pages';
 import './algo.css';
@@ -73,6 +74,7 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
           )}
         </div>
       </Panel>
+      <QuotaUsage key={`usage:${revision}`} />
     </>
   );
 }
