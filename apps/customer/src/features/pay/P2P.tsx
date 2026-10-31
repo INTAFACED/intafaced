@@ -133,7 +133,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <PayCopy k="tradingAccess" />
         </a>
       </nav>
-      <P2PBlocker pay={pay} />
+      {showMethods || publish || tradeId || current === '/chat' ? null : <P2PBlocker pay={pay} />}
       {current === '/chat' && !tradeId ? (
         <EmptyState
           title={p2pDepth.t('chatPickTitle')}

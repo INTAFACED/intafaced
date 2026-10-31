@@ -22,7 +22,7 @@ const en = {
   refundAmount: 'Back to the seller’s balance',
   refundPosted: 'Posted by the ledger',
   refundPending: 'Not posted by the ledger. The order’s escrow shows what is still held.',
-  voided: 'Nothing was held in escrow for this order, so nothing was returned.',
+  voided: 'Nothing was held in escrow for this order, so nothing goes back to the seller.',
   cancelledBy: 'Cancelled by',
   by_buyer: 'The buyer',
   by_seller: 'The seller',
