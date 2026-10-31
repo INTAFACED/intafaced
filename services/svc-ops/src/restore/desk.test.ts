@@ -4,6 +4,8 @@ import {
   OPS_APPROVAL_NOT_FOUNDERS,
   OPS_IDEMPOTENCY_CONFLICT,
   OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+  OPS_RESTORE_HALT_UNREADABLE,
+  OPS_RESTORE_PLATFORM_NOT_HALTED,
   OPS_RESTORE_RUN_NOT_FOUND,
   OPS_RESTORE_STEP_OUT_OF_ORDER,
   OPS_RESTORE_TARGET_UNSET,
@@ -12,12 +14,15 @@ import {
 import { createMemoryRestoreStore } from '../restore-store.js';
 import { createRestoreDesk } from './desk.js';
 import { createMemoryRestoreRunStore } from './run-store.js';
+import type { PlatformHalt, PlatformHaltReader } from './platform-halt.js';
 import type { WatermarkReader, WatermarkReadResult } from './watermark-reader.js';
 
 const CUT_OFF = '2026-10-20T12:00:00.000Z';
 const REQUESTER = 'founder-a';
 const APPROVER = 'founder-b';
 const POSITIONS: Record<RestoreService, string> = { ledger: '10', identity: '7', bank: '3', pay: '99' };
+const HALTED: PlatformHaltReader = { read: async () => ({ halted: true }) };
+const NOT_HALTED: PlatformHalt = { halted: false, code: OPS_RESTORE_PLATFORM_NOT_HALTED, message: 'The posting freeze is off' };
 
 function reads(over: Partial<Record<RestoreService, string | null>> = {}): WatermarkReader {
   return {
@@ -85,6 +90,7 @@ function approvals(founders = true) {
 async function desk(
   over: {
     reader?: WatermarkReader;
+    halt?: PlatformHaltReader;
     stamps?: Awaited<ReturnType<typeof stamped>>;
     target?: string | null;
     archive?: string | null;
@@ -100,6 +106,7 @@ async function desk(
       store,
       stamps: over.stamps ?? (await stamped()),
       reader: over.reader ?? reads(),
+      halt: over.halt ?? HALTED,
       approvals: approver,
       archiveUrl: () => (over.archive === undefined ? 'https://archive.example/restore' : over.archive),
       target: () => (over.target === undefined ? 'owner-target' : over.target),
@@ -194,6 +201,7 @@ describe('restore desk', () => {
       store,
       stamps,
       reader: { read: (s) => reader.read(s) },
+      halt: HALTED,
       approvals: approver,
       archiveUrl: () => 'https://archive.example/restore',
       target: () => 'owner-target',
@@ -207,6 +215,42 @@ describe('restore desk', () => {
     await expect(finalize(d)).rejects.toMatchObject({ code: OPS_RESTORE_WATERMARKS_DISAGREE });
     expect(approver.calls()).toBe(0);
     expect((await d.get('R-1')).restored).toBe(false);
+  });
+
+  it('refuses validate while the posting freeze is off or unreadable, though the counts agree, and writes no row', async () => {
+    for (const answer of [
+      NOT_HALTED,
+      { halted: false, code: OPS_RESTORE_HALT_UNREADABLE, message: 'svc-ledger did not answer' },
+    ] as const) {
+      const { desk: d, store } = await desk({ halt: { read: async () => answer } });
+      await start(d);
+      await step(d, 'restore_clean');
+      await expect(step(d, 'validate')).rejects.toMatchObject({ code: answer.code });
+      expect((await store.steps('R-1')).map((s) => s.step)).toEqual(['restore_clean']);
+      expect(
+        store
+          .outbox()
+          .filter((e) => e.event === 'coreOpsRestoreFailed')
+          .map((e) => e.payload.code),
+      ).toEqual([answer.code]);
+      const view = await d.get('R-1');
+      expect(view.live.halt).toEqual(answer);
+      expect(view.live.joint.agree).toBe(true);
+      expect(view.finalizeOffered).toBe(false);
+    }
+  });
+
+  it('refuses finalize once the freeze is lifted after preview, consuming no approval', async () => {
+    let halt: PlatformHalt = { halted: true };
+    const { desk: d, approver, store } = await desk({ halt: { read: async () => halt } });
+    await start(d);
+    for (const s of ['restore_clean', 'validate', 'preview'] as const) await step(d, s);
+    halt = NOT_HALTED;
+    await expect(finalize(d)).rejects.toMatchObject({ code: OPS_RESTORE_PLATFORM_NOT_HALTED });
+    expect(approver.calls()).toBe(0);
+    expect((await store.steps('R-1')).map((s) => s.step)).toEqual(['restore_clean', 'validate', 'preview']);
+    halt = { halted: true };
+    expect((await finalize(d)).restored).toBe(true);
   });
 
   it('refuses finalize without a second founder, and records nothing', async () => {

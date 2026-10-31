@@ -23,12 +23,15 @@ import {
 } from '../codes.js';
 import type { RestoreStampStore } from '../restore-store.js';
 import { runFingerprint, type RestoreOutboxEntry, type RestoreRun, type RestoreRunStore, type RestoreStepRow } from './run-store.js';
+import type { PlatformHalt, PlatformHaltReader } from './platform-halt.js';
 import type { WatermarkReader, WatermarkReadResult } from './watermark-reader.js';
 
 export interface RestoreDeskDeps {
   readonly store: RestoreRunStore;
   readonly stamps: RestoreStampStore;
   readonly reader: WatermarkReader;
+  /** Whether the platform is halted: the joint check runs only while it is (bank, pay and identity answer live counts). */
+  readonly halt: PlatformHaltReader;
   readonly approvals: ApprovalConsumer | undefined;
   readonly archiveUrl: () => string | null | undefined;
   /** The owner's storage target for restored data. Blank (null) keeps start and finalize off: `ops.restore_target_unset`. */
@@ -38,6 +41,8 @@ export interface RestoreDeskDeps {
 
 export interface JointView {
   readonly joint: JointWatermark;
+  /** Whether the posting freeze is on now. While it is not, the steps refuse and this view's agreement proves nothing. */
+  readonly halt: PlatformHalt;
   /** What each service answered, or why it could not. Never a made-up position. */
   readonly reads: ReadonlyArray<{ service: string; ok: boolean; code: string | null; message: string | null }>;
 }
@@ -81,8 +86,42 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
   };
   const doneSteps = (rows: readonly RestoreStepRow[]) => RESTORE_STEPS.filter((s) => rows.some((r) => r.step === s));
 
+  /**
+   * The joint check, refused unless the platform is halted (lead ruling 2026-10-31): bank, pay and identity answer live
+   * counts, which equal their positions at the stamp only while nothing writes. A write that slips past the freeze moves a
+   * count, so the check then disagrees; it never agrees on a halt it did not read.
+   */
+  async function haltedJoint(run: RestoreRun, step: RestoreStep, actor: string): Promise<JointView> {
+    const live = await jointFor(run);
+    const failure = !live.halt.halted
+      ? { code: live.halt.code, message: `Nothing was compared: ${live.halt.message}` }
+      : !live.joint.agree
+        ? {
+            code: OPS_RESTORE_WATERMARKS_DISAGREE,
+            message: `${step === 'finalize' ? 'Nothing was restored: ' : 'The stamps and the services do not agree ('}${live.joint.services
+              .filter((s) => !s.ok)
+              .map((s) => `${s.service}: ${s.reason}`)
+              .join(', ')}${step === 'finalize' ? '.' : ').'}`,
+          }
+        : null;
+    if (failure) {
+      await store.recordFailure(
+        event('coreOpsRestoreFailed', `ops:restore:failed:${run.restoreNo}:${step}`, {
+          restoreNo: run.restoreNo,
+          actor,
+          step,
+          code: failure.code,
+          failedAt: deps.now(),
+        }),
+      );
+      throw new OpsError(failure.code, failure.message);
+    }
+    return live;
+  }
+
   async function jointFor(run: RestoreRun): Promise<JointView> {
-    const [stamps, results] = await Promise.all([
+    const [halt, stamps, results] = await Promise.all([
+      deps.halt.read(),
       deps.stamps.list(),
       Promise.all(
         RESTORE_SERVICES.map(async (service): Promise<[string, WatermarkReadResult]> => [service, await deps.reader.read(service)]),
@@ -97,6 +136,7 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
     });
     return {
       joint,
+      halt,
       reads: results.map(([service, r]) => ({ service, ok: r.ok, code: r.ok ? null : r.code, message: r.ok ? null : r.message })),
     };
   }
@@ -185,25 +225,7 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
       }
       let detail: Record<string, unknown> = { attested: true };
       if (!existing && input.step !== 'restore_clean') {
-        const live = await jointFor(run);
-        if (!live.joint.agree) {
-          await store.recordFailure(
-            event('coreOpsRestoreFailed', `ops:restore:failed:${run.restoreNo}:${input.step}`, {
-              restoreNo: run.restoreNo,
-              actor: input.actor,
-              step: input.step,
-              code: OPS_RESTORE_WATERMARKS_DISAGREE,
-              failedAt: deps.now(),
-            }),
-          );
-          throw new OpsError(
-            OPS_RESTORE_WATERMARKS_DISAGREE,
-            `The stamps and the services do not agree (${live.joint.services
-              .filter((s) => !s.ok)
-              .map((s) => `${s.service}: ${s.reason}`)
-              .join(', ')}).`,
-          );
-        }
+        const live = await haltedJoint(run, input.step, input.actor);
         detail = { attested: true, joint: live.joint };
       }
       await store.appendStep(
@@ -246,25 +268,7 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
       if (expected !== 'finalize') {
         throw new OpsError(OPS_RESTORE_STEP_OUT_OF_ORDER, `The next step is ${expected ?? 'none (finished)'}, not finalize.`);
       }
-      const live = await jointFor(run);
-      if (!live.joint.agree) {
-        await store.recordFailure(
-          event('coreOpsRestoreFailed', `ops:restore:failed:${run.restoreNo}:finalize`, {
-            restoreNo: run.restoreNo,
-            actor: input.actor,
-            step: 'finalize',
-            code: OPS_RESTORE_WATERMARKS_DISAGREE,
-            failedAt: deps.now(),
-          }),
-        );
-        throw new OpsError(
-          OPS_RESTORE_WATERMARKS_DISAGREE,
-          `Nothing was restored: ${live.joint.services
-            .filter((s) => !s.ok)
-            .map((s) => `${s.service}: ${s.reason}`)
-            .join(', ')}.`,
-        );
-      }
+      const live = await haltedJoint(run, 'finalize', input.actor);
       const consumed = await consumeFounderApproval(deps.approvals, {
         approvalId: input.approvalId,
         operationId: input.operationId,

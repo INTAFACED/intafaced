@@ -188,6 +188,10 @@ export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigure
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 /** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
 export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
+/** Not in the spec's list: the joint check compares live counts only while the posting freeze is on, and it is off. */
+export const OPS_RESTORE_PLATFORM_NOT_HALTED = 'ops.restore_platform_not_halted' as const;
+/** Not in the spec's list: whether the posting freeze is on could not be read, so it is not taken as on. */
+export const OPS_RESTORE_HALT_UNREADABLE = 'ops.restore_halt_unreadable' as const;
 export const OPS_RESTORE_RUN_NOT_FOUND = 'ops.restore_run_not_found' as const;
 export const OPS_ALERT_LIST_LIMIT_UNSET = 'ops.alert_list_limit_unset' as const;
 export const OPS_ALERT_RULE_NOT_FOUND = 'ops.alert_rule_not_found' as const;
@@ -277,6 +281,8 @@ export type OpsRefuseCode =
   | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
   | typeof OPS_RESTORE_WATERMARK_UNAVAILABLE
+  | typeof OPS_RESTORE_PLATFORM_NOT_HALTED
+  | typeof OPS_RESTORE_HALT_UNREADABLE
   | typeof OPS_RESTORE_RUN_NOT_FOUND
   | typeof OPS_RESTORE_STEP_OUT_OF_ORDER
   | typeof OPS_RESTORE_TARGET_UNSET
