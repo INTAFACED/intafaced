@@ -289,7 +289,7 @@ const en = {
   aAddressBad: 'This is not a valid address. It must be 0x followed by 40 letters a to f or digits.',
   aFraudListed: 'This address is on our fraud list, so it can’t be saved. Nothing was saved.',
   aSanctionsListed: 'This address is on the sanctions list, so it can’t be saved. Nothing was saved.',
-  aSanctionsUnset: 'No address can be saved yet: the sanctions list for withdrawal addresses isn’t set. Nothing was saved.',
+  aSanctionsUnset: 'No address can be saved: the sanctions list for withdrawal addresses isn’t set. Nothing was saved.',
   aTag: 'Memo or tag (optional)',
   aTagHint: 'Only if the place you send to asks for one.',
   aTagBad: 'Use 1 to 64 characters for the memo or tag, with no spaces at either end.',
@@ -705,7 +705,7 @@ const es = {
   aFraudListed: 'Esta dirección está en nuestra lista de fraude, así que no se puede guardar. No se guardó nada.',
   aSanctionsListed: 'Esta dirección está en la lista de sanciones, así que no se puede guardar. No se guardó nada.',
   aSanctionsUnset:
-    'Aún no se puede guardar ninguna dirección: la lista de sanciones para direcciones de retiro no está definida. No se guardó nada.',
+    'No se puede guardar ninguna dirección: la lista de sanciones para direcciones de retiro no está definida. No se guardó nada.',
   aTag: 'Memo o etiqueta de destino (opcional)',
   aTagHint: 'Solo si el lugar al que envías lo pide.',
   aTagBad: 'Usa de 1 a 64 caracteres para el memo o la etiqueta, sin espacios al principio ni al final.',
@@ -1127,7 +1127,7 @@ const fr = {
   aFraudListed: 'Cette adresse figure sur notre liste de fraude, elle ne peut donc pas être enregistrée. Rien n’a été enregistré.',
   aSanctionsListed: 'Cette adresse figure sur la liste des sanctions, elle ne peut donc pas être enregistrée. Rien n’a été enregistré.',
   aSanctionsUnset:
-    'Aucune adresse ne peut encore être enregistrée : la liste des sanctions pour les adresses de retrait n’est pas définie. Rien n’a été enregistré.',
+    'Aucune adresse ne peut être enregistrée : la liste des sanctions pour les adresses de retrait n’est pas définie. Rien n’a été enregistré.',
   aTag: 'Mémo ou tag (facultatif)',
   aTagHint: 'Seulement si l’endroit où tu envoies en demande un.',
   aTagBad: 'Utilise de 1 à 64 caractères pour le mémo ou le tag, sans espace au début ni à la fin.',

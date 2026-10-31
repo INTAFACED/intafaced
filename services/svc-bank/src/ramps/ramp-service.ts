@@ -674,13 +674,19 @@ export class RampService {
     };
     const offered = input.destinationRef?.trim();
     if (offered && (await this.fraudList.isListed(null, offered)) && !(await resumesWith(offered))) refuseFraudListed();
-    // The sanctions list the same way: a listed address, or any while the list is unset, starts no new send and is not stored.
+    // The sanctions list is stricter, as the owner's self-freeze is: a listed address, or any while the list is unset, starts
+    // no new send, and a send already claimed to it carries on only to answer as before when it has finished (settled or
+    // rejected). One still held or in flight refuses and stays held: nothing moves on to a sanctioned address.
+    const answersAsBefore = async (ref: string) => {
+      const claim = await this.offrampClaim(input.offrampId, input.userId);
+      return claim !== null && sameAs(ref, claim.destinationRef) && (claim.status === 'settled' || claim.status === 'rejected');
+    };
     const sanctionedOffer = offered ? sanctionsRefusal(this.sanctions, null, offered) : null;
-    if (sanctionedOffer && offered && !(await resumesWith(offered))) throw sanctionedOffer;
+    if (sanctionedOffer && offered && !(await answersAsBefore(offered))) throw sanctionedOffer;
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     if ((await this.fraudList.isListed(dest.network, dest.ref)) && !(await resumesWith(dest.ref))) refuseFraudListed();
     const sanctionedDest = sanctionsRefusal(this.sanctions, dest.network, dest.ref);
-    if (sanctionedDest && !(await resumesWith(dest.ref))) throw sanctionedDest;
+    if (sanctionedDest && !(await answersAsBefore(dest.ref))) throw sanctionedDest;
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
 
     return withMoneySpan(
@@ -837,6 +843,14 @@ export class RampService {
   }
 
   /** The address this customer's off-ramp under this id was claimed with (whatever its state), or null when there is none. */
+  private async offrampClaim(offrampId: string, userId: string): Promise<{ destinationRef: string; status: string } | null> {
+    const rows = await this.sql<Array<{ destination_ref: string; status: string }>>`
+      SELECT destination_ref, status FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
+    `;
+    const row = rows[0];
+    return row ? { destinationRef: row.destination_ref, status: row.status } : null;
+  }
+
   private async offrampClaimedTo(offrampId: string, userId: string): Promise<string | null> {
     const rows = await this.sql<Array<{ destination_ref: string }>>`
       SELECT destination_ref FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}

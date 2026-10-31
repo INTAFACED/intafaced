@@ -989,6 +989,101 @@ describe('ramps PG-hard', () => {
       expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe(before);
     });
 
+    it('a send held before its address was listed, or before the list went blank, refuses and stays held: never settled', async () => {
+      for (const after of ['listed', 'blank'] as const) {
+        const sanctioned: Array<{ network: string; address: string }> = [];
+        let unset = false;
+        let settleFails = true;
+        // The rail's settle fails once, so the send is left held, as a crash between hold and settle leaves it.
+        const flaky = new Proxy(ledger, {
+          get(target, prop) {
+            if (prop === 'post') {
+              return async (tx: Parameters<MemoryLedger['post']>[0]) => {
+                if (settleFails && tx.reason === 'withdraw.settled') throw new Error('TEST rail down at settle');
+                return target.post(tx);
+              };
+            }
+            const value = Reflect.get(target, prop, target) as unknown;
+            return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          },
+        });
+        const dests = memoryWithdrawDestinations();
+        const live = new RampService(sql, flaky, {
+          securityLock: memorySecurityLock(),
+          programme: CRYPTO_LEDGER_PROGRAMME,
+          destinations: dests,
+          sanctions: { check: (network, ref) => (unset ? 'unset' : memorySanctions(sanctioned).check(network, ref)) },
+        });
+        const userId = after === 'listed' ? 'abcdeaaa-5555-4555-8555-000000000001' : 'abcdeaaa-5555-4555-8555-000000000002';
+        await live.creditOnramp({
+          userId,
+          assetId: 'USDT',
+          amount: amt('20'),
+          kind: 'crypto',
+          railRef: `held-${after}`,
+          creditedBy: OPERATOR,
+        });
+        const id = randomUUID();
+        const send = () =>
+          live.offramp({
+            offrampId: id,
+            userId,
+            assetId: 'USDT',
+            amount: amt('8'),
+            kind: 'crypto',
+            clientRef: `held-off-${after}`,
+            destinationRef: SANCTIONED,
+          });
+        await expect(send()).rejects.toThrow('TEST rail down at settle');
+        expect(formatAmount((await ledger.balance(userAvailable(userId, 'USDT'))).amount)).toBe('12');
+        // Listed (or the list blanked) while it is held; the rail is back. The resume refuses and nothing settles.
+        if (after === 'listed') sanctioned.push({ network: '*', address: SANCTIONED });
+        else unset = true;
+        settleFails = false;
+        await expect(send()).rejects.toMatchObject({
+          code: after === 'listed' ? 'bank.destination_sanctions_listed' : 'bank.destination_sanctions_unset',
+        });
+        const [row] = await sql<Array<{ status: string; settle_ledger_tx_id: string | null; hold_ledger_tx_id: string | null }>>`
+          SELECT status, settle_ledger_tx_id, hold_ledger_tx_id FROM bank.ramp_offramps WHERE id = ${id}::uuid
+        `;
+        expect(row).toMatchObject({ status: 'pending', settle_ledger_tx_id: null });
+        expect(row!.hold_ledger_tx_id).toBeTruthy();
+        expect(formatAmount((await ledger.balance(userAvailable(userId, 'USDT'))).amount)).toBe('12');
+        expect(ledger.journal().some((tx) => tx.reason === 'withdraw.settled' && tx.idempotencyKey?.includes(id))).toBe(false);
+      }
+    });
+
+    it('answers a send settled before its address was listed as before, and posts nothing more', async () => {
+      const sanctioned: Array<{ network: string; address: string }> = [];
+      const live = service({ check: (network, ref) => memorySanctions(sanctioned).check(network, ref) });
+      const userId = 'abcdeaaa-5555-4555-8555-000000000003';
+      await live.creditOnramp({
+        userId,
+        assetId: 'USDT',
+        amount: amt('20'),
+        kind: 'crypto',
+        railRef: 'settled-before',
+        creditedBy: OPERATOR,
+      });
+      const id = randomUUID();
+      const send = () =>
+        live.offramp({
+          offrampId: id,
+          userId,
+          assetId: 'USDT',
+          amount: amt('8'),
+          kind: 'crypto',
+          clientRef: 'settled-before-off',
+          destinationRef: SANCTIONED,
+        });
+      const first = await send();
+      expect(first.status).toBe('settled');
+      sanctioned.push({ network: '*', address: SANCTIONED });
+      const posted = ledger.journal().length;
+      await expect(send()).resolves.toMatchObject({ id: first.id, status: 'settled' });
+      expect(ledger.journal()).toHaveLength(posted);
+    });
+
     it('starts no send while the list is unset, and stores no withdrawal address', async () => {
       const dests = memoryWithdrawDestinations();
       const live = service(

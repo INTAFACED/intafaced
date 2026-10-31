@@ -314,7 +314,7 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     ['bank.destination_sanctions_listed', 'This address is on the sanctions list, so it can’t be saved. Nothing was saved.'],
     [
       'bank.destination_sanctions_unset',
-      'No address can be saved yet: the sanctions list for withdrawal addresses isn’t set. Nothing was saved.',
+      'No address can be saved: the sanctions list for withdrawal addresses isn’t set. Nothing was saved.',
     ],
   ])('puts the sanctions refusal %s on save in the customer’s words', async (code, words) => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
