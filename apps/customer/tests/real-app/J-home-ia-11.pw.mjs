@@ -133,16 +133,20 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // Each service the stack started, one row each in its own health table, answers its health check.
   const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
   expect(table.status, table.out).toBe(0);
-  const rows = [...table.out.matchAll(/^ {2}(\S+) +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port.
+  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
   const names = rows.map(([name]) => name);
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
   const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
-  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
-  expect([...names].sort()).toEqual([...started].sort());
+  // Two rows are not ports of the marker: the TEST chain (when anvil is found) and the TEST market maker. Their health
+  // is still checked below.
+  const NOT_PORTS = ['chain', 'market-maker'];
+  expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
   for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
@@ -546,20 +550,62 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
   ]);
 });
 
-/** `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }. */
+/**
+ * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }.
+ * The env file compose-env wrote into the step's own state folder (`testerEnvFile`) layers what `pnpm local:stack` runs
+ * with, and this stack's generated keys, over the documented example env, which keeps them blank for a real deployment.
+ * It is never the repo's `.env.tester.local`, which a person may hold for their own state folder.
+ */
+const testerEnvFile = (env) => path.join(env.LOCAL_STACK_STATE, 'tester.env.local');
 function compose(args, env, { timeout = 120_000 } = {}) {
   const files = COMPOSE.flatMap((name) => ['-f', name]);
   const res = spawnSync(
     'docker',
-    ['compose', '-p', 'intafaced-tester-journey', '--env-file', '.env.example', ...files, '--profile', 'tester', ...args],
+    [
+      'compose',
+      '-p',
+      'intafaced-tester-journey',
+      '--env-file',
+      '.env.example',
+      '--env-file',
+      testerEnvFile(env),
+      ...files,
+      '--profile',
+      'tester',
+      ...args,
+    ],
     { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout },
   );
   const out = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`;
   return { status: res.status ?? 1, out };
 }
 
-// The step's own start: a fresh compose up with the tester profile, from the documented example env as a test build, on a
-// state directory nothing has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
+/**
+ * The last log lines of every compose service that failed on its own: neither running healthy, nor exited 0, nor stopped
+ * by compose's abort (137 or 143, the signals `--abort-on-container-exit` sends), so the red names the culprit.
+ */
+function notHealthyLogs(env) {
+  const ps = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
+  const bad = ps.out
+    .trim()
+    .split('\n')
+    .map((line) => line.split('|'))
+    .filter(
+      ([svc, state, health, code]) =>
+        svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && ['0', '137', '143'].includes(code)),
+    )
+    .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
+  return bad
+    .map(
+      ({ svc, state }) =>
+        `\n\n--- ${svc} (${state}), last 60 lines ---\n${compose(['logs', '--no-color', '--tail', '60', svc], env).out.trim()}`,
+    )
+    .join('');
+}
+
+// The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
+// `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
+// else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
 // stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
 test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
   test.setTimeout(30 * 60_000);
@@ -568,6 +614,8 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   try {
+    const generated = run('tooling/scripts/local-test-compose-env.mjs', ['--out', testerEnvFile(env)], env);
+    expect(generated.status, `BLOCKED compose_seed: compose-env could not write the tester profile's values:\n${generated.out}`).toBe(0);
     const config = compose(['config', '--quiet'], env);
     // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
     if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
@@ -575,7 +623,10 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
     });
-    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${up.out}`).toBe(0);
+    // Compose names only the service that stopped the run; that service's own last lines say why, so the red carries them.
+    const why = up.status === 0 ? '' : notHealthyLogs(env);
+    const tail = up.out.trim().split('\n').slice(-40).join('\n');
+    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${tail}${why}`).toBe(0);
     const ran = [...up.out.matchAll(/seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
     expect(ran).toEqual(composeSteps(seed.block));
     expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));

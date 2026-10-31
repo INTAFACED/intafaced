@@ -337,7 +337,8 @@ const SECRET_NAMES = [
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
-function loadOrCreateSecrets() {
+/** This stack's generated secrets (STATE/secrets.json, mode 600), created on first use; never in the repo. */
+export function loadOrCreateSecrets() {
   // As root, the folders the stack creates above STATE stay traversable for the database's OS user (preparePgPaths).
   if (PG_OS_USER) fs.mkdirSync(path.dirname(STATE), { recursive: true, mode: 0o711 });
   fs.mkdirSync(STATE, { recursive: true, mode: 0o700 });
@@ -1474,17 +1475,9 @@ async function rpcChainId() {
  * the event catalog declares, empty and idempotent, using the repo's own ensureStream.
  */
 function ensureStreams() {
-  const code = `
-    import { connect } from 'nats';
-    import { EVENT_CATALOG, ensureStream } from '@intafaced/events';
-    const nc = await connect({ servers: process.env.NATS_URL });
-    const jsm = await nc.jetstreamManager();
-    const modules = [...new Set(Object.values(EVENT_CATALOG).map((d) => d.service))];
-    for (const m of modules) await ensureStream(jsm, m, process.env.NATS_STREAM_PREFIX);
-    await nc.close();
-    console.log(modules.join(','));`;
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
-    cwd: path.join(REPO, 'packages', 'events'),
+  // One script for this stack and compose's `nats-streams` job (tooling/infra/ensure-streams.mjs).
+  const r = spawnSync(process.execPath, [path.join(REPO, 'tooling', 'infra', 'ensure-streams.mjs')], {
+    cwd: REPO,
     env: { ...baseEnv(), NATS_URL: `nats://${HOST}:${PORTS.nats}`, NATS_STREAM_PREFIX: STREAM_PREFIX },
     encoding: 'utf8',
   });
