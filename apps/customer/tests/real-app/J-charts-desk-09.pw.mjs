@@ -159,6 +159,28 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
   await expect(rows()).toHaveCount(2);
 });
 
+test(`${J} #4 edits an alert from one price to another: the new price and a modified time`, async () => {
+  const row = rowWith('TEST deeper pullback');
+  const before = await row.getByTestId('nf-body').first().textContent();
+  const price = testPrice(55, await lastText());
+  expect(before).not.toContain(price);
+  await row.getByRole('button', { name: 'Edit the alert on BTC/USDT' }).click();
+  const edit = page.getByTestId('alert-edit');
+  await edit.getByLabel('Price (USDT)').fill(price);
+  await edit.getByRole('button', { name: 'Save changes' }).click();
+  // The new price, kept by the service: it is there after a reload.
+  await page.reload();
+  await expect(rowWith('TEST deeper pullback').getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
+  // A modified time, in the person's zone (UTC+8), within the last few minutes there and after the created time.
+  const muted = await rowWith('TEST deeper pullback').locator('.nf-muted').textContent();
+  const m = /Modified (\d{1,2} [A-Z][a-z]{2,3}(?: \d{4})?), (\d\d):(\d\d) UTC\+8/.exec(muted);
+  expect(m, `"${muted}" names a UTC+8 modified time`).toBeTruthy();
+  const nowThere = new Date(Date.now() + 8 * 3_600_000);
+  const minutes = (nowThere.getUTCHours() * 60 + nowThere.getUTCMinutes() - (Number(m[2]) * 60 + Number(m[3])) + 1440) % 1440;
+  expect(minutes).toBeLessThanOrEqual(5);
+  expect(muted.indexOf('Created')).toBeLessThan(muted.indexOf('Modified'));
+});
+
 test(`${J} #6 reads the trigger log: when it fired, at what price, in the person's time zone, for the retention window`, async () => {
   test.setTimeout(4 * SWEEP_MS);
   // At or below a level above the market: the next sweep reads a mark under it and fires.

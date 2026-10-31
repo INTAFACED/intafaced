@@ -27,6 +27,9 @@ const en = {
   repeatOnce: 'Once',
   repeatList: 'Repeats at every crossing. Triggered so far: {count}',
   repeatLast: 'last {when}',
+  modifiedAt: 'Modified {when}',
+  stoppedBurst: 'Stopped because it triggered more than {max} times in {minutes} minutes. Resume it to watch again.',
+  stoppedBurstNoRule: 'Stopped because it triggered too often. Resume it to watch again.',
   refusedRepeatOff:
     'Repeating alerts are switched off on this platform. Turn off repeating and save the alert to trigger once. Nothing was changed.',
   refusedRepeatRejected: 'Only an alert that watches a crossing can repeat. Choose a crossing, or turn off repeating. Nothing was changed.',
@@ -250,6 +253,9 @@ const es = {
   repeatOnce: 'Una vez',
   repeatList: 'Se repite en cada cruce. Activaciones hasta ahora: {count}',
   repeatLast: 'última {when}',
+  modifiedAt: 'Modificada {when}',
+  stoppedBurst: 'Detenida porque se activó más de {max} veces en {minutes} minutos. Reanúdala para volver a vigilar.',
+  stoppedBurstNoRule: 'Detenida porque se activó demasiadas veces. Reanúdala para volver a vigilar.',
   refusedRepeatOff:
     'Las alertas repetidas están desactivadas en esta plataforma. Desactiva la repetición y guarda la alerta para que se active una vez. No se cambió nada.',
   refusedRepeatRejected:
@@ -469,6 +475,9 @@ const fr = {
   repeatOnce: 'Une fois',
   repeatList: 'Se répète à chaque traversée. Déclenchements jusqu’ici : {count}',
   repeatLast: 'dernier {when}',
+  modifiedAt: 'Modifiée {when}',
+  stoppedBurst: 'Arrêtée car elle s’est déclenchée plus de {max} fois en {minutes} minutes. Reprenez-la pour surveiller à nouveau.',
+  stoppedBurstNoRule: 'Arrêtée car elle s’est déclenchée trop souvent. Reprenez-la pour surveiller à nouveau.',
   refusedRepeatOff:
     'Les alertes répétées sont désactivées sur cette plateforme. Désactivez la répétition et enregistrez l’alerte pour qu’elle se déclenche une fois. Rien n’a été modifié.',
   refusedRepeatRejected:

@@ -162,6 +162,8 @@ export default function AlertsPage() {
   const gate = useRef(createGate());
 
   const list = state.status === 'ready' ? state : null;
+  // The owner's burst rule, to name it beside an alert it stopped; null when it is unset or unread.
+  const burstRule = quota.state.status === 'ready' ? (quota.state.quota.burst ?? null) : null;
   const marketList: AlertMarket[] = markets.status === 'ready' ? markets.markets : [];
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
@@ -832,8 +834,18 @@ export default function AlertsPage() {
                               (alert.lastFiredAt ? ` · ${copy.t('repeatLast', { when: stamp(alert.lastFiredAt, timeZone) })}` : '')}
                           </span>
                         ) : null}
+                        {alert.status === 'stopped' && alert.stopReason === 'burst' ? (
+                          <span className="nf-body nf-body--wrap" data-testid="alert-stop-reason">
+                            {burstRule
+                              ? copy.t('stoppedBurst', { max: String(burstRule.maxTriggers), minutes: String(burstRule.windowMinutes) })
+                              : copy.t('stoppedBurstNoRule')}
+                          </span>
+                        ) : null}
                         <span className="nf-muted">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
+                            (alert.updatedAt && Date.parse(alert.updatedAt) > Date.parse(alert.createdAt)
+                              ? ` · ${copy.t('modifiedAt', { when: stamp(alert.updatedAt, timeZone) })}`
+                              : '') +
                             (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '') +
                             (alert.expiresAt
                               ? ` · ${copy.t(alert.status === 'expired' ? 'expiredAt' : 'expiresAt', { when: stamp(alert.expiresAt, timeZone) })}`
