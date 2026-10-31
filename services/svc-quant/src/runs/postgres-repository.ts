@@ -2,6 +2,8 @@ import type { Sql, TransactionSql } from 'postgres';
 import { QUANT_RUN_IMMUTABLE, QUANT_RUN_NOT_FOUND, QuantError } from '../errors.js';
 import { decodeListCursor, encodeListCursor, idempotencyConflict } from '../studio/keys.js';
 import { assertResultFits, assertRunResultCap } from './limit.js';
+import type { QuotaClaim } from '../quota/quota.js';
+import type { QuotaHold } from '../quota/postgres-store.js';
 import type { BeginRun, ClaimInput, FinishRun, RunRepository } from './repository.js';
 import type { ClaimRow, CostBreakdown, RunCounts, RunKind, RunResultBody, StoredRun, StoredRunResult } from './types.js';
 
@@ -175,7 +177,30 @@ function claimOf(row: ClaimSql): ClaimRow {
   };
 }
 
-export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: number | null | undefined = undefined): RunRepository {
+/**
+ * What a new run counts against the plan (AL-limits-01): one more run in progress and stored, a paper run for the
+ * sandbox kind, and at least one more log line and stored byte, so a run refuses once either has reached its limit.
+ */
+function runClaim(kind: RunKind): QuotaClaim {
+  return {
+    concurrent_runs: 1n,
+    stored_runs: 1n,
+    ...(kind === 'sandbox' ? { paper_runs: 1n } : {}),
+    log_lines: 1n,
+    storage_bytes: 1n,
+  };
+}
+
+/**
+ * `quota` is the plan check a new run makes inside the transaction that inserts it. The service always passes it; a
+ * store built without one (a test of something else) does not count.
+ */
+export function createPostgresRunRepository(
+  sql: Sql,
+  schema = 'quant',
+  cap: number | null | undefined = undefined,
+  quota?: QuotaHold,
+): RunRepository {
   const resultCap = assertRunResultCap(cap);
   const runs = relation(schema, 'runs');
   const claims = relation(schema, 'claims');
@@ -203,9 +228,9 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
       const existing = await loadByKey(sql, input.userId, input.idempotencyKey);
       if (existing) return existing;
       const id = `run_${crypto.randomUUID()}`;
-      try {
+      const insert = async (db: Sql | TransactionSql) => {
         const rows = await query<RunSql>(
-          sql,
+          db,
           `INSERT INTO ${runs}
              (id, user_id, scope_key, idempotency_key, kind, strategy_id, strategy_version, started_at, finished_at, outcome_code, result)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL)
@@ -224,6 +249,19 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
         const row = rows[0];
         if (!row) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
         return runOf(row);
+      };
+      const userId = input.userId;
+      try {
+        // A run with no account (a service call) has no plan to count against.
+        if (!quota || !userId) return await insert(sql);
+        return await sql.begin(async (tx) => {
+          // A replay of a run that started meanwhile returns it and is never counted again; a replay that lands after
+          // this read meets the unique key below and is read back the same way.
+          const raced = await loadByKey(tx, userId, input.idempotencyKey);
+          if (raced) return raced;
+          await quota(tx, userId, runClaim(input.kind), null);
+          return insert(tx);
+        });
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
         const again = await loadByKey(sql, input.userId, input.idempotencyKey);

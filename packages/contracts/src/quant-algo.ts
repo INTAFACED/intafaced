@@ -618,3 +618,51 @@ export const quantShareEmbedSchema = z.object({
   origins: z.array(z.string().min(1)).min(1),
 });
 export type QuantShareEmbed = z.infer<typeof quantShareEmbedSchema>;
+
+/**
+ * Quotas by plan (AL-limits-01). A profile is a name with one limit per resource; every limit is an owner value. A blank
+ * limit refuses `quant.quota_unset` and reads "not set"; `0` refuses every create of that resource. Nothing here is a
+ * price: plan tiers and billing are not built.
+ */
+export const QUANT_QUOTA_RESOURCES = [
+  'strategies',
+  'versions_per_strategy',
+  'concurrent_runs',
+  'paper_runs',
+  'stored_runs',
+  'log_lines',
+  'storage_bytes',
+  'collaborators_per_strategy',
+  'notifications_per_day',
+] as const;
+export const quantQuotaResourceSchema = z.enum(QUANT_QUOTA_RESOURCES);
+export type QuantQuotaResource = z.infer<typeof quantQuotaResourceSchema>;
+export const quantQuotaProfileSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 _-]{0,47}$/);
+const quotaCount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
+
+/**
+ * `quota.get`: the caller's profile and, per resource, the limit (null when blank: "not set") and what is used now.
+ * For a per-strategy resource, `used` is the largest count of any one strategy.
+ */
+export const quantQuotaUsageSchema = z.object({
+  profile: quantQuotaProfileSchema.nullable(),
+  rows: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaCount.nullable(), used: quotaCount })),
+});
+export type QuantQuotaUsage = z.infer<typeof quantQuotaUsageSchema>;
+
+/** `ops.quota.set`: one limit of one profile; `limit: null` stores it blank. Keyed `quant.quota:<profile>:<resource>:<seq>`. */
+export const quantQuotaSetInputSchema = z.object({
+  profile: quantQuotaProfileSchema,
+  resource: quantQuotaResourceSchema,
+  limit: quotaCount.nullable(),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+
+/** `ops.quota.assign`: puts one account on a profile. */
+export const quantQuotaAssignInputSchema = z.object({
+  accountId: z.string().uuid(),
+  profile: quantQuotaProfileSchema,
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});

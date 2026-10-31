@@ -13,6 +13,9 @@ import type {
   WriteReceipt,
 } from './repository.js';
 import type { StrategyMetadata, StudioBlock, StudioRiskBlock } from './store.js';
+import type { QuotaHold } from '../quota/postgres-store.js';
+
+const sourceBytes = (source: string) => BigInt(Buffer.byteLength(source, 'utf8'));
 
 const CLAIMS = ['Paper — not live performance', 'Historical simulation — not a forecast', 'Shadow — not live performance'] as const;
 
@@ -189,7 +192,11 @@ const JOINED = `
  * Postgres adapter. Schema defaults to quant. Tests pass a private schema name.
  * Version rows are insert-only; the table trigger rejects UPDATE and DELETE.
  */
-export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): StrategyRepository {
+/**
+ * `quota` is the plan check (AL-limits-01) a new strategy and a new version run inside their own transaction before
+ * they insert. The service always passes it; a store built without one (a test of something else) does not count.
+ */
+export function createPostgresStrategyRepository(sql: Sql, schema = 'quant', quota?: QuotaHold): StrategyRepository {
   const strategies = relation(schema, 'strategies');
   const versions = relation(schema, 'strategy_versions');
   const receipts = relation(schema, 'write_receipts');
@@ -330,6 +337,7 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
           const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'create', detail);
           return stored.response as StrategyDetail;
         }
+        await quota?.(tx, input.accountId, { strategies: 1n, storage_bytes: sourceBytes(input.draft.source) }, null);
         const now = new Date().toISOString();
         const id = `studio_${crypto.randomUUID()}`;
         await query(tx, 'SAVEPOINT quant_client_insert', []);
@@ -382,6 +390,7 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
           `SELECT COALESCE(MAX(version), 0) AS version FROM ${versions} WHERE strategy_id = $1`,
           [input.id],
         );
+        await quota?.(tx, input.accountId, { versions_per_strategy: 1n, storage_bytes: sourceBytes(input.draft.source) }, input.id);
         const next = (maxRows[0]?.version ?? 0) + 1;
         await insertVersion(tx, input.id, next, input.draft, new Date().toISOString());
         // A saved version names the strategy again; the head follows it until the next rename.

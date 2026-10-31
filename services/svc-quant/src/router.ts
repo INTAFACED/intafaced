@@ -29,6 +29,9 @@ import {
   quantTemplateIdSchema,
   quantTemplateListOutputSchema,
   quantTemplatePublishInputSchema,
+  quantQuotaAssignInputSchema,
+  quantQuotaSetInputSchema,
+  quantQuotaUsageSchema,
   quantTemplateVersionSchema,
   router,
   scopedProcedure,
@@ -89,6 +92,9 @@ import {
   QUANT_SHARE_TOKEN_UNSET,
   QUANT_RELEASE_NOTE_LIMIT_UNSET,
   QUANT_VERSION_NOT_FOUND,
+  QUANT_QUOTA_EXCEEDED,
+  QUANT_QUOTA_PROFILE_UNSET,
+  QUANT_QUOTA_UNSET,
   QUANT_SHARE_WINDOW_UNSET,
   QUANT_RUN_RESULT_CAP_UNSET,
   QUANT_RUN_RESULT_TOO_LARGE,
@@ -107,6 +113,8 @@ import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import type { TemplateRepository } from './templates/repository.js';
 import { openTemplateRepository } from './templates/open.js';
+import { openQuotaStore } from './quota/open.js';
+import type { QuotaStore } from './quota/postgres-store.js';
 import { blankTemplateRules } from './templates/rules.js';
 import { requireSimulatedStamp } from './honesty.js';
 import { claimFromRun } from './marketplace/claim.js';
@@ -211,6 +219,9 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_EMBED_ORIGINS_UNSET ||
             err.code === QUANT_SHARE_RATE_UNSET ||
             err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
+            err.code === QUANT_QUOTA_UNSET ||
+            err.code === QUANT_QUOTA_EXCEEDED ||
+            err.code === QUANT_QUOTA_PROFILE_UNSET ||
             err.code === QUANT_SHARE_WINDOW_UNSET ||
             err.code === QUANT_SHARE_RATE_LIMITED ||
             err.code === QUANT_SIGNAL_RULES_SANDBOX ||
@@ -380,6 +391,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly disclosure?: DisclosureRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly templates?: TemplateRepository;
+  /** Quota profiles and usage (AL-limits-01). Omitted refuses by naming the missing database. Production passes Postgres. */
+  readonly quota?: QuotaStore;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
   /**
@@ -426,6 +439,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
+  const quota = deps.quota ?? openQuotaStore({}, null).store;
   const shares = deps.share?.repository;
   const releaseNoteMax = deps.releaseNoteMax ?? null;
   /** A version's release note: blank is no note; a note needs the owner's cap, and is refused over it. */
@@ -1478,6 +1492,23 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         ),
     }),
 
+    /**
+     * The caller's quota profile and, per resource, its limit (null reads "not set") and what is used now (AL-limits-01).
+     * A blank default profile with no assignment reads profile null and every limit not set.
+     */
+    quota: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantQuotaUsageSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await quota.usage(accountOf(ctx, input?.accountId));
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     /** First-party starter templates. Read by any signed-in person; only an operator publishes. */
     template: router({
       list: publicJurisdictionProcedure('quant', 'fiat')
@@ -1707,6 +1738,31 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }
             }),
           ),
+      }),
+
+      quota: router({
+        /** One limit of one profile, with a reason; the row is its own audit record. `limit: null` stores it blank. */
+        set: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaSetInputSchema)
+          .output(z.object({ profile: z.string(), resource: z.string(), limit: z.string().nullable(), seq: z.number().int() }))
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await quota.setLimit({ ...input, setBy: ctx.principal.userId });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        /** Puts one account on a profile, with a reason; the row is its own audit record. */
+        assign: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaAssignInputSchema)
+          .output(z.object({ accountId: z.string(), profile: z.string(), seq: z.number().int() }))
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await quota.assign({ ...input, assignedBy: ctx.principal.userId });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
       }),
 
       disclosure: router({

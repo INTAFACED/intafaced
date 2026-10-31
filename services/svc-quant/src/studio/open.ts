@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import type { QuotaHold } from '../quota/postgres-store.js';
 import { QUANT_DATABASE_POOL_MAX_UNSET, QUANT_DATABASE_URL_UNSET, QuantError } from '../errors.js';
 import { createPostgresStrategyRepository } from './postgres-repository.js';
 import type { StrategyRepository } from './repository.js';
@@ -27,7 +28,10 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
  * Paper strategy store. No URL means studio writes refuse by name.
  * Pool size is never invented: a URL without DATABASE_POOL_MAX refuses too.
  */
-export function openStrategyRepository(env: { DATABASE_URL?: string | undefined; DATABASE_POOL_MAX?: string | undefined }): {
+export function openStrategyRepository(
+  env: { DATABASE_URL?: string | undefined; DATABASE_POOL_MAX?: string | undefined },
+  quota?: QuotaHold,
+): {
   repository: StrategyRepository;
   close: () => Promise<void>;
 } {
@@ -48,7 +52,7 @@ export function openStrategyRepository(env: { DATABASE_URL?: string | undefined;
   }
   const sql = postgres(url, { max: pool, onnotice: () => undefined });
   return {
-    repository: createPostgresStrategyRepository(sql),
+    repository: createPostgresStrategyRepository(sql, 'quant', quota),
     close: () => sql.end({ timeout: 5 }),
   };
 }

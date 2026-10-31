@@ -7,6 +7,8 @@ import { missingFees, missingHistory, tradeFeePort, tradeHistoryPort } from './e
 import { openDisclosureRepository } from './disclosure/open.js';
 import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
+import { openQuotaStore } from './quota/open.js';
+import { postgresQuotaHold } from './quota/postgres-store.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
@@ -38,8 +40,13 @@ const lake = missingLake();
 const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now: () => Date.now() }) : missingHistory();
 const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL }) : missingFees();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
-const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
-const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// Quotas by plan (AL-limits-01): every new strategy, version and run is counted against the account's profile in the
+// transaction that writes it. The default profile is the owner's; blank refuses every create of an unassigned account.
+const defaultQuotaProfile = env.QUANT_DEFAULT_QUOTA_PROFILE ?? null;
+const quotaHold = postgresQuotaHold('quant', defaultQuotaProfile);
+const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quotaHold);
+const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quotaHold);
+const quota = openQuotaStore({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, defaultQuotaProfile);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
@@ -84,6 +91,7 @@ export const appRouter = createQuantRouter({
   runs: runs.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
+  quota: quota.store,
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -125,6 +133,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await runs.close();
       await disclosure.close();
       await templates.close();
+      await quota.close();
       process.exit(0);
     })();
   });
