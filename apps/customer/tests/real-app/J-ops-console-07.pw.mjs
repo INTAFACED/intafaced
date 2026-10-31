@@ -1097,7 +1097,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     // to them. The control's account set is that customer alone (owner id), so other journeys moving USDT on the shared stack
     // never shift its figures.
     state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
-    await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
+    const fixContext = await browser.newContext({ baseURL: ORIGIN });
+    try {
+      await signUpInBrowser(await fixContext.newPage(), state.fixPayer);
+    } finally {
+      await fixContext.close();
+    }
     const fixOwner = (await api(state.fixPayer)).userId;
     state.fixId = await define(section, {
       template: 'threshold',
@@ -1115,6 +1120,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       const probe = await twoFounderRun(state.fixId);
       expect(probe).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       const held = scaled(evidence(probe, 'USDT').observed);
+      // The account set is the fresh customer alone, who holds no USDT yet: a shared-stack total here means the owner filter
+      // did not take, and the figures below would drift with other journeys.
+      expect(held, 'the floor reads only its own fresh customer').toBe(0n);
       const floor = held + 5n * 10n ** 18n;
       const floorText = `${floor / 10n ** 18n}.${(floor % 10n ** 18n).toString().padStart(18, '0')}`.replace(/\.?0+$/, '');
       const update = await openLedger(a);
@@ -1172,7 +1180,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       // A resolved alert offers no second resolution and no acceptance.
       await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
 
-      // Accept: a USDC floor over the USDT account set fails on a total of 0 at every run, the same figures each time.
+      // Accept: a USDC floor over every customer's USDT accounts (unlike the one-customer fix floor) fails on a total of 0 at every run, the same figures each time.
       const desk = await openLedger(a);
       state.acceptId = await define(desk, {
         template: 'threshold',
