@@ -12,6 +12,7 @@ import { DisabledAction, Journey, StatRow, type JourneyStep } from './depth-kit'
 import { dependencyReading, MINING_STEPS, poolVerdict, type MiningHealth } from './mining-journey';
 import { miningDepthCopy } from './mining-depth-copy';
 import { miningWorkersCopy } from './mining-workers-copy';
+import { miningWorkerCopy } from './mining-worker-copy';
 import './mining-workers.css';
 import {
   bpsToPercent,
@@ -30,7 +31,10 @@ import {
   WORKER_PAGE,
   powSpec,
   workerDifficulty,
+  workerHref,
   workerMode,
+  maintenanceRows,
+  type MaintenanceRows,
   type PowSpec,
   type WorkerMode,
   type MinerShares,
@@ -141,6 +145,8 @@ function Workers() {
   const setDifficulty = (workerId: string, minDifficulty: string | null) =>
     api.mutate('mining', 'workers.setDifficulty', { workerId, minDifficulty }, workerDifficulty);
   const setMode = (name: string, mode: WorkerMode) => api.mutate('mining', 'workers.setMode', { name, mode }, workerMode);
+  const setMaintenance = (workerIds: string[], on: boolean) =>
+    api.mutate('mining', 'workers.setMaintenance', { workerIds, on }, maintenanceRows);
   const pow = useResource((signal) => api.query('mining', 'pow', undefined, powSpec, { signal }), 'mining-pow');
   // Solo credit is the service's own answer; today it is always a typed refusal.
   const soloCredit = useResource(
@@ -164,6 +170,7 @@ function Workers() {
       onPage={setCursor}
       onSetDifficulty={setDifficulty}
       onSetMode={setMode}
+      onSetMaintenance={setMaintenance}
       pow={pow}
       soloCredit={soloCredit}
     />
@@ -180,6 +187,7 @@ export function WorkersView({
   onPage = () => undefined,
   onSetDifficulty,
   onSetMode,
+  onSetMaintenance,
   pow,
   soloCredit,
 }: {
@@ -194,6 +202,7 @@ export function WorkersView({
   onPage?: (cursor: string | null) => void;
   onSetDifficulty?: (workerId: string, minDifficulty: string | null) => Promise<ApiResult<{ id: string; minDifficulty: string | null }>>;
   onSetMode?: (name: string, mode: WorkerMode) => Promise<ApiResult<{ id: string; name: string; mode: WorkerMode }>>;
+  onSetMaintenance?: (workerIds: string[], on: boolean) => Promise<ApiResult<MaintenanceRows>>;
   pow?: Read<PowSpec>;
   soloCredit?: Read<never>;
 }) {
@@ -203,6 +212,18 @@ export function WorkersView({
   const [name, setName] = useState('');
   // Held here, outside the roster read, so the saved line survives the reload that follows a save.
   const [saving, setSaving] = useState<SaveState>({ status: 'idle' });
+  const m = miningWorkerCopy.useCopy().t;
+  // The ticked rows, by worker id; a maintenance change applies to these only.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [maintenance, setMaintenance] = useState<MaintenanceState>({ status: 'idle' });
+  async function applyMaintenance(on: boolean) {
+    if (!onSetMaintenance || picked.size === 0) return;
+    setMaintenance({ status: 'busy' });
+    const result = await onSetMaintenance([...picked], on);
+    if (!result.ok) return setMaintenance({ status: 'failed', failure: result });
+    setMaintenance({ status: 'saved', n: result.data.rows.length });
+    read.reload();
+  }
   return (
     <div className="more-columns">
       <Panel title={t('workersRegister')}>
@@ -250,12 +271,48 @@ export function WorkersView({
                 )
               ) : (
                 <DataTable
-                  headers={[t('rosterName'), w('rosterMode'), t('rosterWeight'), w('rosterMinDifficulty'), t('rosterAdded')]}
+                  headers={[
+                    m('rosterPick'),
+                    t('rosterName'),
+                    m('rosterState'),
+                    w('rosterMode'),
+                    t('rosterWeight'),
+                    w('rosterMinDifficulty'),
+                    t('rosterAdded'),
+                  ]}
                   label={t('workersRoster')}
                 >
                   {data.workers.map((worker) => (
                     <tr key={worker.id}>
-                      <td lang="und">{worker.name}</td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="mining-worker-pick"
+                          aria-label={m('rosterSelect', { name: worker.name })}
+                          checked={picked.has(worker.id)}
+                          onChange={(event) => {
+                            const next = new Set(picked);
+                            if (event.target.checked) next.add(worker.id);
+                            else next.delete(worker.id);
+                            setPicked(next);
+                          }}
+                        />
+                      </td>
+                      <td lang="und">
+                        <a className="text-link" href={workerHref(worker.id)}>
+                          {worker.name}
+                        </a>
+                      </td>
+                      <td>
+                        <span
+                          className="badge"
+                          data-testid="mining-worker-badge"
+                          data-state={worker.state ?? 'unset'}
+                          {...(worker.state === null && worker.stateReason ? { 'data-code': worker.stateReason } : {})}
+                        >
+                          {m(worker.state === null ? 'badge_unset' : `badge_${worker.state}`)}
+                        </span>
+                      </td>
                       <td>{w(`mode_${worker.mode}`)}</td>
                       <td className="numeric">{worker.hashrate === null ? t('rosterNoShares') : displayAmount(worker.hashrate)}</td>
                       <td className="numeric">{worker.minDifficulty === null ? w('automatic') : worker.minDifficulty}</td>
@@ -264,6 +321,37 @@ export function WorkersView({
                   ))}
                 </DataTable>
               )}
+              {data.workers.length > 0 ? (
+                <>
+                  <div className="actions">
+                    <Button
+                      variant="secondary"
+                      disabled={!onSetMaintenance || picked.size === 0 || maintenance.status === 'busy'}
+                      onClick={() => void applyMaintenance(true)}
+                    >
+                      {m('maintenanceOn')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={!onSetMaintenance || picked.size === 0 || maintenance.status === 'busy'}
+                      onClick={() => void applyMaintenance(false)}
+                    >
+                      {m('maintenanceOff')}
+                    </Button>
+                  </div>
+                  <p role="status" className="muted" data-testid="mining-maintenance-status">
+                    {maintenance.status === 'busy'
+                      ? m('maintenanceSaving')
+                      : maintenance.status === 'saved'
+                        ? m('maintenanceSaved', { n: String(maintenance.n) })
+                        : picked.size === 0
+                          ? m('maintenancePick')
+                          : ''}
+                  </p>
+                  {maintenance.status === 'failed' ? <Failure result={maintenance.failure} /> : null}
+                  <p className="muted">{m('maintenanceNote')}</p>
+                </>
+              ) : null}
               <div className="actions">
                 {paged ? (
                   <Button variant="secondary" onClick={() => onPage(null)}>
@@ -311,6 +399,8 @@ export function WorkersView({
     </div>
   );
 }
+
+type MaintenanceState = { status: 'idle' } | { status: 'busy' } | { status: 'saved'; n: number } | { status: 'failed'; failure: Failed };
 
 type ModeState =
   { status: 'idle' } | { status: 'busy' } | { status: 'saved'; worker: string; mode: WorkerMode } | { status: 'failed'; failure: Failed };

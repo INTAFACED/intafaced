@@ -23,9 +23,17 @@ const page = (path: string) =>
 
 describe('More room sections and records (MC-order-01)', () => {
   it('shows a record with no data source as such, titled, with a way back to its room', () => {
-    const html = page('/mining/workers/worker-9');
+    const html = page('/token/governance/proposal-9');
     expect(html).toContain('No details are shown for this record');
-    expect(html).toContain('href="/mining"');
+    expect(html).toContain('href="/token"');
+  });
+
+  it('opens one mining worker on its own room, with a way back to the roster (J-more-catalogue-06 #3)', () => {
+    const html = page(`/mining/workers/${encodeURIComponent('worker:11111111-1111-4111-8111-111111111111:Rig-Q')}`);
+    expect(html).toContain('Mining worker');
+    expect(html).not.toContain('No details are shown for this record');
+    expect(html).toContain('State changes');
+    expect(html).toContain('href="/mining/workers"');
   });
 
   it('opens a Market listing by id on its own page, with a way back to the Market (MC-market-01)', () => {

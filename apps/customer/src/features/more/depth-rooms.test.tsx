@@ -82,6 +82,8 @@ describe('rooms with no backing service', () => {
               hashrateReason: null,
               minDifficulty: '512',
               mode: 'pooled' as const,
+              state: 'maintenance' as const,
+              stateReason: null,
             },
             {
               id: 'w2',
@@ -91,6 +93,8 @@ describe('rooms with no backing service', () => {
               hashrateReason: 'no_shares_in_window',
               minDifficulty: null,
               mode: 'solo' as const,
+              state: null,
+              stateReason: 'mining.quiet_interval_unset',
             },
           ],
           defaultDifficulty: null,
@@ -116,8 +120,15 @@ describe('rooms with no backing service', () => {
     expect(html).toContain('Minimum difficulty');
     expect(html).toContain('does not apply it to the jobs it sends');
     // Each rig shows its mode, and the room offers Pooled or Solo by rig name.
-    expect(html).toMatch(/<td lang="und">rig-a<\/td><td>Pooled<\/td>/);
-    expect(html).toMatch(/<td lang="und">rig-b<\/td><td>Solo<\/td>/);
+    // Each name opens the worker's own room, each row has a pick box named for the rig, and a badge says its state.
+    expect(html).toContain('<a class="text-link" href="/mining/workers/w1">rig-a</a>');
+    expect(html).toContain('aria-label="Select rig-a"');
+    expect(html).toMatch(/data-testid="mining-worker-badge" data-state="maintenance">Maintenance<\/span><\/td><td>Pooled<\/td>/);
+    expect(html).toMatch(
+      /data-testid="mining-worker-badge" data-state="unset" data-code="mining.quiet_interval_unset">No quiet interval<\/span><\/td><td>Solo<\/td>/,
+    );
+    expect(html).toContain('Put in maintenance');
+    expect(html).toContain('Take out of maintenance');
     expect(html).toContain('Pooled or solo');
     expect(html).toMatch(/type="radio" name="mining-worker-mode" checked="" value="pooled"/);
     expect(html).toContain('value="solo"');

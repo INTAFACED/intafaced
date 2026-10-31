@@ -23,6 +23,9 @@ export const minerWorkers = z.object({
       hashrateReason: z.string().nullable(),
       minDifficulty: decimal.nullable(),
       mode: z.enum(['pooled', 'solo']),
+      /** Maintenance always; active or offline only when the pool publishes a quiet interval (else null with its code). */
+      state: z.enum(['active', 'offline', 'maintenance']).nullable().default(null),
+      stateReason: z.string().nullable().default(null),
     }),
   ),
   defaultDifficulty: decimal.nullable(),
@@ -43,6 +46,53 @@ export const powSpec = z.discriminatedUnion('status', [
 ]);
 export type PowSpec = z.infer<typeof powSpec>;
 export const MODE_CHANGE_IN_WINDOW = 'mining.mode_change_in_window';
+export const ALERT_LIMIT_UNSET = 'mining.alert_limit_unset';
+export const WORKER_STATES = ['active', 'offline', 'maintenance'] as const;
+export type WorkerState = (typeof WORKER_STATES)[number];
+export const ALERT_LIMIT_MODES = ['automatic', 'manual'] as const;
+export type AlertLimitMode = (typeof ALERT_LIMIT_MODES)[number];
+/** A manual alert limit as the pool takes it: a decimal above zero, up to 18 places. */
+export const ALERT_LIMIT = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
+
+/** One of the account's own workers (`workers.one`): hashing, connectivity, state and alert limit, all the pool's answer. */
+export const workerOne = z.object({
+  asOf: z.string(),
+  id: z.string(),
+  name: z.string(),
+  windowMinutes: z.number().int(),
+  hashing: z.enum(['hashing', 'idle']),
+  hashrate: decimal.nullable(),
+  hashrateReason: z.string().nullable(),
+  connectivity: z.enum(['online', 'offline']),
+  lastShareAt: z.string().nullable(),
+  state: z.enum(WORKER_STATES),
+  quietSeconds: z.number().int(),
+  alertLimitMode: z.enum(ALERT_LIMIT_MODES).nullable(),
+  alertLimit: decimal.nullable(),
+  alertLimitReason: z.string().nullable(),
+  maintenanceSince: z.string().nullable(),
+});
+export type WorkerOne = z.infer<typeof workerOne>;
+
+export const workerStateChanges = z.object({
+  asOf: z.string(),
+  evaluatedAt: z.string().nullable(),
+  rows: z.array(z.object({ workerId: z.string(), from: z.enum(['online', 'offline']), to: z.enum(['online', 'offline']), at: z.string() })),
+});
+export type WorkerStateChanges = z.infer<typeof workerStateChanges>;
+
+export const maintenanceRows = z.object({ asOf: z.string(), rows: z.array(z.object({ workerId: z.string(), since: z.string() })) });
+export type MaintenanceRows = z.infer<typeof maintenanceRows>;
+
+export const alertLimitSetting = z.object({
+  workerId: z.string(),
+  mode: z.enum(ALERT_LIMIT_MODES).nullable(),
+  manualLimit: decimal.nullable(),
+});
+export type AlertLimitSetting = z.infer<typeof alertLimitSetting>;
+
+/** The address of one of the account's workers. */
+export const workerHref = (workerId: string) => `/mining/workers/${encodeURIComponent(workerId)}`;
 export const EMISSION_UNPUBLISHED = 'mining.emission_unpublished';
 
 export const minerShares = z.object({
