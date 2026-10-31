@@ -293,6 +293,15 @@ const schema = serviceEnvSchema
       PAY_CHECKOUT_SUCCESS_RATES: z.string().optional().default(''),
 
       /**
+       * Seconds a newly verified payout destination (or a change of a verified
+       * one) is held before it can receive a payout (J-merchant-02 #5). No
+       * default: blank, zero or junk is unset and every verification and change
+       * refuses `pay.destination_hold_unset`. Parsed by
+       * `loadDestinationHoldSeconds` (payout-destination-change.ts).
+       */
+      PAY_DESTINATION_HOLD_SECONDS: z.string().optional().default(''),
+
+      /**
        * svc-identity base for D26-P1-O2 affiliate accrue after merchantSettlement.
        * Blank → noop port (settlement still posts). Never invent rates.
        */

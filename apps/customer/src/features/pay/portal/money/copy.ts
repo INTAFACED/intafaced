@@ -542,14 +542,31 @@ const en = {
   dstRefCrypto: 'A wallet address starts with 0x and is 42 characters long.',
   dstRefBank: 'That doesn’t look like an IBAN or an IFSC code.',
   dstSave: 'Save destination',
-  dstReviewBody: 'Check the network and the address. Payouts to it will go exactly here.',
-  dstSaved: 'Destination saved.',
   dstReplace: 'Replace destination',
   dstReplaceReviewBody: 'This replaces the destination saved for this network. Payouts to it will go exactly to the new address.',
   dstReplaces: 'Replaces',
   dstReplaceWarnLabel: 'Waiting requests',
   dstReplaceWarn: 'Payout requests already waiting for approval are for the old destination and have to be asked for again.',
   dstReplaced: 'Destination replaced.',
+  dstStatus: 'Status',
+  dstStateUnverified: 'Unverified',
+  dstStateHeld: 'Waiting until',
+  dstStateActive: 'Active',
+  dstSaveReviewBody:
+    'It is saved unverified: nothing can be paid to it until you verify it with your authenticator, and then only after a waiting period.',
+  dstSavedUnverified: 'Destination saved. It is unverified and can’t receive a payout until you verify it.',
+  dstVerify: 'Verify',
+  dstVerifyBody:
+    'Type the full address again and confirm with your authenticator. It becomes active after a waiting period; until then nothing is paid to it.',
+  dstVerifyMismatch: 'That isn’t the destination saved here. Type it exactly as you saved it.',
+  dstVerified: 'Destination verified. It becomes active at the time shown in the list.',
+  dstCancelHold: 'Cancel verification',
+  dstCancelHoldBody:
+    'It goes back to Unverified and can’t receive a payout. To use it, verify it again with your authenticator; the waiting period then starts over.',
+  dstCancelHoldDone: 'Verification cancelled. The destination is unverified again.',
+  dstCancelHoldOwnerOnly: 'Only the account owner can cancel a verification.',
+  pnDestUnverified: 'Unverified',
+  pnDestHeld: 'Not active yet',
 
   // ---- approvals
   apvTiles: 'Approvals at a glance',
@@ -803,6 +820,13 @@ const en = {
   rConvNotFound: 'We couldn’t find that conversion.',
   rRefundNotFound: 'We couldn’t find that refund.',
   rConversionNotFound: 'We couldn’t find that conversion.',
+  rDestUnverified: 'This destination isn’t verified yet, so nothing can be paid to it. Verify it on the Destinations page.',
+  rDestVerifiedLocked:
+    'This destination has just been verified, so it can only be replaced with your authenticator. Refresh the list and choose Replace.',
+  rDestVerifyMismatch:
+    'That isn’t the destination saved for this network, so it wasn’t verified. Type the saved one exactly, or save the new one first and then verify it.',
+  rDestNotHeld: 'This destination is already active, so there is no waiting period to cancel.',
+  rDestHeld: 'This destination was verified recently and is still in its waiting period. Try again once it reads Active.',
   rDestInFlight: 'A payout to this destination is waiting for approval or still on its way, so it can’t be removed until it has finished.',
   rDestNotFound: 'That destination is already gone. Refresh the list.',
   rTopUpUnconfigured:

@@ -24,7 +24,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import { isFeatureLive, isHiddenPath } from '../../app/feature-registry';
+import { isHiddenPath } from '../../app/feature-registry';
 import { rooms, type Door, type Room } from '../../app/navigation';
 import type { moreCopy } from './copy';
 
@@ -40,14 +40,12 @@ export interface Tile {
   title: Key;
   line: Key;
   section: Section;
-  /** Registry feature that must be live too (the page's own route may not be in the registry at all). */
-  feature?: string;
 }
 
 /**
  * Every tile More shows (UI-SPEC 5.11, founder order 2026-10-17: nothing is hidden). Each one opens its room, and a room that
- * cannot act yet shows its own refusal or empty state there. A tile is still dropped if its route is a hidden feature or its
- * named registry feature is not live; no registry row is hidden today.
+ * cannot act yet shows its own refusal or empty state there. A registry status other than `hidden` never drops a tile: blocked
+ * means reachable and not yet proven live (AGENTS.md), so only a hidden route is left out, and no registry row is hidden today.
  *
  * Help opens `/support`, the signed-in help screen (published answers plus the person's own requests). The public `/help` page
  * is not used here: it shows "Sign in" even to someone who is signed in.
@@ -71,7 +69,7 @@ export const TILES: readonly Tile[] = [
   { id: 'chain', href: '/chain', icon: Link2, title: 'Chain tile', line: 'Chain line', section: 'Web3' },
   { id: 'protocol', href: '/protocol', icon: Network, title: 'Protocol tile', line: 'Protocol line', section: 'Web3' },
   { id: 'predict', href: '/predict', icon: Target, title: 'Predict tile', line: 'Predict line', section: 'Web3' },
-  { id: 'help', href: '/support', icon: CircleHelp, title: 'Help tile', line: 'Help line', section: 'Help', feature: 'help-support' },
+  { id: 'help', href: '/support', icon: CircleHelp, title: 'Help tile', line: 'Help line', section: 'Help' },
   { id: 'account', href: '/uc/account', icon: User, title: 'Account tile', line: 'Account line', section: 'Account' },
   { id: 'security', href: '/uc/safe', icon: ShieldCheck, title: 'Security tile', line: 'Security line', section: 'Account' },
   {
@@ -90,7 +88,6 @@ export const TILES: readonly Tile[] = [
     title: 'Notifications tile',
     line: 'Notifications line',
     section: 'Account',
-    feature: 'notifications',
   },
 ];
 
@@ -107,15 +104,19 @@ export const SECTIONS: readonly Section[] = [
 
 export interface Live {
   hidden: (path: string) => boolean;
-  featureLive: (id: string) => boolean;
 }
-const registry: Live = { hidden: isHiddenPath, featureLive: isFeatureLive };
+const registry: Live = { hidden: isHiddenPath };
 
-/** The sections to draw, each with only its live tiles; a section with none is dropped. */
+/** The section's id on the page: made from its key, so it has no spaces and `aria-labelledby` finds it. */
+export function sectionId(section: Section): string {
+  return `more-${section.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
+/** The sections to draw, each with every tile whose route is not hidden; a section with none is dropped. */
 export function visibleSections(live: Live = registry, tiles: readonly Tile[] = TILES): Array<{ section: Section; tiles: Tile[] }> {
   return SECTIONS.map((section) => ({
     section,
-    tiles: tiles.filter((tile) => tile.section === section && !live.hidden(tile.href) && (!tile.feature || live.featureLive(tile.feature))),
+    tiles: tiles.filter((tile) => tile.section === section && !live.hidden(tile.href)),
   })).filter((group) => group.tiles.length > 0);
 }
 

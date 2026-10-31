@@ -894,6 +894,8 @@ export const merchantPayoutDestinations = pay.table(
     pendingKind: text('pending_kind'),
     pendingRef: text('pending_ref'),
     pendingActivatesAt: tstz('pending_activates_at'),
+    /** J-merchant-02 #5: a verified row is held until this time, then active. Null: no hold to wait out. */
+    activatesAt: tstz('activates_at'),
     /** Page key for the inventory cursor. Not a second destination. */
     id: uuid('id').notNull().defaultRandom(),
     /** True only after the owner marks this row. Existing rows stay false. */

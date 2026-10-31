@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import {
+  SANDBOX_CARD_TEST_VALUES,
   SANDBOX_NAME_MAX,
   type SandboxBalance,
   type SandboxDetail,
@@ -46,17 +47,26 @@ function Refused({ failure, t }: { failure: Refusal; t: T }) {
 }
 
 function BaseUrl({ baseUrl, t }: { baseUrl: string | null; t: T }) {
-  return baseUrl ? (
-    <p>
-      {t('baseUrlLabel')}:{' '}
-      <code lang="und" data-testid="sandbox-base-url">
-        {baseUrl}
-      </code>
-    </p>
-  ) : (
-    <p className="muted" data-testid="sandbox-base-url-unset">
-      {t('baseUrlUnset')}
-    </p>
+  return (
+    <>
+      {baseUrl ? (
+        <p>
+          {t('baseUrlLabel')}:{' '}
+          <code lang="und" data-testid="sandbox-base-url">
+            {baseUrl}
+          </code>
+        </p>
+      ) : (
+        <p className="muted" data-testid="sandbox-base-url-unset">
+          {t('baseUrlUnset')}
+        </p>
+      )}
+      <p>
+        <a className="text-link" href="/developers/sandbox/test-values">
+          {t('testValuesLink')}
+        </a>
+      </p>
+    </>
   );
 }
 
@@ -237,9 +247,12 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
   // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
   const [answered, setAnswered] = useState<SandboxBalance | null>(null);
   const latest = answered?.sandboxId === sandboxId ? answered : null;
+  // While a refusal's re-read is under way, the figures last shown stay on screen.
+  const [shown, setShown] = useState<SandboxBalance | null>(null);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
-  const read = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const fresh = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const read = fresh ?? (shown?.sandboxId === sandboxId ? shown : null);
 
   async function press(action: 'fund' | 'reset') {
     if (busy || !userId || !read) return;
@@ -249,6 +262,7 @@ function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
     setBusy(false);
     if (!result.ok) {
       setSaid({ kind: 'refused', failure: result });
+      setShown(read);
       setAnswered(null);
       reload();
       return;
@@ -497,10 +511,56 @@ function Unknown() {
   );
 }
 
+const TEST_VALUE_NAME = { decline: 'valueDecline', acquirer_outage: 'valueOutage', funds_held: 'valueFundsHeld' } as const;
+const TEST_VALUE_RESULT = { decline: 'resultDecline', acquirer_outage: 'resultOutage', funds_held: 'resultFundsHeld' } as const;
+
+/**
+ * /developers/sandbox/test-values: the card tokens that steer a sandbox payment (J-developer-02 #8), from the contract
+ * the sandbox card rail answers. Public reference, so it reads the same signed in or out.
+ */
+function TestValues() {
+  const { t } = sandboxCopy.useCopy();
+  return (
+    <Page eyebrow={t('eyebrow')} title={t('testValuesTitle')}>
+      <div className="apps-room">
+        <a className="text-link" href="/developers/sandbox">
+          ← {t('back')}
+        </a>
+        <p>{t('testValuesLead')}</p>
+        <DataTable label={t('testValuesHeading')} headers={[t('colOutcome'), t('colToken'), t('colResult')]}>
+          {SANDBOX_CARD_TEST_VALUES.map((value) => (
+            <tr key={value.id} data-test-value={value.id}>
+              <th scope="row">{t(TEST_VALUE_NAME[value.id])}</th>
+              <td>
+                <code lang="und">{value.token}</code>
+              </td>
+              <td>
+                {t(TEST_VALUE_RESULT[value.id])}
+                {value.failureCode ? (
+                  <>
+                    {' '}
+                    <code lang="und">{value.failureCode}</code>
+                  </>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+          <tr data-test-value="approve">
+            <th scope="row">{t('valueApprove')}</th>
+            <td>{t('anyOtherToken')}</td>
+            <td>{t('resultApprove')}</td>
+          </tr>
+        </DataTable>
+      </div>
+    </Page>
+  );
+}
+
 /** Every room under /developers/sandbox (DV-sandbox-01). Signed in: a sandbox belongs to an account. */
 export function SandboxRoutes({ path }: { path: string }) {
   const route = sandboxRoute(path);
   if (route.kind === 'list') return <SandboxList />;
+  if (route.kind === 'test-values') return <TestValues />;
   if (route.kind === 'sandbox') return <SandboxPage id={route.id} />;
   if (route.kind === 'new-key') return <NewSandboxKey id={route.id} />;
   return <Unknown />;
