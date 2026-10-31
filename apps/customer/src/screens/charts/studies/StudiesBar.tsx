@@ -379,36 +379,49 @@ export function StudiesBar({
     setEditing(null);
   };
 
-  const nameOf = (s: (typeof store.studies)[number]) => [word(studyDef(s.kind).name), studyValues(s)].filter((v) => v !== '').join(' ');
-  const toggleHere = (s: (typeof store.studies)[number]) =>
-    setStore((now) =>
-      updateStudy(now, s.id, { hiddenOn: shownOn(s, interval) ? [...s.hiddenOn, interval] : s.hiddenOn.filter((v) => v !== interval) }),
-    );
+  const nameOf = (s: StudyInstance) => [word(studyDef(s.kind).name), studyValues(s)].filter((v) => v !== '').join(' ');
+  // Flips this interval in the study as it is now in the store, so a quick second click or a dialog change is not lost.
+  const toggleHere = (id: string) =>
+    setStore((now) => {
+      const s = now.studies.find((x) => x.id === id);
+      if (!s) return now;
+      return updateStudy(now, id, {
+        hiddenOn: shownOn(s, interval) ? [...s.hiddenOn, interval] : s.hiddenOn.filter((v) => v !== interval),
+      });
+    });
 
   return (
     <section className="st" aria-label={t('Studies on this chart')} data-testid="studies">
       {treeSlot &&
         createPortal(
+          // Inside the object tree, so it takes the tree's row styles (drawings.css).
           <div className="st-tree" data-testid="tree-indicators">
-            <h3 className="dw-tree-title">{t('Indicators on this chart')}</h3>
+            <h3 className="dw-tree-title" id={`st-tree-${workbench}`}>
+              {t('Indicators on this chart')}
+            </h3>
             {store.studies.length === 0 ? <p className="dw-note">{t('No indicators on this chart')}</p> : null}
-            <ul className="dw-rows" aria-label={t('Indicators on this chart')}>
+            <ul className="dw-rows" aria-labelledby={`st-tree-${workbench}`}>
               {store.studies.map((s) => {
                 const here = shownOn(s, interval);
                 return (
-                  <li key={s.id} className="dw-row" data-study-id={s.id} data-kind={s.kind} data-visible={here}>
+                  <li key={s.id} className="dw-row" data-study-id={s.id} data-study-kind={s.kind} data-shown-here={here}>
                     <span className="dw-row-name">
                       {nameOf(s)}
-                      {!here ? <span className="dw-badge"> {word('Hidden on this interval')}</span> : null}
+                      {!here ? (
+                        <>
+                          {' '}
+                          <span className="dw-badge">{word('Hidden on this interval')}</span>
+                        </>
+                      ) : null}
                     </span>
                     <div className="dw-row-actions">
-                      <button type="button" className="dw-link" aria-pressed={!here} onClick={() => toggleHere(s)}>
+                      <button type="button" className="dw-link" onClick={() => toggleHere(s.id)}>
                         {here
                           ? t('Hide on {interval}', { interval: intervalLabel(interval) })
                           : t('Show on {interval}', { interval: intervalLabel(interval) })}
                       </button>
                       <button type="button" className="dw-link" onClick={() => setEditing(s.id)}>
-                        {t('Settings for {name}', { name: nameOf(s) })}
+                        {t('Edit {name}', { name: nameOf(s) })}
                       </button>
                       <button type="button" className="dw-link" onClick={() => remove(s.id)}>
                         {t('Remove {name}', { name: nameOf(s) })}
@@ -432,9 +445,7 @@ export function StudiesBar({
               type="button"
               className="st-chip"
               data-hidden-here={shownOn(s, interval) ? undefined : true}
-              aria-label={t('Settings for {name}', {
-                name: [word(studyDef(s.kind).name), studyValues(s)].filter((v) => v !== '').join(' '),
-              })}
+              aria-label={t('Settings for {name}', { name: nameOf(s) })}
               onClick={() => setEditing(s.id)}
             >
               {chipText(s, word)}

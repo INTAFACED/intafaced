@@ -235,11 +235,11 @@ test(`${J} #6 lists every drawing in the object tree, and hides a group together
     JSON.parse((await page.getByTestId('cw').getByTestId('wc-host').getAttribute('data-study-series')) ?? '[]').map((x) => x.key);
   await expect.poll(drawnKeys).toContain('volume-1');
   await volume.getByRole('button', { name: /^Hide on / }).click();
-  await expect(volume).toHaveAttribute('data-visible', 'false');
+  await expect(volume).toHaveAttribute('data-shown-here', 'false');
   await expect(page.locator('[data-study="volume-1"]')).toContainText('Hidden on this interval');
   await expect.poll(drawnKeys).not.toContain('volume-1');
   await volume.getByRole('button', { name: /^Show on / }).click();
-  await expect(volume).toHaveAttribute('data-visible', 'true');
+  await expect(volume).toHaveAttribute('data-shown-here', 'true');
   await expect.poll(drawnKeys).toContain('volume-1');
 });
 
