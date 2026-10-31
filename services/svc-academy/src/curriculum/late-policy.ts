@@ -8,29 +8,18 @@
  * out from it on each read. With no policy, or no due date, nothing is deducted. No money moves.
  */
 import type { AcademyLatePolicy } from '@intafaced/contracts';
+import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
 import type { Sql, TransactionSql } from 'postgres';
 
 const HOUR_MS = 3_600_000n;
 const DAY_MS = 86_400_000n;
-
-/** A decimal string with at most `places` decimals as an integer count of 10^-places. */
-function scaled(value: string, places: number): bigint {
-  const [whole, frac = ''] = value.split('.');
-  return BigInt(whole! + frac.padEnd(places, '0').slice(0, places));
-}
-
-/** Hundredths as a canonical decimal string ("7", "6.5", "0.25"). */
-function hundredthsText(n: bigint): string {
-  const whole = n / 100n;
-  const frac = (n % 100n).toString().padStart(2, '0').replace(/0+$/, '');
-  return frac ? `${whole}.${frac}` : `${whole}`;
-}
+/** One hundredth, in scaled units: grades are kept to hundredths. */
+const CENT = SCALE / 100n;
 
 /** Stored numeric values read back as the decimal strings the contract carries ("24.00" is "24", "0.1000" is "0.1"). */
 export function policyOf(row: { grace_hours: string | null; deduction_per_day: string | null } | undefined): AcademyLatePolicy | null {
   if (!row || row.grace_hours === null || row.deduction_per_day === null) return null;
-  const trim = (v: string) => (v.includes('.') ? v.replace(/0+$/, '').replace(/\.$/, '') : v);
-  return { graceHours: trim(row.grace_hours), deductionPerDay: trim(row.deduction_per_day) };
+  return { graceHours: formatAmount(parseAmount(row.grace_hours)), deductionPerDay: formatAmount(parseAmount(row.deduction_per_day)) };
 }
 
 /** The course's late policy now, or null with none (never set, or cleared). */
@@ -53,14 +42,15 @@ export function lateScore(
   policy: AcademyLatePolicy | null,
 ): { score: string; entered: string | null } {
   if (policy === null || dueAt === null) return { score: entered, entered: null };
-  const lateMs = BigInt(submittedAt.getTime() - dueAt.getTime()) - (scaled(policy.graceHours, 2) * HOUR_MS) / 100n;
+  const graceMs = (parseAmount(policy.graceHours) * HOUR_MS) / SCALE;
+  const lateMs = BigInt(submittedAt.getTime() - dueAt.getTime()) - graceMs;
   if (lateMs <= 0n) return { score: entered, entered: null };
   const days = (lateMs + DAY_MS - 1n) / DAY_MS;
-  // Shares in ten-thousandths: at most the whole of the points.
-  const asked = days * scaled(policy.deductionPerDay, 4);
-  const share = asked > 10_000n ? 10_000n : asked;
-  const off = (scaled(points, 2) * share + 9_999n) / 10_000n;
-  const kept = scaled(entered, 2) - off;
-  const score = hundredthsText(kept > 0n ? kept : 0n);
-  return score === hundredthsText(scaled(entered, 2)) ? { score: entered, entered: null } : { score, entered };
+  // At most the whole of the points; the deduction is rounded up to the hundredth, so the score is cut, never raised.
+  const asked = days * parseAmount(policy.deductionPerDay);
+  const share = asked > SCALE ? SCALE : asked;
+  const off = (((parseAmount(points) * share) / SCALE + CENT - 1n) / CENT) * CENT;
+  const kept = parseAmount(entered) - off;
+  const score = formatAmount(kept > 0n ? kept : 0n);
+  return score === formatAmount(parseAmount(entered)) ? { score: entered, entered: null } : { score, entered };
 }
