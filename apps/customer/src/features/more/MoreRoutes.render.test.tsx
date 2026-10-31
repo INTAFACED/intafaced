@@ -75,6 +75,17 @@ describe('More room sections and records (MC-order-01)', () => {
     }
   });
 
+  it("opens an agent's page for any id under /agents/, so one that isn't the person's gets the service's refusal there", () => {
+    for (const path of ['/agents/TEST-not-a-record', '/agents/11111111-1111-4111-8111-111111111111']) {
+      const html = page(path);
+      expect(html, path).not.toContain('This destination has no customer route');
+      expect(html, path).toContain('Your agent');
+    }
+    expect(page('/agents/team')).not.toContain('Your agent');
+    expect(page('/agents/new')).not.toContain('Your agent');
+    expect(page('/agents/a/b')).toContain('This destination has no customer route');
+  });
+
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {
     expect(page('/market/a/b/c')).toContain('href="/more"');
   });
