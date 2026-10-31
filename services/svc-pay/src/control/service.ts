@@ -79,6 +79,11 @@ export class ControlService {
   readonly approvals: ApprovalService;
   readonly changes: ChangeService;
 
+  /** The pay database, for guards that read the caller's team membership (namespaces/merchant-control.ts). */
+  get db(): Sql {
+    return this.sql;
+  }
+
   constructor(
     private readonly sql: Sql,
     readonly access: ControlAccessPorts,

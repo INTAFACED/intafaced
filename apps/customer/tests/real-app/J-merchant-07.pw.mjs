@@ -22,11 +22,12 @@ import { tableIn } from './tables.mjs';
 // and a finance teammate who can request but not send.
 // #2 settles #1's own payment through the service and keeps the posted settlement for the payout steps.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #8 asks the stack for one more TEST settlement (`local-test-world.mjs merchant-settlement <merchantId>`, proposed):
-//   svc-pay posts one settlement per business, asset and UTC day, and #7 pays out #2's (M-money-out-05).
+// - #8 needs a second posted settlement: svc-pay posts one per business, asset and UTC day, and #7 pays out #2's. By D's
+//   ruling (31 Oct) it comes from a second asset the same day, through the service; until then it stops at the
+//   proposed `local-test-world.mjs merchant-settlement` call (M-money-out-05).
+// - #4: no payout schedule or rules (M-money-out-03, M-adv-money-out-01).
 // #7 sends #2's settlement: its net is above the TEST approval limit, so the owner asks, the finance teammate the
 //   journey starts with approves (an owner never approves their own request), and the owner sends with a fresh code.
-// - #4: no payout schedule or rules (M-money-out-03, M-adv-money-out-01).
 // #6 pays out #2's posted settlement: the owner saves a TEST wallet destination when the business has none, and the
 //   limit clause moves the business to a capped TEST tier of its own (daily payout cap 1 USDT), then back to priced.
 // #5 needs only #1's business: no top-up rail exists, so it proves the refusal, Request off and the balance unchanged;
@@ -805,7 +806,8 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
   let owner;
   let code;
   let review = page.getByRole('dialog', { name: 'Review: Pay out' });
-  if ((await requests()).length === 0) {
+  // An expired, rejected or voided request from an earlier attempt is finished: the owner asks again.
+  if (!(await requests()).some((status) => status === 'pending' || status === 'approved')) {
     owner = await signInOwner(page, '/pay/payouts');
     await page.goto(`/pay/payouts/new?settlement=${settlement}`);
     await expect(page.getByLabel('Settlement')).toHaveValue(settlement);
@@ -816,7 +818,7 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
     await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
     await review.getByRole('button', { name: 'Pay out', exact: true }).click();
     await expect(page.getByText('Your request is with your team for approval.').first()).toBeVisible();
-    expect(await requests()).toEqual(['pending']);
+    expect(await requests()).toContain('pending');
     await forgetSession(page);
   }
 
@@ -841,7 +843,7 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
     await expect(page.getByRole('main').getByRole('button', { name: 'Pay out', exact: true })).toHaveCount(0);
     await forgetSession(page);
   }
-  expect(await requests()).toEqual(['approved']);
+  expect(await requests()).toContain('approved');
 
   // The owner, in a new sign-in, confirms with a fresh code and sends. Approved, the page says so and its control is
   // "Send this payout". The review says how long the confirmation lasts; closed and opened again inside that life, it
@@ -885,10 +887,23 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
   const again = await nextCode(owner.totp, owner.secret, code.step);
   run.write({ owner: saved({ ...owner, step: again.step }) });
   const payer = await api.steppedUp(merchantId, ['pay:payout'], again.code);
-  // Refused, or answered as the same paid-out record: either way it is not a second payout, which the reads below prove.
-  await payer.mutate('settlement.payout', { settlementId: settlement, railId: 'crypto-native' }).catch(() => null);
+  // Refused by the service (a 4xx that is not about the caller's authority), or answered as the same paid-out record:
+  // either way it reached the payout door and is not a second payout, which the reads below prove.
+  const repeat = await payer.mutate('settlement.payout', { settlementId: settlement, railId: 'crypto-native' }).then(
+    (out) => ({ answered: out.status }),
+    (err) => ({ refused: Number(/refused: (\d{3})/.exec(String(err.message))?.[1]) }),
+  );
+  if ('answered' in repeat) expect(repeat.answered).toBe('paid_out');
+  else expect([400, 404, 409, 412], `the repeat was refused by the payout door: ${repeat.refused}`).toContain(repeat.refused);
   expect(await api.query('settlement.get', { settlementId: settlement })).toEqual(paid);
-  expect(await usdt()).toEqual(after);
+  expect(scaled((await usdt()).available)).toBe(scaled(after.available));
+
+  // The receipt: the payout's own page, from the confirmation, with the amount, the status and its reference.
+  await page.getByRole('link', { name: 'Open this payout' }).click();
+  await expect(page).toHaveURL(new RegExp(`/pay/payouts/${settlement}$`));
+  await expect(page.getByRole('main')).toContainText(shown(posted.net));
+  await expect(page.getByRole('main')).toContainText(paid.payoutRef);
+  expect(refused).toEqual([]);
   // svc-pay's approval gate used the approval for this payout (control/approval-gate.ts). It runs only with merchant
   // controls on, so this stays red by name while the TEST stack runs them off (PAY_MERCHANT_CONTROLS unset under
   // APP_ENV dev; the stack change that turns them on is the shared harness's).
@@ -897,14 +912,7 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
       .filter((a) => a.settlementId === settlement)
       .map((a) => a.status),
     'the approval used by the payout admission (needs PAY_MERCHANT_CONTROLS=required on the stack)',
-  ).toEqual(['consumed']);
-
-  // The receipt: the payout's own page, from the confirmation, with the amount, the status and its reference.
-  await page.getByRole('link', { name: 'Open this payout' }).click();
-  await expect(page).toHaveURL(new RegExp(`/pay/payouts/${settlement}$`));
-  await expect(page.getByRole('main')).toContainText(shown(posted.net));
-  await expect(page.getByRole('main')).toContainText(paid.payoutRef);
-  expect(refused).toEqual([]);
+  ).toContain('consumed');
 });
 
 test(`${J} #8 a finance teammate asks for the same: they request an approval and cannot send or refund; the owner approves`, async ({
@@ -912,24 +920,10 @@ test(`${J} #8 a finance teammate asks for the same: they request an approval and
 }) => {
   test.setTimeout(300_000);
   expect(postedSettlement(), 'a TEST settlement for the teammate to ask about').toBeTruthy();
-  const finance = await businessReadyPerson(page, 'mfn', '/pay/merchant');
-  await forgetSession(page);
-  await signInOwner(page, '/pay/team');
-  await page.getByRole('button', { name: 'Invite by account ID instead' }).click();
-  await page.getByLabel('Account ID *').fill(finance.userId);
-  await page.getByRole('combobox', { name: /^Role \*/ }).selectOption({ label: 'Finance' });
-  await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
-  await forgetSession(page);
-
+  // The finance teammate the journey starts with (#7 made them).
+  const finance = await financeTeammate(page);
   await signInWithCode(page, finance, '/pay/team');
-  const accept = page.locator('li').filter({ hasText: 'Finance' }).getByRole('button', { name: 'Accept' }).first();
-  await expect(async () => {
-    await page.reload();
-    await expect(accept).toBeVisible({ timeout: 3000 });
-  }).toPass({ timeout: 30_000 });
-  await accept.click();
-  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
+  run.write({ finance: { ...saved(finance), userId: finance.userId } });
   await page.goto('/pay/payouts/new');
   await page.getByLabel('Destination').selectOption({ index: 1 });
   await page.getByRole('button', { name: 'Pay out' }).click();
