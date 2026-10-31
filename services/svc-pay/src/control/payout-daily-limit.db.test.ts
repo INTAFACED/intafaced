@@ -88,7 +88,8 @@ describe('payout approval stays inside the remaining daily limit', () => {
       merchantId,
       change: { kind: 'set_tier', tierId: LIMIT_TIER.id, archetypeId: null },
     });
-    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${merchantId}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref})`;
+    // A verified, active destination: an unverified one is refused before any request (J-merchant-02 #5).
+    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at) VALUES (${merchantId}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref}, true, now())`;
     const ports = access();
     approvals = new ApprovalService(sql, { access: ports, now: () => CLOCK });
     control = new ControlService(sql, ports, { now: () => CLOCK });

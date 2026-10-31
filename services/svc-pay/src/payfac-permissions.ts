@@ -84,6 +84,7 @@ export const PAYFAC_SURFACE_AREAS = {
   'trpc.merchant.getLink': 'payment.link',
   'trpc.merchant.deactivateLink': 'payment.link',
   'trpc.merchant.balances': 'merchant.profile',
+  'trpc.merchant.payoutDestinations.add': 'settlement.payout',
   'trpc.merchant.payoutDestinations.list': 'settlement.payout',
   'trpc.merchant.payoutDestinations.setDefault': 'settlement.payout',
   'trpc.merchant.payoutDestinations.remove': 'settlement.payout',

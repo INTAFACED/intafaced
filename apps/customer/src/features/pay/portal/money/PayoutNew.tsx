@@ -300,7 +300,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                             (d) =>
                               [
                                 d.id,
-                                `${describeDestination(t, d.kind, d.destinationMasked, d.railId)}${isDefaultDestination(d) ? ` · ${t('dstDefaultYes')}` : ''}`,
+                                `${describeDestination(t, d.kind, d.destinationMasked, d.railId)}${isDefaultDestination(d) ? ` · ${t('dstDefaultYes')}` : ''}${d.state === 'unverified' ? ` · ${t('pnDestUnverified')}` : d.state === 'held' ? ` · ${t('pnDestHeld')}` : ''}`,
                               ] as const,
                           ),
                         ]}
