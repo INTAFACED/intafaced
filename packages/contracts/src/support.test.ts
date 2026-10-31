@@ -313,8 +313,9 @@ describe('help centre theme and change log (SP-help-centre-03)', () => {
     expect(supportHelpCentreSchema.safeParse(blank).success).toBe(true);
     expect(supportHelpCentreSchema.safeParse({ ...blank, theme: 'dark' }).success).toBe(true);
     expect(supportHelpCentreSchema.safeParse({ ...blank, theme: 'neon' }).success).toBe(false);
+    // A reply from a service that predates the field reads as a blank theme, never as an error.
     const { theme: _theme, ...withoutTheme } = blank;
-    expect(supportHelpCentreSchema.safeParse(withoutTheme).success).toBe(false);
+    expect(supportHelpCentreSchema.parse(withoutTheme).theme).toBeNull();
   });
 
   it('a theme alone is a change, and null clears it', () => {

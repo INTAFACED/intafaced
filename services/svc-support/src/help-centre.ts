@@ -355,10 +355,8 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
 
   async listChanges(limit: number | undefined): Promise<SupportHelpCentreChange[]> {
     assertLimit(limit);
-    return [...this.log]
-      .sort((a, b) => b.after.revision - a.after.revision)
-      .slice(0, limit)
-      .map(changeRow);
+    // The log is appended in revision order: the newest page is its tail, reversed.
+    return this.log.slice(-limit!).reverse().map(changeRow);
   }
 
   private requireOffered(language: string): void {

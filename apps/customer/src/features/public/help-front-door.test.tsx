@@ -242,6 +242,7 @@ describe('an answer in the languages the owner offers', () => {
     defaultLanguage: null,
     languages,
     setupMode: null,
+    theme: null,
     published: null,
     revision: 1,
     updatedAt: null,

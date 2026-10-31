@@ -240,7 +240,6 @@ export const supportKbAudienceChangeListSchema = z.array(supportKbAudienceChange
  */
 export const SUPPORT_KB_SEGMENT_CAP_UNSET = 'support.kb_segment_cap_unset';
 export const SUPPORT_KB_SEGMENT_MEMBERSHIP_UNWIRED = 'support.kb_segment_membership_unwired';
-export const SUPPORT_KB_SEGMENT_CAP_KEY = 'SUPPORT_KB_SEGMENT_CAP';
 
 /** Router `setKbSegment` input (`support:ops`): the article and the segment name the desk wants to restrict it to. */
 export const setKbSegmentInputSchema = z

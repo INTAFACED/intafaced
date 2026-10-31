@@ -115,7 +115,8 @@ export const supportHelpCentreSchema = z
     defaultLanguage: z.string().min(1).nullable(),
     languages: z.array(z.string().min(1)).nullable(),
     setupMode: z.enum(SUPPORT_HELP_CENTRE_SETUP_MODES).nullable(),
-    theme: z.enum(SUPPORT_HELP_CENTRE_THEMES).nullable(),
+    /** Blank until the owner sets it. A reply from a service that predates the field reads as blank, never as an error. */
+    theme: z.enum(SUPPORT_HELP_CENTRE_THEMES).nullable().default(null),
     published: z.boolean().nullable(),
     revision: z.number().int().min(0),
     updatedAt: z.string().datetime().nullable(),
