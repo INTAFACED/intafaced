@@ -210,17 +210,9 @@ export function AppsRoom() {
     (signal) => (userId ? readApps(api, signal) : Promise.resolve({ ok: true as const, data: { apps: [] as OAuthApp[] } })),
     `oauth-apps:${userId ?? 'out'}`,
   );
-  const lifetimes = useResource(
-    (signal) =>
-      userId
-        ? readLifetimes(api, signal)
-        : Promise.resolve({
-            ok: true as const,
-            data: { codeTtlSeconds: null as number | null, accessTokenTtlSeconds: null as number | null },
-          }),
-    `oauth-lifetimes:${userId ?? 'out'}`,
-  );
-  // Blank lifetimes are the room's blocker: apps can be registered, but none can sign a person in until both are set.
+  // The owner's lifetimes are one platform setting, read once for the room. A blank one is the room's blocker: apps can
+  // be registered, but none can sign a person in until both are set.
+  const lifetimes = useResource((signal) => readLifetimes(api, signal), 'oauth-lifetimes');
   const unset =
     lifetimes.resource.status === 'ready' &&
     (lifetimes.resource.data.codeTtlSeconds === null || lifetimes.resource.data.accessTokenTtlSeconds === null);
@@ -254,6 +246,11 @@ export function AppsRoom() {
           <p role="status" className="apps-unset" data-code="oauth.lifetime_unset">
             {t('oauth.lifetime_unset')}
           </p>
+        ) : lifetimes.resource.status === 'failed' ? (
+          <div role="alert" className="apps-unset">
+            <p>{t('lifetimesUnread')}</p>
+            <Failure result={lifetimes.resource.failure} retry={lifetimes.reload} />
+          </div>
         ) : null}
         {shown ? <SecretPanel shown={shown} onDone={() => setShown(null)} t={t} /> : null}
         <section aria-labelledby="apps-list">

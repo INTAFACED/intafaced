@@ -192,7 +192,6 @@ export const oauthAuthorizePreviewSchema = z
 
 export const oauthDecideInputSchema = oauthAuthorizeRequestSchema.extend({ decision: z.enum(['allow', 'deny']) }).strict();
 
-/** Where to send the person. For `allow` it carries `code` and `state`; for `deny` it carries `error=access_denied` and `state`. */
 /**
  * The owner's published lifetimes, in seconds; `null` while one is unpublished (every authorise decision and code
  * exchange then refuses `oauth.lifetime_unset`). Read by the developer's apps room so it names the blocker up front.
@@ -202,6 +201,7 @@ export const oauthLifetimesSchema = z
   .strict();
 export type OAuthLifetimes = z.infer<typeof oauthLifetimesSchema>;
 
+/** Where to send the person. For `allow` it carries `code` and `state`; for `deny` it carries `error=access_denied` and `state`. */
 export const oauthDecideOutputSchema = z.object({ redirectTo: z.string() }).strict();
 
 export const oauthTokenInputSchema = z

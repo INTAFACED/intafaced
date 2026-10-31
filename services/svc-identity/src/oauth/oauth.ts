@@ -25,6 +25,7 @@ import {
   type OAuthAppStatus,
   type OAuthAuthorizeRequest,
   type OAuthErrorCode,
+  type OAuthLifetimes,
   type OAuthRegisterAppInput,
 } from '@intafaced/contracts/oauth';
 
@@ -282,7 +283,7 @@ export class OAuthService {
   }
 
   /** The owner's lifetimes as published; `null` for one that is not. */
-  lifetimes(): { codeTtlSeconds: number | null; accessTokenTtlSeconds: number | null } {
+  lifetimes(): OAuthLifetimes {
     return { codeTtlSeconds: this.settings.codeTtlSeconds ?? null, accessTokenTtlSeconds: this.settings.accessTokenTtlSeconds ?? null };
   }
 

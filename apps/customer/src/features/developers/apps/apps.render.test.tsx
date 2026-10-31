@@ -214,4 +214,12 @@ describe('the owner lifetimes blocker (oauth.lifetime_unset)', () => {
     await show();
     expect(unset()).toBeNull();
   });
+
+  it('says the read failed, with a retry, rather than hiding the blocker when the lifetimes cannot be read', async () => {
+    world.lifetimes = async () => ({ ok: false, reason: 'unreachable', message: 'down', status: 503 });
+    await show();
+    await wait();
+    expect(unset()).toBeNull();
+    expect(document.body.textContent).toContain('Whether apps can sign people in could not be read.');
+  });
 });
