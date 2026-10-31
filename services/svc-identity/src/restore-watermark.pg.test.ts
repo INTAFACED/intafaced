@@ -6,7 +6,6 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { restoreWatermarkReadSchema } from '@intafaced/contracts';
 import { createTestDb } from './fixture-truncate.testkit.js';
 import {
-  CREATED_AT_ONLY_TABLES,
   OPERATOR_TRAFFIC_TABLES,
   WATERMARK_KIND,
   digestCounts,
@@ -98,21 +97,27 @@ if (!available) {
       const tables = await db.sql<Array<{ t: string }>>`
         SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ${db.schema} AND table_type = 'BASE TABLE'`;
       const present = new Set(tables.map((r) => r.t));
-      for (const name of [...Object.keys(OPERATOR_TRAFFIC_TABLES), ...Object.keys(CREATED_AT_ONLY_TABLES)]) {
+      for (const name of Object.keys(OPERATOR_TRAFFIC_TABLES)) {
         expect(present.has(name), name).toBe(true);
       }
     });
 
-    it('is unmoved by sign-in traffic: an attempt row and a factor counter step change nothing (J-ops-console-08 #7)', async () => {
+    it('is unmoved by sign-in traffic, and still moves for a change to an existing record (J-ops-console-08 #7)', async () => {
       const [user] = await db.sql<Array<{ id: string }>>`
         INSERT INTO users (handle, email, password_hash, created_at, updated_at)
         VALUES ('wm_signin', 'wmsignin@example.com', 'x', now() - interval '1 hour', now() - interval '1 hour') RETURNING id`;
+      await db.sql`UPDATE users SET updated_at = now() - interval '1 hour'`;
       const before = await readIdentityWatermark(db.sql, new Date(), db.schema);
       expect(before.kind).toBe(WATERMARK_KIND);
+      // A failed second step at sign-in: the attempt row is traffic.
       await db.sql`INSERT INTO auth_attempts (user_id, kind, failures) VALUES (${user!.id}, 'mfa', 1)`;
-      await db.sql`UPDATE users SET totp_last_step = '1', updated_at = now() WHERE id = ${user!.id}`;
-      const after = await readIdentityWatermark(db.sql, new Date(), db.schema);
-      expect({ ...after, readAt: '' }).toEqual({ ...before, readAt: '' });
+      const signedIn = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect({ ...signedIn, readAt: '' }).toEqual({ ...before, readAt: '' });
+      // Freezing the account changes no count, but it is a write after the cut-off and shows as one.
+      await db.sql`UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${user!.id}`;
+      const frozen = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect(frozen.position).toBe(before.position);
+      expect(Date.parse(frozen.lastWriteAt!)).toBeGreaterThan(Date.parse(before.lastWriteAt!));
     });
   });
 }

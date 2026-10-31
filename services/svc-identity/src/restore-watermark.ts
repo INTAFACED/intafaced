@@ -39,14 +39,6 @@ export const OPERATOR_TRAFFIC_TABLES: Readonly<Record<string, string>> = {
   mail_outbox: 'mail waiting to be sent, such as sign-in codes and new-device notices',
 };
 
-/**
- * For these business tables `lastWriteAt` reads `created_at` only: signing in advances the second-factor counters
- * (authenticator step, passkey sign count) and touches `updated_at`, which says nothing about restored data. Their
- * rows still count in the position.
- */
-export const CREATED_AT_ONLY_TABLES: Readonly<Record<string, string>> = {
-  users: 'a sign-in with the authenticator or a passkey moves totp_last_step or the sign count and updated_at',
-};
 
 export function digestCounts(counts: ReadonlyArray<{ table: string; rows: bigint }>): string {
   const lines = [...counts].sort((a, b) => (a.table < b.table ? -1 : 1)).map((c) => `${c.table}=${c.rows}`);
@@ -59,7 +51,6 @@ export async function readIdentityWatermark(
   schema: string = IDENTITY_SCHEMA,
 ): Promise<RestoreWatermarkRead> {
   const skipped = Object.keys(OPERATOR_TRAFFIC_TABLES);
-  const createdOnly = Object.keys(CREATED_AT_ONLY_TABLES);
   const counts = await sql<Array<{ t: string; n: string }>>`
     SELECT c.relname AS t,
            (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', n.nspname, c.relname), false, true, '')))[1]::text AS n
@@ -71,8 +62,7 @@ export async function readIdentityWatermark(
       FROM information_schema.columns k
       JOIN information_schema.tables t ON t.table_schema = k.table_schema AND t.table_name = k.table_name AND t.table_type = 'BASE TABLE'
      WHERE k.table_schema = ${schema} AND k.column_name IN ('created_at', 'updated_at')
-       AND NOT (k.table_name = ANY(${skipped}))
-       AND NOT (k.column_name = 'updated_at' AND k.table_name = ANY(${createdOnly}))`;
+       AND NOT (k.table_name = ANY(${skipped}))`;
   const rows = counts.map((r) => ({ table: r.t, rows: BigInt(r.n) }));
   const times = stamped.flatMap((r) => (r.m ? [Number(r.m) * 1000] : [])).filter((n) => Number.isFinite(n));
   return {
