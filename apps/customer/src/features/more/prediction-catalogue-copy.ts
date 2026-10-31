@@ -2,6 +2,9 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   scope: 'Listed questions, result sources and outcome instruments',
   questions: 'Listed questions',
+  publishAction: 'Publishing a prediction market',
+  publishWhy:
+    'Who determines a result, from which sources, how long it can be challenged and how a dispute is settled is an owner decision that has not been made. No question is listed without it.',
   empty: 'No questions are listed',
   emptyBody: 'No questions are listed. This is not an account position or settlement record.',
   failedBody: 'A failed catalogue read does not establish that no questions are listed.',
@@ -31,6 +34,9 @@ const en = {
 const es = {
   scope: 'Preguntas publicadas, fuentes de resultados e instrumentos de resultados',
   questions: 'Preguntas publicadas',
+  publishAction: 'Publicar un mercado de predicción',
+  publishWhy:
+    'Quién determina un resultado, con qué fuentes, durante cuánto tiempo puede impugnarse y cómo se resuelve una disputa es una decisión del propietario que no se ha tomado. Sin ella no se publica ninguna pregunta.',
   empty: 'No hay preguntas publicadas',
   emptyBody: 'No hay preguntas listadas. Esto no es una posición de la cuenta ni un registro de liquidación.',
   failedBody: 'Un fallo al leer el catálogo no demuestra que no haya preguntas publicadas.',
@@ -62,6 +68,9 @@ const es = {
 const fr = {
   scope: 'Questions publiées, sources des résultats et instruments de résultat',
   questions: 'Questions publiées',
+  publishAction: 'Publier un marché de prédiction',
+  publishWhy:
+    'Qui détermine un résultat, à partir de quelles sources, pendant combien de temps il peut être contesté et comment un litige est réglé est une décision du propriétaire qui n’a pas été prise. Sans elle, aucune question n’est publiée.',
   empty: 'Aucune question n’est publiée',
   emptyBody: 'Aucune question n’est listée. Ce n’est ni une position du compte ni un enregistrement de règlement.',
   failedBody: 'Une lecture échouée du catalogue ne prouve pas qu’aucune question n’est publiée.',

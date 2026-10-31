@@ -111,6 +111,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/greeks/what-if`                   | `previewGreeksWhatIf`                                          | trade:write                                           |
 | `POST /api/v1/greeks/delta-hedge`               | `previewDeltaHedge`                                            | trade:write                                           |
 | `POST /api/v1/outcomes/orders`                  | `createOutcomeOrder`                                           | trade:write                                           |
+| `POST /api/v1/outcomes/markets/publish`         | `publishOutcomeMarket`                                         | service to service only; no key or session reaches it |
 | `POST /api/v1/outcomes/settle`                  | `settleOutcomeMarket`                                          | service to service only; no key or session reaches it |
 
 | WebSocket stream        | Door                                                   | Permission                |

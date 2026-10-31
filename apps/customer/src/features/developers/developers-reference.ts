@@ -745,6 +745,16 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     signedOut: TRADE_UNAUTHENTICATED,
   },
   {
+    name: 'publishOutcomeMarket',
+    method: 'POST',
+    path: '/api/v1/outcomes/markets/publish',
+    product: 'derivatives',
+    access: 'internal',
+    summary:
+      'Service to service only: publish an outcome market. It refuses owner.decision until the owner decides who determines a result',
+    signedOut: SERVICE_CREDENTIALS_REQUIRED,
+  },
+  {
     name: 'settleOutcomeMarket',
     method: 'POST',
     path: '/api/v1/outcomes/settle',

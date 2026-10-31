@@ -9,6 +9,7 @@ import {
   type ServiceVerifier,
   type EdgeRequest,
 } from '@intafaced/contracts';
+import { outcomeMarketMoveInputSchema } from '@intafaced/contracts/outcome-markets';
 import { createOrderRequestSchema } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
 import { collateralForBinaryBuy, type OutcomeMarket, type OutcomeSide } from './outcomes/outcome-market.js';
@@ -16,6 +17,9 @@ import { presentCcxtOrder } from './private-rest.js';
 import type { OrderRecord, TimeInForce } from './spot/types.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { internalRoute, privateWrite, publicRead } from './route-inventory.js';
+
+/** Why no market can be published yet: the owner's determination decision (E-1) is open. */
+export const OUTCOME_PUBLISH_BLOCKER = 'owner.decision' as const;
 
 export interface OutcomeCatalogue {
   list(): readonly OutcomeMarket[];
@@ -151,6 +155,29 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
       collateralAmount,
     });
     return reply.send(presentCcxtOrder(order, parsed.data.symbol));
+  });
+
+  // Publishing a market waits for the owner's decision on who determines a result, from which sources, the challenge window
+  // and the dispute path (ENGINE E-1, PM-2). Until then the door is there and refuses, typed; it publishes nothing.
+  app.post('/api/v1/outcomes/markets/publish', internalRoute, async (req, reply) => {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: 'require',
+      }).service === null
+    ) {
+      return sendError(reply, 401, 'trade.unauthenticated', 'service credentials required');
+    }
+    const parsed = outcomeMarketMoveInputSchema.safeParse({ ...(req.body as Record<string, unknown> | null), move: 'published' });
+    if (!parsed.success) return sendError(reply, 400, 'trade.outcome_move_invalid', 'marketId and expectedOrdinal are required');
+    return sendError(
+      reply,
+      412,
+      OUTCOME_PUBLISH_BLOCKER,
+      'Publishing a prediction market waits for an owner decision on who determines a result. Nothing was published.',
+    );
   });
 
   app.post('/api/v1/outcomes/settle', internalRoute, async (req, reply) => {

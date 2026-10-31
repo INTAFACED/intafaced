@@ -1518,6 +1518,23 @@
         }
       }
     },
+    "/api/v1/outcomes/markets/publish": {
+      "post": {
+        "operationId": "publishOutcomeMarket",
+        "summary": "Service to service only: publish an outcome market. It refuses owner.decision until the owner decides who determines a result",
+        "tags": ["derivatives"],
+        "security": [],
+        "x-access": "internal",
+        "x-scopes": [],
+        "x-signed-out": { "status": 401, "field": "error", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No service signature (401 with error trade.unauthenticated); no key or session reaches this route" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/outcomes/settle": {
       "post": {
         "operationId": "settleOutcomeMarket",

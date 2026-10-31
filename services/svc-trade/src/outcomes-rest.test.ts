@@ -129,6 +129,38 @@ describe('outcome markets REST', () => {
     await app.close();
   });
 
+  it('the publish door refuses owner.decision until the determination decision is made, and lists nothing', async () => {
+    const app = Fastify();
+    registerOutcomesRest(app, {
+      edgeSecret: EDGE_SECRET,
+      serviceName: 'svc-trade',
+      internalSecret: INTERNAL_SECRET,
+      catalogue: memoryOutcomeCatalogue([]),
+    });
+    await app.ready();
+    const url = '/api/v1/outcomes/markets/publish';
+    const unsigned = await app.inject({ method: 'POST', url, payload: { marketId: 'test-market', expectedOrdinal: 1 } });
+    expect(unsigned.statusCode).toBe(401);
+    const signed = (payload: Record<string, unknown>) => {
+      const body = JSON.stringify(payload);
+      return app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-admin', INTERNAL_SECRET, body) },
+        payload: body,
+      });
+    };
+    const malformed = await signed({ marketId: 'Not An Id' });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toMatchObject({ error: 'trade.outcome_move_invalid' });
+    const refused = await signed({ marketId: 'test-market', expectedOrdinal: 1 });
+    expect(refused.statusCode).toBe(412);
+    expect(refused.json()).toMatchObject({ error: 'owner.decision' });
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/outcomes/markets' });
+    expect(listed.json()).toEqual([]);
+    await app.close();
+  });
+
   it('settlement is S2S and must match the listed source', async () => {
     const market = createOutcomeMarket({
       id: 'fixture-outcome',
