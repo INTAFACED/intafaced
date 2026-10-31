@@ -80,16 +80,19 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
     expect(sectionId('Learn and build')).toBe('more-learn-and-build');
   });
 
-  it('hides no registry row: each one with an address opens from More, from its parent room, or is a flow reached by redirect', () => {
+  it('hides no registry row: every address of every row opens from More, from its parent room, by redirect, or is a flow', () => {
     const linked = [...TILES.map((tile) => tile.href), ...allServices().flatMap((group) => group.rooms.map((room) => room.path))];
+    const reachable = (path: string): boolean => {
+      if (linked.includes(path) || linked.some((room) => path.startsWith(`${room}/`))) return true;
+      const room = rooms.find((candidate) => candidate.path === path);
+      // An old address redirects to a room that is reachable; a flow page (consent, claim) is opened by a redirect, not a link.
+      return room?.alias ? reachable(room.alias) : room?.hidden === true;
+    };
     for (const feature of features) {
-      expect(feature.status, feature.id).not.toBe('hidden');
-      const concrete = feature.paths.filter((path) => !/[:*]/.test(path));
-      if (concrete.length === 0 || concrete.some((path) => linked.includes(path))) continue;
-      for (const path of concrete) {
-        const parent = linked.some((room) => path.startsWith(`${room}/`));
-        const flow = findRoom(path)?.hidden === true;
-        expect(parent || flow, `${feature.id}: ${path} is not reachable from More`).toBe(true);
+      // A hidden row is the one status that leaves More; none is hidden today (owner order 2026-10-17: nothing is hidden).
+      expect(feature.status, `${feature.id} is hidden, so More leaves it out`).not.toBe('hidden');
+      for (const path of feature.paths.filter((candidate) => !/[:*]/.test(candidate))) {
+        expect(reachable(path), `${feature.id}: ${path} is not reachable from More`).toBe(true);
       }
     }
   });
