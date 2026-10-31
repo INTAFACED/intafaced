@@ -8,7 +8,9 @@ import {
   STAFF_VERBS,
   StaffPermissionError,
   assertGrantWithinHolder,
+  assertNotSelfChange,
   assertStaffRoleHolderEligible,
+  parseStaffEnv,
   builtinStaffRoleForAssignment,
   explainStaffPermissions,
   hasStaffPermission,
@@ -40,6 +42,7 @@ function refusal(fn: () => unknown): StaffPermissionError {
 describe('staff permission catalogue', () => {
   it('holds the closed lists the spec names', () => {
     expect(STAFF_AREAS).toEqual([
+      'staff',
       'accounts',
       'ledger',
       'payments',
@@ -53,7 +56,10 @@ describe('staff permission catalogue', () => {
     ]);
     expect(STAFF_VERBS).toEqual(['read', 'write', 'create', 'update', 'delete', 'approve', 'apply', 'skip']);
     expect(STAFF_ENVS).toEqual(['local', 'staging', 'production']);
+    expect(STAFF_AREAS).toHaveLength(11);
+    expect(STAFF_PERMISSIONS).toHaveLength(11 * 8 * 3);
     expect(STAFF_PERMISSIONS).toHaveLength(STAFF_AREAS.length * STAFF_VERBS.length * STAFF_ENVS.length);
+    expect(isStaffPermission('staff:staff:create:production')).toBe(true);
     expect(new Set(STAFF_PERMISSIONS).size).toBe(STAFF_PERMISSIONS.length);
     expect(STAFF_PERMISSIONS.every((p) => isStaffPermission(p))).toBe(true);
   });
@@ -223,6 +229,30 @@ describe('assertGrantWithinHolder', () => {
     expect(err.detail).toEqual(['staff:accounts:delete:production', 'staff:accounts:read:staging']);
   });
 
+  it('refuses X from a holder whose one role allows X and another denies it', () => {
+    const split = resolveStaffPermissions([
+      role('R1', ['staff:staff:update:production']),
+      role('R2', [], ['staff:staff:update:production']),
+    ]);
+    const err = refusal(() => assertGrantWithinHolder(split, role('g', ['staff:staff:update:production'])));
+    expect(err.code).toBe('identity.role_grant_exceeds_holder');
+    expect(err.detail).toEqual(['staff:staff:update:production']);
+  });
+
+  it('counts a redefine that lifts a deny as a widening the holder must hold', () => {
+    const previous = role('g', ['staff:accounts:read:production'], ['staff:accounts:update:production', 'staff:cards:delete:production']);
+    // Lifts the accounts:update deny (held) and the cards:delete deny (not held).
+    const next = role('g', ['staff:accounts:read:production'], []);
+    const err = refusal(() => assertGrantWithinHolder(holder, next, previous));
+    expect(err.code).toBe('identity.role_grant_exceeds_holder');
+    expect(err.detail).toEqual(['staff:cards:delete:production']);
+    // Keeping the unheld deny passes; lifting only the held one passes.
+    const keep = role('g', ['staff:accounts:read:production'], ['staff:cards:delete:production']);
+    expect(() => assertGrantWithinHolder(holder, keep, previous)).not.toThrow();
+    // Without `previous` the lifted deny is invisible, which is why the argument exists.
+    expect(() => assertGrantWithinHolder(holder, next)).not.toThrow();
+  });
+
   it('refuses granting something the holder is explicitly denied', () => {
     const err = refusal(() => assertGrantWithinHolder(holder, role('g', ['staff:ledger:read:production'])));
     expect(err.code).toBe('identity.role_grant_exceeds_holder');
@@ -285,5 +315,34 @@ describe('assertStaffRoleHolderEligible', () => {
     expect(refusal(() => assertStaffRoleHolderEligible({ accountType: 'merchant' as 'business' })).code).toBe(
       'identity.business_user_not_staff',
     );
+  });
+});
+
+describe('parseStaffEnv', () => {
+  it('reads the three environments from configuration', () => {
+    for (const env of STAFF_ENVS) expect(parseStaffEnv(env)).toBe(env);
+  });
+
+  it('refuses anything else with identity.staff_permission_invalid', () => {
+    for (const bad of [undefined, null, '', 'prod', 'Production', ' production', 'dev', 'test']) {
+      expect(refusal(() => parseStaffEnv(bad)).code, String(bad)).toBe('identity.staff_permission_invalid');
+    }
+  });
+});
+
+describe('assertNotSelfChange', () => {
+  it('allows a change to someone else', () => {
+    expect(() => assertNotSelfChange('staff-1', 'staff-2')).not.toThrow();
+  });
+
+  it('refuses a change to oneself, and a blank actor or subject', () => {
+    for (const [actor, subject] of [
+      ['staff-1', 'staff-1'],
+      [' staff-1', 'staff-1 '],
+      ['', 'staff-1'],
+      ['staff-1', '  '],
+    ] as const) {
+      expect(refusal(() => assertNotSelfChange(actor, subject)).code).toBe('identity.staff_self_grant');
+    }
   });
 });

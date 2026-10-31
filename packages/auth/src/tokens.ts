@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { SignJWT, jwtVerify, errors as joseErrors, type JWTPayload } from 'jose';
 import { z } from 'zod';
 import { type Scope } from './scopes.js';
+import { STAFF_PERMISSIONS, isStaffPermission, type StaffPermission } from './staff-permissions.js';
 
 /**
  * Token issuing and verification (§1 Auth: "Own service — JWT (short) +
@@ -12,6 +13,15 @@ import { type Scope } from './scopes.js';
  * Refresh tokens are opaque, stored hashed, and rotate on every use — the
  * rotation is what makes theft detectable.
  */
+
+/**
+ * The staff permissions claim: valid catalogue strings, each once, at most the whole catalogue. A token carrying a
+ * malformed or repeated entry is malformed, not trimmed.
+ */
+const staffPermissionsClaimSchema = z
+  .array(z.custom<StaffPermission>((value) => isStaffPermission(value), { message: 'not a staff permission' }))
+  .max(STAFF_PERMISSIONS.length)
+  .refine((list) => new Set(list).size === list.length, 'a staff permission is listed twice');
 
 export const accessClaimsSchema = z.object({
   sub: z.string().guid(),
@@ -55,6 +65,16 @@ export const accessClaimsSchema = z.object({
    * this claim lists them.
    */
   stp: z.array(z.string()).optional(),
+  /**
+   * Staff permissions (OPS-admin-access-03), a SNAPSHOT of `resolveStaffPermissions` at minting. Absent means none.
+   *
+   * identity mints it only on an interactive session (never an API key or a sub-account token) of a staff member who
+   * was invited and approved. The console may gate reads and which screens it shows on it. It is never authority for a
+   * change: every privileged write, approve or apply is re-checked live in identity against the stored roles, so a
+   * grant revoked since minting stops there at once. Founders do not rely on it; they keep the `admin:*` scopes and the
+   * live founder entitlement.
+   */
+  staffPermissions: staffPermissionsClaimSchema.optional(),
 });
 
 export type AccessClaims = z.infer<typeof accessClaimsSchema>;
@@ -157,6 +177,8 @@ export interface IssueAccessInput {
   familyId?: string | null;
   /** The trusted device the session is bound to (`dev`). */
   trustedDeviceId?: string | null;
+  /** Staff permissions snapshot (`staffPermissions`). Interactive sessions only; empty or absent mints no claim. */
+  staffPermissions?: readonly string[];
 }
 
 const SESSION_CLAIM_ID = z.string().guid();
@@ -170,6 +192,18 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     if (value === undefined || value === null) continue;
     if (!SESSION_CLAIM_ID.safeParse(value).success) throw new AuthError(`${name} must be a UUID`, 'token.invalid');
     if (input.apiKeyId) throw new AuthError(`${name} is a sign-in claim and never goes on an API-key token`, 'token.invalid');
+  }
+  const staffPermissions = input.staffPermissions ?? [];
+  if (staffPermissions.length > 0) {
+    if (input.apiKeyId || input.subAccountId) {
+      throw new AuthError(
+        'staffPermissions is an interactive staff claim and never goes on an API-key or sub-account token',
+        'token.invalid',
+      );
+    }
+    if (!staffPermissionsClaimSchema.safeParse(staffPermissions).success) {
+      throw new AuthError('staffPermissions must be distinct catalogue permissions', 'token.invalid');
+    }
   }
   const now = Math.floor(Date.now() / 1000);
   const exp = now + config.accessTtlSeconds;
@@ -185,6 +219,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
     ...(input.stepUpScopes && input.stepUpScopes.length > 0 ? { stp: [...input.stepUpScopes] } : {}),
+    ...(staffPermissions.length > 0 ? { staffPermissions: [...staffPermissions] } : {}),
   } satisfies JWTPayload)
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT', ...(config.keyId ? { kid: config.keyId } : {}) })
     .setSubject(input.userId)

@@ -18,13 +18,29 @@
  *   6. The five built-in roles have NO permissions until the owner publishes their mapping (decision note: the mapping
  *      needs counsel and owner review). An unset mapping refuses `identity.role_mapping_unset`; nothing here invents one.
  *   7. Business users never get staff roles (ORD-013).
+ *   8. Nobody changes their own roles or their own status (`assertNotSelfChange`, `identity.staff_self_grant`).
  *
- * Token claims and session issuance are not decided here (agreed separately). This file holds the catalogue and the
- * pure checks every service applies the same way.
+ * ── Founders ────────────────────────────────────────────────────────────────
+ *
+ * Staff permissions govern non-founder staff only. Founders keep today's authority unchanged: the `admin:*` session
+ * scopes (`FOUNDER_SESSION_SCOPE_ALLOWLIST` in `scopes.ts`) plus identity's live founder entitlement, checked on every
+ * request. Nothing here narrows or replaces that, so nothing breaks for founders when this lands. The built-in
+ * `founder` role is a name only: its mapping stays null like the other four, and no owner-reserved mapping is invented.
+ *
+ * ── Environment ─────────────────────────────────────────────────────────────
+ *
+ * `hasStaffPermission` takes the environment as an argument so it stays pure. That environment MUST come from the
+ * deployment's own configuration, read once with `parseStaffEnv`, and NEVER from the request (a header, a body field,
+ * a query string): a caller who could name the environment could turn a staging grant into a production one.
+ *
+ * The optional `staffPermissions` access-token claim (`tokens.ts`) is a snapshot of `resolveStaffPermissions` at
+ * minting. It may gate reads and screens; every privileged write, approve or apply is re-checked live in identity.
  */
 
 /** Console areas a staff permission names. Closed. */
 export const STAFF_AREAS = [
+  // Staff administration itself: who may invite, disable, remove, define roles and assign them.
+  'staff',
   'accounts',
   'ledger',
   'payments',
@@ -69,6 +85,15 @@ export function isStaffPermission(value: unknown): value is StaffPermission {
   return prefix === 'staff' && AREA_SET.has(area) && VERB_SET.has(verb) && ENV_SET.has(env);
 }
 
+/**
+ * Read the deployment's environment from its configuration. Anything outside `STAFF_ENVS` (blank, a different
+ * spelling, a different case) refuses `identity.staff_permission_invalid`. Never call this on a request value.
+ */
+export function parseStaffEnv(value: string | undefined | null): StaffEnv {
+  if (typeof value === 'string' && ENV_SET.has(value)) return value as StaffEnv;
+  throw new StaffPermissionError(STAFF_PERMISSION_INVALID, [`env:${value ?? '(unset)'}`]);
+}
+
 /** Every permission in the catalogue, area then verb then environment order. The access overview walks this list. */
 export const STAFF_PERMISSIONS: readonly StaffPermission[] = STAFF_AREAS.flatMap((area) =>
   STAFF_VERBS.flatMap((verb) => STAFF_ENVS.map((env) => staffPermission(area, verb, env))),
@@ -81,12 +106,15 @@ export const STAFF_ROLE_MAPPING_UNSET = 'identity.role_mapping_unset' as const;
 export const STAFF_BUSINESS_USER_NOT_STAFF = 'identity.business_user_not_staff' as const;
 /** A role row holds a string that is not in the catalogue. A stored row like that is a bug or a tamper, never skipped. */
 export const STAFF_PERMISSION_INVALID = 'identity.staff_permission_invalid' as const;
+/** A person changing their own roles or their own status. */
+export const STAFF_SELF_GRANT = 'identity.staff_self_grant' as const;
 
 export type StaffPermissionRefusalCode =
   | typeof STAFF_ROLE_GRANT_EXCEEDS_HOLDER
   | typeof STAFF_ROLE_MAPPING_UNSET
   | typeof STAFF_BUSINESS_USER_NOT_STAFF
-  | typeof STAFF_PERMISSION_INVALID;
+  | typeof STAFF_PERMISSION_INVALID
+  | typeof STAFF_SELF_GRANT;
 
 export class StaffPermissionError extends Error {
   readonly code: StaffPermissionRefusalCode;
@@ -146,6 +174,7 @@ export function resolveStaffPermissions(roles: readonly StaffRole[]): StaffEffec
 /** False for anything not explicitly allowed, including every explicit deny. */
 export function hasStaffPermission(effective: StaffEffectivePermissions, area: StaffArea, verb: StaffVerb, env: StaffEnv): boolean {
   const p = staffPermission(area, verb, env);
+  // Defence in depth: `resolveStaffPermissions` already removes denies from `allow`; a hand-built set must not differ.
   return !effective.deny.has(p) && effective.allow.has(p);
 }
 
@@ -165,12 +194,23 @@ export type StaffPermissionExplanation =
  * A permission no role names is unset (denied) and is not listed. Catalogue order.
  */
 export function explainStaffPermissions(roles: readonly StaffRole[]): readonly StaffPermissionExplanation[] {
-  for (const role of roles) assertCataloguePermissions(role);
+  const allowedBy = new Map<StaffPermission, string[]>();
+  const deniedBy = new Map<StaffPermission, string[]>();
+  const add = (map: Map<StaffPermission, string[]>, p: StaffPermission, roleId: string): void => {
+    const ids = map.get(p);
+    if (ids === undefined) map.set(p, [roleId]);
+    else if (!ids.includes(roleId)) ids.push(roleId);
+  };
+  for (const role of roles) {
+    assertCataloguePermissions(role);
+    for (const p of role.allow) add(allowedBy, p, role.id);
+    for (const p of role.deny) add(deniedBy, p, role.id);
+  }
   const out: StaffPermissionExplanation[] = [];
   for (const permission of STAFF_PERMISSIONS) {
-    const sourceRoleIds = roles.filter((r) => r.allow.includes(permission)).map((r) => r.id);
-    const deniedByRoleIds = roles.filter((r) => r.deny.includes(permission)).map((r) => r.id);
-    if (deniedByRoleIds.length > 0) out.push({ permission, state: 'denied_explicit', sourceRoleIds, deniedByRoleIds });
+    const sourceRoleIds = allowedBy.get(permission) ?? [];
+    const deniedByRoleIds = deniedBy.get(permission);
+    if (deniedByRoleIds !== undefined) out.push({ permission, state: 'denied_explicit', sourceRoleIds, deniedByRoleIds });
     else if (sourceRoleIds.length > 0) out.push({ permission, state: 'allowed', sourceRoleIds });
   }
   return out;
@@ -178,11 +218,18 @@ export function explainStaffPermissions(roles: readonly StaffRole[]): readonly S
 
 /**
  * A person can grant only what they hold. Refuses `identity.role_grant_exceeds_holder`, naming every permission the
- * role allows that the holder's effective set lacks. A role's denies narrow and need no holding.
+ * grant widens that the holder's effective set lacks (including one the holder is explicitly denied).
+ *
+ * What widens: every permission `role` allows, and, on a redefine, every permission `previous` denied that `role` no
+ * longer denies (lifting a deny gives access back to the role's holders). A deny `role` adds narrows and needs no
+ * holding.
  */
-export function assertGrantWithinHolder(holderEffective: StaffEffectivePermissions, role: StaffRole): void {
+export function assertGrantWithinHolder(holderEffective: StaffEffectivePermissions, role: StaffRole, previous?: StaffRole): void {
   assertCataloguePermissions(role);
-  const missing = role.allow.filter((p) => holderEffective.deny.has(p) || !holderEffective.allow.has(p));
+  if (previous !== undefined) assertCataloguePermissions(previous);
+  const widened = new Set<StaffPermission>(role.allow);
+  for (const p of previous?.deny ?? []) if (!role.deny.includes(p)) widened.add(p);
+  const missing = [...widened].filter((p) => holderEffective.deny.has(p) || !holderEffective.allow.has(p));
   if (missing.length > 0) throw new StaffPermissionError(STAFF_ROLE_GRANT_EXCEEDS_HOLDER, missing);
 }
 
@@ -204,7 +251,8 @@ export type BuiltinStaffRoleMapping = {
 
 /**
  * The built-in role mappings. Every one is null: the owner has not decided them and the decision note says the mapping
- * needs counsel and owner review. Do not fill one in here without that decision.
+ * needs counsel and owner review. Do not fill one in here without that decision. `founder` is null too: founders act
+ * on today's founder authority (see the module note), not on a staff role.
  */
 export const BUILTIN_STAFF_ROLE_MAPPINGS: Readonly<Record<BuiltinStaffRoleName, BuiltinStaffRoleMapping | null>> = {
   founder: null,
@@ -240,4 +288,15 @@ export type StaffCandidate = { readonly accountType: 'individual' | 'business' }
  */
 export function assertStaffRoleHolderEligible(candidate: StaffCandidate): void {
   if (candidate.accountType !== 'individual') throw new StaffPermissionError(STAFF_BUSINESS_USER_NOT_STAFF);
+}
+
+/**
+ * Nobody changes their own roles (assign, unassign) or their own status (disable, remove). Refuses
+ * `identity.staff_self_grant` when the actor is the subject. Both are staff ids, compared exactly after trimming; a blank id refuses too,
+ * since an unknown actor cannot be shown to be someone else.
+ */
+export function assertNotSelfChange(actorId: string, subjectStaffId: string): void {
+  const actor = actorId.trim();
+  const subject = subjectStaffId.trim();
+  if (actor === '' || subject === '' || actor === subject) throw new StaffPermissionError(STAFF_SELF_GRANT, [subject]);
 }
