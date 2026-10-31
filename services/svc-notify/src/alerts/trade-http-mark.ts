@@ -11,7 +11,10 @@
 
 import { refuseIfMarkAged } from './accepted-mark.js';
 import { isValidPositivePrice, parseDecimalString } from './decimal.js';
-import type { MarkQuote, MarkSource } from './types.js';
+import { NOTIFY_PRICE_SOURCE_UNAVAILABLE, type AlertPriceSource, type MarkQuote, type MarkSource } from './types.js';
+
+/** The ticker has no usable value for the side an alert chose (declared in `types.ts`). Never a fallback to another side. */
+export { NOTIFY_PRICE_SOURCE_UNAVAILABLE };
 
 export const NOTIFY_MARKETS_LIST_LIMIT_UNSET = 'notify.markets_list_limit_unset' as const;
 /** Trade `GET /api/v1/markets` cap. Owner may pass 500; blank is not 50. */
@@ -97,6 +100,22 @@ export function priceFromTicker(body: TickerRow): { price: string; quality: 'mid
 }
 
 /**
+ * The price an alert's chosen source reads from one ticker body. `mark` is `priceFromTicker` exactly. `bid`, `ask` and `last`
+ * read only that field: when it is missing or not a positive decimal the answer is `null` and the caller refuses
+ * `notify.price_source_unavailable`. It never falls back to another side, because an alert on the bid that fired on the last
+ * would fire on a price the person did not choose.
+ */
+export function priceFromTickerSource(
+  body: TickerRow,
+  source: AlertPriceSource,
+): { price: string; quality: 'mid' | 'last' | 'bid' | 'ask' } | null {
+  if (source === 'mark') return priceFromTicker(body);
+  const raw = body[source];
+  if (typeof raw !== 'string' || !isValidPositivePrice(raw)) return null;
+  return { price: raw.trim(), quality: source };
+}
+
+/**
  * Build a live MarkSource that reads trade's public REST.
  *
  * Callers only construct this when a base URL is configured. Unset URL stays on
@@ -136,7 +155,7 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
 
   return {
     kind: 'live',
-    async quote(marketId: string, at?: Date): Promise<MarkQuote> {
+    async quote(marketId: string, at?: Date, source: AlertPriceSource = 'mark'): Promise<MarkQuote> {
       const now = at ?? new Date();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -198,7 +217,10 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
         }
 
         // JSON null is a 200 body. res.json() does not throw, and body.bid would.
-        const priced = body === null ? null : priceFromTicker(body);
+        const priced = body === null ? null : priceFromTickerSource(body, source);
+        if (body !== null && !priced && source !== 'mark') {
+          return { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
+        }
         if (body === null || !priced) {
           return {
             kind: 'unavailable',
