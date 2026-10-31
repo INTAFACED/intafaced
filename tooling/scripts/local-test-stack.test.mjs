@@ -805,10 +805,11 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
-  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
+  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
+  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
+    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
