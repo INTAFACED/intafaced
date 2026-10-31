@@ -678,15 +678,19 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(await held(ALICE, 'USDT')).toBe('200');
     });
 
-    it('still releases when the engine says the order is not live', async () => {
+    it('keeps the hold when the engine says the order is not live, and releases it past the in-flight bound', async () => {
       await fund(ALICE, 'USDT', '1000');
       const order = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-1');
       matching.scriptCancelMiss(order.id);
 
-      await trade.cancelOrder(principalFor(ALICE), order.id);
+      // The engine not knowing the order is an answer, not a failure, but it may have matched in full with the fill
+      // still on its way (#6874): the hold stays until the fill or the engine's cancel event says which.
+      expect((await trade.cancelOrder(principalFor(ALICE), order.id)).status).toBe('open');
+      expect(await held(ALICE, 'USDT')).toBe('200');
 
-      // The engine not knowing the order is an answer, not a failure — and the
-      // hold still has to come back, or it never does.
+      // Nothing heard past the bound: the hold still has to come back, or it never does.
+      await sql`UPDATE trade.orders SET engine_absent_since = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1}) WHERE id = ${order.id}`;
+      expect((await trade.cancelOrder(principalFor(ALICE), order.id)).status).toBe('cancelled');
       expect(await avail(ALICE, 'USDT')).toBe('1000');
     });
   });

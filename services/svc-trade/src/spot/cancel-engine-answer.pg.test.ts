@@ -11,6 +11,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TradeService } from '../controls/test-admission.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
 import type { Market } from './types.js';
 
@@ -120,12 +121,120 @@ describe('a cancel waits for a matched fill (PG-hard)', () => {
     expect(await held()).toBe(0n);
   });
 
-  it('no live order and no earlier answer: it closes and releases as before, and says so on the row', async () => {
+  it('no live order and no earlier answer (#6874 path 2): the order stays open with its hold, and says so on the row', async () => {
+    const { trade, matching, placed, row, held } = await setup();
+    // The engine matched the whole order a moment ago; the taker's settlement has not written that fill yet.
+    matching.scriptCancelMiss(placed.id);
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('open');
+    expect(await row()).toEqual({ status: 'open', left: null, absent: true });
+    expect(await held()).toBe(amt('50'));
+    // A retry inside the bound answers the same and still keeps the hold.
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('open');
+    expect(await held()).toBe(amt('50'));
+  });
+
+  it("a missed order is closed by the engine's own cancel event, which names what it took off the book", async () => {
     const { trade, matching, placed, row, held } = await setup();
     matching.scriptCancelMiss(placed.id);
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('open');
+    // The engine's event for the earlier cancel: nothing had matched.
+    await trade.releaseOnCancelEvent(placed.id, '1', 'requested');
+    expect(await row()).toEqual({ status: 'cancelled', left: '1.000000000000000000', absent: true });
+    expect(await held()).toBe(0n);
+  });
+
+  it('a miss past the in-flight bound with no fill and no engine event closes and releases, once', async () => {
+    const { trade, matching, placed, row, held } = await setup();
+    matching.scriptCancelMiss(placed.id);
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('open');
+    expect(await held()).toBe(amt('50'));
+    // Just inside the bound the hold still stays.
+    await db.sql`UPDATE trade.orders SET engine_absent_since = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS - 5}) WHERE id = ${placed.id}`;
+    expect((await trade.cancelOrder(alice, placed.id)).status).toBe('open');
+    expect(await held()).toBe(amt('50'));
+    // Past it, nothing was heard: the engine never had the order, so the hold comes back.
+    await db.sql`UPDATE trade.orders SET engine_absent_since = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1}) WHERE id = ${placed.id}`;
     expect((await trade.cancelOrder(alice, placed.id)).status).toBe('cancelled');
     expect(await row()).toEqual({ status: 'cancelled', left: null, absent: true });
     expect(await held()).toBe(0n);
+    await expect(trade.cancelOrder(alice, placed.id)).rejects.toMatchObject({ code: 'trade.order_not_open' });
+  });
+
+  it('two cancels race (#6874 path 1): the one that misses before the first stores its answer releases nothing', async () => {
+    const { trade, matching, market, placed, row, held } = await setup();
+    // The engine matched 0.4 a moment ago; the taker's settlement has not written that fill yet.
+    matching.scriptLive(placed.id, market.id, '0.6');
+    const engineCancel = matching.cancel.bind(matching);
+    let releaseA!: () => void;
+    const aWaits = new Promise<void>((resolve) => (releaseA = resolve));
+    let aAnswered!: () => void;
+    const aHasAnswer = new Promise<void>((resolve) => (aAnswered = resolve));
+    let calls = 0;
+    matching.cancel = async (marketId: string, orderId: string) => {
+      // A later cancel finds the order gone from the engine.
+      if (++calls > 1) return { cancelled: false, orderId, sequence: null, cancellation: null };
+      const answer = await engineCancel(marketId, orderId);
+      // Cancel A has the engine's answer but has not written it yet.
+      aAnswered();
+      await aWaits;
+      return answer;
+    };
+    const a = trade.cancelOrder(alice, placed.id);
+    await aHasAnswer;
+    // Cancel B reaches the engine after A: the order is gone, and A's answer is not on the row yet.
+    const b = await trade.cancelOrder(alice, placed.id);
+    expect(b.status).toBe('open');
+    expect(await held()).toBe(amt('50'));
+    releaseA();
+    expect((await a).status).toBe('open');
+    expect(await row()).toEqual({ status: 'open', left: '0.600000000000000000', absent: true });
+    expect(await held()).toBe(amt('50'));
+    // The engine's own cancel event still waits for the 0.4 fill.
+    await expect(trade.releaseOnCancelEvent(placed.id, '0.6', 'requested')).rejects.toMatchObject({ code: 'trade.cancel_ahead_of_fill' });
+    expect(await held()).toBe(amt('50'));
+  });
+
+  it('invariant: whatever order two cancels reach the engine and the row in, no hold is released while the engine has matched more than the fills show', async () => {
+    // matched: what the engine matched just before the cancels (0, part, all); the fill for it has not landed.
+    for (const matched of ['0', '0.4', '1'] as const) {
+      for (const bFirst of [true, false]) {
+        const { trade, matching, market, placed, row, held } = await setup();
+        if (matched === '1') matching.scriptCancelMiss(placed.id);
+        else matching.scriptLive(placed.id, market.id, matched === '0' ? '1' : '0.6');
+        const engineCancel = matching.cancel.bind(matching);
+        let releaseA!: () => void;
+        const aWaits = new Promise<void>((resolve) => (releaseA = resolve));
+        let aAnswered!: () => void;
+        const aHasAnswer = new Promise<void>((resolve) => (aAnswered = resolve));
+        let calls = 0;
+        matching.cancel = async (marketId: string, orderId: string) => {
+          if (++calls > 1) return { cancelled: false, orderId, sequence: null, cancellation: null };
+          const answer = await engineCancel(marketId, orderId);
+          aAnswered();
+          await aWaits;
+          return answer;
+        };
+        const a = trade.cancelOrder(alice, placed.id);
+        await aHasAnswer;
+        let b: Promise<unknown> | null = null;
+        if (bFirst) await trade.cancelOrder(alice, placed.id).catch(() => undefined);
+        else b = Promise.resolve();
+        releaseA();
+        await a.catch(() => undefined);
+        if (!bFirst) await trade.cancelOrder(alice, placed.id).catch(() => undefined);
+        await b;
+        const label = `matched ${matched}, ${bFirst ? 'B before A writes' : 'B after A'}`;
+        if (matched === '0') {
+          // Nothing matched: closing and releasing is right.
+          expect(await held(), label).toBe(0n);
+          expect((await row()).status, label).toBe('cancelled');
+        } else {
+          // The 50 USDT hold is what the unsettled fill draws; every part of it stays.
+          expect(await held(), label).toBe(amt('50'));
+          expect((await row()).status, label).toBe('open');
+        }
+      }
+    }
   });
 
   it("an engine cancel event's answer, landed first, is what a later cancel reads", async () => {

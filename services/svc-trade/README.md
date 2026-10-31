@@ -169,6 +169,13 @@ remaining quantity; while `trade.fills` holds less than the engine filled, it re
 and is redelivered. If the fill never settles within the delivery budget the cancel is abandoned and the hold stays
 with the order, where it can be found, instead of going back while a fill is still owed.
 
+A person's cancel waits the same way (#6874). When the engine answers with the remainder, the order stays open while
+the fills read short of it. When the engine has no live order and no earlier answer is stored, it may have matched in
+full with the taker's settlement still on its way, or a second cancel may have overtaken the first one's answer; the
+order keeps its hold and its fill (`finalizeIfComplete`) or the engine's cancel event closes it. Only after
+`HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` from the first miss (`engine_absent_since`) with nothing heard does a cancel
+release: a submit whose outcome was unknown may never have reached the engine.
+
 ---
 
 ## Ledger
