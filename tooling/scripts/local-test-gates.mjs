@@ -1091,6 +1091,52 @@ export async function publishTransferTerms(ctx) {
 }
 
 /**
+ * The TEST quota profile (AL-limits-01): svc-quant counts every new strategy, version and run against the profile in
+ * force, and the TEST stack names TEST as the default profile (QUANT_DEFAULT_QUOTA_PROFILE in the TEST owner values).
+ * Each limit is a TEST figure, generous so journeys never meet it unless they set their own lower profile. One key per
+ * limit: a second apply replays the same row; changing a figure needs the next seq in its key.
+ */
+export const TEST_QUOTA_PROFILE = Object.freeze({
+  profile: 'TEST',
+  limits: Object.freeze({
+    strategies: '1000',
+    versions_per_strategy: '1000',
+    concurrent_runs: '100',
+    paper_runs: '10000',
+    stored_runs: '10000',
+    log_lines: '10000000',
+    storage_bytes: '1000000000',
+    collaborators_per_strategy: '10',
+    notifications_per_day: '1000',
+  }),
+});
+
+export async function publishQuotaProfile(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = await sessions.a.tradeOpsToken();
+  const out = [];
+  for (const [resource, limit] of Object.entries(TEST_QUOTA_PROFILE.limits)) {
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'quant',
+      'ops.quota.set',
+      {
+        profile: TEST_QUOTA_PROFILE.profile,
+        resource,
+        limit,
+        reason: `${MARKERS.label}: local test stack quota profile`,
+        idempotencyKey: `quant.quota:${TEST_QUOTA_PROFILE.profile}:${resource}:1`,
+      },
+      token,
+    );
+    const row = data(res);
+    if (!row?.seq) throw new Error(`quant ops.quota.set ${resource} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ resource, limit: row.limit });
+  }
+  return out;
+}
+
+/**
  * Halt (or resume) one book, through the door an operator uses: operator A proposes, operator B approves, and the
  * call is signed as svc-trade (the only caller matching accepts on this route). Resting orders stay; matching refuses
  * new submits on a halted book with `market_halted`, and cancels still work.
@@ -3149,6 +3195,7 @@ async function main() {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       sayCharts(await publishCharts(ctx));
+      for (const r of await publishQuotaProfile(ctx)) say(`  quota     TEST ${r.resource.padEnd(26)} ${r.limit} (TEST)`);
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)

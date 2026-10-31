@@ -65,6 +65,11 @@
       "service": "quant",
       "value": "500",
       "note": "TEST longest release note on a saved strategy version, in characters."
+    },
+    "QUANT_DEFAULT_QUOTA_PROFILE": {
+      "service": "quant",
+      "value": "TEST",
+      "note": "TEST quota profile every unassigned account falls under on the local test stack; its TEST limits are set by local-test-gates.mjs apply (publishQuotaProfile)."
     }
   }
 }
