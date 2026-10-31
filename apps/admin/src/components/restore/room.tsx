@@ -25,14 +25,21 @@ function Failed({ part, testId }: { part: Extract<Part<unknown>, { kind: 'failed
 }
 
 function Verdicts({ detail }: { detail: RunDetail }) {
-  const { joint, reads } = detail.live;
+  const { joint, reads, halt } = detail.live;
   return (
     <section className="dk-stack" aria-label="Joint watermark" data-testid="joint-watermark">
       <h3>Joint watermark at {formatWhen(joint.cutOff)}</h3>
+      <p data-testid="joint-halt">
+        {halt.halted
+          ? 'The ledger posting freeze is on, so the services cannot write and their counts can be compared.'
+          : (refusalWords(halt.code) ?? halt.message)}
+      </p>
       <p data-testid="joint-verdict">
-        {joint.agree
-          ? 'Every service agrees with its stamp and none wrote after the cut-off.'
-          : 'The services do not agree, so nothing past clean-area is allowed.'}
+        {!halt.halted
+          ? 'Not compared: the counts prove nothing while the services can still write.'
+          : joint.agree
+            ? 'Every service agrees with its stamp and none wrote after the cut-off.'
+            : 'The services do not agree, so nothing past clean-area is allowed.'}
       </p>
       <div className="dk-table-wrap" role="region" aria-label="Services" tabIndex={0}>
         <table className="adm-table" data-testid="joint-table">
@@ -97,7 +104,7 @@ function Run({ detail, userId }: { detail: RunDetail; userId: string }) {
       {detail.next && detail.next !== 'finalize' && <StepButton restoreNo={run.restoreNo} step={detail.next} />}
       {detail.next === 'finalize' && !detail.finalizeOffered && (
         <p className="dk-muted" data-testid="finalize-parked">
-          Finalize is off: the owner has not set a restore storage target, or the services do not agree.
+          Finalize is off: the owner has not set a restore storage target, the ledger posting freeze is off, or the services do not agree.
         </p>
       )}
       {detail.finalizeOffered && <FinalizeDesk restoreNo={run.restoreNo} cutOff={run.cutOff} userId={userId} />}

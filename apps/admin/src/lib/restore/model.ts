@@ -44,6 +44,10 @@ export const REFUSAL_WORDS: Readonly<Record<string, string>> = {
   'ops.restore_step_out_of_order': 'That step is not the next one. Steps run in order: clean area, validate, preview, finalize.',
   'ops.restore_run_not_found': 'No restore run has this number.',
   'ops.restore_watermark_unavailable': 'A service did not give its position, so it counts as disagreeing.',
+  'ops.restore_platform_not_halted':
+    'The ledger posting freeze is off, so the services can still write. Validate, preview and finalize run only while it is on.',
+  'ops.restore_halt_unreadable':
+    'Whether the ledger posting freeze is on could not be read, so it is not taken as on. Nothing was checked or restored.',
   'ops.restore_watermark_required': 'A stamp needs a service, a kind and the watermark that was read.',
   'ops.idempotency_conflict': 'This run or step was already recorded with different details. Reload to see what was stored.',
   'ops.approval_missing': 'Finalize needs an approval id and an operation id from the second founder.',
@@ -98,6 +102,8 @@ export interface RunDetail {
   readonly live: {
     readonly joint: { readonly agree: boolean; readonly cutOff: string; readonly services: readonly ServiceVerdict[] };
     readonly reads: readonly LiveRead[];
+    /** Whether the ledger posting freeze is on now; the comparison counts only while it is. */
+    readonly halt: { readonly halted: true } | { readonly halted: false; readonly code: string; readonly message: string };
   };
 }
 export interface StampRow {
@@ -193,6 +199,9 @@ export function parseRunDetail(raw: unknown): RunDetail | null {
     if (!x || !str(x.service) || typeof x.ok !== 'boolean') return null;
     reads.push({ service: x.service, ok: x.ok, code: str(x.code) ? x.code : null, message: str(x.message) ? x.message : null });
   }
+  const h = obj(live.halt);
+  if (!h || typeof h.halted !== 'boolean' || (!h.halted && (!str(h.code) || !str(h.message)))) return null;
+  const halt = h.halted ? ({ halted: true } as const) : { halted: false as const, code: h.code as string, message: h.message as string };
   const next = str(o.next) && RESTORE_STEPS.includes(o.next as RestoreStep) ? (o.next as RestoreStep) : null;
   return {
     run,
@@ -200,7 +209,7 @@ export function parseRunDetail(raw: unknown): RunDetail | null {
     restored: o.restored,
     next,
     finalizeOffered: o.finalizeOffered,
-    live: { joint: { agree: joint.agree, cutOff: joint.cutOff, services }, reads },
+    live: { joint: { agree: joint.agree, cutOff: joint.cutOff, services }, reads, halt },
   };
 }
 

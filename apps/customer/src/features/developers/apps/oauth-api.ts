@@ -6,6 +6,7 @@ import {
   oauthAppRequestId,
   oauthAuthorizePreviewSchema,
   oauthDecideOutputSchema,
+  oauthLifetimesSchema,
   oauthListAppsOutputSchema,
   oauthRegisterAppOutputSchema,
   type OAuthApp,
@@ -40,6 +41,10 @@ export const rollSecret = (api: ApiClient, app: Pick<OAuthApp, 'id' | 'secretRol
   api.mutate('identity', 'oauth.apps.rollSecret', { appId: app.id, requestId: rollRequestId(app) }, oauthRegisterAppOutputSchema, {
     signal,
   });
+
+/** The owner's code and token lifetimes; a `null` one means apps cannot sign anyone in yet (`oauth.lifetime_unset`). */
+export const readLifetimes = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('identity', 'oauth.lifetimes', undefined, oauthLifetimesSchema, { signal });
 
 export const previewAuthorize = (api: ApiClient, request: OAuthAuthorizeRequest, signal?: AbortSignal) =>
   api.query('identity', 'oauth.authorize.preview', request, oauthAuthorizePreviewSchema, { signal });

@@ -1,5 +1,5 @@
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
@@ -123,11 +123,22 @@ test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and
   expect(orders.body).toEqual([]);
 });
 
-test(`${J} #2 reads the tier table: the published tiers and maintenance rates`, async ({ page }) => {
+const TIERS = `/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`;
+
+/** Polls the tier read until it answers `status`: the trade lane is restarting, so a refused connection reads 0. */
+async function tiersAnswer(me, status) {
+  await expect.poll(async () => (await me.get(TIERS).catch(() => ({ status: 0 }))).status, { timeout: 60_000 }).toBe(status);
+}
+
+test(`${J} #2 reads the tier table: the published tiers and maintenance rates, and "tiers not published" with opens refused while the ladder is unset`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
   const who = account();
+  const me = await api(who);
   await desk(page);
   const sent = writes(page);
-  const tiers = await (await api(who)).get(`/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`);
+  const tiers = await me.get(TIERS);
   expect(tiers.status, JSON.stringify(tiers.body)).toBe(200);
   // The stack's LOCAL TEST ladder, as published: four tiers, rates rising with size against depth.
   expect(tiers.body.tiers.map((t) => [t.tier, t.uptoDepthBps, t.maintenanceRate])).toEqual([
@@ -155,9 +166,40 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates`, 
   }
   await expect(page.getByText(/every tier answers to the contract’s cap of \d+(\.\d+)?x/)).toBeVisible();
   await expect(page.getByText(/notional as a share of the book depth it would close into/)).toBeVisible();
-  // With no ladder published the same read refuses `trade.ladder_unset` and opens refuse on that code: proved by the
-  // service tests (risk-calculator-rest.test.ts, slice-futures-amounts.test.ts), since the stack publishes a ladder.
   expect(sent).toEqual([]);
+
+  // With no ladder published: the trade lane restarted with the ladder blank, then put back as it was, whatever happens.
+  const before = await me.balances();
+  try {
+    restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', false);
+    // The same read refuses on the ladder code, an owner's answer (4xx), never invented tiers.
+    await tiersAnswer(me, 409);
+    const unset = await me.get(TIERS);
+    expect(unset.body).toMatchObject({ error: 'trade.ladder_unset' });
+    // The tier table says "Tiers not published", typed by that code.
+    await desk(page);
+    await page.getByRole('tab', { name: 'Margin tiers' }).click();
+    const empty = page.locator('[data-code="trade.ladder_unset"]').first();
+    await expect(empty).toBeVisible();
+    await expect(page.getByText('Tiers not published')).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Maintenance margin tiers' })).toHaveCount(0);
+    // An open keeps refusing on the ladder code, and nothing is held.
+    const open = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-ladder-unset-${Date.now()}`,
+    });
+    expect(open.status, JSON.stringify(open.body)).toBeGreaterThanOrEqual(400);
+    expect(open.body.error, JSON.stringify(open.body)).toBe('trade.ladder_unset');
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', true);
+    await tiersAnswer(me, 200);
+  }
 });
 
 test(`${J} #3 reads what counts as margin: cash with its haircut and buying power, the other classes refused`, async ({ page }) => {

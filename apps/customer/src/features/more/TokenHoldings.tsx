@@ -136,24 +136,3 @@ export function TokenHoldings() {
     </Panel>
   );
 }
-
-/** The counter of the next emission epoch the token service will mint. */
-export function EmissionEpoch() {
-  const api = useApi();
-  const { userId } = useSession();
-  const { Copy, t } = tokenHoldingsCopy.useCopy();
-  const epoch = useResource(
-    (signal) => api.query('token', 'nextEmissionEpoch', undefined, z.object({ epoch: z.number().int().nonnegative() }), { signal }),
-    `token-epoch:${userId}`,
-  );
-  return (
-    <Panel title={t('epochTitle')}>
-      <p className="muted">
-        <Copy k="epochBody" />
-      </p>
-      <Read resource={epoch.resource} retry={epoch.reload}>
-        {(data) => <StatRow items={[{ label: t('epochLabel'), value: data.epoch }]} />}
-      </Read>
-    </Panel>
-  );
-}

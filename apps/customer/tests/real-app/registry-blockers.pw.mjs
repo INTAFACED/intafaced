@@ -48,7 +48,7 @@ const SWEEP = {
   'pay-terms': { at: '/pay/send/limits', shows: 'No limits are published, so none is shown.' },
   'pay-scan': { at: '/pay/scan', shows: 'A payment code or link from this app opens Send' },
   'pay-bill-detail': { at: '/pay/bills/invoices/TEST-not-a-record', shows: 'there is no biller network behind INTAFACED' },
-  'oauth-apps': { silent: 'the room does not say that the code and token lifetimes are unset' },
+  'oauth-apps': { at: '/developers/apps', shows: 'The owner has not published the lifetime that signing in with apps needs' },
   'developer-portal': { at: '/developers', shows: 'No access tiers are published in this build' },
   'trade-news-calendar': { at: '/trade/news', shows: 'News needs a news data feed.' },
   p2p: { silent: 'the room does not name the missing instrument encryption provider' },
