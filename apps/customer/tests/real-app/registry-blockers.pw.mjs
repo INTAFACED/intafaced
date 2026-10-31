@@ -51,7 +51,7 @@ const SWEEP = {
   'oauth-apps': { silent: 'the room does not say that the code and token lifetimes are unset' },
   'developer-portal': { at: '/developers', shows: 'No access tiers are published in this build' },
   'trade-news-calendar': { at: '/trade/news', shows: 'News needs a news data feed.' },
-  p2p: { silent: 'the room does not name the missing instrument encryption provider' },
+  p2p: { at: '/p2p', shows: 'need the owner’s instrument encryption provider' },
   'more-rooms': { proof: 'its reason is that it is not a first-release customer path' },
   'promotions-dividends': { proof: 'its reason is that the room is not redesigned' },
   'strategy-subaccounts': { noRoute: true },
