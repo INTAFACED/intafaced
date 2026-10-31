@@ -17,7 +17,7 @@ import {
   toUnits,
 } from './stack.mjs';
 import { verify } from './desk.mjs';
-import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-05, in the running app (docs/roadmap/journeys.json): I lost my phone and got back in. One test per step,
 // titled "J-identity-05 #<n>". Every person is a TEST person on the local stack, signed up through the browser
@@ -511,14 +511,7 @@ test.describe('factor notices', () => {
     await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
     await notified('passkey_removed', 'Passkey removed');
 
-    // Replacing the app needs a session that passed it: sign in again with its code, as a returning person would.
-    await forgetSession(page);
-    await page.goto('/login');
-    await page.fill('input[name=totp]', await code());
-    await page.fill('input[name=identifier]', who.email);
-    await page.fill('input[name=password]', who.password);
-    await page.getByRole('button', { name: /^sign in$/i }).click();
-    await expect(page).not.toHaveURL(/\/login/);
+    // The same session replaces the app: its "Confirm it is you" with the old app's code starts and finishes the replace.
     await page.goto('/uc/safe');
 
     // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
