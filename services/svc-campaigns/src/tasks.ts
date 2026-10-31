@@ -163,22 +163,27 @@ export const rewardKeyOf = (campaignId: string, accountId: string, period: strin
  * `campaigns.customer_limit_reached`; at `totalRedemptions` for everyone, `campaigns.redemption_limit_reached`. Only
  * intents that hold or spent value count, as for the budget.
  */
+/** Intent states that hold or spent none of a campaign's budget or limits: every other state counts against both. */
+export const NOT_HOLDING = ['failed', 'forfeited', 'withheld'] as const;
+
 export async function limitRefusalOf(
   tx: postgres.Sql,
   campaignId: string,
   accountId: string,
   limits: CampaignLimits | null,
-  now: Date,
 ): Promise<'campaigns.per_customer_limit_unset' | 'campaigns.customer_limit_reached' | 'campaigns.redemption_limit_reached' | null> {
   const per = limits?.perCustomer;
   if (!per?.count || !per.periodSeconds) return 'campaigns.per_customer_limit_unset';
-  const since = new Date(now.getTime() - per.periodSeconds * 1000);
-  const [counts] = await tx<{ mine: number; everyone: number }[]>`
-    SELECT count(*) FILTER (WHERE account_id = ${accountId} AND created_at > ${since})::int AS mine, count(*)::int AS everyone
-    FROM campaigns.reward_intents WHERE campaign_id = ${campaignId} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
-  if (counts!.mine >= per.count) return 'campaigns.customer_limit_reached';
-  if (limits!.totalRedemptions !== null && counts!.everyone >= limits!.totalRedemptions) return 'campaigns.redemption_limit_reached';
-  return null;
+  // The window is read on the database's clock, the one that stamps each intent's created_at.
+  const [mine] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM campaigns.reward_intents
+    WHERE campaign_id = ${campaignId} AND account_id = ${accountId} AND state NOT IN ${tx(NOT_HOLDING)}
+      AND created_at > now() - make_interval(secs => ${per.periodSeconds})`;
+  if (mine!.n >= per.count) return 'campaigns.customer_limit_reached';
+  if (limits!.totalRedemptions === null) return null;
+  const [everyone] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM campaigns.reward_intents WHERE campaign_id = ${campaignId} AND state NOT IN ${tx(NOT_HOLDING)}`;
+  return everyone!.n >= limits!.totalRedemptions ? 'campaigns.redemption_limit_reached' : null;
 }
 
 /** The words for a limit refusal, as a claim or redemption names it. */
@@ -195,7 +200,7 @@ export const LIMIT_WORDS = {
 export async function drawnOf(tx: postgres.Sql, campaignId: string): Promise<bigint> {
   const [drawn] = await tx<{ total: string }[]>`
     SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
-    WHERE campaign_id = ${campaignId} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
+    WHERE campaign_id = ${campaignId} AND state NOT IN ${tx(NOT_HOLDING)}`;
   return parseAmount(drawn!.total);
 }
 
@@ -476,7 +481,13 @@ export class TaskService {
       const [held] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.reward_intents WHERE reward_key = ${key}`;
       if (held!.n > 0) return false;
       // An event pays nothing past the campaign's limits; there is no one to refuse, so it is skipped.
-      if (await limitRefusalOf(tx, row.id, row.account_id, locked.limits, this.now())) return false;
+      const over = await limitRefusalOf(tx, row.id, row.account_id, locked.limits);
+      if (over) {
+        await tx`
+          INSERT INTO campaigns.audit_log (actor, action, target, detail)
+          VALUES (${row.account_id}, 'campaign.earning.limit_skip', ${row.id}, ${tx.json({ rewardKey: key, reason: over })})`;
+        return false;
+      }
       const [sums] = await tx<{ campaign: string; mine: string }[]>`
         SELECT COALESCE(sum(amount), 0)::text AS campaign,
           COALESCE(sum(amount) FILTER (WHERE account_id = ${row.account_id}), 0)::text AS mine
@@ -751,7 +762,7 @@ export class TaskService {
         if (row.budget_asset !== row.reward_asset) {
           throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
         }
-        const over = await limitRefusalOf(tx, row.id, accountId, locked?.limits ?? null, this.now());
+        const over = await limitRefusalOf(tx, row.id, accountId, locked?.limits ?? null);
         if (over) throw new CampaignsError(over, LIMIT_WORDS[over]);
         const limit = locked?.budget_limit ? parseAmount(locked.budget_limit) : 0n;
         if ((await drawnOf(tx, row.id)) + parseAmount(row.reward_amount!) > limit) {
@@ -760,7 +771,9 @@ export class TaskService {
       }
       const [made] = first
         ? await tx<IntentRow[]>`
-            UPDATE campaigns.reward_intents SET state = ${state}, reason = ${reason}, hold_until = ${holdUntil}, updated_at = now()
+            -- A withheld reward that qualifies now counts against the limits from now, as a new one would.
+            UPDATE campaigns.reward_intents SET state = ${state}, reason = ${reason}, hold_until = ${holdUntil}, updated_at = now(),
+              created_at = CASE WHEN ${state} IN ('qualified', 'held') THEN now() ELSE created_at END
             WHERE reward_key = ${key} RETURNING *, amount::text AS amount`
         : await tx<IntentRow[]>`
             INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason,

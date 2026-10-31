@@ -295,6 +295,21 @@ if (!db) {
       await reconciles(parseAmount('50'));
     });
 
+    it('a withheld reward released later counts against the per-customer limit from its release', async () => {
+      await fundPot('50');
+      await live({ limits: { perCustomer: { count: 1, periodSeconds: 86_400 }, totalRedemptions: null } });
+      await signUp(ME);
+      for (const e of ['identity.verified', 'pay.deposit'] as const) await happen(ME, e);
+      people.set(ME, person(ME, { status: 'frozen' }));
+      expect((await tasks.welcomeClaim({ accountId: ME, event: 'identity.verified' })).reward.state).toBe('withheld');
+      // Withheld two days ago; active again now, it qualifies and fills today's one reward.
+      await db.sql`UPDATE campaigns.reward_intents SET created_at = now() - interval '2 days'`;
+      people.set(ME, person(ME));
+      expect((await tasks.welcomeClaim({ accountId: ME, event: 'identity.verified' })).reward.state).toBe('posted');
+      expect(await code(tasks.welcomeClaim({ accountId: ME, event: 'pay.deposit' }))).toBe('campaigns.customer_limit_reached');
+      await reconciles(parseAmount('50'));
+    });
+
     it('pays one reward per task, each once, under its own key, and it reconciles', async () => {
       await fundPot('50');
       const c = await live();

@@ -347,7 +347,7 @@ if (!db) {
         'campaigns.redemption_limit_reached',
       );
       // The period passes: my own limit opens again, the campaign's total does not.
-      clock = new Date(Date.now() + 2 * HOUR);
+      await db.sql`UPDATE campaigns.reward_intents SET created_at = now() - interval '2 hours' WHERE account_id = ${ME}`;
       expect(await code(vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 3, accountId: ME }))).toBe(
         'campaigns.redemption_limit_reached',
       );

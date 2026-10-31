@@ -251,7 +251,7 @@ export class VoucherService {
         throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the voucher are in different assets');
       }
       // The campaign's limits, as for any reward; a withheld redemption holds nothing, so it is not limited.
-      const over = withheld ? null : await limitRefusalOf(tx, v.campaign_id, input.accountId, campaign!.limits, this.now());
+      const over = withheld ? null : await limitRefusalOf(tx, v.campaign_id, input.accountId, campaign!.limits);
       if (over) throw new CampaignsError(over, LIMIT_WORDS[over]);
       // The budget, as a task reward reads it: the limit less every intent that holds or spent part of it.
       if (!withheld && (await drawnOf(tx, v.campaign_id)) + units > parseAmount(campaign!.budget_limit)) {

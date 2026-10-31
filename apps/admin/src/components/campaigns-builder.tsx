@@ -118,12 +118,25 @@ const fieldsOf = (c: Campaign | null, platform: string | null): Fields => ({
   budget: c?.budget?.limit ?? '',
   perPerson: c?.reward?.amount ?? '',
   perCustomerCount: c?.limits?.perCustomer?.count ? String(c.limits.perCustomer.count) : '',
-  perCustomerHours: c?.limits?.perCustomer?.periodSeconds ? String(c.limits.perCustomer.periodSeconds / 3600) : '',
+  perCustomerHours: c?.limits?.perCustomer?.periodSeconds ? String(Number((c.limits.perCustomer.periodSeconds / 3600).toFixed(4))) : '',
   totalRedemptions: c?.limits?.totalRedemptions ? String(c.limits.totalRedemptions) : '',
 });
 
-/** A whole number typed in a field, or null when blank; NaN when it is not one. */
-const wholeOf = (raw: string): number | null => (raw.trim() === '' ? null : /^[1-9]\d*$/.test(raw.trim()) ? Number(raw.trim()) : NaN);
+/** A whole number from 1 to `max` typed in a field, or null when blank; NaN when it is not one. */
+const wholeOf = (raw: string, max: number): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = /^[1-9]\d*$/.test(t) ? Number(t) : NaN;
+  return n <= max ? n : NaN;
+};
+
+/** A period typed in hours (a decimal is allowed) as whole seconds, from a minute to a year; null when blank. */
+const periodOf = (raw: string): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const seconds = /^\d+(\.\d+)?$/.test(t) ? Math.round(Number(t) * 3600) : NaN;
+  return seconds >= 60 && seconds <= 31_536_000 ? seconds : NaN;
+};
 
 type Outcome =
   | { kind: 'done'; text: string }
@@ -177,8 +190,14 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
       if (startsAt === null || endsAt === null) return `A start or end time is not a time in ${f.timeZone}.`;
       if ((f.hoursFrom === '') !== (f.hoursTo === '')) return 'Daily hours need both a from and a to time, or neither.';
       const asset = f.asset.trim().toUpperCase();
-      const [count, hours, total] = [wholeOf(f.perCustomerCount), wholeOf(f.perCustomerHours), wholeOf(f.totalRedemptions)];
-      if ([count, hours, total].some((n) => Number.isNaN(n))) return 'Limits are whole numbers above zero, or blank.';
+      const [count, period, total] = [
+        wholeOf(f.perCustomerCount, 1_000_000),
+        periodOf(f.perCustomerHours),
+        wholeOf(f.totalRedemptions, 100_000_000),
+      ];
+      if (Number.isNaN(count)) return 'Rewards per customer is a whole number from 1 to 1,000,000, or blank.';
+      if (Number.isNaN(period)) return 'The period is in hours, from one minute (0.0167) to a year (8,760), or blank.';
+      if (Number.isNaN(total)) return 'Rewards in all is a whole number from 1 to 100,000,000, or blank.';
       // Blank stays blank: the gate names a blank budget or limit, and svc-campaigns checks every amount.
       return {
         startsAt: startsAt ?? null,
@@ -189,7 +208,7 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
         budget: f.budget.trim() ? { asset, limit: f.budget.trim() } : null,
         reward: f.perPerson.trim() ? { asset, amount: f.perPerson.trim() } : null,
         limits: {
-          perCustomer: count === null && hours === null ? null : { count, periodSeconds: hours === null ? null : hours * 3600 },
+          perCustomer: count === null && period === null ? null : { count, periodSeconds: period },
           totalRedemptions: total,
         },
       };
