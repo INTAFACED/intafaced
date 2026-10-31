@@ -244,6 +244,7 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
     'The budget is not set (campaigns.budget_unset)',
     'The time frame is not set (campaigns.time_frame_unset)',
     'The time zone is not set (campaigns.timezone_unset)',
+    'The rewards per customer and period are not set (campaigns.per_customer_limit_unset)',
     'The reward per person is not set (campaigns.reward_unset)',
   ])
     await expect(blanks.filter({ hasText: line })).toHaveCount(1);
@@ -254,6 +255,9 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
   await builder(page).getByRole('combobox', { name: 'Time zone' }).selectOption('UTC');
   await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('100');
   await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('1');
+  // The limits: one reward per customer in any 24 hours, and no cap in all beyond the budget.
+  await builder(page).getByRole('textbox', { name: 'Rewards per customer' }).fill('1');
+  await builder(page).getByRole('textbox', { name: 'In any period of, hours' }).fill('24');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
 });
@@ -316,6 +320,14 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('7');
+  // The same edit sets the voucher window in the campaign's zone: a use-by before the claim-by is refused by name.
+  const [claimBy, useBy] = ['2027-03-01T12:00', '2027-06-01T12:00'];
+  await builder(page).getByLabel('Vouchers claimable until').fill(useBy);
+  await builder(page).getByLabel('Claimed vouchers usable until').fill(claimBy);
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.voucher_window_invalid');
+  await builder(page).getByLabel('Vouchers claimable until').fill(claimBy);
+  await builder(page).getByLabel('Claimed vouchers usable until').fill(useBy);
   await builder(page).getByRole('button', { name: 'Next' }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText('Revision 2, a draft');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
@@ -341,6 +353,10 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${second} under revision ${asked}: 7 USDT.`);
   await expect(row(second)).toHaveText([second, `Revision ${asked}`, '7 USDT', 'published', /.+/, /UTC/]);
   await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+  // The live revision keeps the window as typed, read back in the same zone.
+  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
+  await expect(builder(page).getByLabel('Vouchers claimable until')).toHaveValue(claimBy);
+  await expect(builder(page).getByLabel('Claimed vouchers usable until')).toHaveValue(useBy);
 
   // Archiving the active campaign is refused, and it stays active.
   await page.getByRole('button', { name: 'Archive' }).click();
@@ -408,6 +424,8 @@ async function liveCampaign(name, extra = {}) {
     endsAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
     participation: { exclusions: [], regionScope: 'platform' },
     budget: { asset: 'USDT', limit: '100' },
+    // TEST limits (CM-eligibility-rules-03), wide enough that only a step about limits meets them.
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
     reward: { asset: 'USDT', amount: '5' },
     earning: [{ name: 'Deposit reward', trigger: 'pay.deposit_credit.posted', minAmount: '10', formula: '1' }],
     ...extra,

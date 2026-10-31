@@ -9,6 +9,7 @@ import { type PersonalPayApi } from './pay-api';
 import { id, type Trade } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
+import { OrderRefund } from './p2p-cancel';
 import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
 import { shareCopy } from './personal/p2p-share-copy';
 import { TradeStatus } from './personal/P2PDepth';
@@ -258,6 +259,7 @@ export function P2POrder({
                   </div>
                 </div>
                 {trade.status === 'released' ? <OrderResult trade={trade} seller={seller} /> : null}
+                {trade.status === 'cancelled' ? <OrderRefund trade={trade} /> : null}
                 {seller && trade.status === 'fiat_sent' ? <SellerReminder reminders={trade.reminders} /> : null}
                 {!held && typeof trade.escrowHeld === 'string' ? (
                   <p className="muted" data-testid="order-escrow-held">

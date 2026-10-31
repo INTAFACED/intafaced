@@ -40,6 +40,28 @@ const draft = (over: Partial<Campaign> = {}): Campaign => ({
 });
 
 describe('campaign builder model', () => {
+  it('a save from any tab keeps the limits and a voucher campaign’s dates as stored', () => {
+    const limits = { perCustomer: { count: 2, periodSeconds: 86_400 }, totalRedemptions: null };
+    const vouchers = { claimBy: '2026-11-01T00:00:00.000Z', useBy: '2026-11-30T00:00:00.000Z' };
+    expect(definitionOf(draft({ type: 'voucher', limits, vouchers }))).toMatchObject({ limits, vouchers });
+    expect(definitionOf(draft())).not.toHaveProperty('vouchers');
+    // A pending change shows its own limits and dates.
+    const change = { ...definitionOf(draft({ type: 'voucher', limits, vouchers })), limits: { ...limits, totalRedemptions: 5 } };
+    const view = editedView(
+      draft({
+        pendingChange: {
+          revision: 2,
+          state: 'draft',
+          createdBy: 'a',
+          submittedBy: null,
+          definition: change,
+          updatedAt: '2026-10-25T00:00:00.000Z',
+        },
+      }),
+    );
+    expect(view).toMatchObject({ limits: { totalRedemptions: 5 }, vouchers });
+  });
+
   it('a draft resumes at the first tab that is still blank; parked tabs are never where it resumes', () => {
     expect(resumeStep(draft({ name: ' ' }))).toBe('basics');
     expect(resumeStep(draft())).toBe('who');

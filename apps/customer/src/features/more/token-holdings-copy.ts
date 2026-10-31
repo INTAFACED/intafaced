@@ -33,9 +33,6 @@ const en = {
   export: 'Export my stakes (CSV)',
   exported: 'Stakes exported.',
   exportFail: 'The browser could not save the file.',
-  epochTitle: 'Next emission epoch',
-  epochBody: 'The number of the next emission epoch the service will mint. This is a counter, not an amount or a yield.',
-  epochLabel: 'Epoch',
 } as const;
 const es = {
   holdingsTitle: 'Mis posiciones',
@@ -71,9 +68,6 @@ const es = {
   export: 'Exportar mis stakings (CSV)',
   exported: 'Stakings exportados.',
   exportFail: 'El navegador no pudo guardar el archivo.',
-  epochTitle: 'Próxima época de emisión',
-  epochBody: 'El número de la próxima época de emisión que acuñará el servicio. Es un contador, no una cantidad ni un rendimiento.',
-  epochLabel: 'Época',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   holdingsTitle: 'Mes avoirs',
@@ -109,8 +103,5 @@ const fr = {
   export: 'Exporter mes stakings (CSV)',
   exported: 'Stakings exportés.',
   exportFail: 'Le navigateur n’a pas pu enregistrer le fichier.',
-  epochTitle: 'Prochaine époque d’émission',
-  epochBody: 'Le numéro de la prochaine époque d’émission que le service frappera. C’est un compteur, pas un montant ni un rendement.',
-  epochLabel: 'Époque',
 } satisfies Record<keyof typeof en, string>;
 export const tokenHoldingsCopy = defineCopy('more.token.holdings', en, { es, fr });

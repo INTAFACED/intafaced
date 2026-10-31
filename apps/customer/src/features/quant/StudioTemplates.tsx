@@ -1,12 +1,18 @@
-import { quantTemplateDetailSchema, quantTemplateListOutputSchema, type QuantTemplateVersion } from '@intafaced/contracts/quant-algo';
+import {
+  quantTemplateDetailSchema,
+  quantTemplateListOutputSchema,
+  type QuantTemplateVersion,
+  type QuantTemplateVersionSource,
+} from '@intafaced/contracts/quant-algo';
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { Read } from '../more/common';
+import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
 import { STRATEGY_PAGE } from './StrategyTable';
 import { templatesCopy } from './templates-copy';
+import './algo.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -25,6 +31,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ result: Failed; retry: () => void } | null>(null);
   const [used, setUsed] = useState<QuantTemplateVersion | null>(null);
+  const [viewing, setViewing] = useState<{ id: string; name: string; versions: QuantTemplateVersionSource[] } | null>(null);
   // The form's guard as of now, not as of the press: edits typed while the read was in flight are still guarded.
   const latestOnUse = useRef(onUse);
   latestOnUse.current = onUse;
@@ -42,6 +49,18 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     if (!res.ok) return setFailure({ result: res, retry: () => void use(id) });
     const newest = res.data.versions[0]!;
     if (latestOnUse.current(newest)) setUsed(newest);
+  }
+
+  // Every version of one template, newest first, each with its source: read only, nothing here changes the form.
+  async function view(id: string, name: string) {
+    if (busy) return;
+    setBusy(id);
+    setFailure(null);
+    setViewing(null);
+    const res = await api.query('quant', 'template.get', { id }, quantTemplateDetailSchema);
+    setBusy(null);
+    if (!res.ok) return setFailure({ result: res, retry: () => void view(id, name) });
+    setViewing({ id, name, versions: res.data.versions });
   }
 
   async function more(cursor: string) {
@@ -75,6 +94,9 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
                         <Button variant="secondary" onClick={() => void use(row.id)} disabled={busy !== null}>
                           {t('use', { name: row.name })}
                         </Button>
+                        <Button variant="secondary" onClick={() => void view(row.id, row.name)} disabled={busy !== null}>
+                          {t('viewSource', { name: row.name })}
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -95,7 +117,37 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
             {t('used', { name: used.name, version: used.version })}
           </p>
         )}
+        {viewing && <TemplateSource key={viewing.id} {...viewing} onClose={() => setViewing(null)} />}
       </div>
     </Panel>
+  );
+}
+
+/** One template's versions and the source of the one chosen, read only: Use always takes the newest version. */
+function TemplateSource(props: { name: string; versions: QuantTemplateVersionSource[]; onClose: () => void }) {
+  const { t } = templatesCopy.useCopy();
+  const newest = props.versions[0]!;
+  const [chosen, setChosen] = useState(newest.version);
+  const shown = props.versions.find((row) => row.version === chosen) ?? newest;
+  return (
+    <section aria-label={t('sourceTitle', { name: props.name })} data-testid="quant-template-view">
+      <h3>{t('sourceTitle', { name: props.name })}</h3>
+      <Select
+        label={t('versionPick')}
+        value={String(shown.version)}
+        onChange={(value) => setChosen(Number(value))}
+        options={props.versions.map((row) => ({ value: String(row.version), label: t('version', { version: row.version }) }))}
+      />
+      <p lang="und" data-testid="quant-template-source-note">
+        {shown.releaseNote}
+      </p>
+      <p className="muted">{t('readOnly', { version: newest.version })}</p>
+      <pre lang="zxx" className="quant-source" tabIndex={0} data-testid="quant-template-source" data-version={shown.version}>
+        {shown.source}
+      </pre>
+      <Button variant="secondary" onClick={props.onClose}>
+        {t('closeSource')}
+      </Button>
+    </section>
   );
 }

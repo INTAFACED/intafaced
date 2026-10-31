@@ -6,6 +6,7 @@ import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
+import { parseOwnTemplates } from './own/catalog.js';
 import { parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -205,6 +206,7 @@ const appRouter = createAgentsRouter({
   runtime,
   // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
   tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
+  ownTemplates: parseOwnTemplates(env.AGENTS_OWN_TEMPLATES),
   gateway,
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,

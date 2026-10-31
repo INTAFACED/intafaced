@@ -1,17 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { fund, journeyState } from './stack.mjs';
-import { awayBid } from './desk.mjs';
+import { bestPrices, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-copy-bots-otc-19, in the running app (docs/roadmap/journeys.json): drive bots and algo orders with the API. One test
 // per step, titled "J-copy-bots-otc-19 #<n>", run in order. #1 makes the start: a verified TEST account with a passkey
 // and TEST 2000 USDT makes a live trade key; every call goes to Edge with that key.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1 to #6: there is no public bots API (grid, grid copy, grid stream, DCA, recurring buy).
-// - #7: the public algo route; and the stack sets no TEST bots verification level, so svc-trade refuses every algo
-//   create.
+// - #2, #3, #5 and #6: there is no public grid copy, grid stream, DCA or recurring buy API.
 const J = 'J-copy-bots-otc-19';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const ONE = toUnits('1');
 
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
@@ -25,24 +23,99 @@ function state(key) {
 
 const call = (method, path, body) => withKey(state('key'), { method, path, body });
 
+/** The grid bot read back by API until `ok` holds. */
+async function untilBot(id, ok, waitMs = 90_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const res = await call('GET', `/api/v1/bots/grid/${id}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    if (ok(res.body)) return res.body;
+    if (Date.now() >= until)
+      throw new Error(`grid ${id} reads ${res.body.state}: ${JSON.stringify(res.body.orders.map((o) => [o.side, o.status, o.price]))}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+/** The bot's resting buys, highest price first, in units. */
+const openBuys = (bot) =>
+  bot.orders
+    .filter((o) => o.side === 'buy' && o.status === 'open')
+    .map((o) => toUnits(o.price))
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+
+/** A TEST market `move` percent ("-1.25%") from one price to another. */
+function shiftPercent(from, to) {
+  const bps = ((to - from) * 10_000n) / from;
+  const abs = bps < 0n ? -bps : bps;
+  return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
+}
+
+/** The key holder's total of one asset, from the API's own balance read, in units. */
+async function balance(asset) {
+  const res = await call('GET', '/api/v1/account/balance');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return toUnits(res.body.balances?.[asset]?.total ?? '0');
+}
+
 test(`${J} #1 creates a neutral grid bot by API: one bot; stopping with settlement keep leaves the positions`, async ({ browser }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const { page, who } = await keyHolder(browser, 'jcb');
   expect(fund(who.email, 'USDT', '2000').tx).toBeTruthy();
   const key = await makeKey(page);
+  // A second key that may only read, for #7's refusal of a write without trade:write.
+  const readKey = await makeKey(page, { name: 'read-1', preset: 'Read only' });
   await page.context().close();
-  run.reset({ who, key });
-  const made = await call('POST', '/api/v1/bots/grid', {
+  run.reset({ who, key, readKey });
+  // Bounds 5% either side of today's TEST book, so the bot places buys below the mark at create.
+  const { bid, ask } = await bestPrices();
+  const body = {
+    clientId: `${J}-1-${Date.now().toString(36)}`,
     symbol: 'BTC/USDT',
     direction: 'neutral',
+    lowerPrice: String((toUnits(bid) * 95n) / 100n / ONE),
+    upperPrice: String((toUnits(ask) * 105n) / 100n / ONE),
     grids: 10,
     investment: '300',
-    clientId: `${J}-1`,
-  });
+  };
+  const made = await call('POST', '/api/v1/bots/grid', body);
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
-  run.write({ gridId: made.body.id });
-  const stopped = await call('POST', `/api/v1/bots/grid/${made.body.id}/stop`, { settlement: 'keep' });
+  const id = made.body.id;
+  run.write({ gridId: id });
+  // One bot: the same client id again answers the same bot, and the person's list holds it once.
+  const again = await call('POST', '/api/v1/bots/grid', body);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.id).toBe(id);
+  const list = await call('GET', '/api/v1/bots/grid');
+  expect(list.status, JSON.stringify(list.body).slice(0, 300)).toBe(200);
+  expect(list.body.map((bot) => bot.id)).toEqual([id]);
+  const running = await untilBot(id, (bot) => bot.state === 'running' && openBuys(bot).length >= 2);
+  // A position to keep: the TEST price falls through the top resting buy only. A buy fills once the book's asks reach
+  // it, 6 bps over the mid, so aim the mid between 6 bps under the second buy and 6 bps under the top one.
+  const buys = openBuys(running);
+  const target = (((buys[0] + buys[1]) / 2n) * (10_000n - 6n)) / 10_000n;
+  // The walk keeps wandering, so the shift is measured from the mid of this moment. The bot is stopped before the price
+  // goes back, so the pair's sell one level up can't fill on the way.
+  const now = await bestPrices();
+  const mid = (toUnits(now.bid) + toUnits(now.ask)) / 2n;
+  let held, before, stopped;
+  try {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
+    held = await untilBot(id, (bot) => bot.orders.some((o) => o.side === 'buy' && o.status === 'filled'));
+    before = await balance('BTC');
+    stopped = await call('POST', `/api/v1/bots/grid/${id}/stop`, { settlement: 'keep' });
+  } finally {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+  }
+  expect(before > 0n, 'the filled buy delivered BTC').toBe(true);
+  expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
   expect(stopped.body.state).toBe('stopped');
+  // Keep: every open level order is cancelled and the bought base stays the person's, unsold.
+  const after = await untilBot(id, (bot) => bot.orders.every((o) => o.status !== 'open'));
+  expect(after.state).toBe('stopped');
+  const filled = (bot) => bot.orders.filter((o) => o.status === 'filled').map((o) => `${o.side}:${o.orderId}`);
+  expect(filled(after)).toEqual(filled(held));
+  expect(after.orders.some((o) => o.side === 'sell' && o.status === 'filled')).toBe(false);
+  expect(await balance('BTC'), 'the bought BTC is kept').toBe(before);
 });
 
 test(`${J} #2 requests a copy of a lead's grid by API: as in the web`, async () => {
@@ -56,8 +129,15 @@ test(`${J} #3 subscribes to the grid stream: one fill event per fill id`, async 
 });
 
 test(`${J} #4 withdraws grid funds by API without step-up: refused for step-up`, async () => {
-  const res = await call('POST', `/api/v1/bots/grid/${state('gridId')}/withdraw`, { amount: '10' });
-  expect(codeOf(res.body)).toBe('step_up_required');
+  const id = state('gridId');
+  const before = await call('GET', `/api/v1/bots/grid/${id}`);
+  expect(before.status, JSON.stringify(before.body).slice(0, 300)).toBe(200);
+  const res = await call('POST', `/api/v1/bots/grid/${id}/withdraw`, { requestId: `${J}-4`, asset: 'USDT', amount: '1' });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
+  expect(res.body.intafacedCode).toBe('identity.step_up_required');
+  // Nothing was withdrawn: the bot reads back as it was.
+  const after = await call('GET', `/api/v1/bots/grid/${id}`);
+  expect(after.body).toEqual(before.body);
 });
 
 test(`${J} #5 creates a spot DCA bot by API and sends a manual buy to a stopped one: immutable; refused as not running`, async () => {
@@ -86,19 +166,57 @@ test(`${J} #6 creates a recurring buy rule twice with one key and tops up past t
 });
 
 test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: one parent; amend refused; trigger kind refused`, async () => {
+  test.setTimeout(120_000);
+  // A buy limit at or over the ask (the slice price band), a whole number 1% over it; small and slow, cancelled below.
+  const { ask } = await bestPrices();
   const body = {
     symbol: 'BTC/USDT',
     side: 'buy',
-    totalQty: '0.002',
-    durationMs: 600_000,
-    sliceIntervalMs: 60_000,
-    limitPrice: await awayBid(50),
-    clientAlgoId: `${J}-7`,
+    totalQty: '0.0002',
+    durationMs: 3_600_000,
+    sliceIntervalMs: 600_000,
+    limitPrice: String((toUnits(ask) * 101n) / 100n / ONE + 1n),
+    clientAlgoId: `${J}-7-${Date.now().toString(36)}`,
+    kind: 'twap',
   };
-  const a = await call('POST', '/api/v1/algo/twap', body);
+  const a = await call('POST', '/api/v1/algo', body);
   expect(a.status, JSON.stringify(a.body).slice(0, 300)).toBe(200);
-  const b = await call('POST', '/api/v1/algo/twap', body);
-  expect(b.body.id).toBe(a.body.id);
-  const amend = await call('PATCH', `/api/v1/algo/${a.body.id}`, { totalQty: '0.003' });
-  expect(codeOf(amend.body)).toBe('algo_immutable');
+  const id = a.body.id;
+  try {
+    expect(a.body).toMatchObject({ kind: 'twap', side: 'buy', totalQty: body.totalQty, limitPrice: body.limitPrice });
+    // One parent: the same client algo id again answers the same parent, and the list holds it once.
+    const b = await call('POST', '/api/v1/algo', body);
+    expect(b.status, JSON.stringify(b.body).slice(0, 300)).toBe(200);
+    expect(b.body.id).toBe(id);
+    const list = await call('GET', '/api/v1/algo?limit=500');
+    expect(list.status, JSON.stringify(list.body).slice(0, 300)).toBe(200);
+    expect(list.body.nextCursor).toBeNull();
+    expect(list.body.rows.filter((row) => row.id === id)).toHaveLength(1);
+    // Amend is refused by name, and the parent reads back unchanged.
+    const amend = await call('PATCH', `/api/v1/algo/${id}`, { totalQty: '0.0003' });
+    expect(amend.status, JSON.stringify(amend.body).slice(0, 300)).toBe(400);
+    expect(amend.body.intafacedCode).toBe('trade.algo_params_immutable');
+    const read = await call('GET', `/api/v1/algo/${id}`);
+    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+    expect(read.body).toMatchObject({ id, totalQty: body.totalQty, limitPrice: body.limitPrice });
+    // A trigger kind is refused as not built, and a key without trade:write is refused; neither makes a parent.
+    const trigger = await call('POST', '/api/v1/algo', { ...body, kind: 'trigger', clientAlgoId: `${body.clientAlgoId}-t` });
+    expect(trigger.status, JSON.stringify(trigger.body).slice(0, 300)).toBe(400);
+    expect(trigger.body.intafacedCode).toBe('trade.algo_kind_not_built');
+    const readOnly = await withKey(state('readKey'), {
+      method: 'POST',
+      path: '/api/v1/algo',
+      body: { ...body, clientAlgoId: `${body.clientAlgoId}-r` },
+    });
+    expect(readOnly.status, JSON.stringify(readOnly.body).slice(0, 300)).toBe(403);
+    const after = await call('GET', '/api/v1/algo?limit=500');
+    expect(after.body.rows.map((row) => row.id).sort()).toEqual(list.body.rows.map((row) => row.id).sort());
+    // Cancel reads back as cancelled.
+    const cancelled = await call('POST', `/api/v1/algo/${id}/cancel`);
+    expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBe(200);
+    expect(cancelled.body.status).toBe('cancelled');
+  } finally {
+    // Pass or fail, no schedule is left buying; a second cancel of a cancelled parent changes nothing.
+    await call('POST', `/api/v1/algo/${id}/cancel`).catch(() => {});
+  }
 });

@@ -22,8 +22,8 @@ const readme = readFileSync(join(here, '../../README.md'), 'utf8');
 
 function codesInReadmeTable(): string[] {
   const found = new Set<string>();
-  // Table rows pad the first column: | `channel.foo`        | meaning |
-  for (const m of readme.matchAll(/\| `(channel\.[a-z0-9_]+)`\s+\|/g)) {
+  // Table rows pad the first column: | `channel.foo`        | meaning | (`vendor.email` too)
+  for (const m of readme.matchAll(/\| `((?:channel|vendor)\.[a-z0-9_]+)`\s+\|/g)) {
     found.add(m[1]!);
   }
   return [...found].sort();

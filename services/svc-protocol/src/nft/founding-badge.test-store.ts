@@ -43,9 +43,15 @@ export function memBadgeStore(listed: string[]): BadgeStore & { rows: Map<string
     ...memMintSlots(rows, audits),
     isListed: async (id) => listed.includes(id),
     findClaim: async (k) => rows.get(k) ?? null,
-    findClaimByAddress: async (c, to) => [...rows.values()].find((r) => r.chainId === c && r.to.toLowerCase() === to.toLowerCase()) ?? null,
-    putClaim: async (r) => {
-      if (!rows.has(r.key)) rows.set(r.key, r);
+    findClaimByAddress: async (c, to) =>
+      [...rows.values()].find(
+        (r) => r.chainId === c.chainId && (r.genesisHash ?? c.genesisHash) === c.genesisHash && r.to.toLowerCase() === to.toLowerCase(),
+      ) ?? null,
+    putClaim: async (r, opts) => {
+      const held = rows.get(r.key);
+      // A claim from another genesis is replaced only when asked (a restartable chain), as the Postgres store does.
+      const otherGenesis = held?.genesisHash && r.genesisHash && held.genesisHash !== r.genesisHash;
+      if (!held || (otherGenesis && opts.replaceOtherGenesis)) rows.set(r.key, r);
       return rows.get(r.key)!;
     },
     setTxHash: async (k, tx) => {

@@ -321,7 +321,6 @@ test(`${J} #8 solved with no mail sender set: the in-app prompt shows and the ra
   );
   expect(deliveries.status, JSON.stringify(deliveries.body).slice(0, 300)).toBe(200);
   const email = deliveries.body.result.data.find((row) => row.channel === 'email');
-  // Today svc-notify makes only the in-app delivery for this kind, so this check is red until the mailed ask exists.
   expect(email, `the rating ask's deliveries: ${JSON.stringify(deliveries.body.result.data)}`).toMatchObject({
     status: 'pending',
     refusalCode: 'vendor.email',

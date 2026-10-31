@@ -139,6 +139,20 @@ const KNOWN = {
     module: 'brace-expansion',
     note: 'eslint > minimatch. Lint tooling; never runs in a service.',
   },
+  'GHSA-g3hv-75wg-m249': {
+    severity: 'moderate',
+    module: 'minimatch',
+    note:
+      'eslint, rimraf > glob, and testcontainers > archiver > glob / readdir-glob > minimatch. Lint, clean and test tooling; ' +
+      'never runs in a service. The patch is minimatch 11, a major none of them accepts yet (eslint pins the 3.x API).',
+  },
+  'GHSA-3g3m-2fjr-6pw4': {
+    severity: 'moderate',
+    module: 'glob',
+    note:
+      'rimraf > glob and testcontainers > archiver > archiver-utils > glob. Clean and test tooling; never runs in a service, ' +
+      'and neither passes an AbortSignal. The patch is glob 14, a major neither accepts yet.',
+  },
   'GHSA-m9gg-hp2v-232j': {
     severity: 'high',
     module: '@grpc/grpc-js',

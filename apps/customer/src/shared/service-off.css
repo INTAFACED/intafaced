@@ -1,7 +1,0 @@
-/* The shell's one service-off notice: the sentence, then its allowlist code in a quieter face. */
-@layer components {
-  .service-off__code {
-    color: var(--if-fg-3);
-    font-size: var(--if-text-xs);
-  }
-}

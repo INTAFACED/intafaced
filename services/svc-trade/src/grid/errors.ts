@@ -35,7 +35,10 @@ export type GridErrorCode =
   | 'trade.bots_withdraw_exceeds_profit'
   | 'trade.bots_withdraw_exceeds_balance'
   | 'trade.bots_withdraw_reserve_released'
-  | 'trade.bots_withdraw_conflict';
+  | 'trade.bots_withdraw_conflict'
+  | 'trade.grid_request_invalid'
+  | 'trade.grid_direction_not_built'
+  | 'trade.grid_settlement_not_built';
 
 /** Codes the tRPC door answers as NOT_FOUND / CONFLICT; every other grid code is BAD_REQUEST. */
 export const GRID_NOT_FOUND_CODES: ReadonlySet<GridErrorCode> = new Set(['trade.grid_not_found', 'trade.grid_market_not_found']);
