@@ -7,12 +7,13 @@ import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
-import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
+import { TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import { BuybackRuns } from './BuybackRuns';
 import { buybackRunsCopy } from './buyback-runs-copy';
+import { EmissionSchedule, YieldHistory } from './TokenEconomy';
 import {
   ChoiceBallot,
   ChoiceTallyView,
@@ -400,13 +401,14 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
         </div>
       ) : (
         <div className="more-columns">
-          <EmissionEpoch />
+          <EmissionSchedule />
+          <YieldHistory />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
               <Text k="token.emission.buyback.and.revenue.distribution.windows.are" />
             </p>
             <p>
-              <Text k="token.the.customer.api.publishes.no.personal.yield" />
+              <Text k="token.no.upcoming.distribution.is.quoted" />
             </p>
             <p>
               <Text k="token.governance.closure.depends.on.published.quorum.and" />

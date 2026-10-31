@@ -2,6 +2,7 @@ import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-ne
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { assertNotSanctioned, type DestinationSanctionsPort } from './sanctions-list.js';
 import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
 import {
@@ -53,6 +54,8 @@ export interface CustomerRampDeps {
   approvalLinks: ApprovalLinkStore;
   /** The owner's destination fraud list (W-withdraw-03): a listed address is never saved, and a saved one reads blocked. */
   fraudList: DestinationFraudListPort;
+  /** The owner's destination sanctions list: blank refuses every save, a listed address is never saved, a saved one reads blocked. */
+  sanctions: DestinationSanctionsPort;
 }
 
 interface QuoteRow {
@@ -462,6 +465,8 @@ export async function checkDestination(
   await assertSecurityLockOpen(deps.securityLock, input.userId, 'adding a withdrawal address');
   const ref = input.ref.trim();
   if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null, fraudListed: false };
+  // The sanctions list refuses here as `save` would, so the form says so before it asks for a confirmation code.
+  assertNotSanctioned(deps.sanctions, input.network ?? null, ref);
   const [saved, fraudListed] = await Promise.all([
     deps.destinations.list(input.userId),
     input.network === undefined ? false : deps.fraudList.isListed(input.network, ref),
@@ -485,6 +490,9 @@ export async function saveDestination(
   const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
+  // A sanctioned address, or any while the owner's sanctions list is unset, is refused before anything is read or stored,
+  // even as a replay of an entry saved before.
+  assertNotSanctioned(deps.sanctions, entry.network, entry.ref);
   // Independent reads, asked together: the book, and whether the address is on the fraud list.
   const [saved, fraudListed] = await Promise.all([deps.destinations.list(book.userId), deps.fraudList.isListed(entry.network, entry.ref)]);
   // The same entry again is a replay of a save already made, answered as before. Anything new is not added while the
@@ -567,6 +575,8 @@ export async function destinationReadiness(
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
   // Listed as fraud after it was saved: nothing may be sent to it. An entry with no network matches a listing on any network.
   if (await deps.fraudList.isListed(row.network, row.ref)) return { ...base, state: 'blocked' };
+  // Sanctioned after it was saved, or no list set to screen it: nothing may be sent to it.
+  if (deps.sanctions.check(row.network, row.ref) !== 'clear') return { ...base, state: 'blocked' };
   if (row.state === 'pending') {
     const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
     return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };

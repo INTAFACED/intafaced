@@ -13,7 +13,8 @@
   }
   .apps-row,
   .apps-form,
-  .apps-secret {
+  .apps-secret,
+  .apps-unset {
     display: grid;
     gap: var(--if-space-2);
     padding: var(--if-space-4);

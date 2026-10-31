@@ -4,6 +4,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnit
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../../../../tooling/scripts/local-stack-services/bank.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
 // "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and two saved
@@ -15,8 +16,8 @@ import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-t
 // The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
 // the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6 and #4's two parallel sends run after #7, which
 // needs the balance still at 300. #8 watches the withdrawal #6 sent, so it runs after #6.
-// #2's sanctions clause stays in the step and fails by name: no sanctions screening provider is set for destinations, which
-// is the owner's call, and a blank list is never filled in here (product law). The rest of #2 runs before it.
+// #2's sanctions clause uses the stack's LOCAL TEST destination sanctions list (svc-bank `BANK_DESTINATION_SANCTIONS`, set only
+// by local-stack-services/bank.mjs), one made-up address and not a real list.
 // #5 (travel rule) waits for launch (owner decision 2026-10-27).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -151,6 +152,12 @@ async function customerApi(who) {
     async withdrawal(withdrawalId) {
       const { status, body } = await get(`/api/pay/trpc/withdrawal.get?input=${encodeURIComponent(JSON.stringify({ withdrawalId }))}`);
       if (status !== 200) throw new Error(`withdrawal read refused: ${status}`);
+      return body.result.data;
+    },
+    /** The person's address book as svc-bank lists it. */
+    async addresses() {
+      const { status, body } = await get('/api/bank/trpc/ramps.destinations.list');
+      if (status !== 200) throw new Error(`address book read refused: ${status}`);
       return body.result.data;
     },
     /** svc-bank's network catalogue, as the Withdraw form reads it: each asset's networks and its default. */
@@ -421,9 +428,32 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
     payScreener(true);
   }
 
-  // The sanctions clause: an address on the destination sanctions list is refused by name and never saved. No screening
-  // provider is set for destinations, and a blank list is never filled in with invented entries, so the clause fails here.
-  throw new Error("#2's sanctions clause: sanctions screening provider not set: the owner's call");
+  // The sanctions clause: the address on the stack's LOCAL TEST destination sanctions list is refused by name when saved,
+  // in the customer's words, and never reaches the address book; nothing is held and nothing is sent.
+  await page.goto('/uc/withdraw/address');
+  const again = page.getByRole('form', { name: 'Add an address' });
+  await again.getByRole('textbox', { name: /^Label/ }).fill('TEST sanctioned wallet');
+  await again.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await again.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
+  await again.getByRole('textbox', { name: /^Address/ }).fill(LOCAL_TEST_SANCTIONED_ADDRESS);
+  await again.getByRole('button', { name: 'Save address' }).click();
+  // The check before the confirmation code refuses it, so no code is asked for.
+  await expect(again.getByRole('alert')).toHaveText('This address is on the sanctions list, so it can’t be saved. Nothing was saved.');
+  await expect(stepUp(page)).toHaveCount(0);
+  await expect(page.locator('tbody tr', { hasText: 'TEST sanctioned wallet' })).toHaveCount(0);
+  // The bank itself refuses it with its typed code, however its letters are cased, even with a fresh step-up.
+  for (const ref of [LOCAL_TEST_SANCTIONED_ADDRESS, LOCAL_TEST_SANCTIONED_ADDRESS.toUpperCase().replace('0X', '0x')]) {
+    const sanctioned = await api.saveAddress(
+      { assetId: 'USDT', network: 'ethereum', ref, label: 'TEST sanctioned wallet' },
+      (await api.stepUp()).accessToken,
+    );
+    expect(sanctioned.body?.error?.data?.cause?.code, JSON.stringify(sanctioned.body).slice(0, 400)).toBe(
+      'bank.destination_sanctions_listed',
+    );
+  }
+  expect((await api.addresses()).filter((row) => row.label === 'TEST sanctioned wallet')).toEqual([]);
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+  expect(await api.withdrawals()).toEqual([]);
 });
 
 test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, an expired quote must be got again, and a blank fee is a refusal`, async ({

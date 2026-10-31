@@ -1,11 +1,14 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { signUp } from './desk.mjs';
 
 // J-more-catalogue-15, in the running app (docs/roadmap/journeys.json): read a prediction market and place a Yes or No
 // order. One test per step, titled "J-more-catalogue-15 #<n>", run in order. Every step waits for a slice that is not
 // built yet and fails by name, cheaply (no sign-in, a short timeout); each becomes a real check in the running app when
 // its slice lands:
-// - MC-predict-01 (#1 to #3): svc-trade's Predict catalogue, the publish door and per-market rules, timeline and
-//   clarifications. Today /predict reads an empty catalogue and names no blocker.
+// - #1 is checked: /predict reads the empty catalogue and names its blocker. svc-trade's publish door refuses
+//   owner.decision until the owner decides who determines a result (ENGINE E-1), so no market can exist yet.
+// - MC-predict-01 (start, #2, #3): the stored catalogue, its filters and per-market rules, timeline and clarifications,
+//   which wait for E-1 because no market can be published to prove them.
 // - MC-predict-02 (#4): price as probability from decimal strings, the price history and the one order book's bid and
 //   ask views.
 // - MC-predict-03 (#5, #6): the order ticket through svc-trade and ledger-client recipes, full collateral held once per
@@ -26,13 +29,28 @@ function notBuilt(slice, missing) {
 
 test(
   `${J} starts: signed in with TEST money; a published market with rules and a resolution source`,
-  notBuilt('MC-predict-01', 'svc-trade has no Predict publish door, so no market can be published'),
+  notBuilt('MC-predict-01', 'publishing refuses owner.decision until the owner decides who determines a result (E-1), so no market exists'),
 );
 
-test(
-  `${J} #1 Opens /predict with no markets: the full layout, the honest empty state and the named blocker`,
-  notBuilt('MC-predict-01', 'the Predict room reads an empty catalogue but names no blocker'),
-);
+test(`${J} #1 Opens /predict with no markets: the full layout, the honest empty state and the named blocker`, async ({ page }) => {
+  await signUp(page, 'jp1');
+  await page.goto('/predict');
+  const catalogue = page.locator('.prediction-catalogue');
+  await expect(catalogue.getByRole('heading', { name: 'Listed questions', level: 2 })).toBeVisible();
+  // The honest empty state: no sample market, no invented row.
+  await expect(catalogue.getByRole('heading', { name: 'No questions are listed', level: 3 })).toBeVisible();
+  await expect(catalogue.locator('article')).toHaveCount(0);
+  await expect(catalogue.getByRole('button', { name: 'Refresh questions' })).toBeEnabled();
+  // The named blocker: publishing waits for the owner's decision on who determines a result (ENGINE E-1).
+  const blocker = page.getByTestId('prediction-blocker').locator('[data-not-connected="owner.decision"]');
+  await expect(blocker).toHaveText(
+    'Publishing a prediction market needs an owner decision. It is switched off in this build. owner.decision',
+  );
+  await expect(page.getByTestId('prediction-blocker')).toContainText('an owner decision that has not been made');
+  // The full layout: the ticket column is drawn beside the list, with its own blocker.
+  await expect(page.locator('.prediction-room-review').getByRole('heading', { level: 2 })).toBeVisible();
+  await expect(page.locator('.prediction-ticket__blocker')).toBeVisible();
+});
 
 test(
   `${J} #2 Filters three published markets by category and trending: only matches, in trade-count order; a market that closes on an outcome says so and invents no time`,

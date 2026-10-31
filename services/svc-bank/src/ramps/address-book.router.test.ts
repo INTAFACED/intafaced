@@ -15,6 +15,7 @@ import { memoryWalletProofs, type WalletProofStore } from './wallet-ownership.js
 import { memorySecurityLock } from '../security-lock.js';
 import { memoryTrustedDevices } from './trusted-devices.js';
 import { memoryFraudList } from './fraud-list.js';
+import { memorySanctions } from './sanctions-list.js';
 
 /** Identity's answer for the second device of the device-approval test: approved by a mailed code. */
 const PROVED_DEVICE = 'bbbbbbbb-1111-4111-8111-000000000002';
@@ -63,6 +64,7 @@ function callerWith(
   } as Principal);
   const ramps = new RampService({} as Sql, {} as LedgerClient, {
     fraudList: memoryFraudList(),
+    sanctions: memorySanctions(),
     securityLock: memorySecurityLock(),
     trustedDevices: devices,
     destinations,
@@ -323,6 +325,7 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     const destinations = book();
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       securityLock: memorySecurityLock(),
       destinations,
       addressBookCap: '5',
@@ -404,6 +407,7 @@ describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17
     const saved = await destinations.save({ userId: USER, ...entry, ref: WALLET, label: 'TEST private' });
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       securityLock: memorySecurityLock(),
       destinations,
       withdrawNetworks: REGISTRY,

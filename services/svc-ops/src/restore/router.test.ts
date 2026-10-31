@@ -51,6 +51,7 @@ function desk(over: { target?: string | null } = {}) {
     store: createMemoryRestoreRunStore(),
     stamps: createMemoryRestoreStore(),
     reader: { read: async () => ({ ok: false, code: 'ops.restore_watermark_unavailable', message: 'down' }) },
+    halt: { read: async () => ({ halted: true }) },
     approvals: undefined,
     archiveUrl: () => 'https://archive.example/restore',
     target: () => (over.target === undefined ? 'owner-target' : over.target),
