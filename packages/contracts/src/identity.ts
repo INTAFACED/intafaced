@@ -59,6 +59,15 @@ export const accountStateSchema = z.object({
 export type AccountState = z.infer<typeof accountStateSchema>;
 
 /**
+ * Whether a read account state says the record is archived. A state without the field (an older identity, or a
+ * stored copy from before it) is `unread`: a gate refuses on it, never reads it as not archived.
+ */
+export function accountArchiveOf(state: Pick<AccountState, 'archived'>): 'archived' | 'not_archived' | 'unread' {
+  if (state.archived === undefined) return 'unread';
+  return state.archived ? 'archived' : 'not_archived';
+}
+
+/**
  * Whether the account's current email address is proved (RC-identity-01), for a service that gates an action on it:
  * svc-trade refuses a new custodial order while it is `missing`. Read per request from svc-identity's
  * `GET /internal/email-proof/:userId`, service-authenticated; never copied. A separate shape from `AccountState` on

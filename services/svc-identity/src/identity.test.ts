@@ -1798,7 +1798,7 @@ if (!available) {
         await db.sql`UPDATE users SET status = 'closed' WHERE id = ${session.userId}`;
         // Distinct from the null above: "this account is closed" is something a
         // support operator can act on; "no such account" is not.
-        expect(await auth.accountState(session.userId)).toMatchObject({ status: 'closed' });
+        expect(await auth.accountState(session.userId)).toMatchObject({ status: 'closed', archived: false });
       });
 
       it('an archived record reads as archived, so a staff action can refuse it', async () => {
