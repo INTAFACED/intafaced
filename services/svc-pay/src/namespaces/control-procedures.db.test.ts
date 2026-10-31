@@ -9,7 +9,7 @@ import { MerchantControlError } from '../merchant-account-controls.js';
 import { RailRegistry } from '../rails/registry.js';
 import { ChangeService } from '../control/changes.js';
 import { ControlService } from '../control/service.js';
-import { ownerAccessPorts } from '../control/access.js';
+import { ownerAccessPorts, teamAccessPorts } from '../control/access.js';
 import {
   applyChange,
   FOUNDER_1,
@@ -154,6 +154,33 @@ describe('control-room procedures', () => {
         )({ approvalId: randomUUID(), decision: 'approve', expectedPayloadHash: `sha256:${'a'.repeat(64)}`, reason: 'looks fine' }),
       );
       expect(real).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.approval_not_found' });
+    });
+
+    it('a team checker decides on pay:onboard: an active member of a verified business reaches the role check, an owner needs a live pay:write', async () => {
+      // The owner grant law gives pay:write to the owner alone; admin and finance carry pay:onboard and hold
+      // payout.approve in the role table, so deciding is a team member's write (teamMemberWrite).
+      const owner = randomUUID();
+      const finance = randomUUID();
+      const stranger = randomUUID();
+      const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
+      const merchant = (await pay.createMerchant({ userId: owner, pricing: { feeBps: 0 } })).id;
+      await sql`UPDATE pay.merchants SET kyb_status = 'approved' WHERE id = ${merchant}`;
+      await sql`
+        INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+        VALUES (${merchant}, ${finance}, 'finance', 'active', ${owner}, now())`;
+      const decide = (userId: string, scopes: string[]) =>
+        failure(
+          at(
+            createPayNamespaces({ founderAuthority, control: new ControlService(sql, teamAccessPorts(sql)) }).createCaller(
+              ctxOf(userId, { scopes }),
+            ),
+            'merchantControl.approvals.decide',
+          )({ approvalId: randomUUID(), decision: 'approve', expectedPayloadHash: `sha256:${'a'.repeat(64)}`, reason: 'looks fine' }),
+        );
+      expect(await decide(finance, ['pay:onboard'])).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.approval_not_found' });
+      expect((await decide(owner, ['pay:onboard']))!.code).toBe('FORBIDDEN');
+      expect((await decide(stranger, ['pay:onboard']))!.code).toBe('FORBIDDEN');
+      expect((await decide(finance, ['pay:read']))!.code).toBe('FORBIDDEN');
     });
 
     it('an anonymous caller and a caller without the scope are refused before any data', async () => {
