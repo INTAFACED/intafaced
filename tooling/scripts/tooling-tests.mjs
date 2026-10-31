@@ -13,7 +13,7 @@
  *
  * Usage: node tooling/scripts/tooling-tests.mjs   (from the repo root)
  */
-import { readdirSync, existsSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, existsSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -31,15 +31,17 @@ const TIMEOUT_MS = 5 * 60_000;
 export function testFiles(dir = DIR) {
   const found = [];
   const walk = (d) => {
-    for (const name of readdirSync(d)) {
-      if (SKIP_DIRS.has(name)) continue;
-      const full = join(d, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (name.endsWith('.test.mjs')) found.push(relative(ROOT, full).split('\\').join('/'));
+    // Dirents, not stat: a link is never followed, so a dangling one or one pointing back up cannot break the walk.
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.test.mjs')) found.push(relative(ROOT, full).split('\\').join('/'));
     }
   };
   if (existsSync(dir)) walk(dir);
-  return found.filter((f) => !ENTRY_ONLY.has(f) && !NEEDS_BUILD.includes(f)).sort();
+  const elsewhere = new Set([...ENTRY_ONLY, ...NEEDS_BUILD]);
+  return found.filter((f) => !elsewhere.has(f)).sort();
 }
 
 /**
