@@ -10,6 +10,8 @@ import { tool } from './stack.mjs';
 // (tooling/scripts/local-stack-services/ops.mjs), with `LOCAL_STACK_OPS_RESTORE=off` leaving both blank for #4; until it
 // does, #4 sees the blank archive anyway and #5 fails at once by name. Every stamp and the finalize are two-founder requests: A asks,
 // B approves the exact request at identity, A runs it, and svc-ops spends the approval once.
+// svc-ops compares the stamps with the services' live counts only while svc-ledger's posting freeze is on, so #6's check and
+// #7's stamps, checks and finalize hold the freeze (two founders) and lift it after, with a teardown for a timeout.
 
 const J = 'J-ops-console-08';
 const tag = randomBytes(3).toString('hex');
@@ -44,6 +46,77 @@ const approvalStep = (page, body) =>
   }, body);
 
 const decode = (packetText) => JSON.parse(Buffer.from(packetText.trim().slice('ifa1.'.length), 'base64url').toString('utf8'));
+
+/** One step of a two-founder posting freeze or unfreeze, as the signed-in founder in `page` (as J-ops-console-04 does it). */
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+/** A asks, B approves, A runs: svc-ledger's platform-wide posting freeze on (`frozen`) or off. */
+async function setPostingFreeze(a, b, frozen, why) {
+  const record = await a.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: why, version: record.state.version }
+    : { kind: 'ledger.unfreeze', version: record.state.version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+}
+
+/** Set while #6 or #7 holds the platform-wide posting freeze on, so the teardown below can lift it even after a timeout. */
+let freezeOn = false;
+
+// The joint check runs only while the posting freeze is on (svc-ops refuses ops.restore_platform_not_halted otherwise). A
+// freeze left on would refuse every later journey's posts on this stack, so it is lifted here on fresh pages when a test
+// ends with it on (a timeout closes that test's own pages before its own cleanup can run).
+test.afterEach(async ({ browser }) => {
+  if (!freezeOn) return;
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(a, 'a');
+  await founderSignIn(b, 'b');
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await setPostingFreeze(a, b, false);
+  freezeOn = false;
+});
+
+/** Runs `body` with the posting freeze on, marked before it is asked for, and lifts it after, whatever `body` did. */
+async function frozen(a, b, why, body) {
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  let failure = null;
+  try {
+    // Marked on before the call: a freeze that reached the ledger is lifted even if the call's own answer failed.
+    freezeOn = true;
+    await setPostingFreeze(a, b, true, why);
+    await body();
+  } catch (error) {
+    failure = error;
+  }
+  // Lift the freeze for the journeys after this one; a failure to lift it never hides the step's own failure.
+  try {
+    await setPostingFreeze(a, b, false);
+    freezeOn = false;
+  } catch (unfreeze) {
+    failure ??= unfreeze;
+  }
+  if (failure) throw failure;
+}
 
 /**
  * Founder A asks in `section` (already filled), founder B approves the packet on their own console, and A runs it. Answers the
@@ -219,7 +292,7 @@ test(`${J} #6 a missing or differing stamp refuses ops.restore_watermarks_disagr
   browser,
 }) => {
   test.setTimeout(300_000);
-  const { a } = await signedIn(browser);
+  const { a, b } = await signedIn(browser);
   await a.goto(`${ADMIN}/restore`, { waitUntil: 'load' });
   // The run's cut-off is a little ahead, so only a stamp that differs, not a write during the drill, can disagree here.
   const start = a.getByTestId('start-run');
@@ -239,14 +312,26 @@ test(`${J} #6 a missing or differing stamp refuses ops.restore_watermarks_disagr
     expect(joint[service].stamp).toContain(tag);
     expect(joint[service].verdict).toBe('The service reports a different position than its stamp.');
   }
-  await expect(a.getByTestId('joint-verdict')).toHaveText('The services do not agree, so nothing past clean-area is allowed.');
+  await expect(a.getByTestId('joint-verdict')).toHaveText('Not compared: the counts prove nothing while the services can still write.');
   await a.getByTestId('step-restore_clean').click();
   await expect(a.getByTestId('step-validate')).toBeVisible();
-  const answered = a.waitForResponse((res) => res.url().endsWith('/api/restore') && res.request().method() === 'POST');
+  // With the posting freeze off the services can still write, so the comparison is refused before it counts.
+  await expect(a.getByTestId('joint-halt')).toContainText('The ledger posting freeze is off');
+  const unhalted = a.waitForResponse((res) => res.url().endsWith('/api/restore') && res.request().method() === 'POST');
   await a.getByTestId('step-validate').click();
-  expect(await (await answered).json()).toMatchObject({ ok: false, code: 'ops.restore_watermarks_disagree' });
-  await expect(a.getByTestId('step-refused')).toContainText('do not agree, so nothing was restored');
-  await a.reload({ waitUntil: 'load' });
+  expect(await (await unhalted).json()).toMatchObject({ ok: false, code: 'ops.restore_platform_not_halted' });
+  // Halted, the differing stamps are what refuses.
+  const runUrl = `${ADMIN}/restore?run=${encodeURIComponent(RUN)}`;
+  await frozen(a, b, `LOCAL TEST J-ops-console-08 #6 joint check ${tag}`, async () => {
+    await a.goto(runUrl, { waitUntil: 'load' });
+    await expect(a.getByTestId('joint-halt')).toContainText('The ledger posting freeze is on');
+    await expect(a.getByTestId('joint-verdict')).toHaveText('The services do not agree, so nothing past clean-area is allowed.');
+    const answered = a.waitForResponse((res) => res.url().endsWith('/api/restore') && res.request().method() === 'POST');
+    await a.getByTestId('step-validate').click();
+    expect(await (await answered).json()).toMatchObject({ ok: false, code: 'ops.restore_watermarks_disagree' });
+    await expect(a.getByTestId('step-refused')).toContainText('do not agree, so nothing was restored');
+  });
+  await a.goto(runUrl, { waitUntil: 'load' });
   await expect(a.getByTestId('restored')).toHaveText('No');
   await expect(a.getByTestId('finalize-form')).toHaveCount(0);
   await expect(a.getByTestId('finalize-parked')).toHaveCount(0);
@@ -261,47 +346,51 @@ test(`${J} #7 finalize is refused with one approver and records with the second;
   const { a, b } = await signedIn(browser);
   const runUrl = `${ADMIN}/restore?run=${encodeURIComponent(RUN)}`;
   await a.goto(runUrl, { waitUntil: 'load' });
-  // Stamp each service at the position it reports now, as an operator reading the joint table would.
-  for (const service of SERVICES) {
-    const joint = await jointRows(a);
-    expect(joint[service].position, `svc-${service} gave no position`).toMatch(/^\d+$/);
-    await stamp(a, b, service, `${service}.position`, joint[service].position);
+  // The stamps, the checks and finalize run with the posting freeze on, as the joint check requires, and only those.
+  await frozen(a, b, `LOCAL TEST J-ops-console-08 #7 restore ${tag}`, async () => {
     await a.goto(runUrl, { waitUntil: 'load' });
-  }
-  const joint = await jointRows(a);
-  for (const service of SERVICES)
-    expect(joint[service].verdict, `svc-${service}: stamp ${joint[service].stamp}, live ${joint[service].position}`).toBe('Agrees');
-  await a.getByTestId('step-validate').click();
-  await expect(a.getByTestId('step-preview')).toBeVisible({ timeout: 30_000 });
-  await a.getByTestId('step-preview').click();
-  const finalize = a.getByTestId('finalize-form');
-  await expect(finalize).toBeVisible({ timeout: 30_000 });
-  await expect(a.getByTestId('restored')).toHaveText('No');
+    // Stamp each service at the position it reports now, as an operator reading the joint table would.
+    for (const service of SERVICES) {
+      const joint = await jointRows(a);
+      expect(joint[service].position, `svc-${service} gave no position`).toMatch(/^\d+$/);
+      await stamp(a, b, service, `${service}.position`, joint[service].position);
+      await a.goto(runUrl, { waitUntil: 'load' });
+    }
+    const joint = await jointRows(a);
+    for (const service of SERVICES)
+      expect(joint[service].verdict, `svc-${service}: stamp ${joint[service].stamp}, live ${joint[service].position}`).toBe('Agrees');
+    await a.getByTestId('step-validate').click();
+    await expect(a.getByTestId('step-preview')).toBeVisible({ timeout: 30_000 });
+    await a.getByTestId('step-preview').click();
+    const finalize = a.getByTestId('finalize-form');
+    await expect(finalize).toBeVisible({ timeout: 30_000 });
+    await expect(a.getByTestId('restored')).toHaveText('No');
 
-  // One approver: A cannot approve their own finalize, and a run before anyone approved restores nothing.
-  const phrase = `FINALIZE RESTORE ${RUN}`;
-  await finalize.getByLabel(/to confirm$/).fill(phrase);
-  await finalize.getByRole('button', { name: 'Ask a second founder to approve finalizing this restore' }).click();
-  await expect(finalize.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
-  const packetText = (await finalize.getByLabel('Request packet').inputValue()).trim();
-  const packet = decode(packetText);
-  const self = await approvalStep(a, { step: 'approve', request: packet.request, confirm: phrase, approvalId: packet.approvalId });
-  expect(self.body).toMatchObject({ ok: false, refusal: { code: 'action_approval.same_person' } });
-  const early = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
-  expect(early.body.ok).toBe(false);
-  await a.reload({ waitUntil: 'load' });
-  await expect(a.getByTestId('restored')).toHaveText('No');
+    // One approver: A cannot approve their own finalize, and a run before anyone approved restores nothing.
+    const phrase = `FINALIZE RESTORE ${RUN}`;
+    await finalize.getByLabel(/to confirm$/).fill(phrase);
+    await finalize.getByRole('button', { name: 'Ask a second founder to approve finalizing this restore' }).click();
+    await expect(finalize.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+    const packetText = (await finalize.getByLabel('Request packet').inputValue()).trim();
+    const packet = decode(packetText);
+    const self = await approvalStep(a, { step: 'approve', request: packet.request, confirm: phrase, approvalId: packet.approvalId });
+    expect(self.body).toMatchObject({ ok: false, refusal: { code: 'action_approval.same_person' } });
+    const early = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
+    expect(early.body.ok).toBe(false);
+    await a.reload({ waitUntil: 'load' });
+    await expect(a.getByTestId('restored')).toHaveText('No');
 
-  // The second founder approves the same run and cut-off; A runs it and the run is restored with all four rows.
-  await b.goto(runUrl, { waitUntil: 'load' });
-  const deskB = b.getByTestId('finalize-form');
-  await deskB.getByLabel('Request packet').fill(packetText);
-  await deskB.getByLabel(/to approve or run it$/).fill(phrase);
-  await deskB.getByRole('button', { name: 'Approve this request' }).click();
-  await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
-  const done = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
-  expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, step: 'execute' });
-  await a.reload({ waitUntil: 'load' });
+    // The second founder approves the same run and cut-off; A runs it and the run is restored with all four rows.
+    await b.goto(runUrl, { waitUntil: 'load' });
+    const deskB = b.getByTestId('finalize-form');
+    await deskB.getByLabel('Request packet').fill(packetText);
+    await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+    await deskB.getByRole('button', { name: 'Approve this request' }).click();
+    await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+    const done = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
+    expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, step: 'execute' });
+  });
+  await a.goto(runUrl, { waitUntil: 'load' });
   await expect(a.getByTestId('restored')).toHaveText('Yes, all four steps are recorded');
   const steps = a.getByTestId('step-row');
   await expect(steps).toHaveCount(4);
