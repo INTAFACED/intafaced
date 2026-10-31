@@ -80,7 +80,7 @@ const hub = (limit: number | null = 10) => new LearnHub(db.sql, limit);
 
 describe('the Learn hub featured article (AC-articles-01)', () => {
   it('only a lesson learners can read is featured; withdrawing it empties the slot; a repeat withdrawal answers the same', async () => {
-    const { lesson, subheader } = await draftWithOutline();
+    const { course, lesson, subheader } = await draftWithOutline();
     await expect(hub().featureLesson({ itemId: lesson.id, reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
       code: 'academy.featured_not_live',
     });
@@ -105,6 +105,14 @@ describe('the Learn hub featured article (AC-articles-01)', () => {
       chosenBy: B,
     });
     expect((await lessons().get(lesson.id)).featured).toBe(true);
+    // Visitors see its title and course; the course's address only once the course is published.
+    expect(await hub().publicLesson()).toEqual({ title: 'Position size', courseTitle: 'Risk basics', courseSlug: null });
+    const published = await db.sql<Array<{ slug: string }>>`
+      UPDATE academy.courses SET state = 'published' WHERE id = ${course.id} RETURNING slug
+    `;
+    const slug = published[0]!.slug;
+    expect(await hub().publicLesson()).toEqual({ title: 'Position size', courseTitle: 'Risk basics', courseSlug: slug });
+    await db.sql`UPDATE academy.courses SET state = 'draft' WHERE id = ${course.id}`;
 
     const withdrawn = await lessons().withdraw({
       itemId: lesson.id,
@@ -115,6 +123,7 @@ describe('the Learn hub featured article (AC-articles-01)', () => {
     });
     expect(withdrawn).toMatchObject({ featured: false, item: { liveRevision: null }, courseRevision: live.courseRevision + 1 });
     expect((await hub().featuredSlot()).lesson).toBeNull();
+    expect(await hub().publicLesson()).toBeNull();
     const trail = await db.sql`SELECT action, reason, actor FROM academy.featured_events ORDER BY at, action`;
     expect(trail).toEqual([
       { action: 'featured', reason: 'TEST first article', actor: B },
@@ -143,6 +152,7 @@ describe('the Learn hub featured article (AC-articles-01)', () => {
       INSERT INTO academy.featured_items (slot, item_slug, reason, chosen_by, chosen_at) VALUES ('hub', ${spine.slug}, 'TEST', ${A}, ${NOW})
     `;
     expect(await hub().featuredSlot()).toMatchObject({ curriculum: { slug: spine.slug }, lesson: null, reason: 'TEST' });
+    expect(await hub().publicLesson()).toBeNull();
     await hub().clearFeatured({ reason: 'TEST tidy', operatorId: B, now: LATER });
     expect((await hub().featuredSlot()).curriculum).toBeNull();
     const events = await db.sql`SELECT action, item_slug, reason, actor FROM academy.featured_events ORDER BY at`;
@@ -163,6 +173,7 @@ describe('the Learn hub featured article (AC-articles-01)', () => {
     await hub().featureLesson({ itemId: lesson.id, reason: 'TEST', operatorId: A, now: NOW });
     await db.sql`UPDATE academy.courses SET state = 'archived' WHERE id = ${course.id}`;
     expect((await hub().featuredSlot()).lesson).toBeNull();
+    expect(await hub().publicLesson()).toBeNull();
     await expect(hub().featureLesson({ itemId: lesson.id, reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
       code: 'academy.course_not_editable',
     });

@@ -198,7 +198,14 @@ export class TradeOpsAdmin {
     for (const order of orders) {
       try {
         await this.deps.cancelOrder(order.id, order.user_id);
-        results.push({ orderId: order.id, ok: true, status: 'cancelled' });
+        // A cancel can leave the order open with its hold while a fill the engine matched is still settling (#6874).
+        const [after] = await this.deps.sql<
+          Array<{ status: string }>
+        >`SELECT status::text AS status FROM trade.orders WHERE id = ${order.id}`;
+        if (after?.status === 'cancelled') results.push({ orderId: order.id, ok: true, status: 'cancelled' });
+        else if (after?.status === 'open' || after?.status === 'pending' || after?.status === 'recovery_required')
+          results.push({ orderId: order.id, ok: false, code: 'trade.cancel_ahead_of_fill' });
+        else results.push({ orderId: order.id, ok: false, code: 'trade.order_not_open' });
       } catch (error) {
         const code = error instanceof Error && 'code' in error ? String((error as { code: string }).code) : 'cancel_failed';
         results.push({ orderId: order.id, ok: false, code });

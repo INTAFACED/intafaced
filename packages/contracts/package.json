@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./identity-staff": {
+      "types": "./dist/identity-staff.d.ts",
+      "default": "./dist/identity-staff.js"
+    },
     "./quant-algo": {
       "types": "./dist/quant-algo.d.ts",
       "default": "./dist/quant-algo.js"
@@ -238,6 +242,10 @@
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
     },
+    "./p2p-cancel": {
+      "types": "./dist/p2p-cancel.d.ts",
+      "default": "./dist/p2p-cancel.js"
+    },
     "./p2p-rule-class": {
       "types": "./dist/p2p-rule-class.d.ts",
       "default": "./dist/p2p-rule-class.js"
@@ -365,6 +373,10 @@
     "./merchant-checkout-methods": {
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
+    },
+    "./merchant-metrics": {
+      "types": "./dist/merchant-metrics.d.ts",
+      "default": "./dist/merchant-metrics.js"
     },
     "./pay-payment-views": {
       "types": "./dist/pay-payment-views.d.ts",

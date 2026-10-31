@@ -131,15 +131,22 @@ test(`${J} #1 opens the swap form as a new viewer: Simple mode, no advanced cont
   const blocked = await browser.newContext();
   try {
     const away = await blocked.newPage();
+    // Both stores blocked, as a browser that blocks site data does; the page is reached in the app, never reloaded.
     await away.addInitScript(() => {
-      Object.defineProperty(window, 'localStorage', {
-        get() {
-          throw new DOMException('blocked', 'SecurityError');
-        },
-      });
+      for (const store of ['localStorage', 'sessionStorage'])
+        Object.defineProperty(window, store, {
+          get() {
+            throw new DOMException('blocked', 'SecurityError');
+          },
+        });
     });
-    await away.goto('/dex');
-    await expect(away.getByRole('form', { name: 'Swap' }).getByRole('radio', { name: 'Simple' })).toBeChecked();
+    await connectWallet(away, dex, { tokens: [TOKEN_A, TOKEN_B] });
+    await away.locator('header nav[data-testid="tb-nav"] a', { hasText: 'Swap' }).click();
+    await expect(swap(away).getByRole('radio', { name: 'Simple' })).toBeChecked();
+    // And it works: a quote is read and Swap is offered.
+    await quoteAB(away);
+    await expect(swap(away).getByTestId('minimum-received')).toHaveText(/^Minimum received [\d,.]+ TEST Token B$/);
+    await expect(swapButton(away)).toBeEnabled();
   } finally {
     await blocked.close();
   }
@@ -290,7 +297,7 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
   page,
   browser,
 }) => {
-  await openSwap(page);
+  const wallet = await openSwap(page);
   await chooseManual(page);
   await quoteAB(page, '10');
   await swap(page)
@@ -322,6 +329,17 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
   await expect(card).toContainText('The price moved past your minimum, so nothing was swapped.');
   await expect(card.getByRole('button', { name: 'Get a new quote' })).toBeVisible();
   await expect(card.getByRole('button', { name: /retry/i })).toHaveCount(0);
+  // No automatic retry: after the failure nothing more is signed or sent, however long the page waits.
+  const asked = { requests: wallet.requests.length, sends: wallet.sends.length };
+  await page.waitForTimeout(5_000);
+  expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
+  // A new quote is needed: the failed one cannot be swapped again; Get a new quote reads one and offers Swap.
+  await expect(swapButton(page)).toBeDisabled();
+  await expect(swap(page)).toContainText('That swap failed on this quote. Get a new quote to swap again.');
+  await card.getByRole('button', { name: 'Get a new quote' }).click();
+  await expect(swap(page).getByTestId('minimum-received')).toBeVisible();
+  await expect(swapButton(page)).toBeEnabled();
+  expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
 });
 
 test(`${J} #10 opens the approvals list and revokes the allowance: spender and amount listed; revoke sets it to zero and the row goes`, async ({

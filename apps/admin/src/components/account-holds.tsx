@@ -59,7 +59,11 @@ export function AccountHolds({
 }: {
   userId: string;
   founderId: string;
-  /** Why no new hold may be placed (an archived record), or null. Releases and confirms of holds already placed stay open, so no money is stranded. */
+  /**
+   * Why no new hold may be placed or confirmed (an archived record), or null. A confirm moves held money onward, so it is a
+   * new movement and is off too; only releasing a hold already placed stays open, so no money is stranded (lead's ruling,
+   * 2026-10-31, J-ops-console-04 #10).
+   */
   readOnly?: string | null;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -296,9 +300,11 @@ export function AccountHolds({
               endpoint="/api/accounts/holds"
               userId={founderId}
               blockedReason={
-                settings && !settings.confirmAccountSet
-                  ? 'The owner has not named the account a confirmed hold moves to, so svc-ops refuses a confirm (owner.decision) before any approval is spent.'
-                  : null
+                readOnly
+                  ? readOnly
+                  : settings && !settings.confirmAccountSet
+                    ? 'The owner has not named the account a confirmed hold moves to, so svc-ops refuses a confirm (owner.decision) before any approval is spent.'
+                    : null
               }
               formHold={askHold}
               action={{
