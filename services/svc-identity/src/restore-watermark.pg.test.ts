@@ -5,7 +5,13 @@ import { describe, expect, it, afterAll } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { restoreWatermarkReadSchema } from '@intafaced/contracts';
 import { createTestDb } from './fixture-truncate.testkit.js';
-import { digestCounts, readIdentityWatermark } from './restore-watermark.js';
+import {
+  CREATED_AT_ONLY_TABLES,
+  OPERATOR_TRAFFIC_TABLES,
+  WATERMARK_KIND,
+  digestCounts,
+  readIdentityWatermark,
+} from './restore-watermark.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,6 +92,27 @@ if (!available) {
       });
       expect(west.lastWriteAt).not.toBeNull();
       expect(west.lastWriteAt).toBe(utc.lastWriteAt);
+    });
+
+    it('names only tables that exist, so a renamed table cannot drop out of the exclusions unseen', async () => {
+      const tables = await db.sql<Array<{ t: string }>>`
+        SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ${db.schema} AND table_type = 'BASE TABLE'`;
+      const present = new Set(tables.map((r) => r.t));
+      for (const name of [...Object.keys(OPERATOR_TRAFFIC_TABLES), ...Object.keys(CREATED_AT_ONLY_TABLES)]) {
+        expect(present.has(name), name).toBe(true);
+      }
+    });
+
+    it('is unmoved by sign-in traffic: an attempt row and a factor counter step change nothing (J-ops-console-08 #7)', async () => {
+      const [user] = await db.sql<Array<{ id: string }>>`
+        INSERT INTO users (handle, email, password_hash, created_at, updated_at)
+        VALUES ('wm_signin', 'wmsignin@example.com', 'x', now() - interval '1 hour', now() - interval '1 hour') RETURNING id`;
+      const before = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect(before.kind).toBe(WATERMARK_KIND);
+      await db.sql`INSERT INTO auth_attempts (user_id, kind, failures) VALUES (${user!.id}, 'mfa', 1)`;
+      await db.sql`UPDATE users SET totp_last_step = '1', updated_at = now() WHERE id = ${user!.id}`;
+      const after = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect({ ...after, readAt: '' }).toEqual({ ...before, readAt: '' });
     });
   });
 }
