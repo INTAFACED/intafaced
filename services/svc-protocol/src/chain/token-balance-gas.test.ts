@@ -2,15 +2,17 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeAbiParameters, type Address } from 'viem';
-import { BALANCE_READ_GAS, ProtocolChain } from './client.js';
+import { ProtocolChain, TOKEN_READ_GAS } from './client.js';
 
 /**
- * `tokenBalanceAt` reads `balanceOf` on any token the factory's pools hold, for a public request: the call to the node
- * carries a gas cap, so a token contract cannot spend the node's whole call gas on each read.
+ * Every view on a token contract serves a public request on a contract anyone can write, so each call to the node
+ * carries `TOKEN_READ_GAS` as its cap. The errors keep their meaning: an empty answer is an absent contract, and a
+ * revert is a revert.
  */
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const TOKEN = '0x00000000000000000000000000000000000000a1' as Address;
 const POOL = '0x00000000000000000000000000000000000000b2' as Address;
+const GAS = `0x${TOKEN_READ_GAS.toString(16)}`;
 
 let server: Server | null = null;
 afterEach(async () => {
@@ -19,17 +21,24 @@ afterEach(async () => {
   if (s) await new Promise<void>((resolve) => s.close(() => resolve()));
 });
 
-/** A node that answers `eth_call` with `result` and keeps every call's parameters. */
-async function node(result: string) {
-  const calls: Array<Record<string, unknown>> = [];
+type Answer = { result: string } | { error: { code: number; message: string; data?: string } };
+
+/** A node that answers every `eth_call` with `answer(call)` and keeps each call's parameters. */
+async function node(answer: (call: { data: string }) => Answer) {
+  const calls: Array<{ call: Record<string, unknown>; block: unknown }> = [];
   server = createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk) => (raw += chunk));
     req.on('end', () => {
       const body = JSON.parse(raw) as { id: number; method: string; params: unknown[] };
-      if (body.method === 'eth_call') calls.push(body.params[0] as Record<string, unknown>);
+      let reply: Answer = { result: '0x' };
+      if (body.method === 'eth_call') {
+        const call = body.params[0] as Record<string, unknown> & { data: string };
+        calls.push({ call, block: body.params[1] });
+        reply = answer(call);
+      } else if (body.method === 'eth_blockNumber') reply = { result: '0x9' };
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: body.method === 'eth_chainId' ? '0x7a69' : result }));
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, ...reply }));
     });
   });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
@@ -42,17 +51,42 @@ async function node(result: string) {
   });
   return { chain, calls };
 }
+const uint = (value: bigint) => ({ result: encodeAbiParameters([{ type: 'uint256' }], [value]) });
 
-describe('tokenBalanceAt', () => {
-  it('reads balanceOf at the block with a gas cap on the call', async () => {
-    const { chain, calls } = await node(encodeAbiParameters([{ type: 'uint256' }], [1234n]));
+describe('token views carry a gas cap', () => {
+  it('tokenBalanceAt reads balanceOf at its block, capped', async () => {
+    const { chain, calls } = await node(() => uint(1234n));
     expect(await chain.tokenBalanceAt(TOKEN, POOL, 7n)).toBe(1234n);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ to: TOKEN, gas: `0x${BALANCE_READ_GAS.toString(16)}` });
+    expect(calls).toEqual([{ call: expect.objectContaining({ to: TOKEN, gas: GAS }), block: '0x7' }]);
   });
 
-  it('an empty answer is not a balance: it refuses rather than reading as zero', async () => {
-    const { chain } = await node('0x');
-    await expect(chain.tokenBalanceAt(TOKEN, POOL, 7n)).rejects.toThrow();
+  it('allowanceAt and tokenAllowance are capped; tokenAllowance reads at the block it reports', async () => {
+    const { chain, calls } = await node(() => uint(5n));
+    expect(await chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).toBe(5n);
+    expect(await chain.tokenAllowance(TOKEN, POOL, ZERO)).toEqual({ value: 5n, blockNumber: 9n });
+    expect(calls.map((c) => [c.call.gas, c.block])).toEqual([
+      [GAS, '0x7'],
+      [GAS, '0x9'],
+    ]);
+  });
+
+  it('tokenBasics reads name, symbol and decimals, each capped', async () => {
+    const { chain, calls } = await node((call) =>
+      call.data.startsWith('0x313ce567')
+        ? uint(18n)
+        : { result: encodeAbiParameters([{ type: 'string' }], [call.data.startsWith('0x06fdde03') ? 'TEST Token' : 'TT']) },
+    );
+    expect(await chain.tokenBasics(TOKEN)).toEqual({ name: 'TEST Token', symbol: 'TT', decimals: 18 });
+    expect(calls.map((c) => c.call.gas)).toEqual([GAS, GAS, GAS]);
+  });
+
+  it('an empty answer is an absent contract, never a zero balance', async () => {
+    const { chain } = await node(() => ({ result: '0x' }));
+    await expect(chain.tokenBalanceAt(TOKEN, POOL, 7n)).rejects.toMatchObject({ code: 'protocol.contract_not_deployed' });
+  });
+
+  it('a token that reverts on allowance still reads as a revert (null), not an outage', async () => {
+    const { chain } = await node(() => ({ error: { code: 3, message: 'execution reverted', data: '0x' } }));
+    expect(await chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).toBeNull();
   });
 });
