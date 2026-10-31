@@ -17,7 +17,7 @@ import { busCopyNotices } from './copy/copy-notices.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
-import { createMatchingClient } from './spot/matching-client.js';
+import { bookHaltFromBoard, createMatchingClient } from './spot/matching-client.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
 import { readOrderLinks } from './spot/order-links.js';
@@ -1009,9 +1009,7 @@ registerPublicRest(app, {
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   bookHalt: async (market) => {
     const board = await matching.listMarkets();
-    // An engine that omits its halt fields has reported no halt state: that is not an open book, so it refuses.
-    if (board.halted === undefined && board.venueHalted === undefined) throw new Error('matching reports no halt state');
-    return { halted: board.halted?.includes(market.id) === true, venueHalted: board.venueHalted === true };
+    return bookHaltFromBoard(board, market.id);
   },
   pairRiskForMarkets: async (markets) => {
     const risks = await currentRiskForMarkets(

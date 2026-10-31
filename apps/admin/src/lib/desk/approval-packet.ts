@@ -738,6 +738,14 @@ export function decodePacket(text: string): PacketReading {
   };
 }
 
+/**
+ * Whether running this request also needs the running founder's own fresh authenticator code (a same-person step-up
+ * spent at identity for exactly this change). Only these executors receive the code; no other service ever sees it.
+ */
+export function needsStepUp(request: DeskRequest): boolean {
+  return request.kind === 'token.governance.role.set';
+}
+
 /** The exact phrase a founder types before any step on this request. It names the thing being changed. */
 export function confirmPhrase(request: DeskRequest): string {
   switch (request.kind) {

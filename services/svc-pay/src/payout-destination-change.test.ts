@@ -123,31 +123,273 @@ describe('PayoutDestinationChange', () => {
     expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toBeNull();
   });
 
-  it('activates the first destination immediately and stages a change until the hold passes', async () => {
+  it('verifies a first destination into the hold, reads Active at activatesAt, and stages a change until its own hold passes', async () => {
     const h = harness(3600);
-    const added = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
-    expect(added).toMatchObject({ status: 'active', ref: A, activatesAt: null });
+    const verified = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+    expect(verified).toEqual({ status: 'held', railId: RAIL, kind: 'crypto', ref: A, activatesAt: '2026-10-17T01:00:00.000Z' });
+    // Held: nothing is paid to it before activatesAt.
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_held',
+    });
+    h.advance('2026-10-17T00:59:59.999Z');
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_held',
+    });
+    h.advance('2026-10-17T01:00:00.000Z');
+    expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
     const pending = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
     expect(pending.status).toBe('pending');
-    expect(pending.activatesAt).toBe('2026-10-17T01:00:00.000Z');
+    expect(pending.activatesAt).toBe('2026-10-17T02:00:00.000Z');
     expect((await h.book.require({ merchantId: h.merchantId, railId: RAIL })).ref).toBe(A);
-    h.advance('2026-10-17T01:00:00.000Z');
+    h.advance('2026-10-17T02:00:00.000Z');
     expect((await h.book.require({ merchantId: h.merchantId, railId: RAIL })).ref).toBe(B);
     expect(h.notes.join('\n')).not.toContain(A);
     expect(h.notes.join('\n')).not.toContain(B);
     expect(h.notes).toEqual([
-      'Payout destination added|A payout destination for crypto-native is active.',
-      'Payout destination change pending|A payout destination for crypto-native is pending until 2026-10-17T01:00:00.000Z.',
+      'Payout destination verified|A payout destination for crypto-native (0x0000…0f01) is verified and becomes active at 2026-10-17T01:00:00.000Z.',
+      'Payout destination change pending|A payout destination change for crypto-native to 0x0000…0f02 is pending until 2026-10-17T02:00:00.000Z.',
     ]);
   });
 
-  it('refuses a change when the hold is unset and still activates a first destination', async () => {
-    const h = harness(null);
+  it('verifying the same destination again keeps the hold end and writes nothing', async () => {
+    const h = harness(3600);
     const first = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
-    expect(first.status).toBe('active');
+    h.advance('2026-10-17T00:30:00.000Z');
+    const again = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+    expect(again).toEqual(first);
+    h.advance('2026-10-17T01:00:00.000Z');
+    expect(await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).toEqual({
+      status: 'active',
+      railId: RAIL,
+      kind: 'crypto',
+      ref: A,
+      activatesAt: null,
+    });
+    expect(h.notes).toHaveLength(1);
+  });
+
+  it('refuses to verify a first destination and to change a verified one when the hold is unset, writing nothing', async () => {
+    const h = harness(null);
+    await expect(h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_hold_unset',
+    });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toBeNull();
+    // A saved, unverified one stays unverified.
+    await h.change.add({ ...open(h.merchantId), caller: caller(h.ownerId) });
+    await expect(h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_hold_unset',
+    });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ verified: false, ref: A });
+    // A verified one is not changed.
+    await h.book.seedVerified({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A });
     await expect(h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B })).rejects.toMatchObject({
       code: 'pay.destination_hold_unset',
     });
     expect((await h.book.require({ merchantId: h.merchantId, railId: RAIL })).ref).toBe(A);
+    expect(h.notes).toEqual([
+      'Payout destination added|A payout destination for crypto-native (0x0000…0f01) was saved. It is unverified and cannot receive a payout until it is verified.',
+    ]);
+  });
+
+  it('saves a destination unverified without step-up; it cannot be paid until verified, then waits out the hold', async () => {
+    const h = harness(45);
+    const saved = await h.change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: caller(h.ownerId) });
+    expect(saved).toEqual({ status: 'unverified', railId: RAIL, kind: 'crypto', ref: A, activatesAt: null });
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_unverified',
+    });
+    // Saving the same one again changes nothing and tells nobody twice.
+    expect(await h.change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: caller(h.ownerId) })).toEqual(
+      saved,
+    );
+    expect(h.notes).toHaveLength(1);
+    // Saving another while unverified replaces it, still unverified.
+    await h.change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: B, caller: caller(h.ownerId) });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ verified: false, ref: B, pending: null });
+    // Verifying it with the step-up: held for 45 s, then active.
+    const verified = await h.change.set({ ...open(h.merchantId), ref: B, caller: caller(h.ownerId) });
+    expect(verified).toEqual({ status: 'held', railId: RAIL, kind: 'crypto', ref: B, activatesAt: '2026-10-17T00:00:45.000Z' });
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+      code: 'pay.payout_destination_held',
+    });
+    h.advance('2026-10-17T00:00:45.000Z');
+    expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: B });
+  });
+
+  it('refuses an unverified save over a verified destination, and the same caller rules as a change', async () => {
+    const h = harness(45);
+    await h.book.seedVerified({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A });
+    await expect(
+      h.change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: B, caller: caller(h.ownerId) }),
+    ).rejects.toMatchObject({ code: 'pay.payout_destination_verified_locked' });
+    await expect(
+      h.change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: caller(h.ownerId) }),
+    ).rejects.toMatchObject({ code: 'pay.payout_destination_verified_locked' });
+    expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: A });
+    const other = harness(45);
+    const add = (who: DestinationCaller) =>
+      other.change.add({ merchantId: other.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: who });
+    await expect(add(caller(other.financeId))).rejects.toMatchObject({ code: 'pay.destination_role_forbidden' });
+    await expect(add(caller(other.ownerId, { viaApiKey: true }))).rejects.toMatchObject({ code: 'pay.destination_api_key_refused' });
+    await expect(add(caller(other.ownerId, { interactive: false }))).rejects.toMatchObject({ code: 'pay.destination_session_required' });
+    await expect(add(caller('44444444-4444-4444-8444-444444444444'))).rejects.toMatchObject({ code: 'pay.merchant_not_found' });
+    await expect(
+      other.change.add({
+        merchantId: other.merchantId,
+        railId: RAIL,
+        kind: 'crypto',
+        ref: '0xnot-an-address',
+        caller: caller(other.ownerId),
+      }),
+    ).rejects.toMatchObject({ code: 'pay.invalid_destination_ref' });
+    expect(await other.book.read({ merchantId: other.merchantId, railId: RAIL })).toBeNull();
+    expect(other.notes).toEqual([]);
+  });
+
+  it('refuses, by name, confirming the current address while a change of it is pending, and writes nothing', async () => {
+    const h = harness(3600);
+    await h.book.seedVerified({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A });
+    await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
+    const before = await h.book.read({ merchantId: h.merchantId, railId: RAIL });
+    expect(before).toMatchObject({ ref: A, pending: { ref: B } });
+    await expect(h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_change_pending',
+    });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toEqual(before);
+    expect(h.notes).toHaveLength(1);
+  });
+
+  it('a held destination changed to another address is verified afresh: the new one waits the whole hold, nothing pending', async () => {
+    const h = harness(3600);
+    await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+    h.advance('2026-10-17T00:30:00.000Z');
+    const again = await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
+    expect(again).toEqual({ status: 'held', railId: RAIL, kind: 'crypto', ref: B, activatesAt: '2026-10-17T01:30:00.000Z' });
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ ref: B, pending: null });
+    h.advance('2026-10-17T01:00:00.000Z');
+    await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({ code: 'pay.payout_destination_held' });
+    h.advance('2026-10-17T01:30:00.000Z');
+    expect(await h.book.require({ merchantId: h.merchantId, railId: RAIL })).toEqual({ kind: 'crypto', ref: B });
+  });
+
+  it('verify verifies the saved address: another kind or ref is refused before the step-up is spent, and nothing is written', async () => {
+    const h = harness(3600);
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      consume: async (input) => {
+        consumed += 1;
+        return approvals().consume(input);
+      },
+    };
+    const change = new PayoutDestinationChange(
+      h.book,
+      async () => 'owner',
+      verifyDestinationStepUp,
+      counting,
+      3600,
+      async () => undefined,
+      () => new Date('2026-10-17T00:00:00.000Z'),
+    );
+    await change.add({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A, caller: caller(h.ownerId) });
+    await expect(change.set({ ...open(h.merchantId), ref: B, caller: caller(h.ownerId) })).rejects.toMatchObject({
+      code: 'pay.destination_verify_mismatch',
+    });
+    expect(consumed).toBe(0);
+    expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ ref: A, verified: false, activatesAt: null });
+    // The saved one verifies; and with no row at all, one call saves and verifies (the go-live save).
+    expect((await change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).status).toBe('held');
+    expect(consumed).toBe(1);
+    const fresh = harness(3600);
+    expect((await fresh.change.set({ ...open(fresh.merchantId), ref: B, caller: caller(fresh.ownerId) })).status).toBe('held');
+  });
+
+  describe('cancelHold: the owner sends a held destination back to unverified', () => {
+    const idOf = (merchantId: string) => `${merchantId}:${RAIL}`;
+
+    it('a held destination becomes unverified (not payable), the owner is told with the masked address, and a repeat changes nothing', async () => {
+      const h = harness(3600);
+      await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+      const cancelled = await h.change.cancelHold({
+        merchantId: h.merchantId,
+        destinationId: idOf(h.merchantId),
+        caller: caller(h.ownerId),
+      });
+      expect(cancelled).toEqual({ destinationId: idOf(h.merchantId), state: 'unverified', changed: true });
+      expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({ ref: A, verified: false, activatesAt: null });
+      await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+        code: 'pay.payout_destination_unverified',
+      });
+      // Even after the old hold end it stays unverified: the hold is gone, not paused.
+      h.advance('2026-10-17T02:00:00.000Z');
+      await expect(h.book.require({ merchantId: h.merchantId, railId: RAIL })).rejects.toMatchObject({
+        code: 'pay.payout_destination_unverified',
+      });
+      expect(await h.change.cancelHold({ merchantId: h.merchantId, destinationId: idOf(h.merchantId), caller: caller(h.ownerId) })).toEqual(
+        {
+          destinationId: idOf(h.merchantId),
+          state: 'unverified',
+          changed: false,
+        },
+      );
+      expect(h.notes).toEqual([
+        'Payout destination verified|A payout destination for crypto-native (0x0000…0f01) is verified and becomes active at 2026-10-17T01:00:00.000Z.',
+        'Payout destination verification cancelled|The waiting period for the payout destination for crypto-native (0x0000…0f01) was cancelled. It is unverified and cannot receive a payout until it is verified again.',
+      ]);
+      // Verifying again starts a whole new hold.
+      expect(await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) })).toMatchObject({
+        status: 'held',
+        activatesAt: '2026-10-17T03:00:00.000Z',
+      });
+    });
+
+    it('refuses an active destination, with or without a pending change, and writes nothing', async () => {
+      const h = harness(3600);
+      await h.book.seedVerified({ merchantId: h.merchantId, railId: RAIL, kind: 'crypto', ref: A });
+      const cancel = () => h.change.cancelHold({ merchantId: h.merchantId, destinationId: idOf(h.merchantId), caller: caller(h.ownerId) });
+      await expect(cancel()).rejects.toMatchObject({ code: 'pay.payout_destination_not_held' });
+      await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId), ref: B });
+      const before = await h.book.read({ merchantId: h.merchantId, railId: RAIL });
+      await expect(cancel()).rejects.toMatchObject({ code: 'pay.payout_destination_not_held' });
+      expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toEqual(before);
+      expect(h.notes).toHaveLength(1);
+    });
+
+    it('a hold that has passed is active and is refused; a missing id is not found', async () => {
+      const h = harness(3600);
+      await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+      h.advance('2026-10-17T01:00:00.000Z');
+      await expect(
+        h.change.cancelHold({ merchantId: h.merchantId, destinationId: idOf(h.merchantId), caller: caller(h.ownerId) }),
+      ).rejects.toMatchObject({ code: 'pay.payout_destination_not_held' });
+      await expect(
+        h.change.cancelHold({ merchantId: h.merchantId, destinationId: `${h.merchantId}:card-sandbox`, caller: caller(h.ownerId) }),
+      ).rejects.toMatchObject({ code: 'pay.payout_destination_not_found' });
+    });
+
+    it('is the owner’s alone: an admin, a finance role, an API key and a non-interactive session are refused before anything is read', async () => {
+      const h = harness(3600);
+      await h.change.set({ ...open(h.merchantId), caller: caller(h.ownerId) });
+      const adminId = '55555555-5555-4555-8555-555555555555';
+      const change = new PayoutDestinationChange(
+        h.book,
+        async (userId) => (userId === adminId ? 'admin' : userId === h.ownerId ? 'owner' : userId === h.financeId ? 'finance' : null),
+        verifyDestinationStepUp,
+        approvals(),
+        3600,
+        async () => undefined,
+        () => new Date('2026-10-17T00:00:00.000Z'),
+      );
+      const cancel = (who: DestinationCaller) =>
+        change.cancelHold({ merchantId: h.merchantId, destinationId: idOf(h.merchantId), caller: who });
+      await expect(cancel(caller(adminId))).rejects.toMatchObject({ code: 'pay.destination_role_forbidden' });
+      await expect(cancel(caller(h.financeId))).rejects.toMatchObject({ code: 'pay.destination_role_forbidden' });
+      await expect(cancel(caller(h.ownerId, { viaApiKey: true }))).rejects.toMatchObject({ code: 'pay.destination_api_key_refused' });
+      await expect(cancel(caller(h.ownerId, { interactive: false }))).rejects.toMatchObject({ code: 'pay.destination_session_required' });
+      await expect(cancel(caller('66666666-6666-4666-8666-666666666666'))).rejects.toMatchObject({ code: 'pay.merchant_not_found' });
+      expect(await h.book.read({ merchantId: h.merchantId, railId: RAIL })).toMatchObject({
+        verified: true,
+        activatesAt: new Date('2026-10-17T01:00:00.000Z'),
+      });
+    });
   });
 });

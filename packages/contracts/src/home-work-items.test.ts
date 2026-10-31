@@ -83,8 +83,13 @@ describe('Home work items (HM-dashboard-03)', () => {
   });
 
   it('keeps a blank owner value blank', () => {
-    const blank = { workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 };
+    const blank = { workListCap: null, workListOrder: null, searchResultCap: null, noticeStripLimit: null, revision: 0 };
     expect(homeConfigOutputSchema.parse(blank)).toEqual(blank);
+    // An answer from before the strip count existed reads it as blank, never as a number.
+    const { noticeStripLimit: _absent, ...older } = blank;
+    expect(homeConfigOutputSchema.parse(older).noticeStripLimit).toBeNull();
+    expect(homeConfigOutputSchema.safeParse({ ...blank, noticeStripLimit: 0 }).success).toBe(false);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, noticeStripLimit: 11 }).success).toBe(false);
     expect(homeConfigOutputSchema.safeParse({ ...blank, workListCap: 0 }).success).toBe(false);
     expect(homeConfigOutputSchema.safeParse({ ...blank, searchResultCap: 0 }).success).toBe(false);
     expect(homeConfigOutputSchema.safeParse({ ...blank, workListOrder: [] }).success).toBe(false);

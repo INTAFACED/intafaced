@@ -1,4 +1,5 @@
 import { clearingPendingMessage, heldInSettlementOf } from '../payment-service/funds.js';
+import { lifecycleOfColumns } from '../merchant-payout-destination.js';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
@@ -234,10 +235,21 @@ export class ApprovalService {
             throw new ControlError('pay.approval_threshold_unconfigured');
           const amount = parseAmount(s.net);
           if (amount < approvalThreshold) throw new ControlError('pay.approval_not_required');
-          const destinationRows = await tx<Array<{ kind: string; ref: string }>>`
-          SELECT kind, ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${input.merchantId} AND rail_id = ${input.railId}
+          const stored = await tx<Array<{ kind: string; ref: string; verified: boolean; activates_at: Date | null }>>`
+          SELECT kind, ref, verified, activates_at
+            FROM pay.merchant_payout_destinations WHERE merchant_id = ${input.merchantId} AND rail_id = ${input.railId}
         `;
-          if (!destinationRows[0]) throw new ControlError('pay.payout_destination_missing');
+          if (!stored[0]) throw new ControlError('pay.payout_destination_missing');
+          // J-merchant-02 #5: nothing is asked for a destination that could not be paid when approved.
+          const life = lifecycleOfColumns(stored[0], at);
+          if (life.state === 'unverified') throw new ControlError('pay.payout_destination_unverified');
+          if (life.state === 'held') {
+            throw new ControlError(
+              'pay.payout_destination_held',
+              `pay.payout_destination_held: active at ${life.activatesAt!.toISOString()}`,
+            );
+          }
+          const destinationRows = [{ kind: stored[0].kind, ref: stored[0].ref }] as const;
           const payload: PayoutPayload = {
             merchantId: input.merchantId,
             settlementId: input.settlementId,

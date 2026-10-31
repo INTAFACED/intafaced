@@ -97,7 +97,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Copy-Intel's refusal of a returns ranking (J-agents-18 #4) adds one refusal key.
     // A password change as a sign-in factor change (I-signin-sessions-08, J-identity-03 #6) adds a title and a body key.
     // A run refused at its agent's monthly hard limit (J-agents-02 #6) adds one refusal key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(303);
+    // An own agent's monthly spend alert in the inbox (J-agents-02 #6) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(305);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

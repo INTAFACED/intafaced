@@ -89,6 +89,7 @@ export * from './protocol-representation.js';
 export * from './protocol-fees.js';
 export * from './protocol-swap.js';
 export * from './protocol-address-book.js';
+export * from './outcome-markets.js';
 export * from './protocol-tokens.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';

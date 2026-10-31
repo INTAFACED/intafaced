@@ -49,7 +49,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...c('svc-identity', PORTS.identity),
     DATABASE_URL: dbUrl('svc_identity', secrets),
     LEDGER_URL: urlOf('ledger'),
-    REGISTRATION_OPEN: 'true',
+    // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
+    // seen too (J-identity-01 #1).
+    REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
     // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
     // http://localhost:3210 for passkeys. Not the production relying party.
     WEBAUTHN_ENABLED: 'true',
@@ -131,9 +133,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
     IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
-    IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
-    IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
-    IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
+    // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
+    // page's "no limit is set" can be seen too (J-identity-08 #4).
+    ...(process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS === 'off'
+      ? {}
+      : {
+          IDENTITY_KYC_MAX_DENIALS: testValue('IDENTITY_KYC_MAX_DENIALS'),
+          IDENTITY_KYC_DENIAL_WINDOW_HOURS: testValue('IDENTITY_KYC_DENIAL_WINDOW_HOURS'),
+          IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
+        }),
     IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
@@ -207,7 +215,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
-    IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can
+    // be seen too (J-campaigns-05 #5); a plain restart puts the TEST value back.
+    ...(process.env.LOCAL_STACK_IDENTITY_REFERRAL_WINDOW === 'off'
+      ? {}
+      : { IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS') }),
     IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
     // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
     // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the

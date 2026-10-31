@@ -18,6 +18,7 @@ export function DrawingsLayer({
   symbol,
   tickSize,
   limits,
+  onIndicatorsSlot,
 }: {
   host: ChartHost | null;
   bars: readonly Candle[];
@@ -25,6 +26,8 @@ export function DrawingsLayer({
   symbol: string;
   tickSize: string;
   limits: DrawingLimits;
+  /** Receives the object tree's indicator slot, where the chart's studies list themselves. */
+  onIndicatorsSlot?: (slot: HTMLElement | null) => void;
 }) {
   const { userId } = useSession();
   // Keyed by the person as well as the workbench: a sign-in change remounts the tools, so one person's drawings are never
@@ -39,6 +42,7 @@ export function DrawingsLayer({
       symbol={symbol}
       tickSize={tickSize}
       limits={limits}
+      onIndicatorsSlot={onIndicatorsSlot}
     />
   );
 }
@@ -51,6 +55,7 @@ function DrawingsTools({
   symbol,
   tickSize,
   limits,
+  onIndicatorsSlot,
 }: {
   host: ChartHost | null;
   bars: readonly Candle[];
@@ -59,12 +64,13 @@ function DrawingsTools({
   symbol: string;
   tickSize: string;
   limits: DrawingLimits;
+  onIndicatorsSlot?: (slot: HTMLElement | null) => void;
 }) {
   const api = useDrawings(host, bars, { userId, workbench, symbol, tickSize, limits });
   return (
     <div className="dw-layer">
       <DrawingToolbar api={api} />
-      <ObjectTree api={api} />
+      <ObjectTree api={api} onIndicatorsSlot={onIndicatorsSlot} />
     </div>
   );
 }
