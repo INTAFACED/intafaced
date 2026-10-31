@@ -6,6 +6,7 @@
  */
 export * from './trpc.js';
 export * from './p2p-delist.js';
+export * from './p2p-cancel.js';
 export * from './p2p-rule-class.js';
 export * from './edge.js';
 export * from './service-auth.js';
