@@ -243,6 +243,13 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   {
+    path: '/bank/statements',
+    title: 'Statements and exports',
+    description: 'Signed statements and exports of your lines',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/calendar',
     title: 'Money calendar',
     description: 'Everything dated, by day',
