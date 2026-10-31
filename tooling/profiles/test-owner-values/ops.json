@@ -36,6 +36,11 @@
       "value": "5",
       "note": "TEST number of help articles the header search lists. Not an owner decision; it only lets J-home-ia-02 #5 run on the test stack."
     },
+    "OPS_HOME_NOTICE_STRIP_LIMIT": {
+      "service": "ops",
+      "value": "3",
+      "note": "TEST number of the latest announcements Home's strip shows. Not an owner decision; it only lets J-home-ia-06 #2-#4 run on the test stack, and `LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT=off` leaves it blank for #1's refusal."
+    },
     "OPS_RECON_ALERT_REPEAT_SECONDS": {
       "service": "ops",
       "value": "5",

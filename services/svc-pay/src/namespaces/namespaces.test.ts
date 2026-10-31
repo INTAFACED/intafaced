@@ -44,6 +44,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     founder: false,
     input: { merchantId, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' },
   },
+  'merchantMetrics.settlementAssets': { founder: false, input: { merchantId } },
   'conversion.quote': {
     founder: false,
     input: { merchantId, settlementId: id(), fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' },

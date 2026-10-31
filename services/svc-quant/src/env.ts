@@ -155,6 +155,11 @@ const schema = baseEnvSchema
        * snippet (`quant.embed_origins_unset`). The link still opens.
        */
       QUANT_EMBED_ORIGINS: blankable(z.string().max(2000)),
+      /**
+       * The longest release note a saved version may carry, in characters (AL-editor-01). NO DEFAULT: blank refuses a
+       * save that writes a note (`quant.release_note_limit_unset`); a save without a note still saves. At most 2000.
+       */
+      QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

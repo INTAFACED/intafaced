@@ -34,6 +34,9 @@ const REFUSALS = [
   'campaigns.reward_saga_unwired',
   'campaigns.welcome_none',
   'campaign.not_active',
+  'campaigns.per_customer_limit_unset',
+  'campaigns.customer_limit_reached',
+  'campaigns.redemption_limit_reached',
 ] as const;
 type Refusal = (typeof REFUSALS)[number];
 const refusalOf = (code: string | undefined) => (REFUSALS as readonly string[]).find((c) => c === code) as Refusal | undefined;

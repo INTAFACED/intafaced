@@ -10,18 +10,19 @@ import { api } from './stack.mjs';
 // #4 is built: a person's own session opens Copy intelligence, and a request for a returns ranking is refused before
 // anything is priced, held or run.
 // What is built: the catalogue cards of Portfolio planner ("Not connected"), Copy intelligence (metered session), Launch
-// check, Growth drafts and Risk and compliance ("Staff only"). Steps not built yet fail at their first missing part,
-// quickly (UNBUILT):
-// - Portfolio planner's source is not connected, so there is no rebalance proposal (RC-agents-03);
-// - leader cards have no Copy-Intel stats or audited badge (RC-agents-07);
-// - the Launch check and Growth drafts agents have no pages with run history and drafts (RC-agents-04).
+// check, Growth drafts and Risk and compliance ("Staff only").
+// #1, #2 and #5 are red by name (BLOCKED below; D's ruling 2026-10-31 by product law): the Portfolio, Launch and Growth
+// agents are v2, "Doctrine names only — no factory until product law" (services/svc-agents/README.md:313;
+// INTAFACED_DEFINITIVE_BUILD.md:388), so no rebalance proposal, run history or draft is built for them. Each step
+// first asserts what the app does today, then fails with its name.
+// #3 is not built yet and fails at its first missing part, quickly (UNBUILT): leader cards have no Copy-Intel stats or
+// audited badge (RC-agents-07).
 const J = 'J-agents-18';
 const agents = agentsRun(J);
 
 test.describe.configure({ mode: 'default' });
 
 const main = (page) => page.getByRole('main');
-const proposals = (page) => tableIn(main(page), 'Rebalance proposals');
 
 /** The account's USDT as the ledger holds it, free and held, in scaled units. */
 async function usdt() {
@@ -29,10 +30,50 @@ async function usdt() {
   return { free: free(balances, 'USDT'), held: held(balances, 'USDT') };
 }
 
-/** Asks the Portfolio planner for a rebalance from its card. */
-async function askRebalance(page) {
+/** The steps that stay red by name, and why. Every failure inside them carries the name (`blockedBy`). */
+const V2 = 'services/svc-agents/README.md:313: v2 agents are "Doctrine names only — no factory until product law"';
+const BLOCKED = {
+  1: `${J} #1 BLOCKED (${V2}; RC-agents-03): the Portfolio planner's portfolio source is not connected, so it proposes no rebalance (portfolio.plan refuses portfolio.killed)`,
+  2: `${J} #2 BLOCKED (${V2}; RC-agents-03): with no proposal there is nothing to approve or reject`,
+  5: `${J} #5 BLOCKED (${V2}; RC-agents-04): the Launch check and Growth drafts agents keep no run history or drafts`,
+};
+
+/**
+ * A step that is red by name: `check` asserts what the app does today, and any assertion it fails carries the name;
+ * when it passes, the step still fails with the name.
+ */
+async function blockedBy(name, check) {
+  try {
+    await check();
+  } catch (error) {
+    if (error instanceof Error) error.message = `${name}\n(a check before the block failed) ${error.message}`;
+    throw error;
+  }
+  throw new Error(name);
+}
+
+/**
+ * What the Portfolio planner does today when a person tries it: its card's open button is off with the blocker named,
+ * and asking the service for a plan is refused with the planner's kill switch (portfolio.killed), moving nothing. A plan coming back means
+ * the planner is wired, and the step needs a rewrite instead of the block.
+ */
+async function plannerRefuses(page) {
   await openAgents(page, agents);
-  await agentCard(page, 'Portfolio planner').getByRole('button', { name: 'Ask for a rebalance' }).click(UNBUILT);
+  const card = agentCard(page, 'Portfolio planner');
+  await expect(card.getByRole('button', { name: 'Open a session' })).toBeDisabled();
+  await expect(card.getByRole('note')).toHaveText(
+    'No session can be opened: this agent’s data source is not connected, so it cannot plan or place anything.',
+  );
+  const before = await usdt();
+  const door = await api(agents.account());
+  const input = encodeURIComponent(JSON.stringify({ targets: [{ asset: 'USDT', plane: 'custodial', weight: '1' }] }));
+  const plan = await door.get(`/api/agents/trpc/portfolio.plan?input=${input}`);
+  const result = plan.body?.result?.data?.result;
+  if (result?.status === 'planned')
+    throw new Error(`${J} NEEDS A REWRITE: portfolio.plan now plans (${JSON.stringify(result).slice(0, 200)})`);
+  expect(plan.status, JSON.stringify(plan.body).slice(0, 300)).toBe(200);
+  expect(result).toMatchObject({ status: 'refused', code: 'portfolio.killed' });
+  expect(await usdt()).toEqual(before);
 }
 
 test(`${J} starts: a verified TEST account with a funded TEST portfolio and the leader directory`, async ({ page }) => {
@@ -43,30 +84,13 @@ test(`${J} starts: a verified TEST account with a funded TEST portfolio and the 
 });
 
 test(`${J} #1 asks the Portfolio agent for a rebalance: a proposal listing each order, and nothing executed`, async ({ page }) => {
-  const before = await usdt();
-  await askRebalance(page);
-  const latest = proposals(page).getByRole('row').nth(1);
-  await expect(latest.getByTestId('proposal-orders')).toHaveText(/^\d+ orders?$/);
-  await expect(latest).toContainText('Proposed');
-  expect(await usdt()).toEqual(before);
+  await blockedBy(BLOCKED[1], () => plannerRefuses(page));
 });
 
 test(`${J} #2 approves one proposal and rejects another: the approved orders placed within limits; the rejected one changes nothing`, async ({
   page,
 }) => {
-  await askRebalance(page);
-  await askRebalance(page);
-  const [approve, reject] = [proposals(page).getByRole('row').nth(1), proposals(page).getByRole('row').nth(2)];
-  await approve.getByRole('button', { name: 'Approve' }).click();
-  await expect(approve).toContainText('Orders placed within your limits');
-  // The approved market orders settle before the reject is weighed: nothing stays held for them.
-  await expect.poll(async () => (await usdt()).held, { timeout: 30_000 }).toBe(0n);
-  const before = await usdt();
-  await reject.getByRole('button', { name: 'Reject' }).click();
-  await expect(reject).toContainText('Rejected: nothing changed');
-  expect(await usdt()).toEqual(before);
-  await page.goto('/trade/orders');
-  await expect(main(page).getByRole('row').filter({ hasText: 'Placed by Portfolio planner' }).first()).toBeVisible();
+  await blockedBy(BLOCKED[2], () => plannerRefuses(page));
 });
 
 test(`${J} #3 opens a leader's card: stats computed from fills, with the audited badge only once the Copy-Intel job wrote it`, async ({
@@ -146,19 +170,16 @@ test(`${J} #4 asks Copy-Intel for a returns ranking: a typed refusal and no boar
 test(`${J} #5 opens the Launch, Risk and Compliance, and Growth agent pages: run history and drafts; a growth proposal to publish stays a draft`, async ({
   page,
 }) => {
-  for (const name of ['Launch check', 'Growth drafts']) {
+  await blockedBy(BLOCKED[5], async () => {
+    // What the app does today: Launch check and Growth drafts are catalogue cards that open their rooms, with no run
+    // history or drafts; Risk and compliance is staff only, its card says so.
+    for (const name of ['Launch check', 'Growth drafts']) {
+      await openAgents(page, agents);
+      await agentCard(page, name).getByRole('button', { name: 'Details' }).click();
+      await expect(main(page).getByRole('table', { name: 'Run history' })).toHaveCount(0);
+      await expect(main(page).getByRole('table', { name: 'Drafts' })).toHaveCount(0);
+    }
     await openAgents(page, agents);
-    await agentCard(page, name).getByRole('button', { name: 'Details' }).click(UNBUILT);
-    await expect(tableIn(main(page), 'Run history')).toBeVisible(UNBUILT);
-    await expect(tableIn(main(page), 'Drafts')).toBeVisible();
-  }
-  // Risk and compliance is staff only: the customer sees its card say so, and no page of runs.
-  await openAgents(page, agents);
-  await expect(agentCard(page, 'Risk and compliance')).toContainText('Staff only');
-  await openAgents(page, agents);
-  await agentCard(page, 'Growth drafts').getByRole('button', { name: 'Details' }).click();
-  const draft = tableIn(main(page), 'Drafts').getByRole('row').nth(1);
-  await draft.getByRole('button', { name: 'Publish' }).click();
-  await expect(main(page).getByRole('alert')).toContainText('A growth proposal stays a draft.');
-  await expect(draft).toContainText('Draft');
+    await expect(agentCard(page, 'Risk and compliance')).toContainText('Staff only');
+  });
 });

@@ -1262,7 +1262,30 @@ export function planMerchantRefund({ userId, payments, attempt = 1 }) {
 /** A destination on the spec's rail is the saved one, whatever its masked ref shows. Populate never replaces it. */
 export function planPayoutDestination({ destinations, spec = MERCHANT_PAYOUT_DESTINATION }) {
   const have = (destinations ?? []).find((d) => d.railId === spec.railId) ?? null;
-  return have ? { kind: 'exists', destination: have } : { kind: 'set', spec };
+  if (!have) return { kind: 'set', spec };
+  // J-merchant-02 #5: svc-pay pays only an active destination. A held one is waited out; an unverified one was saved by
+  // someone else and is left as it is (verifying it would replace it), so the payout waits.
+  if (have.state === 'held') return { kind: 'wait', destination: have, activatesAt: have.activatesAt };
+  if (have.state === 'unverified') return { kind: 'unverified', destination: have };
+  return { kind: 'exists', destination: have };
+}
+
+/** Longest the world waits for a held destination to become active: the stack's TEST hold is 45 s (local-stack-services/pay.mjs). */
+export const DESTINATION_HOLD_WAIT_MS = 120_000;
+
+/** Polls svc-pay's destination list until the rail's destination reads active. Never marks it active itself. */
+async function waitDestinationActive(ctx, merchantId, railId, activatesAt) {
+  const deadline = Date.now() + DESTINATION_HOLD_WAIT_MS;
+  const until = Date.parse(activatesAt ?? '');
+  if (Number.isFinite(until)) await sleep(Math.max(0, Math.min(until - Date.now(), DESTINATION_HOLD_WAIT_MS)));
+  for (;;) {
+    const read = await call(ctx.user, 'q', 'pay', 'merchant.payoutDestinations.list', { merchantId, limit: 50 });
+    if (!read.ok) return { ok: false, refusal: describeMoneyRefusal(read.refusal) };
+    const row = (read.data.items ?? []).find((d) => d.railId === railId);
+    if (row?.state === 'active') return { ok: true, destination: row };
+    if (Date.now() >= deadline) return { ok: false, refusal: `the destination still reads ${row?.state ?? 'missing'} after the hold` };
+    await sleep(1_000);
+  }
 }
 
 /**
@@ -3267,7 +3290,25 @@ async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows,
   if (!dests.ok) record('merchant', 'payout destination', 'refused', describeMoneyRefusal(dests.refusal));
   else {
     const dplan = planPayoutDestination({ destinations: dests.data.items ?? [] });
-    if (dplan.kind === 'exists') {
+    if (dplan.kind === 'unverified') {
+      record(
+        'merchant',
+        'payout destination',
+        'exists',
+        `${dplan.destination.railId} ${dplan.destination.kind} ${dplan.destination.destinationMasked} unverified; payout waits`,
+      );
+    } else if (dplan.kind === 'wait') {
+      const active = await waitDestinationActive(ctx, merchantId, dplan.destination.railId, dplan.activatesAt);
+      destinationReady = active.ok;
+      record(
+        'merchant',
+        'payout destination',
+        active.ok ? 'exists' : 'refused',
+        active.ok
+          ? `${dplan.destination.railId} ${dplan.destination.kind} ${dplan.destination.destinationMasked} active after the hold`
+          : active.refusal,
+      );
+    } else if (dplan.kind === 'exists') {
       destinationReady = true;
       record(
         'merchant',
@@ -3278,7 +3319,19 @@ async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows,
     } else {
       const out = await savePayoutDestination(ctx, merchantId, dplan.spec);
       if (!out.ok) record('merchant', 'payout destination', 'refused', out.refusal);
-      else {
+      else if (out.data.status === 'held') {
+        // Verified with the step-up and held until activatesAt (J-merchant-02 #5): wait it out through the service.
+        const active = await waitDestinationActive(ctx, merchantId, out.data.railId, out.data.activatesAt);
+        destinationReady = active.ok;
+        record(
+          'merchant',
+          'payout destination',
+          active.ok ? 'created' : 'refused',
+          active.ok
+            ? `${out.data.railId} ${out.data.kind} ${shortRef(out.data.ref)} verified after step-up, active after the hold (${out.data.activatesAt})`
+            : active.refusal,
+        );
+      } else {
         destinationReady = out.data.status === 'active';
         record(
           'merchant',

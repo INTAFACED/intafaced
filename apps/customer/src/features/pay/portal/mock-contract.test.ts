@@ -17,6 +17,7 @@ const core: ContractPart = {
     { method: 'merchant', run: (p) => p.merchant() },
     { method: 'rails', run: (p) => p.rails() },
     { method: 'snapshot', run: (p) => p.snapshot(merchant, 'today') },
+    { method: 'settlementAssets', run: (p) => p.settlementAssets(merchant) },
     { method: 'series', run: (p) => p.series(merchant, '2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z') },
     { method: 'teamMe', run: (p) => p.teamMe() },
     { method: 'permissionCatalogue', run: (p) => p.permissionCatalogue() },

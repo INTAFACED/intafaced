@@ -24,7 +24,12 @@ describe('academy signed-out catalogue shapes (AC-catalogue-01)', () => {
     const course = { slug: 'markets', summary: null, instructor: null, outcomes: [], syllabus: [row], certificate: null };
     expect(academyPublicCourseSchema.parse(course)).toEqual(course);
     expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [] }).success).toBe(false);
-    expect(academyPublicHubSchema.parse({ featured: null })).toEqual({ featured: null });
+    expect(academyPublicHubSchema.parse({ featured: null, lesson: null })).toEqual({ featured: null, lesson: null });
+    // A featured lesson names its course; the course's address only while it is published, never an invented one.
+    const lesson = { title: 'Position size', courseTitle: 'Risk basics', courseSlug: null };
+    expect(academyPublicHubSchema.parse({ featured: null, lesson })).toEqual({ featured: null, lesson });
+    expect(academyPublicHubSchema.safeParse({ featured: null, lesson: { ...lesson, courseSlug: '' } }).success).toBe(false);
+    expect(academyPublicHubSchema.parse({ featured: null })).toEqual({ featured: null, lesson: null });
   });
 
   it('course enrolment terms: no cap means no seat count, and the input takes only a course and a track', () => {

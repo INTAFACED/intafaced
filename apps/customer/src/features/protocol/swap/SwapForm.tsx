@@ -3,6 +3,7 @@ import { formatAsOf } from '@intafaced/ui';
 import {
   PRICE_SETTINGS_UNSET,
   type ProtocolPoolQuote,
+  type ProtocolRouteOptions,
   type ProtocolSwapPool,
   type ProtocolSwapToken,
 } from '@intafaced/contracts/protocol-swap';
@@ -22,6 +23,7 @@ import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
 import { chosenFee, feeFields, toGwei, type FeeChoice } from './fee';
 import { feeRefusal, NetworkFee } from './NetworkFee';
+import { RouteOptions } from './RouteOptions';
 import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
 
 type Quote = { pool: ProtocolSwapPool; quote: ProtocolPoolQuote; amountIn: bigint; readAt: number };
@@ -85,8 +87,14 @@ export function SwapForm() {
   const [representation, setRepresentation] = useState<{ address: string; status: RepresentationStatus } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
+  // A failed swap belongs to the quote it was sent on: Swap waits for a new read (new input, Refresh, Get a new quote). The
+  // status card stays, so a reverted swap's hash and fee are not lost when the amount changes.
+  const [needsQuote, setNeedsQuote] = useState(false);
   const [feeChoice, setFeeChoice] = useState<FeeChoice>('normal');
   const [customFee, setCustomFee] = useState('');
+  const [routes, setRoutes] = useState<ProtocolRouteOptions | null>(null);
+  const [routesOpen, setRoutesOpen] = useState(false);
+  const [excluded, setExcluded] = useState<string[]>([]);
   const ids = { pay: useId(), receive: useId(), note: useId() };
 
   const tokenIn = tokens.find((token) => token.address.toLowerCase() === tokenInAddress.toLowerCase()) ?? null;
@@ -95,29 +103,42 @@ export function SwapForm() {
   const candidates = tokenIn && tokenOut ? poolsFor(pools, tokenIn.address, tokenOut.address) : [];
   const candidateKey = candidates.map((pool) => pool.pool).join(',');
 
-  // Quote: every pool for the pair, read now; the most received wins. A new input or a refresh reads again.
+  // Quote: the service ranks every pool for the pair at one block (amm.routes) and quotes each from that block; the
+  // best usable leg is the quote. In Manual the pools the person excluded are left out; a stale, empty or unreadable
+  // pool is never used. A new input or a refresh reads again. The last ranking stays on screen while the next is read,
+  // unless the pair or amount changed, so the open route table keeps its place when a pool is excluded.
+  const exclude = mode === 'manual' ? excluded : [];
+  const excludeKey = exclude.join(',');
+  const inputKey = `${tokenIn?.address ?? ''}:${tokenOut?.address ?? ''}:${amountIn?.toString() ?? ''}`.toLowerCase();
   useEffect(() => {
     setQuote(null);
     setQuoteProblem(null);
-    if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return;
+    setNeedsQuote(false);
+    setRoutes((shown) => (shown && `${shown.tokenIn}:${shown.tokenOut}:${shown.amountIn}`.toLowerCase() === inputKey ? shown : null));
+    if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return setRoutes(null);
     const controller = new AbortController();
-    void Promise.all(
-      candidates.map(async (pool) => ({
-        pool,
-        result: await api.poolQuote({ pool: pool.pool, tokenIn: tokenIn.address, amountIn: amountIn.toString() }, controller.signal),
-      })),
-    ).then((answers) => {
-      if (controller.signal.aborted) return;
-      const quoted = answers.flatMap((answer) => (answer.result.ok ? [{ pool: answer.pool, quote: answer.result.data }] : []));
-      if (quoted.length === 0) return setQuoteProblem(t('quoteRefused'));
-      const best = quoted.reduce((a, b) => (BigInt(b.quote.amountOut) > BigInt(a.quote.amountOut) ? b : a));
-      setNow(Date.now());
-      setQuote({ ...best, amountIn, readAt: Date.now() });
-    });
+    void api
+      .routes({ tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString(), exclude }, controller.signal)
+      .then((ranked) => {
+        if (controller.signal.aborted) return;
+        if (!ranked.ok) {
+          setRoutes(null);
+          return setQuoteProblem(t('quoteRefused'));
+        }
+        setRoutes(ranked.data);
+        const best = ranked.data.legs.find((leg) => leg.status === 'best');
+        const pool = best ? candidates.find((candidate) => candidate.pool.toLowerCase() === best.pool.toLowerCase()) : undefined;
+        if (!best || !best.quote) return setQuoteProblem(exclude.length > 0 ? t('routeNone') : t('noUsablePool'));
+        if (!pool) return setQuoteProblem(t('quoteRefused'));
+        setNow(Date.now());
+        setQuote({ pool, quote: best.quote, amountIn, readAt: Date.now() });
+      });
     return () => controller.abort();
     // The inputs are named by their values; the objects are rebuilt each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, tokenIn?.address, tokenOut?.address, amountIn?.toString(), candidateKey, refresh]);
+  }, [api, inputKey, candidateKey, excludeKey, refresh]);
+  // An exclusion belongs to the pair it was made on: choosing other tokens starts with every pool in.
+  useEffect(() => setExcluded([]), [tokenIn?.address, tokenOut?.address]);
 
   const expiresAt = quote && setting ? quote.readAt + setting.quoteTtlSeconds * 1000 : null;
   const expired = expiresAt !== null && now >= expiresAt;
@@ -171,21 +192,23 @@ export function SwapForm() {
                   ? quoteProblem
                   : !quote
                     ? t('quoting')
-                    : expired
-                      ? t('needsRefresh')
-                      : slippageBps === null
-                        ? t('slippageInvalid')
-                        : overCeiling
-                          ? t('slippageOver', { ceiling: bpsToPercent(setting!.slippageCeilingBps) })
-                          : minOut === null
-                            ? t('minimumNone')
-                            : fees.resource.status === 'failed'
-                              ? t('feeUnread')
-                              : !fee
-                                ? t('feeLoading')
-                                : !fee.ok
-                                  ? (feeAlert ?? t('feeCustomNeeded'))
-                                  : null;
+                    : needsQuote
+                      ? t('needsNewQuote')
+                      : expired
+                        ? t('needsRefresh')
+                        : slippageBps === null
+                          ? t('slippageInvalid')
+                          : overCeiling
+                            ? t('slippageOver', { ceiling: bpsToPercent(setting!.slippageCeilingBps) })
+                            : minOut === null
+                              ? t('minimumNone')
+                              : fees.resource.status === 'failed'
+                                ? t('feeUnread')
+                                : !fee
+                                  ? t('feeLoading')
+                                  : !fee.ok
+                                    ? (feeAlert ?? t('feeCustomNeeded'))
+                                    : null;
   const following = track?.state === 'submitted' || track?.state === 'confirming';
   const canSwap = reason === null && !busy && !following;
 
@@ -263,13 +286,11 @@ export function SwapForm() {
     if (result.status === 'rejected') return setProblem(`${result.sent.length > 0 ? t('rejectedAfter') : t('rejected')}${earlier}`);
     if (result.status === 'failed') {
       // The swap step itself failed before it was mined: say why in a sentence when the pool shows it.
-      if (result.step === steps.length - 1)
-        return setTrack({
-          ...base,
-          hash: null,
-          state: 'failed',
-          reason: `${await whyFailed(from.pool.pool, inToken.address, from.amountIn, min, result.message)}${earlier}`,
-        });
+      if (result.step === steps.length - 1) {
+        const reason = `${await whyFailed(from.pool.pool, inToken.address, from.amountIn, min, result.message)}${earlier}`;
+        setNeedsQuote(true);
+        return setTrack({ ...base, hash: null, state: 'failed', reason });
+      }
       return setProblem(`${result.message}${earlier}`);
     }
     setTrack({ ...base, hash: result.hashes[result.hashes.length - 1]!, state: 'submitted' });
@@ -315,7 +336,9 @@ export function SwapForm() {
         if (receipt.status === '0x0') {
           // Mined and reverted: nothing was swapped, but the network fee was paid.
           const reason = await whyFailed(current.pool, current.tokenIn.address, current.amountIn, current.minOut);
-          if (!stopped) setTrack({ ...current, state: 'failed', reason, feeWei });
+          if (stopped) return;
+          setNeedsQuote(true);
+          setTrack({ ...current, state: 'failed', reason, feeWei });
           return;
         }
         const head = (await wallet.read('eth_blockNumber', [])) as string | null;
@@ -476,9 +499,26 @@ export function SwapForm() {
                 autoComplete="off"
                 onChange={(event) => setSlippage(event.target.value)}
               />
-              <Button variant="secondary" disabled aria-disabled="true" title={t('routeNeedsQuote')}>
+              <Button
+                variant="secondary"
+                disabled={!routes}
+                aria-expanded={routesOpen}
+                title={routes ? undefined : t('routeNeedsQuote')}
+                onClick={() => setRoutesOpen((open) => !open)}
+              >
                 {t('routeOptions')}
               </Button>
+              {routesOpen && routes && tokenOut && (
+                <RouteOptions
+                  routes={routes}
+                  tokenOut={tokenOut}
+                  excluded={excluded}
+                  onExclude={(pool, out) => {
+                    const key = pool.toLowerCase();
+                    setExcluded((now) => [...now.filter((item) => item !== key), ...(out ? [key] : [])]);
+                  }}
+                />
+              )}
             </>
           )}
           {overCeiling && setting && <p role="alert">{t('slippageOver', { ceiling: bpsToPercent(setting.slippageCeilingBps) })}</p>}

@@ -90,6 +90,11 @@ type Fields = {
   asset: string;
   budget: string;
   perPerson: string;
+  /** How many rewards one customer may take in each period, and the period in whole hours (CM-eligibility-rules-03). */
+  perCustomerCount: string;
+  perCustomerHours: string;
+  /** The most rewards for everyone together; blank: the budget is the only cap. */
+  totalRedemptions: string;
 };
 
 /** The zone stored times are shown in: the campaign's own, else the platform's, else UTC as this console shows times. */
@@ -112,7 +117,26 @@ const fieldsOf = (c: Campaign | null, platform: string | null): Fields => ({
   asset: c?.budget?.asset ?? c?.reward?.asset ?? 'USDT',
   budget: c?.budget?.limit ?? '',
   perPerson: c?.reward?.amount ?? '',
+  perCustomerCount: c?.limits?.perCustomer?.count ? String(c.limits.perCustomer.count) : '',
+  perCustomerHours: c?.limits?.perCustomer?.periodSeconds ? String(Number((c.limits.perCustomer.periodSeconds / 3600).toFixed(4))) : '',
+  totalRedemptions: c?.limits?.totalRedemptions ? String(c.limits.totalRedemptions) : '',
 });
+
+/** A whole number from 1 to `max` typed in a field, or null when blank; NaN when it is not one. */
+const wholeOf = (raw: string, max: number): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = /^[1-9]\d*$/.test(t) ? Number(t) : NaN;
+  return n <= max ? n : NaN;
+};
+
+/** A period typed in hours (a decimal is allowed) as whole seconds, from a minute to a year; null when blank. */
+const periodOf = (raw: string): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const seconds = /^\d+(\.\d+)?$/.test(t) ? Math.round(Number(t) * 3600) : NaN;
+  return seconds >= 60 && seconds <= 31_536_000 ? seconds : NaN;
+};
 
 type Outcome =
   | { kind: 'done'; text: string }
@@ -166,6 +190,14 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
       if (startsAt === null || endsAt === null) return `A start or end time is not a time in ${f.timeZone}.`;
       if ((f.hoursFrom === '') !== (f.hoursTo === '')) return 'Daily hours need both a from and a to time, or neither.';
       const asset = f.asset.trim().toUpperCase();
+      const [count, period, total] = [
+        wholeOf(f.perCustomerCount, 1_000_000),
+        periodOf(f.perCustomerHours),
+        wholeOf(f.totalRedemptions, 100_000_000),
+      ];
+      if (Number.isNaN(count)) return 'Rewards per customer is a whole number from 1 to 1,000,000, or blank.';
+      if (Number.isNaN(period)) return 'The period is in hours, from one minute (0.0167) to a year (8,760), or blank.';
+      if (Number.isNaN(total)) return 'Rewards in all is a whole number from 1 to 100,000,000, or blank.';
       // Blank stays blank: the gate names a blank budget or limit, and svc-campaigns checks every amount.
       return {
         startsAt: startsAt ?? null,
@@ -175,6 +207,10 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
         hours: f.hoursFrom ? { from: f.hoursFrom, to: f.hoursTo } : null,
         budget: f.budget.trim() ? { asset, limit: f.budget.trim() } : null,
         reward: f.perPerson.trim() ? { asset, amount: f.perPerson.trim() } : null,
+        limits: {
+          perCustomer: count === null && period === null ? null : { count, periodSeconds: period },
+          totalRedemptions: total,
+        },
       };
     }
     case 'rules':
@@ -730,6 +766,40 @@ export function CampaignBuilder({
                   />
                 </div>
               </div>
+              <div className="dk-row">
+                <div className="adm-field">
+                  <label htmlFor="cmp-per-customer">Rewards per customer</label>
+                  <input
+                    id="cmp-per-customer"
+                    inputMode="numeric"
+                    value={fields.perCustomerCount}
+                    onChange={(e) => set({ perCustomerCount: e.target.value })}
+                  />
+                </div>
+                <div className="adm-field">
+                  <label htmlFor="cmp-per-customer-hours">In any period of, hours</label>
+                  <input
+                    id="cmp-per-customer-hours"
+                    inputMode="numeric"
+                    value={fields.perCustomerHours}
+                    onChange={(e) => set({ perCustomerHours: e.target.value })}
+                  />
+                </div>
+                <div className="adm-field">
+                  <label htmlFor="cmp-total">Rewards in all</label>
+                  <input
+                    id="cmp-total"
+                    inputMode="numeric"
+                    value={fields.totalRedemptions}
+                    onChange={(e) => set({ totalRedemptions: e.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="dk-muted">
+                One customer takes at most that many rewards (a reward, a welcome task or a voucher redemption each count once) in any
+                period of that length; both must be set before the campaign can go live. Rewards in all, when set, caps everyone together;
+                blank leaves the budget as the only cap.
+              </p>
               <p className="dk-muted">
                 The budget is the most the campaign may ask the reward pot for: a limit, not a balance. Nothing is reserved or paid until a
                 customer qualifies. The reward per person is what one customer receives from this campaign, and the most they may: a task

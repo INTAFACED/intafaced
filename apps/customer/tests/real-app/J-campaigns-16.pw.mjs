@@ -244,6 +244,7 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
     'The budget is not set (campaigns.budget_unset)',
     'The time frame is not set (campaigns.time_frame_unset)',
     'The time zone is not set (campaigns.timezone_unset)',
+    'The rewards per customer and period are not set (campaigns.per_customer_limit_unset)',
     'The reward per person is not set (campaigns.reward_unset)',
   ])
     await expect(blanks.filter({ hasText: line })).toHaveCount(1);
@@ -254,6 +255,9 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
   await builder(page).getByRole('combobox', { name: 'Time zone' }).selectOption('UTC');
   await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('100');
   await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('1');
+  // The limits: one reward per customer in any 24 hours, and no cap in all beyond the budget.
+  await builder(page).getByRole('textbox', { name: 'Rewards per customer' }).fill('1');
+  await builder(page).getByRole('textbox', { name: 'In any period of, hours' }).fill('24');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
 });
@@ -408,6 +412,8 @@ async function liveCampaign(name, extra = {}) {
     endsAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
     participation: { exclusions: [], regionScope: 'platform' },
     budget: { asset: 'USDT', limit: '100' },
+    // TEST limits (CM-eligibility-rules-03), wide enough that only a step about limits meets them.
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
     reward: { asset: 'USDT', amount: '5' },
     earning: [{ name: 'Deposit reward', trigger: 'pay.deposit_credit.posted', minAmount: '10', formula: '1' }],
     ...extra,

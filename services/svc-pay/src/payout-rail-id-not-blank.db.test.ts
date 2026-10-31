@@ -319,7 +319,7 @@ describe('a payout rail id cannot be blank', () => {
     expect(primaryKeyBefore).toBe('PRIMARY KEY (merchant_id, rail_id)');
     // 0080 appends a uuid page key and its unique index. 0088 appends is_default
     // and one partial unique index. 0090 appends verified and the pending columns.
-    // The rail_id check is unchanged.
+    // 20261030184034 appends activates_at (J-merchant-02 #5). The rail_id check is unchanged.
     expect(indexesBefore.map((row) => row.name)).toEqual([
       'merchant_payout_destinations_id_idx',
       MERCHANT_IDX,
@@ -341,6 +341,7 @@ describe('a payout rail id cannot be blank', () => {
       'pending_kind',
       'pending_ref',
       'pending_activates_at',
+      'activates_at',
     ]);
     expect(columnsBefore).not.toContain('amount');
 
