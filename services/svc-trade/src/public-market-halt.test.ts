@@ -6,10 +6,14 @@
  * 2. Break: an absent or throwing reader answered open, so a halted book read as live.
  * 3. Done bar: halted and open books answer 200 with both flags; no reader, a thrown read and an unknown symbol do not
  *    answer 200.
+ * 4. Since: each halt in force says when it began (haltedSince, venueHaltedSince), as matching journaled it. A start
+ *    matching did not give, a blank or malformed one, and the start of a halt no longer in force all read null: "time
+ *    unknown", never a guess.
  */
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { fakeMarket, registerPublicRest, type PublicRestDeps } from './public-rest.js';
+import { bookHaltFromBoard } from './spot/matching-client.js';
 
 const market = fakeMarket({ id: 'm-btc', symbol: 'BTC/USDT' });
 
@@ -80,6 +84,16 @@ describe('GET /api/v1/market-halt/:symbol', () => {
     expect(stale.json()).toMatchObject({ halted: false, haltedSince: null, venueHalted: false, venueHaltedSince: null });
   });
 
+  it('a blank or malformed start reads null, never served as a time', async () => {
+    for (const bad of ['', 'not-a-date', '2026-13-45T99:99:99Z', '30/10/2026 10:00']) {
+      const res = await get(
+        deps({ bookHalt: async () => ({ halted: true, venueHalted: true, haltedSince: bad, venueHaltedSince: bad }) }),
+        '/api/v1/market-halt/BTC%2FUSDT',
+      );
+      expect(res.json(), bad).toMatchObject({ halted: true, haltedSince: null, venueHalted: true, venueHaltedSince: null });
+    }
+  });
+
   it('refuses with trade.book_halt_unavailable when no reader is mounted', async () => {
     const res = await get(deps(), '/api/v1/market-halt/BTC%2FUSDT');
     expect(res.statusCode).toBe(503);
@@ -102,5 +116,34 @@ describe('GET /api/v1/market-halt/:symbol', () => {
   it('does not answer 200 for a symbol that is not listed', async () => {
     const res = await get(deps({ bookHalt: async () => ({ halted: false, venueHalted: false }) }), '/api/v1/market-halt/NOPE%2FUSDT');
     expect(res.statusCode).not.toBe(200);
+  });
+});
+
+describe("bookHaltFromBoard: one market read from matching's board", () => {
+  it('reads the flags and the start by market id, and null where the board gives none', () => {
+    const board = {
+      markets: ['m-btc', 'm-eth'],
+      halted: ['m-btc', 'm-eth'],
+      haltedSince: { 'm-btc': '2026-10-30T10:00:00.000Z' },
+      venueHalted: true,
+      venueHaltedSince: '2026-10-30T10:03:00.000Z',
+    };
+    expect(bookHaltFromBoard(board, 'm-btc')).toEqual({
+      halted: true,
+      venueHalted: true,
+      haltedSince: '2026-10-30T10:00:00.000Z',
+      venueHaltedSince: '2026-10-30T10:03:00.000Z',
+    });
+    expect(bookHaltFromBoard(board, 'm-eth')).toMatchObject({ halted: true, haltedSince: null });
+    expect(bookHaltFromBoard({ markets: ['m-btc'], halted: [], venueHalted: false }, 'm-btc')).toEqual({
+      halted: false,
+      venueHalted: false,
+      haltedSince: null,
+      venueHaltedSince: null,
+    });
+  });
+
+  it('a board with no halt fields is no halt state: it throws, never an open book', () => {
+    expect(() => bookHaltFromBoard({ markets: ['m-btc'] }, 'm-btc')).toThrow('matching reports no halt state');
   });
 });

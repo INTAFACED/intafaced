@@ -63,9 +63,9 @@ export interface PublicRestDeps {
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
   /**
    * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
-   * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open.
+   * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open. It also passes on when
+   * each standing halt began, as matching serves it (absent from an older engine); the route decides what it shows.
    */
-  /** Matching's halt flags for this market and the venue, with when each standing halt began (null when open or unknown). */
   bookHalt?(
     market: Market,
   ): Promise<{ halted: boolean; venueHalted: boolean; haltedSince?: string | null; venueHaltedSince?: string | null }>;
@@ -819,8 +819,8 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       const halt = await deps.bookHalt(market);
       // When each halt in force began, as matching journaled it. Null when that halt is not in force, or when matching
       // did not say (an older engine, or a start it could not read): a reader shows "time unknown", never a guess.
-      const haltedSince = halt.halted ? (halt.haltedSince ?? null) : null;
-      const venueHaltedSince = halt.venueHalted ? (halt.venueHaltedSince ?? null) : null;
+      const haltedSince = halt.halted ? isoOrNull(halt.haltedSince) : null;
+      const venueHaltedSince = halt.venueHalted ? isoOrNull(halt.venueHaltedSince) : null;
       return reply
         .code(200)
         .send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, haltedSince, venueHaltedSince, serverTime: now() });
@@ -1118,4 +1118,10 @@ export function fakePrint(partial: {
     sequence: partial.sequence ?? 1,
     ts: partial.ts ?? new Date('2023-11-14T22:13:20.000Z'),
   };
+}
+
+/** A start time the route may show: an ISO timestamp that parses. Anything else (blank, malformed) is unknown. */
+function isoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value)) return null;
+  return Number.isFinite(Date.parse(value)) ? value : null;
 }
