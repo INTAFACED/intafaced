@@ -19,6 +19,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: secrets.payBankTransferWebhook,
     PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
     PAY_ALLOW_SANDBOX_RAILS: 'false',
+    // The merchant control room enforced, as outside dev and test (svc-pay control/mode.ts): caps, the approval gate and
+    // the founder threshold run on every payout admission. `LOCAL_STACK_PAY_MERCHANT_CONTROLS=off` on a restart turns it off.
+    PAY_MERCHANT_CONTROLS: process.env.LOCAL_STACK_PAY_MERCHANT_CONTROLS === 'off' ? 'off' : 'required',
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',
     PAY_MIN_CONFIRMATIONS: '6',
