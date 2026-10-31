@@ -224,6 +224,23 @@ test(`${J} #6 lists every drawing in the object tree, and hides a group together
   await expect(page.locator('[data-visible="false"]')).toHaveCount(2);
   await page.getByRole('button', { name: 'Show group', exact: true }).click();
   await expect(page.locator('[data-visible="false"]')).toHaveCount(0);
+  // The tree also lists the chart's indicators: one row per study on the studies bar, each with its own actions. Hiding
+  // one from the tree hides it on this interval: its legend row says so and the chart stops drawing it.
+  const tree = page.getByTestId('tree-indicators');
+  const chips = page.getByRole('group', { name: 'Studies on this chart' }).getByRole('button');
+  await expect(tree.locator('[data-study-id]')).toHaveCount(await chips.count());
+  const volume = tree.locator('[data-study-id="volume-1"]');
+  await expect(volume).toContainText('Volume');
+  const drawnKeys = async () =>
+    JSON.parse((await page.getByTestId('cw').getByTestId('wc-host').getAttribute('data-study-series')) ?? '[]').map((x) => x.key);
+  await expect.poll(drawnKeys).toContain('volume-1');
+  await volume.getByRole('button', { name: /^Hide on / }).click();
+  await expect(volume).toHaveAttribute('data-visible', 'false');
+  await expect(page.locator('[data-study="volume-1"]')).toContainText('Hidden on this interval');
+  await expect.poll(drawnKeys).not.toContain('volume-1');
+  await volume.getByRole('button', { name: /^Show on / }).click();
+  await expect(volume).toHaveAttribute('data-visible', 'true');
+  await expect.poll(drawnKeys).toContain('volume-1');
 });
 
 test(`${J} #7 deletes a line, and Undo brings it back with its original points`, async () => {

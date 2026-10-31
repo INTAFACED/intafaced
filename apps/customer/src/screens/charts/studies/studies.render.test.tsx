@@ -105,6 +105,7 @@ async function render(
     percent?: boolean;
     replaying?: boolean;
     group?: StudyGroupLink;
+    treeSlot?: HTMLElement | null;
   } = {},
 ) {
   root ??= createRoot(host);
@@ -120,6 +121,7 @@ async function render(
         percent={props.percent}
         replaying={props.replaying}
         group={props.group}
+        treeSlot={props.treeSlot}
       />,
     ),
   );
@@ -269,6 +271,30 @@ describe('visibility per interval', () => {
     expect(fake.made.filter((s) => !s.removed)).toHaveLength(0);
     await render({ interval: '15m' });
     expect(fake.made.filter((s) => !s.removed).length).toBeGreaterThan(0);
+  });
+});
+
+describe('the object tree', () => {
+  it('lists every study in the tree slot; hiding one there hides it on this interval only, and Remove removes it', async () => {
+    const slot = document.createElement('div');
+    document.body.appendChild(slot);
+    await render({ treeSlot: slot });
+    await addStudy('sma', 'Simple moving average');
+    const rows = () => [...slot.querySelectorAll('[data-study-id]')];
+    expect(rows().map((r) => r.getAttribute('data-study-id'))).toEqual(store().studies.map((st) => st.id));
+    expect(rows().map((r) => r.getAttribute('data-study-id'))).toContain('sma-1');
+    const sma = () => slot.querySelector('[data-study-id="sma-1"]')!;
+    const inTree = (text: string) => [...sma().querySelectorAll('button')].find((b) => b.textContent === text);
+    await click(inTree('Hide on 15m'));
+    expect(store().studies.find((s) => s.id === 'sma-1')!.hiddenOn).toEqual(['15m']);
+    expect(sma().getAttribute('data-visible')).toBe('false');
+    expect(legend()).toContain('Hidden on this interval');
+    await click(inTree('Show on 15m'));
+    expect(store().studies.find((s) => s.id === 'sma-1')!.hiddenOn).toEqual([]);
+    await click(inTree('Remove Simple moving average 20'));
+    expect(rows().map((r) => r.getAttribute('data-study-id'))).not.toContain('sma-1');
+    expect(rows()).toHaveLength(store().studies.length);
+    slot.remove();
   });
 });
 
