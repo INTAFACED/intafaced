@@ -1,4 +1,6 @@
 import { TRPCError } from '@trpc/server';
+import { guestProcedures } from './guest-router.js';
+import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
 import {
   createTicketWireInputSchema,
@@ -158,11 +160,24 @@ export function mapError(err: unknown): never {
       err.code === 'support.kb_section_unknown' ||
       err.code === 'support.fraud_route_unset' ||
       err.code === 'support.fraud_route_missing' ||
-      err.code === 'support.fraud_report_key_required'
+      err.code === 'support.fraud_report_key_required' ||
+      // The guest path (SP-tickets-01): a blank owner value, no sender, an expired link, an answer the sender did not give.
+      err.code === 'support.guest_link_ttl_unset' ||
+      err.code === 'support.guest_rate_limit_unset' ||
+      err.code === 'support.guest_retention_unset' ||
+      err.code === 'support.guest_address_key_unset' ||
+      err.code === 'support.guest_link_expired' ||
+      err.code === 'support.guest_delivery_unknown' ||
+      err.code === 'support.category_unknown' ||
+      err.code === 'vendor.email' ||
+      err.code.startsWith('guest.')
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }
-    if (err.code === 'support.feedback_rate_exceeded') {
+    if (err.code === 'support.guest_link_invalid') {
+      throw new TRPCError({ code: 'NOT_FOUND', message });
+    }
+    if (err.code === 'support.feedback_rate_exceeded' || err.code === 'support.guest_rate_limited') {
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
     }
     if (
@@ -221,6 +236,7 @@ export function createSupportRouter(
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
   macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
   kbAuthoring: KbAuthoring = new KbAuthoring(new MemorySupportStore(), new MemoryKbReviewBook()),
+  guests?: GuestRequests,
   /** The owner's `SUPPORT_KB_SEGMENT_CAP`; null (blank) refuses `support.kb_segment_cap_unset`. Never defaulted. */
   kbSegmentCap: number | null = null,
 ) {
@@ -235,6 +251,7 @@ export function createSupportRouter(
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
     ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
     ...kbReviewProcedures(kbAuthoring, kbLibrary),
+    ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),

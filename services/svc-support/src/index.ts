@@ -1,4 +1,6 @@
 import postgres from 'postgres';
+import { GuestRequests } from './guest-requests.js';
+import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
@@ -116,6 +118,15 @@ await sql`SELECT visibility FROM support.comments LIMIT 1`.catch(() => {
   throw new Error('support.comments.visibility is missing — apply migration 20261029180000_internal_notes before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.guest_requests LIMIT 1`.catch(() => {
+  throw new Error('support.guest_requests is missing — apply migration 20261031000000_guest_requests before starting svc-support');
+});
+if (
+  env.NOTIFY_SUPPORT_SERVICE_SECRET &&
+  [env.INTERNAL_SERVICE_SECRET, env.EDGE_PRINCIPAL_SECRET].includes(env.NOTIFY_SUPPORT_SERVICE_SECRET)
+)
+  throw new Error("NOTIFY_SUPPORT_SERVICE_SECRET must be svc-support's own secret for svc-notify, not a shared one");
+
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
 });
@@ -197,6 +208,20 @@ const support = new SupportService(
   env.SUPPORT_FRAUD_GROUP ?? null,
   env.SUPPORT_CUSTOMER_SEES ?? null,
 );
+// Guest requests (SP-tickets-01): mail goes through svc-notify's guest verification door on svc-support's own secret.
+const guests = new GuestRequests(
+  sql,
+  support,
+  createGuestVerificationClient({ notifyUrl: env.NOTIFY_URL, secret: env.NOTIFY_SUPPORT_SERVICE_SECRET, s2s: s2sKey }),
+  {
+    linkTtlMinutes: env.SUPPORT_GUEST_LINK_TTL_MINUTES ?? null,
+    rateLimit: env.SUPPORT_GUEST_RATE_LIMIT ?? null,
+    rateWindowSeconds: env.SUPPORT_GUEST_RATE_WINDOW_SECONDS ?? null,
+    retentionDays: env.SUPPORT_GUEST_RETENTION_DAYS ?? null,
+    addressKey: env.SUPPORT_GUEST_ADDRESS_KEY ?? null,
+    publicOrigin: env.SUPPORT_PUBLIC_ORIGIN ?? null,
+  },
+);
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(
   support,
@@ -212,6 +237,7 @@ const appRouter = createSupportRouter(
   new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
   new DeskMacros(new SqlMacroBook(sql), support, env.SUPPORT_MACRO_SHORTCODE_MIN ?? null),
   new KbAuthoring(store, new SqlKbReviewBook(sql)),
+  guests,
   env.SUPPORT_KB_SEGMENT_CAP ?? null,
 );
 const edgeContext = createEdgeContext({
@@ -236,6 +262,11 @@ app.log.info({ port: env.HTTP_PORT }, 'svc-support ready');
 const sweep = (): void => void ratingRequests.flush().catch((err: unknown) => app.log.warn({ err }, 'rating request sweep failed'));
 sweep();
 const sweepTimer = setInterval(sweep, 60_000);
+// Guest addresses past the owner's retention are erased, here and in svc-notify: once now, then each hour.
+const eraseGuests = (): void => void guests.eraseDue().catch((err: unknown) => app.log.warn({ err }, 'guest erase sweep failed'));
+eraseGuests();
+const guestTimer = setInterval(eraseGuests, 3_600_000);
+guestTimer.unref();
 sweepTimer.unref();
 
 // Held attachments: scanned again only when the owner has set both the interval and the batch. Blank runs no pass.
@@ -252,6 +283,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(sweepTimer);
+      clearInterval(guestTimer);
       if (rescanTimer) clearInterval(rescanTimer);
       await app.close();
       await bus?.close();

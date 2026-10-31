@@ -233,6 +233,38 @@ describe('trade operator procedures', () => {
     expect((await trade.findOrder(other.id))?.status).toBe('open');
   });
 
+  it('mass cancel reports an order the engine no longer has as not cancelled, and leaves its hold (#6874)', async () => {
+    await fund(ALICE, '1000');
+    const gone = await trade.placeOrder(principalFor(ALICE), {
+      marketId,
+      side: 'buy',
+      type: 'limit',
+      qty: amt('1'),
+      price: amt('100'),
+      clientOrderId: 'gone-btc',
+    });
+    // The engine matched it in full a moment ago; the fill has not landed.
+    matching.scriptCancelMiss(gone.id);
+    const reason = 'clear the btc book';
+    const scope = `market:${marketId}|account:`;
+    allow({
+      approvalId: 'appr-cancel-gone',
+      actionType: 'trade.mass_cancel',
+      targetId: scope,
+      expectedVersion: '0',
+      body: { actionType: 'trade.mass_cancel', scope, reason },
+    });
+    const result = await admin.massCancel(operatorWriter(), {
+      market: marketId,
+      reason,
+      approvalId: 'appr-cancel-gone',
+      clientRequestId: 'cancel-gone',
+    });
+    expect(result.results).toEqual([{ orderId: gone.id, ok: false, code: 'trade.cancel_ahead_of_fill' }]);
+    expect(await held(ALICE, gone.id)).toBe('100');
+    expect((await trade.findOrder(gone.id))?.status).toBe('open');
+  });
+
   it('refuses a missing, reused, or mismatched approval and cancels nothing', async () => {
     await fund(ALICE, '1000');
     const order = await trade.placeOrder(principalFor(ALICE), {

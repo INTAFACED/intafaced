@@ -12,6 +12,7 @@ import {
   openFounderSession,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,9 @@ export async function POST(request: Request) {
     assertAdminOrigin(request, config, true);
     const input = await readAdminJson(request);
     if (
-      Object.keys(input).some((key) => !['identifier', 'password', 'totpCode'].includes(key)) ||
+      Object.keys(input).some((key) => !['identifier', 'password', 'totpCode', 'challenge'].includes(key)) ||
+      // A solved sign-in challenge (I-signin-sessions-30), solved in the founder's browser after auth.challenge_required.
+      (input.challenge !== undefined && !signInChallengeProofSchema.safeParse(input.challenge).success) ||
       typeof input.identifier !== 'string' ||
       !input.identifier.trim() ||
       input.identifier.length > 254 ||

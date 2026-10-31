@@ -5,6 +5,8 @@ import { signInReturnTarget } from '@/lib/crm-return';
 import { firstLoginError, loginFieldErrors, type LoginFieldErrors } from '@/lib/crm-login';
 import { submitProps } from '@/lib/crm-form-state';
 import { Callout } from './crm-callout';
+import { signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
+import { solveSignInChallenge } from '@/lib/signin-challenge-browser';
 import { FounderDeviceApproval, postSession, SessionRefusal, type DeviceAuthorisation } from './founder-device-approval';
 
 /** After signing in: the page the sign-in link asked for (only a /crm path), else the enquiry whose edits this tab kept for the founder who just signed in, else /crm. */
@@ -30,6 +32,8 @@ export function FounderLogin() {
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState('');
+  // Tries so far while this browser solves a sign-in check; null when none is running.
+  const [challengeTries, setChallengeTries] = useState<number | null>(null);
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState<DeviceAuthorisation | null>(null);
@@ -77,7 +81,19 @@ export function FounderLogin() {
         setBusy(true);
         setError('');
         try {
-          const session = await postSession('/api/session', { identifier, password, totpCode });
+          const input = { identifier, password, totpCode };
+          let session: unknown;
+          try {
+            session = await postSession('/api/session', input);
+          } catch (first) {
+            // Too many failed sign-ins came from this console's address: this browser solves identity's check, then the
+            // same sign-in goes once more (I-signin-sessions-30).
+            if (!(first instanceof SessionRefusal && first.upstream === 'auth.challenge_required')) throw first;
+            setChallengeTries(0);
+            const challenge = signInChallengeSchema.parse(await postSession('/api/session/challenge', {}));
+            const proof = await solveSignInChallenge(challenge, setChallengeTries);
+            session = await postSession('/api/session', { ...input, challenge: proof });
+          }
           window.location.assign(returnTarget(session));
         } catch (failure) {
           // The right password and code on a browser identity has not seen: approve this browser first.
@@ -89,6 +105,7 @@ export function FounderLogin() {
         } finally {
           setPassword('');
           setTotpCode('');
+          setChallengeTries(null);
           setBusy(false);
         }
       }}
@@ -145,6 +162,13 @@ export function FounderLogin() {
         </label>
         {fieldError('totpCode')}
       </div>
+      {challengeTries !== null && (
+        <p role="status" aria-live="polite" data-testid="signin-challenge">
+          {challengeTries === 0
+            ? 'Checking this browser before signing you in.'
+            : `Checking this browser before signing you in: ${challengeTries} tries so far.`}
+        </p>
+      )}
       {error && (
         <Callout tone="danger" role="alert">
           {error}

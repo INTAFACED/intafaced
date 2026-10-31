@@ -29,6 +29,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     NOTIFY_ALERT_FREQUENCIES: 'every_crossing',
     NOTIFY_ALERT_BURST_WINDOW_MINUTES: '10',
     NOTIFY_ALERT_BURST_MAX_TRIGGERS: '5',
+    // LOCAL TEST only: the page of svc-trade's market list the alert marks read (trade's own cap). Unset, every live
+    // quote refuses notify.markets_list_limit_unset and no alert can fire on the stack.
+    NOTIFY_MARKETS_LIST_LIMIT: '500',
     // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
     // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
     NOTIFY_INBOX_PAGE_SIZE: '20',
@@ -42,5 +45,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
     // snippets on it. The local outbox above writes app paths and does not read it.
     NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
+    // svc-support's own secret for the guest verification door (SP-tickets-01): its links must open NOTIFY_PUBLIC_ORIGIN,
+    // and the LOCAL TEST outbox above writes them with `purpose: guest-verify`.
+    NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService,
   }),
 });
