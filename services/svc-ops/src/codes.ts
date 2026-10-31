@@ -188,6 +188,10 @@ export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigure
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 /** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
 export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
+/** A hold's owner is archived: the record is read-only, so a confirm (a new movement onward) is refused; release stays open. */
+export const OPS_HOLD_ACCOUNT_ARCHIVED = 'identity.account_archived' as const;
+/** Whether a hold's owner is archived could not be read from identity, so a confirm is refused rather than assumed allowed. */
+export const OPS_HOLD_ACCOUNT_UNREADABLE = 'ops.hold_account_unreadable' as const;
 export const OPS_RESTORE_RUN_NOT_FOUND = 'ops.restore_run_not_found' as const;
 export const OPS_ALERT_LIST_LIMIT_UNSET = 'ops.alert_list_limit_unset' as const;
 export const OPS_ALERT_RULE_NOT_FOUND = 'ops.alert_rule_not_found' as const;
@@ -277,6 +281,8 @@ export type OpsRefuseCode =
   | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
   | typeof OPS_RESTORE_WATERMARK_UNAVAILABLE
+  | typeof OPS_HOLD_ACCOUNT_ARCHIVED
+  | typeof OPS_HOLD_ACCOUNT_UNREADABLE
   | typeof OPS_RESTORE_RUN_NOT_FOUND
   | typeof OPS_RESTORE_STEP_OUT_OF_ORDER
   | typeof OPS_RESTORE_TARGET_UNSET

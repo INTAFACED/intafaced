@@ -24,6 +24,8 @@ import {
   type StaffHoldState,
 } from '@intafaced/contracts';
 import {
+  OPS_HOLD_ACCOUNT_ARCHIVED,
+  OPS_HOLD_ACCOUNT_UNREADABLE,
   OPS_IDEMPOTENCY_CONFLICT,
   OpsError,
   STAFF_HOLD_AMOUNT_EXCEEDS_REMAINING,
@@ -68,8 +70,15 @@ export interface StaffHoldSettings {
   readonly expiryMaxHours: number | null;
 }
 
+/** Whether a customer record is archived, as identity says. `unreadable` for no answer: never taken as not archived. */
+export interface HoldOwnerArchive {
+  archived(userId: string): Promise<boolean | 'unreadable'>;
+}
+
 export interface StaffHoldDeskDeps {
   readonly store: StaffHoldStore | undefined;
+  /** Identity's archive state of a hold's owner. Absent: a confirm refuses `ops.hold_account_unreadable`. */
+  readonly ownerArchive?: HoldOwnerArchive;
   readonly ledger: StaffHoldLedger | undefined;
   readonly approvals: ApprovalConsumer | undefined;
   readonly settings: StaffHoldSettings;
@@ -289,6 +298,19 @@ export class StaffHoldDesk {
           throw new OpsError(
             STAFF_HOLD_CONFIRM_ACCOUNT_UNSET,
             'The owner has not named the account a confirmed hold moves to. Nothing was posted.',
+          );
+        // A confirm moves the held money onward, a new movement, so an archived (read-only) record refuses it before the
+        // approval is spent (lead ruling 2026-10-31). Release stays open: it only gives back what is already held.
+        const archived = this.deps.ownerArchive ? await this.deps.ownerArchive.archived(locked.hold.userId) : 'unreadable';
+        if (archived === 'unreadable')
+          throw new OpsError(
+            OPS_HOLD_ACCOUNT_UNREADABLE,
+            'Whether this customer record is archived could not be read, so the hold was not confirmed. Nothing was posted.',
+          );
+        if (archived)
+          throw new OpsError(
+            OPS_HOLD_ACCOUNT_ARCHIVED,
+            'This customer record is archived and read-only, so the hold cannot be confirmed; it can still be released. Nothing was posted.',
           );
         const consumed = await consumeFounderApproval(this.deps.approvals, {
           approvalId: input.approvalId,

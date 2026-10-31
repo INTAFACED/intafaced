@@ -163,7 +163,14 @@ class TestLedger implements StaffHoldLedger {
 const SETTINGS: StaffHoldSettings = { confirmAccount: 'held-funds', expiryMaxHours: 24 };
 
 async function build(
-  options: { settings?: StaffHoldSettings; store?: StaffHoldStore | null; ledger?: TestLedger | null; ticking?: boolean } = {},
+  options: {
+    settings?: StaffHoldSettings;
+    store?: StaffHoldStore | null;
+    ledger?: TestLedger | null;
+    ticking?: boolean;
+    /** Identity's archive answer for the hold's owner; null leaves the port unwired. */
+    archive?: { archived(userId: string): Promise<boolean | 'unreadable'> } | null;
+  } = {},
 ) {
   const ids = identity();
   const ledger = options.ledger === undefined ? new TestLedger() : options.ledger;
@@ -178,6 +185,7 @@ async function build(
     store: options.store === null ? undefined : (options.store ?? new MemoryStaffHoldStore()),
     ledger: ledger ?? undefined,
     approvals: ids,
+    ...(options.archive === null ? {} : { ownerArchive: options.archive ?? { archived: async () => false } }),
     settings: options.settings ?? SETTINGS,
     // `ticking`: every reading of the clock is a millisecond later, as in a running process.
     now: () => new Date(options.ticking ? clock++ : clock),
@@ -301,6 +309,39 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
     expect(ids.spent()).toBe(0);
     expect(await ledger.balance(held('1'))).toBe('40');
     expect((await c.staffHolds.list({ userId: CUSTOMER })).settings).toEqual({ expiryMaxHours: 24, confirmAccountSet: false });
+  });
+
+  it('an archived customer: confirm refuses identity.account_archived before the approval is spent; release still works', async () => {
+    const asked: string[] = [];
+    const { caller, ledger, ids } = await build({
+      archive: {
+        archived: async (userId) => {
+          asked.push(userId);
+          return true;
+        },
+      },
+    });
+    const c = await caller();
+    await c.staffHolds.place(place());
+    await expect(c.staffHolds.confirm(confirm(ids, '1'))).rejects.toThrow(/identity\.account_archived/);
+    expect(asked).toEqual([CUSTOMER]);
+    expect(ids.spent()).toBe(0);
+    expect(await ledger.balance(held('1'))).toBe('40');
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'active', remaining: '40' });
+    await c.staffHolds.release(release(ids, '1', '40.00'));
+    expect(await ledger.balance(held('1'))).toBe('0');
+    expect(await ledger.balance(available())).toBe('100');
+  });
+
+  it('confirm refuses ops.hold_account_unreadable when identity gives no answer, or is not wired, and nothing is spent', async () => {
+    for (const archive of [{ archived: async () => 'unreadable' as const }, null]) {
+      const { caller, ledger, ids } = await build({ archive });
+      const c = await caller();
+      await c.staffHolds.place(place());
+      await expect(c.staffHolds.confirm(confirm(ids, '1'))).rejects.toThrow(/ops\.hold_account_unreadable/);
+      expect(ids.spent()).toBe(0);
+      expect(await ledger.balance(held('1'))).toBe('40');
+    }
   });
 
   it('a release and a confirm asked for at the same moment: exactly one posts', async () => {
