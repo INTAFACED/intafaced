@@ -766,7 +766,7 @@ const messages = {
   'token.economy.boundaries': 'Economy boundaries',
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Emission, buyback and revenue-distribution runs are carried out by INTAFACED itself. You cannot start them.',
-  'token.the.customer.api.publishes.no.personal.yield':
+  'token.no.upcoming.distribution.is.quoted':
     'No upcoming distribution is quoted: a window’s share is known only when it is paid. Buyback runs are on the Burn tab.',
   'token.governance.closure.depends.on.published.quorum.and':
     'A vote closes under the published quorum and pass threshold. A passed listing or grant is not carried out, because nothing is connected to carry it out.',
@@ -1744,7 +1744,7 @@ const es = {
   'token.economy.boundaries': 'Límites de la economía',
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Las emisiones, recompras y repartos de ingresos los ejecuta INTAFACED. No puedes iniciarlos tú.',
-  'token.the.customer.api.publishes.no.personal.yield':
+  'token.no.upcoming.distribution.is.quoted':
     'No se cotiza ningún reparto próximo: la parte de una ventana solo se conoce cuando se paga. Las recompras están en la pestaña Quema.',
   'token.governance.closure.depends.on.published.quorum.and':
     'Una votación se cierra con el quórum y el umbral publicados. Un listado o ayuda aprobados no se ejecutan, porque no hay nada conectado que los ejecute.',
@@ -2730,7 +2730,7 @@ const fr = {
   'token.economy.boundaries': 'Limites de l’économie',
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Les émissions, rachats et distributions de revenus sont exécutés par INTAFACED lui-même. Tu ne peux pas les lancer.',
-  'token.the.customer.api.publishes.no.personal.yield':
+  'token.no.upcoming.distribution.is.quoted':
     'Aucune distribution à venir n’est estimée : la part d’une fenêtre n’est connue qu’une fois versée. Les rachats sont dans l’onglet Destruction.',
   'token.governance.closure.depends.on.published.quorum.and':
     'Un vote se clôture selon le quorum et le seuil publiés. Une inscription ou une subvention adoptée n’est pas exécutée, car rien n’est connecté pour l’exécuter.',

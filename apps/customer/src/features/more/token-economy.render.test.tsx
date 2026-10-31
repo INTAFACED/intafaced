@@ -59,9 +59,23 @@ describe('token economy: emission schedule', () => {
     );
     expect(out).toContain('Every 2 epochs');
     expect(out).toContain('1,000');
-    expect(out.match(/Halved/g)).toHaveLength(1);
+    expect(out.match(/Halving starts/g)).toHaveLength(1);
     expect(out).toContain('Minted to date: 150.5.');
     expect(out).not.toContain('not set');
+  });
+
+  it('marks a halving on the first listed epoch from the interval, not from the row above', () => {
+    const out = schedule({
+      params: { initialEpochReward: '100', halvingIntervalEpochs: 2, maxSupply: '1000' },
+      epochs: [
+        { epoch: 4, reward: '25' },
+        { epoch: 5, reward: '25' },
+      ],
+      missing: null,
+      reason: null,
+    });
+    expect(out.match(/Halving starts/g)).toHaveLength(1);
+    expect(out.indexOf('Halving starts')).toBeLessThan(out.indexOf('<td>5</td>'));
   });
 
   it('an unreadable schedule is not called blank, and a read that is neither set nor refused fails', () => {
@@ -83,8 +97,22 @@ describe('token economy: real yield', () => {
     });
     expect(out).toContain('2026-W43');
     expect(out).toContain('12.5');
+    expect(out).toContain('ifc');
     expect(out).toContain('posting not readable');
     expect(out).not.toContain('No real-yield payout');
+    expect(out).not.toContain('Show older windows');
+  });
+
+  it('offers older windows when the service has a next page', () => {
+    const out = renderToStaticMarkup(
+      <SessionProvider>
+        <YieldHistoryView
+          read={ready({ items: [], nextCursor: 'cursor-1' })}
+          more={{ busy: false, failure: null, more: () => undefined }}
+        />
+      </SessionProvider>,
+    );
+    expect(out).toContain('Show older windows');
   });
 
   it('with no payout says so beside the empty table', () => {

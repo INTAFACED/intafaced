@@ -67,7 +67,7 @@ test(
 test(`${J} #2 Opens the yield view: the weekly real-yield share per window`, async ({ page }) => {
   test.setTimeout(60_000);
   const { client } = await holder(page);
-  const served = await read(client, 'yieldHistory', { limit: 50 });
+  const served = await read(client, 'revenueShareHistory', { limit: 50 });
   await page.goto('/token/economy');
   const panel = page.getByRole('region', { name: 'Your real yield', exact: true });
   await expect(panel).toBeVisible();
@@ -78,6 +78,7 @@ test(`${J} #2 Opens the yield view: the weekly real-yield share per window`, asy
   for (const [i, item] of served.items.entries()) {
     await expect(rows.nth(i)).toContainText(item.windowId);
     await expect(rows.nth(i)).toContainText(item.amount === null ? 'posting not readable' : shown(item.amount));
+    await expect(rows.nth(i)).toContainText(item.assetId ?? 'not readable');
   }
 });
 
