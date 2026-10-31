@@ -230,6 +230,115 @@ export const deathNoticeConfirmed = defineEvent(
   'A second person confirmed a death notice (RC-identity-02): the account is frozen and its sessions and API keys revoked. Its balances move only by the recovery keys the owner set (RC-identity-08).',
 );
 
+/**
+ * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
+ * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
+ * in the same transaction as the change, at least once, with the business key
+ * `identity.staff.<verb>:<staffId>:<version>` (a role redefine's key is below).
+ *
+ * `cause` says what made the change:
+ *   - `approval`: a four-eyes change. `actorId` made it and `approvalId` names the approval a second person gave and
+ *     this change consumed. Invite, disable, remove, assign, unassign and role define are all this.
+ *   - `invite_accepted` (`updated` only): the invited person accepted and became active. There is no approval to name,
+ *     so `approvalId` is absent (a value is refused); `actorId` is the person themselves.
+ *
+ * A role define changes what every current holder can do without touching their records, so identity publishes one
+ * `updated` (cause `approval`) per current holder of the role, with `changedFields` exactly `['permissions']`. The
+ * holder's record version does not move, so that update also carries `roleId` and `roleVersion` (the role's version
+ * after the define) and its business key is `identity.staff.updated:<staffId>:<version>:role:<roleId>:<roleVersion>`.
+ * `roleId` and `roleVersion` are required on such an update and refused on every other payload.
+ *
+ * Only the NAMES of the changed fields ride on the bus: no value, email, password, secret or token. A consumer re-reads
+ * the record through contracts.
+ */
+export const STAFF_CHANGED_FIELDS = ['status', 'roleIds', 'displayName', 'email', 'permissions'] as const;
+export const STAFF_CHANGE_CAUSES = ['approval', 'invite_accepted'] as const;
+
+const staffChangeCommon = {
+  staffId: z.string().min(1).max(128),
+  /** The staff member who made the change (on `invite_accepted`, the person who accepted). */
+  actorId: z.string().min(1).max(128),
+  changedFields: z
+    .array(z.enum(STAFF_CHANGED_FIELDS))
+    .max(STAFF_CHANGED_FIELDS.length)
+    .refine((fields) => new Set(fields).size === fields.length, 'a field is named twice'),
+  /** The staff record's version after the change; part of the business key. */
+  version: z.string().regex(/^(?:0|[1-9]\d*)$/),
+  at: z.string().datetime({ offset: true }),
+  /** Permissions-only update from a role redefine: the role redefined and its version after it. Absent otherwise. */
+  roleId: z.string().min(1).max(128).optional(),
+  roleVersion: z
+    .string()
+    .regex(/^(?:0|[1-9]\d*)$/)
+    .optional(),
+};
+
+type StaffChangeShape = {
+  readonly cause: string;
+  readonly changedFields: readonly string[];
+  readonly roleId?: string;
+  readonly roleVersion?: string;
+};
+
+/**
+ * `roleId` and `roleVersion` go together, exactly on a permissions-only update (`changedFields` is `['permissions']`)
+ * of a four-eyes change; `created`, `deleted` and an accepted invite never are one.
+ */
+function staffRoleRedefineRule(redefineAllowed: boolean) {
+  return (payload: StaffChangeShape, ctx: z.RefinementCtx): void => {
+    const permissionsOnly = payload.changedFields.length === 1 && payload.changedFields[0] === 'permissions';
+    const hasRole = payload.roleId !== undefined || payload.roleVersion !== undefined;
+    if (permissionsOnly && !(redefineAllowed && payload.cause === 'approval')) {
+      ctx.addIssue({ code: 'custom', path: ['changedFields'], message: 'a permissions-only change is a role redefine update' });
+    } else if (permissionsOnly && (payload.roleId === undefined || payload.roleVersion === undefined)) {
+      ctx.addIssue({ code: 'custom', path: ['roleId'], message: 'a permissions-only update names the role and its version' });
+    } else if (!permissionsOnly && hasRole) {
+      ctx.addIssue({ code: 'custom', path: ['roleId'], message: 'roleId and roleVersion are only on a permissions-only update' });
+    }
+  };
+}
+
+const staffChangeByApproval = z.object({
+  ...staffChangeCommon,
+  cause: z.literal('approval'),
+  /** The identity action approval a second person gave and this change consumed. */
+  approvalId: z.string().min(1).max(128),
+});
+
+const staffChangeByInviteAccepted = z.object({
+  ...staffChangeCommon,
+  cause: z.literal('invite_accepted'),
+  /** No approval is spent when a person accepts their own invite. Present at all is refused. */
+  approvalId: z.undefined().optional(),
+});
+
+export const staffCreated = defineEvent(
+  'identity',
+  'staff',
+  'created',
+  1,
+  staffChangeByApproval.superRefine(staffRoleRedefineRule(false)),
+  'A named person was invited as staff under a four-eyes approval (OPS-admin-access-03). They hold no access until they accept.',
+);
+
+export const staffUpdated = defineEvent(
+  'identity',
+  'staff',
+  'updated',
+  1,
+  z.discriminatedUnion('cause', [staffChangeByApproval, staffChangeByInviteAccepted]).superRefine(staffRoleRedefineRule(true)),
+  "A staff member's status, roles or permissions changed (OPS-admin-access-03): accepted an invite, or under a four-eyes approval was disabled, given or lost a role, or had a role of theirs redefined.",
+);
+
+export const staffDeleted = defineEvent(
+  'identity',
+  'staff',
+  'deleted',
+  1,
+  staffChangeByApproval.superRefine(staffRoleRedefineRule(false)),
+  'A staff record was removed under a four-eyes approval (OPS-admin-access-03). The customer account, if any, is untouched.',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -1851,6 +1960,9 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  staffCreated,
+  staffUpdated,
+  staffDeleted,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -2021,6 +2133,48 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'staffCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
+  {
+    event: 'staffUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
+  {
+    event: 'staffDeleted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffDeleted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
   {
     event: 'deathNoticeCreated',
     missing: 'subscriber',
