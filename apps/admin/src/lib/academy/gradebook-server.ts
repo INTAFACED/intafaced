@@ -1,5 +1,9 @@
 import 'server-only';
-import { academyCourseGradebookSchema, academySaveGradingPolicyInputSchema } from '@intafaced/contracts/academy-course-gradebook';
+import {
+  academyCourseGradebookSchema,
+  academySaveGradingPolicyInputSchema,
+  academySaveLatePolicyInputSchema,
+} from '@intafaced/contracts/academy-course-gradebook';
 import {
   academyGradeReportFileSchema,
   academyGradeReportSchema,
@@ -73,7 +77,11 @@ function refusal(result: FounderCallResult<unknown>): { status: number; reply: G
 const WHY =
   'Each type needs a name, a weight from 0.0001 to 1 with up to four places, a whole number of lowest scores to drop and at least one item. Say why in up to 500 characters.';
 
-export const isGradebookOp = (op: unknown): op is 'savePolicy' | 'makeReport' => op === 'savePolicy' || op === 'makeReport';
+const LATE_WHY =
+  'A late policy needs grace hours (0 to 9999.99, up to two places) and a deduction per day from 0.0001 to 1 with up to four places, or nothing to clear it. Say why in up to 500 characters.';
+
+export type GradebookOp = 'savePolicy' | 'saveLatePolicy' | 'makeReport';
+export const isGradebookOp = (op: unknown): op is GradebookOp => op === 'savePolicy' || op === 'saveLatePolicy' || op === 'makeReport';
 
 export async function changeGradebook(
   ctx: FounderCallContext,
@@ -87,6 +95,21 @@ export async function changeGradebook(
     if (made.kind !== 'ok' || !made.data) return refusal(made);
     // A retried or stale request for a number already made answers that stored report: the time says when it was made.
     return { status: 200, reply: { ok: true, what: `grade report ${made.data.n} made at ${made.data.madeAt}`, report: made.data } };
+  }
+  if (op === 'saveLatePolicy') {
+    const late = academySaveLatePolicyInputSchema.safeParse(input);
+    if (!late.success)
+      return { why: input.policy === null ? 'Say why you are clearing the late policy, in up to 500 characters.' : LATE_WHY };
+    const saved = await founderCall(ctx, 'academy', 'admin.saveLatePolicy', 'POST', late.data, readGradebook);
+    if (saved.kind !== 'ok' || !saved.data) return refusal(saved);
+    // svc-academy writes nothing when the course already holds what was sent: the revision read is still the one stored.
+    const what =
+      (saved.data.latePolicy?.revision ?? 0) === late.data.revision
+        ? 'late policy unchanged: the course already holds it, so nothing was recorded'
+        : late.data.policy
+          ? 'late policy saved'
+          : 'late policy cleared';
+    return { status: 200, reply: { ok: true, what, gradebook: saved.data } };
   }
   const parsed = academySaveGradingPolicyInputSchema.safeParse(input);
   if (!parsed.success) return { why: WHY };

@@ -11,6 +11,7 @@ import { changeGradebook, isGradebookOp, loadGradebook, loadGradeReportFile } fr
  *   GET ?courseId=<uuid>&report=<n>   stored grade report n as a CSV download, with its SHA-256
  *   POST { op: 'makeReport', courseId, n }   stores report n: the gradebook now, with its time and hash
  *   POST { op: 'savePolicy', courseId, revision, types, reason }   weights adding up to exactly 1, with dropped lowest
+ *   POST { op: 'saveLatePolicy', courseId, revision, policy: { graceHours, deductionPerDay } | null, reason }   the late policy
  *
  * Founder-only. svc-academy records the founder from their own token.
  */

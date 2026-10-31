@@ -55,6 +55,14 @@ async function base64Of(file: File): Promise<string> {
   return btoa(binary);
 }
 
+/** A share of the points ("0.1", up to four places) as a percentage with up to two places ("10", "3.33"), worked out in digits. */
+export function percentOf(share: string): string {
+  const [whole, frac = ''] = share.split('.');
+  const basis = BigInt(whole! + frac.padEnd(4, '0').slice(0, 4));
+  const hundredths = (basis % 100n).toString().padStart(2, '0').replace(/0+$/, '');
+  return hundredths ? `${basis / 100n}.${hundredths}` : `${basis / 100n}`;
+}
+
 /** A refusal this page words itself, with the code the service would have sent. */
 const refusalOf = (code: string): Failure => ({ ok: false, reason: 'error', message: code, code });
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -168,6 +176,7 @@ export function AssignmentGrade({
     <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
       <h3>{t('grdTitle')}</h3>
       <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
+      {grade.entered !== null && <p data-testid="assignment-grade-late">{t('grdLate', { entered: grade.entered })}</p>}
       <span data-testid="academy-lms-meta" className="academy-lms-meta">
         {t('grdForVersion', { version: grade.version, date: when(grade.gradedAt, language) })}
       </span>
@@ -212,7 +221,11 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
         </p>
       </section>
       <Asks data={data} t={t} />
-      <p data-testid="assignment-late-rule">{data.lateRule ? t('asgLateRule', { rule: data.lateRule }) : t('asgLateRuleNone')}</p>
+      <p data-testid="assignment-late-rule">
+        {data.latePolicy
+          ? t('asgLateRule', { grace: data.latePolicy.graceHours, percent: percentOf(data.latePolicy.deductionPerDay) })
+          : t('asgLateRuleNone')}
+      </p>
     </div>
   );
 }

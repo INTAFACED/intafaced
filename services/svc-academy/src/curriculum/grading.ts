@@ -30,6 +30,7 @@ import type { CourseAssignments } from './assignments.js';
 import { canonicalPrice } from './courses.js';
 import { hundredths } from './peer-review.js';
 import { dueFor } from './course-item-rules.js';
+import { lateScore, policyOf } from './late-policy.js';
 import { readBulkGradeFile, type BulkGradeBadRow } from './bulk-grade-file.js';
 
 type Db = Sql | TransactionSql;
@@ -65,6 +66,11 @@ type CourseGradeRow = {
   handed_in: boolean;
   score: string | null;
   graded_points: string | null;
+  submitted_at: Date | null;
+  due_at: Date | null;
+  extended: Date | null;
+  grace_hours: string | null;
+  deduction_per_day: string | null;
 };
 
 /** part / whole as a percentage with one decimal place, rounded half up. */
@@ -82,25 +88,51 @@ type HandIn = {
   withdrawn_at: Date | null;
 };
 
-/** The learner's newest grade, with when they read it. Null before staff grade. */
+/**
+ * The learner's newest grade, with when they read it. Null before staff grade. The score is after the course's late policy
+ * (the hand-in's time against its due date, a learner's extension included); the entered grade is kept beside it.
+ */
 export async function learnerGradeOf(sql: Db, itemId: string, userId: string): Promise<AcademyLearnerGrade | null> {
   const [row] = await sql<
-    Array<{ version: number; n: number; score: string; points: string; comment: string | null; at: Date; read_at: Date | null }>
+    Array<{
+      version: number;
+      n: number;
+      score: string;
+      points: string;
+      comment: string | null;
+      at: Date;
+      read_at: Date | null;
+      submitted_at: Date;
+      due_at: Date | null;
+      extended: Date | null;
+      grace_hours: string | null;
+      deduction_per_day: string | null;
+    }>
   >`
-    SELECT s.version, g.n, g.score::text AS score, g.points::text AS points, g.comment, g.at, r.read_at
+    SELECT s.version, g.n, g.score::text AS score, g.points::text AS points, g.comment, g.at, r.read_at, s.submitted_at,
+      a.due_at, x.due_at AS extended, lp.grace_hours::text AS grace_hours, lp.deduction_per_day::text AS deduction_per_day
     FROM academy.assignment_submissions s
     JOIN academy.assignment_grade_events g ON g.submission_id = s.id
+    JOIN academy.course_items i ON i.id = s.item_id
+    LEFT JOIN academy.course_assignments a ON a.item_id = s.item_id
+    LEFT JOIN academy.course_item_extensions x ON x.item_id = s.item_id AND x.user_id = s.user_id
+    -- The late policy counts only for a hand-in made after it was set (late-policy.ts).
+    LEFT JOIN academy.course_late_policies lp ON lp.course_id = i.course_id AND lp.set_at <= s.submitted_at
     LEFT JOIN academy.assignment_feedback_reads r ON r.grade_event_id = g.id
     WHERE s.item_id = ${itemId} AND s.user_id = ${userId}
     ORDER BY s.version DESC, g.n DESC
     LIMIT 1
   `;
   if (!row) return null;
+  const score = canonicalPrice(row.score)!;
+  const points = canonicalPrice(row.points)!;
+  const late = lateScore(score, points, row.submitted_at, dueFor(row.due_at, row.extended), policyOf(row));
   return {
     version: row.version,
     n: row.n,
-    score: canonicalPrice(row.score)!,
-    points: canonicalPrice(row.points)!,
+    score: late.score,
+    points,
+    entered: late.entered,
     comment: row.comment,
     gradedAt: row.at.toISOString(),
     readAt: row.read_at?.toISOString() ?? null,
@@ -294,7 +326,8 @@ export class AssignmentGrading {
   async courseGrades(userId: string): Promise<AcademyCourseGrades[]> {
     const rows = await this.sql<CourseGradeRow[]>`
       SELECT c.id AS course_id, c.slug, c.title AS course_title, i.id AS item_id, i.title, a.points::text AS points,
-        a.withdrawn_at IS NOT NULL AS withdrawn, l.id IS NOT NULL AS handed_in, g.score::text AS score, g.points::text AS graded_points
+        a.withdrawn_at IS NOT NULL AS withdrawn, l.id IS NOT NULL AS handed_in, g.score::text AS score, g.points::text AS graded_points,
+        l.submitted_at, a.due_at, x.due_at AS extended, lp.grace_hours::text AS grace_hours, lp.deduction_per_day::text AS deduction_per_day
       FROM academy.course_enrolments e
       JOIN academy.courses c ON c.id = e.course_id AND c.state = 'published'
       JOIN academy.course_items i ON i.course_id = c.id AND i.kind = 'assignment'
@@ -302,7 +335,7 @@ export class AssignmentGrading {
       JOIN academy.course_assignments a ON a.item_id = i.id
       -- The newest hand-in staff can grade (as the queue shows it); a newer hand-in after a grade waits for its own.
       LEFT JOIN LATERAL (
-        SELECT s.id FROM academy.assignment_submissions s
+        SELECT s.id, s.submitted_at FROM academy.assignment_submissions s
         WHERE s.item_id = i.id AND s.user_id = ${userId}
         ORDER BY s.version DESC
         LIMIT 1
@@ -310,6 +343,9 @@ export class AssignmentGrading {
       LEFT JOIN LATERAL (
         SELECT g.score, g.points FROM academy.assignment_grade_events g WHERE g.submission_id = l.id ORDER BY g.n DESC LIMIT 1
       ) g ON TRUE
+      LEFT JOIN academy.course_item_extensions x ON x.item_id = i.id AND x.user_id = ${userId}
+      -- The late policy counts only for a hand-in made after it was set (late-policy.ts).
+      LEFT JOIN academy.course_late_policies lp ON lp.course_id = c.id AND lp.set_at <= l.submitted_at
       WHERE e.user_id = ${userId} AND e.left_at IS NULL
       ORDER BY c.title, c.id, sec.position, i.position
     `;
@@ -320,7 +356,19 @@ export class AssignmentGrading {
       const row = { itemId: r.item_id, title: r.title, type: 'assignment' as const };
       course.rows.push(
         r.score !== null
-          ? { ...row, state: 'graded', score: canonicalPrice(r.score)!, possible: canonicalPrice(r.graded_points!)! }
+          ? {
+              ...row,
+              state: 'graded',
+              // The score after the course's late policy, as the assignment page shows it.
+              score: lateScore(
+                canonicalPrice(r.score)!,
+                canonicalPrice(r.graded_points!)!,
+                r.submitted_at!,
+                dueFor(r.due_at, r.extended),
+                policyOf(r),
+              ).score,
+              possible: canonicalPrice(r.graded_points!)!,
+            }
           : {
               ...row,
               state: r.handed_in ? 'handed_in' : r.withdrawn ? 'withdrawn' : 'not_attempted',

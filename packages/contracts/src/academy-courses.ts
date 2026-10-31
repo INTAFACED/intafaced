@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ACADEMY_COURSE_PACING } from './academy-course-release.js';
+import { academyLatePolicySchema } from './academy-course-gradebook.js';
 
 /**
  * AC-course-structure-01: a course is a record staff create on the Academy desk. Its slug is fixed at creation; its details
@@ -631,8 +632,9 @@ export type AcademyLeaveAuthoredCourseInput = z.infer<typeof academyLeaveAuthore
  * instructions, points as a decimal string, an optional due date, and whether a text answer and a file are off, optional
  * or required. It is released to enrolled learners once its brief is saved. A learner hands in a numbered version keyed
  * `submit:<item>:<account>:<version>`, so a retry after a lost reply is the same hand-in; late is worked out on each
- * read against the due date and never stored. The course has no late rule until gradebook setup (AC-assignments-04), so
- * none is shown. No money moves here.
+ * read against the due date and never stored. A course's late policy (AC-assignments-04, ENGINE GR-5) lowers a late
+ * hand-in's score at read and the learner sees the entered grade beside it; with none, nothing is deducted. No money moves
+ * here.
  */
 export const ACADEMY_ANSWER_MODES = ['off', 'optional', 'required'] as const;
 export type AcademyAnswerMode = (typeof ACADEMY_ANSWER_MODES)[number];
@@ -764,8 +766,11 @@ export const academyLearnerGradeSchema = z.object({
   version: z.number().int().positive(),
   /** The grade event shown: 1 for the first grade, higher after a change. Mark as read names it. */
   n: z.number().int().positive(),
+  /** The score after the course's late policy; the entered grade when nothing was deducted. */
   score: z.string(),
   points: z.string(),
+  /** The grade staff entered, when the late policy took something off it; null when nothing was deducted. */
+  entered: z.string().nullable(),
   comment: z.string().nullable(),
   gradedAt: isoInstant,
   /** When the learner marked this grade's feedback read; null until then. */
@@ -781,8 +786,8 @@ export const academyAssignmentViewSchema = z.object({
   courseTitle: z.string().min(1),
   title: z.string().min(1),
   ...assignmentBrief,
-  /** The course's late rule; null while the course has none. */
-  lateRule: z.string().nullable(),
+  /** The course's late policy (ENGINE GR-5); null while the course has none. */
+  latePolicy: academyLatePolicySchema.nullable(),
   /**
    * The upload limits for a file answer: the smaller of the owner's size limit and the inline bound, and the owner's
    * types. A null field is not set by the owner, and a file is refused until it is.
