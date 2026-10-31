@@ -281,9 +281,10 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
   await select.selectOption({ label: 'Every category' });
   await expect(cards.filter({ hasText: run.read().title })).toHaveCount(1);
 
-  // No listing is ranked or placed above another (the owner's "no for now" on premium placement): nothing is labelled
-  // promoted or featured, and no sort orders by placement, ranking or returns.
-  await expect(page.getByRole('main').getByText(/promoted|featured|sponsored/i)).toHaveCount(0);
+  // No listing is ranked or placed above another (the owner's "no for now" on premium placement): the Market says so,
+  // no card is labelled promoted, featured or sponsored, and no sort orders by placement, ranking or returns.
+  await expect(page.getByRole('main').getByText('There is no ranking or featured placement.', { exact: false })).toBeVisible();
+  await expect(cards.filter({ hasText: /promoted|featured|sponsored/i })).toHaveCount(0);
   const sorts = await page.getByRole('combobox', { name: 'Sort by' }).getByRole('option').allInnerTexts();
   expect(sorts.join(' ')).not.toMatch(/promot|featur|rank|placement|return|profit|performance/i);
 });
