@@ -173,6 +173,7 @@ describe('svc-p2p cancel with a reason and the parked cancellation request (P-tr
     const journal = ledger.journal().length;
     const wrong = await refusal(p2p.cancelTrade(trade.id, MAKER, 'cancelled', 'seller_unresponsive'));
     expect(wrong.code).toBe('p2p.cancel_reason_invalid');
+    expect((await refusal(p2p.cancelTrade(trade.id, TAKER, 'reason:changed_mind'))).code).toBe('p2p.cancel_reason_invalid');
     const buyerWrong = await refusal(p2p.cancelTrade(trade.id, TAKER, 'cancelled', 'price_mistake'));
     expect(buyerWrong.code).toBe('p2p.cancel_reason_invalid');
     expect(ledger.journal()).toHaveLength(journal);

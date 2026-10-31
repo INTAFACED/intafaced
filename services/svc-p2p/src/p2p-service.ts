@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { codedCancelReason, resolvedByOf } from './cancel-reasons.js';
+import { codedCancelReason, isCodedCancelText, resolvedByOf } from './cancel-reasons.js';
 import { p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
 import type { MerchantStatus } from './merchant-programme.js';
@@ -4010,6 +4010,10 @@ export class P2pService {
       // The state refusals above come first: on a paid or disputed order no reason would let the cancel through.
       if (reasonCode !== undefined && !p2pCancelReasonAllowed(actor, reasonCode)) {
         throw new P2pError(`"${reasonCode}" is not a reason the ${actor} can give`, 'p2p.cancel_reason_invalid');
+      }
+      // Free text may not spell a coded reason's marker, so a code is only ever one the caller chose from the list.
+      if (reasonCode === undefined && isCodedCancelText(reason)) {
+        throw new P2pError('A written reason may not start with "reason:"; choose a reason code instead', 'p2p.cancel_reason_invalid');
       }
       // The reason string carries the actor, so the refund event and the audit
       // trail both say who unwound the trade without a second column.

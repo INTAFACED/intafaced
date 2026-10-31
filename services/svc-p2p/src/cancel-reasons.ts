@@ -13,6 +13,11 @@ export function codedCancelReason(side: 'buyer' | 'seller', code: P2pCancelReaso
   return `${side}.${CODE_MARKER}${code}`;
 }
 
+/** Free text that would read back as a coded reason; `cancelTrade` refuses it. */
+export function isCodedCancelText(text: string): boolean {
+  return text.trimStart().startsWith(CODE_MARKER);
+}
+
 /** Who ended a trade, from its stored resolution reason. A reason with no actor prefix is the seller's (as it always was). */
 export function resolvedByOf(reason: string | null): P2pCancelledBy {
   if (!reason) return 'seller';
