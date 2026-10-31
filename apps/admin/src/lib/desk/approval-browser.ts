@@ -37,6 +37,8 @@ export interface StepPayload {
   readonly confirm?: string;
   readonly approvalId?: string;
   readonly operationId?: string;
+  /** The running founder's authenticator code, for an execute step that needs a fresh step-up. */
+  readonly stepUpCode?: string;
 }
 
 const NOT_SENT = (body: string): StepReply => ({

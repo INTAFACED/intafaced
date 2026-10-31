@@ -240,6 +240,7 @@ export function GovernancePanel({ read, userId }: { read: GovernanceRead; userId
           action={roleAction}
           consequence="svc-token applies the change only if the account's role is still at the revision read, and refuses it when a founder on this request is that account."
           blockedButtonLabel="Role changes unavailable"
+          stepUpNote="A role change also needs a fresh step-up by the founder who runs it: svc-token refuses the run without this code, and the code works once, for this change only."
           onChanged={refresh}
         />
       </section>
