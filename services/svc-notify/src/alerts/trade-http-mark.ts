@@ -14,7 +14,6 @@ import { isValidPositivePrice, parseDecimalString } from './decimal.js';
 import { NOTIFY_PRICE_SOURCE_UNAVAILABLE, type AlertPriceSource, type MarkQuote, type MarkSource } from './types.js';
 
 /** The ticker has no usable value for the side an alert chose (declared in `types.ts`). Never a fallback to another side. */
-export { NOTIFY_PRICE_SOURCE_UNAVAILABLE };
 
 export const NOTIFY_MARKETS_LIST_LIMIT_UNSET = 'notify.markets_list_limit_unset' as const;
 /** Trade `GET /api/v1/markets` cap. Owner may pass 500; blank is not 50. */

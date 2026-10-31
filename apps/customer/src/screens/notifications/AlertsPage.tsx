@@ -171,7 +171,9 @@ export default function AlertsPage() {
   const list = state.status === 'ready' ? state : null;
   // The most conditions an alert may hold (the main one included), when the owner has set it: the form stops at it.
   const maxConditions = quota.state.status === 'ready' ? (quota.state.quota.maxConditions ?? null) : null;
-  const atConditionCap = maxConditions !== null && 1 + extras.length >= maxConditions;
+  // A limit the service reports as blank (null) refuses extra conditions up front: the service would refuse them at save.
+  const conditionCapUnset = quota.state.status === 'ready' && quota.state.quota.maxConditions === null;
+  const atConditionCap = conditionCapUnset || (maxConditions !== null && 1 + extras.length >= maxConditions);
   const marketList: AlertMarket[] = markets.status === 'ready' ? markets.markets : [];
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
@@ -225,9 +227,9 @@ export default function AlertsPage() {
   }
 
   function toReview() {
-    setTouched(true);
     setNotice(null);
     if (alertKind !== 'price') return;
+    setTouched(true);
     if (
       blockedReason ||
       !marketId ||
@@ -285,6 +287,8 @@ export default function AlertsPage() {
         setExpires('');
         setExtras([]);
         setRepeat(false);
+        setSource('mark');
+        setAlertKind('price');
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -724,7 +728,11 @@ export default function AlertsPage() {
               {copy.t('extraAdd')}
             </Button>
           </div>
-          {atConditionCap && maxConditions !== null ? (
+          {conditionCapUnset ? (
+            <p className="nf-muted" data-testid="alerts-extra-cap" data-cap="unset">
+              {copy.t('extraCapUnset')}
+            </p>
+          ) : atConditionCap && maxConditions !== null ? (
             <p className="nf-muted" data-testid="alerts-extra-cap">
               {copy.t('extraCap', { max: String(maxConditions) })}
             </p>

@@ -10,7 +10,8 @@ import { MemoryNotifyStore } from '../store.js';
 import { AlertService } from './service.js';
 import { AlertValidationError, MemoryAlertStore } from './store.js';
 import { TEST_ALERT_LIMITS } from './test-limits.js';
-import { createTradeHttpMarkSource, NOTIFY_PRICE_SOURCE_UNAVAILABLE, priceFromTicker, priceFromTickerSource } from './trade-http-mark.js';
+import { createTradeHttpMarkSource, priceFromTicker, priceFromTickerSource } from './trade-http-mark.js';
+import { NOTIFY_PRICE_SOURCE_UNAVAILABLE } from './types.js';
 import type { AlertPriceSource, MarkQuote, MarkSource } from './types.js';
 
 const MARKET_ID = '11111111-1111-1111-1111-111111111111';
@@ -183,5 +184,15 @@ describe('memory store source round-trip', () => {
     const row = await alerts.create(above('ask'), NOW);
     await expect(alerts.edit('u1', row.id, { source: 'mid' as never }, NOW)).rejects.toMatchObject({ code: 'alert.invalid_source' });
     expect((await alerts.get('u1', row.id))!.source).toBe('ask');
+  });
+
+  it('a kind other than price watches only the mark: a bid, ask or last source refuses on create and on edit', async () => {
+    const { alerts, store } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
+    await expect(alerts.create({ ...above('bid'), kind: 'whale' }, NOW)).rejects.toMatchObject({ code: 'alert.invalid_source' });
+    expect(await store.list('u1')).toEqual([]);
+    const whale = await alerts.create({ ...above(), kind: 'whale' }, NOW);
+    expect(whale.source).toBe('mark');
+    await expect(alerts.edit('u1', whale.id, { source: 'ask' }, NOW)).rejects.toMatchObject({ code: 'alert.invalid_source' });
+    expect((await alerts.get('u1', whale.id))!.source).toBe('mark');
   });
 });

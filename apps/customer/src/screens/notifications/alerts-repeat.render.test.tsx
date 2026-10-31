@@ -225,4 +225,13 @@ describe('the price an alert watches, other alert kinds, and the condition cap',
       'An alert holds at most 2 conditions, the first one included.',
     );
   });
+  it('a blank condition limit refuses extra conditions up front, in words, instead of at save', async () => {
+    reads.items = [];
+    reads.maxConditions = null;
+    await mount();
+    expect(button('Add a condition').disabled).toBe(true);
+    const note = host.querySelector('[data-testid="alerts-extra-cap"]')!;
+    expect(note.getAttribute('data-cap')).toBe('unset');
+    expect(note.textContent).toBe('Extra conditions are off: the most conditions one alert may hold is not set yet.');
+  });
 });

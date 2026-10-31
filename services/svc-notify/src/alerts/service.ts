@@ -20,7 +20,7 @@ import {
   evaluateUnpublishedKind as unpublishedKindOutcome,
   evaluateWhaleAlert,
 } from './evaluate.js';
-import { AlertQuotaReachedError, AlertValidationError, type AlertStore } from './store.js';
+import { AlertQuotaReachedError, AlertValidationError, assertAlertPriceSource, type AlertStore } from './store.js';
 import {
   MemoryAlertTriggerLog,
   NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET,
@@ -32,8 +32,8 @@ import {
   ALERT_CONDITIONS,
   directionOfCondition,
   EXTRA_CONDITIONS,
-  isAlertPriceSource,
   isCrossingCondition,
+  NOTIFY_PRICE_SOURCE_UNAVAILABLE,
   type AlertPriceSource,
   type AlertEdit,
   type AlertEditState,
@@ -231,12 +231,6 @@ function assertAlertExtras(extras: readonly AlertExtra[] | undefined, limits: Al
     }
     return { condition: extra.condition, targetPrice: extra.targetPrice.trim() };
   });
-}
-
-/** The price source an edit stores. Only the four named ones; anything else refuses and nothing is written. */
-function assertAlertSource(source: AlertPriceSource): AlertPriceSource {
-  if (!isAlertPriceSource(source)) throw new AlertValidationError('alert.invalid_source', `source=${String(source)}`);
-  return source;
 }
 
 /**
@@ -604,7 +598,7 @@ export class AlertService {
       extras: edit.extras === undefined ? row.extras : assertAlertExtras(edit.extras, this.limits),
       // A repeating alert keeps repeating unless the edit says otherwise, and must still be a crossing after the edit.
       frequency: editedFrequency(edit.frequency, row.frequency, condition, this.limits),
-      source: edit.source === undefined ? row.source : assertAlertSource(edit.source),
+      source: edit.source === undefined ? row.source : assertAlertPriceSource(edit.source, row.kind),
     };
     return this.store.replace(userId, id, next, now);
   }
@@ -758,7 +752,10 @@ export class AlertService {
     }
 
     for (const alert of actives) {
-      const ownQuote = alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' ? (bySource.get(alert.source) ?? quote) : quote;
+      // Every price alert's source was quoted above; a missing one refuses, never falls back to the mark.
+      const priceQuote = (): MarkQuote =>
+        bySource.get(alert.source) ?? { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
+      const ownQuote = alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' ? priceQuote() : quote;
       const applied = await this.applyEvaluation(alert, ownQuote, at);
       results.push({
         alertId: alert.id,

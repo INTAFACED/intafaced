@@ -138,13 +138,19 @@ function directionOf(input: CreatePriceAlertInput): AlertDirection {
   return input.condition ? directionOfCondition(input.condition) : input.direction;
 }
 
-/** The price source a create stores: the one named, else `mark`. A value outside the four refuses. */
-function sourceOf(input: CreatePriceAlertInput): AlertPriceSource {
-  const source = input.source ?? 'mark';
-  if (!isAlertPriceSource(source)) {
-    throw new AlertValidationError('alert.invalid_source', `source=${String(source)}`);
-  }
+/**
+ * The price source an alert may store: one of the four, and only `mark` for a kind other than `price` (a whale alert watches
+ * its own flow, every other kind the mark), so a row never names a side it is not judged on. Shared by create and edit.
+ */
+export function assertAlertPriceSource(source: unknown, kind: string): AlertPriceSource {
+  if (!isAlertPriceSource(source)) throw new AlertValidationError('alert.invalid_source', `source=${String(source)}`);
+  if (source !== 'mark' && kind !== 'price') throw new AlertValidationError('alert.invalid_source', `source=${source} kind=${kind}`);
   return source;
+}
+
+/** The price source a create stores: the one named, else `mark`. */
+function sourceOf(input: CreatePriceAlertInput): AlertPriceSource {
+  return assertAlertPriceSource(input.source ?? 'mark', input.kind ?? 'price');
 }
 
 function assertCreate(input: CreatePriceAlertInput): SourcedAlertKind {

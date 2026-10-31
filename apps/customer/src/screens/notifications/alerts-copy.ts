@@ -38,6 +38,7 @@ const en = {
   kindIndicator: 'An indicator (RSI, moving averages)',
   kindIndicatorRefused: 'Indicator alerts are not built yet, so this one cannot be saved. Choose the price to set an alert.',
   extraCap: 'An alert holds at most {max} conditions, the first one included.',
+  extraCapUnset: 'Extra conditions are off: the most conditions one alert may hold is not set yet.',
   modifiedAt: 'Modified {when}',
   stoppedBurst: 'Stopped because it triggered too often. Resume it to watch again.',
   stoppedBurstNoResume: 'Stopped because it triggered too often.',
@@ -276,6 +277,7 @@ const es = {
   kindIndicator: 'Un indicador (RSI, medias móviles)',
   kindIndicatorRefused: 'Las alertas de indicador aún no existen, así que esta no se puede guardar. Elige el precio para crear una alerta.',
   extraCap: 'Una alerta tiene como máximo {max} condiciones, la primera incluida.',
+  extraCapUnset: 'Las condiciones adicionales están desactivadas: aún no se ha fijado cuántas condiciones puede tener una alerta.',
   modifiedAt: 'Modificada {when}',
   stoppedBurst: 'Detenida porque se activó demasiadas veces. Reanúdala para volver a vigilar.',
   stoppedBurstNoResume: 'Detenida porque se activó demasiadas veces.',
@@ -511,6 +513,7 @@ const fr = {
   kindIndicatorRefused:
     'Les alertes d’indicateur n’existent pas encore, celle-ci ne peut donc pas être enregistrée. Choisissez le prix pour créer une alerte.',
   extraCap: 'Une alerte compte au plus {max} conditions, la première comprise.',
+  extraCapUnset: 'Les conditions supplémentaires sont désactivées : le nombre maximal de conditions par alerte n’est pas encore fixé.',
   modifiedAt: 'Modifiée {when}',
   stoppedBurst: 'Arrêtée car elle s’est déclenchée trop souvent. Reprenez-la pour surveiller à nouveau.',
   stoppedBurstNoResume: 'Arrêtée car elle s’est déclenchée trop souvent.',
