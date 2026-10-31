@@ -44,12 +44,21 @@ export interface PaneLayout {
 }
 
 export const NO_PANES: PaneLayout = { onMain: [], collapsed: [], sizes: {}, maximised: null };
-export const panesOf = (store: StudyStore): PaneLayout => store.panes ?? NO_PANES;
 
 /** The smallest and largest size a pane may be given, against the default 1. */
 export const PANE_SIZE_MIN = 0.25;
 export const PANE_SIZE_MAX = 4;
 const clampSize = (size: number): number => Math.min(PANE_SIZE_MAX, Math.max(PANE_SIZE_MIN, size));
+
+/**
+ * The layout a store holds, read defensively: a layout that does not have the shape falls back to the defaults (the
+ * studies themselves are kept), and every size is held within the bounds.
+ */
+export function panesOf(store: StudyStore): PaneLayout {
+  const layout = store.panes;
+  if (!isPaneLayout(layout)) return NO_PANES;
+  return { ...layout, sizes: Object.fromEntries(Object.entries(layout.sizes).map(([id, size]) => [id, clampSize(size)])) };
+}
 
 export function setPanes(store: StudyStore, patch: Partial<PaneLayout>): StudyStore {
   return { ...store, panes: { ...panesOf(store), ...patch } };
@@ -132,16 +141,16 @@ export function removeStudy(store: StudyStore, id: string): StudyStore {
   return {
     ...store,
     studies: store.studies.filter((s) => s.id !== id),
-    ...(store.panes
-      ? {
-          panes: {
-            onMain: store.panes.onMain.filter((x) => x !== id),
-            collapsed: store.panes.collapsed.filter((x) => x !== id),
-            sizes: Object.fromEntries(Object.entries(store.panes.sizes).filter(([x]) => x !== id)),
-            maximised: store.panes.maximised === id ? null : store.panes.maximised,
-          },
-        }
-      : {}),
+    ...(store.panes === undefined
+      ? {}
+      : {
+          panes: (({ onMain, collapsed, sizes, maximised }) => ({
+            onMain: onMain.filter((x) => x !== id),
+            collapsed: collapsed.filter((x) => x !== id),
+            sizes: Object.fromEntries(Object.entries(sizes).filter(([x]) => x !== id)),
+            maximised: maximised === id ? null : maximised,
+          }))(panesOf(store)),
+        }),
     remembered: { ...store.remembered, [gone.kind]: { inputs: { ...gone.inputs }, color: gone.color } },
   };
 }
@@ -186,7 +195,6 @@ export const isStudyStore = (value: unknown): value is StudyStore =>
   value.studies.every(isStudy) &&
   isRecord(value.remembered) &&
   Object.entries(value.remembered).every(([kind, r]) => kinds.has(kind) && isRecord(r) && isInputs(r.inputs) && isColor(r.color)) &&
-  typeof value.legendAlways === 'boolean' &&
-  (value.panes === undefined || isPaneLayout(value.panes));
+  typeof value.legendAlways === 'boolean';
 
 export const storeKey = (userId: string | null, workbench: string): string => `charts-studies:${userId ?? 'guest'}:${workbench}`;

@@ -184,6 +184,10 @@ export function useStudyDraw(
   onResize?: (sizes: Record<string, number>) => void,
 ): void {
   const drawn = useRef<Drawn | null>(null);
+  // The latest layout, for a rebuild; a change of sizes alone is applied by the effect below, without touching the data.
+  const latest = useRef(layout);
+  latest.current = layout;
+  const onMainKey = layout.onMain.join(',');
   useEffect(() => {
     const current = drawn.current;
     if (!host || series.length === 0) {
@@ -191,16 +195,20 @@ export function useStudyDraw(
       drawn.current = null;
       return;
     }
-    if (current && current.host === host && current.signature === signatureOf(series, tickSize, layout.onMain)) {
+    if (current && current.host === host && current.signature === signatureOf(series, tickSize, latest.current.onMain)) {
       // The same layout: the values go into the series already drawn, and no pane is removed.
       series.forEach((s, n) => current.apis[n]?.setData(dataOf(s)));
-      applyLayout(current, layout);
       return;
     }
     if (current) teardown(current);
-    drawn.current = build(host, series, tickSize, layout);
-  }, [host, series, tickSize, layout]);
-  // Each pane's height in pixels as the library lays it out, read on demand by the page and its journeys.
+    drawn.current = build(host, series, tickSize, latest.current);
+  }, [host, series, tickSize, onMainKey]);
+  // Sizes, collapse and maximise: only the stretch factors change.
+  useEffect(() => {
+    if (drawn.current) applyLayout(drawn.current, layout);
+  }, [layout]);
+  // Each pane's height in pixels as the library lays it out, read on demand by the page and its journeys (as the drawings
+  // layer's readDrawnLines is).
   useEffect(() => {
     if (!host) return;
     const element = host.element as HTMLElement & { readPaneHeights?: () => number[] };
@@ -210,27 +218,33 @@ export function useStudyDraw(
     };
   }, [host]);
   // A border the person dragged: the library changed the stretch factors itself; they are read back as sizes and kept.
+  // The drag starts on the chart and may end anywhere on the page.
   const resized = useRef(onResize);
   resized.current = onResize;
   useEffect(() => {
     if (!host) return;
     const read = () => {
+      window.removeEventListener('pointerup', read);
       const current = drawn.current;
-      // Only a plain layout is resized by dragging: a maximised or collapsed pane keeps its strip.
-      if (!current || current.panes === 0 || !resized.current || layout.maximised !== null) return;
+      const now = latest.current;
+      if (!current || current.panes === 0 || !resized.current) return;
+      // Only a plain layout is resized by dragging: a maximised or collapsed pane keeps its strip, and a border next to a
+      // strip would move the strip's share into its neighbour.
+      if (current.paneGroups.some((g) => g === now.maximised || now.collapsed.includes(g))) return;
       const factors = host.chart.panes().map((p) => p.getStretchFactor());
       const main = factors[0];
       if (!main || current.paneGroups.length !== factors.length - 1) return;
-      const sizes = Object.fromEntries(
-        current.paneGroups.flatMap((g, n) => (layout.collapsed.includes(g) ? [] : [[g, (factors[n + 1]! / main) * MAIN_FACTOR]])),
-      );
-      const applied = paneFactors(current.paneGroups, layout);
-      const moved = factors.some((f, n) => Math.abs(f / main - applied[n]! / applied[0]!) > 0.01);
-      if (moved) resized.current(sizes);
+      const applied = paneFactors(current.paneGroups, now);
+      if (!factors.some((f, n) => Math.abs(f / main - applied[n]! / applied[0]!) > 0.01)) return;
+      resized.current(Object.fromEntries(current.paneGroups.map((g, n) => [g, (factors[n + 1]! / main) * MAIN_FACTOR])));
     };
-    host.element.addEventListener('pointerup', read);
-    return () => host.element.removeEventListener('pointerup', read);
-  }, [host, layout]);
+    const start = () => window.addEventListener('pointerup', read);
+    host.element.addEventListener('pointerdown', start);
+    return () => {
+      host.element.removeEventListener('pointerdown', start);
+      window.removeEventListener('pointerup', read);
+    };
+  }, [host]);
   // Leaving the page removes what was drawn.
   useEffect(
     () => () => {

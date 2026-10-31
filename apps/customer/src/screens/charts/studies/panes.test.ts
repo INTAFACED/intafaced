@@ -54,11 +54,23 @@ describe('indicator panes', () => {
     expect(panesOf(store)).toEqual({ onMain: [], collapsed: [], sizes: {}, maximised: null });
   });
 
-  it('a stored layout is kept when it has the shape, a store saved before panes still reads, and a bad layout is refused', () => {
+  it('a stored layout is kept when it has the shape; a store saved before panes reads; a bad layout falls back, the studies kept', () => {
     const store = toggleCollapsed(withPanes(), 'rsi-1');
-    expect(isStudyStore(JSON.parse(JSON.stringify(store)))).toBe(true);
+    const saved = JSON.parse(JSON.stringify(store));
+    expect(isStudyStore(saved)).toBe(true);
+    expect(panesOf(saved).collapsed).toEqual(['rsi-1']);
     expect(isStudyStore({ ...store, panes: undefined })).toBe(true);
-    expect(isStudyStore({ ...store, panes: { onMain: 'rsi-1', collapsed: [], sizes: {}, maximised: null } })).toBe(false);
+    const bad = { ...store, panes: { onMain: 'rsi-1', collapsed: [], sizes: {} } } as unknown as typeof store;
+    expect(isStudyStore(bad)).toBe(true);
+    expect(panesOf(bad)).toEqual({ onMain: [], collapsed: [], sizes: {}, maximised: null });
+    expect(bad.studies).toHaveLength(3);
+    // A stored size out of bounds is held to them when read.
+    expect(
+      panesOf({ ...store, panes: { onMain: [], collapsed: [], sizes: { 'rsi-1': -2, 'macd-1': 99 }, maximised: null } }).sizes,
+    ).toEqual({
+      'rsi-1': PANE_SIZE_MIN,
+      'macd-1': PANE_SIZE_MAX,
+    });
   });
 
   it('stretch factors: the main pane three shares, a pane its size, a collapsed pane a strip, a maximised pane nearly all', () => {

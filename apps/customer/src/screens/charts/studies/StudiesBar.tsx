@@ -416,6 +416,11 @@ export function StudiesBar({
     const at = paneOrder.indexOf(s.id);
     const collapsed = layout.collapsed.includes(s.id);
     const maximised = layout.maximised === s.id;
+    // Another pane is maximised: this one is a strip until it is restored, so its own size controls wait.
+    const other = layout.maximised !== null && layout.maximised !== s.id && paneOrder.includes(layout.maximised);
+    // The order is read from the store as it is when the click lands, so two quick moves both count.
+    const orderIn = (now: StudyStore) =>
+      now.studies.map((x) => x.id).filter((id) => subIds.includes(id) && !panesOf(now).onMain.includes(id));
     const button = (label: string, onClick: () => void, disabled = false) => (
       <button type="button" className="st-pane-button" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
         {label}
@@ -430,24 +435,26 @@ export function StudiesBar({
       >
         {!onMain && (
           <>
-            {button(t('Move {name} pane up', { name }), () => setStore((now) => movePane(now, s.id, -1, paneOrder)), at <= 0)}
+            {button(t('Move {name} pane up', { name }), () => setStore((now) => movePane(now, s.id, -1, orderIn(now))), at <= 0)}
             {button(
               t('Move {name} pane down', { name }),
-              () => setStore((now) => movePane(now, s.id, 1, paneOrder)),
+              () => setStore((now) => movePane(now, s.id, 1, orderIn(now))),
               at < 0 || at >= paneOrder.length - 1,
             )}
-            {button(t(collapsed ? 'Expand {name} pane' : 'Collapse {name} pane', { name }), () =>
-              setStore((now) => toggleCollapsed(now, s.id)),
+            {button(
+              t(collapsed ? 'Expand {name} pane' : 'Collapse {name} pane', { name }),
+              () => setStore((now) => toggleCollapsed(now, s.id)),
+              other,
             )}
             {button(
               t('Make {name} pane taller', { name }),
               () => setStore((now) => resizePane(now, s.id, 1.5)),
-              collapsed || maximised || (layout.sizes[s.id] ?? 1) >= PANE_SIZE_MAX,
+              collapsed || maximised || other || (layout.sizes[s.id] ?? 1) >= PANE_SIZE_MAX,
             )}
             {button(
               t('Make {name} pane shorter', { name }),
               () => setStore((now) => resizePane(now, s.id, 1 / 1.5)),
-              collapsed || maximised || (layout.sizes[s.id] ?? 1) <= PANE_SIZE_MIN,
+              collapsed || maximised || other || (layout.sizes[s.id] ?? 1) <= PANE_SIZE_MIN,
             )}
             {button(t(maximised ? 'Restore the panes' : 'Maximise {name} pane', { name }), () =>
               setStore((now) => toggleMaximised(now, s.id)),

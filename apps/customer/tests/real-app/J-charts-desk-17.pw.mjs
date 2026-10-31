@@ -222,6 +222,14 @@ test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and mo
 }) => {
   // 1m: RSI 14 needs 15 bars at the chart's interval, and the stack's 1m history is the longest of the TEST intervals.
   await openChart(page, '/charts/BTC-USDT?interval=1m');
+  // A compared market on the main pane, which every pane change below must leave in place.
+  const [symbol] = await others(page);
+  await tools(page)
+    .getByRole('combobox', { name: /Compare with/ })
+    .selectOption(symbol);
+  await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
+  const compared = tools(page).getByRole('list', { name: 'Compared markets' }).getByRole('listitem');
+  await expect(compared).toHaveCount(1);
   await page.getByRole('button', { name: 'Indicators' }).first().click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill('rsi');
   await page.getByRole('button', { name: 'Add Relative Strength Index', exact: true }).click();
@@ -275,6 +283,8 @@ test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and mo
     })
     .toBeGreaterThan(0.75);
   await expect(pane(RSI)).toHaveAttribute('data-pane-state', 'maximised');
+  // While RSI is maximised, Volume is a strip: its size controls wait for the restore.
+  await expect(pane(VOL).getByRole('button', { name: /^Make .* pane taller/ })).toBeDisabled();
   await press(RSI, 'Restore the panes');
   await expect.poll(async () => (await heights()).every((h, n) => Math.abs(h - resized[n]) <= 2)).toBe(true);
   // Move to the main pane: Volume draws over the price, and one indicator pane is left.
@@ -283,6 +293,9 @@ test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and mo
   await expect(host).toHaveAttribute('data-study-panes', '1');
   await expect.poll(order).toEqual(['rsi-1']);
   await expect(pane(VOL)).toHaveAttribute('data-pane-state', 'main');
+  // The compared market stayed on the main pane through every change.
+  await expect(compared).toHaveCount(1);
+  await expect(compared.first()).toHaveAttribute('data-state', /ready|empty/);
   // Persists: after a reload the panes come back as they were left.
   const kept = await layout();
   const keptHeights = await heights();
