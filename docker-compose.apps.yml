@@ -111,8 +111,28 @@ x-needs-schema: &needs-schema
 x-needs-bus: &needs-bus
   nats:
     condition: service_healthy
+  # Every catalog stream exists before any service subscribes (tooling/infra/ensure-streams.mjs).
+  nats-streams:
+    condition: service_completed_successfully
 
 services:
+  # ── Event streams ──────────────────────────────────────────
+  # Creates every JetStream stream the event catalog declares and exits. A service subscribes to streams other
+  # services own (svc-identity consumes `blueprintCreated` on svc-blueprint's stream), and a subscribe to a stream
+  # that does not exist yet stops the process; an owner may never start (svc-blueprint refuses to boot while
+  # BLUEPRINT_ENGINE_URL is blank). Everything on the bus waits on `service_completed_successfully` (x-needs-bus).
+  nats-streams:
+    <<: *app
+    container_name: intafaced-nats-streams
+    restart: 'no'
+    command: ['node', 'tooling/infra/ensure-streams.mjs']
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_STREAM_PREFIX: ${NATS_STREAM_PREFIX:-INTAFACED}
+    depends_on:
+      nats:
+        condition: service_healthy
+
   # ── Migrations ─────────────────────────────────────────────
   # Runs every service's `db:migrate` and exits. Everything with a schema waits
   # on `service_completed_successfully`, so a service physically cannot reach
