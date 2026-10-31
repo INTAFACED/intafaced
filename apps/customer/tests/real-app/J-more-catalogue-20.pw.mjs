@@ -136,16 +136,23 @@ test(`${J} #5 Opens the supply and distribution panel: supply and distribution f
   const schedule = await read(client, 'emissionSchedule', { count: 12 });
   const treasury = await read(client, 'treasury');
   const buyback = await read(client, 'buybackRuns', { limit: 1 });
+  const absent = (reason) => (reason === 'token.params_invalid' ? 'cannot be read' : 'not reported');
   await page.goto('/token/economy');
   const panel = page.getByRole('region', { name: 'Supply and distribution', exact: true });
   await expect(panel).toBeVisible();
   const figures = panel.getByTestId('supply-figures');
   const expected = [
-    ['Total supply (the published cap)', schedule.params ? shown(schedule.params.maxSupply) : 'not reported'],
+    ['Maximum supply (the published cap)', schedule.params ? shown(schedule.params.maxSupply) : absent(schedule.reason)],
     ['Minted by emission', treasury.minted === null ? 'none: no epoch mint has closed' : shown(treasury.minted)],
     ['Burned', shown(treasury.burned)],
-    ['Buyback share of house fees', buyback.rate ? `${buyback.rate.buybackBps.toLocaleString('en-US')} basis points` : 'not reported'],
-    ['Share of each buyback burned', buyback.rate ? `${buyback.rate.burnSplitBps.toLocaleString('en-US')} basis points` : 'not reported'],
+    [
+      'Buyback share of house fees',
+      buyback.rate ? `${buyback.rate.buybackBps.toLocaleString('en-US')} basis points` : absent(buyback.reason),
+    ],
+    [
+      'Share of each buyback burned',
+      buyback.rate ? `${buyback.rate.burnSplitBps.toLocaleString('en-US')} basis points` : absent(buyback.reason),
+    ],
     // No service publishes an allocation schedule, so distribution is always "not reported" today.
     ['Distribution', 'not reported'],
   ];

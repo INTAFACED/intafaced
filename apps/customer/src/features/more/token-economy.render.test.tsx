@@ -12,11 +12,11 @@ import {
   SupplyView,
   YieldHistoryView,
   emissionScheduleSchema,
+  type BuybackRateRead,
   type EmissionScheduleRead,
   type MintedRead,
   type YieldHistoryRead,
 } from './TokenEconomy';
-import type { BuybackRunsRead } from './BuybackRuns';
 
 const ready = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
 const schedule = (data: EmissionScheduleRead, minted: MintedRead = { minted: null, burned: '0' }) =>
@@ -31,20 +31,15 @@ const yields = (data: YieldHistoryRead) =>
       <YieldHistoryView read={ready(data)} />
     </SessionProvider>,
   );
-const supply = (data: EmissionScheduleRead, minted: MintedRead, rate: BuybackRunsRead['rate']) =>
+const supply = (
+  data: EmissionScheduleRead,
+  minted: MintedRead,
+  rate: BuybackRateRead['rate'],
+  reason: BuybackRateRead['reason'] = rate ? null : 'token.params_unset',
+) =>
   renderToStaticMarkup(
     <SessionProvider>
-      <SupplyView
-        schedule={ready(data)}
-        minted={ready(minted)}
-        buyback={ready({
-          job: 'unset',
-          runs: [],
-          rate,
-          missing: rate ? null : 'token_params.buyback_bps',
-          reason: rate ? null : 'token.params_unset',
-        } as BuybackRunsRead)}
-      />
+      <SupplyView schedule={ready(data)} minted={ready(minted)} buyback={ready({ rate, reason })} />
     </SessionProvider>,
   );
 const unset = { params: null, epochs: null, missing: 'token_params', reason: 'token.params_unset' } as const;
@@ -145,7 +140,9 @@ describe('token economy: supply and distribution', () => {
     const out = supply(unset, { minted: null, burned: '0' }, null);
     const figures = out.slice(out.indexOf('data-testid="supply-figures"'), out.indexOf('data-testid="supply-distribution"'));
     expect(figures.match(/not reported/g)).toHaveLength(4);
-    expect(figures.replace(/<[^>]*>/g, '').replace('Burned0', '')).not.toMatch(/\d/);
+    const rows = [...figures.matchAll(/<dt>([^<]*)<\/dt><dd[^>]*>([^<]*)<\/dd>/g)].map(([, label, value]) => [label, value]);
+    expect(rows.find(([label]) => label === 'Burned')).toEqual(['Burned', '0']);
+    for (const [label, value] of rows) if (label !== 'Burned') expect(value, label).not.toMatch(/\d/);
     expect(figures).toContain('none: no epoch mint has closed');
     expect(out).toContain('Distribution is not reported');
   });
@@ -161,6 +158,13 @@ describe('token economy: supply and distribution', () => {
     expect(out).toContain('2,500 basis points');
     expect(out).toContain('6,000 basis points');
     const figures = out.slice(out.indexOf('data-testid="supply-figures"'), out.indexOf('data-testid="supply-distribution"'));
+    expect(figures.match(/not reported/g)).toHaveLength(1);
+  });
+
+  it('an unreadable owner value is not called unreported', () => {
+    const out = supply({ ...unset, reason: 'token.params_invalid' }, { minted: null, burned: '0' }, null, 'token.params_invalid');
+    const figures = out.slice(out.indexOf('data-testid="supply-figures"'), out.indexOf('data-testid="supply-distribution"'));
+    expect(figures.match(/cannot be read/g)).toHaveLength(3);
     expect(figures.match(/not reported/g)).toHaveLength(1);
   });
 });

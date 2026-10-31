@@ -9,7 +9,6 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { Details, Read } from './common';
 import { tokenEconomyCopy } from './token-economy-copy';
-import { buybackRunsSchema, type BuybackRunsRead } from './BuybackRuns';
 
 const paramsReason = z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']);
 
@@ -49,6 +48,16 @@ export const yieldHistorySchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/**
+ * The buyback rate of the token service's `buybackRuns` read. Its runs are not drawn here, so their arithmetic, which
+ * the Burn tab checks, does not decide whether the rate can be shown.
+ */
+export const buybackRateSchema = z.object({
+  rate: z.object({ buybackBps: z.number().int().min(0).max(10_000), burnSplitBps: z.number().int().min(0).max(10_000) }).nullable(),
+  reason: paramsReason.nullable(),
+});
+
+export type BuybackRateRead = z.infer<typeof buybackRateSchema>;
 export type EmissionScheduleRead = z.infer<typeof emissionScheduleSchema>;
 export type MintedRead = z.infer<typeof mintedSchema>;
 export type YieldHistoryRead = z.infer<typeof yieldHistorySchema>;
@@ -72,7 +81,7 @@ export function TokenEconomyPanels() {
   );
   const minted = useResource((signal) => api.query('token', 'treasury', undefined, mintedSchema, { signal }), `token-minted:${userId}`);
   const buyback = useResource(
-    (signal) => api.query('token', 'buybackRuns', { limit: 1 }, buybackRunsSchema, { signal }),
+    (signal) => api.query('token', 'buybackRuns', { limit: 1 }, buybackRateSchema, { signal }),
     `token-buyback-rate:${userId}`,
   );
   return (
@@ -96,14 +105,15 @@ export function SupplyView({
 }: {
   schedule: Loaded<EmissionScheduleRead>;
   minted: Loaded<MintedRead>;
-  buyback: Loaded<BuybackRunsRead>;
+  buyback: Loaded<BuybackRateRead>;
 }) {
   const { hideBalances } = usePreferences();
   const { Copy, t } = tokenEconomyCopy.useCopy();
   const shown = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   const figure = <T,>(read: Loaded<T>, value: (data: T) => string) =>
     read.resource.status === 'ready' ? value(read.resource.data) : read.resource.status === 'loading' ? '…' : t('unreadable');
-  const failed = [schedule, minted, buyback].find((read) => read.resource.status === 'failed');
+  /** A blank owner value is not reported; one the service cannot read says so. */
+  const absent = (reason: string | null) => (reason === 'token.params_invalid' ? t('unreadable') : t('notReported'));
   return (
     <Panel title={t('supplyTitle')} aria-label={t('supplyTitle')}>
       <p className="muted">
@@ -112,11 +122,11 @@ export function SupplyView({
       <div data-testid="supply-figures">
         <Details
           items={[
-            [t('totalSupply'), figure(schedule, (d) => (d.params ? shown(d.params.maxSupply) : t('notReported')))],
+            [t('totalSupply'), figure(schedule, (d) => (d.params ? shown(d.params.maxSupply) : absent(d.reason)))],
             [t('emitted'), figure(minted, (d) => (d.minted === null ? t('emittedNone') : shown(d.minted)))],
             [t('burnedTotal'), figure(minted, (d) => shown(d.burned))],
-            [t('buybackShare'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.buybackBps }) : t('notReported')))],
-            [t('burnSplit'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.burnSplitBps }) : t('notReported')))],
+            [t('buybackShare'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.buybackBps }) : absent(d.reason)))],
+            [t('burnSplit'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.burnSplitBps }) : absent(d.reason)))],
             [t('distribution'), t('notReported')],
           ]}
         />
@@ -124,7 +134,8 @@ export function SupplyView({
       <p role="status" data-testid="supply-distribution">
         <Copy k="distributionUnset" />
       </p>
-      {failed && failed.resource.status === 'failed' && <Failure result={failed.resource.failure} retry={failed.reload} />}
+      {/* A failed schedule or treasury read already shows its refusal and retry in the emission panel above. */}
+      {buyback.resource.status === 'failed' && <Failure result={buyback.resource.failure} retry={buyback.reload} />}
     </Panel>
   );
 }

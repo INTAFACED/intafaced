@@ -23,7 +23,7 @@ const en = {
     'Only the token service mints, and only the scheduled reward of the next epoch, once per epoch and never above the cap, so near the cap an epoch mints only what is left of its scheduled reward. No person can start a mint, and an epoch with no published schedule mints nothing.',
   supplyTitle: 'Supply and distribution',
   supplyBody: 'Each figure is the one the token service reports. A figure it does not report reads "not reported" and shows no number.',
-  totalSupply: 'Total supply (the published cap)',
+  totalSupply: 'Maximum supply (the published cap)',
   emitted: 'Minted by emission',
   emittedNone: 'none: no epoch mint has closed',
   burnedTotal: 'Burned',
@@ -74,7 +74,7 @@ const es = {
   supplyTitle: 'Suministro y distribución',
   supplyBody:
     'Cada cifra es la que informa el servicio del token. Una cifra que no informa dice "no informado" y no muestra ningún número.',
-  totalSupply: 'Suministro total (el tope publicado)',
+  totalSupply: 'Suministro máximo (el tope publicado)',
   emitted: 'Acuñado por emisión',
   emittedNone: 'nada: ninguna acuñación de época se ha cerrado',
   burnedTotal: 'Quemado',
@@ -125,7 +125,7 @@ const fr = {
   supplyTitle: 'Offre et répartition',
   supplyBody:
     'Chaque chiffre est celui que communique le service du jeton. Un chiffre qu’il ne communique pas indique « non communiqué » et n’affiche aucun nombre.',
-  totalSupply: 'Offre totale (le plafond publié)',
+  totalSupply: 'Offre maximale (le plafond publié)',
   emitted: 'Frappé par émission',
   emittedNone: 'rien : aucune frappe d’époque n’est close',
   burnedTotal: 'Détruit',
