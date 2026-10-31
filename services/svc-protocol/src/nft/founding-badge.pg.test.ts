@@ -19,6 +19,7 @@ import { PostgresBadgeStore } from './founding-badge.pg.js';
 const URL = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
 const migration = join(here, '..', '..', 'drizzle', '0001_protocol_founding_badges.sql');
+const identityMigration = join(here, '..', '..', 'drizzle', '20261031001739_protocol_badge_chain_identity.sql');
 const available = URL ? await postgresAvailable(URL) : false;
 const sql: Sql | null = URL && available ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
 
@@ -68,7 +69,7 @@ function build(opts: { window?: typeof WINDOW | null; mainnet?: boolean; signer?
           },
   };
   const deps = {
-    chain: { config: { chainId: CHAIN_ID }, isDeployed: async () => false },
+    chain: { config: { chainId: CHAIN_ID }, isDeployed: async () => false, genesisHash: async () => `0x${'e'.repeat(64)}` as const },
     registry: {
       accountsOf: async (userId: string) =>
         userId === STRANGER ? [] : [{ id: 'a', userId, chainId: CHAIN_ID, address: ADDR, owner: OWNER_KEY.address, deployed: true }],
@@ -98,6 +99,7 @@ describe.skipIf(!sql)('founding badge (Postgres + router)', () => {
     await assertTestDatabase(sql!, 'svc-protocol founding-badge.pg.test');
     await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
     await sql!.unsafe(readFileSync(migration, 'utf8'));
+    await sql!.unsafe(readFileSync(identityMigration, 'utf8'));
     await cleanup();
     await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${USER}), (${OTHER}), (${STRANGER})`;
   });
