@@ -155,6 +155,22 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     expect(await badgeEligibility(d, ACCOUNT, TESTNET)).toMatchObject({ claimed: true, txHash: first.txHash });
   });
 
+  it('eligibility reads the chain again before refusing: a stray reused answer does not refuse when the chain answers as itself', async () => {
+    const { d } = deps();
+    await claim(d, ACCOUNT, ADDR, TESTNET);
+    const reads: Array<boolean> = [];
+    // The reused identity is a stray answer from another node; a fresh read is this chain.
+    const stray = {
+      ...TESTNET,
+      identity: async (opts?: { fresh?: boolean }) => (
+        reads.push(!!opts?.fresh),
+        { chainId: 84532, genesisHash: opts?.fresh ? GENESIS : RESTARTED }
+      ),
+    };
+    expect(await badgeEligibility(d, ACCOUNT, stray)).toMatchObject({ claimed: true });
+    expect(reads).toEqual([false, true]);
+  });
+
   it('a claim from another genesis stored by a racing call after the read is not replaced on a chain that is not started again', async () => {
     const { d, mints, store } = deps();
     const key = badgeClaimKey(ACCOUNT);
@@ -291,12 +307,18 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     expect(badgeChainIsMainnet(1, [])).toBe(true);
     expect(badgeChainIsMainnet(5, [{ chainId: 5, kind: 'unconfirmed' }])).toBe(true);
     // Only a chain that is started again resets a claim on a new genesis: a `local` registry chain, or APP_ENV dev/test.
-    expect(badgeChainIsRestartable(31337, [{ chainId: 31337, kind: 'local' }], 'production')).toBe(true);
-    expect(badgeChainIsRestartable(84532, [{ chainId: 84532, kind: 'testnet' }], 'test')).toBe(true);
-    expect(badgeChainIsRestartable(84532, [{ chainId: 84532, kind: 'testnet' }], 'dev')).toBe(true);
-    expect(badgeChainIsRestartable(84532, [{ chainId: 84532, kind: 'testnet' }], 'staging')).toBe(false);
-    expect(badgeChainIsRestartable(84532, [{ chainId: 84532, kind: 'testnet' }], undefined)).toBe(false);
-    expect(badgeChainIsRestartable(31337, [{ chainId: 84532, kind: 'local' }], undefined)).toBe(false);
+    // Only a chain that is started again resets a claim on a new genesis: a `local` registry chain, or the local test
+    // stack (APP_ENV dev/test and a loopback RPC). A dev or test service on a public testnet's RPC is not.
+    const TESTNET_REG = [{ chainId: 84532, kind: 'testnet' }];
+    const ANVIL = 'http://127.0.0.1:8545';
+    expect(badgeChainIsRestartable(31337, [{ chainId: 31337, kind: 'local' }], 'production', 'https://rpc.example')).toBe(true);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, 'test', ANVIL)).toBe(true);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, 'dev', 'http://localhost:8545')).toBe(true);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, 'test', 'https://sepolia.base.org')).toBe(false);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, 'dev', undefined)).toBe(false);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, 'staging', ANVIL)).toBe(false);
+    expect(badgeChainIsRestartable(84532, TESTNET_REG, undefined, ANVIL)).toBe(false);
+    expect(badgeChainIsRestartable(31337, [{ chainId: 84532, kind: 'local' }], undefined, ANVIL)).toBe(false);
     const { d } = deps({ minter: noBadgeSigner });
     expect(await refusal(claim(d, ACCOUNT, ADDR, TESTNET))).toBe('rail.crypto');
   });

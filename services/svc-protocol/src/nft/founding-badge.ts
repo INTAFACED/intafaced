@@ -242,7 +242,13 @@ export async function badgeEligibility(deps: BadgeDeps, accountId: string, netwo
   requireBadgeWindow(deps.window);
   const stored = await deps.store.findClaim(badgeClaimKey(accountId));
   // The chain is asked only when the stored claim names a genesis; no claim, or one from before the column, needs none.
-  const claim = stored?.genesisHash ? thisChains(stored, await network.identity(), network.restartable) : stored;
+  let claim = stored;
+  if (stored?.genesisHash) {
+    // A reused identity that disagrees is read again before it decides: one stray answer is not held for the whole TTL.
+    let here = await network.identity();
+    if (fromAnotherChain(stored.genesisHash, here)) here = await network.identity({ fresh: true });
+    claim = thisChains(stored, here, network.restartable);
+  }
   const eligible = await deps.store.isListed(accountId);
   return {
     eligible,
@@ -490,14 +496,26 @@ export function badgeChainIsMainnet(chainId: number, networks: ReadonlyArray<{ c
 
 /**
  * A chain that is started again from a new genesis: the owner's registry names it `local`, or APP_ENV is exactly dev or
- * test (the local stack runs anvil under the app's network id). Pass the raw APP_ENV: an unset one is not a TEST stack.
+ * test and the RPC is this machine (the local stack runs anvil on loopback under the app's network id). A dev or test
+ * service pointed at a public testnet is not restartable. Pass the raw APP_ENV: an unset one is not a TEST stack.
  */
 export function badgeChainIsRestartable(
   chainId: number,
   networks: ReadonlyArray<{ chainId: number; kind: string }>,
   appEnv: string | null | undefined,
+  rpcUrl: string | null | undefined,
 ): boolean {
-  return isExplicitDevOrTest(appEnv) || networks.some((n) => n.chainId === chainId && n.kind === 'local');
+  if (networks.some((n) => n.chainId === chainId && n.kind === 'local')) return true;
+  return isExplicitDevOrTest(appEnv) && isLoopbackUrl(rpcUrl);
+}
+
+function isLoopbackUrl(url: string | null | undefined): boolean {
+  try {
+    const host = new URL(url ?? '').hostname;
+    return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host);
+  } catch {
+    return false;
+  }
 }
 
 /** No badge signer is wired yet: every network refuses `rail.crypto` from `claimBadge` itself. */
