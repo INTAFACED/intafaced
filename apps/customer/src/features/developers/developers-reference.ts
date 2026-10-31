@@ -875,7 +875,8 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     path: '/api/v1/algo/:kind',
     product: 'spot',
     access: 'private',
-    summary: 'Place a twap, vwap, pov or chase order; the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
+    summary:
+      'Place a twap, vwap, pov or chase order; the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
