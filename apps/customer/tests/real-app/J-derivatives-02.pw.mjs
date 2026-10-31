@@ -123,6 +123,13 @@ test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and
   expect(orders.body).toEqual([]);
 });
 
+const TIERS = `/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`;
+
+/** Polls the tier read until it answers `status`: the trade lane is restarting, so a refused connection reads 0. */
+async function tiersAnswer(me, status) {
+  await expect.poll(async () => (await me.get(TIERS).catch(() => ({ status: 0 }))).status, { timeout: 60_000 }).toBe(status);
+}
+
 test(`${J} #2 reads the tier table: the published tiers and maintenance rates, and "tiers not published" with opens refused while the ladder is unset`, async ({
   page,
 }) => {
@@ -131,7 +138,7 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
   const me = await api(who);
   await desk(page);
   const sent = writes(page);
-  const tiers = await (await api(who)).get(`/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`);
+  const tiers = await me.get(TIERS);
   expect(tiers.status, JSON.stringify(tiers.body)).toBe(200);
   // The stack's LOCAL TEST ladder, as published: four tiers, rates rising with size against depth.
   expect(tiers.body.tiers.map((t) => [t.tier, t.uptoDepthBps, t.maintenanceRate])).toEqual([
@@ -163,15 +170,11 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
 
   // With no ladder published: the trade lane restarted with the ladder blank, then put back as it was, whatever happens.
   const before = await me.balances();
-  restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', false);
   try {
+    restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', false);
     // The same read refuses on the ladder code, an owner's answer (4xx), never invented tiers.
-    await expect
-      .poll(async () => (await me.get(`/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`).catch(() => ({ status: 0 }))).status, {
-        timeout: 60_000,
-      })
-      .toBe(409);
-    const unset = await me.get(`/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`);
+    await tiersAnswer(me, 409);
+    const unset = await me.get(TIERS);
     expect(unset.body).toMatchObject({ error: 'trade.ladder_unset' });
     // The tier table says "Tiers not published", typed by that code.
     await desk(page);
@@ -195,11 +198,7 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
     expect(await me.balances()).toEqual(before);
   } finally {
     restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', true);
-    await expect
-      .poll(async () => (await me.get(`/api/v1/futures/tiers?symbol=${encodeURIComponent(SYMBOL)}`).catch(() => ({ status: 0 }))).status, {
-        timeout: 60_000,
-      })
-      .toBe(200);
+    await tiersAnswer(me, 200);
   }
 });
 

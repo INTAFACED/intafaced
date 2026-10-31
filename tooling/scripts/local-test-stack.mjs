@@ -1500,10 +1500,14 @@ async function startNodeService(def) {
   await waitHealthy(def.name, url, pid);
 }
 
+/** Second workers listen here, above every port in PORTS, so one never takes a stopped stack service's port. */
+const SECOND_WORKER_PORT_BASE = 14900;
+
 /**
- * A second worker of one running service: the same settings and the same database, NATS and peers, on the next free
- * port above its own, recorded as `<service>-2` so `stop` stops it too. For a journey that proves two workers do a thing
- * once (J-derivatives-03 #6). Nothing routes to it; it only runs the service's own jobs and consumers.
+ * A second worker of one running service: the same settings and the same database, NATS and peers, on a free port
+ * from SECOND_WORKER_PORT_BASE, recorded as `<service>-2` so `stop` stops it too. For a journey that proves two
+ * workers do a thing once (J-derivatives-03 #6). Nothing routes to it; it only runs the service's own jobs and
+ * consumers. A `LOCAL_STACK_*` switch the service was last started with must be set the same way here.
  */
 async function cmdSecondWorker([name, action]) {
   if (!serviceNames().includes(name) || !['start', 'stop'].includes(action))
@@ -1514,11 +1518,12 @@ async function cmdSecondWorker([name, action]) {
     say(`  ${worker}: ${rec ? await stopProc(worker, rec) : 'not running'}`);
     return;
   }
+  checkedS2sMode();
   const def = serviceDefs(readJson(P.secrets)).find((d) => d.name === name);
   const env = def.env();
   if ((await httpGet(`http://${HOST}:${env.HTTP_PORT}/health`, 2000)).status !== 200) fail(`${name} is not running; start it first`);
   if (ownedAlive(readProcs()[worker])) return say(`  ${worker}: already running`);
-  let port = Number(env.HTTP_PORT) + 1;
+  let port = SECOND_WORKER_PORT_BASE;
   while (await portOpen(port)) port += 1;
   const entry = path.join(REPO, 'services', `svc-${name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(worker, [process.execPath, entry], { ...env, HTTP_PORT: String(port) }, path.join(REPO, 'services', `svc-${name}`));
