@@ -152,6 +152,7 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
     const sendOut = new SendOutDoor({
       // TEST signer on TEST Ethereum only, as the local stack connects it; TEST Base has none (J-wallet-05 #7).
       signer: assertWithdrawSignerPosture({ APP_ENV: 'test', PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum' }),
+      settleDepth: 6,
       destinations: {
         check: async (input) => {
           asked.push({ network: input.network, ref: input.ref });

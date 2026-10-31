@@ -67,8 +67,11 @@ async function addMember(page, who, role, ownerWho) {
   await expect(accept).toHaveCount(0);
 }
 
-test(`${J} #1 Products opens empty with Add product, and finance and viewers see no way to add`, async ({ page }) => {
-  test.setTimeout(420_000);
+test(`${J} #1 Products opens empty with Add product, and finance and viewers see no write control anywhere in the products room`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(720_000);
   run.reset({});
   const finance = await businessReadyPerson(page, 'm3f', '/pay/merchant');
   await forgetSession(page);
@@ -105,6 +108,103 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
     expect(theirs).toEqual([]);
     await forgetSession(page);
   }
+
+  // Every other write control of the room needs a product to show on. The owner makes one with two one-time TEST
+  // prices and sees each control there: Archive, Delete, Add price, Set as default and Replace price.
+  await signInWithCode(page, own, '/pay/products/new');
+  run.write({ owner: saved(own) });
+  const ownRefused = refusedPayCalls(page);
+  await page.getByLabel('Name *').fill('TEST Read-only check');
+  await page.getByLabel('Product ID').fill(`readonly-${own.handle}`);
+  await page.getByRole('button', { name: 'Save product' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
+  const productUrl = new URL(page.url()).pathname;
+  for (const amount of ['1', '2']) {
+    await page.getByRole('button', { name: 'Add price' }).click();
+    await page.getByLabel('Billing *').selectOption({ label: 'One time' });
+    await page.getByLabel('Amount *').fill(amount);
+    await page.getByLabel('Asset *').fill('USDC');
+    await page.getByRole('button', { name: 'Save price' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
+  }
+  const ownerPrices = page.getByRole('region', { name: 'Prices of this product' });
+  await expect(ownerPrices.getByRole('row').filter({ hasText: '2.00 USDC' }).getByRole('button', { name: 'Set as default' })).toBeVisible();
+  await expect(ownerPrices.getByRole('button', { name: 'Replace price' })).toHaveCount(2);
+  for (const name of ['Archive product', 'Delete product', 'Add price'])
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+  await page.goto('/pay/products');
+  for (const name of ['Add product', 'Import products']) await expect(page.getByRole('link', { name })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy to test' })).toBeVisible();
+  expect(ownRefused).toEqual([]);
+
+  /** Every write control the products room draws for a writer is absent here, or switched off, in both catalogues. */
+  async function noWriteControls(their) {
+    for (const mode of ['live', 'test']) {
+      await their.goto(mode === 'live' ? '/pay/products' : '/pay/products?mode=test');
+      await expect(their.getByLabel('Catalogue')).toHaveValue(mode);
+      if (mode === 'live')
+        await expect(their.getByRole('region', { name: 'Your products' }).getByText('TEST Read-only check', { exact: true })).toBeVisible();
+      else await expect(their.getByRole('heading', { name: 'No products yet' })).toBeVisible();
+      for (const name of ['Add product', 'Import products']) await expect(their.getByRole('link', { name })).toHaveCount(0);
+      for (const name of ['Copy to live', 'Copy to test']) await expect(their.getByRole('button', { name })).toHaveCount(0);
+    }
+    await their.goto('/pay/products/new');
+    await expect(their.getByText('The owner, an admin or a developer can add them.')).toBeVisible();
+    await expect(their.getByLabel('Name *')).toHaveCount(0);
+    await expect(their.getByRole('button', { name: 'Save product' })).toHaveCount(0);
+    await their.goto('/pay/products/import');
+    await expect(their.getByText('The owner, an admin or a developer can add them.')).toBeVisible();
+    await expect(their.getByLabel('Products file (CSV)')).toHaveCount(0);
+    await expect(their.getByRole('button', { name: 'Check file' })).toHaveCount(0);
+    await expect(their.getByRole('button', { name: /^Import \d/ })).toHaveCount(0);
+    await their.goto(productUrl);
+    await expect(their.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Read-only check');
+    const theirPrices = their.getByRole('region', { name: 'Prices of this product' });
+    await expect(theirPrices.getByRole('row').filter({ hasText: '2.00 USDC' })).toHaveCount(1);
+    await expect(theirPrices.getByRole('row').filter({ hasText: '1.00 USDC' })).toHaveCount(1);
+    for (const name of [
+      'Archive product',
+      'Unarchive product',
+      'Delete product',
+      'Add price',
+      'Set as default',
+      'Replace price',
+      'Save price',
+    ])
+      await expect(their.getByRole('button', { name, exact: true })).toHaveCount(0);
+    await expect(their.getByRole('link', { name: 'Add a store' })).toHaveCount(0);
+    for (const box of await their.getByRole('checkbox').all()) await expect(box).toBeDisabled();
+  }
+
+  // Finance and the viewer each keep their own browser, so the same pages can be read again after the owner archives.
+  const members = [];
+  try {
+    for (const member of [finance, viewer]) {
+      const context = await browser.newContext();
+      const their = await context.newPage();
+      members.push({ context, their, refused: refusedPayCalls(their) });
+      await signInWithCode(their, member, '/pay/products');
+      await noWriteControls(their);
+    }
+
+    // Archived, the product offers a writer Unarchive; finance and the viewer still get no control. Archiving also
+    // leaves the live catalogue with no active product, as the later steps expect of it.
+    await page.goto(productUrl);
+    await page.getByRole('button', { name: 'Archive product' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Product archived.' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Unarchive product' })).toBeVisible();
+    for (const { their, refused: theirs } of members) {
+      await their.goto(productUrl);
+      await expect(their.getByText('This product is archived.', { exact: false })).toBeVisible();
+      for (const name of ['Archive product', 'Unarchive product', 'Delete product', 'Add price', 'Set as default', 'Replace price'])
+        await expect(their.getByRole('button', { name, exact: true })).toHaveCount(0);
+      expect(theirs).toEqual([]);
+    }
+  } finally {
+    for (const { context } of members) await context.close();
+  }
+  expect(ownRefused).toEqual([]);
+  await forgetSession(page);
 });
 
 test(`${J} #2 the owner adds a product with type, unit label, descriptor and image, and a taken id is refused`, async ({ page }) => {

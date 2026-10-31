@@ -5,6 +5,7 @@ import { TextArea } from './common';
 import { Field } from '../../shared/ui';
 import { Journey, type JourneyStep } from './depth-kit';
 import { CampaignCatalogue, MyCampaigns } from './campaign-catalogue';
+import { MyVouchers } from './campaign-vouchers';
 import { campaignsDepthCopy } from './campaigns-depth-copy';
 import { COPY_MAX, HEADLINE_MAX, proposalRequest, proposalResult, type ProposalResult } from './campaign-proposal';
 import type { ApiResult } from '../../shared/api';
@@ -15,7 +16,7 @@ const STEPS = ['discover', 'join', 'tasks', 'reward'] as const;
 /** Steps svc-campaigns serves today. Tasks and rewards wait for task campaigns and the reward saga. */
 const OPEN_STEPS: ReadonlySet<string> = new Set(['discover', 'join']);
 
-/** Campaign rooms: the published catalogue, how a campaign runs, the campaigns I joined (/campaigns/mine), and a
+/** Campaign rooms: the published catalogue, how a campaign runs, the campaigns I joined and my vouchers (/campaigns/mine), and a
  * draft-only proposal. Tasks and rewards state their blockers and show no invented progress or reward. */
 export function Campaigns({ initial = 'Catalogue' }: { initial?: 'Catalogue' | 'Mine' }) {
   const [tab, setTab] = useState<Tab>(initial);
@@ -59,6 +60,7 @@ function Mine() {
   return (
     <>
       <MyCampaigns />
+      <MyVouchers />
       <a className="text-link" href="/campaigns/drops">
         <Copy k="dropRoomLink" />
       </a>

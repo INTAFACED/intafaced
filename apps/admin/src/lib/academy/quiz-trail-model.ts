@@ -1,5 +1,8 @@
 import type {
   AcademyAdminCourseQuiz,
+  AcademyCourseQuizAnalytics,
+  AcademyCourseQuizAnswers,
+  AcademyCurveCourseQuizResult,
   AcademyCourseQuizAttempts,
   AcademyCourseQuizQuestion,
   AcademyRescoreCourseQuizResult,
@@ -11,11 +14,21 @@ import type { Part } from '@/lib/desk/part';
  * points per question, overrides with a reason, key fixes as a new revision and rescores. Pure, so the server loader, the
  * route and the browser component share it.
  */
-export type { AcademyAdminCourseQuiz, AcademyCourseQuizAttempts, AcademyCourseQuizQuestion, AcademyRescoreCourseQuizResult };
+export type {
+  AcademyAdminCourseQuiz,
+  AcademyCourseQuizAnalytics,
+  AcademyCourseQuizAnswers,
+  AcademyCurveCourseQuizResult,
+  AcademyCourseQuizAttempts,
+  AcademyCourseQuizQuestion,
+  AcademyRescoreCourseQuizResult,
+};
 
 export interface QuizTrailView {
   readonly quiz: Part<AcademyAdminCourseQuiz>;
   readonly attempts: Part<AcademyCourseQuizAttempts>;
+  /** Item analysis and the score distribution (AC-quizzes-04); null when an older reply carried none. */
+  readonly analytics: Part<AcademyCourseQuizAnalytics> | null;
   readonly asOf: string;
 }
 
@@ -25,6 +38,8 @@ export type QuizTrailReply =
       readonly what: string;
       readonly view: QuizTrailView;
       readonly rescored?: AcademyRescoreCourseQuizResult['rescored'];
+      readonly curve?: AcademyCurveCourseQuizResult;
+      readonly answers?: AcademyCourseQuizAnswers;
     }
   | {
       readonly ok: false;

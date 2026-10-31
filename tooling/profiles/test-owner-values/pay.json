@@ -6,6 +6,11 @@
       "value": "6",
       "note": ""
     },
+    "PAY_WITHDRAW_MIN_CONFIRMATIONS": {
+      "service": "pay",
+      "value": "6",
+      "note": "W-withdraw-06: the depth a send out of the platform settles at. Blank outside this profile: every send out refuses pay.withdraw_confirmations_unset."
+    },
     "PAY_WEBHOOK_TOLERANCE_SECONDS": {
       "service": "pay",
       "value": "300",

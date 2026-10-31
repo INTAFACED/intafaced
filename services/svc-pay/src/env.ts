@@ -45,6 +45,31 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * W-withdraw-06: the worker that moves a send out of the platform past `held` (dispatch it on the chain, read its depth,
+       * settle at the owner's minimum confirmations or put a refused send back). Owner-published: both set turns it on, and
+       * then a create answers `held` and the worker takes it on; blank or unset leaves it off, the boot log names the blocker
+       * (`pay.withdraw_advance_interval_unset`, `pay.withdraw_advance_batch_limit_unset`) and a create dispatches in the
+       * request as before. Never defaulted.
+       */
+      PAY_WITHDRAW_ADVANCE_INTERVAL_MS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      PAY_WITHDRAW_ADVANCE_BATCH_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      /**
+       * W-withdraw-06: the depth at which a send out of the platform settles: how deep the chain must hold it before the
+       * hold becomes a settle. Owner-set, apart from PAY_MIN_CONFIRMATIONS (the depth an arrival counts at). Blank boots, and
+       * every send out refuses `pay.withdraw_confirmations_unset` before anything is held. Never defaulted.
+       */
+      PAY_WITHDRAW_MIN_CONFIRMATIONS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+
+      /**
        * How often the due work for multi-approval withdrawals runs: expire waiting requests, give back their holds and run
        * requests that reached their approvals (W-withdraw-11). Never defaulted: unset, nothing runs on a timer and the
        * founder's `settleDue` is the only trigger. Every step is idempotent, so replicas may overlap.

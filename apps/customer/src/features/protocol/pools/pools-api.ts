@@ -1,5 +1,6 @@
 // hand-declared-ok: svc-indexer's explorer output schemas are declared in its router, not in @intafaced/contracts.
 import { z } from 'zod';
+import { protocolPoolFeesOutputSchema, type ProtocolPoolFees } from '@intafaced/contracts/protocol-fees';
 import type { ApiClient } from '../../../shared/api';
 
 /**
@@ -81,8 +82,20 @@ export type CandleInterval = '5m' | '1h';
 export const isNotAPool = (failure: { code?: string; message?: string }) =>
   failure.code === 'indexer.not_a_pool' || failure.message === 'indexer.not_a_pool';
 
+export type PoolFees = ProtocolPoolFees;
+
+/** The protocol service's codes for the Fees panel; a code is matched exactly, never guessed from other text. */
+const hasCode = (failure: { code?: string; message?: string }, code: string) =>
+  failure.code === code || failure.message === code || (failure.message ?? '').startsWith(`${code}:`);
+export const isFeePolicyUnset = (failure: { code?: string; message?: string }) => hasCode(failure, 'protocol.fee_policy_unset');
+export const isNotFactoryPool = (failure: { code?: string; message?: string }) => hasCode(failure, 'protocol.not_factory_pool');
+
 export function createPoolsApi(api: ApiClient) {
   return {
+    /** The pool's own fee fields, read from the chain by the protocol service: the swap fee and who gets it. */
+    fees: (pool: string, signal?: AbortSignal) => api.query('protocol', 'amm.poolFees', { pool }, protocolPoolFeesOutputSchema, { signal }),
+    /** Asks for a protocol fee on the pool. It moves nothing; with the owner's fee policy blank, it refuses by name. */
+    requestProtocolFee: (pool: string) => api.mutate('protocol', 'amm.requestProtocolFee', { pool }, z.unknown()),
     /** The owner factory's pools, newest first, in pages of the owner's list limit. A blank factory refuses by name. */
     list: (chainId: number, signal?: AbortSignal, cursor?: PoolCursor) =>
       api.query('indexer', 'explorer.pools.list', { chainId, ...(cursor ? { cursor } : {}) }, poolsPageSchema, { signal }),
