@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from './auth/auth-service.js';
-import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
+import { SecurityStepUpError, toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { TotpLifecycleError, type TotpLifecycle } from './auth/totp-lifecycle.js';
 import { userCopy } from './user-copy.js';
 
@@ -81,9 +81,8 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
         .mutation(async ({ ctx, input }) => {
           try {
             if (!ctx.principal.mfa) {
-              if (!input?.clientRequestId || !input.stepUpApprovalId) {
-                throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('auth.step_up_required') });
-              }
+              // Typed as every other step-up refusal, so the page offers "Confirm it is you".
+              if (!input) throw new SecurityStepUpError('identity.step_up_required');
               await stepUp.assertHeld(
                 ctx.principal,
                 'identity.step_up.totp_replace',
@@ -93,7 +92,6 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
             }
             return await lifecycle.replaceStart(ctx.principal.userId);
           } catch (err) {
-            if (err instanceof TRPCError) throw err;
             return mapError(err);
           }
         }),

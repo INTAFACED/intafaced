@@ -18,6 +18,9 @@ import { CustomerStepUpService } from './customer-step-up.js';
 import { SqlCustomerStepUpStore } from './customer-step-up-store.js';
 import { SECURITY_STEP_UP_SCOPES, SecurityStepUp, type SecurityStepUpPrincipal } from './security-step-up.js';
 import { totp } from './totp.js';
+import { MemoryPendingTotpEnrolmentStore } from './pending-totp-store.js';
+import { TotpLifecycle } from './totp-lifecycle.js';
+import { createTotpLifecycleRouter } from '../totp-lifecycle-router.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { createStepUpRouter } from '../step-up-router.js';
@@ -59,19 +62,10 @@ if (!(await postgresAvailable(URL))) {
     url: URL,
     migrations: migrations.map((body) => (schema: string) => rewriteSchemaSql(body, 'identity', schema)),
   });
+  const TOTP_KEY = randomBytes(32);
   const bus = new MemoryEventBus('svc-identity');
   const rank = new RankService(db.sql, bus);
-  const auth = new AuthService(
-    db.sql,
-    bus,
-    rank,
-    tokenConfig,
-    webauthnConfig,
-    randomBytes(32).toString('base64'),
-    undefined,
-    undefined,
-    25,
-  );
+  const auth = new AuthService(db.sql, bus, rank, tokenConfig, webauthnConfig, TOTP_KEY.toString('base64'), undefined, undefined, 25);
   await rank.seedTiers();
 
   let clockMs = Date.now();
@@ -85,7 +79,6 @@ if (!(await postgresAvailable(URL))) {
     sql: db.sql,
     approvals,
     secondFactor: (userId) => auth.customerStepUpMaterial(userId, 'security_change'),
-    now: clock,
   });
 
   let n = 0;
@@ -329,6 +322,57 @@ if (!(await postgresAvailable(URL))) {
       await expect(guard.assertHeld(user.principal, REMOVE, removeFields, approvalId)).rejects.toMatchObject({
         code: 'identity.step_up_expired',
       });
+    });
+  });
+
+  describe('totpManage.replaceStart', () => {
+    const REPLACE = 'identity.step_up.totp_replace' as const;
+    const lifecycleApi = createTotpLifecycleRouter(
+      new TotpLifecycle({ sql: db.sql, key: TOTP_KEY, pending: new MemoryPendingTotpEnrolmentStore() }),
+      guard,
+    );
+    const codeOf = async (p: Promise<unknown>) =>
+      p.then(
+        () => 'ok',
+        (err: { cause?: { code?: string }; code?: string }) => err.cause?.code ?? err.code,
+      );
+    const mintReplace = (user: Awaited<ReturnType<typeof newUser>>, clientRequestId: string) => {
+      const door = doorForScope(REPLACE)!;
+      return mint(user, REPLACE, door.purpose, { clientRequestId }, clientRequestId);
+    };
+
+    it('a session that signed in without its second factor starts with its unspent confirmation, which the confirm then spends', async () => {
+      const user = await newUser();
+      const caller = lifecycleApi.createCaller(await ctxOf(user.session.accessToken));
+      // No confirmation: refused by the typed step-up code, so the page offers "Confirm it is you".
+      expect(await codeOf(caller.totpManage.replaceStart())).toBe('identity.step_up_required');
+      const approvalId = await mintReplace(user, 'req-replace');
+      // A confirmation for another request does not start this one.
+      expect(await codeOf(caller.totpManage.replaceStart({ clientRequestId: 'req-other', stepUpApprovalId: approvalId }))).toBe(
+        'identity.step_up_target',
+      );
+      const started = await caller.totpManage.replaceStart({ clientRequestId: 'req-replace', stepUpApprovalId: approvalId });
+      expect(started.secret).toMatch(/^[A-Z2-7]{16,}$/);
+      const done = await caller.totpManage.replaceConfirm({
+        secret: started.secret,
+        newCode: totp(started.secret),
+        currentCode: user.recoveryCodes[0]!,
+        clientRequestId: 'req-replace',
+        stepUpApprovalId: approvalId,
+      });
+      expect(done.replaced).toBe(true);
+      // Spent by the confirm: it cannot start another replace.
+      expect(await codeOf(caller.totpManage.replaceStart({ clientRequestId: 'req-replace', stepUpApprovalId: approvalId }))).toBe(
+        'identity.step_up_used',
+      );
+    });
+
+    it('a session that passed its second factor starts without one, as before', async () => {
+      const user = await newUser();
+      const ctx = await ctxOf(user.session.accessToken);
+      const caller = lifecycleApi.createCaller({ ...ctx, principal: { ...ctx.principal!, mfa: true } } as Context);
+      const started = await caller.totpManage.replaceStart();
+      expect(started.secret).toMatch(/^[A-Z2-7]{16,}$/);
     });
   });
 }
