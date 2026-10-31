@@ -1,6 +1,7 @@
 import { getAddress as toChecksum, hashMessage, isAddress, recoverAddress } from 'viem';
 import { createHash } from 'node:crypto';
 import type { Address, Hex } from 'viem';
+import { fromAnotherChain, type ChainIdentity } from '../chain/identity.js';
 
 /**
  * RC-more-catalogue-04 — founding badge eligibility and claim (svc-protocol core).
@@ -67,8 +68,8 @@ export interface BadgeWindow {
   closesAt: Date;
 }
 
-export interface BadgeNetwork {
-  chainId: number;
+/** The chain the badge is claimed on: its id and genesis (`chain/identity.ts`). */
+export interface BadgeNetwork extends ChainIdentity {
   /** True only for a production network. Testnets render as TEST. */
   mainnet: boolean;
 }
@@ -78,6 +79,8 @@ export interface BadgeClaimRecord {
   accountId: string;
   chainId: number;
   to: Address;
+  /** The genesis of the chain the claim was made on; null for a claim stored before the column existed. */
+  genesisHash?: Hex | null;
   /** Null between "claim stored" and "mint submitted". */
   txHash: Hex | null;
   /** When the current mint slot was taken; null/absent when no mint is in flight. Stays set if a mint got stuck. */
@@ -88,9 +91,12 @@ export interface BadgeStore {
   /** Founder-desk written list. */
   isListed(accountId: string): Promise<boolean>;
   findClaim(key: string): Promise<BadgeClaimRecord | null>;
-  /** The claim already minted to this address on this chain, by any account. */
-  findClaimByAddress(chainId: number, to: Address): Promise<BadgeClaimRecord | null>;
-  /** Insert-if-absent on `key`; returns the stored row either way. */
+  /** The claim to this address on this chain (this genesis, or a claim stored before the column), by any account. */
+  findClaimByAddress(chain: ChainIdentity, to: Address): Promise<BadgeClaimRecord | null>;
+  /**
+   * Insert-if-absent on `key`; returns the stored row either way. A stored claim from another genesis (a TEST chain since
+   * started again) is replaced: its mint did not happen on this chain, so the claim starts again with no tx hash.
+   */
   putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord>;
   /**
    * Atomically take the mint slot for `key`: true for exactly one caller while the claim has no tx hash and no mint
@@ -196,9 +202,14 @@ export interface BadgeEligibility {
   txHash: Hex | null;
 }
 
+/** A claim made on another chain (a TEST chain since started again) is not this chain's claim: it reads as none. */
+function thisChains(claim: BadgeClaimRecord | null, network: BadgeNetwork): BadgeClaimRecord | null {
+  return claim && fromAnotherChain(claim.genesisHash, network) ? null : claim;
+}
+
 export async function badgeEligibility(deps: BadgeDeps, accountId: string, network: BadgeNetwork): Promise<BadgeEligibility> {
   requireBadgeWindow(deps.window);
-  const claim = await deps.store.findClaim(badgeClaimKey(accountId));
+  const claim = thisChains(await deps.store.findClaim(badgeClaimKey(accountId)), network);
   const eligible = await deps.store.isListed(accountId);
   return {
     eligible,
@@ -254,7 +265,7 @@ export async function claimBadge(
     throw new BadgeRefusedError(AUDIT_EXTERNAL, 'mainnet mint needs an external audit that does not exist');
   }
   const key = badgeClaimKey(accountId);
-  const existing = await deps.store.findClaim(key);
+  const existing = thisChains(await deps.store.findClaim(key), network);
   if (existing && existing.txHash) return { ...existing, label: 'TEST', audited: false };
 
   if (!existing) {
@@ -279,7 +290,7 @@ export async function claimBadge(
     throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'claim signature missing or not from the account owner key');
   }
   // One badge per address: another account already claimed to this address.
-  const onAddress = await deps.store.findClaimByAddress(network.chainId, toChecksum(ownAddress));
+  const onAddress = await deps.store.findClaimByAddress(network, toChecksum(ownAddress));
   if (onAddress && onAddress.accountId !== accountId) {
     throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
   }
@@ -287,7 +298,15 @@ export async function claimBadge(
   if (!signer) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${network.chainId}`);
 
   const stored =
-    existing ?? (await deps.store.putClaim({ key, accountId, chainId: network.chainId, to: toChecksum(ownAddress), txHash: null }));
+    existing ??
+    (await deps.store.putClaim({
+      key,
+      accountId,
+      chainId: network.chainId,
+      genesisHash: network.genesisHash,
+      to: toChecksum(ownAddress),
+      txHash: null,
+    }));
   if (stored.txHash) return { ...stored, label: 'TEST', audited: false };
   // Single flight: only the caller that wins the slot mints. A loser returns the stored claim; a null txHash means
   // the winner's mint is still pending.

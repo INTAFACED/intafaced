@@ -161,6 +161,61 @@ describe('account registry — a read model, not custody', () => {
   });
 });
 
+describe('deployed holds only on the chain it was seen on (chain identity)', () => {
+  const GENESIS = `0x${'a'.repeat(64)}` as Hex;
+  const RESTARTED = `0x${'b'.repeat(64)}` as Hex;
+
+  it('a TEST chain started again reads an account deployed on the old one as not deployed, until it is deployed again', async () => {
+    const store = new MemoryAccountStore();
+    let genesisHash = GENESIS;
+    let asked = 0;
+    const identity = async () => (asked++, { chainId: CHAIN_ID, genesisHash });
+    const registry = new AccountRegistry(store, { chainId: CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION }, identity);
+    const address = registry.predict(ownerAccount.address);
+    await registry.claim({ userId: USER_A, owner: ownerAccount.address, address, signature: await sign(USER_A, address), deployed: true });
+    expect((await registry.accountsOf(USER_A, 10))[0]).toMatchObject({ deployed: true, deployedGenesisHash: GENESIS });
+
+    genesisHash = RESTARTED;
+    expect((await registry.accountsOf(USER_A, 10))[0]?.deployed).toBe(false);
+    expect((await registry.ownerOfRecord(address))?.deployed).toBe(false);
+
+    await registry.recordDeployment(address);
+    expect((await registry.accountsOf(USER_A, 10))[0]).toMatchObject({ deployed: true, deployedGenesisHash: RESTARTED });
+
+    // A row that names no deployment needs no chain read.
+    const before = asked;
+    const other = registry.predict(impostor.address);
+    await registry.claim({
+      userId: USER_B,
+      owner: impostor.address,
+      address: other,
+      signature: await sign(USER_B, other, impostor),
+      deployed: false,
+    });
+    const beforeList = asked;
+    await registry.accountsOf(USER_B, 10);
+    expect(asked).toBe(beforeList);
+    expect(beforeList).toBe(before);
+  });
+
+  it('a deployment stored before the genesis column keeps its meaning', async () => {
+    const store = new MemoryAccountStore();
+    const identity = async () => ({ chainId: CHAIN_ID, genesisHash: RESTARTED });
+    const registry = new AccountRegistry(store, { chainId: CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION }, identity);
+    const address = registry.predict(ownerAccount.address);
+    await store.upsert({
+      userId: USER_A,
+      chainId: CHAIN_ID,
+      address,
+      owner: ownerAccount.address,
+      userSalt: `0x${'0'.repeat(64)}`,
+      deployed: true,
+      verifiedAt: new Date(),
+    });
+    expect((await registry.accountsOf(USER_A, 10))[0]?.deployed).toBe(true);
+  });
+});
+
 describe('the binding message grants nothing', () => {
   it('names the account, the chain and the user, and says so in words', () => {
     const message = bindingMessage({ userId: USER_A, chainId: CHAIN_ID, address: FACTORY });

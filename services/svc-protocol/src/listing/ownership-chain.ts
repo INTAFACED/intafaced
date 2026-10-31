@@ -2,6 +2,7 @@ import { decodeFunctionResult, encodeFunctionData, type Address, type Hex } from
 import { classifyChainError, ChainUnavailableError } from '../chain/availability.js';
 import type { ProtocolChain } from '../chain/client.js';
 import { isExecutionRevert } from '../chain/revert.js';
+import { chainIdentityReader } from '../chain/identity.js';
 import type { OwnershipChain } from './ownership.js';
 
 const ownableAbi = [{ type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as const;
@@ -48,6 +49,7 @@ export function ownershipChain(chain: ProtocolChain): OwnershipChain {
   const rpc = chain.config.rpcUrl;
   return {
     chainId: chain.config.chainId,
+    identity: chainIdentityReader(chain),
     async owner(token: Address) {
       if (!(await chain.isDeployed(token)))
         throw new ChainUnavailableError(

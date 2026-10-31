@@ -41,6 +41,7 @@ import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLi
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
+import { chainIdentityReader } from './chain/identity.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
 import { RelayRefusedError, SessionRelay } from './session/relay.js';
 import {
@@ -499,6 +500,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   let ownership: OwnershipChain | null = null;
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
   const routeBalances = blockBalances(chain);
+  // Which chain the rows read from it belong to (chain id and genesis), so a row from a TEST chain started again reads as absent.
+  const chainIdentity = chainIdentityReader(chain);
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -1188,7 +1191,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return await badgeEligibility(
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
-              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              { ...(await chainIdentity()), mainnet: b.mainnet() },
             );
           } catch (err) {
             throw toTrpcError(err);
@@ -1208,7 +1211,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
               own ? { address: own.address, owner: own.owner } : null,
-              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              { ...(await chainIdentity()), mainnet: b.mainnet() },
               input?.signature ?? null,
             );
             return {
