@@ -426,11 +426,11 @@ const GRID: Readonly<Record<string, Words>> = {
   'trade.grid_request_invalid': { title: 'This grid request is incomplete', body: 'Check each field and try again.' },
   'trade.grid_direction_not_built': {
     title: 'Only a neutral grid can run',
-    body: 'Long and short grids aren’t available yet. Choose a neutral grid.',
+    body: 'Long and short grids aren’t built. Choose a neutral grid.',
   },
   'trade.grid_settlement_not_built': {
     title: 'A stop keeps what the bot bought',
-    body: 'Selling the bought coins when the bot stops isn’t available yet. Stop it and keep them.',
+    body: 'Selling the bought coins when the bot stops isn’t built. Stop it and keep them.',
   },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
   'trade.grid_unavailable': {
