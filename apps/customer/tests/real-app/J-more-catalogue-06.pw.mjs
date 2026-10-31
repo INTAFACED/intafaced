@@ -48,7 +48,8 @@ async function read(who, service, procedure, input, missing) {
 /** A signed-in tRPC mutation; a procedure the service does not have fails as BLOCKED `missing`. */
 async function write(who, service, procedure, input, missing) {
   const client = await api(who);
-  const res = await client.post(`/api/${service}/trpc/${procedure}`, input);
+  // A mutation with no input still sends a JSON body: the edge refuses one without a content type (415).
+  const res = await client.post(`/api/${service}/trpc/${procedure}`, input ?? {});
   if (res.status === 404) throw new Error(`BLOCKED ${missing}: ${service} has no ${procedure} (404)`);
   expect(res.status, `${procedure}: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
   return res.body.result.data;
