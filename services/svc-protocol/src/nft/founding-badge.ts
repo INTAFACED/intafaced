@@ -68,8 +68,13 @@ export interface BadgeWindow {
   closesAt: Date;
 }
 
-/** The chain the badge is claimed on: its id and genesis (`chain/identity.ts`). */
-export interface BadgeNetwork extends ChainIdentity {
+export interface BadgeNetwork {
+  chainId: number;
+  /**
+   * Which chain this is (`chain/identity.ts`), read only when needed: a claim asks for it fresh after its own refusals,
+   * eligibility only when a stored claim names a genesis.
+   */
+  identity(opts?: { fresh?: boolean }): Promise<ChainIdentity>;
   /** True only for a production network. Testnets render as TEST. */
   mainnet: boolean;
 }
@@ -203,13 +208,15 @@ export interface BadgeEligibility {
 }
 
 /** A claim made on another chain (a TEST chain since started again) is not this chain's claim: it reads as none. */
-function thisChains(claim: BadgeClaimRecord | null, network: BadgeNetwork): BadgeClaimRecord | null {
-  return claim && fromAnotherChain(claim.genesisHash, network) ? null : claim;
+function thisChains(claim: BadgeClaimRecord | null, current: ChainIdentity): BadgeClaimRecord | null {
+  return claim && fromAnotherChain(claim.genesisHash, current) ? null : claim;
 }
 
 export async function badgeEligibility(deps: BadgeDeps, accountId: string, network: BadgeNetwork): Promise<BadgeEligibility> {
   requireBadgeWindow(deps.window);
-  const claim = thisChains(await deps.store.findClaim(badgeClaimKey(accountId)), network);
+  const stored = await deps.store.findClaim(badgeClaimKey(accountId));
+  // The chain is asked only when the stored claim names a genesis; no claim, or one from before the column, needs none.
+  const claim = stored?.genesisHash ? thisChains(stored, await network.identity()) : stored;
   const eligible = await deps.store.isListed(accountId);
   return {
     eligible,
@@ -265,7 +272,9 @@ export async function claimBadge(
     throw new BadgeRefusedError(AUDIT_EXTERNAL, 'mainnet mint needs an external audit that does not exist');
   }
   const key = badgeClaimKey(accountId);
-  const existing = thisChains(await deps.store.findClaim(key), network);
+  // Read afresh: the claim below is stored with this genesis, and a mint must never be labelled with a chain since gone.
+  const here = await network.identity({ fresh: true });
+  const existing = thisChains(await deps.store.findClaim(key), here);
   if (existing && existing.txHash) return { ...existing, label: 'TEST', audited: false };
 
   if (!existing) {
@@ -290,7 +299,7 @@ export async function claimBadge(
     throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'claim signature missing or not from the account owner key');
   }
   // One badge per address: another account already claimed to this address.
-  const onAddress = await deps.store.findClaimByAddress(network, toChecksum(ownAddress));
+  const onAddress = await deps.store.findClaimByAddress(here, toChecksum(ownAddress));
   if (onAddress && onAddress.accountId !== accountId) {
     throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
   }
@@ -303,7 +312,7 @@ export async function claimBadge(
       key,
       accountId,
       chainId: network.chainId,
-      genesisHash: network.genesisHash,
+      genesisHash: here.genesisHash,
       to: toChecksum(ownAddress),
       txHash: null,
     }));
@@ -352,6 +361,8 @@ export interface ResolveStuckMintDeps {
   /** Owner-set stale age in seconds; undefined refuses `badge.stuck_age_unset` (no default). */
   staleAfterSeconds: number | undefined;
   now: () => Date;
+  /** Which chain this is. A stuck slot from another genesis is not stuck on this chain: there is nothing here to clear. */
+  identity?: () => Promise<ChainIdentity>;
 }
 
 export interface ResolveStuckMintInput {
@@ -387,7 +398,8 @@ export async function resolveStuckBadgeMint(deps: ResolveStuckMintDeps, input: R
     throw new BadgeRefusedError(BADGE_STUCK_AGE_UNSET, 'PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS is unset; no default stale age');
   }
   const key = badgeClaimKey(input.accountId);
-  const claim = await deps.store.findClaim(key);
+  const found = await deps.store.findClaim(key);
+  const claim = found?.genesisHash && deps.identity ? thisChains(found, await deps.identity()) : found;
   if (!claim || claim.txHash || !claim.mintingSince) return null;
   const staleBefore = new Date(deps.now().getTime() - deps.staleAfterSeconds * 1000);
   if (claim.mintingSince.getTime() > staleBefore.getTime()) {

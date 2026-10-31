@@ -27,18 +27,25 @@ export function fromAnotherChain(stored: string | null | undefined, current: Cha
 export const CHAIN_IDENTITY_TTL_MS = 10_000;
 
 /**
+ * Reads the current chain's identity. A read decides from the identity reused for `ttlMs`; a write asks for
+ * `{ fresh: true }`, so a row is never labelled with a genesis read before the chain was started again.
+ */
+export type ChainIdentityReader = (opts?: { fresh?: boolean }) => Promise<ChainIdentity>;
+
+/**
  * The current chain's identity, read once per `ttlMs` and shared by concurrent callers. A failed read is not kept: it
- * refuses with the chain's own typed code (`ProtocolChain.genesisHash`), and the next call reads again.
+ * refuses with the chain's own typed code (`ProtocolChain.genesisHash`), and the next call reads again. One reader per
+ * process (`index.ts`), so every part of the service sees a restart at the same moment.
  */
 export function chainIdentityReader(
   chain: { readonly config: { readonly chainId: number }; genesisHash(): Promise<Hex> },
   ttlMs: number = CHAIN_IDENTITY_TTL_MS,
   now: () => number = Date.now,
-): () => Promise<ChainIdentity> {
+): ChainIdentityReader {
   let held: { at: number; read: Promise<ChainIdentity> } | null = null;
-  return () => {
+  return (opts) => {
     const t = now();
-    if (held && t - held.at < ttlMs) return held.read;
+    if (!opts?.fresh && held && t - held.at < ttlMs) return held.read;
     const read = chain
       .genesisHash()
       .then((genesisHash) => ({ chainId: chain.config.chainId, genesisHash: genesisHash.toLowerCase() as Hex }));

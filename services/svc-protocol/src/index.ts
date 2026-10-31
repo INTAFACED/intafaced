@@ -108,6 +108,9 @@ const gasPosture = protocolGasPosture({ bundlerUrl: env.PROTOCOL_BUNDLER_URL });
 /** S-L6 — wrap missing until HSM/Nitro; withdrawal keys never enter the vault. */
 const venueVault = venueVaultFromKek(env.PROTOCOL_VENUE_VAULT_WRAP);
 
+/** One chain identity reader for the process, so the registry, the badge and listing see a restart together. */
+const chainIdentity = chainIdentityReader(chain);
+
 const registry = new AccountRegistry(
   new PostgresAccountStore(db.drizzle),
   {
@@ -116,7 +119,7 @@ const registry = new AccountRegistry(
     implementation: env.PROTOCOL_IMPLEMENTATION_ADDRESS as Address,
   },
   // A deployment seen on a TEST chain since started again is not one on this chain (chain/identity.ts).
-  chainIdentityReader(chain),
+  chainIdentity,
 );
 
 const relay = new SessionRelay(chain);
@@ -140,6 +143,7 @@ const walletSessionSetting = walletSessionFromSetting(
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 export const appRouter = createProtocolRouter({
+  chainIdentity,
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
   chain,

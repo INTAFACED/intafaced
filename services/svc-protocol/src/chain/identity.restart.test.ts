@@ -37,7 +37,10 @@ async function freePort(): Promise<number> {
 let running: ChildProcess | null = null;
 async function startAnvil(port: number, chain: ProtocolChain): Promise<void> {
   running = spawn(ANVIL, ['--port', String(port), '--chain-id', String(CHAIN_ID), '--silent'], { stdio: 'ignore' });
+  const child = running!;
   for (let i = 0; i < 100; i++) {
+    // An anvil that could not start (its port taken) has exited: fail here rather than read whatever answers on the port.
+    if (child.exitCode !== null) throw new Error(`anvil exited with ${child.exitCode} before it answered on port ${port}`);
     try {
       await chain.headBlock();
       return;
@@ -87,7 +90,7 @@ describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
         deps,
         ACCOUNT,
         { address, owner: OWNER.address },
-        { ...(await identity()), mainnet: false },
+        { chainId: CHAIN_ID, identity, mainnet: false },
         await OWNER.signMessage({ message: badgeClaimMessage({ accountId: ACCOUNT, chainId: CHAIN_ID, address }) }),
       );
 
@@ -113,7 +116,10 @@ describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
     expect(second.chainId).toBe(CHAIN_ID);
     expect(second.genesisHash).not.toBe(first.genesisHash);
 
-    expect(await badgeEligibility(deps, ACCOUNT, { ...second, mainnet: false })).toMatchObject({ claimed: false, txHash: null });
+    expect(await badgeEligibility(deps, ACCOUNT, { chainId: CHAIN_ID, identity, mainnet: false })).toMatchObject({
+      claimed: false,
+      txHash: null,
+    });
     expect((await claim()).genesisHash).toBe(second.genesisHash);
     expect(mints).toHaveLength(2);
     expect((await accounts.accountsOf(ACCOUNT, 1))[0]?.deployed).toBe(false);

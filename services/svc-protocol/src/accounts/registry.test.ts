@@ -177,7 +177,10 @@ describe('deployed holds only on the chain it was seen on (chain identity)', () 
 
     genesisHash = RESTARTED;
     expect((await registry.accountsOf(USER_A, 10))[0]?.deployed).toBe(false);
-    expect((await registry.ownerOfRecord(address))?.deployed).toBe(false);
+    // The observer's existence check never reads the chain: it gets the stored row as it is.
+    const asking = asked;
+    expect(await registry.ownerOfRecord(address)).not.toBeNull();
+    expect(asked).toBe(asking);
 
     await registry.recordDeployment(address);
     expect((await registry.accountsOf(USER_A, 10))[0]).toMatchObject({ deployed: true, deployedGenesisHash: RESTARTED });

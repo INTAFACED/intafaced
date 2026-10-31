@@ -173,6 +173,27 @@ describe('contract ownership proof (D-launch-listing-01)', () => {
     expect(proofs[0]?.genesisHash).toBe(RESTARTED);
   });
 
+  it('a TEST chain started again while the owner is read refuses the challenge, stores no proof and spends nothing', async () => {
+    const { store, proofs, challenges } = memoryStore();
+    const challenge = await issueChallenge(store, OWNED, 300, TOKEN, T0);
+    let reads = 0;
+    const restarting: OwnershipChain = {
+      ...OWNED,
+      // Block 0 before the owner read is the issuing chain's; after it, the chain has been started again.
+      identity: async () => ({ chainId: 84532, genesisHash: reads++ === 0 ? GENESIS : RESTARTED }),
+    };
+    await expect(
+      verifyOwnership(
+        store,
+        restarting,
+        { nonce: challenge.nonce, signature: await owner.signMessage({ message: challenge.message }) },
+        T0,
+      ),
+    ).rejects.toMatchObject({ code: LISTING_NONCE_UNKNOWN });
+    expect(proofs).toHaveLength(0);
+    expect(challenges.get(challenge.nonce)?.usedAt).toBeNull();
+  });
+
   it('accepts a contract owner only through its ERC-1271 answer', async () => {
     const { store, proofs } = memoryStore();
     const challenge = await issueChallenge(store, OWNED, 300, TOKEN, T0);

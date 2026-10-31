@@ -63,13 +63,16 @@ export class PostgresBadgeStore implements BadgeStore {
         INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, genesis_hash, to_address, tx_hash)
         VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${record.genesisHash ?? null}, ${toChecksum(record.to)},
                 ${record.txHash})
-        ON CONFLICT (key) DO UPDATE SET
-          chain_id = EXCLUDED.chain_id, genesis_hash = EXCLUDED.genesis_hash, to_address = EXCLUDED.to_address,
-          tx_hash = NULL, minting_at = NULL, updated_at = now()
-        -- Only a claim from another genesis is replaced: its mint did not happen on this chain. This chain's claim, and one
-        -- stored before the column, are kept as they are.
-        WHERE founding_badge_claims.genesis_hash IS NOT NULL AND EXCLUDED.genesis_hash IS NOT NULL
-          AND founding_badge_claims.genesis_hash <> EXCLUDED.genesis_hash`;
+        ON CONFLICT (key) DO NOTHING`;
+      // A stored claim from another genesis is replaced in place: its mint did not happen on this chain. This chain's
+      // claim, and one stored before the column, are kept as they are. One row per key, so a racing second claim finds
+      // the genesis already current and changes nothing.
+      if (record.genesisHash)
+        await this.sql`
+          UPDATE protocol.founding_badge_claims
+          SET chain_id = ${record.chainId}, genesis_hash = ${record.genesisHash}, to_address = ${toChecksum(record.to)},
+              tx_hash = NULL, minting_at = NULL, updated_at = now()
+          WHERE key = ${record.key} AND genesis_hash IS NOT NULL AND genesis_hash <> ${record.genesisHash}`;
     } catch (err) {
       // Two accounts racing to one address: the loser hits the unique address index; that is already_claimed, not a 500.
       const e = err as { code?: string; constraint_name?: string };

@@ -21,8 +21,14 @@ const ADDR = '0x00000000000000000000000000000000000000a1';
 const GENESIS = `0x${'a'.repeat(64)}` as Hex;
 /** The same TEST chain id after the chain was started again: a new genesis. */
 const RESTARTED = `0x${'b'.repeat(64)}` as Hex;
-const TESTNET = { chainId: 84532, genesisHash: GENESIS, mainnet: false };
-const MAINNET = { chainId: 8453, genesisHash: GENESIS, mainnet: true };
+/** A network on chain `chainId` whose block 0 is `genesisHash`. */
+const net = (chainId: number, mainnet: boolean, genesisHash: Hex = GENESIS) => ({
+  chainId,
+  mainnet,
+  identity: async () => ({ chainId, genesisHash }),
+});
+const TESTNET = net(84532, false);
+const MAINNET = net(8453, true);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
 const OWNER_KEY = privateKeyToAccount(`0x${'11'.repeat(32)}`);
@@ -32,16 +38,16 @@ async function claim(
   d: BadgeDeps,
   accountId: string,
   addr: string | null | undefined,
-  net: { chainId: number; genesisHash: Hex; mainnet: boolean },
+  network: ReturnType<typeof net>,
   signature?: string | null,
 ) {
   const sig =
     signature !== undefined
       ? signature
       : addr && isAddress(addr)
-        ? await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: net.chainId, address: addr as Address }) })
+        ? await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: network.chainId, address: addr as Address }) })
         : null;
-  return claimBadge(d, accountId, addr ? { address: addr, owner: OWNER_KEY.address } : null, net, sig);
+  return claimBadge(d, accountId, addr ? { address: addr, owner: OWNER_KEY.address } : null, network, sig);
 }
 
 import { memMintSlots } from './founding-badge.test-store.js';
@@ -119,7 +125,7 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     const { d, mints, store } = deps({}, [ACCOUNT, OTHER]);
     const before = await claim(d, ACCOUNT, ADDR, TESTNET);
     expect(before.genesisHash).toBe(GENESIS);
-    const restarted = { ...TESTNET, genesisHash: RESTARTED };
+    const restarted = net(84532, false, RESTARTED);
     // The mint on the old chain did not happen on this one.
     expect(await badgeEligibility(d, ACCOUNT, restarted)).toMatchObject({ claimed: false, txHash: null });
     const after = await claim(d, ACCOUNT, ADDR, restarted);
@@ -132,12 +138,23 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     expect(await badgeEligibility(d, ACCOUNT, restarted)).toMatchObject({ claimed: true, txHash: after.txHash });
   });
 
+  it('eligibility asks the chain only when a stored claim names a genesis', async () => {
+    const { d } = deps();
+    let asked = 0;
+    const counting = { ...TESTNET, identity: async () => (asked++, { chainId: TESTNET.chainId, genesisHash: GENESIS }) };
+    expect(await badgeEligibility(d, ACCOUNT, counting)).toMatchObject({ claimed: false });
+    expect(asked).toBe(0);
+    await claim(d, ACCOUNT, ADDR, TESTNET);
+    expect(await badgeEligibility(d, ACCOUNT, counting)).toMatchObject({ claimed: true });
+    expect(asked).toBe(1);
+  });
+
   it('a claim stored before the genesis column keeps its meaning: it is not minted again', async () => {
     const { d, mints, store } = deps();
     await claim(d, ACCOUNT, ADDR, TESTNET);
     const key = badgeClaimKey(ACCOUNT);
     store.rows.set(key, { ...store.rows.get(key)!, genesisHash: null });
-    const again = await claim(d, ACCOUNT, ADDR, { ...TESTNET, genesisHash: RESTARTED });
+    const again = await claim(d, ACCOUNT, ADDR, net(84532, false, RESTARTED));
     expect(mints).toHaveLength(1);
     expect(again.genesisHash).toBeNull();
   });
@@ -166,7 +183,7 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
 
   it('no signer for the network refuses rail.crypto', async () => {
     const { d, store } = deps();
-    expect(await refusal(claim(d, ACCOUNT, ADDR, { chainId: 1337, genesisHash: GENESIS, mainnet: false }))).toBe('rail.crypto');
+    expect(await refusal(claim(d, ACCOUNT, ADDR, net(1337, false)))).toBe('rail.crypto');
     expect(store.rows.size).toBe(0);
   });
 

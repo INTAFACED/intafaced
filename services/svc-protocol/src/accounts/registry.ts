@@ -3,7 +3,7 @@ import type { Address, Hex } from 'viem';
 import { computeAccountAddress, DEFAULT_USER_SALT } from './address.js';
 import { assertMyAccountsListLimit } from './my-accounts-list-limit.js';
 import { withAuthoritySpan } from '../tracing.js';
-import { fromAnotherChain, type ChainIdentity } from '../chain/identity.js';
+import { fromAnotherChain, type ChainIdentityReader } from '../chain/identity.js';
 
 /**
  * ACCOUNT REGISTRY — address ↔ user id. A read model, not custody.
@@ -146,7 +146,7 @@ export class AccountRegistry {
      * Which chain `deployed` is read on. A deployment seen on another genesis (a TEST chain since started again) is
      * not one on this chain, so the account reads as not deployed. Absent: the stored flag is returned as it is.
      */
-    private readonly identity?: () => Promise<ChainIdentity>,
+    private readonly identity?: ChainIdentityReader,
   ) {}
 
   /** `deployed` holds only on the chain it was seen on. The chain is asked only when a row names a genesis. */
@@ -158,8 +158,9 @@ export class AccountRegistry {
     );
   }
 
+  /** The genesis a deployment is stored with, read afresh: a deployment is never labelled with a chain since gone. */
   async #genesis(): Promise<Hex | null> {
-    return this.identity ? (await this.identity()).genesisHash : null;
+    return this.identity ? (await this.identity({ fresh: true })).genesisHash : null;
   }
 
   /** The address a given owner key will have. No chain access needed. */
@@ -232,11 +233,15 @@ export class AccountRegistry {
   }
 
   async ownerOfRecord(address: Address): Promise<AccountRecord | null> {
-    const record = await this.store.findByAddress(this.config.chainId, address);
-    return record ? ((await this.#onThisChain([record]))[0] ?? null) : null;
+    // Whether the address has a row, which the chain observer asks for every event. It never reads the chain, so a block 0
+    // read that fails cannot drop an event; `deployed` here is the stored flag (`accountsOf` places it on this chain).
+    return this.store.findByAddress(this.config.chainId, address);
   }
 
   async recordDeployment(address: Address, at: Date = new Date()): Promise<void> {
-    await this.store.markDeployed(this.config.chainId, address, at, await this.#genesis());
+    // The deployment is recorded even when block 0 cannot be read right now: the event is not dropped, and the row is
+    // stored with no genesis, as one from before the column.
+    const genesis = await this.#genesis().catch(() => null);
+    await this.store.markDeployed(this.config.chainId, address, at, genesis);
   }
 }

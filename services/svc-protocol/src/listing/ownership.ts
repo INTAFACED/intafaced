@@ -201,6 +201,10 @@ export async function verifyOwnership(
 
   const read = await chain.owner(challenge.token);
   if (!read) throw ownerUnknown();
+  // The owner was read on the chain named above only if block 0 is still the same after the read: a TEST chain started
+  // again in between makes this challenge another chain's.
+  if ((await chain.identity()).genesisHash !== identity.genesisHash)
+    throw new ListingRefusedError(LISTING_NONCE_UNKNOWN, 'This challenge was not issued here. Ask for a new one.');
   const owner = toChecksum(read.owner);
   const messageHash = hashMessage(challenge.message);
 

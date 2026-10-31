@@ -12,6 +12,8 @@ const OPERATOR = 'bad9e000-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SECRET = 'a-protocol-badge-operator-edge-secret-x';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-protocol' });
 const TX = `0x${'aa'.repeat(32)}` as Hex;
+/** The chain's block 0 now; a stuck slot stored with another genesis is from a TEST chain since started again. */
+const GENESIS = `0x${'c'.repeat(64)}` as Hex;
 
 function signedAs(userId: string, scopes: string[]) {
   const raw = encodePrincipal({
@@ -33,7 +35,7 @@ function signedAs(userId: string, scopes: string[]) {
   });
 }
 
-function build(opts: { approvals?: boolean; age?: number } = {}) {
+function build(opts: { approvals?: boolean; age?: number; genesis?: Hex } = {}) {
   const store = memBadgeStore([ACCOUNT]);
   const key = badgeClaimKey(ACCOUNT);
   store.rows.set(key, {
@@ -43,9 +45,11 @@ function build(opts: { approvals?: boolean; age?: number } = {}) {
     to: `0x${'00'.repeat(19)}d1`,
     txHash: null,
     mintingSince: new Date('2026-10-22T03:00:00Z'),
+    genesisHash: opts.genesis ?? null,
   });
+  let consumed = 0;
   const deps = {
-    chain: { config: { chainId: 31337 }, isDeployed: async () => false },
+    chain: { config: { chainId: 31337 }, isDeployed: async () => false, genesisHash: async () => GENESIS },
     registry: { accountsOf: async () => [] },
     relay: {},
     relayEnabled: () => true,
@@ -60,11 +64,11 @@ function build(opts: { approvals?: boolean; age?: number } = {}) {
       approvals:
         opts.approvals === false
           ? null
-          : { consume: async () => ({ status: 'CONSUMED', requesterId: 'ops:first', approverId: 'ops:second' }) },
+          : { consume: async () => (consumed++, { status: 'CONSUMED', requesterId: 'ops:first', approverId: 'ops:second' }) },
       stuckMintAgeSeconds: () => opts.age,
     },
   } as unknown as ProtocolRouterDeps;
-  return { router: createProtocolRouter(deps), store };
+  return { router: createProtocolRouter(deps), store, consumed: () => consumed };
 }
 
 const body = (reason = 'rpc timeout during mint') => ({
@@ -92,6 +96,19 @@ describe('svc-protocol mount — badge.resolveStuckMint (operator clear)', () =>
     expect(store.audits).toEqual([
       expect.objectContaining({ actorId: OPERATOR, requesterId: 'ops:first', approverId: 'ops:second', approvalId: 'appr-1' }),
     ]);
+  });
+
+  it('a slot stuck on a TEST chain since started again is not stuck here: nothing is cleared and no approval is spent', async () => {
+    const { router, store, consumed } = build({ age: 600, genesis: `0x${'d'.repeat(64)}` });
+    const out = await router.createCaller(signedAs(OPERATOR, ['admin:write'])).badge.resolveStuckMint(body());
+    expect(out).toEqual({ cleared: false, key: badgeClaimKey(ACCOUNT), txHash: null });
+    expect(store.audits).toHaveLength(0);
+    expect(consumed()).toBe(0);
+    // The same slot on this chain's genesis is cleared as before.
+    const here = build({ age: 600, genesis: GENESIS });
+    expect(await here.router.createCaller(signedAs(OPERATOR, ['admin:write'])).badge.resolveStuckMint(body())).toMatchObject({
+      cleared: true,
+    });
   });
 
   it('typed refusals map to client errors with the code intact', async () => {
