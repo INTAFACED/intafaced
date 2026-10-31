@@ -1,5 +1,5 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { createServer } from 'node:net';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isAddress, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -10,60 +10,81 @@ import { ProtocolChain } from './client.js';
 import { chainIdentityReader } from './identity.js';
 
 /**
- * A TEST chain started again, for real: this file starts its own anvil, stops it, and starts it again on the same port
- * and chain id. The real `ProtocolChain` reads the new genesis, and what was read from the first chain (a badge mint, a
- * deployed account) reads as absent on the second.
- *
- * It needs the anvil binary (`LOCAL_STACK_ANVIL_BIN`, or `anvil` on PATH) and skips without it, as CI runs anvil in a
- * container it cannot restart. It never touches a shared chain: a restart there would break every other test on it.
+ * A TEST chain started again, end to end over HTTP: this file serves a node on a port, stops it, and serves a new chain
+ * on the same port and chain id with a new block 0, as anvil does on every start (its genesis carries its start time).
+ * The real `ProtocolChain` reads the new genesis through viem, and what was read from the first chain (a badge mint, a
+ * deployed account) reads as absent on the second. It never touches a shared chain: a restart there would break every
+ * other test on it.
  */
-const ANVIL = process.env.LOCAL_STACK_ANVIL_BIN ?? 'anvil';
-const hasAnvil = spawnSync(ANVIL, ['--version'], { stdio: 'ignore' }).status === 0;
 const CHAIN_ID = 31337;
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const OWNER = privateKeyToAccount(`0x${'55'.repeat(32)}`);
 const ACCOUNT = '33333333-3333-4333-8333-333333333333';
+const Z32 = `0x${'0'.repeat(64)}`;
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      server.close(() => (typeof address === 'object' && address ? resolve(address.port) : reject(new Error('no port'))));
+/** Block 0 of a chain whose genesis hash is `hash`: the fields viem's block formatter reads. */
+const genesisBlock = (hash: Hex) => ({
+  number: '0x0',
+  hash,
+  parentHash: Z32,
+  timestamp: '0x1',
+  nonce: '0x0000000000000000',
+  difficulty: '0x0',
+  totalDifficulty: '0x0',
+  gasLimit: '0x1c9c380',
+  gasUsed: '0x0',
+  miner: ZERO,
+  extraData: '0x',
+  logsBloom: `0x${'0'.repeat(512)}`,
+  transactionsRoot: Z32,
+  stateRoot: Z32,
+  receiptsRoot: Z32,
+  sha3Uncles: Z32,
+  mixHash: Z32,
+  size: '0x200',
+  baseFeePerGas: '0x1',
+  transactions: [],
+  uncles: [],
+});
+
+let running: Server | null = null;
+/** Serves a chain with this genesis on `port` (0 picks one); returns the port. */
+async function startChain(genesis: Hex, port = 0): Promise<number> {
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk) => (raw += chunk));
+    req.on('end', () => {
+      const answer = (call: { id: number; method: string }) => ({
+        jsonrpc: '2.0',
+        id: call.id,
+        result:
+          call.method === 'eth_chainId'
+            ? `0x${CHAIN_ID.toString(16)}`
+            : call.method === 'eth_blockNumber'
+              ? '0x0'
+              : call.method === 'eth_getBlockByNumber'
+                ? genesisBlock(genesis)
+                : null,
+      });
+      const body = JSON.parse(raw) as { id: number; method: string } | { id: number; method: string }[];
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)));
     });
   });
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  running = server;
+  return (server.address() as AddressInfo).port;
 }
-
-let running: ChildProcess | null = null;
-async function startAnvil(port: number, chain: ProtocolChain): Promise<void> {
-  running = spawn(ANVIL, ['--port', String(port), '--chain-id', String(CHAIN_ID), '--silent'], { stdio: 'ignore' });
-  const child = running!;
-  for (let i = 0; i < 100; i++) {
-    // An anvil that could not start (its port taken) has exited: fail here rather than read whatever answers on the port.
-    if (child.exitCode !== null) throw new Error(`anvil exited with ${child.exitCode} before it answered on port ${port}`);
-    try {
-      await chain.headBlock();
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-  throw new Error('anvil did not answer');
-}
-async function stopAnvil(): Promise<void> {
-  const child = running;
+async function stopChain(): Promise<void> {
+  const server = running;
   running = null;
-  if (!child || child.exitCode !== null) return;
-  await new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-    child.kill('SIGTERM');
-  });
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 }
-afterEach(stopAnvil);
+afterEach(stopChain);
 
-describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
+describe('a TEST chain started again (over HTTP)', () => {
   it('reads a new genesis; a badge minted and an account deployed on the old chain read as absent on the new one', async () => {
-    const port = await freePort();
+    const port = await startChain(`0x${'a1'.repeat(32)}`);
     const chain = new ProtocolChain({
       chainId: CHAIN_ID,
       rpcUrl: `http://127.0.0.1:${port}`,
@@ -94,7 +115,6 @@ describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
         await OWNER.signMessage({ message: badgeClaimMessage({ accountId: ACCOUNT, chainId: CHAIN_ID, address }) }),
       );
 
-    await startAnvil(port, chain);
     const first = await identity();
     expect(first).toMatchObject({ chainId: CHAIN_ID });
     expect(first.genesisHash).toMatch(/^0x[0-9a-f]{64}$/);
@@ -108,12 +128,13 @@ describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
     });
     expect((await accounts.accountsOf(ACCOUNT, 1))[0]?.deployed).toBe(true);
 
-    await stopAnvil();
-    // Anvil's genesis carries its start time in seconds: start again in a later second.
-    await new Promise((r) => setTimeout(r, 1_100));
-    await startAnvil(port, chain);
+    await stopChain();
+    // While the chain is down the identity refuses rather than answer with the old genesis.
+    await expect(identity()).rejects.toThrow();
+    await startChain(`0x${'b2'.repeat(32)}`, port);
     const second = await identity();
     expect(second.chainId).toBe(CHAIN_ID);
+    expect(second.genesisHash).toBe(`0x${'b2'.repeat(32)}`);
     expect(second.genesisHash).not.toBe(first.genesisHash);
 
     expect(await badgeEligibility(deps, ACCOUNT, { chainId: CHAIN_ID, identity, mainnet: false })).toMatchObject({
@@ -123,5 +144,5 @@ describe.skipIf(!hasAnvil)('a TEST chain started again (real anvil)', () => {
     expect((await claim()).genesisHash).toBe(second.genesisHash);
     expect(mints).toHaveLength(2);
     expect((await accounts.accountsOf(ACCOUNT, 1))[0]?.deployed).toBe(false);
-  }, 30_000);
+  });
 });
