@@ -50,6 +50,7 @@ const draft = (name: string): StrategyDraft => ({
   claimLabel: 'Paper — not live performance',
   live: false,
   simulated: true,
+  releaseNote: '',
 });
 
 interface EsbuildResolveArgs {
@@ -116,6 +117,7 @@ describe('paper strategies survive a new connection to the same database', () =>
       'drizzle/0000_quant_strategies.sql',
       'drizzle/0003_quant_signal_rules.sql',
       'drizzle/20261030134631_quant_strategy_heads.sql',
+      'drizzle/20261030142944_quant_release_notes.sql',
     ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
@@ -361,5 +363,27 @@ describe('paper strategies survive a new connection to the same database', () =>
     `;
     expect(after[0]?.n).toBe(2);
     await sql.unsafe(read('20261030134631_quant_strategy_heads.sql'));
+  });
+  it('stores the release note of each version and reads it back (AL-editor-01)', async () => {
+    const created = await repo.create({
+      accountId: ACCOUNT_A,
+      clientStrategyId: 'client-notes',
+      idempotencyKey: 'idem-notes-create',
+      draft: { ...draft('notes'), releaseNote: 'First cut' },
+    });
+    await repo.revise({ accountId: ACCOUNT_A, id: created.id, idempotencyKey: 'idem-notes-v2', draft: draft('notes') });
+    const read = await repo.get({ accountId: ACCOUNT_A, id: created.id });
+    expect(read?.versions.map((row) => row.releaseNote)).toEqual(['First cut', '']);
+    // The column has its own ceiling under the owner's cap.
+    await expect(
+      sql.unsafe(
+        `INSERT INTO "${SCHEMA}".strategy_versions (strategy_id, version, name, language, source, cash, blocks, risk,
+           environment, kind, claim_label, live, simulated, created_at, release_note)
+         SELECT strategy_id, 99, name, language, source, cash, blocks, risk, environment, kind, claim_label, live,
+           simulated, created_at, repeat('x', 2001)
+         FROM "${SCHEMA}".strategy_versions WHERE strategy_id = $1 AND version = 1`,
+        [created.id],
+      ),
+    ).rejects.toThrow(/strategy_versions_release_note_ck/);
   });
 });

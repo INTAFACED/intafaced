@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import { router, publicProcedure, protectedProcedure, scopedProcedure, anyScopeProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  protectedProcedure,
+  scopedProcedure,
+  anyScopeProcedure,
+  StepUpCheckError,
+  TRPCError,
+  type StepUpCheck,
+} from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { hasScope } from '@intafaced/auth';
 import {
@@ -12,8 +21,11 @@ import { DualControlError, requireDualControl } from './dual-control.js';
 import { GOVERNANCE_ROLES, type GovernanceSettings } from './governance-settings.js';
 import {
   GOVERNANCE_ROLE_ACTION,
+  GOVERNANCE_ROLE_STEP_UP_SCOPE,
   GOVERNANCE_SETTINGS_ACTION,
   governanceRolePayload,
+  governanceRoleStepUpFields,
+  governanceRoleStepUpRequestId,
   governanceSettingsPayload,
 } from './governance-payload.js';
 import {
@@ -227,6 +239,11 @@ const tallyOutput = z.object({
 
 export interface TokenRouterOptions {
   /**
+   * Identity's same-person step-up, spent by a governance role change (`token.step_up.governance.setRole`). Absent, a
+   * role change refuses `identity.step_up_unavailable`.
+   */
+  stepUp?: StepUpCheck | null;
+  /**
    * Kill-switch for minting. When false every mint procedure fails closed —
    * inflation cannot be un-minted (§4.3 / EMISSIONS_ENABLED).
    */
@@ -259,6 +276,11 @@ export interface TokenRouterOptions {
 
 function toTrpcError(err: unknown): TRPCError {
   if (err instanceof TRPCError) return err;
+  // A role change without a fresh confirmation (403), or one identity could not check (503): the founder confirms again.
+  if (err instanceof StepUpCheckError) {
+    const code = err.code === 'identity.step_up_required' ? 'FORBIDDEN' : 'SERVICE_UNAVAILABLE';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -463,6 +485,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
   const runBuybackWindow = options.runBuybackWindow;
   const buybackJobSet = options.buybackJobSet ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const stepUp = options.stepUp ?? null;
 
   /** HTTP job twin: HMAC as svc-token. Session admin:treasury is 401 unsigned. */
   const jobProcedure = publicProcedure.use(({ ctx, next }) => {
@@ -1239,6 +1262,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             expectedRevision: z.number().int().nonnegative(),
             approvalId: z.string().max(128).nullish(),
             operationId: z.string().max(128).nullish(),
+            /** The running founder's fresh step-up for exactly this account, role and revision (J-more-catalogue-10 #6). */
+            stepUpApprovalId: z.string().max(128).nullish(),
           }),
         )
         .output(
@@ -1259,6 +1284,24 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
               role: input.role,
               expectedRevision: input.expectedRevision,
               actorId: ctx.principal.userId ?? '',
+            });
+            // The founder who runs it proves a fresh second factor for exactly this move, before the founders' approval is spent.
+            // Unwired, it says so rather than asking for a code nothing could check (the shared check asks for the code first).
+            if (!stepUp) {
+              throw new StepUpCheckError(
+                'Your confirmation could not be checked right now, so nothing was changed: identity is not wired in this deployment',
+                'identity.step_up_unavailable',
+              );
+            }
+            // A replay (the same move retried after a lost reply) carries on: a move that was written already fails the
+            // revision precheck above, so reaching here means it was not written and the approval below is still owed.
+            await stepUp.require({
+              scope: GOVERNANCE_ROLE_STEP_UP_SCOPE,
+              userId: ctx.principal.userId ?? '',
+              sessionId: ctx.principal.sid ?? '',
+              approvalId: input.stepUpApprovalId,
+              fields: governanceRoleStepUpFields(input),
+              requestId: governanceRoleStepUpRequestId(input),
             });
             const consumed = await consumeTokenApproval(
               approvals,

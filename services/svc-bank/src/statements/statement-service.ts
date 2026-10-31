@@ -8,7 +8,22 @@ import { signStatement, statementCsv, statementLines, statementPdf } from './sta
  * CSV for any range up to 366 days. PDF for a single UTC calendar month.
  * With `spaceId`, only the lines of that one of the caller's own named spaces
  * (BK-pots-02). Neither file states a balance.
+ *
+ * `report` (PF-statements-01) chooses what the file holds: `statement` and
+ * `ledger` every posted line, `trades` only trade lines and fee lines (a
+ * fill's own fee is taken from what it delivers, so its line is net of it). `balances`, a holding snapshot at a past date, needs a
+ * past-balance read the ledger does not offer yet and refuses
+ * `bank.statement_balances_unavailable`.
  */
+
+/** What a statement file holds. */
+export const STATEMENT_REPORTS = ['statement', 'ledger', 'trades', 'balances'] as const;
+export type StatementReport = (typeof STATEMENT_REPORTS)[number];
+/** The activity kinds a `trades` file reads: trade lines, and fee lines (kept only when they belong to an order). */
+const TRADE_KINDS = ['trade', 'fee'] as const;
+
+/** A trade line, or a fee the ledger links to one of the person's orders; a withdrawal or listing fee is not a trade. */
+const isTradeLine = (item: ActivityItem) => item.kind === 'trade' || (item.kind === 'fee' && item.orderId !== undefined);
 
 const MAX_ROWS = 5_000;
 const MAX_SPAN_MS = 366 * 24 * 60 * 60 * 1000;
@@ -29,6 +44,8 @@ export interface StatementFile {
     readonly assetId: string | null;
     /** The one space the statement covers, or null for the whole account. */
     readonly spaceId: string | null;
+    /** What the file holds: a trades file leaves every other line out, so its proof says so. */
+    readonly report: Exclude<StatementReport, 'balances'>;
     readonly rowCount: number;
     readonly generatedAt: string;
     readonly sha256: string;
@@ -44,8 +61,23 @@ export class StatementService {
 
   async export(
     userId: string,
-    input: { from: string; to: string; assetId?: string; spaceId?: string; format: 'csv' | 'pdf'; now?: Date },
+    input: {
+      from: string;
+      to: string;
+      assetId?: string;
+      spaceId?: string;
+      format: 'csv' | 'pdf';
+      report?: StatementReport;
+      now?: Date;
+    },
   ): Promise<StatementFile> {
+    const report = input.report ?? 'statement';
+    if (report === 'balances') {
+      throw new BankError(
+        'A balance snapshot needs a past-balance read from the ledger, which is not built yet',
+        'bank.statement_balances_unavailable',
+      );
+    }
     if (!this.secret) {
       throw new BankError('Statements are not available until the service secret is set', 'bank.statement_unavailable');
     }
@@ -88,6 +120,7 @@ export class StatementService {
         to: input.to,
         assetId,
         ...(space ? { accountId: space.id } : {}),
+        ...(report === 'trades' ? { kind: [...TRADE_KINDS] } : {}),
         limit: MAX_ROWS + 1,
       });
     } catch (err) {
@@ -99,9 +132,12 @@ export class StatementService {
       }
       throw err;
     }
+    // The cap is checked on what was read, before the trades filter: collect stops at MAX_ROWS + 1 lines, so a filtered
+    // count under the cap could still be missing older lines.
     if (items.length > MAX_ROWS) {
       throw new BankError(`A statement holds at most ${MAX_ROWS} lines. Narrow the dates.`, 'bank.statement_too_large');
     }
+    if (report === 'trades') items = items.filter(isTradeLine);
     const generatedAt = (input.now ?? new Date()).toISOString();
     const bytes =
       input.format === 'csv'
@@ -113,14 +149,17 @@ export class StatementService {
               to: input.to,
               generatedAt,
               rows: items,
+              report,
               ...(space ? { space: { id: space.id, name: space.name } } : {}),
             }),
           );
     const signed = signStatement(this.secret, bytes);
     const day = generatedAt.slice(0, 10);
-    const scope = space ? `space-${space.id.slice(0, 8)}-` : '';
+    const scope = `${space ? `space-${space.id.slice(0, 8)}-` : ''}${report === 'trades' ? 'trades-' : ''}`;
     const filename =
-      input.format === 'csv' ? `intafaced-${scope || 'activity-'}${day}.csv` : `intafaced-${scope}statement-${input.from.slice(0, 7)}.pdf`;
+      input.format === 'csv'
+        ? `intafaced-${scope || 'activity-'}${day}.csv`
+        : `intafaced-${scope}${report === 'trades' ? 'history' : 'statement'}-${input.from.slice(0, 7)}.pdf`;
     return {
       format: input.format,
       filename,
@@ -136,6 +175,7 @@ export class StatementService {
         to: input.to,
         assetId: assetId ?? null,
         spaceId: space?.id ?? null,
+        report,
         rowCount: items.length,
         generatedAt,
         sha256: signed.sha256,

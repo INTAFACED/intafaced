@@ -6,7 +6,7 @@ import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-found
 import { signUp } from './desk.mjs';
 
 // J-ops-console-01 step #2: the customer app's /ops room asks identity whether the signed-in account is a founder. A founder
-// gets the operator console panel (the link itself appears when the build sets VITE_TEAM_URL); anyone else gets a pointer to
+// gets the operator console panel with its link to the Team console; anyone else gets a pointer to
 // their own tools and never a founder control. A Business-mode person also gets the merchant admin link; reaching Business
 // mode needs a verified business profile, so that branch is proven in team-desk.render.test.tsx, not here.
 
@@ -24,10 +24,9 @@ test('J-ops-console-01 #2 a founder sees the console panel on /ops', async ({ pa
   await page.goto('/ops');
   await expect(page.getByRole('heading', { name: 'Open the operator console' })).toBeVisible();
   await expect(page.getByText('Nothing to open here')).toHaveCount(0);
-  // The stack's build sets no VITE_TEAM_URL, so the panel names that honestly; a build that sets it shows the link.
-  const link = page.getByTestId('team-desk-console');
-  if (await link.count()) await expect(link).toHaveAttribute('href', /\/ops$/);
-  else await expect(page.getByText('The Team deployment address is not configured.')).toBeVisible();
+  // The stack's build points the Team link at its LOCAL TEST HTTPS address (#6949), so the founder gets the real link.
+  await expect(page.getByTestId('team-desk-console')).toHaveAttribute('href', 'https://127.0.0.1:3143/ops');
+  await expect(page.getByText('The Team deployment address is not configured.')).toHaveCount(0);
 });
 
 test('J-ops-console-01 #2 a customer who is not a founder gets the pointer and no founder control on /ops', async ({ page }) => {

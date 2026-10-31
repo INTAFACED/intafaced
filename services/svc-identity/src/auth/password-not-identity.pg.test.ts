@@ -254,6 +254,14 @@ if (!available) {
         { status: 'sent' },
         { status: 'sent' },
       ]);
+      // Each is also a sign-in factor change for the inbox (J-identity-03 #6), with no second mail: the notice above is it.
+      expect(
+        await db.sql`SELECT change, notice_key FROM security_factor_events WHERE user_id = ${user.userId} ORDER BY created_at`,
+      ).toEqual([
+        { change: 'password_changed', notice_key: `factor-changed:${user.userId}:1` },
+        { change: 'password_changed', notice_key: `factor-changed:${user.userId}:2` },
+      ]);
+      expect(await db.sql`SELECT id FROM mail_outbox WHERE purpose = 'factor-changed' AND user_id = ${user.userId}`).toHaveLength(0);
     });
 
     it('sends nothing for a refused change, and nothing to an address that was never proved', async () => {
@@ -279,6 +287,12 @@ if (!available) {
         newPassword: NEW,
       });
       expect(notices(unproved.email)).toHaveLength(0);
+      // The refused change queued nothing for the inbox either; the unproved account's change still did, as the inbox
+      // needs no proved address.
+      expect(await db.sql`SELECT id FROM security_factor_events WHERE user_id = ${user.userId}`).toHaveLength(0);
+      expect(await db.sql`SELECT change FROM security_factor_events WHERE user_id = ${unproved.userId}`).toEqual([
+        { change: 'password_changed' },
+      ]);
     });
 
     it('keeps the change when the mail transport fails, and the next relay tries the notice again', async () => {
