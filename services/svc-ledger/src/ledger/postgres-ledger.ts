@@ -22,7 +22,7 @@ import {
   type PostRequest,
   type PostedEntry,
 } from '@intafaced/ledger-client';
-import { assessClockSkew, readDatabaseNow, sampleClocks, WRITES_BLOCKED_CLOCK_SKEW } from './clock-skew.js';
+import { assessClockSkew, readDatabaseNow, sampleClocks, SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './clock-skew.js';
 import { frozenMessage } from './freeze.js';
 import {
   HISTORY_MAX_ENTRIES,
@@ -40,6 +40,11 @@ import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 import type { FeeRevenueRow } from './fee-revenue.js';
 import { LEDGER_HOLDINGS_HISTORY_MAX_ROWS, LEDGER_HOLDINGS_HISTORY_TOO_LARGE } from '@intafaced/contracts';
 import type { HoldingsHistory, HoldingsHistoryInput } from './holdings-history.js';
+
+/** `restore.watermark.read` as of an instant: the instant is malformed (400). */
+export const RESTORE_ASOF_INVALID = 'ledger.restore_asof_invalid' as const;
+/** `restore.watermark.read` as of an instant: the instant is not yet far enough past to be fixed (409). */
+export const RESTORE_ASOF_UNANSWERABLE = 'ledger.restore_asof_unanswerable' as const;
 
 export interface PostgresLedgerOptions extends IdempotencyConflictOptions {
   /**
@@ -429,6 +434,37 @@ export class PostgresLedger implements LedgerClient {
     if (!tip) throw new LedgerError('chain_tip is missing: the ledger is not initialised', 'ledger.uninitialised');
     const [last] = await this.sql<Array<{ at: Date | null }>>`SELECT MAX(posted_at) AS at FROM ledger_tx`;
     return { position: tip.seq, integrity: tip.hash, lastWriteAt: last?.at ?? null };
+  }
+
+  /**
+   * Where this ledger stood at `asOf`, for the joint restore as of its cut-off (OPS-ledger-desk-05, RS-3). A READ. Every
+   * post stamps `posted_at` from this process's clock after the chain-tip lock, and a set `LEDGER_CLOCK_SKEW_BOUND_MS`
+   * keeps that clock within the bound of the database's. So once the database clock is more than the bound past `asOf`,
+   * no post can still land at or before it: `FOR SHARE` on the tip waits out a post in flight, the lock is released, and
+   * the position is the newest `seq` posted at or before `asOf` (0, the genesis tip, when none was). A blank bound refuses
+   * `ledger.skew_bound_unset`, and a cut-off not yet that far past refuses `ledger.restore_asof_unanswerable`.
+   */
+  async restoreWatermarkAsOf(asOf: Date): Promise<{ position: string; integrity: string | null; lastWriteAt: Date | null }> {
+    const bound = this.options.clockSkewBoundMs;
+    if (bound === undefined || bound === null) {
+      throw new LedgerError('the clock skew bound is unset, so no position can be fixed as of an instant', SKEW_BOUND_UNSET);
+    }
+    // The lock only waits out a post already in flight; it is released before the reads below, so no post waits on them.
+    const [tip] = await this.sql.begin(
+      (tx) => tx<Array<{ hash: string | null; now: Date }>>`
+      SELECT hash, clock_timestamp() AS now FROM chain_tip WHERE id = true FOR SHARE`,
+    );
+    if (!tip) throw new LedgerError('chain_tip is missing: the ledger is not initialised', 'ledger.uninitialised');
+    if (!(tip.now.getTime() - asOf.getTime() > bound)) {
+      throw new LedgerError(
+        `the cut-off is not yet more than the clock skew bound (${bound} ms) in the past, so a post could still land at it`,
+        RESTORE_ASOF_UNANSWERABLE,
+      );
+    }
+    const [at] = await this.sql<Array<{ seq: string | null; last: Date | null }>>`
+      SELECT (SELECT MAX(seq) FROM ledger_tx WHERE posted_at <= ${asOf})::text AS seq,
+             (SELECT MAX(posted_at) FROM ledger_tx) AS last`;
+    return { position: at?.seq ?? '0', integrity: tip.hash, lastWriteAt: at?.last ?? null };
   }
 
   /**
