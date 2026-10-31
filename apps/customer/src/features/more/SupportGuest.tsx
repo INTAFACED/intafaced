@@ -6,6 +6,7 @@ import type { ApiResult } from '../../shared/api';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, Field } from '../../shared/ui';
 import { Select } from './common';
+import { CustomerStatusBadge } from './SupportRequest';
 import { categoryLabel } from './support-category';
 import { CATEGORY_VALUES } from './support-schemas';
 import { deskCopy } from './support-desk-copy';
@@ -15,6 +16,17 @@ import './support-desk.css';
 import '../public/public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** A link's token, read once from the address and kept in this tab's storage under `slot` (best effort). */
+function keptToken(name: 'token' | 'access', slot: string): string {
+  const fromLink = takeLinkToken(name);
+  try {
+    if (fromLink) sessionStorage.setItem(slot, fromLink);
+    return fromLink || (sessionStorage.getItem(slot) ?? '');
+  } catch {
+    return fromLink;
+  }
+}
 type GuestT = ReturnType<typeof guestCopy.useCopy>['t'];
 
 /** The code a refusal names: the service's dotted code, or `vendor.email`. */
@@ -68,20 +80,23 @@ export function GuestNewRequest() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<{ email: string; expires: string } | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  // One key per submission: sending the same form again (a retry, a double tap) answers the first one.
-  const key = useRef(`guest:${crypto.randomUUID()}`);
+  // One key per submission: sending the same words again (a retry, a double tap, a resend once a sender exists) answers
+  // the first one. Changed words are a new submission with a new key.
+  const key = useRef<{ id: string; words: string } | null>(null);
 
   async function send(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setRefusal(null);
+    const words = JSON.stringify([email.trim().toLowerCase(), category, subject.trim(), body.trim()]);
+    if (key.current?.words !== words) key.current = { id: `guest:${crypto.randomUUID()}`, words };
     const answer = await writeContract(api, guestCreate, {
       email: email.trim(),
       category,
       subject: subject.trim(),
       body: body.trim(),
-      clientRequestId: key.current,
+      clientRequestId: key.current.id,
     });
     setBusy(false);
     if (answer.ok) setSent({ email: email.trim(), expires: new Date(answer.data.linkExpiresAt).toLocaleString() });
@@ -98,7 +113,7 @@ export function GuestNewRequest() {
         <Button
           variant="secondary"
           onClick={() => {
-            key.current = `guest:${crypto.randomUUID()}`;
+            key.current = null;
             setSent(null);
             setSubject('');
             setBody('');
@@ -168,7 +183,8 @@ export function GuestNewRequest() {
 export function GuestVerify() {
   const { t } = guestCopy.useCopy();
   const { api } = useDataEnv();
-  const token = useRef(takeLinkToken('token')).current;
+  // Kept for this tab only, so a reload before Open still has it while the address bar holds no token.
+  const [token] = useState(() => keptToken('token', 'support-guest-verify'));
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
@@ -224,17 +240,7 @@ export function GuestRequest() {
   const { t } = guestCopy.useCopy();
   const { api } = useDataEnv();
   // Kept for this tab only, so a reload still opens the request while the address bar holds no token.
-  const access = useRef(
-    (() => {
-      const fromLink = takeLinkToken('access');
-      try {
-        if (fromLink) sessionStorage.setItem('support-guest-access', fromLink);
-        return fromLink || (sessionStorage.getItem('support-guest-access') ?? '');
-      } catch {
-        return fromLink;
-      }
-    })(),
-  ).current;
+  const [access] = useState(() => keptToken('access', 'support-guest-access'));
   const [thread, setThread] = useState<Thread | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [reply, setReply] = useState('');
@@ -302,8 +308,17 @@ export function GuestRequest() {
       ) : (
         <>
           <p data-testid="support-guest-ticket" data-ticket-id={thread.ticket.id}>
-            {t('status')}: {thread.ticket.status}
+            {t('status')}: <CustomerStatusBadge row={thread.ticket} />
           </p>
+          <label className="field">
+            <span>{t('keepLink')}</span>
+            <input
+              readOnly
+              lang="zxx"
+              value={`${location.origin}${SUPPORT_GUEST_REQUEST_PATH}#access=${access}`}
+              data-testid="support-guest-keep-link"
+            />
+          </label>
           <ol className="support-thread" data-testid="support-guest-thread">
             <li lang="und">
               <strong>{t('you')}</strong> {thread.ticket.body}

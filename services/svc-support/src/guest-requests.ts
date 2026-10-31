@@ -3,7 +3,7 @@
  *
  * A person with no account submits a request with an email address. The request is stored, and svc-notify's guest
  * verification door is asked to mail a one-time link (ADR 2026-10-22 §3.5). No ticket exists until the link is used; the
- * first use opens it under the owner id `guest:<request id>` with the business key `guest-verify:<request id>`, so the same
+ * first use opens it under the request id as its owner (a uuid no account has) with the business key `guest-verify:<request id>`, so the same
  * link used again opens the same ticket. Using the link also hands back an access token for that one request: it reads and
  * replies there and nowhere else, and no other call takes it as a session.
  *
@@ -15,7 +15,7 @@
  * long a guest's address is kept, and the key the address is sealed with. No sender or no customer origin refuses
  * `vendor.email` and keeps the request pending.
  */
-import { createCipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
   guestVerificationKey,
@@ -95,7 +95,8 @@ type Row = {
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const addressHashOf = (email: string) => sha256(`support-guest:${email.trim().toLowerCase()}`);
-const ownerOf = (requestId: string) => `guest:${requestId}`;
+/** A guest's ticket is owned by its request id: a uuid no account has, so no account's reads ever reach it. */
+const ownerOf = (requestId: string) => requestId;
 
 /** A one-time token: an id to find the row and a secret whose hash is kept. */
 function mintToken(): { id: string; secret: string; token: string; hash: string } {
@@ -121,6 +122,19 @@ function seal(key: Buffer, value: string): string {
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const body = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   return ['v1', iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), body.toString('base64url')].join('.');
+}
+
+/** One transaction on a reserved connection (which has no `begin`): committed, or rolled back on any throw. */
+async function inTransaction<T>(conn: Sql, body: (tx: Sql) => Promise<T>): Promise<T> {
+  await conn`BEGIN`;
+  try {
+    const result = await body(conn);
+    await conn`COMMIT`;
+    return result;
+  } catch (error) {
+    await conn`ROLLBACK`.catch(() => undefined);
+    throw error;
+  }
 }
 
 const linkInvalid = () => new SupportError('that link does not open a request', SUPPORT_GUEST_LINK_INVALID);
@@ -176,12 +190,38 @@ export class GuestRequests {
     const addressHash = addressHashOf(input.email);
     const clientKey = sha256(`${addressHash}:${input.clientRequestId}`);
     const fingerprint = sha256(JSON.stringify([category.data, input.subject, input.body]));
+    // Held across the send: a second call with this key waits, then answers what the first stored. It never mails twice.
+    const lock = `support.guest:${clientKey}`;
+    const conn = await this.sql.reserve();
+    try {
+      await conn`SELECT pg_advisory_lock(hashtextextended(${lock}, 0))`;
+      try {
+        return await this.createHeld(conn, input.email.trim(), category.data, values, { addressHash, clientKey, fingerprint, input });
+      } finally {
+        await conn`SELECT pg_advisory_unlock(hashtextextended(${lock}, 0))`;
+      }
+    } finally {
+      conn.release();
+    }
+  }
+
+  private async createHeld(
+    held: Sql,
+    email: string,
+    category: SupportTicketCategory,
+    values: ReturnType<GuestRequests['values']>,
+    {
+      addressHash,
+      clientKey,
+      fingerprint,
+      input,
+    }: { addressHash: string; clientKey: string; fingerprint: string; input: { subject: string; body: string } },
+  ): Promise<SupportGuestCreateResult> {
     const token = mintToken();
     const at = this.now();
     const expiresAt = new Date(at.getTime() + values.ttlMs);
 
-    const prepared = await this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.guest:${clientKey}`}, 0))`;
+    const prepared = await inTransaction(held, async (tx) => {
       const [prior] = await tx<Row[]>`SELECT * FROM support.guest_requests WHERE client_key = ${clientKey}`;
       if (prior && prior.fingerprint !== fingerprint)
         throw new SupportError('that request key was already used for a different request', 'support.idempotency_conflict');
@@ -202,7 +242,7 @@ export class GuestRequests {
       if (!row) {
         [row] = await tx<Row[]>`INSERT INTO support.guest_requests
           (client_key, fingerprint, address_hash, address_sealed, category, subject, body, status, erase_after)
-          VALUES (${clientKey}, ${fingerprint}, ${addressHash}, ${seal(values.key, input.email.trim())}, ${category.data},
+          VALUES (${clientKey}, ${fingerprint}, ${addressHash}, ${seal(values.key, email)}, ${category},
             ${input.subject}, ${input.body}, 'pending_delivery', ${new Date(at.getTime() + values.retentionMs)})
           RETURNING *`;
       }
@@ -226,7 +266,7 @@ export class GuestRequests {
       const receipt = await this.door.send({
         businessKey: guestVerificationKey(row.id, row.send_ordinal),
         guestRequestId: row.id,
-        recipientEmail: input.email.trim(),
+        recipientEmail: email,
         link: `${origin}${SUPPORT_GUEST_VERIFY_PATH}#token=${token.token}`,
         tokenId: token.id,
         expiresAt: expiresAt.toISOString(),
@@ -276,12 +316,22 @@ export class GuestRequests {
       body: found.body,
       clientRequestId: `guest-verify:${found.id}`,
     });
-    const access = mintToken();
+    // One access link per request, the same on every use of the emailed link: its secret is derived from the request id
+    // under the sealing key, so it is never stored, and only its hash is kept to check it.
+    const secretOf = this.accessSecret(found.id);
     const [row] = await this.sql<Row[]>`UPDATE support.guest_requests SET status = 'verified', ticket_id = ${ticket.id},
-      access_id = ${access.id}, access_hash = ${access.hash}, access_expires_at = erase_after, updated_at = now()
+      access_id = COALESCE(access_id, ${randomBytes(16).toString('base64url')}), access_hash = ${sha256(secretOf)},
+      access_expires_at = erase_after, updated_at = now()
       WHERE id = ${found.id} AND token_id = ${id} AND erased_at IS NULL RETURNING *`;
     if (!row) throw linkInvalid();
-    return { ticketId: ticket.id, access: access.token, accessExpiresAt: row.access_expires_at!.toISOString() };
+    return { ticketId: ticket.id, access: `${row.access_id}.${secretOf}`, accessExpiresAt: row.access_expires_at!.toISOString() };
+  }
+
+  private accessSecret(requestId: string): string {
+    const key = this.settings.addressKey;
+    if (key === null || !/^[0-9a-fA-F]{64}$/.test(key))
+      throw new SupportError('no key seals a guest address', SUPPORT_GUEST_ADDRESS_KEY_UNSET, 'SUPPORT_GUEST_ADDRESS_KEY');
+    return createHmac('sha256', Buffer.from(key, 'hex')).update(`support-guest-access:${requestId}`).digest('base64url');
   }
 
   /** The one request an access token opens, or a refusal that reads the same for every other token. */
@@ -314,10 +364,13 @@ export class GuestRequests {
       WHERE erased_at IS NULL AND erase_after <= ${this.now()} ORDER BY erase_after LIMIT ${batch}`;
     let erased = 0;
     for (const { id } of due) {
-      // svc-notify forgets first; until it answers, the row keeps its address and the next pass asks again.
-      if (this.door.configured && (await this.door.erase(id)) === null) continue;
-      const done = await this.sql`UPDATE support.guest_requests SET address_sealed = NULL, token_hash = NULL, access_hash = NULL,
-        erased_at = now(), updated_at = now() WHERE id = ${id} AND erased_at IS NULL`;
+      // The address goes here at once. The row is marked erased only once svc-notify has erased its copy too; until then
+      // (no answer, or no door wired) the next pass asks again.
+      await this.sql`UPDATE support.guest_requests SET address_sealed = NULL, token_hash = NULL, access_hash = NULL, updated_at = now()
+        WHERE id = ${id} AND erased_at IS NULL`;
+      if (!this.door.configured || (await this.door.erase(id)) === null) continue;
+      const done = await this
+        .sql`UPDATE support.guest_requests SET erased_at = now(), updated_at = now() WHERE id = ${id} AND erased_at IS NULL`;
       erased += done.count;
     }
     return erased;

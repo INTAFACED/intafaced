@@ -30,6 +30,7 @@ export const guestCopy = defineCopy('support-guest', {
   invalidBody: 'The link is incomplete or no longer works. Send your request again.',
   backToForm: 'Back to the request form',
   requestTitle: 'Your request',
+  keepLink: 'Keep this link to come back to your request',
   notASignIn: 'This link opens this one request only. It does not sign you in. Keep it private.',
   loading: 'Loading your request…',
   status: 'Status',

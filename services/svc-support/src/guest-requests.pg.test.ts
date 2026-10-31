@@ -167,6 +167,24 @@ if (!url) {
     expect(await db.sql`SELECT status FROM support.guest_requests`).toEqual([{ status: 'sent' }]);
   });
 
+  it('two sends of the same submission at once mail one link: the second waits and answers what the first stored', async () => {
+    const input = ask();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const slow = door.send.bind(door);
+    door.send = async (mail) => {
+      await gate;
+      return slow(mail);
+    };
+    const first = guests().create(input);
+    const second = guests().create(input);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(b).toEqual(a);
+    expect(door.sent).toHaveLength(1);
+  });
+
   it('a lost answer from the sender is never sent again', async () => {
     const input = ask();
     door.answer = 'lost';
@@ -192,7 +210,11 @@ if (!url) {
     expect(again.ticketId).toBe(first.ticketId);
     const ticket = await desk.getTicket({ userId: 'operator', ticketId: first.ticketId, asOperator: true });
     expect(ticket).toMatchObject({ subject: 'TEST guest opens a ticket', category: 'account' });
-    expect(ticket.userId.startsWith('guest:')).toBe(true);
+    // Owned by the request id: a uuid no account has, so the contract's shapes hold and no account reads it.
+    const [stored] = await db.sql`SELECT id FROM support.guest_requests`;
+    expect(ticket.userId).toBe(stored!.id);
+    // The same access link on every use, so a second tab or a second press never cuts off the first.
+    expect(again.access).toBe(first.access);
     expect(await db.sql`SELECT status, ticket_id FROM support.guest_requests`).toEqual([{ status: 'verified', ticket_id: first.ticketId }]);
   });
 
@@ -249,6 +271,17 @@ if (!url) {
   it('a fraud report with no compliance group is refused before anything is stored', async () => {
     expect(await code(guests().create(ask({ category: 'fraud_report' })))).toBe('support.fraud_route_unset');
     expect(await db.sql`SELECT 1 FROM support.guest_requests`).toHaveLength(0);
+  });
+
+  it('with no door wired, an address past retention goes here at once and the row waits to tell svc-notify', async () => {
+    await guests().create(ask());
+    clock = new Date('2026-12-01T10:00:00.000Z');
+    door.configured = false;
+    expect(await guests().eraseDue()).toBe(0);
+    expect(await db.sql`SELECT address_sealed, erased_at FROM support.guest_requests`).toEqual([{ address_sealed: null, erased_at: null }]);
+    door.configured = true;
+    expect(await guests().eraseDue()).toBe(1);
+    expect(door.erased).toHaveLength(1);
   });
 
   it('erases addresses past retention here once svc-notify has erased them, and the links stop', async () => {
