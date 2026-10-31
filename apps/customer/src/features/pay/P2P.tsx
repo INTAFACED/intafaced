@@ -1,3 +1,4 @@
+import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -16,7 +17,7 @@ import {
   Status,
   MutationResult,
 } from './components';
-import { id, type CancelReasonCode, type Trade, type TradeDestination } from './schemas';
+import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
@@ -398,7 +399,7 @@ export function OrderActions({
     action: 'markFiatSent' | 'confirmReceived' | 'cancel',
     current: () => boolean,
     stepUpApprovalId?: string,
-    cancelReason?: CancelReasonCode,
+    cancelReason?: P2pCancelReason,
   ) => {
     const reason = action === 'cancel' && cancelReason ? { code: cancelReason } : undefined;
     const result = await pay.manageTrade(trade.id, action, reason, { expected: trade, current }, stepUpApprovalId);

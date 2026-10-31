@@ -1,3 +1,4 @@
+import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -761,7 +762,7 @@ export function createPersonalPayApi(
       tradeId: string,
       action: 'markFiatSent' | 'confirmReceived' | 'cancel',
       /** `cancel` only: free text, or (P-trade-orders-19) a code from the caller's side's list. */
-      reason?: string | { code: s.CancelReasonCode },
+      reason?: string | { code: P2pCancelReason },
       review?: { expected: s.Trade; current: () => boolean },
       /** `confirmReceived` only: identity's single-use confirmation of this release (P-trade-orders-07). */
       stepUpApprovalId?: string,

@@ -238,6 +238,10 @@
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
     },
+    "./p2p-cancel": {
+      "types": "./dist/p2p-cancel.d.ts",
+      "default": "./dist/p2p-cancel.js"
+    },
     "./p2p-rule-class": {
       "types": "./dist/p2p-rule-class.d.ts",
       "default": "./dist/p2p-rule-class.js"

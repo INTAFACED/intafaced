@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
-import { displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { PayAmount, PayDetails, PayTime, ReviewedAction } from './components';
 import { payCopy } from './copy';
 import { cancelCopy } from './p2p-cancel-copy';
 import { orderCopy } from './p2p-order-copy';
-import { BUYER_CANCEL_REASONS, SELLER_CANCEL_REASONS, type CancelReasonCode, type Trade } from './schemas';
+import { P2P_BUYER_CANCEL_REASONS, P2P_SELLER_CANCEL_REASONS, type P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
+import type { Trade } from './schemas';
 
 /**
  * P-trade-orders-19 (1) / J-p2p-06 #1: before payment either side may cancel, choosing a reason from its own list. The
@@ -23,14 +23,14 @@ export function CancelOrder({
   trade: Trade;
   seller: boolean;
   reviewValues: [string, ReactNode][];
-  perform: (code: CancelReasonCode, current: () => boolean) => Promise<ApiResult<Trade>>;
+  perform: (code: P2pCancelReason, current: () => boolean) => Promise<ApiResult<Trade>>;
   onConfirmed: () => void;
   disabled: boolean;
 }) {
   const { Copy, t } = cancelCopy.useCopy();
   const order = orderCopy.useCopy();
-  const [code, setCode] = useState<CancelReasonCode | ''>('');
-  const reasons: readonly CancelReasonCode[] = seller ? SELLER_CANCEL_REASONS : BUYER_CANCEL_REASONS;
+  const [code, setCode] = useState<P2pCancelReason | ''>('');
+  const reasons: readonly P2pCancelReason[] = seller ? P2P_SELLER_CANCEL_REASONS : P2P_BUYER_CANCEL_REASONS;
   return (
     <div className="form-stack" data-testid="order-cancel">
       {seller ? null : (
@@ -40,7 +40,7 @@ export function CancelOrder({
       )}
       <label>
         <Copy k="reasonLabel" />{' '}
-        <select value={code} onChange={(event) => setCode(event.target.value as CancelReasonCode | '')}>
+        <select value={code} onChange={(event) => setCode(event.target.value as P2pCancelReason | '')}>
           <option value="">{t('reasonPick')}</option>
           {reasons.map((reason) => (
             <option key={reason} value={reason}>
@@ -70,7 +70,7 @@ export function CancelOrder({
         }
         ready={code !== ''}
         notReadyReason={t('reasonRequired')}
-        perform={(current) => perform(code as CancelReasonCode, current)}
+        perform={(current) => perform(code as P2pCancelReason, current)}
         onConfirmed={onConfirmed}
         disabled={disabled || code === ''}
         disabledReason={t('reasonRequired')}
@@ -129,7 +129,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
       <PayDetails
         values={[
           ...who,
-          [t('refundTitle'), t('refundAmount', { amount: displayAmount(trade.amount), asset: trade.asset })],
+          [t('refundAmount'), <PayAmount value={trade.amount} unit={trade.asset} label={t('refundAmount')} />],
           [t('refundPosted'), trade.settledAt ? <PayTime value={trade.settledAt} /> : t('refundPending')],
         ]}
       />

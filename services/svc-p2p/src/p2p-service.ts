@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { cancelReasonAllowed } from './cancel-reasons.js';
+import { codedCancelReason, resolvedByOf } from './cancel-reasons.js';
+import { p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
 import type { MerchantStatus } from './merchant-programme.js';
 import { isSupportedFiat } from '@intafaced/config';
@@ -3985,17 +3986,13 @@ export class P2pService {
    *     as well, never a refund.
    */
   /**
-   * `reasonCode` (P-trade-orders-19) is a code from the caller's side's list (`cancel-reasons.ts`); when given it is the
-   * stored reason. Without it, the free-text `reason` is stored as before.
+   * `reasonCode` (P-trade-orders-19) is a code from the caller's side's list (`@intafaced/contracts/p2p-cancel`); when
+   * given it is the stored reason. Without it, the free-text `reason` is stored as before.
    */
   async cancelTrade(tradeId: string, actorId: string, reason = 'cancelled', reasonCode?: string): Promise<TradeRecord> {
     return withMoneySpan('p2p.cancel', { operation: 'escrow.refund', tradeId }, async () => {
       const current = await this.getTrade(tradeId);
       if (current.sellerId !== actorId && current.buyerId !== actorId) throw unknownTrade(tradeId);
-      const side: Actor = current.sellerId === actorId ? 'seller' : 'buyer';
-      if (reasonCode !== undefined && !cancelReasonAllowed(side, reasonCode)) {
-        throw new P2pError(`"${reasonCode}" is not a reason the ${side} can give`, 'p2p.cancel_reason_invalid');
-      }
       if (current.status === 'fiat_sent') {
         if (current.sellerId !== actorId) {
           throw new P2pError('The buyer has declared the fiat sent — open a dispute rather than cancelling', 'p2p.not_the_seller');
@@ -4009,20 +4006,37 @@ export class P2pService {
         throw new P2pError('A disputed trade is resolved by a moderator, not cancelled', 'p2p.dispute_already_open');
       }
 
+      const actor: Actor = current.sellerId === actorId ? 'seller' : 'buyer';
+      // The state refusals above come first: on a paid or disputed order no reason would let the cancel through.
+      if (reasonCode !== undefined && !p2pCancelReasonAllowed(actor, reasonCode)) {
+        throw new P2pError(`"${reasonCode}" is not a reason the ${actor} can give`, 'p2p.cancel_reason_invalid');
+      }
       // The reason string carries the actor, so the refund event and the audit
       // trail both say who unwound the trade without a second column.
-      return this.unwind(tradeId, `${side}.${reasonCode ?? reason}`, current.status);
+      return this.unwind(tradeId, reasonCode !== undefined ? codedCancelReason(actor, reasonCode) : `${actor}.${reason}`, current.status);
     });
   }
 
   /**
    * P-trade-orders-19 (2): the seller's request to cancel a paid order. What the seller may do from `fiat_sent` is the
-   * founders' decision (ENGINE-SPEC section 5, options A to D), not recorded yet, so this always refuses
-   * `p2p.owner_decision_pending` for a party to the order. It reads the order and writes nothing.
+   * founders' decision (ENGINE-SPEC section 5, options A to D), not recorded yet, so the seller of a paid order is always
+   * refused `p2p.owner_decision_pending`. The buyer is not the one who may ask (`p2p.not_the_seller`), and an order that
+   * is not paid has no request to make (`p2p.invalid_transition`, or `p2p.trade_terminal` once it has ended). It reads
+   * the order and writes nothing.
    */
   async requestCancel(tradeId: string, actorId: string): Promise<never> {
     const current = await this.getTrade(tradeId);
     if (current.sellerId !== actorId && current.buyerId !== actorId) throw unknownTrade(tradeId);
+    if (current.sellerId !== actorId) throw new P2pError('Only the seller can ask to cancel a paid order', 'p2p.not_the_seller');
+    if (current.status !== 'fiat_sent') {
+      // Same refusal as any other move the order's state does not allow: terminal stays terminal.
+      throw new TradeStateError(
+        `Trade ${tradeId} is ${current.status}: a cancellation request is for a paid order; before payment, cancel the order instead`,
+        isTerminal(current.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+        current.status,
+        'fiat_sent',
+      );
+    }
     throw new P2pError(
       'Cancelling after the buyer has paid needs a founder decision. It is switched off in this build.',
       'p2p.owner_decision_pending',
@@ -6572,14 +6586,6 @@ function methodAllowed(methods: unknown[], method: string): boolean {
  */
 function toPgTextArray(values: readonly string[]): string {
   return `{${values.map((v) => `"${v.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`;
-}
-
-function resolvedByOf(reason: string | null): 'buyer' | 'seller' | 'moderator' | 'timeout' {
-  if (!reason) return 'seller';
-  if (reason.startsWith('moderator:')) return 'moderator';
-  if (reason.startsWith('timeout.')) return 'timeout';
-  if (reason.startsWith('buyer')) return 'buyer';
-  return 'seller';
 }
 
 export { TradeStateError, PricingError };

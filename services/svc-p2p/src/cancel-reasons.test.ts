@@ -5,7 +5,8 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { BUYER_CANCEL_REASONS, SELLER_CANCEL_REASONS, cancelReasonAllowed, cancelReasonOf } from './cancel-reasons.js';
+import { P2P_BUYER_CANCEL_REASONS, P2P_SELLER_CANCEL_REASONS, p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
+import { cancelReasonOf, codedCancelReason } from './cancel-reasons.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
@@ -39,26 +40,25 @@ async function refusal(p: Promise<unknown>): Promise<P2pError> {
 
 describe('svc-p2p cancel reasons (P-trade-orders-19)', () => {
   it('each side has its own list, and a stored reason reads back as who cancelled and the code', () => {
-    expect(cancelReasonAllowed('buyer', 'changed_mind')).toBe(true);
-    expect(cancelReasonAllowed('seller', 'changed_mind')).toBe(true);
-    expect(cancelReasonAllowed('buyer', 'buyer_unresponsive')).toBe(false);
-    expect(cancelReasonAllowed('seller', 'seller_unresponsive')).toBe(false);
-    for (const code of BUYER_CANCEL_REASONS) expect(cancelReasonAllowed('buyer', code)).toBe(true);
-    for (const code of SELLER_CANCEL_REASONS) expect(cancelReasonAllowed('seller', code)).toBe(true);
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'buyer.changed_mind' })).toEqual({ by: 'buyer', code: 'changed_mind' });
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'seller.price_mistake' })).toEqual({
-      by: 'seller',
-      code: 'price_mistake',
-    });
-    // Free text through the API, or a code from the other list, is not a code.
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'buyer.TEST free text' })).toEqual({ by: 'buyer', code: null });
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'seller.seller_unresponsive' })).toEqual({ by: 'seller', code: null });
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'timeout.payment_window_elapsed' })).toEqual({
-      by: 'timeout',
-      code: null,
-    });
-    expect(cancelReasonOf({ status: 'cancelled', resolutionReason: 'moderator:abc' })).toEqual({ by: 'moderator', code: null });
-    expect(cancelReasonOf({ status: 'released', resolutionReason: 'buyer.changed_mind' })).toBeNull();
+    expect(p2pCancelReasonAllowed('buyer', 'changed_mind')).toBe(true);
+    expect(p2pCancelReasonAllowed('seller', 'changed_mind')).toBe(true);
+    expect(p2pCancelReasonAllowed('buyer', 'buyer_unresponsive')).toBe(false);
+    expect(p2pCancelReasonAllowed('seller', 'seller_unresponsive')).toBe(false);
+    for (const code of P2P_BUYER_CANCEL_REASONS) expect(p2pCancelReasonAllowed('buyer', code)).toBe(true);
+    for (const code of P2P_SELLER_CANCEL_REASONS) expect(p2pCancelReasonAllowed('seller', code)).toBe(true);
+    const cancelled = (resolutionReason: string | null, resolution = 'refunded') => ({ status: 'cancelled', resolution, resolutionReason });
+    expect(codedCancelReason('buyer', 'changed_mind')).toBe('buyer.reason:changed_mind');
+    expect(cancelReasonOf(cancelled('buyer.reason:changed_mind'))).toEqual({ by: 'buyer', code: 'changed_mind' });
+    expect(cancelReasonOf(cancelled('seller.reason:price_mistake'))).toEqual({ by: 'seller', code: 'price_mistake' });
+    // Free text through the API is never read as a code, even when it spells one; a code from the other list is no code.
+    expect(cancelReasonOf(cancelled('seller.buyer_unresponsive'))).toEqual({ by: 'seller', code: null });
+    expect(cancelReasonOf(cancelled('buyer.TEST free text'))).toEqual({ by: 'buyer', code: null });
+    expect(cancelReasonOf(cancelled('seller.reason:seller_unresponsive'))).toEqual({ by: 'seller', code: null });
+    expect(cancelReasonOf(cancelled('timeout.payment_window_elapsed'))).toEqual({ by: 'timeout', code: null });
+    expect(cancelReasonOf(cancelled('moderator:abc'))).toEqual({ by: 'moderator', code: null });
+    // A void is nobody's cancel: the escrow never locked.
+    expect(cancelReasonOf(cancelled('seller.escrow_lock_failed_insufficient_funds', 'voided'))).toBeNull();
+    expect(cancelReasonOf({ status: 'released', resolution: 'released', resolutionReason: 'buyer.reason:changed_mind' })).toBeNull();
   });
 });
 
@@ -150,7 +150,7 @@ describe('svc-p2p cancel with a reason and the parked cancellation request (P-tr
     const { offer, trade } = await take();
     expect(trade.status).toBe('escrowed');
     const cancelled = await p2p.cancelTrade(trade.id, TAKER, 'cancelled', 'changed_mind');
-    expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolutionReason: 'buyer.changed_mind' });
+    expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolutionReason: 'buyer.reason:changed_mind' });
     expect(cancelReasonOf(cancelled)).toEqual({ by: 'buyer', code: 'changed_mind' });
     expect(refunds(trade.id)).toHaveLength(1);
     expect(await free()).toBe(before);
@@ -178,7 +178,7 @@ describe('svc-p2p cancel with a reason and the parked cancellation request (P-tr
     expect(ledger.journal()).toHaveLength(journal);
     expect((await p2p.getTrade(trade.id)).status).toBe('escrowed');
     const cancelled = await p2p.cancelTrade(trade.id, MAKER, 'cancelled', 'price_mistake');
-    expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolutionReason: 'seller.price_mistake' });
+    expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolutionReason: 'seller.reason:price_mistake' });
     expect(refunds(trade.id)).toHaveLength(1);
   });
 
@@ -207,15 +207,25 @@ describe('svc-p2p cancel with a reason and the parked cancellation request (P-tr
       expect(err.message).toBe('The buyer has declared the fiat sent — confirm receipt, or open a dispute if you were not paid');
     }
 
-    for (const who of [MAKER, TAKER]) {
-      const parked = await refusal(p2p.requestCancel(trade.id, who));
-      expect(parked.code).toBe('p2p.owner_decision_pending');
-      expect(parked.message).toBe('Cancelling after the buyer has paid needs a founder decision. It is switched off in this build.');
-    }
+    const parked = await refusal(p2p.requestCancel(trade.id, MAKER));
+    expect(parked.code).toBe('p2p.owner_decision_pending');
+    expect(parked.message).toBe('Cancelling after the buyer has paid needs a founder decision. It is switched off in this build.');
+    expect((await refusal(p2p.requestCancel(trade.id, TAKER))).code).toBe('p2p.not_the_seller');
     // Nothing written and nothing moved: the order row is byte-for-byte the same, the journal unchanged.
     expect(await sql`SELECT * FROM p2p.p2p_trades WHERE id = ${trade.id}`).toEqual(row);
     expect(ledger.journal()).toHaveLength(journal);
     expect(refunds(trade.id)).toHaveLength(0);
+  });
+
+  it('a request on an order that is not paid says so, and a wrong-list code on a paid order gets the paid refusal', async () => {
+    const { trade } = await take();
+    await expect(p2p.requestCancel(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+    const other = (await take()).trade;
+    await p2p.markFiatSent(other.id, TAKER);
+    // On a paid order no reason lets a cancel through, so the state refusal comes first whatever code was sent.
+    expect((await refusal(p2p.cancelTrade(other.id, TAKER, 'cancelled', 'price_mistake'))).code).toBe('p2p.not_the_seller');
+    await p2p.cancelTrade(trade.id, MAKER, 'cancelled', 'changed_mind');
+    await expect(p2p.requestCancel(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.trade_terminal' });
   });
 
   it('no path posts a second refund: cancels from both sides at once, then again, refund the escrow once', async () => {
@@ -233,8 +243,11 @@ describe('svc-p2p cancel with a reason and the parked cancellation request (P-tr
     expect(await free()).toBe(before);
     const after = await p2p.getTrade(trade.id);
     expect(after).toMatchObject({ status: 'cancelled', resolution: 'refunded' });
-    expect(['buyer.changed_mind', 'seller.changed_mind', 'buyer.seller_unresponsive', 'seller.TEST free text']).toContain(
-      after.resolutionReason,
-    );
+    expect([
+      'buyer.reason:changed_mind',
+      'seller.reason:changed_mind',
+      'buyer.reason:seller_unresponsive',
+      'seller.TEST free text',
+    ]).toContain(after.resolutionReason);
   });
 });

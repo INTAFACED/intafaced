@@ -108,7 +108,10 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
   // One refund: the seller's free balance is back where it was, and a second cancel moves nothing.
   await expect.poll(() => free(seller), { timeout: 30_000 }).toBe(before);
   const again = await b.raw.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST again' });
-  expect(again.status === 200 ? again.body.result.data.resolvedAt : refusalCode(again)).toBeTruthy();
+  // A second cancel answers with the order as it ended: the same refund, the reason first given, nothing more moved.
+  expect(again.status).toBe(200);
+  expect(again.body.result.data).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolvedAt: cancelled.resolvedAt });
+  expect((await b.query('trades.get', { tradeId: trade.id })).cancelReason).toEqual({ by: 'buyer', code: 'changed_mind' });
   expect(await free(seller)).toBe(before);
   // The cancel counts toward the buyer's daily threshold: one of three used.
   const limits = await b.raw.query('access.limits');
@@ -160,12 +163,12 @@ test('J-p2p-06 #3 after paying, neither side cancels; the seller’s cancellatio
   expect(refusalCode(await s.raw.mutate('trades.cancel', { tradeId, reasonCode: 'buyer_unresponsive' }))).toBe('p2p.cancel_after_paid');
   const before = await s.query('trades.get', { tradeId });
   expect(before.status).toBe('fiat_sent');
-  // How a paid order may be cancelled is the founders' decision (P-trade-orders-19): the request refuses for both sides,
-  // with that reason, and writes nothing.
-  const request = await s.raw.mutate('trades.requestCancel', { tradeId, reason: 'TEST payment never arrived' });
+  // How a paid order may be cancelled is the founders' decision (P-trade-orders-19): the seller's request refuses with
+  // that reason (the buyer is not the one who asks), and writes nothing.
+  const request = await s.raw.mutate('trades.requestCancel', { tradeId });
   expect(request.status, 'svc-p2p has no seller cancellation request (P-trade-orders-19)').not.toBe(404);
   expect(refusalCode(request)).toBe('p2p.owner_decision_pending');
-  expect(refusalCode(await b.raw.mutate('trades.requestCancel', { tradeId }))).toBe('p2p.owner_decision_pending');
+  expect(refusalCode(await b.raw.mutate('trades.requestCancel', { tradeId }))).toBe('p2p.not_the_seller');
   const after = await s.query('trades.get', { tradeId });
   expect(after).toMatchObject({ status: 'fiat_sent', resolution: null, resolvedAt: null });
   expect(after.escrowHeld).toBe(before.escrowHeld);

@@ -1,48 +1,41 @@
+import { p2pCancelReasonAllowed, type P2pCancelReason, type P2pCancelledBy } from '@intafaced/contracts/p2p-cancel';
+
 /**
- * P-trade-orders-19: why an order was cancelled, from a fixed list per side.
+ * P-trade-orders-19: why an order was cancelled, from a fixed list per side (`@intafaced/contracts/p2p-cancel`).
  *
- * The buyer's list names what went wrong on the seller's side or their own; the seller's list names what went wrong on
- * the buyer's side or their own. The stored resolution reason is `<actor>.<code>`, so the buyer-cancel count
- * (`BUYER_CANCEL_REASON_PREFIX`) and the order's display status read it unchanged.
+ * A coded cancel is stored as `<actor>.reason:<code>`, which no free-text reason can produce (free text is stored as
+ * `<actor>.<text>`, and `reason:` is the marker), so the buyer-cancel count (`BUYER_CANCEL_REASON_PREFIX`), the order's
+ * display status and `resolvedByOf` all read it unchanged.
  */
-export const BUYER_CANCEL_REASONS = [
-  'changed_mind',
-  'cannot_pay_with_method',
-  'seller_payment_details_wrong',
-  'seller_unresponsive',
-  'seller_extra_terms',
-] as const;
-export const SELLER_CANCEL_REASONS = [
-  'buyer_unresponsive',
-  'buyer_name_mismatch',
-  'buyer_extra_terms',
-  'price_mistake',
-  'changed_mind',
-] as const;
-export const CANCEL_REASON_CODES = [...new Set([...BUYER_CANCEL_REASONS, ...SELLER_CANCEL_REASONS])] as [string, ...string[]];
+const CODE_MARKER = 'reason:';
 
-export type BuyerCancelReason = (typeof BUYER_CANCEL_REASONS)[number];
-export type SellerCancelReason = (typeof SELLER_CANCEL_REASONS)[number];
-export type CancelReasonCode = BuyerCancelReason | SellerCancelReason;
+export function codedCancelReason(side: 'buyer' | 'seller', code: P2pCancelReason): string {
+  return `${side}.${CODE_MARKER}${code}`;
+}
 
-export function cancelReasonAllowed(actor: 'buyer' | 'seller', code: string): boolean {
-  return (actor === 'buyer' ? (BUYER_CANCEL_REASONS as readonly string[]) : (SELLER_CANCEL_REASONS as readonly string[])).includes(code);
+/** Who ended a trade, from its stored resolution reason. A reason with no actor prefix is the seller's (as it always was). */
+export function resolvedByOf(reason: string | null): P2pCancelledBy {
+  if (!reason) return 'seller';
+  if (reason.startsWith('moderator:')) return 'moderator';
+  if (reason.startsWith('timeout.')) return 'timeout';
+  if (reason.startsWith('buyer')) return 'buyer';
+  return 'seller';
 }
 
 /**
- * Who cancelled a cancelled order and, when they chose one, the reason code. Null for any other order. A cancel through
- * the API with free text, or before reasons existed, has no code.
+ * On an order a party or the clock cancelled, who did and the code they chose (null for free text through the API, or
+ * a cancel from before codes existed). Null for any other order, and for a void: an escrow that never locked was not
+ * cancelled by anyone.
  */
 export function cancelReasonOf(trade: {
   status: string;
+  resolution: string | null;
   resolutionReason: string | null;
-}): { by: 'buyer' | 'seller' | 'timeout' | 'moderator'; code: CancelReasonCode | null } | null {
-  if (trade.status !== 'cancelled') return null;
+}): { by: P2pCancelledBy; code: P2pCancelReason | null } | null {
+  if (trade.status !== 'cancelled' || trade.resolution === 'voided') return null;
+  const by = resolvedByOf(trade.resolutionReason);
+  const marker = `${by}.${CODE_MARKER}`;
   const reason = trade.resolutionReason ?? '';
-  if (reason.startsWith('moderator:')) return { by: 'moderator', code: null };
-  if (reason.startsWith('timeout.')) return { by: 'timeout', code: null };
-  const [actor, ...rest] = reason.split('.');
-  if (actor !== 'buyer' && actor !== 'seller') return null;
-  const code = rest.join('.');
-  return { by: actor, code: cancelReasonAllowed(actor, code) ? (code as CancelReasonCode) : null };
+  const code = (by === 'buyer' || by === 'seller') && reason.startsWith(marker) ? reason.slice(marker.length) : null;
+  return { by, code: code !== null && p2pCancelReasonAllowed(by as 'buyer' | 'seller', code) ? code : null };
 }

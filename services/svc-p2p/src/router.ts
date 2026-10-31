@@ -69,7 +69,8 @@ import type { ReviewRecord } from './reviews.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
 import { AdvertiserTermsError } from './advertiser-terms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
-import { CANCEL_REASON_CODES, cancelReasonOf } from './cancel-reasons.js';
+import { cancelReasonOf } from './cancel-reasons.js';
+import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
 
 export type P2pRouterOptions = {
   /** Natural-person ids from `P2P_MODERATOR_USER_IDS`. Empty = unconfigured. */
@@ -361,9 +362,7 @@ const tradeDetailOutput = tradeOutput.extend({
    */
   paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }),
   /** P-trade-orders-19: on a cancelled order, who cancelled it and the reason code they chose; null otherwise. */
-  cancelReason: z
-    .object({ by: z.enum(['buyer', 'seller', 'timeout', 'moderator']), code: z.enum(CANCEL_REASON_CODES).nullable() })
-    .nullable(),
+  cancelReason: z.object({ by: z.enum(P2P_CANCELLED_BY), code: z.enum(P2P_CANCEL_REASONS).nullable() }).nullable(),
 });
 
 const blockQuoteOutput = z.object({
@@ -1947,7 +1946,7 @@ export function createP2pRouter(
             tradeId: z.string().guid(),
             reason: z.string().max(200).optional(),
             /** P-trade-orders-19: a code from the caller's side's list; it wins over free text. */
-            reasonCode: z.enum(CANCEL_REASON_CODES).optional(),
+            reasonCode: z.enum(P2P_CANCEL_REASONS).optional(),
           }),
         )
         .output(tradeOutput)
@@ -1959,10 +1958,11 @@ export function createP2pRouter(
 
       /**
        * P-trade-orders-19 (2): the seller's cancellation request on a paid order. Parked until the founders choose how a
-       * paid order may be cancelled: always `p2p.owner_decision_pending` for a party, and nothing is written.
+       * paid order may be cancelled: the seller of a paid order is always refused `p2p.owner_decision_pending`, and
+       * nothing is written. It takes no reason yet: what a request carries is part of that decision.
        */
       requestCancel: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) => guard(async () => p2p.requestCancel(input.tradeId, ctx.principal.userId))),
 
