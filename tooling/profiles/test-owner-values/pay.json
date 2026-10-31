@@ -66,6 +66,11 @@
       "value": "100000",
       "note": "TEST largest hosted checkout logo, in bytes (100 KB). Not an owner decision."
     },
+    "PAY_SETTLEMENT_ASSETS": {
+      "service": "pay",
+      "value": "USDT",
+      "note": "TEST list of the assets a business can settle in, so a new business sees a zero row per asset on Balances (J-merchant-07 #1). Not an owner decision."
+    },
     "PAY_CHECKOUT_RISK_BAND": {
       "service": "pay",
       "value": "low",

@@ -27,6 +27,7 @@ import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import { publicCopy } from './public-copy';
 import { publicAuthCopy } from './public-auth-copy';
+import { fetchSignInChallenge, solveSignInChallenge } from './signin-challenge';
 import {
   readAuth,
   saveAuth,
@@ -67,6 +68,8 @@ export function AuthForm({ register }: { register: boolean }) {
   const freshSignInHref = publicAuthHref(authContext, '/login', true);
   const [pending, setPending] = useState(false),
     [result, setResult] = useState<ApiResult<Session> | null>(null);
+  // Tries so far while this browser solves a sign-in challenge (I-signin-sessions-30); null when none is running.
+  const [challengeTries, setChallengeTries] = useState<number | null>(null);
   const [identifier, setIdentifier] = useState(''),
     [password, setPassword] = useState(''),
     [handle, setHandle] = useState(''),
@@ -392,6 +395,26 @@ export function AuthForm({ register }: { register: boolean }) {
             kind === 'register' ? sessionSchema : signInAnswerSchema,
             { signal: controller.signal },
           );
+          // Too many failed sign-ins came from this address: solve the service's challenge here, then send once more.
+          if (kind !== 'register' && !answer.ok && answer.code === 'auth.challenge_required') {
+            setChallengeTries(0);
+            try {
+              const challenge = await fetchSignInChallenge(original.api, controller.signal);
+              if (!same(original)) return;
+              if (!challenge.ok) answer = challenge;
+              else {
+                const proof = await solveSignInChallenge(challenge.data, controller.signal, (tries) => {
+                  if (same(original)) setChallengeTries(tries);
+                });
+                if (!same(original)) return;
+                answer = await original.api.mutate('identity', 'auth.login', { ...input, challenge: proof }, signInAnswerSchema, {
+                  signal: controller.signal,
+                });
+              }
+            } finally {
+              setChallengeTries(null);
+            }
+          }
         }
         if (!same(original)) return;
         if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
@@ -629,6 +652,11 @@ export function AuthForm({ register }: { register: boolean }) {
         <p role="status" aria-live="polite">
           {(pending && activeRecord) || landing ? <Copy k="pending" /> : null}
         </p>
+        {challengeTries !== null && (
+          <p role="status" aria-live="polite" data-testid="signin-challenge">
+            {challengeTries === 0 ? t('challengeStarting') : t('challenging', { tries: challengeTries })}
+          </p>
+        )}
         {ownFreeze ? (
           <FrozenByYou
             freeze={ownFreeze.freeze}

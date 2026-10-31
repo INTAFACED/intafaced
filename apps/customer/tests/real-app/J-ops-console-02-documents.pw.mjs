@@ -130,6 +130,26 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await expect(deskA.getByTestId('step-reply')).toHaveAttribute('data-tone', /danger|warn/, { timeout: 60_000 });
     await expect(deskA.getByTestId('kyc-document-viewer')).toHaveCount(0);
     expect(pdf.contentType).toBe('application/pdf');
+
+    // The KYC case this image is attached to exists: the service's own lookup of this person's cases (the KYC case history,
+    // newest first, by user id) names it, so the check never depends on the pending queue's loaded window.
+    await a.goto(`${ADMIN}/tools`, { waitUntil: 'load' });
+    await a.getByRole('button', { name: /^KYC case history/ }).click();
+    await a.locator('#tool-field-userId').fill(record.userId);
+    await a.locator('#tool-field-limit').fill('20');
+    await a.getByRole('button', { name: 'Run query' }).click();
+    const kycCase = a.getByTestId('delivery-receipt');
+    await expect(kycCase, 'the KYC case history answers for this person').toContainText(record.id, { timeout: 60_000 });
+    // The row asks that the KYC case's detail opens this document in the same viewer. The console has no KYC case detail
+    // to open (kyc-document-viewer.tsx: "so will a KYC case's detail"; the history above is a raw service answer, not a
+    // case view), so there is nothing to drive and the clause fails by name. Whoever builds the case detail replaces this
+    // with its real flow: open the case, open its document, expect kyc-document-viewer with data-document=image.id.
+    expect
+      .soft(
+        null,
+        'the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)',
+      )
+      .not.toBeNull();
   } finally {
     await a.context().close();
     await b.context().close();

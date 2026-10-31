@@ -28,7 +28,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import type { EventBus, Payload } from '@intafaced/events';
-import { PostgresLedger, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
+import { PostgresLedger, RESTORE_ASOF_INVALID, type LedgerTxOutboxRow } from './ledger/postgres-ledger.js';
 import {
   markFreezeOutboxPublished,
   readFreeze,
@@ -37,7 +37,7 @@ import {
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
-import type { RestoreWatermarkRead } from '@intafaced/contracts';
+import { restoreWatermarkReadInputSchema, type RestoreWatermarkRead } from '@intafaced/contracts';
 import type { LedgerTransactionsExist, ReconciliationEvaluationFeed } from '@intafaced/contracts/ledger-reconciliation';
 import { transactionsExist } from './ledger/transactions-exist.js';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
@@ -85,6 +85,11 @@ import {
  * purpose: a cache would be right until the moment a second replica moved the
  * switch, which is exactly the moment it matters.
  */
+/** A JSON object body: not an array, not null. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
   private readonly bootPostingEnabled: boolean;
@@ -212,8 +217,18 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /** The ledger's position for the joint restore. A read; same no-span reasoning as `history`. */
-  async restoreWatermark(): Promise<RestoreWatermarkRead> {
-    const at = await this.engine.restoreWatermark();
+  async restoreWatermark(input?: unknown): Promise<RestoreWatermarkRead> {
+    // No body or `{}` is the live read; exactly `{ asOf }` is the read as of the joint restore's cut-off. Anything else
+    // (a bare string, an array, other keys) is refused, never answered live.
+    let asOf: string | undefined;
+    const empty = input === undefined || input === null || (isPlainObject(input) && Object.keys(input).length === 0);
+    if (!empty) {
+      const parsed = isPlainObject(input) ? restoreWatermarkReadInputSchema.safeParse(input) : null;
+      if (!parsed?.success)
+        throw new LedgerError('restore watermark: send {} or { asOf } with one instant and its offset', RESTORE_ASOF_INVALID);
+      asOf = parsed.data.asOf;
+    }
+    const at = asOf === undefined ? await this.engine.restoreWatermark() : await this.engine.restoreWatermarkAsOf(new Date(asOf));
     return {
       service: 'ledger',
       kind: 'chain_tip.seq',
@@ -221,6 +236,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       integrity: at.integrity,
       lastWriteAt: at.lastWriteAt ? at.lastWriteAt.toISOString() : null,
       readAt: new Date().toISOString(),
+      ...(asOf === undefined ? {} : { asOf }),
     };
   }
 

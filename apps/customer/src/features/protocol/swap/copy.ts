@@ -51,6 +51,7 @@ const en = {
   quoting: 'Reading the pools…',
   quoteRefused: 'No pool for these tokens could be read just now, so there is no quote. Try again.',
   needsRefresh: 'The quote expired. Refresh it to swap at today’s price.',
+  needsNewQuote: 'That swap failed on this quote. Get a new quote to swap again.',
   slippageInvalid: 'Enter the slippage as a percentage with at most two decimal places, for example 0.5.',
   slippageOver: 'That is above the slippage ceiling of {ceiling}%. Choose a lower slippage.',
   minimumNone: 'This amount is too small to protect with a minimum. Enter a larger amount.',

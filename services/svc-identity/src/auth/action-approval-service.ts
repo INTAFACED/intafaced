@@ -252,6 +252,41 @@ export class ActionApprovalService {
     if (row.status === 'CONSUMED') {
       return this.consumedAgain(row, callerService, input);
     }
+    const { founderAttestation } = await this.consumable(row, callerService, input);
+    const consumedAt = this.clock();
+    const next = await this.store.casConsume({
+      ...input,
+      now: consumedAt,
+      requestId: input.requestId ?? null,
+      consumedByService: callerService,
+      consumedByPrincipal: input.consumerPrincipalId ?? null,
+    });
+    if (!next) {
+      const again = await this.loadLive(input.approvalId);
+      if (again.status === 'CONSUMED') return this.consumedAgain(again, callerService, input);
+      throw this.terminal(again, 'action_approval.not_approved');
+    }
+    if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
+    return { ...toActionApproval(next), ...approvalProvenance(next), ...(founderAttestation ?? {}) };
+  }
+
+  /**
+   * Resolves when `consume` with this input would spend the approval, without spending it: the same checks, read only.
+   * A first phase of a two-phase change (starting an authenticator replace) checks the approval its second phase then
+   * consumes. An approval already used refuses `action_approval.consumed`.
+   */
+  async check(callerService: string, input: ActionApprovalConsumeInput): Promise<void> {
+    const row = await this.loadLive(input.approvalId);
+    if (row.status === 'CONSUMED') throw new ActionApprovalError('approval already consumed', 'action_approval.consumed');
+    await this.consumable(row, callerService, input);
+  }
+
+  /** Every check `consume` makes before it spends the row; the founder attestation it returns rides on the answer. */
+  private async consumable(
+    row: StoredApproval,
+    callerService: string,
+    input: ActionApprovalConsumeInput,
+  ): Promise<{ founderAttestation: { approverIsFounder: true; requesterIsFounder: true } | null }> {
     if (callerService !== input.targetService || callerService !== row.targetService) {
       throw new ActionApprovalError('consume is only for the target service', 'action_approval.service_mismatch');
     }
@@ -297,21 +332,7 @@ export class ActionApprovalService {
       // here, not grandfathered. The result is attested to the target service on the returned row.
       founderAttestation = await this.requireFounders(row, { approverId: row.approverId });
     }
-    const consumedAt = this.clock();
-    const next = await this.store.casConsume({
-      ...input,
-      now: consumedAt,
-      requestId: input.requestId ?? null,
-      consumedByService: callerService,
-      consumedByPrincipal: input.consumerPrincipalId ?? null,
-    });
-    if (!next) {
-      const again = await this.loadLive(input.approvalId);
-      if (again.status === 'CONSUMED') return this.consumedAgain(again, callerService, input);
-      throw this.terminal(again, 'action_approval.not_approved');
-    }
-    if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
-    return { ...toActionApproval(next), ...approvalProvenance(next), ...(founderAttestation ?? {}) };
+    return { founderAttestation };
   }
 
   /**

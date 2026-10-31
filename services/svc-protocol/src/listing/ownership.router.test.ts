@@ -30,6 +30,7 @@ function listingCaller(over: { ttl?: number | null; read?: { owner: Address; blo
   };
   const chain: OwnershipChain = {
     chainId: 84532,
+    identity: async () => ({ chainId: 84532, genesisHash: `0x${'d'.repeat(64)}` }),
     owner: async () => (over.read === undefined ? { owner: owner.address, blockNumber: 7n } : over.read),
     hasCode: async () => false,
     isValidSignature: async () => null,

@@ -134,7 +134,7 @@ test('env helpers: upsert replaces in place and appends; the file carries hashes
   assert.equal(upsertEnv('', { A: '1' }), 'A=1\n');
   assert.deepEqual(parseDotenv('# c\nAPP_ENV="dev"\nX=1\n'), { APP_ENV: 'dev', X: '1' });
   const inv = generateInvites({ rand: seeded() });
-  const text = buildEnvFile({ totpKey: 'k', adminSessionSecret: 's', invites: inv });
+  const text = buildEnvFile({ totpKey: 'k', adminSessionSecret: 's', signinChallengeKey: 'c', invites: inv });
   for (const code of inv.codes) assert.ok(!text.includes(code) && !text.includes(canonicalInvite(code)));
   assert.match(text, /^WEBAUTHN_ORIGIN=http:\/\/localhost:8090,http:\/\/localhost:3100$/m);
   assert.match(text, /^ADMIN_ORIGIN=http:\/\/localhost:3100$/m);
@@ -153,6 +153,8 @@ test('init: writes two 0600 files, prints no secret, refuses to overwrite withou
     assert.match(env.ADMIN_SESSION_SECRET, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(Buffer.from(env.ADMIN_SESSION_SECRET, 'base64url').length, 32);
     assert.equal(env.IDENTITY_FOUNDER_INVITE_HASHES.split(',').length, 2);
+    assert.equal(Buffer.from(env.IDENTITY_SIGNIN_CHALLENGE_KEY, 'base64url').length, 32);
+    assert.equal(env.IDENTITY_SIGNIN_CHALLENGE_BITS, '12');
     assert.ok(!('IDENTITY_FOUNDER_NITRO_USER_ID' in env), 'pair is only written after enrolment');
     assert.deepEqual(
       secrets.founders.map((f) => f.key),

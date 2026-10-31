@@ -18,6 +18,7 @@ import { LinkButton, MoneyFailure, TestBanner, payoutName, useTestMode } from '.
 import { mc } from './copy';
 import { amountFor, hasHiddenDigits, roundedDecimal } from './model';
 import { ReserveCard } from './Reserve';
+import { AllBalances } from './AllBalances';
 import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
@@ -37,12 +38,15 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
   const snapshot = useResource((s) => portal.snapshot(merchantId, 'today', s), `money:snapshot:${merchantId}`);
   const reserve = useResource((s) => portal.reserve(merchantId, s), `money:reserve:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
+  // svc-pay's own list of the assets this business settles in, each with its ledger figures (J-merchant-07 #1).
+  const enabled = useResource((s) => portal.settlementAssets(merchantId, s), `money:settlement-assets:${merchantId}`);
   // The same read Settlements and Payouts use, so "ready" and "waiting" are the same figures on every page.
   const picture = usePayoutPicture(portal, merchantId);
   const reload = () => {
     snapshot.reload();
     reserve.reload();
     halts.reload();
+    enabled.reload();
     picture.reload();
   };
   return (
@@ -58,9 +62,12 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           const assets = data.balances.map((b) => b.assetCode);
           if (assets.length === 0)
             return (
-              <EmptyState title={t('balEmptyTitle')} action={<LinkButton href="/pay/links/new">{t('balEmptyAction')}</LinkButton>}>
-                {t('balEmptyBody')}
-              </EmptyState>
+              <>
+                <EmptyState title={t('balEmptyTitle')} action={<LinkButton href="/pay/links/new">{t('balEmptyAction')}</LinkButton>}>
+                  {t('balEmptyBody')}
+                </EmptyState>
+                <AllBalances held={[]} enabled={enabled.resource} retry={enabled.reload} test={test} />
+              </>
             );
           const asset = assets.includes(picked) ? picked : assets[0]!;
           const places = moneyPlaces(asset);
@@ -151,27 +158,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   },
                 ]}
               />
-              <PaySection title={t('balAllTitle')}>
-                <EntityList
-                  label={t('balAllTitle')}
-                  rows={data.balances}
-                  rowKey={(b) => b.assetCode}
-                  columns={[
-                    { header: t('colAsset'), cell: (b) => b.assetCode },
-                    { header: t('balAvailable'), cell: (b) => <MoneyText value={b.available} asset={b.assetCode} test={test} /> },
-                    { header: t('balClearing'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
-                  ]}
-                  card={(b) => ({
-                    title: b.assetCode,
-                    amount: <MoneyText value={b.available} asset={b.assetCode} test={test} />,
-                    status: (
-                      <span className="muted">
-                        {t('balClearing')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
-                      </span>
-                    ),
-                  })}
-                />
-              </PaySection>
+              <AllBalances held={data.balances} enabled={enabled.resource} retry={enabled.reload} test={test} />
               <StillClearing portal={portal} merchantId={merchantId} test={test} />
               <OnTheWay resource={picture.resource} approvals={approvalMap} retry={picture.reload} test={test} />
               <RecentMovements portal={portal} merchantId={merchantId} asset={asset} test={test} />
