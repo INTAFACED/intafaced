@@ -42,6 +42,21 @@ describe('outcome markets wire (MC-predict-01)', () => {
     expect(outcomeMarketSummarySchema.safeParse(market({ lastPrice: 0.62 })).success).toBe(false);
   });
 
+  it('lets only a draft lack its source, publish time or rules', () => {
+    expect(outcomeMarketSummarySchema.safeParse(market({ settlementSource: null })).success).toBe(false);
+    expect(outcomeMarketSummarySchema.safeParse(market({ publishedAt: null })).success).toBe(false);
+    expect(outcomeMarketSummarySchema.safeParse(market({ status: 'draft', settlementSource: null, publishedAt: null })).success).toBe(true);
+    const detail = (status: string, rulesText: string | null) => ({
+      market: market({ status }),
+      rulesText,
+      rulesVersion: 1,
+      timeline: [],
+      clarifications: [],
+    });
+    expect(outcomeMarketDetailSchema.safeParse(detail('open', null)).success).toBe(false);
+    expect(outcomeMarketDetailSchema.safeParse(detail('open', 'TEST rules')).success).toBe(true);
+  });
+
   it("refuses instruments that are not the market's own Yes and No", () => {
     const wrong = [
       { outcome: 'yes', symbol: 'other:YES' },
@@ -60,11 +75,14 @@ describe('outcome markets wire (MC-predict-01)', () => {
     expect(outcomeMarketListQuerySchema.safeParse({ sort: 'trending' }).success).toBe(false);
     expect(outcomeMarketListQuerySchema.safeParse({ limit: 20, status: 'draft' }).success).toBe(false);
     expect(outcomeMarketListQuerySchema.safeParse({ limit: 20, sort: 'returns' }).success).toBe(false);
+    for (const limit of ['0x14', '1e1', true, '0', 0, -1])
+      expect(outcomeMarketListQuerySchema.safeParse({ limit }).success, String(limit)).toBe(false);
+    expect(outcomeMarketListQuerySchema.parse({ limit: '20', cursor: 'abc' })).toMatchObject({ limit: 20, cursor: 'abc' });
   });
 
   it('carries the rules, the timeline and the clarifications, with unset rules as null', () => {
     const detail = {
-      market: market(),
+      market: market({ status: 'draft', publishedAt: null }),
       rulesText: null,
       rulesVersion: 0,
       timeline: [{ ordinal: 1, move: 'created', at: '2026-10-30T00:00:00Z', actorId: 'founder-a' }],

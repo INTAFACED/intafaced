@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { decimalString } from './instruments.js';
 
 /**
- * Wire types for Predict's outcome-market catalogue (MC-predict-01, J-more-catalogue-15 #1 to #3), version 1: svc-trade's
- * `GET /api/v1/outcomes/markets` (the list, filtered and capped) and `GET /api/v1/outcomes/markets/:marketId` (one market
- * with its rules, timeline of moves and clarifications). A market is metadata over two instruments of the one order book
+ * Wire types for Predict's outcome-market catalogue (MC-predict-01, J-more-catalogue-15 #1 to #3), version 1: the shapes
+ * svc-trade's `GET /api/v1/outcomes/markets` moves to from today's bare array (the list, filtered, capped and paged) and its
+ * new `GET /api/v1/outcomes/markets/:marketId` (one market with its rules, timeline of moves and clarifications). A market is metadata over two instruments of the one order book
  * (`<id>:YES`, `<id>:NO`); it holds no value and no second book. A price is only what the book's last trade carried, as a
  * decimal string; a market with no trade has none. Publishing waits for the owner's determination decision (E-1) and
  * refuses `owner.decision` until then; no sample market exists, and a TEST market exists only through the publish path.
@@ -28,19 +28,30 @@ export const OUTCOME_MARKET_SORTS = ['closing_soon', 'newest', 'trending'] as co
 export type OutcomeMarketSort = (typeof OUTCOME_MARKET_SORTS)[number];
 
 export const OUTCOME_MARKET_REFUSALS = [
+  // Already sent by svc-trade's outcome doors (services/svc-trade/src/outcomes/outcome-market.ts, outcomes-rest.ts).
+  'trade.outcome_id_invalid',
+  'trade.outcome_question_invalid',
+  'trade.outcome_close_at_invalid',
+  'trade.outcome_settlement_asset_unset',
+  /** A market whose settlement source is blank is never published; the screen says "not set". */
+  'trade.outcome_settlement_source_unset',
+  'trade.outcome_market_closed',
+  'trade.outcome_order_invalid',
+  // New with the stored catalogue.
   /** The owner has not published the list's page size: the list refuses rather than pick one. */
   'trade.outcome_markets_list_limit_unset',
   /** The asked page is larger than the owner's page size. */
   'trade.outcome_markets_list_limit_exceeded',
   'trade.outcome_market_not_found',
-  /** A market whose rules text or settlement source is blank is never published; the screen says "not set". */
+  /** A market whose rules text is blank is never published; the screen says "not set". */
   'trade.outcome_rules_unset',
   /** The market's Yes or No instrument is not registered against matching (MC-predict-02). */
   'trade.outcome_instrument_unregistered',
   /** The move is not allowed from the market's current status. */
   'trade.outcome_move_invalid',
-  /** The market moved since the operator read it (the expected ordinal is stale). */
+  /** The market moved since the operator read it: the expected ordinal is stale, or that ordinal holds a different move. */
   'trade.outcome_move_stale',
+  'trade.outcome_list_cursor_invalid',
 ] as const;
 export type OutcomeMarketRefusal = (typeof OUTCOME_MARKET_REFUSALS)[number];
 
@@ -62,9 +73,15 @@ export const outcomeMarketIdSchema = marketId;
 const tag = z.string().trim().min(1).max(OUTCOME_TAG_MAX);
 const iso = z.string().datetime({ offset: true });
 
+/** An at_time market has a close time; an on_outcome market has none. */
+const closeMatchesMode = (m: { closeMode: OutcomeCloseMode; closeAt: string | null }) =>
+  (m.closeMode === 'at_time') === (m.closeAt !== null);
+const CLOSE_MODE_MESSAGE = 'an at_time market has a close time and an on_outcome market has none';
+
+/** The refinements below pin the symbols to `<id>:YES` and `<id>:NO`. */
 export const outcomeInstrumentsSchema = z.tuple([
-  z.object({ outcome: z.literal('yes'), symbol: z.string().min(1) }),
-  z.object({ outcome: z.literal('no'), symbol: z.string().min(1) }),
+  z.object({ outcome: z.literal('yes'), symbol: z.string() }),
+  z.object({ outcome: z.literal('no'), symbol: z.string() }),
 ]);
 
 /** One market as the catalogue lists it. */
@@ -89,8 +106,10 @@ export const outcomeMarketSummarySchema = z
     tradeCount: z.number().int().nonnegative(),
     publishedAt: iso.nullable(),
   })
-  .refine((m) => (m.closeMode === 'at_time') === (m.closeAt !== null), {
-    message: 'an at_time market has a close time and an on_outcome market has none',
+  .refine(closeMatchesMode, { message: CLOSE_MODE_MESSAGE })
+  // Only a draft may lack its source or publish time: publish refuses a blank source.
+  .refine((m) => m.status === 'draft' || (m.settlementSource !== null && m.publishedAt !== null), {
+    message: 'a published market has its settlement source and publish time',
   })
   .refine((m) => m.instruments[0].symbol === `${m.id}:YES` && m.instruments[1].symbol === `${m.id}:NO`, {
     message: "a market's instruments are <id>:YES and <id>:NO",
@@ -115,16 +134,19 @@ export const outcomeClarificationSchema = z.object({
 export type OutcomeClarification = z.infer<typeof outcomeClarificationSchema>;
 
 /** One market with everything its page shows: what is measured, its rules, the moves and the clarifications. */
-export const outcomeMarketDetailSchema = z.object({
-  market: outcomeMarketSummarySchema,
-  /** The rules as published; null while unset (the screen says "not set"). */
-  rulesText: z.string().min(1).max(OUTCOME_RULES_MAX).nullable(),
-  rulesVersion: z.number().int().nonnegative(),
-  /** Oldest first. */
-  timeline: z.array(outcomeTimelineEntrySchema),
-  /** Newest first. */
-  clarifications: z.array(outcomeClarificationSchema),
-});
+export const outcomeMarketDetailSchema = z
+  .object({
+    market: outcomeMarketSummarySchema,
+    /** The rules as published; null while unset (the screen says "not set"). */
+    rulesText: z.string().min(1).max(OUTCOME_RULES_MAX).nullable(),
+    rulesVersion: z.number().int().nonnegative(),
+    /** Oldest first. */
+    timeline: z.array(outcomeTimelineEntrySchema),
+    /** Newest first. */
+    clarifications: z.array(outcomeClarificationSchema),
+  })
+  // Publish refuses blank rules, so only a draft has none.
+  .refine((d) => d.market.status === 'draft' || d.rulesText !== null, { message: 'a published market has its rules text' });
 export type OutcomeMarketDetail = z.infer<typeof outcomeMarketDetailSchema>;
 
 /** The list read's query. `limit` is required and may not exceed the owner's page size. */
@@ -135,15 +157,24 @@ export const outcomeMarketListQuerySchema = z
     q: z.string().trim().min(1).max(OUTCOME_SEARCH_MAX).optional(),
     status: z.enum(OUTCOME_MARKET_STATUSES).exclude(['draft']).optional(),
     sort: z.enum(OUTCOME_MARKET_SORTS).optional(),
-    limit: z.coerce.number().int().positive(),
+    // A query string carries digits; a JSON body carries a number. Nothing else is read as a limit.
+    limit: z.union([
+      z.number().int().positive(),
+      z
+        .string()
+        .regex(/^[1-9]\d{0,5}$/)
+        .transform(Number),
+    ]),
+    /** The `nextCursor` of the previous page, as the service wrote it. */
+    cursor: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type OutcomeMarketListQuery = z.infer<typeof outcomeMarketListQuerySchema>;
 
 export const outcomeMarketListSchema = z.object({
   markets: z.array(outcomeMarketSummarySchema),
-  /** True when the page is full, so more markets may match. */
-  full: z.boolean(),
+  /** Where the next page starts, or null when this page holds the last match. */
+  nextCursor: z.string().min(1).max(200).nullable(),
 });
 export type OutcomeMarketList = z.infer<typeof outcomeMarketListSchema>;
 
@@ -164,12 +195,14 @@ export const outcomeMarketDraftInputSchema = z
     rulesText: z.string().trim().min(1).max(OUTCOME_RULES_MAX).nullable(),
   })
   .strict()
-  .refine((d) => (d.closeMode === 'at_time') === (d.closeAt !== null), {
-    message: 'an at_time market has a close time and an on_outcome market has none',
-  });
+  .refine(closeMatchesMode, { message: CLOSE_MODE_MESSAGE });
 export type OutcomeMarketDraftInput = z.infer<typeof outcomeMarketDraftInputSchema>;
 
-/** A move on a market, idempotent on `(market, expectedOrdinal + 1)` (`outcomes:move:<market>:<ordinal>`). */
+/**
+ * A move on a market, stored at ordinal `expectedOrdinal + 1` under `outcomes:move:<market>:<ordinal>`. The same move sent
+ * again at that ordinal returns the first result; a different move at an ordinal already taken refuses
+ * `trade.outcome_move_stale`, never another move's result.
+ */
 export const outcomeMarketMoveInputSchema = z
   .object({
     marketId: marketId,
