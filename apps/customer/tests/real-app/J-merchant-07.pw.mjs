@@ -786,6 +786,10 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
   // The net is above the TEST tier's approval limit (10 USDT), so a second person on the team approves before it is
   // sent: svc-pay refuses an owner approving their own request. The finance teammate the journey starts with does.
   expect(scaled(posted.net) >= scaled('10')).toBe(true);
+  const availableBefore = (
+    await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })
+  ).balances.find((b) => b.assetCode === 'USDT').available;
+  expect(scaled(availableBefore) >= scaled(posted.net), 'the net is available to pay out').toBe(true);
   const finance = await financeTeammate(page);
   const refused = refusedPayCalls(page);
 
@@ -866,14 +870,33 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
   await expect(page.getByText('The payout has been sent.')).toBeVisible();
   await expect(confirm).toHaveCount(0);
 
-  // One payout: the settlement is paid out once, with the rail's reference, and the approval was used for it.
+  // One payout: the settlement is paid out once, with the rail's reference.
   const paid = await api.query('settlement.get', { settlementId: settlement });
   expect(paid).toMatchObject({ id: settlement, status: 'paid_out', net: posted.net });
   expect(paid.payoutRef, 'the rail reference of the payout').toBeTruthy();
+  // The ledger moved the whole net out once: available is down by exactly the net. Asked again through the API, with a
+  // fresh payout confirmation, nothing moves.
+  const usdt = async () =>
+    (await api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } })).balances.find(
+      (b) => b.assetCode === 'USDT',
+    );
+  await expect.poll(async () => scaled((await usdt()).available)).toBe(scaled(availableBefore) - scaled(posted.net));
+  const after = await usdt();
+  const again = await nextCode(owner.totp, owner.secret, code.step);
+  run.write({ owner: saved({ ...owner, step: again.step }) });
+  const payer = await api.steppedUp(merchantId, ['pay:payout'], again.code);
+  // Refused, or answered as the same paid-out record: either way it is not a second payout, which the reads below prove.
+  await payer.mutate('settlement.payout', { settlementId: settlement, railId: 'crypto-native' }).catch(() => null);
+  expect(await api.query('settlement.get', { settlementId: settlement })).toEqual(paid);
+  expect(await usdt()).toEqual(after);
+  // svc-pay's approval gate used the approval for this payout (control/approval-gate.ts). It runs only with merchant
+  // controls on, so this stays red by name while the TEST stack runs them off (PAY_MERCHANT_CONTROLS unset under
+  // APP_ENV dev; the stack change that turns them on is the shared harness's).
   expect(
     (await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items
       .filter((a) => a.settlementId === settlement)
       .map((a) => a.status),
+    'the approval used by the payout admission (needs PAY_MERCHANT_CONTROLS=required on the stack)',
   ).toEqual(['consumed']);
 
   // The receipt: the payout's own page, from the confirmation, with the amount, the status and its reference.
