@@ -19,6 +19,7 @@ import {
 } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
+import { P2PBlocker } from './p2p-blocker';
 import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
@@ -132,6 +133,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <PayCopy k="tradingAccess" />
         </a>
       </nav>
+      <P2PBlocker pay={pay} />
       {current === '/chat' && !tradeId ? (
         <EmptyState
           title={p2pDepth.t('chatPickTitle')}
