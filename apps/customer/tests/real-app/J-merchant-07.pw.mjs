@@ -84,11 +84,20 @@ const PRICED_FEE_TEXT = '2.50% from 0.00 USDT · 1.50% + 0.30 USDT from 10,000.0
 const calculator = (page) =>
   page.getByTestId('pay-section').filter({ has: page.getByRole('heading', { name: 'Fee calculator', level: 2 }) });
 
-/** The TEST settlement the stack posts to the business, read back as its row on Settlements. */
-function postedSettlement() {
+/**
+ * A second posted TEST settlement, for #8: svc-pay posts one settlement per business, asset and UTC day, and #7 pays out
+ * #2's USDT one, so this one is USDC, through the service (D's ruling, 31 Oct). A TEST card payment, its funds reported
+ * available by the stack's TEST acquirer, then the day's USDC run. The payment's key names it, so a retried step finds
+ * the same payment and the run's business key the same settlement.
+ */
+async function secondAssetSettlement(api) {
   const { merchantId } = journey();
-  const out = tool('local-test-world.mjs', 'merchant-settlement', merchantId, '--net', '100', '--asset', 'USDT');
-  return /settlement\s+([0-9a-f-]{36})/.exec(out)?.[1];
+  const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:usdc:${merchantId}`, amount: '30.00', assetId: 'USDC' });
+  expect(paid.status, 'the TEST USDC payment is captured').toBe('captured');
+  tool('local-test-stack.mjs', 'card-funds', paid.id, 'available');
+  const posted = await api.mutate('settlement.run', { merchantId, window: new Date().toISOString().slice(0, 10), assetId: 'USDC' });
+  expect(posted).toMatchObject({ merchantId, assetId: 'USDC', status: 'posted' });
+  return posted;
 }
 
 test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business; with balances, clearing and available and a reserve card "recorded, not withheld"`, async ({
@@ -934,22 +943,72 @@ test(`${J} #7 confirms with a fresh step-up and sends: one payout with a receipt
 test(`${J} #8 a finance teammate asks for the same: they request an approval and cannot send or refund; the owner approves`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
-  expect(postedSettlement(), 'a TEST settlement for the teammate to ask about').toBeTruthy();
-  // The finance teammate the journey starts with (#7 made them).
+  test.setTimeout(600_000);
+  const { merchantId } = journey();
+  const api = await ownerApi();
+  const posted = await secondAssetSettlement(api);
+  // Above the approval limit, so the request waits for a second person: here the owner, as the teammate asked.
+  const requests = async () =>
+    (await api.query('merchantControl.approvals.list', { merchantId, limit: 50 })).items.filter((a) => a.settlementId === posted.id);
   const finance = await financeTeammate(page);
-  await signInWithCode(page, finance, '/pay/team');
-  run.write({ finance: { ...saved(finance), userId: finance.userId } });
-  await page.goto('/pay/payouts/new');
-  await page.getByLabel('Destination').selectOption({ index: 1 });
-  await page.getByRole('button', { name: 'Pay out' }).click();
-  await expect(page.getByText('Your request is with your team for approval.').first()).toBeVisible();
-  await page.goto('/pay/refunds');
-  await expect(page.getByText('Only the account owner can refund payments.').first()).toBeVisible();
+  const refused = refusedPayCalls(page);
+
+  // The finance teammate asks for the payout of the whole settlement: confirmed with their own code, it goes to the team.
+  if (!(await requests()).some((a) => a.status === 'pending' || a.status === 'approved')) {
+    await signInWithCode(page, finance, '/pay/payouts');
+    run.write({ finance: { ...saved(finance), userId: finance.userId } });
+    await page.goto(`/pay/payouts/new?settlement=${posted.id}`);
+    await expect(page.getByLabel('Settlement')).toHaveValue(posted.id);
+    const main = page.getByRole('main');
+    await expect(factIn(main, 'Amount')).toHaveText(new RegExp(`^${shown(posted.net).replace(/[.,]/g, '\\$&')} USDC( TEST)?$`));
+    await main.getByRole('button', { name: 'Pay out', exact: true }).click();
+    const confirm = page.getByRole('dialog', { name: "Confirm it's you" });
+    const code = await nextCode(finance.totp, finance.secret, finance.step);
+    run.write({ finance: { ...saved({ ...finance, step: code.step }), userId: finance.userId } });
+    await confirm.getByLabel('6-digit code from your authenticator app').fill(code.code);
+    await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Review: Pay out' }).getByRole('button', { name: 'Pay out', exact: true }).click();
+    await expect(page.getByText('Your request is with your team for approval.').first()).toBeVisible();
+    // They cannot refund: the owner alone does.
+    await page.goto('/pay/refunds');
+    await expect(page.getByText('Only the account owner can refund payments.').first()).toBeVisible();
+    await forgetSession(page);
+  }
+  const asked = (await requests()).find((a) => a.status === 'pending' || a.status === 'approved');
+  expect(asked, 'the teammate’s request').toBeTruthy();
+  expect(asked).toMatchObject({
+    makerUserId: finance.userId,
+    amount: expect.stringMatching(new RegExp(`^${posted.net.replace('.', '\\.')}0*$`)),
+  });
+
+  const settlementBefore = await api.query('settlement.get', { settlementId: posted.id });
+  expect(settlementBefore.status).toBe('posted');
+
+  // The owner approves it on Payout approvals, with a reason; approving does not send.
+  if (asked.status === 'pending') {
+    await signInOwner(page, '/pay/approvals');
+    await page.getByRole('region', { name: 'Payout approvals' }).locator(`a[href="/pay/payouts/${posted.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/pay/payouts/${posted.id}$`));
+    await page.getByLabel('Your reason *').fill('TEST checked the destination');
+    await page.getByRole('main').getByRole('button', { name: 'Approve payout' }).click();
+    const approving = page.getByRole('dialog', { name: 'Review: Approve payout' });
+    await expect(approving).toContainText('It does not send it');
+    await approving.getByRole('button', { name: 'Approve payout' }).click();
+    await expect(page.getByRole('note').filter({ hasText: 'The money has not been sent yet.' })).toBeVisible();
+  }
+  const decided = (await requests()).find((a) => a.approvalId === asked.approvalId);
+  expect(decided).toMatchObject({ status: 'approved', makerUserId: finance.userId, checkerUserId: expect.any(String) });
+  expect(decided.checkerUserId, 'the owner decided, not the teammate who asked').not.toBe(finance.userId);
+  expect(await api.query('settlement.get', { settlementId: posted.id }), 'approving sent nothing').toEqual(settlementBefore);
   await forgetSession(page);
 
-  await signInOwner(page, '/pay/approvals');
-  await page.getByLabel('Your reason *').fill('TEST checked the destination');
-  await page.getByRole('button', { name: 'Approve payout' }).click();
-  await expect(page.getByText('Approved, not sent yet').first()).toBeVisible();
+  // Approved, the teammate still cannot send: the page says only the owner sends and offers no send control.
+  await signInWithCode(page, finance, '/pay/payouts');
+  run.write({ finance: { ...saved(finance), userId: finance.userId } });
+  await page.goto(`/pay/payouts/new?settlement=${posted.id}`);
+  await expect(page.getByLabel('Settlement')).toHaveValue(posted.id);
+  await expect(page.getByText('Only the account owner can send a payout.').first()).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Send this payout', exact: true })).not.toBeEnabled();
+  expect(await api.query('settlement.get', { settlementId: posted.id })).toEqual(settlementBefore);
+  expect(refused).toEqual([]);
 });
