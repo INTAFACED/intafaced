@@ -270,38 +270,33 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   const limits = a.getByTestId('account-limits');
   await expect(limits).toContainText('identity.account_archived');
   await expect(limits.locator('#limit-asset')).toHaveCount(0);
-  // Freeze and unfreeze: the record is closed and restricted, so neither the restrict form nor the unfreeze desk is
-  // offered as a live control, and the read-only note names both.
+  // Freeze and unfreeze: the record is closed and restricted, so the restrict form is not offered, and the unfreeze desk is
+  // drawn switched off, saying identity.account_archived (#6981); the read-only note names both.
   await expect(a.getByTestId('account-readonly-note')).toContainText('cannot be frozen, unfrozen');
   await expect(a.getByTestId('account-closed-note')).toContainText('there is no freeze to lift');
   await expect(a.getByRole('button', { name: /^(Restrict|Restore) access/ })).toHaveCount(0);
+  const unfreeze = a.getByTestId('account-unfreeze');
+  await expect(unfreeze.getByRole('button', { name: 'Restore unavailable' })).toBeDisabled();
+  await expect(unfreeze.getByTestId('control-blocked')).toContainText('identity.account_archived');
+  await expect(unfreeze.getByTestId('request-form')).toHaveCount(0);
 
   // Releasing an existing hold is the one edit the archive leaves on (lead's ruling 2026-10-31: no money is stranded). The
-  // release and confirm desks are drawn with their request forms, nothing on them is switched off by the archive or names
-  // it, and the hold picker and amount still take input; their request buttons wait only for a hold to be chosen.
+  // release desk is drawn with its request form, nothing on it is switched off by the archive or names it, and the hold
+  // picker and amount still take input; its request button waits only for a hold to be chosen.
   const releaseArea = a.getByTestId('account-holds');
   await expect(releaseArea.getByLabel('Hold', { exact: true })).toBeEnabled();
   await expect(releaseArea.getByLabel('Amount to release')).toBeEnabled();
-  for (const [id, heading] of [
-    ['hold-release', 'Release part or all of the hold'],
-    ['hold-confirm', 'Confirm the hold'],
-  ]) {
-    const desk = a.getByTestId(id);
-    await expect(desk.getByTestId('request-form')).toBeVisible();
-    await expect(desk.getByRole('heading', { name: heading })).toBeVisible();
-    await expect(desk.getByTestId('control-blocked')).toHaveCount(0);
-    await expect(desk).not.toContainText('identity.account_archived');
-    await expect(desk).toContainText('Choose a hold that still holds something.');
-  }
-
-  // The freeze/unfreeze desk is drawn switched off on an archived record, saying identity.account_archived (#6981). It
-  // stays a by-name check until #6981 is on main: a console without it draws only a note there.
-  await expect
-    .soft(
-      a.getByTestId('account-unfreeze').getByRole('button', { name: 'Restore unavailable' }),
-      'the freeze/unfreeze desk is shown, disabled, saying identity.account_archived: it needs #6981 (the archived record draws the unfreeze desk disabled)',
-    )
-    .toBeVisible({ timeout: 5_000 });
+  const release = a.getByTestId('hold-release');
+  await expect(release.getByTestId('request-form')).toBeVisible();
+  await expect(release.getByRole('heading', { name: 'Release part or all of the hold' })).toBeVisible();
+  await expect(release.getByTestId('control-blocked')).toHaveCount(0);
+  await expect(release).not.toContainText('identity.account_archived');
+  await expect(release).toContainText('Choose a hold that still holds something.');
+  // Confirming a hold moves the held money onward, a new movement, so the archive switches it off and says why.
+  const confirmDesk = a.getByTestId('hold-confirm');
+  await expect(confirmDesk.getByRole('button', { name: 'Confirm unavailable' })).toBeDisabled();
+  await expect(confirmDesk.getByTestId('control-blocked')).toContainText('identity.account_archived');
+  await expect(confirmDesk.getByTestId('request-form')).toHaveCount(0);
 
   // Identity refuses a reopen two founders approved, and the person stays out.
   const archived = await archiveState(a, userId);
