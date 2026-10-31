@@ -91,10 +91,11 @@ describe('token views carry a gas cap', () => {
       () => null,
       (e: unknown) => e,
     );
-    expect(err).toMatchObject({ code: expect.stringMatching(/^protocol\./) });
+    // The node answered, so this is not an absent contract; "no usable answer" is the existing classification.
+    expect(err).toMatchObject({ code: 'protocol.chain_unreachable' });
     expect(String((err as { cause?: { name?: string } }).cause?.name)).toBe('ContractFunctionExecutionError');
     // A malformed allowance is unread (rejects), not a revert read as null.
-    await expect(chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).rejects.toBeTruthy();
+    await expect(chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).rejects.toMatchObject({ code: 'protocol.chain_unreachable' });
   });
 
   it('a token that reverts on allowance still reads as a revert (null), not an outage', async () => {

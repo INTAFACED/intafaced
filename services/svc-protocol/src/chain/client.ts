@@ -194,7 +194,7 @@ export class ProtocolChain {
         gas: TOKEN_READ_GAS,
         ...(blockNumber === undefined ? {} : { blockNumber }),
       });
-      return decodeFunctionResult({ abi, functionName, data: data ?? '0x' } as Parameters<typeof decodeFunctionResult>[0]) as T;
+      return decodeFunctionResult({ abi, functionName, args, data: data ?? '0x' } as Parameters<typeof decodeFunctionResult>[0]) as T;
     } catch (err) {
       throw getContractError(err as BaseError, { abi, address: token, args: [...args], functionName });
     }
