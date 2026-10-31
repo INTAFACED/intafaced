@@ -9,7 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { SessionProvider } from '../session/session';
-import { AssignmentBrief, AssignmentGrade, AssignmentSubmissions, byteSize } from './AcademyAssignment';
+import { AssignmentBrief, AssignmentGrade, AssignmentSubmissions, byteSize, percentOf } from './AcademyAssignment';
 import { academyRefusalKey } from './academy-flows';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
@@ -24,7 +24,7 @@ const VIEW: AcademyAssignmentView = {
   dueAt: '2026-10-25T12:00:00.000Z',
   text: 'required',
   file: 'optional',
-  lateRule: null,
+  latePolicy: null,
   fileLimits: { maxBytes: 1_048_576, types: ['application/pdf', 'image/png'] },
   withdrawnAt: null,
   submissions: [],
@@ -41,6 +41,21 @@ describe('an assignment page (AC-assignments-01)', () => {
     expect(out).toContain('Late rule: this course has none.');
     expect(out).toContain('Worth 10 points');
     expect(out).toContain('href="/academy/learning/course/risk-basics"');
+  });
+
+  it("states the course's late rule in words, the share as a percentage worked out in digits (ENGINE GR-5)", () => {
+    const out = html(<AssignmentBrief data={{ ...VIEW, latePolicy: { graceHours: '24', deductionPerDay: '0.1' } }} />);
+    expect(out).toContain(
+      'Late rule: 24 hours of grace after the due date, then 10% of the points off for each started day late, never below 0.',
+    );
+    expect(out).not.toContain('this course has none');
+    expect([percentOf('0.1'), percentOf('0.0333'), percentOf('1'), percentOf('0.25'), percentOf('1.0000')]).toEqual([
+      '10',
+      '3.33',
+      '100',
+      '25',
+      '100',
+    ]);
   });
 
   it('shows the learner their own later due date with the reason, and nothing when they have none (AC-release-access-02)', () => {
@@ -96,6 +111,7 @@ describe('a grade on an assignment page (AC-assignments-02)', () => {
     n: 1,
     score: '8',
     points: '10',
+    entered: null,
     comment: 'TEST Clear sizing.',
     gradedAt: '2026-10-24T10:00:00.000Z',
     readAt: null,
@@ -109,6 +125,12 @@ describe('a grade on an assignment page (AC-assignments-02)', () => {
     const read = html(<AssignmentGrade grade={{ ...GRADE, readAt: '2026-10-24T11:00:00.000Z' }} marking={false} onMarkRead={() => {}} />);
     expect(read).toContain('You read this feedback');
     expect(read).not.toContain('Mark as read');
+    expect(out).not.toContain('late rule');
+  });
+  it('shows a late score with the grade staff entered beside it', () => {
+    const out = html(<AssignmentGrade grade={{ ...GRADE, score: '6', entered: '8' }} marking={false} onMarkRead={() => {}} />);
+    expect(out).toContain('6 of 10 points');
+    expect(out).toContain('Entered as 8; the late rule took points off.');
   });
   it('says when there is no grade and when a grade has no comment, and words a missing grade refusal', () => {
     expect(html(<AssignmentGrade grade={null} marking={false} onMarkRead={() => {}} />)).toContain('Ungraded');

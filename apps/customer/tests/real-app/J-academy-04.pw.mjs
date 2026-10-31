@@ -53,6 +53,25 @@ function tomorrow() {
 
 const trpc = (procedure) => `/api/academy/trpc/${procedure}`;
 
+/** Founder A sets the course's late policy on its gradebook page, as staff would. */
+async function setLatePolicy(browser, graceHours, deductionPerDay) {
+  const desk = await console_(browser);
+  await desk.goto(run.courseUrl.replace('/catalogue/courses/', '/catalogue/gradebook/'));
+  await desk.waitForLoadState('networkidle');
+  const form = desk.getByTestId('late-policy');
+  await expect(desk.getByTestId('late-policy-now')).toHaveText('Not set: nothing is taken off a late hand-in.');
+  await form.getByLabel('Grace hours', { exact: true }).fill(graceHours);
+  await form.getByLabel('Deduction per day', { exact: true }).fill(deductionPerDay);
+  await form.getByLabel('Late policy reason', { exact: true }).fill(`TEST ${J}: late hand-ins lose points`);
+  await expect(form.getByLabel('Deduction per day', { exact: true })).toHaveValue(deductionPerDay);
+  await form.getByRole('button', { name: 'Save late policy', exact: true }).click();
+  await expect(desk.getByTestId('course-desk-outcome')).toContainText('Done: late policy saved');
+  await expect(desk.getByTestId('late-policy-now')).toContainText(
+    `Revision 1: ${graceHours} hours of grace after the due date, then ${deductionPerDay} of the points off for each started day late.`,
+  );
+  await desk.context().close();
+}
+
 /** The caller's own view of the assignment, read through the customer's API. */
 async function assignmentOf(who) {
   const res = await (await api(who)).get(`${trpc('assignment')}?input=${encodeURIComponent(JSON.stringify({ itemId: run.workItem }))}`);
@@ -147,8 +166,14 @@ test(`${J} #1 the assignment shows its brief, due date, what to hand in and the 
   const asks = box.getByTestId('assignment-asks');
   await expect(asks).toContainText('Text: required');
   await expect(asks).toContainText('File: required (application/pdf, image/png; up to 768 KiB)');
-  // The course has no late rule (gradebook setup is a later slice), and the page says so in words.
+  // Before staff set one, the course has no late rule and the page says so in words.
   await expect(box.getByTestId('assignment-late-rule')).toHaveText('Late rule: this course has none.');
+  // Staff give the course a late policy on its gradebook page (ENGINE GR-5); the learner's page states it in words.
+  await setLatePolicy(browser, '24', '0.1');
+  await page.reload();
+  await expect(box.getByTestId('assignment-late-rule')).toHaveText(
+    'Late rule: 24 hours of grace after the due date, then 10% of the points off for each started day late, never below 0.',
+  );
   await expect(box.getByTestId('assignment-submissions')).toHaveText('Nothing handed in yet.');
   await page.context().close();
 });

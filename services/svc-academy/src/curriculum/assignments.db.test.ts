@@ -213,7 +213,7 @@ describe('handing in work (AC-assignments-01)', () => {
     const { item } = await openAssignment({ file: 'off' });
     const view = await assignments().submit({ itemId: item.id, version: 1, text: 'Late answer', fileId: null, userId: L, now: AFTER_DUE });
     expect(view.submissions[0]).toMatchObject({ version: 1, late: true });
-    expect(view.lateRule).toBeNull();
+    expect(view.latePolicy).toBeNull();
     const [columns] = await db.sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM information_schema.columns
       WHERE table_schema = 'academy' AND table_name = 'assignment_submissions' AND column_name = 'late'

@@ -12,6 +12,7 @@ import { CourseLearners } from './course-learners.js';
 import { CourseQuizzes } from './course-quizzes.js';
 import { CourseAssignments } from './assignments.js';
 import { CourseGradebook } from './course-gradebook.js';
+import { AssignmentGrading } from './grading.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -191,7 +192,7 @@ describe('grading policy and gradebook (AC-assignments-04)', () => {
     await graded(ids.one, '4');
     await assignments().submit({ itemId: ids.one, version: 2, text: 'TEST second try', fileId: null, userId: L, now: NOW });
     const row = (await book().view(ids.courseId)).learners.find((l) => l.userId === L)!;
-    expect(row.items.find((i) => i.itemId === ids.one)).toEqual({ itemId: ids.one, state: 'pending', score: null });
+    expect(row.items.find((i) => i.itemId === ids.one)).toEqual({ itemId: ids.one, state: 'pending', score: null, entered: null });
   });
 
   it('refuses a lesson, an item in two types, a type that drops every score, and two types of one name', async () => {
@@ -227,6 +228,78 @@ describe('grading policy and gradebook (AC-assignments-04)', () => {
       operatorId: A,
       now: NOW,
     });
-    expect(await book().view(created.id)).toEqual({ courseId: created.id, policy: null, items: [], learners: [] });
+    expect(await book().view(created.id)).toEqual({ courseId: created.id, policy: null, latePolicy: null, items: [], learners: [] });
+  });
+});
+
+describe('late policy (AC-assignments-04, ENGINE GR-5)', () => {
+  it('saves over the revision read, lowers a late hand-in at read on every screen, keeps the entered grade, and clears', async () => {
+    const ids = await course();
+    // Assignment One was due three days before L handed it in.
+    await assignments().save({
+      itemId: ids.one,
+      revision: 1,
+      instructions: 'Size one trade.',
+      points: '10',
+      dueAt: new Date(NOW.getTime() - 72 * 3_600_000).toISOString(),
+      text: 'required',
+      file: 'off',
+      operatorId: A,
+      now: NOW,
+    });
+    await graded(ids.one, '8');
+    const late = (revision: number, policy: { graceHours: string; deductionPerDay: string } | null) =>
+      book().saveLatePolicy({ courseId: ids.courseId, revision, policy, reason: 'TEST', operatorId: A, now: NOW });
+    const cell = (view: Awaited<ReturnType<CourseGradebook['view']>>) =>
+      view.learners.find((l) => l.userId === L)!.items.find((i) => i.itemId === ids.one);
+
+    // No policy: nothing is taken off, and the learner sees "none".
+    expect(cell(await book().view(ids.courseId))).toEqual({ itemId: ids.one, state: 'graded', score: '0.8', entered: null });
+    expect((await assignments().learnerView({ itemId: ids.one, userId: L })).latePolicy).toBeNull();
+    // Clearing a course that has none writes nothing.
+    await late(0, null);
+    expect(await db.sql`SELECT 1 FROM academy.course_late_policy_events`).toHaveLength(0);
+
+    // 24 hours of grace, then 0.1 of the points per started day: 72 h late is 48 h past the grace, two days, 2 points off.
+    const saved = await late(0, { graceHours: '24', deductionPerDay: '0.1' });
+    expect(saved.latePolicy).toMatchObject({ revision: 1, policy: { graceHours: '24', deductionPerDay: '0.1' }, setBy: A, reason: 'TEST' });
+    expect(cell(saved)).toEqual({ itemId: ids.one, state: 'graded', score: '0.6', entered: '0.8' });
+    const mine = await assignments().learnerView({ itemId: ids.one, userId: L });
+    expect(mine.latePolicy).toEqual({ graceHours: '24', deductionPerDay: '0.1' });
+    expect(mine.grade).toMatchObject({ score: '6', points: '10', entered: '8' });
+    const [grades] = await new AssignmentGrading(db.sql, assignments(), 900).courseGrades(L);
+    expect(grades!.rows.find((r) => r.itemId === ids.one)).toMatchObject({ state: 'graded', score: '6', possible: '10' });
+    // The entered grade itself is untouched.
+    expect(await db.sql`SELECT score::text FROM academy.assignment_grade_events`).toEqual([{ score: '8.00' }]);
+
+    // A stale revision refuses; the same policy again writes no event.
+    await expect(late(0, { graceHours: '0', deductionPerDay: '1' })).rejects.toMatchObject({ code: 'academy.revision_stale' });
+    await late(1, { graceHours: '24.00', deductionPerDay: '0.1000' });
+    expect(await db.sql`SELECT revision FROM academy.course_late_policy_events`).toHaveLength(1);
+
+    // Cleared: the revision goes on, nothing is taken off, and the history keeps both saves.
+    const cleared = await late(1, null);
+    expect(cleared.latePolicy).toMatchObject({ revision: 2, policy: null });
+    expect(cell(cleared)).toEqual({ itemId: ids.one, state: 'graded', score: '0.8', entered: null });
+    expect((await assignments().learnerView({ itemId: ids.one, userId: L })).grade).toMatchObject({ score: '8', entered: null });
+    expect(
+      await db.sql`SELECT revision, grace_hours::text, deduction_per_day::text, actor_id FROM academy.course_late_policy_events ORDER BY revision`,
+    ).toEqual([
+      { revision: 1, grace_hours: '24.00', deduction_per_day: '0.1000', actor_id: A },
+      { revision: 2, grace_hours: null, deduction_per_day: null, actor_id: A },
+    ]);
+  });
+
+  it('refuses a course that does not exist', async () => {
+    await expect(
+      book().saveLatePolicy({
+        courseId: '77777777-7777-4777-8777-777777777777',
+        revision: 0,
+        policy: { graceHours: '1', deductionPerDay: '0.5' },
+        reason: 'TEST',
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_found' });
   });
 });

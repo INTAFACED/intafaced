@@ -166,6 +166,7 @@ describe('grading hand-ins (AC-assignments-02)', () => {
       n: 1,
       score: '8',
       points: '10',
+      entered: null,
       comment: 'Clear sizing.',
       gradedAt: NOW.toISOString(),
       readAt: null,

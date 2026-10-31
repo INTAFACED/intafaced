@@ -27,17 +27,18 @@ const book = (courseId: string): AcademyCourseGradebook => ({
     setAt: T1.toISOString(),
     reason: 'TEST',
   },
+  latePolicy: null,
   items: [{ itemId: ITEM, title: 'Size, a trade', kind: 'assignment' }],
   learners: [
     {
       userId: L,
-      items: [{ itemId: ITEM, state: 'graded', score: '0.8' }],
+      items: [{ itemId: ITEM, state: 'graded', score: '0.8', entered: null }],
       types: [{ name: 'Homework', average: '0.8', counted: [ITEM], dropped: [] }],
       total: '0.8',
     },
     {
       userId: M,
-      items: [{ itemId: ITEM, state: 'not_attempted', score: null }],
+      items: [{ itemId: ITEM, state: 'not_attempted', score: null, entered: null }],
       types: [{ name: 'Homework', average: null, counted: [], dropped: [] }],
       total: null,
     },
@@ -80,7 +81,7 @@ describe('grade report CSV', () => {
     const two = book('c');
     const OTHER = '99999999-9999-4999-8999-999999999999';
     two.items.push({ itemId: OTHER, title: 'Journal', kind: 'assignment' });
-    two.learners[0] = { ...two.learners[0]!, items: [{ itemId: OTHER, state: 'pending', score: null }, ...two.learners[0]!.items] };
+    two.learners[0] = { ...two.learners[0]!, items: [{ itemId: OTHER, state: 'pending', score: null, entered: null }, ...two.learners[0]!.items] };
     expect(gradeReportCsv(two, 1, T1).split('\r\n')[2]).toBe(`${L},0.8,pending,0.8,0.8`);
   });
 

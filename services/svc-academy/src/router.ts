@@ -125,6 +125,7 @@ import {
   academyCourseGradebookSchema,
   academyCourseGradebookInputSchema,
   academySaveGradingPolicyInputSchema,
+  academySaveLatePolicyInputSchema,
   academyCourseQuizAttemptSchema,
   academyAnswerCourseQuizInputSchema,
   academyFinishCourseQuizInputSchema,
@@ -3506,6 +3507,14 @@ export function createAcademyRouter(
         .output(academyCourseGradebookSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseGradebook.savePolicy({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-assignments-04 (ENGINE GR-5): the course's late policy, or null to clear it, over the revision read. */
+      saveLatePolicy: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveLatePolicyInputSchema)
+        .output(academyCourseGradebookSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseGradebook.saveLatePolicy({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
       /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */

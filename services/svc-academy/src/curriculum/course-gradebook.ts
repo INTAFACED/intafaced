@@ -9,14 +9,30 @@
  */
 import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
-import type { AcademyCourseGradebook, AcademyGradeType, AcademySaveGradingPolicyInput } from '@intafaced/contracts';
+import type {
+  AcademyCourseGradebook,
+  AcademyGradeType,
+  AcademySaveGradingPolicyInput,
+  AcademySaveLatePolicyInput,
+} from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { fractionOf, fractionText, typeAverage, weightedTotal, weightSum, type Fraction } from './course-gradebook-math.js';
 import { effectiveScoreSql } from './course-quiz-trail.js';
+import { dueFor } from './course-item-rules.js';
+import { canonicalPrice } from './courses.js';
+import { lateScore, policyOf } from './late-policy.js';
 
 type Db = Sql | TransactionSql;
 type ItemRow = { id: string; title: string; kind: 'assignment' | 'quiz'; scoring_policy: string | null };
-type Cell = { state: 'graded' | 'pending' | 'not_attempted'; score: Fraction | null };
+type Cell = { state: 'graded' | 'pending' | 'not_attempted'; score: Fraction | null; entered: Fraction | null };
+type LateRow = {
+  revision: number;
+  grace_hours: string | null;
+  deduction_per_day: string | null;
+  set_by: string;
+  set_at: Date;
+  reason: string;
+};
 
 /** A type as stored and read back: weights in canonical form, item ids in order. */
 const normal = (types: readonly AcademyGradeType[]): AcademyGradeType[] =>
@@ -99,6 +115,41 @@ export class CourseGradebook {
     });
   }
 
+  /**
+   * The late policy (ENGINE GR-5), or null to clear it, over the revision read. A repeat of the stored policy answers it
+   * unchanged; every change is an event row with who and why. The gradebook comes back worked out under it.
+   */
+  async saveLatePolicy(input: AcademySaveLatePolicyInput & { operatorId: string; now: Date }): Promise<AcademyCourseGradebook> {
+    return this.sql.begin(async (tx) => {
+      const [course] = await tx`SELECT id FROM academy.courses WHERE id = ${input.courseId} FOR UPDATE`;
+      if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
+      const [stored] = await tx<LateRow[]>`
+        SELECT revision, grace_hours::text, deduction_per_day::text, set_by, set_at, reason
+        FROM academy.course_late_policies WHERE course_id = ${input.courseId}
+      `;
+      const revision = stored?.revision ?? 0;
+      if (revision !== input.revision)
+        throw new AcademyError(`the late policy is at revision ${revision}, not ${input.revision}`, 'academy.revision_stale');
+      const asked = input.policy && policyOf({ grace_hours: input.policy.graceHours, deduction_per_day: input.policy.deductionPerDay });
+      // Saving the stored policy again, or clearing a course that has none, changes nothing.
+      if (JSON.stringify(asked) === JSON.stringify(policyOf(stored))) return this.viewIn(tx, input.courseId);
+      const next = revision + 1;
+      const grace = input.policy?.graceHours ?? null;
+      const deduction = input.policy?.deductionPerDay ?? null;
+      await tx`
+        INSERT INTO academy.course_late_policies (course_id, revision, grace_hours, deduction_per_day, reason, set_by, set_at)
+        VALUES (${input.courseId}, ${next}, ${grace}, ${deduction}, ${input.reason}, ${input.operatorId}, ${input.now})
+        ON CONFLICT (course_id) DO UPDATE SET revision = EXCLUDED.revision, grace_hours = EXCLUDED.grace_hours,
+          deduction_per_day = EXCLUDED.deduction_per_day, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
+      `;
+      await tx`
+        INSERT INTO academy.course_late_policy_events (course_id, revision, grace_hours, deduction_per_day, reason, actor_id, at)
+        VALUES (${input.courseId}, ${next}, ${grace}, ${deduction}, ${input.reason}, ${input.operatorId}, ${input.now})
+      `;
+      return this.viewIn(tx, input.courseId);
+    });
+  }
+
   /** The course's assignments with a brief and its graded quizzes (not surveys), in outline order. */
   private items(sql: Db, courseId: string) {
     return sql<ItemRow[]>`
@@ -120,16 +171,35 @@ export class CourseGradebook {
     const [policy] = await sql<Array<{ revision: number; types: AcademyGradeType[]; set_by: string; set_at: Date; reason: string }>>`
       SELECT revision, types, set_by, set_at, reason FROM academy.course_grading_policies WHERE course_id = ${courseId}
     `;
+    const [late] = await sql<LateRow[]>`
+      SELECT revision, grace_hours::text, deduction_per_day::text, set_by, set_at, reason
+      FROM academy.course_late_policies WHERE course_id = ${courseId}
+    `;
+    const latePolicy = policyOf(late);
     const items = await this.items(sql, courseId);
     const learners = await sql<Array<{ user_id: string }>>`
       SELECT user_id FROM academy.course_enrolments WHERE course_id = ${courseId} AND left_at IS NULL ORDER BY enrolled_at, user_id
     `;
     // Each learner's newest hand-in and its newest grade, as the learner's own grades page reads it: a newer hand-in
     // waiting for a grade is pending, never the older grade.
-    const handIns = await sql<Array<{ item_id: string; user_id: string; state: string; score: string | null; points: string | null }>>`
-      SELECT DISTINCT ON (s.item_id, s.user_id) s.item_id, s.user_id, s.state, g.score::text AS score, g.points::text AS points
+    const handIns = await sql<
+      Array<{
+        item_id: string;
+        user_id: string;
+        state: string;
+        score: string | null;
+        points: string | null;
+        submitted_at: Date;
+        due_at: Date | null;
+        extended: Date | null;
+      }>
+    >`
+      SELECT DISTINCT ON (s.item_id, s.user_id) s.item_id, s.user_id, s.state, g.score::text AS score, g.points::text AS points,
+        s.submitted_at, a.due_at, x.due_at AS extended
       FROM academy.assignment_submissions s
       JOIN academy.course_items i ON i.id = s.item_id
+      LEFT JOIN academy.course_assignments a ON a.item_id = s.item_id
+      LEFT JOIN academy.course_item_extensions x ON x.item_id = s.item_id AND x.user_id = s.user_id
       LEFT JOIN LATERAL (
         SELECT score, points FROM academy.assignment_grade_events WHERE submission_id = s.id ORDER BY n DESC LIMIT 1
       ) g ON TRUE
@@ -147,9 +217,21 @@ export class CourseGradebook {
     const cells = new Map<string, Cell>();
     const key = (itemId: string, userId: string) => `${itemId}:${userId}`;
     for (const h of handIns) {
-      const score = h.score !== null && h.points !== null ? fractionOf(h.score, h.points) : null;
-      if (score !== null) cells.set(key(h.item_id, h.user_id), { state: 'graded', score });
-      else if (h.state !== 'draft' && h.state !== 'withdrawn') cells.set(key(h.item_id, h.user_id), { state: 'pending', score: null });
+      // The score after the late policy; the entered grade stays beside it when something was taken off.
+      const points = h.points === null ? null : canonicalPrice(h.points)!;
+      const late =
+        h.score !== null && points !== null
+          ? lateScore(canonicalPrice(h.score)!, points, h.submitted_at, dueFor(h.due_at, h.extended), latePolicy)
+          : null;
+      const score = late && points !== null ? fractionOf(late.score, points) : null;
+      if (score !== null)
+        cells.set(key(h.item_id, h.user_id), {
+          state: 'graded',
+          score,
+          entered: late?.entered ? fractionOf(late.entered, points!) : null,
+        });
+      else if (h.state !== 'draft' && h.state !== 'withdrawn')
+        cells.set(key(h.item_id, h.user_id), { state: 'pending', score: null, entered: null });
     }
     const quizPolicy = new Map(items.filter((i) => i.kind === 'quiz').map((i) => [i.id, i.scoring_policy]));
     const graded = new Map<string, Array<{ number: number; score: Fraction }>>();
@@ -158,11 +240,11 @@ export class CourseGradebook {
       const k = key(a.item_id, a.user_id);
       const score = a.state === 'graded' && a.score !== null && a.max_score ? fractionOf(String(a.score), String(a.max_score)) : null;
       if (score !== null) (graded.get(k) ?? graded.set(k, []).get(k)!).push({ number: a.number, score });
-      else if (a.state === 'pending_review' && !cells.has(k)) cells.set(k, { state: 'pending', score: null });
+      else if (a.state === 'pending_review' && !cells.has(k)) cells.set(k, { state: 'pending', score: null, entered: null });
     }
     for (const [k, list] of graded) {
       const itemId = k.slice(0, k.indexOf(':'));
-      cells.set(k, { state: 'graded', score: quizScore(quizPolicy.get(itemId) ?? null, list) });
+      cells.set(k, { state: 'graded', score: quizScore(quizPolicy.get(itemId) ?? null, list), entered: null });
     }
 
     const types = policy ? normal(policy.types) : [];
@@ -171,9 +253,12 @@ export class CourseGradebook {
       policy: policy
         ? { revision: policy.revision, types, setBy: policy.set_by, setAt: policy.set_at.toISOString(), reason: policy.reason }
         : null,
+      latePolicy: late
+        ? { revision: late.revision, policy: latePolicy, setBy: late.set_by, setAt: late.set_at.toISOString(), reason: late.reason }
+        : null,
       items: items.map((i) => ({ itemId: i.id, title: i.title, kind: i.kind })),
       learners: learners.map(({ user_id: userId }) => {
-        const cellOf = (itemId: string): Cell => cells.get(key(itemId, userId)) ?? { state: 'not_attempted', score: null };
+        const cellOf = (itemId: string): Cell => cells.get(key(itemId, userId)) ?? { state: 'not_attempted', score: null, entered: null };
         const byType = types.map((t) => {
           const scored = t.itemIds.flatMap((itemId) => {
             const c = cellOf(itemId);
@@ -187,7 +272,12 @@ export class CourseGradebook {
           userId,
           items: items.map((i) => {
             const c = cellOf(i.id);
-            return { itemId: i.id, state: c.state, score: c.score === null ? null : fractionText(c.score) };
+            return {
+              itemId: i.id,
+              state: c.state,
+              score: c.score === null ? null : fractionText(c.score),
+              entered: c.entered === null ? null : fractionText(c.entered),
+            };
           }),
           types: byType.map((t) => ({
             name: t.name,

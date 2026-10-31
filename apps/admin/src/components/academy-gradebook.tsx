@@ -16,8 +16,10 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
  * each enrolled learner's score per item as a fraction (0.65 is 65 percent), "not attempted" or "pending" where there is
  * none (never a zero), each type's average after the lowest are dropped, and the weighted total of the types they have a
  * score in. Every figure comes from svc-academy, cut at 18 places, never rounded here. A grade report is a stored
- * snapshot of the table with the time it was made and its SHA-256; downloading one serves that snapshot. Grading scales,
- * periods and a late policy are later parts.
+ * snapshot of the table with the time it was made and its SHA-256; downloading one serves that snapshot. The late policy
+ * (ENGINE GR-5) is staff's own: grace hours, then a share of the points off for each started day late; a late cell shows
+ * its score with the entered grade beside it. Blank values are refused, never filled in. Grading scales and periods are
+ * later parts.
  */
 
 type Item = AcademyCourseGradebook['items'][number];
@@ -142,6 +144,58 @@ function PolicyForm({
   );
 }
 
+/** The late policy as staff enter it. Blank values are sent blank, so the console refuses them rather than guessing. */
+function LatePolicyForm({
+  book,
+  busy,
+  onSave,
+}: {
+  book: AcademyCourseGradebook;
+  busy: boolean;
+  onSave: (body: Record<string, unknown>) => void;
+}) {
+  const now = book.latePolicy?.policy ?? null;
+  const [grace, setGrace] = useState(now?.graceHours ?? '');
+  const [deduction, setDeduction] = useState(now?.deductionPerDay ?? '');
+  const [reason, setReason] = useState('');
+  const revision = book.latePolicy?.revision ?? 0;
+  return (
+    <form
+      className="dk-row"
+      data-testid="late-policy"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ revision, policy: { graceHours: grace.trim(), deductionPerDay: deduction.trim() }, reason });
+      }}
+    >
+      <label>
+        Grace hours
+        <input value={grace} onChange={(e) => setGrace(e.target.value)} inputMode="decimal" placeholder="24" aria-label="Grace hours" />
+      </label>
+      <label>
+        Deduction per day
+        <input
+          value={deduction}
+          onChange={(e) => setDeduction(e.target.value)}
+          inputMode="decimal"
+          placeholder="0.1"
+          aria-label="Deduction per day"
+        />
+      </label>
+      <label>
+        Reason
+        <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} aria-label="Late policy reason" />
+      </label>
+      <button type="submit" className="adm-btn" disabled={busy}>
+        Save late policy
+      </button>
+      <button type="button" className="adm-btn" disabled={busy || now === null} onClick={() => onSave({ revision, policy: null, reason })}>
+        Clear late policy
+      </button>
+    </form>
+  );
+}
+
 function Table({ book }: { book: AcademyCourseGradebook }) {
   const titleOf = (id: string) => book.items.find((i) => i.itemId === id)?.title ?? id;
   if (book.learners.length === 0)
@@ -176,6 +230,7 @@ function Table({ book }: { book: AcademyCourseGradebook }) {
               {l.items.map((c) => (
                 <td key={c.itemId} data-state={c.state}>
                   {c.state === 'graded' ? c.score : c.state === 'pending' ? 'pending' : 'not attempted'}
+                  {c.entered !== null && <span className="dk-muted"> (late; entered {c.entered})</span>}
                 </td>
               ))}
               {l.types.map((t) => (
@@ -263,7 +318,7 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
     if (next) setView(next);
   }, [courseId]);
 
-  const send = async (op: 'savePolicy' | 'makeReport', body: Record<string, unknown>) => {
+  const send = async (op: 'savePolicy' | 'saveLatePolicy' | 'makeReport', body: Record<string, unknown>) => {
     setBusy(true);
     const answer = await postGradebookChange({ op, courseId, ...body });
     setReply(answer);
@@ -302,6 +357,15 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
             ) : (
               <PolicyForm key={book.policy?.revision ?? 0} book={book} busy={busy} onSave={(b) => void send('savePolicy', b)} />
             )}
+          </section>
+          <section className="dk-stack" aria-labelledby="h-late">
+            <h2 id="h-late">Late policy</h2>
+            <p className="dk-muted" data-testid="late-policy-now">
+              {book.latePolicy?.policy
+                ? `Revision ${book.latePolicy.revision}: ${book.latePolicy.policy.graceHours} hours of grace after the due date, then ${book.latePolicy.policy.deductionPerDay} of the points off for each started day late. Set ${formatWhen(book.latePolicy.setAt)}: ${book.latePolicy.reason}`
+                : 'Not set: nothing is taken off a late hand-in.'}
+            </p>
+            <LatePolicyForm key={book.latePolicy?.revision ?? 0} book={book} busy={busy} onSave={(b) => void send('saveLatePolicy', b)} />
           </section>
           <section className="dk-stack" aria-labelledby="h-gradebook">
             <h2 id="h-gradebook">Learners</h2>

@@ -31,6 +31,7 @@ import type {
 import { AcademyError } from '../errors.js';
 import { assertItemOpen } from './course-release.js';
 import { dueFor } from './course-item-rules.js';
+import { latePolicyOf } from './late-policy.js';
 import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
@@ -348,7 +349,7 @@ export class CourseAssignments {
       courseTitle: row.course_title,
       title: row.title,
       ...brief,
-      lateRule: null,
+      latePolicy: await latePolicyOf(sql, row.course_id),
       fileLimits: { maxBytes: this.fileMaxBytes(), types: this.limits.types ? [...this.limits.types] : null },
       withdrawnAt: row.withdrawn_at?.toISOString() ?? null,
       submissions: rows.map((s) => ({
