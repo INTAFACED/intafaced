@@ -102,6 +102,8 @@ test(`${J} #2 sending it shows "check your email" and opens no request yet`, asy
 });
 
 test(`${J} #3 with no email sender, the send says so with vendor.email and the request waits`, async ({ browser }) => {
+  // Two restarts of svc-support fit in this step's own limit.
+  test.setTimeout(240_000);
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
@@ -142,6 +144,8 @@ test(`${J} #4 the emailed link opens one request, and opening it again opens the
 test(`${J} #5 too many requests from one address are refused with no request stored; a blank limit names the setting`, async ({
   browser,
 }) => {
+  // Two restarts of svc-support fit in this step's own limit.
+  test.setTimeout(240_000);
   const email = address('busy');
   const page = await guest(browser);
   // The stack's TEST limit is three per address per hour.
@@ -193,7 +197,7 @@ test(`${J} #6 the guest reads and replies through the link on that one request; 
   expect(thread.json.result.data.map((comment) => comment.body)).toContain(reply);
   // The link is not a session: the account pages ask to sign in, and the token is refused as one.
   await page.goto('/support/tickets');
-  await expect(page.getByRole('button', { name: 'Sign in' }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
   expect(access, 'the request page sent no access token').toBeTruthy();
   const mine = await fetch(`${ORIGIN}/api/support/trpc/listMine?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`, {
     headers: { authorization: `Bearer ${access}` },
