@@ -69,10 +69,28 @@ describe('restore model', () => {
       restored: false,
       next: 'validate',
       finalizeOffered: false,
-      live: { joint: { agree: true, cutOff: '2026-10-20T12:00:00.000Z', services: [] }, reads: [] },
+      live: { joint: { agree: true, cutOff: '2026-10-20T12:00:00.000Z', services: [] }, reads: [], halt: { halted: true } },
     };
     expect(parseRunDetail(base)).toBeNull();
     expect(parseRunDetail({ ...base, steps: [] })?.next).toBe('validate');
+  });
+
+  it('reads whether the posting freeze is on, and refuses a run detail without it', () => {
+    const base = {
+      run: { restoreNo: 'R-1', cutOff: '2026-10-20T12:00:00.000Z', startedBy: 'a', startedAt: '2026-10-20T12:01:00.000Z' },
+      steps: [],
+      restored: false,
+      next: 'validate',
+      finalizeOffered: false,
+      live: { joint: { agree: true, cutOff: '2026-10-20T12:00:00.000Z', services: [] }, reads: [] },
+    };
+    expect(parseRunDetail(base)).toBeNull();
+    expect(parseRunDetail({ ...base, live: { ...base.live, halt: { halted: false } } })).toBeNull();
+    const off = { halted: false, code: 'ops.restore_platform_not_halted', message: 'the posting freeze is off' };
+    expect(parseRunDetail({ ...base, live: { ...base.live, halt: off } })?.live.halt).toEqual(off);
+    expect(parseRunDetail({ ...base, live: { ...base.live, halt: { halted: true } } })?.live.halt).toEqual({ halted: true });
+    expect(refusalWords('ops.restore_platform_not_halted')).toContain('posting freeze is off');
+    expect(refusalWords('ops.restore_halt_unreadable')).toContain('could not be read');
   });
 
   it('maps the page and its API to the ledger module', () => {
