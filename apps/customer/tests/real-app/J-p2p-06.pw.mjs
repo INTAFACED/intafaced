@@ -108,9 +108,8 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
   // One refund: the seller's free balance is back where it was, and a second cancel moves nothing.
   await expect.poll(() => free(seller), { timeout: 30_000 }).toBe(before);
   const again = await b.raw.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST again' });
-  // A second cancel answers with the order as it ended: the same refund, the reason first given, nothing more moved.
-  expect(again.status).toBe(200);
-  expect(again.body.result.data).toMatchObject({ status: 'cancelled', resolution: 'refunded', resolvedAt: cancelled.resolvedAt });
+  // A second cancel is refused as a move on an ended order; the reason first given stands and nothing more moved.
+  expect(refusalCode(again)).toBe('p2p.trade_terminal');
   expect((await b.query('trades.get', { tradeId: trade.id })).cancelReason).toEqual({ by: 'buyer', code: 'changed_mind' });
   expect(await free(seller)).toBe(before);
   // The cancel counts toward the buyer's daily threshold: one of three used.
@@ -215,7 +214,7 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   expect(await free(state.seller)).toBe(fromUnits(toUnits(before) + toUnits(refunds)));
   await signIn(page, state.buyer);
   await page.goto('/uc/order');
-  await expect(page.locator(`[data-trade-id="${tradeId}"]`)).toContainText('Cancelled: payment time ran out');
+  await expect(page.getByRole('row').filter({ hasText: tradeId.slice(0, 8) })).toContainText('Cancelled: payment time ran out');
 });
 
 test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async () => {
