@@ -8,6 +8,8 @@ import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 
 /** The stack's TEST bank transfer method (`local-test-gates.mjs p2p` registers it): DE, account holder and IBAN. */
 export const METHOD = 'test-bank-transfer';
+/** The stack's TEST cash-in-person method (`local-test-gates.mjs p2p`): a locked price and its own release window. */
+export const CASH_METHOD = 'test-cash-in-person';
 export const TEST_IBAN = 'DE89370400440532013000';
 
 // Edge allows 6000 requests a minute per address on the stack (local-stack-services/edge.mjs): keep the setup well under it.
@@ -378,6 +380,20 @@ export async function testInstrument(client, who) {
     fiatCurrency: 'EUR',
     label: 'TEST account',
     details: { account_holder: holder, iban: TEST_IBAN },
+  });
+}
+
+/** The seller's TEST cash-in-person meeting point: the one already saved, or a new one. */
+export async function cashInstrument(client) {
+  const saved = (await client.query('instruments.list', { limit: 200 })).find((i) => i.methodId === CASH_METHOD && !i.removedAt);
+  if (saved) return saved;
+  return client.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: CASH_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST meeting point',
+    details: { meeting_area: 'TEST Berlin Mitte' },
   });
 }
 

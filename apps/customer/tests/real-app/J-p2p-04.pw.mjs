@@ -16,6 +16,7 @@ import {
   retireTestMethod,
   testInstrument,
   verifiedName,
+  CASH_METHOD,
 } from './p2p.mjs';
 
 // J-p2p-04, in the running app (docs/roadmap/journeys.json): I add and manage the payment methods I get paid with. One
@@ -28,8 +29,6 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** This journey's own TEST method, which step 1 retires; no other journey pays with it. */
 const J04_METHOD = 'test-j04-transfer';
 const J04_LABEL = 'TEST J-p2p-04 transfer';
-/** The stack's TEST cash-in-person method (`local-test-gates.mjs p2p`), whose row carries cash rules. */
-const CASH_METHOD = 'test-cash-in-person';
 const AD = { price: '0.93', min: '10', max: '100' };
 // A part of a step whose door is not built yet refuses at once, so the run stays short.
 const UNBUILT = { timeout: 5_000 };
