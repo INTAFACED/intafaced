@@ -3,6 +3,7 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
 import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signOutBrowser, signUpInBrowser, staffFreeze, tool } from './stack.mjs';
+import { founderSignIn } from './admin.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
@@ -176,6 +177,13 @@ test(`${J} #2 (I-signin-sessions-30): after the owner's count of failures from t
       status: 403,
       code: 'auth.challenge_used',
     });
+
+    // The founder console signs in from the same address, so it is asked too: the founder's browser solves the check.
+    const consolePage = await browser.newPage();
+    const asked = consolePage.waitForResponse((r) => new URL(r.url()).pathname === '/api/session/challenge');
+    await founderSignIn(consolePage, 'a');
+    expect((await asked).status()).toBe(200);
+    await consolePage.close();
   } finally {
     challengeAfter(null);
   }
