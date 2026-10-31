@@ -95,6 +95,9 @@ type Fields = {
   perCustomerHours: string;
   /** The most rewards for everyone together; blank: the budget is the only cap. */
   totalRedemptions: string;
+  /** A voucher campaign's claim-by and use-by, read in the campaign's zone (J-campaigns-08); blank refuses each claim. */
+  claimBy: string;
+  useBy: string;
 };
 
 /** The zone stored times are shown in: the campaign's own, else the platform's, else UTC as this console shows times. */
@@ -120,6 +123,8 @@ const fieldsOf = (c: Campaign | null, platform: string | null): Fields => ({
   perCustomerCount: c?.limits?.perCustomer?.count ? String(c.limits.perCustomer.count) : '',
   perCustomerHours: c?.limits?.perCustomer?.periodSeconds ? String(Number((c.limits.perCustomer.periodSeconds / 3600).toFixed(4))) : '',
   totalRedemptions: c?.limits?.totalRedemptions ? String(c.limits.totalRedemptions) : '',
+  claimBy: c?.vouchers?.claimBy ? isoToZonedInput(c.vouchers.claimBy, shownZone(c, platform)) : '',
+  useBy: c?.vouchers?.useBy ? isoToZonedInput(c.vouchers.useBy, shownZone(c, platform)) : '',
 });
 
 /** A whole number from 1 to `max` typed in a field, or null when blank; NaN when it is not one. */
@@ -181,13 +186,17 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
       };
     }
     case 'time': {
-      const typed = f.startsAt.trim() || f.endsAt.trim();
+      const voucher = f.type === 'voucher';
+      const typed = f.startsAt.trim() || f.endsAt.trim() || (voucher && (f.claimBy.trim() || f.useBy.trim()));
       if (typed && !f.timeZone) return 'Pick the time zone first: the start and end are read in it.';
       // A time that is not one in the zone (30 February, or one a clock change skips) refuses; it is never moved.
       const at = (typed: string) => (typed.trim() ? zonedInputToIso(typed, f.timeZone) : undefined);
       const startsAt = at(f.startsAt);
       const endsAt = at(f.endsAt);
       if (startsAt === null || endsAt === null) return `A start or end time is not a time in ${f.timeZone}.`;
+      const claimBy = voucher ? at(f.claimBy) : undefined;
+      const useBy = voucher ? at(f.useBy) : undefined;
+      if (claimBy === null || useBy === null) return `A claim-by or use-by time is not a time in ${f.timeZone}.`;
       if ((f.hoursFrom === '') !== (f.hoursTo === '')) return 'Daily hours need both a from and a to time, or neither.';
       const asset = f.asset.trim().toUpperCase();
       const [count, period, total] = [
@@ -211,6 +220,8 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
           perCustomer: count === null && period === null ? null : { count, periodSeconds: period },
           totalRedemptions: total,
         },
+        // Only a voucher campaign has a window; blank stays blank, and each claim then refuses campaigns.voucher_window_unset.
+        ...(voucher ? { vouchers: claimBy || useBy ? { claimBy: claimBy ?? null, useBy: useBy ?? null } : null } : {}),
       };
     }
     case 'rules':
@@ -721,6 +732,29 @@ export function CampaignBuilder({
                   <input id="cmp-ends" type="datetime-local" value={fields.endsAt} onChange={(e) => set({ endsAt: e.target.value })} />
                 </div>
               </div>
+              {fields.type === 'voucher' && (
+                <>
+                  <div className="dk-row">
+                    <div className="adm-field">
+                      <label htmlFor="cmp-claim-by">Vouchers claimable until</label>
+                      <input
+                        id="cmp-claim-by"
+                        type="datetime-local"
+                        value={fields.claimBy}
+                        onChange={(e) => set({ claimBy: e.target.value })}
+                      />
+                    </div>
+                    <div className="adm-field">
+                      <label htmlFor="cmp-use-by">Claimed vouchers usable until</label>
+                      <input id="cmp-use-by" type="datetime-local" value={fields.useBy} onChange={(e) => set({ useBy: e.target.value })} />
+                    </div>
+                  </div>
+                  <p className="dk-muted">
+                    Each voucher keeps the claim-by and use-by of the revision it was issued under. The use-by cannot be before the
+                    claim-by. While either is blank, every claim refuses campaigns.voucher_window_unset.
+                  </p>
+                </>
+              )}
               <fieldset className="adm-field">
                 <legend>Weekdays (none ticked: every day)</legend>
                 {WEEKDAYS.map((d, i) => (
