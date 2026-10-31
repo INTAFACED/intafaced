@@ -39,7 +39,6 @@ export const OPERATOR_TRAFFIC_TABLES: Readonly<Record<string, string>> = {
   mail_outbox: 'mail waiting to be sent, such as sign-in codes and new-device notices',
 };
 
-
 export function digestCounts(counts: ReadonlyArray<{ table: string; rows: bigint }>): string {
   const lines = [...counts].sort((a, b) => (a.table < b.table ? -1 : 1)).map((c) => `${c.table}=${c.rows}`);
   return createHash('sha256').update(lines.join('\n')).digest('hex');

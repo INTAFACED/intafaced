@@ -5,12 +5,7 @@ import { describe, expect, it, afterAll } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { restoreWatermarkReadSchema } from '@intafaced/contracts';
 import { createTestDb } from './fixture-truncate.testkit.js';
-import {
-  OPERATOR_TRAFFIC_TABLES,
-  WATERMARK_KIND,
-  digestCounts,
-  readIdentityWatermark,
-} from './restore-watermark.js';
+import { OPERATOR_TRAFFIC_TABLES, WATERMARK_KIND, digestCounts, readIdentityWatermark } from './restore-watermark.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
