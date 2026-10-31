@@ -318,6 +318,9 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
               </select>
             </label>
           ))}
+        <p className="money-caption" data-testid="loan-apply-terms-unset" data-state="not_set">
+          {t('termsUnset')}
+        </p>
       </DepthPanel>
       {chosen && <ProductApplication key={chosen} productId={chosen} open={open} />}
       <p>

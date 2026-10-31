@@ -14,7 +14,8 @@ const en = {
   report_trades_hint:
     'Your trade lines between two dates. A trade’s fee is taken from what you receive, so each line is the amount after its fee.',
   report_balances: 'Balances',
-  report_balances_hint: 'What you held at the end of a past day.',
+  report_balances_hint:
+    'What you held at the end of a past day. Refused in this build: the ledger has no read of balances as they stood on a past day, so nothing is made.',
   month: 'Month',
   from: 'From (UTC)',
   to: 'To (UTC)',
@@ -57,7 +58,8 @@ const es: Record<keyof typeof en, string> = {
   report_trades_hint:
     'Tus movimientos de operaciones entre dos fechas. La comisión se descuenta de lo que recibes, así que cada línea es el importe tras su comisión.',
   report_balances: 'Saldos',
-  report_balances_hint: 'Lo que tenías al final de un día pasado.',
+  report_balances_hint:
+    'Lo que tenías al final de un día pasado. Se rechaza en esta versión: el libro mayor no lee los saldos tal como estaban un día pasado, así que no se genera nada.',
   month: 'Mes',
   from: 'Desde (UTC)',
   to: 'Hasta (UTC)',
@@ -101,7 +103,8 @@ const fr: Record<keyof typeof en, string> = {
   report_trades_hint:
     'Vos lignes d’opérations entre deux dates. Les frais sont pris sur ce que vous recevez, donc chaque ligne est le montant après ses frais.',
   report_balances: 'Soldes',
-  report_balances_hint: 'Ce que vous déteniez à la fin d’un jour passé.',
+  report_balances_hint:
+    'Ce que vous déteniez à la fin d’un jour passé. Refusé dans cette version : le grand livre ne lit pas les soldes tels qu’ils étaient un jour passé, donc rien n’est produit.',
   month: 'Mois',
   from: 'Du (UTC)',
   to: 'Au (UTC)',

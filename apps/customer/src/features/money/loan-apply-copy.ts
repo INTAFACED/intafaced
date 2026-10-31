@@ -10,6 +10,8 @@ const en = {
   chooseTitle: 'Loan',
   chooseLabel: 'Which loan',
   chooseNone: 'No loan is offered to you right now.',
+  termsUnset:
+    'The bank has published no rate tiers and no rules by country: each loan borrows at its one rate, and its opening fee is read when you choose it.',
   limitsTitle: 'Limits and rate',
   rate: 'Interest a year',
   maxLtv: 'Most you can borrow against your collateral',
@@ -83,6 +85,8 @@ const es: Record<keyof typeof en, string> = {
   chooseTitle: 'Préstamo',
   chooseLabel: 'Qué préstamo',
   chooseNone: 'Ahora mismo no se te ofrece ningún préstamo.',
+  termsUnset:
+    'El banco no ha publicado tramos de tipo ni reglas por país: cada préstamo se toma a su tipo único, y su comisión de apertura se lee al elegirlo.',
   limitsTitle: 'Límites y tipo',
   rate: 'Interés anual',
   maxLtv: 'Lo máximo que puedes pedir frente a tu garantía',
@@ -158,6 +162,8 @@ const fr: Record<keyof typeof en, string> = {
   chooseTitle: 'Prêt',
   chooseLabel: 'Quel prêt',
   chooseNone: 'Aucun prêt ne vous est proposé pour le moment.',
+  termsUnset:
+    'La banque n’a publié aucune tranche de taux ni règle par pays : chaque prêt s’emprunte à son taux unique, et ses frais d’ouverture sont lus quand vous le choisissez.',
   limitsTitle: 'Limites et taux',
   rate: 'Intérêt par an',
   maxLtv: 'Le maximum que vous pouvez emprunter sur votre garantie',

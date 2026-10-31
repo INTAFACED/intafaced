@@ -134,8 +134,9 @@ export const features: readonly Feature[] = [
     label: 'Repeat buy',
     paths: ['/portfolio/:asset/repeat-buy'],
     status: 'blocked',
-    reason: 'Scheduled transfers are off locally',
-    unlock: 'scheduler flag + review',
+    reason:
+      'No Real-app journey proves the room. Scheduled transfers and auto-invest are on on the local stack, with no timer: a repeat buy runs only when its signed job door is called',
+    unlock: 'a Real-app journey that sets up a repeat buy and runs it, passing on main',
     tab: 'money',
   },
   // Bank, one row per room (split 2026-10-23). A room is live once a Real-app journey proves it on the local stack;
