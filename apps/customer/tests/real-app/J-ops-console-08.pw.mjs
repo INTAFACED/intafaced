@@ -79,11 +79,28 @@ async function setPostingFreeze(a, b, frozen, why) {
 
 /** Set while #6 or #7 holds the platform-wide posting freeze on, so the teardown below can lift it even after a timeout. */
 let freezeOn = false;
+/** Set while #7 has the stack's TEST market maker stopped, so the teardown below can start it again after a timeout. */
+let marketStopped = false;
+
+/**
+ * The runbook halts trading for a restore; on this stack the only trader is the TEST market maker, whose orders write
+ * identity's trade admission decisions even while posting is frozen. #7 stops it for the restore window instead.
+ */
+function marketMaker(running) {
+  if (running) {
+    tool('local-test-market.mjs');
+    marketStopped = false;
+  } else {
+    marketStopped = true;
+    tool('local-test-market.mjs', 'stop');
+  }
+}
 
 // The joint check runs only while the posting freeze is on (svc-ops refuses ops.restore_platform_not_halted otherwise). A
 // freeze left on would refuse every later journey's posts on this stack, so it is lifted here on fresh pages when a test
 // ends with it on (a timeout closes that test's own pages before its own cleanup can run).
 test.afterEach(async ({ browser }) => {
+  if (marketStopped) marketMaker(true);
   if (!freezeOn) return;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
@@ -346,50 +363,56 @@ test(`${J} #7 finalize is refused with one approver and records with the second;
   const { a, b } = await signedIn(browser);
   const runUrl = `${ADMIN}/restore?run=${encodeURIComponent(RUN)}`;
   await a.goto(runUrl, { waitUntil: 'load' });
-  // The stamps, the checks and finalize run with the posting freeze on, as the joint check requires, and only those.
-  await frozen(a, b, `LOCAL TEST J-ops-console-08 #7 restore ${tag}`, async () => {
-    await a.goto(runUrl, { waitUntil: 'load' });
-    // Stamp each service at the position it reports now, as an operator reading the joint table would.
-    for (const service of SERVICES) {
-      const joint = await jointRows(a);
-      expect(joint[service].position, `svc-${service} gave no position`).toMatch(/^\d+$/);
-      await stamp(a, b, service, `${service}.position`, joint[service].position);
+  // The stamps, the checks and finalize run with trading halted and the posting freeze on, as the joint check requires,
+  // and only those.
+  marketMaker(false);
+  try {
+    await frozen(a, b, `LOCAL TEST J-ops-console-08 #7 restore ${tag}`, async () => {
       await a.goto(runUrl, { waitUntil: 'load' });
-    }
-    const joint = await jointRows(a);
-    for (const service of SERVICES)
-      expect(joint[service].verdict, `svc-${service}: stamp ${joint[service].stamp}, live ${joint[service].position}`).toBe('Agrees');
-    await a.getByTestId('step-validate').click();
-    await expect(a.getByTestId('step-preview')).toBeVisible({ timeout: 30_000 });
-    await a.getByTestId('step-preview').click();
-    const finalize = a.getByTestId('finalize-form');
-    await expect(finalize).toBeVisible({ timeout: 30_000 });
-    await expect(a.getByTestId('restored')).toHaveText('No');
+      // Stamp each service at the position it reports now, as an operator reading the joint table would.
+      for (const service of SERVICES) {
+        const joint = await jointRows(a);
+        expect(joint[service].position, `svc-${service} gave no position`).toMatch(/^\d+$/);
+        await stamp(a, b, service, `${service}.position`, joint[service].position);
+        await a.goto(runUrl, { waitUntil: 'load' });
+      }
+      const joint = await jointRows(a);
+      for (const service of SERVICES)
+        expect(joint[service].verdict, `svc-${service}: stamp ${joint[service].stamp}, live ${joint[service].position}`).toBe('Agrees');
+      await a.getByTestId('step-validate').click();
+      await expect(a.getByTestId('step-preview')).toBeVisible({ timeout: 30_000 });
+      await a.getByTestId('step-preview').click();
+      const finalize = a.getByTestId('finalize-form');
+      await expect(finalize).toBeVisible({ timeout: 30_000 });
+      await expect(a.getByTestId('restored')).toHaveText('No');
 
-    // One approver: A cannot approve their own finalize, and a run before anyone approved restores nothing.
-    const phrase = `FINALIZE RESTORE ${RUN}`;
-    await finalize.getByLabel(/to confirm$/).fill(phrase);
-    await finalize.getByRole('button', { name: 'Ask a second founder to approve finalizing this restore' }).click();
-    await expect(finalize.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
-    const packetText = (await finalize.getByLabel('Request packet').inputValue()).trim();
-    const packet = decode(packetText);
-    const self = await approvalStep(a, { step: 'approve', request: packet.request, confirm: phrase, approvalId: packet.approvalId });
-    expect(self.body).toMatchObject({ ok: false, refusal: { code: 'action_approval.same_person' } });
-    const early = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
-    expect(early.body.ok).toBe(false);
-    await a.reload({ waitUntil: 'load' });
-    await expect(a.getByTestId('restored')).toHaveText('No');
+      // One approver: A cannot approve their own finalize, and a run before anyone approved restores nothing.
+      const phrase = `FINALIZE RESTORE ${RUN}`;
+      await finalize.getByLabel(/to confirm$/).fill(phrase);
+      await finalize.getByRole('button', { name: 'Ask a second founder to approve finalizing this restore' }).click();
+      await expect(finalize.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+      const packetText = (await finalize.getByLabel('Request packet').inputValue()).trim();
+      const packet = decode(packetText);
+      const self = await approvalStep(a, { step: 'approve', request: packet.request, confirm: phrase, approvalId: packet.approvalId });
+      expect(self.body).toMatchObject({ ok: false, refusal: { code: 'action_approval.same_person' } });
+      const early = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
+      expect(early.body.ok).toBe(false);
+      await a.reload({ waitUntil: 'load' });
+      await expect(a.getByTestId('restored')).toHaveText('No');
 
-    // The second founder approves the same run and cut-off; A runs it and the run is restored with all four rows.
-    await b.goto(runUrl, { waitUntil: 'load' });
-    const deskB = b.getByTestId('finalize-form');
-    await deskB.getByLabel('Request packet').fill(packetText);
-    await deskB.getByLabel(/to approve or run it$/).fill(phrase);
-    await deskB.getByRole('button', { name: 'Approve this request' }).click();
-    await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
-    const done = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
-    expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, step: 'execute' });
-  });
+      // The second founder approves the same run and cut-off; A runs it and the run is restored with all four rows.
+      await b.goto(runUrl, { waitUntil: 'load' });
+      const deskB = b.getByTestId('finalize-form');
+      await deskB.getByLabel('Request packet').fill(packetText);
+      await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+      await deskB.getByRole('button', { name: 'Approve this request' }).click();
+      await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+      const done = await approvalStep(a, { step: 'execute', request: packet.request, confirm: phrase, ...pick(packet) });
+      expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, step: 'execute' });
+    });
+  } finally {
+    marketMaker(true);
+  }
   await a.goto(runUrl, { waitUntil: 'load' });
   await expect(a.getByTestId('restored')).toHaveText('Yes, all four steps are recorded');
   const steps = a.getByTestId('step-row');
