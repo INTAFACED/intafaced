@@ -790,10 +790,7 @@ export function presentAccountFees(
 export const ADMIN_FEE_SOURCE = 'TRADE_FEE_SCHEDULE' as const;
 
 export type AdminFeeRefusal =
-  | 'trade.fee_product_unpublished'
-  | 'trade.fee_schedule_blank'
-  | 'trade.rebate_recipe_unavailable'
-  | 'trade.min_fee_recipe_unavailable';
+  'trade.fee_product_unpublished' | 'trade.fee_schedule_blank' | 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
 
 export interface AdminMarketFee {
   readonly symbol: string;
