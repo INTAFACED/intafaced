@@ -27,6 +27,7 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
+import { queuePasswordChangedNotice } from './password-changed-notice.js';
 
 /** How long a wallet challenge waits for its signature: the same engineering bound as a WebAuthn challenge. */
 export const WALLET_CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -190,6 +191,8 @@ export async function unlinkSigninMethod(sql: Sql, userId: string, method: Signi
     assertLeavesAWayIn(methods, counted(methods, method));
     if (method === 'password') {
       await tx`UPDATE users SET password_hash = ${unusable!}, password_set = false, updated_at = now() WHERE id = ${userId}`;
+      // The password stops working: the owner is told by mail and in the inbox, as for a change (J-identity-03 #6).
+      await queuePasswordChangedNotice(tx, { userId, now: new Date() });
     } else if (method === 'email_code') {
       await tx`UPDATE users SET email_code_signin = false, updated_at = now() WHERE id = ${userId}`;
       await tx`
@@ -230,6 +233,8 @@ export async function linkPassword(sql: Sql, userId: string, password: string): 
     await assertNotSecurityLocked(tx, userId);
     if (user.password_set) throw new SigninMethodError('identity.method_already_linked');
     await tx`UPDATE users SET password_hash = ${hash}, password_set = true, updated_at = now() WHERE id = ${userId}`;
+    // A new way in: the owner is told by mail and in the inbox, as for a change (J-identity-03 #6).
+    await queuePasswordChangedNotice(tx, { userId, now: new Date() });
     return methodsOf(tx, userId, await readUser(tx, userId, false));
   });
 }

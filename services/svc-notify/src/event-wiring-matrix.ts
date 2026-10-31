@@ -156,6 +156,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.stopped for the follower, the reason in words, once per follow and close-only',
   },
   {
+    event: 'agentUsageAlertCrossed',
+    durable: 'notify-agent-usage-alert',
+    subject: 'intafaced.agents.usage_alert.crossed',
+    effect:
+      'Inbox row agents.usage_alert.crossed for the owner of an own agent whose monthly spend reached their alert, once per agent and month',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',

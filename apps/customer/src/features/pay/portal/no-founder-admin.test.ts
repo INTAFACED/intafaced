@@ -40,7 +40,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
+            '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(add|cancelHold|list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
             // M-adv-payments-core-01: the caller's own saved views and one clear payer detail, on the caller's business.
@@ -107,6 +107,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchant.setPayoutDestination',
         'merchant.listLinks',
         'merchant.checkoutSettings.get',
+        'merchant.payoutDestinations.add',
+        'merchant.payoutDestinations.cancelHold',
         'merchant.payoutDestinations.list',
         'merchant.payoutDestinations.setDefault',
         'merchant.payoutDestinations.remove',

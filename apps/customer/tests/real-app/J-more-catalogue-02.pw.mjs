@@ -310,6 +310,13 @@ test(`${J} #4 presses Buy on the strategy: the charge into the held account once
   expect(bought).toMatchObject({ status: 'held', flow: 'hold', outcome: null, outcomeTxId: null, refundRequestedAt: null });
   expect(toUnits(bought.price)).toBe(toUnits(price));
   expect(Date.parse(bought.refundWindowEndsAt)).toBeGreaterThan(Date.now());
+  // The charge is in the held account, once: the ledger booked the price from the buyer's available into an empty
+  // market pot under the purchase's own key. The buyer still owns it until the window ends, so it shows as theirs, set
+  // aside: the total is unchanged and "used" rose by exactly the price.
+  await heldOnce(bought.id, price);
+  const after = await usdt(who);
+  expect(toUnits(after.total)).toBe(toUnits(before.total));
+  expect(toUnits(after.used)).toBe(toUnits(before.used) + toUnits(price));
   expect(await usdt(seller)).toEqual(sellerBefore);
   await page.goto('/market/purchases');
   await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) })).toContainText(
@@ -707,12 +714,21 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   await expect(table).toBeVisible(UNBUILT);
   for (const column of ['Price', 'Refund window', 'Status']) await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
   const rows = bodyRows(table);
-  await expect(rows).toHaveCount(
-    (await (await api(who)).get(`/api/market/trpc/myPurchases?input=${encodeURIComponent('{"limit":50}')}`)).body.result.data.length,
-  );
+  const stored = (await (await api(who)).get(`/api/market/trpc/myPurchases?input=${encodeURIComponent('{"limit":50}')}`)).body.result.data;
+  await expect(rows).toHaveCount(stored.length);
+  // Each stored purchase has its own row: its exact price and its refund window's moment, read from the service.
+  for (const purchase of stored) {
+    const grouped = (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const [whole, fraction] = purchase.price.split('.');
+    const priceText = fraction ? `${grouped(whole)}.${fraction}` : grouped(whole);
+    expect(purchase.refundWindowEndsAt, `${purchase.id} has a refund window`).toBeTruthy();
+    const row = rows.filter({ has: page.locator(`time[datetime="${purchase.refundWindowEndsAt}"]`) });
+    await expect(row, `the row of ${purchase.id}`).toHaveCount(1);
+    await expect(row.locator('td').nth(1)).toContainText(`${priceText} ${purchase.assetId}`);
+  }
   const heldRow = rows.filter({ hasText: 'Held until the refund window ends' });
   await expect(heldRow).toHaveCount(1);
-  await expect(heldRow).toContainText(/\d/);
+  await expect(heldRow.locator(`time[datetime="${held.refundWindowEndsAt}"]`)).toHaveCount(1);
   await expect(heldRow.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
   // The purchase #6 let its window end was released to the seller: that one is a receipt.
   expect((await purchasesOf(who)).find((row) => row.id === releasedId)?.status).toBe('released');

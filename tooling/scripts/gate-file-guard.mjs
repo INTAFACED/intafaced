@@ -76,6 +76,7 @@ export const GATE_PATHS = [
   ['tooling/scripts/gate-gh.mjs', 'the gh wrapper the gate tools share'],
   ['tooling/scripts/github-refusal.mjs', 'how the gate tools recognise a 403 or 429 and stop'],
   ['tooling/scripts/gate-tools.test.mjs', 'the gate tools test entry'],
+  ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
 ];
 
 function globToRegExp(glob) {

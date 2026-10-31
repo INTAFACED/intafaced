@@ -3,7 +3,10 @@ import { WORK_LIST_CAP_UNSET, type HomeConfig, type WorkItem } from '@intafaced/
 import { HOME_CONFIG_FAILED, HOME_CONFIG_UNWIRED, ratioPercent, sourceAnswer, workList, type SourceRead } from './work-list';
 
 const config = (over: Partial<HomeConfig> = {}) =>
-  ({ state: 'ready', config: { workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1, ...over } }) as const;
+  ({
+    state: 'ready',
+    config: { workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: null, revision: 1, ...over },
+  }) as const;
 
 const verify: WorkItem = {
   id: 'verification:u1',

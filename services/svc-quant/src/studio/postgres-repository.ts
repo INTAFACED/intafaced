@@ -40,6 +40,7 @@ interface Joined {
   claim_label: string;
   live: boolean;
   simulated: boolean;
+  release_note: string;
   version_created_at: Date | string;
 }
 
@@ -118,6 +119,7 @@ function versionOf(row: Joined): StrategyVersionRecord {
     claimLabel: readClaim(row.claim_label),
     live: false,
     simulated: true,
+    releaseNote: row.release_note,
     createdAt: iso(row.version_created_at),
   };
 }
@@ -180,7 +182,7 @@ const JOINED = `
   s.id, s.account_id, s.client_strategy_id, s.deleted_at, s.created_at,
   s.name AS head_name, s.folder, s.description, s.organised, s.restores,
   v.version, v.name, v.language, v.source, v.cash, v.blocks, v.modules, v.risk,
-  v.environment, v.kind, v.claim_label, v.live, v.simulated, v.created_at AS version_created_at
+  v.environment, v.kind, v.claim_label, v.live, v.simulated, v.release_note, v.created_at AS version_created_at
 `;
 
 /**
@@ -250,9 +252,9 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
       db,
       `INSERT INTO ${versions} (
          strategy_id, version, name, language, source, cash, blocks, risk,
-         environment, kind, claim_label, live, simulated, created_at, modules
+         environment, kind, claim_label, live, simulated, created_at, modules, release_note
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, false, true, $12, $13::jsonb
+         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, false, true, $12, $13::jsonb, $14
        )`,
       [
         strategyId,
@@ -268,6 +270,7 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
         draft.claimLabel,
         createdAt,
         draft.modules,
+        draft.releaseNote,
       ],
     );
   }

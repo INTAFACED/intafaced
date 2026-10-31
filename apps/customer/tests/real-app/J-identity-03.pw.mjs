@@ -106,6 +106,10 @@ test(`${J} #3 the new password follows the rule: a short one is refused with the
   const seen = resetCodes(who.email).length;
   await askReset(page, who.email);
   const code = await nextResetCode(who.email, seen);
+  // The rule is on the page before anything is typed, as the new password field's own description.
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAccessibleDescription(
+    /At least 12 characters, up to 72 bytes\. Ordinary letters and digits count one each; accented letters and emoji count more\./,
+  );
   await submitReset(page, code, 'short');
   await expect(page.getByRole('alert')).toContainText('Use at least 12 characters');
   // A password on the owner's breached list is refused by name (I-signin-sessions-04). Fails fast until it lands.
@@ -164,8 +168,26 @@ test(`${J} #6 a "your password was changed" notice by mail and in the inbox`, as
   const seen = resetCodes(who.email).length;
   await askReset(page, who.email);
   const code = await nextResetCode(who.email, seen);
-  await submitReset(page, code, `TEST-${randomBytes(9).toString('base64url')}-new`);
+  const changed = `TEST-${randomBytes(9).toString('base64url')}-new`;
+  await submitReset(page, code, changed);
   await expect(page.getByRole('status').filter({ hasText: 'Your password has been changed' })).toBeVisible();
   // The security notice (I-signin-sessions-08). Fails fast until it lands.
   await expect.poll(() => mailedLines(who.email, 'password-changed').length, { timeout: 5_000 }).toBeGreaterThan(0);
+  // And in the inbox: signed in with the new password, the security notice names the password change and links to
+  // Security. It follows the event svc-identity's outbox relay publishes within a few seconds: reload until it shows.
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', changed);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+  // The row itself: its title, its body and its link to Security.
+  const row = page.getByTestId('nf-row').filter({ has: page.getByTestId('nf-title').getByText('Password changed', { exact: true }) });
+  await expect(async () => {
+    await page.goto('/notifications');
+    await expect(row).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(row.getByTestId('nf-body')).toHaveText(
+    'The password of your account was changed. If this was not you, reset it now, open Security, sign out everywhere and contact Support.',
+  );
+  await expect(row).toHaveAttribute('href', '/uc/safe');
 });
