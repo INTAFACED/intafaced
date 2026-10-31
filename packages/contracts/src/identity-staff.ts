@@ -2,7 +2,13 @@ import { z } from 'zod';
 import {
   BUILTIN_STAFF_ROLE_NAMES,
   STAFF_AREAS,
+  STAFF_BUSINESS_USER_NOT_STAFF,
   STAFF_ENVS,
+  STAFF_PERMISSION_INVALID,
+  STAFF_PERMISSIONS,
+  STAFF_ROLE_GRANT_EXCEEDS_HOLDER,
+  STAFF_ROLE_MAPPING_UNSET,
+  STAFF_SELF_GRANT,
   STAFF_VERBS,
   isStaffPermission,
   type StaffPermission,
@@ -27,6 +33,9 @@ import { ACTION_APPROVAL_POLICY_UNSET } from './action-approval-policy.js';
  * `identity.staff_invite_open_link_refused`. Business users never get staff roles (ORD-013). No password, secret,
  * token or factor ever appears in these shapes; the staff entry is strict so one cannot ride along.
  *
+ * Nobody changes their own roles or status (`identity.staff_self_grant`). Founders keep today's founder authority
+ * (the `admin:*` scopes and identity's live founder entitlement); staff permissions govern non-founder staff.
+ *
  * Ids are opaque strings. Nothing here is money.
  */
 
@@ -47,8 +56,20 @@ export type IdentityStaffActionType = (typeof IDENTITY_STAFF_ACTION_TYPES)[numbe
 
 /** An invite that does not name one person (a link anyone can use). */
 export const IDENTITY_STAFF_INVITE_OPEN_LINK_REFUSED = 'identity.staff_invite_open_link_refused' as const;
-/** The actor tried to grant a permission they do not hold themselves. */
-export const IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER = 'identity.role_grant_exceeds_holder' as const;
+/**
+ * The codes `@intafaced/auth/staff-permissions` refuses with, re-exported so the literal has one source. The
+ * `IDENTITY_*` names below are the same values under this contract's naming.
+ */
+export {
+  STAFF_BUSINESS_USER_NOT_STAFF,
+  STAFF_PERMISSION_INVALID,
+  STAFF_ROLE_GRANT_EXCEEDS_HOLDER,
+  STAFF_ROLE_MAPPING_UNSET,
+  STAFF_SELF_GRANT,
+};
+
+/** The actor tried to grant a permission they do not hold themselves (including lifting a deny on a redefine). */
+export const IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER = STAFF_ROLE_GRANT_EXCEEDS_HOLDER;
 /** The action needs a permission an explicit deny on one of the actor's roles removes. */
 export const IDENTITY_PERMISSION_DENIED_EXPLICIT = 'identity.permission_denied_explicit' as const;
 /** The change would leave no active founder (disable, remove, or unassign the founder role from the last one). */
@@ -56,9 +77,13 @@ export const IDENTITY_STAFF_LAST_FOUNDER = 'identity.staff_last_founder' as cons
 /** A sign-in or role change for a person who was never invited and approved. */
 export const IDENTITY_STAFF_NOT_INVITED = 'identity.staff_not_invited' as const;
 /** A built-in role whose permission mapping the owner has not published. */
-export const IDENTITY_ROLE_MAPPING_UNSET = 'identity.role_mapping_unset' as const;
+export const IDENTITY_ROLE_MAPPING_UNSET = STAFF_ROLE_MAPPING_UNSET;
 /** A business account cannot hold a staff role. */
-export const IDENTITY_BUSINESS_USER_NOT_STAFF = 'identity.business_user_not_staff' as const;
+export const IDENTITY_BUSINESS_USER_NOT_STAFF = STAFF_BUSINESS_USER_NOT_STAFF;
+/** A role or request names a string outside the staff permission catalogue (or an environment outside the list). */
+export const IDENTITY_STAFF_PERMISSION_INVALID = STAFF_PERMISSION_INVALID;
+/** A person changing their own roles or their own status. */
+export const IDENTITY_STAFF_SELF_GRANT = STAFF_SELF_GRANT;
 
 /**
  * Every typed refusal of the staff and roles procedures, for the console's refusal map. The approval contract's own
@@ -73,6 +98,8 @@ export const IDENTITY_STAFF_REFUSAL_CODES = [
   IDENTITY_STAFF_NOT_INVITED,
   IDENTITY_ROLE_MAPPING_UNSET,
   IDENTITY_BUSINESS_USER_NOT_STAFF,
+  IDENTITY_STAFF_PERMISSION_INVALID,
+  IDENTITY_STAFF_SELF_GRANT,
   ACTION_APPROVAL_POLICY_UNSET,
 ] as const;
 export type IdentityStaffRefusalCode = (typeof IDENTITY_STAFF_REFUSAL_CODES)[number];
@@ -104,8 +131,10 @@ export const staffPermissionSchema = z.custom<StaffPermission>((value) => isStaf
 
 const permissionList = z
   .array(staffPermissionSchema)
-  .max(240)
+  .max(STAFF_PERMISSIONS.length)
   .refine((list) => new Set(list).size === list.length, 'a permission is listed twice');
+
+const isBuiltinName = (name: string): boolean => (BUILTIN_STAFF_ROLE_NAMES as readonly string[]).includes(name.trim().toLowerCase());
 
 /**
  * A four-eyes approval reference. `payloadHash` is the hash the approval was proposed and approved against; identity
@@ -166,28 +195,39 @@ const roleBase = { roleId: opaqueId, name: displayName, version };
 
 /**
  * A role as the console reads it. A built-in role is `unset` until the owner publishes its mapping; it then carries
- * no permissions and assigning it refuses `identity.role_mapping_unset`.
+ * no permissions and assigning it refuses `identity.role_mapping_unset`. `builtin` goes only with a built-in name and
+ * `custom` never with one.
  */
-export const staffRoleSchema = z.discriminatedUnion('state', [
-  z
-    .object({
-      ...roleBase,
-      kind: z.literal('builtin'),
-      name: builtinStaffRoleNameSchema,
-      state: z.literal('mapping_unset'),
-      code: z.literal(IDENTITY_ROLE_MAPPING_UNSET),
-    })
-    .strict(),
-  z
-    .object({
-      ...roleBase,
-      kind: z.enum(['builtin', 'custom']),
-      state: z.literal('defined'),
-      allow: permissionList,
-      deny: permissionList,
-    })
-    .strict(),
-]);
+export const staffRoleSchema = z
+  .discriminatedUnion('state', [
+    z
+      .object({
+        ...roleBase,
+        kind: z.literal('builtin'),
+        name: builtinStaffRoleNameSchema,
+        state: z.literal('mapping_unset'),
+        code: z.literal(IDENTITY_ROLE_MAPPING_UNSET),
+      })
+      .strict(),
+    z
+      .object({
+        ...roleBase,
+        kind: z.enum(['builtin', 'custom']),
+        state: z.literal('defined'),
+        allow: permissionList,
+        deny: permissionList,
+      })
+      .strict(),
+  ])
+  .superRefine((role, ctx) => {
+    if (role.state !== 'defined') return;
+    if (role.kind === 'builtin' && !builtinStaffRoleNameSchema.safeParse(role.name).success) {
+      ctx.addIssue({ code: 'custom', path: ['name'], message: 'a built-in role carries a built-in name' });
+    }
+    if (role.kind === 'custom' && isBuiltinName(role.name)) {
+      ctx.addIssue({ code: 'custom', path: ['name'], message: 'a custom role never carries a built-in name' });
+    }
+  });
 export type StaffRoleView = z.infer<typeof staffRoleSchema>;
 
 export const staffRolesListInputSchema = z.object({}).strict();
@@ -204,15 +244,8 @@ export type StaffGet = z.infer<typeof staffGetSchema>;
  * (`identity.role_grant_exceeds_holder`) and a built-in role must have a mapping (`identity.role_mapping_unset`).
  * The person sets their own password at first connection; no password or link is in this shape.
  */
-export const staffInviteInputSchema = z
-  .object({
-    requestId,
-    email,
-    displayName,
-    roleIds: z.array(opaqueId).max(20),
-    approval: staffApprovalRefSchema,
-  })
-  .strict();
+const staffInviteFields = z.object({ requestId, email, displayName, roleIds: z.array(opaqueId).max(20) }).strict();
+export const staffInviteInputSchema = staffInviteFields.extend({ approval: staffApprovalRefSchema }).strict();
 export type StaffInviteInput = z.infer<typeof staffInviteInputSchema>;
 
 /** Field names that mark an invite as a link for anyone rather than for one named person. */
@@ -239,9 +272,8 @@ export function readStaffInvite(
 }
 
 /** Disable keeps the record and revokes sign-in; remove deletes the staff record. Neither touches the customer account. */
-export const staffDisableInputSchema = z
-  .object({ requestId, staffId: opaqueId, reason, expectedVersion: version, approval: staffApprovalRefSchema })
-  .strict();
+const staffStatusChangeFields = z.object({ requestId, staffId: opaqueId, reason, expectedVersion: version }).strict();
+export const staffDisableInputSchema = staffStatusChangeFields.extend({ approval: staffApprovalRefSchema }).strict();
 export type StaffDisableInput = z.infer<typeof staffDisableInputSchema>;
 
 export const staffRemoveInputSchema = staffDisableInputSchema;
@@ -249,10 +281,15 @@ export type StaffRemoveInput = StaffDisableInput;
 
 /**
  * Define a custom role, or redefine one (`roleId` and `expectedVersion` together). Built-in roles are never defined
- * here: a built-in name is refused, and there is no `kind` field to set. Every allow must be within what the actor
- * holds (`identity.role_grant_exceeds_holder`); denies narrow and need no holding.
+ * here: a built-in name is refused, and there is no `kind` field to set. A permission in both `allow` and `deny` is
+ * refused. Every allow, and on a redefine every deny the new definition lifts, must be within what the actor holds
+ * (`identity.role_grant_exceeds_holder`, `assertGrantWithinHolder` with the previous role); a new deny narrows and needs
+ * no holding.
+ *
+ * Events: a define changes what every current holder can do, so identity publishes `intafaced.identity.staff.updated`
+ * for every current holder of the role, with `changedFields: ['permissions']`, in the same transaction.
  */
-export const staffRoleDefineInputSchema = z
+const staffRoleDefineFields = z
   .object({
     requestId,
     roleId: opaqueId.optional(),
@@ -260,84 +297,105 @@ export const staffRoleDefineInputSchema = z
     name: displayName,
     allow: permissionList,
     deny: permissionList,
-    approval: staffApprovalRefSchema,
   })
+  .strict();
+type StaffRoleDefineShape = z.infer<typeof staffRoleDefineFields>;
+function refineRoleDefine(input: StaffRoleDefineShape, ctx: z.RefinementCtx): void {
+  if ((input.roleId === undefined) !== (input.expectedVersion === undefined)) {
+    ctx.addIssue({ code: 'custom', path: ['expectedVersion'], message: 'roleId and expectedVersion go together' });
+  }
+  if (isBuiltinName(input.name)) {
+    ctx.addIssue({ code: 'custom', path: ['name'], message: 'a built-in role name cannot be defined as a custom role' });
+  }
+  if (input.allow.length + input.deny.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['allow'], message: 'a role names at least one permission' });
+  }
+  const denied = new Set(input.deny);
+  const both = input.allow.filter((p) => denied.has(p));
+  if (both.length > 0) {
+    ctx.addIssue({ code: 'custom', path: ['deny'], message: `in both allow and deny: ${both.join(', ')}` });
+  }
+}
+export const staffRoleDefineInputSchema = staffRoleDefineFields
+  .extend({ approval: staffApprovalRefSchema })
   .strict()
-  .superRefine((input, ctx) => {
-    if ((input.roleId === undefined) !== (input.expectedVersion === undefined)) {
-      ctx.addIssue({ code: 'custom', path: ['expectedVersion'], message: 'roleId and expectedVersion go together' });
-    }
-    if ((BUILTIN_STAFF_ROLE_NAMES as readonly string[]).includes(input.name.toLowerCase())) {
-      ctx.addIssue({ code: 'custom', path: ['name'], message: 'a built-in role name cannot be defined as a custom role' });
-    }
-    if (input.allow.length + input.deny.length === 0) {
-      ctx.addIssue({ code: 'custom', path: ['allow'], message: 'a role names at least one permission' });
-    }
-  });
+  .superRefine(refineRoleDefine);
 export type StaffRoleDefineInput = z.infer<typeof staffRoleDefineInputSchema>;
 
 /** Assign or unassign one role on one staff member. `expectedVersion` is the staff record's version. */
-export const staffRoleAssignInputSchema = z
-  .object({ requestId, staffId: opaqueId, roleId: opaqueId, expectedVersion: version, approval: staffApprovalRefSchema })
-  .strict();
+const staffRoleAssignFields = z.object({ requestId, staffId: opaqueId, roleId: opaqueId, expectedVersion: version }).strict();
+export const staffRoleAssignInputSchema = staffRoleAssignFields.extend({ approval: staffApprovalRefSchema }).strict();
 export type StaffRoleAssignInput = z.infer<typeof staffRoleAssignInputSchema>;
 
 export const staffRoleUnassignInputSchema = staffRoleAssignInputSchema;
 export type StaffRoleUnassignInput = StaffRoleAssignInput;
 
-/**
- * What one privileged change binds its approval to: the action type, the target and the fields hashed into the payload
- * hash. Identity computes the hash from these; the console shows the approver the same fields.
- */
-export function staffChangeApprovalSubject(
-  change:
-    | { action: 'identity.staff.invite'; input: Omit<StaffInviteInput, 'approval'> }
-    | { action: 'identity.staff.disable' | 'identity.staff.remove'; input: Omit<StaffDisableInput, 'approval'> }
-    | { action: 'identity.roles.define'; input: Omit<StaffRoleDefineInput, 'approval'> }
-    | { action: 'identity.roles.assign' | 'identity.roles.unassign'; input: Omit<StaffRoleAssignInput, 'approval'> },
-): {
+/** The approval-less shape each action's subject is computed from: the same normalisation as the input schemas. */
+const STAFF_CHANGE_FIELD_SCHEMAS = {
+  'identity.staff.invite': staffInviteFields,
+  'identity.staff.disable': staffStatusChangeFields,
+  'identity.staff.remove': staffStatusChangeFields,
+  'identity.roles.define': staffRoleDefineFields.superRefine(refineRoleDefine),
+  'identity.roles.assign': staffRoleAssignFields,
+  'identity.roles.unassign': staffRoleAssignFields,
+} as const;
+
+export type StaffChangeApprovalSubject = {
   actionType: IdentityStaffActionType;
   targetService: typeof IDENTITY_STAFF_TARGET_SERVICE;
   targetId: string;
   fields: Record<string, unknown>;
-} {
-  const base = { actionType: change.action, targetService: IDENTITY_STAFF_TARGET_SERVICE } as const;
-  switch (change.action) {
-    case 'identity.staff.invite':
+};
+
+/**
+ * What one privileged change binds its approval to: the action type, the target and the fields hashed into the payload
+ * hash. Identity computes the hash from these; the console shows the approver the same fields.
+ *
+ * The input is parsed through the action's schema first (an `approval` field, if present, is set aside), so raw input
+ * and already-parsed input give the same subject: names, reasons and emails are trimmed, emails lower-cased, lists
+ * sorted, and a new role's target uses its case-folded name. Input the schema refuses throws its `ZodError`.
+ */
+export function staffChangeApprovalSubject(action: IdentityStaffActionType, input: unknown): StaffChangeApprovalSubject {
+  const body =
+    input !== null && typeof input === 'object' && 'approval' in input
+      ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'approval'))
+      : input;
+  const base = { actionType: action, targetService: IDENTITY_STAFF_TARGET_SERVICE } as const;
+  switch (action) {
+    case 'identity.staff.invite': {
+      const v = STAFF_CHANGE_FIELD_SCHEMAS[action].parse(body);
       return {
         ...base,
-        targetId: `invite:${change.input.email.trim().toLowerCase()}`,
-        fields: {
-          email: change.input.email.trim().toLowerCase(),
-          displayName: change.input.displayName,
-          roleIds: [...change.input.roleIds].sort(),
-        },
+        targetId: `invite:${v.email}`,
+        fields: { email: v.email, displayName: v.displayName, roleIds: [...v.roleIds].sort() },
       };
+    }
     case 'identity.staff.disable':
-    case 'identity.staff.remove':
+    case 'identity.staff.remove': {
+      const v = STAFF_CHANGE_FIELD_SCHEMAS[action].parse(body);
       return {
         ...base,
-        targetId: `staff:${change.input.staffId}`,
-        fields: { staffId: change.input.staffId, reason: change.input.reason, expectedVersion: change.input.expectedVersion },
+        targetId: `staff:${v.staffId}`,
+        fields: { staffId: v.staffId, reason: v.reason, expectedVersion: v.expectedVersion },
       };
-    case 'identity.roles.define':
+    }
+    case 'identity.roles.define': {
+      const v = STAFF_CHANGE_FIELD_SCHEMAS[action].parse(body);
       return {
         ...base,
-        targetId: change.input.roleId === undefined ? `role:new:${change.input.name}` : `role:${change.input.roleId}`,
-        fields: {
-          name: change.input.name,
-          allow: [...change.input.allow].sort(),
-          deny: [...change.input.deny].sort(),
-          expectedVersion: change.input.expectedVersion ?? null,
-        },
+        targetId: v.roleId === undefined ? `role:new:${v.name.toLowerCase()}` : `role:${v.roleId}`,
+        fields: { name: v.name, allow: [...v.allow].sort(), deny: [...v.deny].sort(), expectedVersion: v.expectedVersion ?? null },
       };
+    }
     case 'identity.roles.assign':
-    case 'identity.roles.unassign':
+    case 'identity.roles.unassign': {
+      const v = STAFF_CHANGE_FIELD_SCHEMAS[action].parse(body);
       return {
         ...base,
-        targetId: `staff:${change.input.staffId}`,
-        fields: { staffId: change.input.staffId, roleId: change.input.roleId, expectedVersion: change.input.expectedVersion },
+        targetId: `staff:${v.staffId}`,
+        fields: { staffId: v.staffId, roleId: v.roleId, expectedVersion: v.expectedVersion },
       };
+    }
   }
 }
 
@@ -379,7 +437,7 @@ export const staffChangeResultSchema = z.discriminatedUnion('outcome', [
       outcome: z.literal('refused'),
       code: identityStaffRefusalCodeSchema,
       /** The permissions or role the refusal names (for example what a grant lacks). Names only. */
-      detail: z.array(z.string().max(128)).max(240),
+      detail: z.array(z.string().max(128)).max(STAFF_PERMISSIONS.length + 1),
     })
     .strict(),
 ]);

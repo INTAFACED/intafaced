@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./identity-staff": {
+      "types": "./dist/identity-staff.d.ts",
+      "default": "./dist/identity-staff.js"
+    },
     "./quant-algo": {
       "types": "./dist/quant-algo.d.ts",
       "default": "./dist/quant-algo.js"

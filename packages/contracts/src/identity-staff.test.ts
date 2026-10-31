@@ -1,7 +1,15 @@
+import * as auth from '@intafaced/auth/staff-permissions';
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
+  IDENTITY_BUSINESS_USER_NOT_STAFF,
+  IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER,
+  IDENTITY_ROLE_MAPPING_UNSET,
   IDENTITY_STAFF_ACTION_TYPES,
+  IDENTITY_STAFF_PERMISSION_INVALID,
   IDENTITY_STAFF_REFUSAL_CODES,
+  IDENTITY_STAFF_SELF_GRANT,
+  STAFF_SELF_GRANT,
   readStaffInvite,
   staffAccessSchema,
   staffChangeApprovalSubject,
@@ -51,9 +59,28 @@ describe('refusal codes', () => {
       'identity.staff_not_invited',
       'identity.role_mapping_unset',
       'identity.business_user_not_staff',
+      'identity.staff_permission_invalid',
+      'identity.staff_self_grant',
       'action_approval.policy_unset',
     ]);
     expect(IDENTITY_STAFF_REFUSAL_CODES).not.toContain('identity.idp_unset');
+  });
+
+  it('takes the auth-owned codes from @intafaced/auth/staff-permissions, one source', () => {
+    expect(IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER).toBe(auth.STAFF_ROLE_GRANT_EXCEEDS_HOLDER);
+    expect(IDENTITY_ROLE_MAPPING_UNSET).toBe(auth.STAFF_ROLE_MAPPING_UNSET);
+    expect(IDENTITY_BUSINESS_USER_NOT_STAFF).toBe(auth.STAFF_BUSINESS_USER_NOT_STAFF);
+    expect(IDENTITY_STAFF_PERMISSION_INVALID).toBe(auth.STAFF_PERMISSION_INVALID);
+    expect(IDENTITY_STAFF_SELF_GRANT).toBe(auth.STAFF_SELF_GRANT);
+    expect(STAFF_SELF_GRANT).toBe(auth.STAFF_SELF_GRANT);
+  });
+
+  it('is published at the ./identity-staff subpath', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      exports: Record<string, { types: string; default: string }>;
+    };
+    const exportsMap = pkg.exports;
+    expect(exportsMap['./identity-staff']).toEqual({ types: './dist/identity-staff.d.ts', default: './dist/identity-staff.js' });
   });
 });
 
@@ -143,7 +170,7 @@ describe('every privileged change carries an approval reference', () => {
       'identity.roles.unassign',
     ]);
     const { approval: _a, ...rest } = assign;
-    const subject = staffChangeApprovalSubject({ action: 'identity.roles.assign', input: rest });
+    const subject = staffChangeApprovalSubject('identity.roles.assign', rest);
     expect(subject).toEqual({
       actionType: 'identity.roles.assign',
       targetService: 'svc-identity',
@@ -159,9 +186,46 @@ describe('every privileged change carries an approval reference', () => {
     const parsedB = staffRoleDefineInputSchema.parse({ ...b, approval });
     const { approval: _x, ...inA } = parsedA;
     const { approval: _y, ...inB } = parsedB;
-    expect(staffChangeApprovalSubject({ action: 'identity.roles.define', input: inA })).toEqual(
-      staffChangeApprovalSubject({ action: 'identity.roles.define', input: inB }),
-    );
+    expect(staffChangeApprovalSubject('identity.roles.define', inA)).toEqual(staffChangeApprovalSubject('identity.roles.define', inB));
+  });
+
+  it("normalises as the schemas do: ' Ops ' and 'Ops' give the same subject", () => {
+    const raw = { ...define, name: ' Ops ' };
+    const clean = { ...define, name: 'Ops' };
+    const fromRaw = staffChangeApprovalSubject('identity.roles.define', raw);
+    expect(fromRaw).toEqual(staffChangeApprovalSubject('identity.roles.define', clean));
+    expect(fromRaw.targetId).toBe('role:new:ops');
+    expect(staffChangeApprovalSubject('identity.roles.define', { ...define, name: 'OPS' }).targetId).toBe('role:new:ops');
+    expect(fromRaw.fields.name).toBe('Ops');
+  });
+
+  it('gives raw and parsed input the same subject, for every action', () => {
+    const rawCases = [
+      ['identity.staff.invite', { ...invite, email: '  Ada@Example.TEST ', displayName: ' Ada Example ', roleIds: ['b', 'a'] }],
+      ['identity.staff.disable', { ...disable, reason: '  Left the team  ' }],
+      ['identity.staff.remove', { ...disable, staffId: ' staff-1 ' }],
+      ['identity.roles.define', { ...define, name: '  Ops read ', allow: ['staff:cards:read:local', 'staff:accounts:read:local'] }],
+      ['identity.roles.assign', { ...assign, roleId: ' role-1 ' }],
+      ['identity.roles.unassign', assign],
+    ] as const;
+    const schemas = {
+      'identity.staff.invite': staffInviteInputSchema,
+      'identity.staff.disable': staffDisableInputSchema,
+      'identity.staff.remove': staffRemoveInputSchema,
+      'identity.roles.define': staffRoleDefineInputSchema,
+      'identity.roles.assign': staffRoleAssignInputSchema,
+      'identity.roles.unassign': staffRoleUnassignInputSchema,
+    } as const;
+    for (const [action, raw] of rawCases) {
+      const parsed = schemas[action].parse(raw);
+      expect(staffChangeApprovalSubject(action, raw), action).toEqual(staffChangeApprovalSubject(action, parsed));
+    }
+    expect(staffChangeApprovalSubject('identity.staff.invite', rawCases[0][1]).targetId).toBe('invite:ada@example.test');
+  });
+
+  it('refuses input its schema refuses', () => {
+    expect(() => staffChangeApprovalSubject('identity.roles.assign', { ...assign, staffId: '' })).toThrow();
+    expect(() => staffChangeApprovalSubject('identity.roles.define', { ...define, name: 'founder' })).toThrow();
   });
 });
 
@@ -177,6 +241,13 @@ describe('define (custom roles only)', () => {
         .success,
     ).toBe(false);
     expect(staffRoleDefineInputSchema.safeParse({ ...define, allow: [], deny: [] }).success).toBe(false);
+    expect(staffRoleDefineInputSchema.safeParse({ ...define, name: ' FINANCE ' }).success).toBe(false);
+  });
+
+  it('refuses a permission in both allow and deny', () => {
+    const both = { ...define, allow: ['staff:accounts:read:production'], deny: ['staff:accounts:read:production'] };
+    expect(staffRoleDefineInputSchema.safeParse(both).success).toBe(false);
+    expect(staffRoleDefineInputSchema.safeParse({ ...both, deny: ['staff:accounts:read:staging'] }).success).toBe(true);
   });
 
   it('redefines only with roleId and expectedVersion together', () => {
@@ -209,6 +280,16 @@ describe('roles list', () => {
       deny: [],
     };
     expect(staffRolesListSchema.safeParse({ roles: [unset, custom], asOf: NOW }).success).toBe(true);
+  });
+
+  it("ties kind to name: 'builtin' only with a built-in name, 'custom' never with one", () => {
+    const defined = { roleId: 'r', version: '1', state: 'defined', allow: ['staff:accounts:read:production'], deny: [] };
+    expect(staffRoleSchema.safeParse({ ...defined, kind: 'builtin', name: 'support' }).success).toBe(true);
+    expect(staffRoleSchema.safeParse({ ...defined, kind: 'builtin', name: 'Ops read' }).success).toBe(false);
+    expect(staffRoleSchema.safeParse({ ...defined, kind: 'custom', name: 'Ops read' }).success).toBe(true);
+    for (const name of ['founder', 'Founder', ' support ']) {
+      expect(staffRoleSchema.safeParse({ ...defined, kind: 'custom', name }).success, name).toBe(false);
+    }
   });
 });
 
