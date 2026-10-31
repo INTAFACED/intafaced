@@ -18,6 +18,7 @@ import { createBankServices, memoryRecipientState, type BankServices } from '../
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
 import { memorySecurityLock } from '../security-lock.js';
+import { memorySanctions } from './sanctions-list.js';
 import { DestinationFraudList, fraudChangeKey, fraudListingFields, SET_FRAUD_LISTING_ACTION } from './fraud-list.js';
 import { memoryWithdrawNetworks } from './withdraw-networks.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './rails.js';
@@ -147,6 +148,7 @@ describe('destination fraud list (W-withdraw-03)', () => {
         addressBookCap: '5',
         programme: CRYPTO_LEDGER_PROGRAMME,
         offrampCoolingHours: '0',
+        sanctions: memorySanctions(),
       },
     });
   }

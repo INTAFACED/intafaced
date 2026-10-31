@@ -66,6 +66,7 @@ import {
 } from './address-approval.js';
 import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
 import { sendableDestination } from './send-destination.js';
+import { BANK_DESTINATION_SANCTIONS_ENV, destinationSanctions, type DestinationSanctionsPort } from './sanctions-list.js';
 import type { BankSendDestination, BankSendDestinationInput } from '@intafaced/contracts';
 import { DestinationFraudList, fraudAddressKey, refuseFraudListed, type DestinationFraudListPort } from './fraud-list.js';
 import {
@@ -281,6 +282,8 @@ export interface RampServiceOptions {
   trustedDevices?: TrustedDevicePort;
   /** The destination fraud list (W-withdraw-03). Defaults to the bank's own table. */
   fraudList?: DestinationFraudListPort;
+  /** The owner's destination sanctions list; read from `BANK_DESTINATION_SANCTIONS` when not given. */
+  sanctions?: DestinationSanctionsPort;
 }
 
 export class RampService {
@@ -303,6 +306,7 @@ export class RampService {
   private readonly trustedDevices: TrustedDevicePort;
   /** The owner's destination fraud list: read by the address book, written by compliance's desk door. */
   readonly fraudList: DestinationFraudListPort;
+  readonly sanctions: DestinationSanctionsPort;
 
   constructor(
     private readonly sql: Sql,
@@ -331,6 +335,7 @@ export class RampService {
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
     this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
     this.fraudList = options.fraudList ?? new DestinationFraudList(sql);
+    this.sanctions = options.sanctions ?? destinationSanctions(() => process.env[BANK_DESTINATION_SANCTIONS_ENV]);
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -372,6 +377,7 @@ export class RampService {
       securityLock: this.securityLock,
       approvalLinks: this.approvalLinks,
       fraudList: this.fraudList,
+      sanctions: this.sanctions,
     };
   }
 

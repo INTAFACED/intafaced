@@ -2,6 +2,7 @@ import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-ne
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { assertNotSanctioned, type DestinationSanctionsPort } from './sanctions-list.js';
 import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
 import {
@@ -53,6 +54,8 @@ export interface CustomerRampDeps {
   approvalLinks: ApprovalLinkStore;
   /** The owner's destination fraud list (W-withdraw-03): a listed address is never saved, and a saved one reads blocked. */
   fraudList: DestinationFraudListPort;
+  /** The owner's destination sanctions list: blank refuses every save, a listed address is never saved, a saved one reads blocked. */
+  sanctions: DestinationSanctionsPort;
 }
 
 interface QuoteRow {
@@ -505,6 +508,8 @@ export async function saveDestination(
       'bank.destination_fraud_listed',
     );
   }
+  // The same for the sanctions list, and with no list set no address is screened, so none is saved.
+  assertNotSanctioned(deps.sanctions, entry.network, entry.ref);
   if (same) return viewWithOwnership(deps, book.userId, same);
   await assertSecurityLockOpen(deps.securityLock, book.userId, 'adding a withdrawal address');
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
@@ -567,6 +572,8 @@ export async function destinationReadiness(
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
   // Listed as fraud after it was saved: nothing may be sent to it. An entry with no network matches a listing on any network.
   if (await deps.fraudList.isListed(row.network, row.ref)) return { ...base, state: 'blocked' };
+  // Sanctioned after it was saved: nothing may be sent to it either.
+  if (deps.sanctions.check(row.network, row.ref) === 'listed') return { ...base, state: 'blocked' };
   if (row.state === 'pending') {
     const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
     return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };

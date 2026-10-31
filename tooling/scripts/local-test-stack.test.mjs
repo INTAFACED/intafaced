@@ -325,6 +325,15 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: the mining pool can start with nothing published');
 }
 
+// The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { LOCAL_TEST_SANCTIONED_ADDRESS } = await import('./local-stack-services/bank.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  assert.equal(bank.env.BANK_DESTINATION_SANCTIONS, `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`);
+  console.log('local-test-stack: bank carries the LOCAL TEST destination sanctions list');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {

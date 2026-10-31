@@ -15,6 +15,7 @@ import { memoryWalletProofs } from './ramps/wallet-ownership.js';
 import { createIdentitySecurityLock, memorySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
 import { memoryWithdrawDestinations } from './withdraw-destination.js';
 import { memoryFraudList } from './ramps/fraud-list.js';
+import { memorySanctions } from './ramps/sanctions-list.js';
 
 /**
  * W-withdraw-09, svc-bank's half of the customer security lock (J-wallet-04 #7): while the owner's lock holds, no
@@ -156,6 +157,7 @@ describe('the address book while the security lock holds', () => {
   function ramps(lock = memorySecurityLock(), destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' })) {
     const service = new RampService({} as Sql, {} as LedgerClient, {
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       securityLock: lock,
       destinations,
       withdrawNetworks: registry,
@@ -254,6 +256,7 @@ describe('whether a saved address can be used now', () => {
     const service = (hours: string) =>
       new RampService({} as Sql, {} as LedgerClient, {
         fraudList: memoryFraudList(),
+        sanctions: memorySanctions(),
         securityLock: lock,
         destinations,
         withdrawNetworks: registry,

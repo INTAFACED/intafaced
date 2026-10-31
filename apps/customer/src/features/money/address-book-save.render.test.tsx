@@ -310,6 +310,25 @@ describe('checking the address before the confirmation (W-withdraw-03)', () => {
     expect(reloads.book).toBe(0);
   });
 
+  it.each([
+    ['bank.destination_sanctions_listed', 'This address is on the sanctions list, so it can’t be saved. Nothing was saved.'],
+    [
+      'bank.destination_sanctions_unset',
+      'No address can be saved yet: the sanctions list for withdrawal addresses isn’t set. Nothing was saved.',
+    ],
+  ])('puts the sanctions refusal %s on save in the customer’s words', async (code, words) => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
+    mutate.mockResolvedValue({ ok: false, reason: 'error', message: 'The bank refused', code });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    await confirmWithCode();
+    expect(document.body.textContent).toContain(words);
+    expect(reloads.book).toBe(0);
+  });
+
   it('saves nothing and asks for no code when the check itself fails', async () => {
     query.mockResolvedValue({ ok: false, reason: 'network', message: 'offline' });
     await mount();
