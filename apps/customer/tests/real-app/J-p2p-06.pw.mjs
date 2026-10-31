@@ -81,7 +81,7 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
 
   const before = await free(seller);
   const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
-  run.write({ buyerPasskey: b.passkey().saved() });
+  run.write({ buyerPasskey: b.passkey().saved(), cancelTradeId: trade.id });
   expect(trade.status).toBe('escrowed');
   // Held in escrow: the seller's free balance is down by the order.
   expect(await free(seller)).toBe(fromUnits(toUnits(before) - toUnits('10')));
@@ -161,6 +161,9 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   // The seller's free balance while the order still holds its 10 USDT; the refund adds exactly that back, once.
   const holding = (await s.query('trades.get', { tradeId })).status === 'escrowed';
   expect(holding, 'the order ran out before this step could watch it').toBe(true);
+  // #1's order, if its cancel did not go through, runs out in the same sweeps and is refunded too.
+  const alsoRunning = state.cancelTradeId && (await s.query('trades.get', { tradeId: state.cancelTradeId })).status === 'escrowed';
+  const refunds = alsoRunning ? '20' : '10';
   const before = await free(state.seller);
   await expect
     .poll(async () => (await s.query('trades.get', { tradeId })).status, {
@@ -170,9 +173,9 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
     .toBe('cancelled');
   const expired = await s.query('trades.get', { tradeId });
   expect(expired).toMatchObject({ resolution: 'refunded', displayStatus: 'cancelled_by_timeout' });
-  await expect.poll(() => free(state.seller), { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + toUnits('10')));
+  await expect.poll(() => free(state.seller), { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + toUnits(refunds)));
   await new Promise((resolve) => setTimeout(resolve, SWEEP_SECONDS * 1_000));
-  expect(await free(state.seller)).toBe(fromUnits(toUnits(before) + toUnits('10')));
+  expect(await free(state.seller)).toBe(fromUnits(toUnits(before) + toUnits(refunds)));
   await signIn(page, state.buyer);
   await page.goto('/uc/order');
   await expect(page.locator(`[data-trade-id="${tradeId}"]`)).toContainText('Cancelled: payment time ran out');
