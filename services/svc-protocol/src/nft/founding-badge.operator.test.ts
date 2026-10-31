@@ -35,7 +35,7 @@ function signedAs(userId: string, scopes: string[]) {
   });
 }
 
-function build(opts: { approvals?: boolean; age?: number; genesis?: Hex } = {}) {
+function build(opts: { approvals?: boolean; age?: number; genesis?: Hex; restartable?: boolean } = {}) {
   const store = memBadgeStore([ACCOUNT]);
   const key = badgeClaimKey(ACCOUNT);
   store.rows.set(key, {
@@ -60,6 +60,8 @@ function build(opts: { approvals?: boolean; age?: number; genesis?: Hex } = {}) 
       minter: noBadgeSigner,
       window: () => null,
       mainnet: () => false,
+      // Chain 31337 is local, started again from a new genesis; `restartable: false` stands for a long-lived chain.
+      restartable: () => opts.restartable ?? true,
       now: () => new Date('2026-10-22T04:00:00Z'),
       approvals:
         opts.approvals === false
@@ -109,6 +111,17 @@ describe('svc-protocol mount — badge.resolveStuckMint (operator clear)', () =>
     expect(await here.router.createCaller(signedAs(OPERATOR, ['admin:write'])).badge.resolveStuckMint(body())).toMatchObject({
       cleared: true,
     });
+  });
+
+  it('a slot from another genesis on a chain that is not started again refuses badge.chain_changed (CONFLICT): nothing cleared, no approval spent', async () => {
+    const { router, store, consumed } = build({ age: 600, genesis: `0x${'d'.repeat(64)}`, restartable: false });
+    await expect(router.createCaller(signedAs(OPERATOR, ['admin:write'])).badge.resolveStuckMint(body())).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringMatching(/^badge\.chain_changed/),
+    });
+    expect(store.audits).toHaveLength(0);
+    expect(consumed()).toBe(0);
+    expect(store.rows.get(badgeClaimKey(ACCOUNT))).toMatchObject({ genesisHash: `0x${'d'.repeat(64)}`, txHash: null });
   });
 
   it('typed refusals map to client errors with the code intact', async () => {

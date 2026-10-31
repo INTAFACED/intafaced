@@ -255,6 +255,12 @@ export interface DeliveryStore {
    */
   noteReceipt(input: NoteReceiptInput): Promise<void>;
   settle(input: SettleInput): Promise<void>;
+  /**
+   * Record a send this channel owes and has no sender for: a `pending` row named `code`, never claimed (no attempts, no
+   * lease, `attempted_at` NULL), so the stuck-pending reaper leaves it and nothing reads it as sent. When a row for this
+   * notification and channel already exists it is returned as it stands; nothing is overwritten.
+   */
+  wait(notificationId: string, channel: ChannelId, code: RefusalCode, detail?: string | null): Promise<DeliveryRecord>;
   listForNotification(notificationId: string): Promise<DeliveryRecord[]>;
   /**
    * Operator delivery-outcomes view (D26-P1-O5 residual).
@@ -436,9 +442,35 @@ export class MemoryDeliveryStore implements DeliveryStore {
     existing.attempts += 1;
     existing.status = 'pending';
     existing.attemptedAt = null;
+    existing.refusalCode = null;
     existing.leaseUntil = leaseUntil;
     existing.updatedAt = now;
     return { claimed: true, id: existing.id, attempt: existing.attempts };
+  }
+
+  async wait(notificationId: string, channel: ChannelId, code: RefusalCode, detail: string | null = null): Promise<DeliveryRecord> {
+    const key = deliveryKey(notificationId, channel);
+    const existing = this.byKey.get(key);
+    if (existing) return { ...existing };
+    const now = this.now();
+    const record: DeliveryRecord = {
+      id: randomUUID(),
+      notificationId,
+      channel,
+      status: 'pending',
+      attempts: 0,
+      attemptedAt: null,
+      acceptedAt: null,
+      leaseUntil: null,
+      refusalCode: code,
+      detail,
+      reference: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.byKey.set(key, record);
+    this.byId.set(record.id, record);
+    return { ...record };
   }
 
   async noteReceipt(input: NoteReceiptInput): Promise<void> {
@@ -739,6 +771,8 @@ export class PostgresDeliveryStore implements DeliveryStore {
         SET attempts = notify.deliveries.attempts + 1,
             status = 'pending',
             attempted_at = NULL,
+            -- A waiting row (vendor.email) being claimed is no longer waiting on that.
+            refusal_code = NULL,
             lease_until = now() + (${leaseSeconds}::text || ' seconds')::interval,
             updated_at = now()
         WHERE notify.deliveries.attempts < ${maxAttempts}
@@ -814,6 +848,18 @@ export class PostgresDeliveryStore implements DeliveryStore {
       }
       return { claimed: false, reason: 'terminal', record };
     });
+  }
+
+  async wait(notificationId: string, channel: ChannelId, code: RefusalCode, detail: string | null = null): Promise<DeliveryRecord> {
+    // One statement: a row already there (claimed, sent or refused) is the truer record and is returned untouched; the
+    // no-op update only makes RETURNING hand it back.
+    const rows = await this.sql<DeliveryPgRow[]>`
+      INSERT INTO notify.deliveries (notification_id, channel, status, attempts, refusal_code, detail)
+      VALUES (${notificationId}, ${channel}, 'pending', 0, ${code}, ${detail})
+      ON CONFLICT (notification_id, channel) DO UPDATE SET notification_id = notify.deliveries.notification_id
+      RETURNING id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at
+    `;
+    return fromDeliveryPg(rows[0]!);
   }
 
   async noteReceipt(input: NoteReceiptInput): Promise<void> {
