@@ -927,6 +927,13 @@ export interface RailAdapter {
   queryPayout?(idempotencyKey: string): Promise<PayoutRailStatus>;
 
   /**
+   * W-withdraw-06: on a rail whose payout is final only at a depth (a chain), how deep the send of this instruction is now.
+   * Present, a send out of the platform on this rail settles only once that reaches the owner's settle depth
+   * (`PAY_WITHDRAW_MIN_CONFIRMATIONS`); `null` means the rail cannot say, and the hold stays. Absent, the rail's acceptance is final (ENGINE W-4).
+   */
+  payoutDepth?(s: SettlementInstruction): Promise<number | null>;
+
+  /**
    * Verify and parse an inbound webhook.
    *
    * Returns null for anything that does not verify — a bad signature, a missing

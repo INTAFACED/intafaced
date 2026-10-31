@@ -100,6 +100,7 @@ const migrations = [
   '20261025020000_p2p_method_rules.sql',
   '20261030125739_p2p_ad_lifecycle.sql',
   '20261030135324_p2p_private_ads.sql',
+  '20261030194000_p2p_presence_console.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';

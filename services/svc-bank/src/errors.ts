@@ -816,6 +816,8 @@ export type BankErrorCode =
   | 'bank.statement_too_large'
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
+  /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */
+  | 'bank.statement_balances_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
   | 'bank.ops_audit_unavailable'
   /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */

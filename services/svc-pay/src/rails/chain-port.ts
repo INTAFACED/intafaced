@@ -91,6 +91,12 @@ export interface CryptoChainPort {
    */
   lookupSend(idempotencyKey: string): Promise<ChainSendLookup>;
   /**
+   * How deep the outbound transfer journalled for this business key is now: the blocks that include it and every block
+   * after (W-withdraw-06). `null` means this port cannot say (it never saw the send, or forgot it): never a guess, so a
+   * withdrawal waiting on it stays held.
+   */
+  sendDepth(idempotencyKey: string): Promise<number | null>;
+  /**
    * One cheap liveness check. MemoryChain resolves. A live chain reads its
    * chain id and must not scan blocks. UnconfiguredChain throws.
    */
@@ -111,6 +117,12 @@ export type ChainSendLookup =
 export interface MemoryChainPace {
   readonly sendDelayMs?: number;
   readonly refuseAmount?: Amount;
+  /**
+   * W-withdraw-06: one TEST block every `blockMs` after a send answers, so its depth grows the way a chain's does and a
+   * send can be watched while it confirms. Unset, the in-memory chain has no blocks and a send it answered is as deep as
+   * any minimum.
+   */
+  readonly blockMs?: number;
 }
 
 /**
@@ -151,6 +163,9 @@ export class MemoryChain implements CryptoChainPort {
 
   private readonly transfers = new Map<string, ConfirmedTransfer[]>();
   private readonly sent = new Map<string, { txHash: string }>();
+  /** When each send answered, and any depth a test set for it (`setSendDepth`). */
+  private readonly answeredAt = new Map<string, number>();
+  private readonly depthSet = new Map<string, number>();
   private readonly outbound: Array<ChainSendRequest & { txHash: string }> = [];
   private nonce = 0;
   private broadcastError: Error | null = null;
@@ -206,7 +221,20 @@ export class MemoryChain implements CryptoChainPort {
     this.outbound.push({ ...request, txHash });
     // Recorded first, so a status query during the wait finds it sent, as it would find a broadcast awaiting confirmations.
     if (this.pace.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, this.pace.sendDelayMs));
+    this.answeredAt.set(request.idempotencyKey, Date.now());
     return { txHash };
+  }
+
+  async sendDepth(idempotencyKey: string): Promise<number | null> {
+    this.takeCallError();
+    if (!this.sent.has(idempotencyKey)) return null;
+    const set = this.depthSet.get(idempotencyKey);
+    if (set !== undefined) return set;
+    const answered = this.answeredAt.get(idempotencyKey);
+    // Recorded and still waiting to answer: on its way, in no block yet.
+    if (answered === undefined) return 0;
+    if (!this.pace.blockMs) return Number.MAX_SAFE_INTEGER;
+    return Math.floor((Date.now() - answered) / this.pace.blockMs);
   }
 
   // ── Test / dev controls ────────────────────────────────────────────────────
@@ -248,6 +276,11 @@ export class MemoryChain implements CryptoChainPort {
     };
   }
 
+  /** Set how deep the send under this business key reads, whatever the pace says — drives the confirm-later branch. */
+  setSendDepth(idempotencyKey: string, depth: number): void {
+    this.depthSet.set(idempotencyKey, depth);
+  }
+
   /** The next broadcast throws, once. Rail failure on the way OUT. */
   failNextBroadcast(error = new Error('chain rpc unavailable')): void {
     this.broadcastError = error;
@@ -275,6 +308,8 @@ export class MemoryChain implements CryptoChainPort {
   reset(): void {
     this.transfers.clear();
     this.sent.clear();
+    this.answeredAt.clear();
+    this.depthSet.clear();
     this.outbound.length = 0;
     this.broadcastError = null;
     this.callError = null;
@@ -370,6 +405,10 @@ export class UnconfiguredChain implements CryptoChainPort {
     // Not `not_sent`. That would let a reconciler reverse a payout whose
     // broadcast this process can no longer see because nothing is configured.
     throw new ChainNotConfiguredError('look up an outbound transfer');
+  }
+
+  async sendDepth(): Promise<number | null> {
+    throw new ChainNotConfiguredError('read the depth of an outbound transfer');
   }
 
   async ping(): Promise<void> {

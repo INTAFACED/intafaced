@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 const DESKS = [
   { href: '/identity-ops/keys', label: 'Signing keys' },
   { href: '/identity-ops/oauth', label: 'OAuth apps' },
+  { href: '/changes/policy', label: 'Approval policy' },
 ] as const;
 
 /** The identity desks share one entry in the console bar; this row moves between them. */
