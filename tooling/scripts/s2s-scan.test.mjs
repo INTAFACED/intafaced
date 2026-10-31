@@ -1,5 +1,5 @@
 /**
- * Unit tests for tooling/ci/s2s-scan.mjs. Run: node --test tooling/scripts/s2s-scan.test.mjs (also via gate-tools.test.mjs).
+ * Unit tests for tooling/ci/s2s-scan.mjs. Run: node --test tooling/scripts/s2s-scan.test.mjs (also via gate-tools.test.mjs; CI runs it through tooling-tests.mjs).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
