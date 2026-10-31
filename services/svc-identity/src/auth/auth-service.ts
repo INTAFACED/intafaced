@@ -1415,7 +1415,8 @@ export class AuthService {
     // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
-      await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
+      // The same password in a stronger hash, not a change to the record: updated_at stays (the restore watermark reads it).
+      await this.sql`UPDATE users SET password_hash = ${upgraded} WHERE id = ${user.id}`;
     }
     return user;
   }
@@ -2266,7 +2267,8 @@ export class AuthService {
       if (lastStep !== null && matched <= lastStep) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
-      await tx`UPDATE users SET totp_last_step = ${matched.toString()}, updated_at = now() WHERE id = ${userId}`;
+      // A replay guard, not a change to the record: updated_at stays (the restore watermark reads it as a write).
+      await tx`UPDATE users SET totp_last_step = ${matched.toString()} WHERE id = ${userId}`;
     });
   }
 
@@ -2481,7 +2483,8 @@ export class AuthService {
       // A passkey that just passed an assertion is a verified passkey (`requireVerifiedPasskey` reads this stamp).
       const lastVerifiedAt = new Date().toISOString();
       const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter, lastVerifiedAt } : c));
-      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      // The sign count and the verified stamp advance on every assertion; updated_at stays, as for the authenticator step.
+      await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)} WHERE id = ${userId}`;
     });
   }
 
