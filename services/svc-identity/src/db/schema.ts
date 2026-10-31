@@ -566,11 +566,28 @@ export const actionApprovals = identity.table(
     consumedByService: text('consumed_by_service'),
     consumedByPrincipal: text('consumed_by_principal'),
     consumedRequestId: text('consumed_request_id'),
+    /** Policy-governed rows only (OPS-change-control-01 CR-1); null keeps the fixed one-approver rule. */
+    approvalsRequired: integer('approvals_required'),
+    approvalsGiven: integer('approvals_given').notNull().default(0),
+    policyHash: text('policy_hash'),
   },
   (t) => [
     uniqueIndex('action_approvals_operation_idx').on(t.operationId),
     index('action_approvals_status_exp_idx').on(t.status, t.expiresAt),
   ],
+);
+
+/** One approval of a policy-governed request, at most one per person (OPS-change-control-01 CR-1). */
+export const actionApprovalVotes = identity.table(
+  'action_approval_votes',
+  {
+    approvalId: text('approval_id')
+      .notNull()
+      .references(() => actionApprovals.approvalId),
+    approverId: text('approver_id').notNull(),
+    approvedAt: tstz('approved_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.approvalId, t.approverId] })],
 );
 
 export const organizationMembers = identity.table(
@@ -727,4 +744,5 @@ export const schema = {
   organizations,
   organizationMembers,
   actionApprovals,
+  actionApprovalVotes,
 };

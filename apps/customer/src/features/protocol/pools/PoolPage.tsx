@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
-import { networkLabel } from '../blockers';
+import { isServiceNotConnected, networkLabel } from '../blockers';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
 import { WatchShell } from '../watch/AddressPage';
 import { PriceChart } from './PriceChart';
@@ -10,7 +10,17 @@ import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
 import { usePools } from './usePools';
-import { isNotAPool, type CandleInterval, type Pool, type PoolCursor, type PoolDay, type PoolSwapsPage, type PoolToken } from './pools-api';
+import {
+  isFeePolicyUnset,
+  isNotAPool,
+  isNotFactoryPool,
+  type CandleInterval,
+  type Pool,
+  type PoolCursor,
+  type PoolDay,
+  type PoolSwapsPage,
+  type PoolToken,
+} from './pools-api';
 import type { PoolsTranslate } from './copy';
 import type { ChainRef } from '../NetworkPanels';
 
@@ -73,6 +83,7 @@ export function PoolPage({ address }: { address: string }) {
     body = (
       <>
         <PoolFacts pool={pool} t={t} />
+        <FeesPanel key={pool.address} pool={pool.address} indexedFeeBps={pool.feeBps} t={t} />
         <Panel title={t('chartTitle')}>
           <div role="group" aria-label={t('chartWidthGroup')} className="pool-chart-widths">
             {(['5m', '1h'] as const).map((width) => (
@@ -176,6 +187,92 @@ function PoolFacts({ pool, t }: { pool: Pool; t: PoolsTranslate }) {
       </dl>
     </Panel>
   );
+}
+
+/**
+ * Who gets the pool's fees (D-fees-governance-04): the protocol service reads the pool's own fee fields from the chain and
+ * lists every share of the swap fee. A protocol fee request moves nothing; with the owner's fee policy blank it is
+ * refused by name. Refusals here are the protocol service's, worded as such.
+ */
+function FeesPanel({ pool, indexedFeeBps, t }: { pool: string; indexedFeeBps: number; t: PoolsTranslate }) {
+  const { api } = usePools();
+  const fees = useResource((signal) => api.fees(pool, signal), `pools:fees:${pool}`);
+  const [request, setRequest] = useState<{ state: 'idle' | 'sending' } | { state: 'answered'; words: string }>({ state: 'idle' });
+  const ask = async () => {
+    setRequest({ state: 'sending' });
+    const answer = await api.requestProtocolFee(pool);
+    setRequest({
+      state: 'answered',
+      words: answer.ok
+        ? t('feesRequestAnswered')
+        : isFeePolicyUnset(answer)
+          ? t('feesRequestPolicyUnset')
+          : t('feesRequestRefused', { reason: protocolRefusalWords(answer, t) }),
+    });
+  };
+  const { resource } = fees;
+  let read: ReactNode;
+  if (resource.status === 'loading') read = <Loading label={t('feesTitle')} />;
+  else if (resource.status === 'failed')
+    read = (
+      <div role="status" data-blocker="protocol">
+        <EmptyState
+          title={
+            isNotFactoryPool(resource.failure)
+              ? t('feesNotFactoryPool')
+              : t('feesRefused', { reason: protocolRefusalWords(resource.failure, t) })
+          }
+        />
+        <Button variant="secondary" onClick={fees.reload}>
+          {t('retry')}
+        </Button>
+      </div>
+    );
+  else {
+    const data = resource.data;
+    read = (
+      <>
+        <p data-testid="pool-fee">{t('feesSwap', { percent: bpsPercent(data.feeBps) })}</p>
+        {data.feeBps !== indexedFeeBps && (
+          <p role="status">{t('feesDiffer', { indexed: bpsPercent(indexedFeeBps), read: bpsPercent(data.feeBps) })}</p>
+        )}
+        <ul aria-label={t('feesSharesLabel')}>
+          {data.shares.map((share) => (
+            <li key={share.to}>{t('feesShare', { to: t(SHARE_WORDS[share.to]), percent: bpsPercent(share.bps) })}</li>
+          ))}
+        </ul>
+        {!data.thirdShare && <p data-testid="pool-fee-third">{t('feesNoThird')}</p>}
+        <p className="muted">{t('feesReadAt', { height: data.blockNumber })}</p>
+      </>
+    );
+  }
+  return (
+    <Panel title={t('feesTitle')} aria-label={t('feesTitle')}>
+      {read}
+      <p className="muted">{t('feesRequestNote')}</p>
+      <Button variant="secondary" disabled={request.state === 'sending'} onClick={() => void ask()}>
+        {t('feesRequest')}
+      </Button>
+      {request.state === 'answered' && <p role="alert">{request.words}</p>}
+    </Panel>
+  );
+}
+
+const SHARE_WORDS = {
+  liquidity_providers: 'shareLiquidityProviders',
+  creator: 'shareCreator',
+  platform: 'sharePlatform',
+  governance: 'shareGovernance',
+} as const;
+
+/** A protocol service refusal in words: never the indexer's wording, and never the service's machine code. */
+function protocolRefusalWords(failure: { code?: string; message: string }, t: PoolsTranslate): string {
+  if (isServiceNotConnected(failure.code)) return t('reasonProtocolNotConnected');
+  if (failure.code === 'edge.upstream_unavailable') return t('reasonProtocolNoAnswer');
+  const message = failure.message;
+  if (failure.code === 'protocol.chain_unreachable' || message.startsWith('protocol.chain_unreachable')) return t('reasonNodeNoAnswer');
+  if (failure.code === 'protocol.amm_factory_unset' || message.startsWith('protocol.amm_factory_unset')) return t('reasonFactoryUnset');
+  return message.replace(/^[a-z_]+\.[a-z_.]+: /, '');
 }
 
 function sideWords(row: PoolSwapsPage['rows'][number], pool: Pool, t: PoolsTranslate): string {

@@ -44,7 +44,7 @@ export interface RoleRow {
   readonly revision: number;
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const msOrNull = (v: unknown): v is string | null => v === null || (typeof v === 'string' && MS.test(v));
 const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 

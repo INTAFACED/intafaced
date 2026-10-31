@@ -212,6 +212,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-statements',
+    label: 'Statements and exports',
+    paths: ['/bank/statements'],
+    status: 'blocked',
+    reason:
+      'Statements, ledgers and trades are signed by svc-bank; a balance snapshot at a past date refuses bank.statement_balances_unavailable until the ledger offers a past-balance read, and background export jobs are not built',
+    unlock: 'J-portfolio-11 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-calendar',
     label: 'Money calendar',
     paths: ['/bank/calendar'],

@@ -106,3 +106,11 @@ export async function acceptRepresentation(page) {
   await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(panel).toHaveCount(0);
 }
+
+/**
+ * The wallet room's plain-words sheet that comes before every wallet prompt: continues it, as the person does, when a
+ * step opens something that signs in (the address book's wallet session). The TEST wallet then signs by itself.
+ */
+export async function continueSignIn(page) {
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click(UNBUILT);
+}

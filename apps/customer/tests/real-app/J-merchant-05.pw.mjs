@@ -132,7 +132,7 @@ async function cardPayment(owner, merchantId, { amount, reference, customerRef, 
   return authorized.status === 'captured' ? authorized : owner.mutate('payment.capture', { paymentId: created.id });
 }
 
-test(`${J} #1 opens Payments on an account with none: how the first payment appears, and a link to make a payment link`, async ({
+test(`${J} #1 opens Payments on an account with none: "No payments yet", how the first payment appears, and a link to make a payment link`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -146,8 +146,11 @@ test(`${J} #1 opens Payments on an account with none: how the first payment appe
   await signInOwner(page, journey(), '/pay/payments');
   const refused = refusedPayCalls(page);
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
-  await expect(page.getByText('Create a payment link. Payments will appear here once a customer pays.')).toBeVisible();
+  // The row's own words: "No payments yet", then how the first payment appears.
+  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+  await expect(
+    page.getByText('Your first payment starts here. Create a payment link. Payments will appear here once a customer pays.'),
+  ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create payment link' }).last()).toHaveAttribute('href', '/pay/links/new');
   // The totals read zero for the period, never a made-up figure.
   await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();

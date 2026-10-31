@@ -8,18 +8,47 @@ const J = 'J-merchant-01';
 
 test.describe.configure({ mode: 'default' });
 
-test(`${J} #1 More opens Business Pay at /pay/merchant; with no business it leads to setup, and the new business's dashboard opens from it`, async ({
+/** The registry rows (apps/customer/src/app/feature-registry.ts) whose paths own `path`, matched as the app matches them. */
+async function registryRowsFor(path) {
+  const { features } = await import('../../src/app/feature-registry.ts');
+  const { hasPattern, matchPath } = await import('../../src/app/path-match.ts');
+  return features.filter((f) => f.paths.some((p) => p === path || (hasPattern(p) && matchPath(p, path) !== undefined)));
+}
+
+/** A tRPC reply's data, single or batched. */
+const dataOf = (sent) => (Array.isArray(sent) ? sent[0] : sent)?.result?.data;
+
+test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row business-pay with its real status; with no business it leads to setup, and the new business's dashboard opens from it`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const refused = refusedPayCalls(page);
   const who = await businessReadyPerson(page, 'mo', '/more');
-  await page
-    .getByRole('link', { name: /Merchant/ })
-    .first()
-    .click();
+  // The Merchant entry in More is the one tile whose address /pay/merchant is owned by exactly one registry row,
+  // business-pay. Its real status is the registry's word for it: live, which More draws as an open tile (a hidden row
+  // would drop it) and which the room honours with no blocker note, reading the person's businesses from the service.
+  const rows = await registryRowsFor('/pay/merchant');
+  expect(rows.map((r) => r.id)).toEqual(['business-pay']);
+  const [row] = rows;
+  expect(row.status).toBe('live');
+  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Money and pay', level: 2 }) });
+  const tile = section.getByRole('link', { name: /^Merchant\b/ });
+  await expect(tile).toHaveCount(1);
+  await expect(tile).toHaveAttribute('href', '/pay/merchant');
+  await expect(tile).toContainText('Accept payments and run your business');
+  let access = null;
+  const accessRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.myAccess') || r.status() !== 200) return false;
+    access = dataOf(await r.json().catch(() => null));
+    return access != null;
+  });
+  await tile.click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
+  await accessRead;
+  // A live row opens with no blocker note above the room.
+  await expect(page.getByRole('note').filter({ hasText: 'Hidden from customers' })).toHaveCount(0);
   // No business yet: the service answers "none of yours", not "no access".
+  expect(access.memberships).toEqual([]);
   await expect(page.getByRole('heading', { name: 'No business account yet' })).toBeVisible();
   await expect(page.getByText('You don’t have access')).toHaveCount(0);
   await page.getByRole('link', { name: 'Start setup' }).click();
@@ -34,21 +63,117 @@ test(`${J} #1 More opens Business Pay at /pay/merchant; with no business it lead
   expect(refused).toEqual([]);
 });
 
-test(`${J} #3 a new business reads its KPI area: one explanation with a link to create a payment link, no balance shown as 0, and the as-of`, async ({
+test(`${J} #3 a new business reads its KPI area: one explanation with a link to create a payment link, no tile shows 0 as if measured, and each unmeasured figure says so with its own as-of`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const who = await businessReadyPerson(page, 'mk', '/pay/onboarding');
   await openBusiness(page, who, 'TEST First Ltd');
   const refused = refusedPayCalls(page);
+  // The service's own answers the dashboard draws from: one snapshot per period, the daily series, and the refunds list.
+  const snapshots = {};
+  let series = null;
+  const refundLists = [];
+  page.on('response', async (r) => {
+    const url = new URL(r.url());
+    if (r.status() !== 200 || !url.pathname.startsWith('/api/pay/trpc/')) return;
+    const data = dataOf(await r.json().catch(() => null));
+    if (!data) return;
+    if (url.pathname.endsWith('merchantMetrics.snapshot')) snapshots[JSON.parse(url.searchParams.get('input')).window.preset] = data;
+    else if (url.pathname.endsWith('merchantMetrics.series')) series = data;
+    else if (url.pathname.endsWith('payment.refunds.list')) refundLists.push(data);
+  });
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   await expect(page.getByText('TEST First Ltd').first()).toBeVisible();
-  // One explanation with the next step, and the balance says it has nothing to show rather than 0.00.
+  // One explanation with the next step.
   await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
-  await expect(page.getByText('No balance to show yet')).toBeVisible();
-  await expect(page.getByRole('link', { name: /Create payment link/ }).first()).toBeVisible();
-  await expect(page.getByText(/^As of .* UTC/).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Create payment link/ }).first()).toHaveAttribute('href', '/pay/links/new');
+  await expect.poll(() => Object.keys(snapshots).sort()).toEqual(['rolling_30d', 'rolling_7d', 'today']);
+  await expect.poll(() => series !== null).toBe(true);
+
+  // A new business: the service measured nothing for any period, and says when it looked.
+  for (const snap of Object.values(snapshots)) {
+    expect(snap).toMatchObject({ balances: [], paymentCount: 0, captured: [], refunded: [], net: [] });
+    expect(snap.freshness.asOf).not.toBeNull();
+    expect(snap.freshness.lagSeconds).not.toBeNull();
+  }
+  expect(series.points).toEqual([]);
+
+  /** A figure's own as-of line: the service's asOf, to the millisecond, and its lag. */
+  const asOfSays = async (where, freshness) => {
+    const line = where.getByRole('status').filter({ hasText: /^As of / });
+    await expect(line).toHaveCount(1);
+    await expect(line.locator('time')).toHaveAttribute('datetime', freshness.asOf);
+    if (freshness.lagSeconds < 60) await expect(line).toContainText(`· ${freshness.lagSeconds} s behind`);
+  };
+
+  // The balance says it has nothing to show rather than 0.00, with today's as-of.
+  const balance = page.getByRole('region', { name: 'Available to pay out' });
+  await expect(balance.getByRole('heading', { name: 'No balance to show yet' })).toBeVisible();
+  await expect(balance.getByTestId('plo-balance-amount')).toHaveCount(0);
+  await asOfSays(balance, snapshots.today.freshness);
+
+  // Each period's tiles: a money figure the service has no rows for reads "—" with "No payments in this period", never
+  // 0.00; the payment count is the service's own measured count; refunds issued reads None while the refunds list is
+  // empty; and the strip carries that period's own as-of.
+  expect(refundLists.length).toBeGreaterThan(0);
+  const metrics = page.getByRole('region', { name: 'Reporting period' });
+  for (const [preset, button] of [
+    ['today', /^Today \(UTC\)/],
+    ['rolling_7d', '7 days'],
+    ['rolling_30d', '30 days'],
+  ]) {
+    await metrics.getByRole('button', { name: button }).click();
+    const snap = snapshots[preset];
+    const tiles = metrics.getByTestId('plo-kpi-strip').getByRole('link');
+    await expect(tiles).toHaveCount(5);
+    // The tiles are read once each has loaded (a tile reads "…" while its own read is in flight).
+    const read = () =>
+      tiles.evaluateAll((as) =>
+        as.map((a) => ({
+          label: a.querySelector('span')?.textContent?.split(' · ')[0],
+          value: a.querySelector('strong')?.textContent?.trim(),
+          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+        })),
+      );
+    const expected = [
+      { label: 'Captured', value: '—', none: 'No payments in this period' },
+      { label: 'Payments', value: String(snap.paymentCount), none: null },
+      { label: 'Refunds on payments taken', value: '—', none: 'No payments in this period' },
+      { label: 'Refunds issued', value: 'None', none: null },
+      { label: 'Net received', value: '—', none: 'No payments in this period' },
+    ];
+    await expect.poll(read, { message: preset, timeout: 15_000 }).toEqual(expected);
+    const shown = await read();
+    expect(shown, preset).toEqual(expected);
+    for (const tile of shown) if (tile.label !== 'Payments') expect(tile.value, `${preset} ${tile.label}`).not.toMatch(/^0([.,]0*)?\b/);
+    await asOfSays(metrics, snap.freshness);
+  }
+  for (const list of refundLists) expect(list.items).toEqual([]);
+
+  // Pending settlement draws no figure for a business with no balance, with today's as-of.
+  const pending = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+  const pendingText = await pending.evaluate((el) => {
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('[role="status"]').forEach((n) => n.remove());
+    return copy.textContent;
+  });
+  expect(pendingText).not.toMatch(/\d/);
+  await asOfSays(pending, snapshots.today.freshness);
+
+  // The volume chart says there is nothing in the period, with the series' own as-of, and draws no bars.
+  const volume = page.getByTestId('plo-volume');
+  await expect(volume.getByRole('heading', { name: 'No captured payments in this period' })).toBeVisible();
+  await expect(volume.getByRole('img')).toHaveCount(0);
+  await asOfSays(volume, series.freshness);
+
+  // More insights holds one explanation with its link, not a wall of zero tiles.
+  await page.getByRole('button', { name: 'More payment insights' }).click();
+  const insights = page.getByRole('region', { name: 'More payment insights' });
+  await expect(insights.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+  await expect(insights.getByRole('link', { name: 'Create a payment link' })).toHaveAttribute('href', '/pay/links');
+  await expect(insights.getByRole('group')).toHaveCount(0);
   expect(refused).toEqual([]);
 });
 

@@ -50,6 +50,10 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // leaves it blank, so the "report limit not set" refusal can be seen too.
 const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' ? {} : { ACADEMY_GRADE_REPORT_ROWS: '500' });
 
+// LOCAL TEST quiz curve file size (a TEST owner value): 64 KiB (J-academy-13 #5). `LOCAL_STACK_ACADEMY_BULK_LIMIT=off`
+// leaves it blank, so the "limit not set" refusal can be seen too.
+const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
+
 // LOCAL TEST certificate issue sweep (a TEST owner value): every 5 seconds, so a one-minute delayed certificate is issued
 // within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
 const certSweep = () => (process.env.LOCAL_STACK_ACADEMY_CERT_SWEEP === 'off' ? {} : { ACADEMY_CERT_ISSUE_SWEEP_SECONDS: '5' });
@@ -89,6 +93,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...topicsLimit(),
     ...graderLease(),
     ...reportRows(),
+    ...bulkLimit(),
     ...certSweep(),
     ...programmeMax(),
     ...postLimits(),

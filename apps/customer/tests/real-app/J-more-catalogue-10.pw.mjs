@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
-import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
+import { ADMIN, assertAdminUp, founderCode, founderSignIn } from './admin.mjs';
 import { api, fund, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn } from './tables.mjs';
@@ -16,8 +16,9 @@ import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 // wallet linked through Security, as J-more-catalogue-09 #7 does. No value moves.
 // The settings are one record for the whole stack. The start reads them and, when an earlier run on this stack left them
 // set, clears them through the same two-founder door, so #1 reads them unset.
-// #6 waits for a fresh step-up on a role change (svc-identity has no same-person step-up type for svc-token) and fails
-// by name.
+// A role change also needs the running founder's own fresh step-up: founder A types a fresh authenticator code on the Run
+// step, the console spends it at identity for exactly that account, role and revision, and svc-token checks it before the
+// two-founder approval is spent (#6).
 const J = 'J-more-catalogue-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -65,9 +66,8 @@ async function ask(a, { heading, fill, label, phrase }) {
   return { deskA, packet: (await deskA.getByLabel('Request packet').inputValue()).trim() };
 }
 
-/** One two-founder request on the panel: A asks, B reads `summary` and approves, A runs it. Returns A's step reply. */
-async function twoFounders({ a, b }, { heading, fill, label, phrase, summary }) {
-  const { deskA, packet } = await ask(a, { heading, fill, label, phrase });
+/** B pastes the packet, reads `summary` and approves it. */
+async function approveAsB(b, { heading, packet, phrase, summary }) {
   await openPanel(b);
   const deskB = desk(b, heading);
   await deskB.getByLabel('Request packet').fill(packet);
@@ -75,11 +75,23 @@ async function twoFounders({ a, b }, { heading, fill, label, phrase, summary }) 
   await deskB.getByLabel(/to approve or run it$/).fill(phrase);
   await deskB.getByRole('button', { name: 'Approve this request' }).click();
   await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+}
+
+/** A runs the approved request, with a fresh step-up code when `stepUp`; returns A's step reply. */
+async function runAsA(deskA, phrase, stepUp) {
   await deskA.getByLabel(/to approve or run it$/).fill(phrase);
+  if (stepUp) await deskA.getByLabel('Your authenticator code, to run it').fill(await founderCode('a'));
   await deskA.getByRole('button', { name: 'Run the approved request' }).click();
   const reply = deskA.getByTestId('step-reply');
   await expect(reply).toBeVisible({ timeout: 60_000 });
   return reply;
+}
+
+/** One two-founder request on the panel: A asks, B reads `summary` and approves, A runs it. Returns A's step reply. */
+async function twoFounders({ a, b }, { heading, fill, label, phrase, summary, stepUp = false }) {
+  const { deskA, packet } = await ask(a, { heading, fill, label, phrase });
+  await approveAsB(b, { heading, packet, phrase, summary });
+  return runAsA(deskA, phrase, stepUp);
 }
 
 const fillSettings = (delayHours, periodHours) => async (page) => {
@@ -97,17 +109,20 @@ function settingsStep(pages, delayHours, periodHours, summary) {
   });
 }
 
+const roleRequest = (userId, role) => ({
+  heading: ROLE,
+  fill: async (page) => {
+    await page.getByRole('textbox', { name: /^Account id/ }).fill(userId);
+    await page.getByRole('combobox', { name: /^Role\b/ }).selectOption(role);
+  },
+  label: 'Ask a second founder to approve this role change',
+  phrase: `ROLE ${userId.slice(0, 8)} ${role.toUpperCase()}`,
+  summary: `Give account ${userId} the governance role ${role}`,
+});
+
+/** A role change by two founders, run by A with A's fresh step-up. */
 function roleStep(pages, userId, role) {
-  return twoFounders(pages, {
-    heading: ROLE,
-    fill: async (page) => {
-      await page.getByRole('textbox', { name: /^Account id/ }).fill(userId);
-      await page.getByRole('combobox', { name: /^Role\b/ }).selectOption(role);
-    },
-    label: 'Ask a second founder to approve this role change',
-    phrase: `ROLE ${userId.slice(0, 8)} ${role.toUpperCase()}`,
-    summary: `Give account ${userId} the governance role ${role}`,
-  });
+  return twoFounders(pages, { ...roleRequest(userId, role), stepUp: true });
 }
 
 /** The founder console's own step call, as the desk sends it, for a step the desk holds back from this founder. */
@@ -357,9 +372,29 @@ test(`${J} #5 An author tries to cancel another author's proposal: A typed permi
   expect(await getProposal(client, proposalId)).toMatchObject({ status: 'open', cancel: null });
 });
 
-test(`${J} #6 Changes a role without a fresh step-up: Refused until step-up is done`, async () => {
-  test.setTimeout(5_000);
-  throw new Error('MC-token-02 step-up on a role change is not built: svc-identity has no same-person step-up type for svc-token yet');
+test(`${J} #6 Changes a role without a fresh step-up: Refused until step-up is done`, async ({ browser, page }) => {
+  test.setTimeout(300_000);
+  const pages = await founders(browser);
+  const target = await member(page, 'gvs');
+  const request = roleRequest(target.userId, 'author');
+  const { deskA, packet } = await ask(pages.a, request);
+  await approveAsB(pages.b, { ...request, packet });
+
+  // Run without a code: svc-token refuses before the two-founder approval is spent, and the role is not written.
+  const refused = await runAsA(deskA, request.phrase, false);
+  await expect(refused).toContainText('Your fresh authenticator code is needed to run this');
+  await expect(refused).toContainText('Nothing was changed.');
+  const roleRow = async () => {
+    await openPanel(pages.b);
+    return pages.b.locator(`tr[data-role-user="${target.userId}"]`);
+  };
+  await expect(await roleRow()).toHaveCount(0);
+
+  // The same approved request, run again with A's fresh code: identity spends the code for exactly this change and the
+  // role is written once.
+  const done = await runAsA(deskA, request.phrase, true);
+  await expect(done).toContainText(`Account ${target.userId} is author`);
+  await expect((await roleRow()).getByTestId('role')).toHaveText('Author');
 });
 
 test(`${J} ends: voting delay and period are set by two founders, a moderator cancelled an open proposal with a reason`, async ({

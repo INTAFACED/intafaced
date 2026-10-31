@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, tool } from './stack.mjs';
+import { EDGE, ORIGIN, restartWith } from './stack.mjs';
 
 // J-academy-01, in the running app (docs/roadmap/journeys.json): look around the Academy and open a lesson before I
 // have an account. Tests titled "J-academy-01 #<n>" prove a whole step. Every step runs signed out, in a fresh browser
@@ -23,6 +23,8 @@ async function door(procedure, input) {
 }
 const published = (input) => door('publicCurriculum', input);
 
+/** The panel under a level-2 heading: the section the heading titles. */
+const panelOf = (scope, title) => scope.getByRole('heading', { name: title, level: 2, exact: true }).locator('xpath=ancestor::section[1]');
 const tabStrip = (page) => page.getByRole('group', { name: /academy sections/i }).getByRole('button');
 const pressed = (page, name) => tabStrip(page).filter({ hasText: name });
 
@@ -47,6 +49,12 @@ test(`${J} #2 the news block says it needs a news data feed and is switched off,
   const notice = page.locator('[data-academy-hub="true"] [data-not-connected="feed.news"]');
   await expect(notice).toHaveText('The Academy news block needs a news data feed. It is switched off in this build. feed.news');
   await expect(page.locator('[data-academy-hub="true"]').getByRole('heading', { name: 'News' })).toBeVisible();
+  // No invented headline: the news block holds the notice and nothing else, no item, link or article.
+  const news = panelOf(page.locator('[data-academy-hub="true"]'), 'News');
+  await expect(news).toHaveText(/^News\s*The Academy news block needs a news data feed\. It is switched off in this build\. feed\.news$/);
+  await expect(news.getByRole('listitem')).toHaveCount(0);
+  await expect(news.getByRole('link')).toHaveCount(0);
+  await expect(news.locator('article')).toHaveCount(0);
 });
 
 test(`${J} #3 each tab is its own address, Back returns to the previous tab, an old ?section= link lands on its tab`, async ({ page }) => {
@@ -102,8 +110,15 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
   await expect(pressed(page, 'Learning')).toHaveAttribute('aria-pressed', 'true');
   // Lessons carry no published or updated date in this build, so no date is shown.
   await expect(page.locator('article[data-testid="more-body"] time')).toHaveCount(0);
-  const related = page.getByRole('heading', { name: 'Related', level: 2 });
-  await expect(related).toBeVisible();
+  // Related items are the ones the service names for this lesson, each a link to its own address; none means no block.
+  const named = await door('publicCurriculumRelated', { slug: first.slug, limit: 5 });
+  const related = panelOf(page, 'Related');
+  if (named.length === 0) await expect(related).toHaveCount(0);
+  else {
+    await expect(related.getByRole('link')).toHaveText(named.map((row) => row.title));
+    for (const [i, row] of named.entries())
+      await expect(related.getByRole('link').nth(i)).toHaveAttribute('href', `/academy/${encodeURIComponent(row.slug)}`);
+  }
   await expect(page.getByRole('link', { name: 'Sign in' }).first()).toBeVisible();
 
   for (const [name, slug] of TABS) {
@@ -117,19 +132,11 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
  * Academy restarted with its video storage off (blank settings) or back on the stack's TEST video store. The stack
  * serves video by default (J-academy-03 #4 plays one), so this step sets up its own "not configured" first.
  */
-function academyVideoStorage(on) {
-  const before = process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
-  if (on) delete process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
-  else process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE = 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'academy');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
-    else process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE = before;
-  }
-}
+const academyVideoStorage = (on) => restartWith('academy', 'LOCAL_STACK_ACADEMY_VIDEO_STORAGE', on);
 
 test(`${J} #7 Videos keeps its full layout and says video storage is not configured`, async ({ page }) => {
+  // Two Academy restarts (storage off, then back) can take most of a minute each.
+  test.setTimeout(300_000);
   academyVideoStorage(false);
   try {
     await page.goto('/academy/videos');
@@ -137,6 +144,16 @@ test(`${J} #7 Videos keeps its full layout and says video storage is not configu
     await expect(page.getByText('Video storage is not configured, so recordings cannot be listed or played.')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Playback', level: 2 })).toBeVisible();
     await expect(page.getByText('This can’t be done right now')).toHaveCount(0);
+    // No dead control: no Play button without a video, and every control left either changes tab or signs in.
+    const library = panelOf(page, 'Video library');
+    const playback = panelOf(page, 'Playback');
+    await expect(library.getByRole('button')).toHaveCount(0);
+    await expect(playback.getByRole('button')).toHaveCount(0);
+    // The panel has drawn (its buttons were counted above); each link it holds opens an Academy tab or signs in.
+    for (const href of await library.getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href'))))
+      expect(href).toMatch(/^\/(academy(\/|$)|login)/);
+    const signIn = playback.getByRole('link', { name: 'Sign in' });
+    await expect(signIn).toHaveAttribute('href', /^\/login/);
   } finally {
     academyVideoStorage(true);
   }
@@ -156,12 +173,14 @@ test(`${J} #5 a course card opens the public course page: summary, outcomes, syl
   const pageRoot = page.locator(`[data-academy-course="${cards[0].slug}"]`);
   await expect(pageRoot.getByRole('heading', { name: 'About this course' })).toBeVisible();
   if (course.summary === null) await expect(pageRoot.getByText('No summary is written for this course.')).toBeVisible();
+  else await expect(panelOf(pageRoot, 'About this course')).toContainText(course.summary);
   await expect(pageRoot.getByRole('region', { name: 'What you will learn' }).getByRole('listitem')).toHaveCount(course.outcomes.length);
   const syllabus = pageRoot.getByRole('region', { name: 'Syllabus' }).getByRole('listitem');
   await expect(syllabus).toHaveCount(course.syllabus.length);
   await expect(syllabus.first().getByRole('link')).toHaveText(course.syllabus[0].title);
   await expect(pageRoot.getByRole('heading', { name: 'Instructor' })).toBeVisible();
   if (course.instructor === null) await expect(pageRoot.getByText('No instructor is named for this course.')).toBeVisible();
+  else await expect(panelOf(pageRoot, 'Instructor')).toContainText(course.instructor);
   await expect(pageRoot.getByRole('link', { name: 'Sign in to enrol' })).toHaveAttribute(
     'href',
     `/login?redirect=${encodeURIComponent(`/academy/learning/course/${cards[0].slug}`)}`,
