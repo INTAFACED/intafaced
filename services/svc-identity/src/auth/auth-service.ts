@@ -1415,7 +1415,8 @@ export class AuthService {
     // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
-      await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
+      // The same password in a stronger hash, not a change to the record: updated_at stays (the restore watermark reads it).
+      await this.sql`UPDATE users SET password_hash = ${upgraded} WHERE id = ${user.id}`;
     }
     return user;
   }

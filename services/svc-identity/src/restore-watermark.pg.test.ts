@@ -10,7 +10,7 @@ import { AuthService } from './auth/auth-service.js';
 import { totp } from './auth/totp.js';
 import { RankService } from './rank/rank-service.js';
 import { createTestDb } from './fixture-truncate.testkit.js';
-import { OPERATOR_TRAFFIC_TABLES, WATERMARK_KIND, digestCounts, readIdentityWatermark } from './restore-watermark.js';
+import { APPROVAL_TABLES, OPERATOR_TRAFFIC_TABLES, WATERMARK_KIND, digestCounts, readIdentityWatermark } from './restore-watermark.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -97,7 +97,7 @@ if (!available) {
       const tables = await db.sql<Array<{ t: string }>>`
         SELECT table_name AS t FROM information_schema.tables WHERE table_schema = ${db.schema} AND table_type = 'BASE TABLE'`;
       const present = new Set(tables.map((r) => r.t));
-      for (const name of Object.keys(OPERATOR_TRAFFIC_TABLES)) {
+      for (const name of [...Object.keys(OPERATOR_TRAFFIC_TABLES), ...APPROVAL_TABLES]) {
         expect(present.has(name), name).toBe(true);
       }
     });
@@ -181,7 +181,20 @@ if (!available) {
       const freezing = await readIdentityWatermark(db.sql, new Date(), db.schema);
       expect(BigInt(freezing.position)).toBe(BigInt(before.position) + 1n);
       expect(freezing.integrity).not.toBe(before.integrity);
-      expect(Date.parse(freezing.lastWriteAt!)).toBeGreaterThanOrEqual(Date.parse(before.lastWriteAt!));
+      expect(Date.parse(freezing.lastWriteAt!)).toBeGreaterThan(Date.parse(before.lastWriteAt!));
+      // Revoking it changes no count and sets no time, but the per-status digest moves.
+      await db.sql`UPDATE action_approvals SET status = 'REVOKED' WHERE approval_id = 'appr_wm_freeze'`;
+      const revoked = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect(revoked.position).toBe(freezing.position);
+      expect(revoked.integrity).not.toBe(freezing.integrity);
+      // A vote cast later moves the count and lastWriteAt; a vote on the restore's own request moves neither.
+      await db.sql`INSERT INTO action_approval_votes (approval_id, approver_id, approved_at) VALUES ('appr_wm_restore', 'founder-b', now() + interval '1 minute')`;
+      const ownVote = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect({ ...ownVote, readAt: '' }).toEqual({ ...revoked, readAt: '' });
+      await db.sql`INSERT INTO action_approval_votes (approval_id, approver_id, approved_at) VALUES ('appr_wm_freeze', 'founder-b', now() + interval '1 minute')`;
+      const voted = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect(BigInt(voted.position)).toBe(BigInt(revoked.position) + 1n);
+      expect(Date.parse(voted.lastWriteAt!)).toBeGreaterThan(Date.parse(revoked.lastWriteAt!));
     });
   });
 }
