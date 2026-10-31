@@ -889,6 +889,14 @@ export const rooms: readonly Room[] = [
   { path: '/campaigns/:campaignId', title: 'Campaign', description: 'One published campaign', door: 'More', area: 'more', hidden: true },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
+    path: '/quant/strategies/:strategyId',
+    title: 'Strategy',
+    description: 'Versions, release notes and the code each run used',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
     path: '/market/strategy',
     title: 'Strategy listing',
     description: 'Publish a strategy subscription',

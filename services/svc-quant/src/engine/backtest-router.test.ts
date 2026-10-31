@@ -278,6 +278,19 @@ describe('run history, labels and the log', () => {
     const one = await a.backtest.history({ limit: 1 });
     expect(one.runs.map((row) => row.runId)).toEqual([second.runId]);
     expect((await a.backtest.history({ limit: 1, cursor: one.nextCursor })).runs.map((row) => row.runId)).toEqual([first.runId]);
+    // A strategy's own page lists only its runs.
+    const copy = await a.studio.clone({
+      strategyId: strategy.id,
+      clientStrategyId: 'history-copy',
+      idempotencyKey: 'studio.clone:history-copy',
+    });
+    const third = await a.backtest.start(request(copy.id));
+    expect((await a.backtest.history({ limit: 10, strategyId: copy.id })).runs.map((row) => row.runId)).toEqual([third.runId]);
+    expect((await a.backtest.history({ limit: 10, strategyId: strategy.id })).runs.map((row) => row.runId)).toEqual([
+      second.runId,
+      first.runId,
+    ]);
+    expect((await b.backtest.history({ limit: 10, strategyId: strategy.id })).runs).toEqual([]);
   });
 
   it('leaves out a fills-language backtest, which has no bar result to open, and refuses to rename it', async () => {

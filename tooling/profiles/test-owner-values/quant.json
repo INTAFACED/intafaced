@@ -60,6 +60,11 @@
       "service": "quant",
       "value": "60",
       "note": "TEST window for the share read limit, in seconds."
+    },
+    "QUANT_RELEASE_NOTE_MAX": {
+      "service": "quant",
+      "value": "500",
+      "note": "TEST longest release note on a saved strategy version, in characters."
     }
   }
 }
