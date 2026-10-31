@@ -74,7 +74,11 @@ export type SecurityStepUpPrincipal = {
 
 export type SecurityStepUpDeps = {
   readonly sql: Sql;
-  readonly approvals: { consume(callerService: string, input: ActionApprovalConsumeInput): Promise<unknown> };
+  readonly approvals: {
+    consume(callerService: string, input: ActionApprovalConsumeInput): Promise<unknown>;
+    /** The same rules as `consume`, read only (ActionApprovalService.check). */
+    check(callerService: string, input: ActionApprovalConsumeInput): Promise<unknown>;
+  };
   /** Throws `auth.mfa_not_enrolled` when the account has neither a passkey nor an authenticator. */
   readonly secondFactor: (userId: string) => Promise<unknown>;
 };
@@ -92,6 +96,38 @@ export class SecurityStepUp {
     fields: Readonly<Record<string, string>>,
     stepUpApprovalId?: string | null,
   ): Promise<void> {
+    const bound = this.bind(principal, scope, fields);
+    try {
+      await this.deps.secondFactor(principal.userId);
+    } catch (err) {
+      if (err instanceof AuthError && err.code === 'auth.mfa_not_enrolled') {
+        throw new SecurityStepUpError('identity.second_factor_required');
+      }
+      throw err;
+    }
+    if (!stepUpApprovalId) throw new SecurityStepUpError('identity.step_up_required');
+    await this.spendOrCheck('consume', principal, scope, bound.payloadHash, stepUpApprovalId);
+  }
+
+  /**
+   * Resolves when `stepUpApprovalId` is this session's approved, unspent and unexpired step-up for exactly these values,
+   * without spending it: the approval service's own `check`, the same rules `consume` applies. A first phase (starting an
+   * authenticator replace) checks the approval its second phase then consumes through `require`, so one confirmation
+   * covers both and neither runs without it. Throws `SecurityStepUpError` otherwise.
+   */
+  async assertHeld(
+    principal: SecurityStepUpPrincipal,
+    scope: SecurityStepUpScope,
+    fields: Readonly<Record<string, string>>,
+    stepUpApprovalId?: string | null,
+  ): Promise<void> {
+    const bound = this.bind(principal, scope, fields);
+    if (!stepUpApprovalId) throw new SecurityStepUpError('identity.step_up_required');
+    await this.spendOrCheck('check', principal, scope, bound.payloadHash, stepUpApprovalId);
+  }
+
+  /** The payload the approval must carry for this person, scope and values; refuses a delegated session or bad values. */
+  private bind(principal: SecurityStepUpPrincipal, scope: SecurityStepUpScope, fields: Readonly<Record<string, string>>) {
     if (principal.kid || principal.sub_account) throw new SecurityStepUpError('identity.delegated_refused');
     const door = doorForScope(scope);
     if (!door || !(SECURITY_STEP_UP_SCOPES as readonly string[]).includes(scope)) {
@@ -105,22 +141,21 @@ export class SecurityStepUp {
       fields,
     });
     if (!bound.ok) throw new SecurityStepUpError('identity.step_up_target');
+    return bound;
+  }
 
+  private async spendOrCheck(
+    how: 'consume' | 'check',
+    principal: SecurityStepUpPrincipal,
+    scope: SecurityStepUpScope,
+    payloadHash: string,
+    stepUpApprovalId: string,
+  ): Promise<void> {
     try {
-      await this.deps.secondFactor(principal.userId);
-    } catch (err) {
-      if (err instanceof AuthError && err.code === 'auth.mfa_not_enrolled') {
-        throw new SecurityStepUpError('identity.second_factor_required');
-      }
-      throw err;
-    }
-    if (!stepUpApprovalId) throw new SecurityStepUpError('identity.step_up_required');
-
-    try {
-      await this.deps.approvals.consume('svc-identity', {
+      await this.deps.approvals[how]('svc-identity', {
         approvalId: stepUpApprovalId,
         operationId: stepUpApprovalId,
-        payloadHash: bound.payloadHash,
+        payloadHash,
         targetService: 'svc-identity',
         targetId: scope,
         expectedVersion: '1',

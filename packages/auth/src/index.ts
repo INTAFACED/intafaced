@@ -12,3 +12,4 @@ export * from './tokens.js';
 export * from './guards.js';
 export * from './merchant-pay-scope-grant.js';
 export * from './onboarding-scope.js';
+export * from './staff-permissions.js';
