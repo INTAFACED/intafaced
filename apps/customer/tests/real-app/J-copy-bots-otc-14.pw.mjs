@@ -516,15 +516,19 @@ async function fillsOf(who, orderId) {
   return body.result.data;
 }
 
-/** The bot's level orders' fills, read from the trade service through `client` (an API session of the bot's owner). */
-async function levelFills(client, bot) {
-  const fills = [];
-  for (const o of bot.orders) {
-    const { status, body } = await client.get(read('/api/trade/trpc/fills.forOrder', { orderId: o.orderId, limit: 50 }));
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    fills.push(...body.result.data);
-  }
-  return fills;
+/** The fills of these level orders, read from the trade service through `client` (an API session of the bot's owner). */
+async function levelFills(client, orders) {
+  const ids = [...new Set(orders.map((o) => o.orderId))];
+  const pages = await Promise.all(
+    ids.map(async (orderId) => {
+      const { status, body } = await client.get(read('/api/trade/trpc/fills.forOrder', { orderId, limit: 50 }));
+      expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+      // One page is the whole order: a level order with 50 fills would hide the rest, so it fails here by name.
+      expect(body.result.data.length, `fills of level order ${orderId} fit one page`).toBeLessThan(50);
+      return body.result.data;
+    }),
+  );
+  return pages.flat();
 }
 
 /** What the fills not in `seen` moved in the owner's USDT, in units: a sell adds its proceeds, a buy takes its cost, less any USDT fee. */
@@ -532,10 +536,38 @@ function usdtOfNewFills(fills, seen) {
   let moved = 0n;
   for (const f of fills) {
     if (seen.has(f.id)) continue;
-    const fee = f.fee.currency === 'USDT' ? toUnits(f.fee.cost) : 0n;
+    const fee = f.fee?.currency === 'USDT' ? toUnits(f.fee.cost) : 0n;
     moved += (f.side === 'sell' ? toUnits(f.cost) : -toUnits(f.cost)) - fee;
   }
   return moved;
+}
+
+/**
+ * The level fills and the ledger's USDT total read as one steady picture: fills, ledger, then both again, until the two
+ * reads agree, so no fill lands, and no fill's posting settles, between the fill read and the ledger read.
+ */
+async function steadyFillsAndLedger(client, orders, ledger, waitMs = 30_000) {
+  const until = Date.now() + waitMs;
+  const look = async () => {
+    const fills = await levelFills(client, orders);
+    const total = (await ledger()).total;
+    return {
+      fills,
+      total,
+      key: `${fills
+        .map((f) => f.id)
+        .sort()
+        .join(',')}|${total}`,
+    };
+  };
+  let last = await look();
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const now = await look();
+    if (now.key === last.key) return now;
+    if (Date.now() >= until) throw new Error('the level fills or the ledger kept moving for 30s');
+    last = now;
+  }
 }
 
 /** Wait until the bot read satisfies `ok`. */
@@ -743,8 +775,10 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   const held = (b) => ({ reserve: b.reserve, withdrawable: b.withdrawableProfit, gridProfit: b.gridProfit });
   const ledger = async () => (await me.balances()).USDT;
   const before = await bot();
-  // The bot keeps trading while this step runs, so a level may fill meanwhile: the fills it had at the start.
-  const fillsBefore = new Set((await levelFills(me, before)).map((f) => f.id));
+  // The bot keeps trading while this step runs, so a level may fill meanwhile: the fills it had at the start, read
+  // steady with the ledger's total.
+  const start = await steadyFillsAndLedger(me, before.orders, ledger);
+  const fillsBefore = new Set(start.fills.map((f) => f.id));
   const ledgerBefore = await ledger();
   expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
   // Two closed pairs (#6) raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
@@ -920,7 +954,9 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   }
   // The withdrawals moved no money (only the limit row moved): the ledger's USDT total moved by exactly the USDT of the
   // bot's own level fills in this step, each read from the trade service, and by nothing else.
-  const ledgerAfter = await ledger();
-  const traded = usdtOfNewFills(await levelFills(me, await bot()), fillsBefore);
-  expect(toUnits(ledgerAfter.total) - toUnits(ledgerBefore.total), 'USDT moved by anything but level fills').toBe(traded);
+  // Every level order the bot listed at the start or lists now; the ledger posts a fill after the trade service records
+  // it, so the two are compared once they read steady.
+  const orders = [...before.orders, ...(await bot()).orders];
+  const end = await steadyFillsAndLedger(me, orders, ledger);
+  expect(toUnits(end.total) - toUnits(start.total), 'USDT moved by anything but level fills').toBe(usdtOfNewFills(end.fills, fillsBefore));
 });
