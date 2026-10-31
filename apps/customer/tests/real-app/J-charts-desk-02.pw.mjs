@@ -153,7 +153,30 @@ test(`${J} #4 opens a market whose feed has stopped (intercepted 503): Stale or 
   );
   await expect(chip(page)).toHaveAttribute('data-status', /^(stale|down)$/, { timeout: 45_000 });
   await expect(banner(page)).toHaveAttribute('data-kind', /^(stale|down)$/);
-  await expect(banner(page)).toContainText('Last trade');
+  // The last tick's time: the newest trade on the public tape, in the viewer's clock (to the minute, as the banner writes it).
+  await expect
+    .poll(
+      async () => {
+        const asOf = await page.evaluate(
+          (ms) =>
+            new Intl.DateTimeFormat('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hourCycle: 'h23',
+            }).format(ms),
+          await newestTradeMs(BTC),
+        );
+        return (
+          ((await banner(page).textContent()) ?? '').includes(`Last trade ${asOf}.`) ||
+          `banner: ${await banner(page).textContent()}; tape: ${asOf}`
+        );
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
   await expect(feedLine(page)).toContainText(/Feed (stale|down)/);
   await expect(chip(page)).not.toHaveAttribute('data-status', 'live');
 });
