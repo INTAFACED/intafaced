@@ -105,7 +105,8 @@ export function createWithdrawalHistory(sql: Sql) {
       const cursor = filter.after ? decodeCursor(filter.after) : null;
       const rows = await sql<Row[]>`
         SELECT w.id, w.user_id, w.asset_id, w.amount::text AS amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts,
-               w.failure_code, w.status::text AS status, a.outcome AS journal,
+               w.failure_code, w.status::text AS status,
+               CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END AS journal,
                (wr.withdrawal_id IS NOT NULL) AS returned, wr.amount::text AS returned_amount, wr.reason_code AS returned_reason_code,
                (wp.withdrawal_id IS NOT NULL) AS returned_credited,
                to_char(w.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
@@ -116,7 +117,7 @@ export function createWithdrawalHistory(sql: Sql) {
          WHERE w.user_id = ${userId}
            AND (${filter.assetId ?? null}::text IS NULL OR w.asset_id = ${filter.assetId ?? null})
            AND (${stored}::text[] IS NULL OR w.status::text = ANY(${stored}::text[]))
-           AND (${journal}::text[] IS NULL OR coalesce(a.outcome, 'none') = ANY(${journal}::text[]))
+           AND (${journal}::text[] IS NULL OR coalesce(CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END, 'none') = ANY(${journal}::text[]))
            AND (${canceledOnly}::boolean IS NULL OR (w.failure_code IS NOT DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}) = ${canceledOnly})
            AND (${filter.id ?? null}::uuid IS NULL OR w.id = ${filter.id ?? null})
            AND (${filter.since ?? null}::text IS NULL OR w.created_at >= ${filter.since ?? null}::text::timestamptz)

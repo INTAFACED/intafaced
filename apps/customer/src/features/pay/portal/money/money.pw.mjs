@@ -129,6 +129,74 @@ test('an approved payout can be sent: the page says so, the form is filled in, a
   await expect(page.getByText('Paid out').first()).toBeVisible();
 });
 
+test('destinations: a new one is saved Unverified, then verified with a code and waits until the time the service gives', async ({
+  page,
+}) => {
+  const { mock } = await setup(page);
+  // This run only: the TEST card rails also pay out, so the bank network can be freed and a new account saved on it.
+  await page.route('**/api/pay/trpc/railHealth*', (route) =>
+    reply(route, [
+      { id: 'crypto-native', capabilities: ['authorize', 'payout'], mode: 'sandbox', usable: true, healthy: true, latencyMs: 14 },
+      { id: 'card-sandbox', capabilities: ['authorize', 'payout'], mode: 'sandbox', usable: true, healthy: true, latencyMs: 9 },
+    ]),
+  );
+  await signIn(page, '/pay/payouts/destinations');
+  const manage = page.getByRole('list', { name: 'Manage saved destinations' });
+  const table = page.getByRole('region', { name: 'Saved destinations' });
+  // Free the bank network, then save a new bank account on it: no code is asked for, and it reads Unverified.
+  await manage.getByRole('listitem').filter({ hasText: '••••8821' }).getByRole('button', { name: 'Remove' }).click();
+  await confirm(page, 'Remove');
+  await expect(page.getByText('Destination removed.')).toBeVisible();
+  const iban = 'DE89370400440532013000';
+  await page.getByLabel('Payout network').selectOption({ label: 'Card rails (test)' });
+  await page.getByLabel('Bank account number (IBAN) or IFSC *').fill(iban);
+  await page.getByRole('button', { name: 'Save destination' }).click();
+  const review = page.getByRole('dialog', { name: 'Review: Save destination' });
+  await expect(review).toContainText(iban);
+  await expect(review.getByLabel('6-digit code from your authenticator app *')).toHaveCount(0);
+  await confirm(page, 'Save destination');
+  await expect(page.getByText('Destination saved. It is unverified and can’t receive a payout until you verify it.')).toBeVisible();
+  const row = table.getByRole('row').filter({ hasText: '••••3000' });
+  await expect(row).toContainText('Unverified');
+  expect(mock.calls.filter((c) => c.procedure === 'merchant.payoutDestinations.add')).toHaveLength(1);
+  expect(mock.calls.filter((c) => c.procedure === 'merchant.setPayoutDestination')).toHaveLength(0);
+  // Verify: the address typed again (a different one is refused here), then the authenticator code.
+  const item = manage.getByRole('listitem').filter({ hasText: '••••3000' });
+  await item.getByRole('button', { name: 'Verify' }).click();
+  const verify = page.getByRole('dialog', { name: 'Review: Verify' });
+  await verify.getByLabel('Bank account number (IBAN) or IFSC *').fill('GB82WEST12345698765432');
+  await expect(verify.getByText('That isn’t the destination saved here. Type it exactly as you saved it.')).toBeVisible();
+  await verify.getByLabel('Bank account number (IBAN) or IFSC *').fill(iban);
+  await verify.getByLabel('6-digit code from your authenticator app *').fill(TEST_TOTP_CODE);
+  await confirm(page, 'Verify');
+  await expect(page.getByText('Destination verified. It becomes active at the time shown in the list.')).toBeVisible();
+  await expect(row).toContainText('Waiting until');
+  await expect(row).not.toContainText('Unverified');
+  await expect(item.getByRole('button', { name: 'Verify' })).toHaveCount(0);
+  expect(mock.calls.filter((c) => c.procedure === 'merchant.setPayoutDestination')).toHaveLength(1);
+  // The payout form lists the same destination, marked as not active yet.
+  await go(page, '/pay/payouts/new');
+  await expect(page.getByLabel('Destination').locator('option').filter({ hasText: '••••3000' })).toHaveText(/Not active yet/);
+  await snap(page, 'm2b-destinations-held');
+  // The owner cancels the verification: no code, and it reads Unverified again with Verify offered back.
+  await go(page, '/pay/payouts/destinations');
+  await item.getByRole('button', { name: 'Cancel verification' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Review: Cancel verification' }).getByLabel('6-digit code from your authenticator app *'),
+  ).toHaveCount(0);
+  await confirm(page, 'Cancel verification');
+  await expect(page.getByText('Verification cancelled. The destination is unverified again.')).toBeVisible();
+  await expect(row).toContainText('Unverified');
+  await expect(row).not.toContainText('Waiting until');
+  await expect(item.getByRole('button', { name: 'Verify' })).toBeVisible();
+  await expect(item.getByRole('button', { name: 'Cancel verification' })).toHaveCount(0);
+  expect(mock.calls.filter((c) => c.procedure === 'merchant.payoutDestinations.cancelHold')).toHaveLength(1);
+  // An active destination offers no cancel.
+  await expect(
+    manage.getByRole('listitem').filter({ hasText: '0x7a3f…4421' }).getByRole('button', { name: 'Cancel verification' }),
+  ).toHaveCount(0);
+});
+
 test('the owner’s default destination is already chosen on the pay out form', async ({ page }) => {
   await setup(page);
   await signIn(page, '/pay/payouts/destinations');

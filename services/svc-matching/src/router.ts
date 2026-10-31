@@ -2019,6 +2019,9 @@ function publicMatchingBoard(engine: MatchingEngine): {
   readonly markets: readonly string[];
   readonly venueHalted: boolean;
   readonly halted: readonly string[];
+  /** When each halted market's halt began (ISO time), keyed by market id; and the venue halt's start, null when open. */
+  readonly haltedSince: Readonly<Record<string, string>>;
+  readonly venueHaltedSince: string | null;
   readonly prelaunch: readonly string[];
   readonly expired: readonly string[];
   readonly delisted: readonly string[];
@@ -2030,6 +2033,13 @@ function publicMatchingBoard(engine: MatchingEngine): {
     markets,
     venueHalted: engine.isVenueHalted === true,
     halted: markets.filter((id) => engine.isHalted?.(id) === true),
+    haltedSince: Object.fromEntries(
+      markets.flatMap((id) => {
+        const at = engine.haltedSinceOf?.(id) ?? null;
+        return at === null ? [] : [[id, at]];
+      }),
+    ),
+    venueHaltedSince: engine.venueHaltedSince ?? null,
     prelaunch: markets.filter((id) => engine.isPrelaunch?.(id) === true),
     expired: markets.filter((id) => engine.isExpired?.(id) === true),
     delisted: markets.filter((id) => engine.isDelisted?.(id) === true),

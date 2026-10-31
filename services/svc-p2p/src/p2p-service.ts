@@ -44,6 +44,18 @@ import {
   type ChatMessage,
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
+import {
+  bulkOffers,
+  listTodos,
+  readPresence,
+  setPresence,
+  type BulkAction,
+  type BulkOutcome,
+  type Presence,
+  type PresenceMode,
+  type PresenceWindow,
+  type TodoItem,
+} from './merchant-console.js';
 import type { P2pLimitDetails } from '@intafaced/contracts';
 import {
   BUYER_CANCEL_REASON_PREFIX,
@@ -235,6 +247,10 @@ export type P2pErrorCode =
   | 'p2p.offer_private'
   | 'p2p.share_link_expired'
   | 'p2p.share_link_revoked'
+  // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
+  | 'p2p.schedule_invalid'
+  | 'p2p.maker_offline'
+  | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
   | 'p2p.remind_too_early'
@@ -2275,6 +2291,8 @@ export class P2pService {
       SELECT * FROM p2p.offers
        WHERE status = 'active'
          AND visibility = 'public'
+         -- P-ads-merchant-08: an offline maker's ads, or a scheduled one's outside every window, are off the board.
+         AND p2p.maker_on_board(maker_id, now())
          AND remaining_amt >= min_amt
          AND (${filter.asset ?? null}::text IS NULL OR asset = ${filter.asset ?? null})
          AND (${filter.fiatCurrency ?? null}::text IS NULL OR fiat_currency = ${filter.fiatCurrency?.toUpperCase() ?? null})
@@ -2425,6 +2443,21 @@ export class P2pService {
   }
 
   /**
+   * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
+   * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
+   * offline with no schedule). Orders already open are not touched.
+   */
+  private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
+    if (takerId !== null && takerId === makerId) return;
+    const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
+    if (row?.on_board !== false) return;
+    const presence = await readPresence(db, makerId);
+    throw new P2pError('This ad’s maker is away; it takes orders again in their hours', 'p2p.maker_offline', {
+      until: presence.nextChangeAt ? presence.nextChangeAt.toISOString() : null,
+    });
+  }
+
+  /**
    * P-ads-merchant-07: who may see, quote and take an ad. A public ad is open to all, and its maker always sees their
    * own. A private ad needs a live share link to it (made, not revoked, not past its end). An order taken through a live
    * link is marked shared. A dead or unknown token never stands in the way of an ad the caller may open without one; on
@@ -2450,6 +2483,43 @@ export class P2pService {
     if (!link) throw new P2pError('This ad is private: it opens only from a link its maker shared', 'p2p.offer_private');
     if (link.revoked_at) throw new P2pError('Its maker withdrew this link', 'p2p.share_link_revoked');
     throw new P2pError('This link has expired', 'p2p.share_link_expired');
+  }
+
+  /** P-ads-merchant-08: the caller's presence; no row is online. */
+  presence(userId: string): Promise<Presence> {
+    return readPresence(this.sql, userId);
+  }
+
+  /** P-ads-merchant-08: online, offline, or a weekly schedule in the person's time zone (`p2p.schedule_invalid`). */
+  setPresence(
+    userId: string,
+    input: { mode: PresenceMode; timezone?: string | null; windows?: PresenceWindow[] | null },
+  ): Promise<Presence> {
+    return setPresence(this.sql, userId, input);
+  }
+
+  /** P-ads-merchant-08: the caller's open orders that wait on someone, soonest deadline first. */
+  todos(userId: string, limit: number): Promise<TodoItem[]> {
+    return listTodos(this.sql, userId, limit);
+  }
+
+  /** P-ads-merchant-08: pause, resume or remove several of the caller's ads, each answering for itself, once per key. */
+  bulkOffers(input: {
+    makerId: string;
+    action: BulkAction;
+    offerIds?: string[] | null;
+    all?: boolean;
+    idempotencyKey: string;
+  }): Promise<BulkOutcome> {
+    return bulkOffers(
+      this.sql,
+      {
+        pause: (offerId, makerId) => this.pauseOffer(offerId, makerId),
+        resume: (offerId, makerId) => this.resumeOffer(offerId, makerId),
+        close: (offerId, makerId) => this.closeOffer(offerId, makerId),
+      },
+      input,
+    );
   }
 
   /** P-ads-merchant-07: make an ad public (on the board) or private (by its links only). Open orders are unaffected. */
@@ -3013,6 +3083,7 @@ export class P2pService {
             const offer = toOffer(row);
             // P-ads-merchant-07: read under the ad's row lock, so a link revoked before this take is seen revoked.
             const { sharedFrom } = await this.assertOfferAccess(tx, offer, input.takerId, input.shareToken);
+            await this.assertMakerPresent(tx, offer.makerId, input.takerId);
             if (offer.status !== 'active') {
               throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
             }
@@ -5469,6 +5540,7 @@ export class P2pService {
     this.assertTradingEnabled();
     const offer = await this.loadOfferRaw(input.offerId);
     await this.assertOfferAccess(this.sql, offer, input.takerId, input.shareToken);
+    await this.assertMakerPresent(this.sql, offer.makerId, input.takerId);
     if (offer.status !== 'active') {
       throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
     }

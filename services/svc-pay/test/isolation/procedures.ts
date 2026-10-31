@@ -394,6 +394,14 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     ownCause: 'pay.destination_step_up_required',
     input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
   },
+  {
+    // J-merchant-02 #5: saves an unverified destination. No step-up, but an `ifc_` key is refused by design.
+    path: 'merchant.payoutDestinations.add',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
+  },
   { path: 'merchant.submitKyb', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },
   {
     path: 'merchant.decideKybStub',
@@ -473,6 +481,15 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     path: 'merchant.payoutDestinations.setDefault',
     scope: 'pay:write',
     own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
+    // J-merchant-02 #5 cancel: owner only, an `ifc_` key is refused by design.
+    path: 'merchant.payoutDestinations.cancelHold',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
     ownCause: 'pay.payout_destination_not_found',
     input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
   },

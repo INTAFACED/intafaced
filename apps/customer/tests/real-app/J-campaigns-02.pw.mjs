@@ -356,6 +356,11 @@ test(`${J} #6 opens the ledger history: the reward credited once, matching the r
   await expect(rows.first()).toContainText('Campaign reward');
   await expect(rows.first()).toContainText('USDT');
   await expect(rows.first()).toContainText(`+${REWARD}`);
+  // Credited once across the whole history: this account was opened for this journey, its whole history fits on the
+  // tab's first page (50 lines), and its only reward is this one, so a second credit under any other transaction
+  // would be a second 'Campaign reward' row.
+  expect(await table.locator('tbody tr').count()).toBeLessThan(50);
+  await expect(table.locator('tbody tr', { hasText: 'Campaign reward' })).toHaveCount(1);
 });
 
 test(`${J} #7 opens the reward's redemption log: the outcome, any failure reason and the rollback window`, async ({ page }) => {
@@ -400,9 +405,24 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
   await expect(page.getByTestId('task-step').first()).toContainText('1 of 3 days in a row');
   await expect(run1).toHaveAttribute('data-reset', 'false');
   await expect(run1).toContainText('Your streak resets at');
+  // The boundary is midnight in the platform time zone (UTC on this stack) after the next day: a run whose last day is
+  // D lives through D+1 and resets at D+2 00:00.
+  const midnightAfter = (day, n) => new Date(Date.parse(`${day}T00:00:00.000Z`) + n * DAY).toISOString();
+  const today = (await progressOf(me, streak.id)).steps[0].streak;
+  // The trade's day: today, or yesterday if UTC midnight passed since the trade.
+  expect([new Date().toISOString().slice(0, 10), new Date(Date.now() - DAY).toISOString().slice(0, 10)]).toContain(today.lastDay);
+  expect(today.resetsAt).toBe(midnightAfter(today.lastDay, 2));
 
-  // That trading day becomes two days ago (LOCAL TEST fixture): yesterday was missed, so the run ended at midnight.
-  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '2')).toContain('1 join(s) and 1 counted event(s)');
+  // One side of the boundary (LOCAL TEST fixture): that trading day becomes yesterday, so today is still inside the run
+  // and its reset moves to tomorrow's midnight.
+  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
+  const yesterday = (await progressOf(me, streak.id)).steps[0].streak;
+  expect(yesterday).toMatchObject({ days: 1, reset: false, lastDay: midnightAfter(today.lastDay, -1).slice(0, 10) });
+  expect(yesterday.resetsAt).toBe(midnightAfter(today.lastDay, 1));
+  expect(Date.parse(yesterday.resetsAt)).toBeGreaterThan(Date.now());
+
+  // The other side: one day more makes it two days ago, so yesterday was missed and the run ended at last midnight.
+  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
   await page.reload();
   const reset = page.getByTestId('task-streak');
   await expect(reset).toHaveAttribute('data-reset', 'true');

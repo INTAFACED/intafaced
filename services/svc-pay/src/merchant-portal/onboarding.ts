@@ -39,10 +39,14 @@ export async function readOnboardingProgress(
   });
   const merchant = await pay.getMerchant(profile.merchantId);
   const showDestinations = await payoutDestinationsVisible(pay, trees, team, userId, profile.merchantId, merchant.userId);
-  const destinations = await sql<Array<{ rail_id: string; kind: string; ref: string }>>`
-    SELECT rail_id, kind, ref FROM pay.merchant_payout_destinations
+  const destinations = await sql<Array<{ rail_id: string; kind: string; ref: string; verified: boolean; activates_at: Date | null }>>`
+    SELECT rail_id, kind, ref, verified, activates_at FROM pay.merchant_payout_destinations
      WHERE merchant_id = ${profile.merchantId}
      ORDER BY rail_id`;
+  // J-merchant-02 #5: only a destination verified with a step-up counts. A held one (verified, waiting out the hold,
+  // stored `verified = false` with `activates_at`) counts: it becomes payable with no further step from the owner. An
+  // unverified one does not.
+  const verifiedCount = destinations.filter((row) => row.verified || row.activates_at !== null).length;
   const missing: Array<'legalName' | 'displayName' | 'address'> = [];
   if (!profile.legalName) missing.push('legalName');
   if (!profile.displayName) missing.push('displayName');
@@ -50,7 +54,7 @@ export async function readOnboardingProgress(
   const blocking: Blocker[] = [];
   if (missing.length > 0) blocking.push('business_incomplete');
   blocking.push('documents_pending_vendor');
-  if (destinations.length === 0) blocking.push('destination_missing');
+  if (verifiedCount === 0) blocking.push('destination_missing');
   const terms = await readTerms();
   if (terms.state === 'not_configured') blocking.push('terms_not_configured');
   else if (terms.state === 'not_accepted') blocking.push('terms_not_accepted');
@@ -63,7 +67,7 @@ export async function readOnboardingProgress(
     documents: { state: 'pending_vendor' as const },
     terms,
     destination: {
-      present: destinations.length > 0,
+      present: verifiedCount > 0,
       destinations: showDestinations
         ? destinations.map((row) => ({
             railId: safeDestinationLabel(row.rail_id, row.ref),

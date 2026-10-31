@@ -38,6 +38,8 @@ import {
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
   payPayoutDestinationItemSchema,
+  payDestinationCancelHoldInputSchema,
+  payDestinationCancelHoldOutputSchema,
   payPayoutDestinationListInputSchema,
   payPayoutLifecycleInputSchema,
   payPayoutLifecycleSchema,
@@ -75,7 +77,13 @@ import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
+  PayoutDestinationConflictError,
+  PayoutDestinationHeldError,
+  PayoutDestinationInFlightError,
   PayoutDestinationMissingError,
+  PayoutDestinationNotFoundError,
+  PayoutDestinationNotHeldError,
+  PayoutDestinationUnverifiedError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
 import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js';
@@ -336,8 +344,30 @@ export function createPayRouter(
         },
   );
 
+  type DestinationPrincipal = { userId: string; sid: string; kid?: string; mfa?: boolean; sub_account?: string } | null | undefined;
+  const destinationCaller = (principal: DestinationPrincipal) => {
+    if (principal == null || !principal.userId || !principal.sid) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+    }
+    return {
+      userId: principal.userId,
+      sessionId: principal.sid,
+      viaApiKey: principal.kid !== undefined,
+      interactive: isInteractivePrincipal(principal),
+    };
+  };
+  /** J-merchant-02 #5: save a destination unverified. Nothing is paid to it until `setDestination` verifies it. */
+  const addDestination = (principal: DestinationPrincipal, input: { merchantId: string; railId: string; kind: string; ref: string }) =>
+    destinationChange.add({
+      caller: destinationCaller(principal),
+      merchantId: input.merchantId,
+      railId: input.railId,
+      kind: input.kind,
+      ref: input.ref,
+    });
+
   const setDestination = (
-    principal: { userId: string; sid: string; kid?: string; mfa?: boolean; sub_account?: string } | null | undefined,
+    principal: DestinationPrincipal,
     input: {
       merchantId: string;
       railId: string;
@@ -346,16 +376,8 @@ export function createPayRouter(
       stepUpApprovalId?: string | null;
     },
   ) => {
-    if (principal == null || !principal.userId || !principal.sid) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-    }
     return destinationChange.set({
-      caller: {
-        userId: principal.userId,
-        sessionId: principal.sid,
-        viaApiKey: principal.kid !== undefined,
-        interactive: isInteractivePrincipal(principal),
-      },
+      caller: destinationCaller(principal),
       merchantId: input.merchantId,
       railId: input.railId,
       kind: input.kind,
@@ -648,9 +670,11 @@ export function createPayRouter(
         ),
 
       /**
-       * Add or change the stored payout destination. Step-up, owner or admin,
-       * never an API key. A payout cannot call this. The first destination is
-       * active after step-up. A change stays pending until the hold passes.
+       * Verify (or save and verify) the stored payout destination, or change a
+       * verified one. Step-up, owner or admin, never an API key. A payout
+       * cannot call this. A newly verified destination is `held` until
+       * `activatesAt` (verified + PAY_DESTINATION_HOLD_SECONDS), then active.
+       * A change stays pending until the hold passes. Blank hold refuses.
        */
       setPayoutDestination: scopedProcedure('pay:write', { module: 'pay' })
         .input(
@@ -667,7 +691,7 @@ export function createPayRouter(
             kind: z.string(),
             ref: z.string(),
             railId: z.string(),
-            status: z.enum(['active', 'pending']),
+            status: z.enum(['held', 'active', 'pending']),
             activatesAt: z.string().nullable(),
           }),
         )
@@ -993,11 +1017,54 @@ export function createPayRouter(
               kind: z.string(),
               ref: z.string(),
               railId: z.string(),
-              status: z.enum(['active', 'pending']),
+              status: z.enum(['held', 'active', 'pending']),
               activatesAt: z.string().nullable(),
             }),
           )
           .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
+        /**
+         * J-merchant-02 #5: save a destination unverified. Owner or admin in an
+         * interactive session, never an API key; no step-up, because nothing
+         * is paid to it until `merchant.setPayoutDestination` verifies it with
+         * one. A verified destination on the rail is refused
+         * (`pay.payout_destination_verified_locked`).
+         */
+        add: scopedProcedure('pay:write', { module: 'pay' })
+          .input(
+            z.object({
+              merchantId: z.string().guid(),
+              railId: z.string().min(1),
+              kind: z.string().min(1),
+              ref: z.string().min(1),
+            }),
+          )
+          .output(
+            z.object({
+              kind: z.string(),
+              ref: z.string(),
+              railId: z.string(),
+              status: z.literal('unverified'),
+              activatesAt: z.null(),
+            }),
+          )
+          .mutation(({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input))),
+        /**
+         * The owner sends a held destination back to unverified (J-merchant-02 #5, the lead's ruling of 2026-10-30).
+         * Owner only, interactive, never an API key; no step-up, since it only lowers risk. Idempotent: an
+         * unverified destination answers `changed: false`. An active one refuses `pay.payout_destination_not_held`.
+         */
+        cancelHold: scopedProcedure('pay:write', { module: 'pay' })
+          .input(payDestinationCancelHoldInputSchema)
+          .output(payDestinationCancelHoldOutputSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () =>
+              destinationChange.cancelHold({
+                caller: destinationCaller(ctx.principal),
+                merchantId: input.merchantId,
+                destinationId: input.destinationId,
+              }),
+            ),
+          ),
         list: ownMerchantRead()
           .input(payPayoutDestinationListInputSchema)
           .output(payPageSchema(payPayoutDestinationItemSchema))
@@ -2684,7 +2751,21 @@ export function toTrpcError(err: unknown): unknown {
   if (err instanceof DestinationKindError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
   }
-  if (err instanceof PayoutDestinationMissingError) {
+  if (err instanceof PayoutDestinationNotFoundError) {
+    return new TRPCError({ code: 'NOT_FOUND', message: `${err.code}: ${err.message}`, cause: err });
+  }
+  if (
+    err instanceof PayoutDestinationInFlightError ||
+    err instanceof PayoutDestinationConflictError ||
+    err instanceof PayoutDestinationNotHeldError
+  ) {
+    return new TRPCError({ code: 'CONFLICT', message: `${err.code}: ${err.message}`, cause: err });
+  }
+  if (
+    err instanceof PayoutDestinationMissingError ||
+    err instanceof PayoutDestinationUnverifiedError ||
+    err instanceof PayoutDestinationHeldError
+  ) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.code}: ${err.message}`, cause: err });
   }
   if (!(err instanceof PayError)) return err;
@@ -2735,6 +2816,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_book_unrecognised':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
+      case 'pay.payout_destination_unverified':
+      case 'pay.payout_destination_held':
       case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
@@ -2788,6 +2871,10 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_in_flight':
       case 'pay.payout_destination_in_flight':
       case 'pay.payout_destination_verified_locked':
+      case 'pay.destination_change_pending':
+      case 'pay.destination_verify_mismatch':
+      case 'pay.payout_destination_not_held':
+      case 'pay.payout_destination_conflict':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':

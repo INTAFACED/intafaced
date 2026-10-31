@@ -349,6 +349,8 @@ const P2P_LIMIT_CODES = new Set<string>([
   // P-ads-merchant-06: closing an ad that still has open orders (how many, and which), and the daily edit cap.
   'p2p.offer_has_open_trades',
   'p2p.edit_quota_reached',
+  // P-ads-merchant-08: the ad's maker is away; `until` is when their hours open again (null when offline with no schedule).
+  'p2p.maker_offline',
   ...P2P_FIELD_CODES,
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);

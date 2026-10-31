@@ -131,6 +131,9 @@ export function buildWorld(ctx) {
     defaultFlag: 'unset',
     createdAt: iso(now - d.ageDays * DAY),
     lastUsedAt: d.usedDaysAgo === null ? null : iso(now - d.usedDaysAgo * DAY),
+    // Verified long ago: active (J-merchant-02 #5).
+    state: 'active',
+    activatesAt: null,
   }));
   if (activity) populate(world, now);
   attachAggregates(world, now);

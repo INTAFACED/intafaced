@@ -8,7 +8,8 @@ import { bodyRows, tableIn } from './tables.mjs';
 // J-dex-protocol-18, in the running app (docs/roadmap/journeys.json): trade a perpetual from the Web3 side's futures
 // ticket. One test per step, titled "J-dex-protocol-18 #<n>", run in order on one verified TEST account with TEST USDT
 // margin, on the stack's TEST perpetual. Margin moves only through the custodial ledger recipes under business keys
-// (`futures.margin.add:<positionId>`); the accepted mark is the only price; blank tiers or caps refuse.
+// (`futures.margin.add:<positionId>`); a close is a reduce-only order on the book, never past the bankruptcy price; a
+// caller's price on a market order or a close is refused; blank tiers or caps refuse.
 // owner.decision for the leverage ladder, caps and the prelaunch mark policy while blank; a licence is never shown as a
 // limit.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
@@ -176,12 +177,15 @@ test(`${J} #7 pays with another token: the converted amount stays if the open is
   await expect.poll(held, { timeout: 20_000 }).toBe(before + toUnits('0.01'));
 });
 
-test(`${J} #8 closes 25 percent: exactly a quarter of the size closes at the accepted mark; a caller-supplied price is refused`, async ({
+test(`${J} #8 closes 25 percent: a reduce-only order fills exactly a quarter in the book, never past where the margin is gone; a caller-supplied price is refused`, async ({
   page,
 }) => {
   const who = await desk(page);
-  const [before] = await positions(who);
-  expect(before, 'an earlier step left a position').toBeTruthy();
+  const me = await api(who);
+  // The one open position on this contract is the row the dialog closes (the desk draws one row per position).
+  const open = (await positions(who)).filter((p) => p.symbol === SYMBOL);
+  expect(open, 'an earlier step left exactly one position on this contract').toHaveLength(1);
+  const [before] = open;
   const row = page
     .getByRole('row')
     .filter({ hasText: SYMBOL })
@@ -189,21 +193,62 @@ test(`${J} #8 closes 25 percent: exactly a quarter of the size closes at the acc
   await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
   const dialog = page.getByRole('dialog', { name: /^Close/ });
   await dialog.getByRole('button', { name: '25%' }).click(UNBUILT);
+  // The close is a reduce-only market order on the futures book (slice 6b retired the at-mark close while matching is
+  // on), for a quarter of the size, on the side that shrinks the position.
+  const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/futures/orders' && r.request().method() === 'POST', {
+    timeout: 20_000,
+  });
   await dialog.getByRole('button', { name: 'Close this size' }).click();
+  const answer = await sent;
+  const asked = answer.request().postDataJSON();
+  const quarter = toUnits(before.contracts) / 4n;
+  expect(asked).toMatchObject({ symbol: SYMBOL, type: 'market', reduceOnly: true, side: before.side === 'long' ? 'sell' : 'buy' });
+  expect(toUnits(asked.amount)).toBe(quarter);
+  expect(asked.price, 'a market close sends no price of its own').toBeUndefined();
+  expect(answer.status(), await answer.text()).toBeLessThan(300);
+  const placed = await answer.json();
   // Exactly three quarters stay open: 4 × left = 3 × before, in exact units.
   await expect
     .poll(async () => 4n * toUnits((await positions(who)).find((p) => p.id === before.id)?.contracts ?? '0'), { timeout: 20_000 })
     .toBe(3n * toUnits(before.contracts));
-  // The close door takes no price from the caller: the accepted mark is the only price.
-  const { status, body } = await (
-    await api(who)
-  ).post(`/api/v1/positions/${before.id}/close`, {
+  // The service's own record of that order: reduce-only on this position, filled in the book for the quarter, at a
+  // worst price inside the band around the mark and never past the bankruptcy price (where the margin is gone). The
+  // engine fills an order only at its limit or better, so that recorded limit is the bound on every fill of the close.
+  const { status: listed, body: list } = await me.get(`/api/v1/futures/orders?scope=all&limit=100&symbol=${encodeURIComponent(SYMBOL)}`);
+  expect(listed).toBe(200);
+  expect(Array.isArray(list), JSON.stringify(list).slice(0, 200)).toBe(true);
+  const order = list.find((o) => o.orderId === placed.orderId);
+  expect(order, JSON.stringify(placed).slice(0, 300)).toBeTruthy();
+  expect(order).toMatchObject({ reduceOnly: true, positionId: before.id, status: 'filled', type: 'market' });
+  expect(toUnits(order.filledQty)).toBe(quarter);
+  const limit = toUnits(order.limitPrice);
+  expect(limit).toBeGreaterThanOrEqual(toUnits(order.bandLow));
+  expect(limit).toBeLessThanOrEqual(toUnits(order.bandHigh));
+  expect(order.bankruptcyPrice, 'the bound is recorded').toBeTruthy();
+  if (before.side === 'long') expect(limit).toBeGreaterThanOrEqual(toUnits(order.bankruptcyPrice));
+  else expect(limit).toBeLessThanOrEqual(toUnits(order.bankruptcyPrice));
+  // A caller-supplied price is refused on the door the close goes through: a market reduce-only order with a price is a
+  // 400 trade.limit_price_on_market_order, and nothing more closes.
+  const priced = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: asked.side,
+    type: 'market',
+    amount: asked.amount,
+    price: '1',
+    reduceOnly: true,
+    clientOrderId: `${J}:market-price-refused`,
+  });
+  expect(priced.status, JSON.stringify(priced.body)).toBe(400);
+  expect(priced.body.error).toBe('trade.limit_price_on_market_order');
+  // The position close door takes no price from the caller either.
+  const { status, body } = await me.post(`/api/v1/positions/${before.id}/close`, {
     quantity: '0.001',
     clientCloseId: `${J}:price-refused`,
     price: '1',
   });
   expect(status).toBe(400);
   expect(body.error).toBe('trade.price_not_accepted');
+  expect(4n * toUnits((await positions(who)).find((p) => p.id === before.id)?.contracts ?? '0')).toBe(3n * toUnits(before.contracts));
 });
 
 test(`${J} #9 toggles the fee in profit and loss and the chart overlays: profit and loss changes by the fee; entry, liquidation and order lines appear on the chart`, async ({

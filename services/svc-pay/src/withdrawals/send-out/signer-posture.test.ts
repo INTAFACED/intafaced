@@ -73,10 +73,11 @@ describe('the TEST withdrawal signer: runtime gate', () => {
 });
 
 describe('the door before the claim', () => {
-  const door = (state: 'ready' | 'not_saved' = 'ready') => {
+  const door = (state: 'ready' | 'not_saved' = 'ready', settleDepth: number | null = 6) => {
     const asked: unknown[] = [];
     const sendOut = new SendOutDoor({
       signer: assertWithdrawSignerPosture({ APP_ENV: 'test', [ENV]: 'ethereum' }),
+      settleDepth,
       destinations: { check: async (input) => (asked.push(input), { state, destinationId: null, coolingOffEndsAt: null }) },
     });
     return { sendOut, asked };
@@ -89,6 +90,22 @@ describe('the door before the claim', () => {
     quoteRef: 'q-1',
     destination: { kind: 'crypto', ref: '0x52908400098527886E0F7030069857D2E4169EE7' },
   };
+
+  it('refuses every send out with one typed code while the owner has set no settle depth, after the signer and before the quote', () => {
+    const { sendOut } = door('ready', null);
+    expect(sendOut.settleDepth).toBeNull();
+    expect(() => sendOut.assertSigner(ask)).toThrow(
+      expect.objectContaining({ code: 'pay.withdraw_confirmations_unset', detail: { networkId: 'ethereum' } }),
+    );
+    expect(() => sendOut.assertSigner({ ...ask, quoteRef: undefined })).toThrow(
+      expect.objectContaining({ code: 'pay.withdraw_confirmations_unset' }),
+    );
+    // No signer still refuses as no signer: the first thing a send needs is named first.
+    expect(() => sendOut.assertSigner({ ...ask, networkId: 'base' })).toThrow(
+      expect.objectContaining({ code: 'pay.wallet_withdraw_unavailable' }),
+    );
+    expect(door().sendOut.settleDepth).toBe(6);
+  });
 
   it('asks for the signer first, then the quote, and names the network it refused on', () => {
     const { sendOut } = door();
