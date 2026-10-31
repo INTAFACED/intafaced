@@ -22,6 +22,21 @@ CREATE TABLE IF NOT EXISTS "mining_pool"."worker_state_changes" (
 CREATE INDEX IF NOT EXISTS "worker_state_changes_worker_seq_idx"
   ON "mining_pool"."worker_state_changes" ("worker_id", "seq" DESC);
 
+-- Each change follows the worker's previous recorded change (`prev_seq`; NULL for its first), and one recorded change has
+-- at most one successor. The key names that previous change too, so a state that returns under the same newest share
+-- (the owner moved the quiet interval and back) is a new key, and two evaluators that saw the same previous change
+-- collide here and write one row.
+ALTER TABLE "mining_pool"."worker_state_changes" ADD COLUMN IF NOT EXISTS "prev_seq" bigint;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "worker_state_changes_successor_uidx"
+  ON "mining_pool"."worker_state_changes" ("worker_id", COALESCE("prev_seq", 0));
+
+-- A share stored before workers were labelled counts for the worker id it was sent under (`myWorkers` counts it so), and
+-- the worker's state reads its newest such share too.
+CREATE INDEX IF NOT EXISTS "shares_unlabelled_miner_created_idx"
+  ON "mining_pool"."shares" ("miner_id", "created_at")
+  WHERE "worker_id" IS NULL;
+
 CREATE TABLE IF NOT EXISTS "mining_pool"."worker_evaluations" (
   "worker_id"    text PRIMARY KEY REFERENCES "mining_pool"."workers" ("id"),
   "evaluated_at" timestamptz NOT NULL DEFAULT now()

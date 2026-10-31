@@ -4,12 +4,14 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createMiningRouter, type MiningReads } from './router.js';
 import {
   alertShareBpsOf,
+  alertTrailingMinutesOf,
   canonicalDecimal,
   connectivityOf,
   evaluateSecondsOf,
   quietSecondsOf,
   shareOfWeight,
   stateChangeKey,
+  stateOf,
   transitionOf,
   type WorkerOne,
 } from './worker-state.js';
@@ -127,8 +129,17 @@ describe('worker state rules', () => {
     expect(transitionOf({ ...base, lastShareAt: at(80), maintenance: false, latest: null })).toBeNull();
   });
 
-  it('keys a change by the worker and its newest share, never a random id', () => {
-    expect(stateChangeKey('offline', WORKER, at(0))).toBe(`mining:worker-offline:${WORKER}:2026-10-31T00:00:00.000Z`);
+  it('keys a change by the worker, its newest share and the change it follows, never a random id', () => {
+    expect(stateChangeKey('offline', WORKER, at(0), null)).toBe(`mining:worker-offline:${WORKER}:2026-10-31T00:00:00.000Z:first`);
+    expect(stateChangeKey('offline', WORKER, at(0), '7')).toBe(`mining:worker-offline:${WORKER}:2026-10-31T00:00:00.000Z:7`);
+  });
+
+  it('names a state: maintenance first, else by connectivity, else unknown', () => {
+    expect(stateOf(true, null)).toBe('maintenance');
+    expect(stateOf(true, 'online')).toBe('maintenance');
+    expect(stateOf(false, 'online')).toBe('active');
+    expect(stateOf(false, 'offline')).toBe('offline');
+    expect(stateOf(false, null)).toBeNull();
   });
 
   it('reads owner timing exactly: blank and out of range refuse by code, nothing is filled in', () => {
@@ -142,6 +153,11 @@ describe('worker state rules', () => {
     expect(alertShareBpsOf({})).toBeNull();
     expect(alertShareBpsOf({ MINING_WORKER_ALERT_SHARE_BPS: '10001' })).toBeNull();
     expect(alertShareBpsOf({ MINING_WORKER_ALERT_SHARE_BPS: '2500' })).toBe(2500);
+    expect(alertTrailingMinutesOf({})).toBeNull();
+    expect(alertTrailingMinutesOf({ MINING_WORKER_ALERT_TRAILING_MINUTES: ' ' })).toBeNull();
+    expect(alertTrailingMinutesOf({ MINING_WORKER_ALERT_TRAILING_MINUTES: '0' })).toBeNull();
+    expect(alertTrailingMinutesOf({ MINING_WORKER_ALERT_TRAILING_MINUTES: '10081' })).toBeNull();
+    expect(alertTrailingMinutesOf({ MINING_WORKER_ALERT_TRAILING_MINUTES: '1440' })).toBe(1440);
   });
 
   it('works out an automatic limit in exact decimals', () => {
@@ -195,7 +211,16 @@ describe('worker procedures', () => {
     expect(store.workerOne).not.toHaveBeenCalled();
     const router = createMiningRouter(store, undefined, { env: { ...QUIET, MINING_WORKER_ALERT_SHARE_BPS: '2500' } });
     await expect(router.createCaller(signed()).workers.one({ workerId: WORKER, windowMinutes: 60 })).resolves.toEqual(ONE);
-    expect(store.workerOne).toHaveBeenCalledWith(USER, WORKER, 60, { quietSeconds: 60, alertShareBps: 2500 });
+    expect(store.workerOne).toHaveBeenCalledWith(USER, WORKER, 60, { quietSeconds: 60, alertShareBps: 2500, alertTrailingMinutes: null });
+    const trailing = createMiningRouter(store, undefined, {
+      env: { ...QUIET, MINING_WORKER_ALERT_SHARE_BPS: '2500', MINING_WORKER_ALERT_TRAILING_MINUTES: '1440' },
+    });
+    await trailing.createCaller(signed()).workers.one({ workerId: WORKER, windowMinutes: 5 });
+    expect(store.workerOne).toHaveBeenLastCalledWith(USER, WORKER, 5, {
+      quietSeconds: 60,
+      alertShareBps: 2500,
+      alertTrailingMinutes: 1440,
+    });
     await expect(router.createCaller(signed()).workers.one({ workerId: '', windowMinutes: 60 })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
@@ -262,5 +287,13 @@ describe('worker procedures', () => {
     store.workerRosterStates.mockResolvedValueOnce(new Map([[WORKER, { state: null, lastShareAt: null }]]) as never);
     const blank = await createMiningRouter(store, undefined, { env: {} }).createCaller(signed()).workers.mine({ windowMinutes: 60 });
     expect(blank.workers[0]).toMatchObject({ state: null, stateReason: 'mining.quiet_interval_unset' });
+    store.workerRosterStates.mockResolvedValueOnce(new Map() as never);
+    const unseen = await createMiningRouter(store, undefined, { env: QUIET }).createCaller(signed()).workers.mine({ windowMinutes: 60 });
+    expect(unseen.workers[0]).toMatchObject({ state: null, stateReason: null });
+    store.workerRosterStates.mockResolvedValueOnce(new Map([[WORKER, { state: null, lastShareAt: null }]]) as never);
+    const invalid = await createMiningRouter(store, undefined, { env: { MINING_WORKER_QUIET_SECONDS: '5' } })
+      .createCaller(signed())
+      .workers.mine({ windowMinutes: 60 });
+    expect(invalid.workers[0]).toMatchObject({ state: null, stateReason: 'mining.quiet_interval_invalid' });
   });
 });

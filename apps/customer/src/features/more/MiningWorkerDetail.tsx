@@ -78,6 +78,9 @@ export function WorkerDetailView({
   const { t } = miningWorkerCopy.useCopy();
   const depth = miningDepthCopy.useCopy().t;
   const { timeZone } = usePreferences();
+  // The alert panel keeps the worker's last answer while a reload (after a save, or a new window) is on its way, so it
+  // stays mounted and the person still sees that the save worked.
+  const shown = useLastReady(worker.resource);
   return (
     <div className="more-columns">
       <Panel title={t('statusTitle')}>
@@ -171,13 +174,20 @@ export function WorkerDetailView({
         </Read>
       </Panel>
       <Panel title={t('alertTitle')}>
-        {worker.resource.status === 'ready' ? (
-          <AlertLimit worker={worker.resource.data} onSet={onSetAlertLimit} onSaved={worker.reload} />
-        ) : null}
+        {shown ? <AlertLimit key={shown.id} worker={shown} onSet={onSetAlertLimit} onSaved={worker.reload} /> : null}
         <p className="muted">{t('alertNote')}</p>
       </Panel>
     </div>
   );
+}
+
+/** The resource's data when ready; while it loads again, the last data it was ready with; nothing once it fails. */
+function useLastReady<T>(resource: Resource<T>): T | null {
+  const current = resource.status === 'ready' ? resource.data : null;
+  const [last, setLast] = useState<T | null>(current);
+  if (current !== null && current !== last) setLast(current);
+  if (resource.status === 'failed') return null;
+  return current ?? last;
 }
 
 type AlertState = { status: 'idle' } | { status: 'busy' } | { status: 'saved' } | { status: 'failed'; failure: Failed };

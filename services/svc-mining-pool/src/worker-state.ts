@@ -9,10 +9,13 @@ import { MiningError } from './errors.js';
  *
  * The miner door keeps no lasting connection, so a worker is online exactly when its newest accepted share is younger
  * than the owner's quiet interval (`MINING_WORKER_QUIET_SECONDS`), and offline otherwise. Every comparison uses the
- * database clock. A change between the two is recorded once, as a row keyed by a business key
- * (`mining:worker-offline:<workerId>:<newest share ISO>`, `mining:worker-online:…`), so a repeat evaluation or a second
- * evaluator writes nothing new. Only the evaluator records: a read writes nothing. A worker in maintenance gets no row. A worker that
- * has never sent an accepted share was never online, so it gets none either.
+ * database clock. A worker's shares are those that name it and those stored before workers were labelled under its id,
+ * as `myWorkers` counts them. A change between the two is recorded once by the evaluator, as a row keyed by a business key
+ * (`mining:worker-offline:<workerId>:<newest share ISO>:<previous change's seq|first>`, `mining:worker-online:…`) that
+ * follows exactly one previous change, so a repeat evaluation or a second evaluator writes nothing new, and a state that
+ * comes back under the same newest share (the owner moved the quiet interval and back) is still recorded. Only the
+ * evaluator records, at its next pass: a read writes nothing. A worker in maintenance gets no row. A worker that has never
+ * sent an accepted share was never online, so it gets none either.
  *
  * `state` is what the room shows: `maintenance` while the worker is in it, else `offline` when quiet, else `active`.
  */
@@ -31,6 +34,7 @@ export const QUIET_SECONDS_MAX = 86_400;
 export const EVALUATE_SECONDS_MIN = 1;
 export const EVALUATE_SECONDS_MAX = 3_600;
 export const ALERT_SHARE_BPS_MAX = 10_000;
+export const ALERT_TRAILING_MINUTES_MAX = 10_080;
 /** A manual alert limit: a positive decimal of at most 20 whole digits and 18 places, the numeric(38, 18) column. */
 export const ALERT_LIMIT = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 export const MAINTENANCE_BATCH_MAX = 50;
@@ -62,6 +66,15 @@ export function alertShareBpsOf(env: NodeJS.ProcessEnv): number | null {
   return n === null || n === 'invalid' ? null : n;
 }
 
+/**
+ * The owner's fixed trailing period, in minutes, whose accepted weight an automatic alert limit is a share of; null when
+ * blank or unusable. It is never the window a reader picks, so the limit does not move with the room's selector.
+ */
+export function alertTrailingMinutesOf(env: NodeJS.ProcessEnv): number | null {
+  const n = publishedInt(env.MINING_WORKER_ALERT_TRAILING_MINUTES, 1, ALERT_TRAILING_MINUTES_MAX);
+  return n === null || n === 'invalid' ? null : n;
+}
+
 /** Online exactly while the newest accepted share is younger than the quiet interval. No share at all is offline. */
 export function connectivityOf(lastShareAt: Date | null, now: Date, quietSeconds: number): Connectivity {
   if (lastShareAt === null) return 'offline';
@@ -85,8 +98,19 @@ export function transitionOf(input: {
   return current === previous ? null : { from: previous, to: current };
 }
 
-export function stateChangeKey(to: Connectivity, workerId: string, lastShareAt: Date): string {
-  return `mining:worker-${to}:${workerId}:${lastShareAt.toISOString()}`;
+/** What the room shows: maintenance while in it, else active or offline by connectivity; null when connectivity is unknown. */
+export function stateOf(maintenance: boolean, connectivity: Connectivity | null): WorkerState | null {
+  if (maintenance) return 'maintenance';
+  if (connectivity === null) return null;
+  return connectivity === 'online' ? 'active' : 'offline';
+}
+
+/**
+ * The business key of one recorded change: the worker, its newest share and the change it follows (`first` for none).
+ * Naming the previous change keeps two transitions under one newest share apart.
+ */
+export function stateChangeKey(to: Connectivity, workerId: string, lastShareAt: Date, prevSeq: string | null): string {
+  return `mining:worker-${to}:${workerId}:${lastShareAt.toISOString()}:${prevSeq ?? 'first'}`;
 }
 
 export function maintenanceKey(workerId: string): string {
@@ -145,14 +169,65 @@ export type MaintenanceRows = { readonly asOf: string; readonly rows: { workerId
 
 export type AlertLimitSetting = { readonly workerId: string; readonly mode: AlertLimitMode | null; readonly manualLimit: string | null };
 
-type Observed = {
+/** What every worker-state read observes of one worker, in one query (`observeWorkers`). */
+type Observation = {
   id: string;
   user_id: string;
+  name: string;
   last_share_at: Date | null;
-  maintenance: boolean;
+  maintenance_since: Date | null;
+  window_weight: string | null;
+  trailing_weight: string | null;
+  latest_seq: string | null;
   latest: string | null;
   now: Date;
 };
+
+/** The summed accepted weight of worker `w` over the last `minutes`, legacy unlabelled shares included; NULL when not asked. */
+function weightSince(sql: Sql, minutes: number | null) {
+  if (minutes === null) return sql`NULL::text`;
+  return sql`(
+    SELECT SUM(s.weight)::text FROM mining_pool.shares s
+    WHERE (s.worker_id = w.id OR (s.worker_id IS NULL AND s.miner_id = w.id))
+      AND s.weight IS NOT NULL
+      AND s.created_at >= now() - (${minutes}::int * interval '1 minute')
+  )`;
+}
+
+/**
+ * The one observation the evaluator, `workers.one` and the roster share: each worker's newest accepted share (a share that
+ * names it, or one stored before workers were labelled under its id), since when it is in maintenance, its latest recorded
+ * change, the database clock and, when asked, its accepted weight over a window and over the alert's trailing period.
+ * `userId` null is every account (the evaluator); `workerIds` null is every worker in scope.
+ */
+async function observeWorkers(
+  sql: Sql,
+  scope: { readonly userId: string | null; readonly workerIds: readonly string[] | null },
+  minutes: { readonly window?: number | null; readonly trailing?: number | null } = {},
+): Promise<Observation[]> {
+  return sql<Observation[]>`
+    SELECT w.id, w.user_id, w.name,
+           GREATEST(
+             (SELECT max(s.created_at) FROM mining_pool.shares s WHERE s.worker_id = w.id AND s.weight IS NOT NULL),
+             (SELECT max(s.created_at) FROM mining_pool.shares s
+                WHERE s.worker_id IS NULL AND s.miner_id = w.id AND s.weight IS NOT NULL)
+           ) AS last_share_at,
+           m.since AS maintenance_since,
+           ${weightSince(sql, minutes.window ?? null)} AS window_weight,
+           ${weightSince(sql, minutes.trailing ?? null)} AS trailing_weight,
+           c.seq::text AS latest_seq,
+           c.to_state AS latest,
+           now() AS now
+    FROM mining_pool.workers w
+    LEFT JOIN mining_pool.worker_maintenance m ON m.worker_id = w.id
+    LEFT JOIN LATERAL (
+      SELECT x.seq, x.to_state FROM mining_pool.worker_state_changes x WHERE x.worker_id = w.id ORDER BY x.seq DESC LIMIT 1
+    ) c ON true
+    WHERE (${scope.userId}::text IS NULL OR w.user_id = ${scope.userId})
+      AND (${scope.workerIds === null}::boolean OR w.id = ANY(${sql.array([...(scope.workerIds ?? [])])}::text[]))
+    ORDER BY w.id
+  `;
+}
 
 async function ownedWorker(sql: Sql, userId: string, workerId: string): Promise<{ id: string; name: string }> {
   const [row] = await sql<{ id: string; name: string }[]>`
@@ -163,10 +238,11 @@ async function ownedWorker(sql: Sql, userId: string, workerId: string): Promise<
 }
 
 /**
- * Looks at one worker (or every worker when `workerId` is null) and records any change from its last recorded state.
- * Safe to run twice at once: each change has one business key and the insert does nothing on a conflict; a worker put
- * in maintenance after the look gets no row either. `markEvaluated` stamps the evaluator's look on every worker it saw,
- * maintenance ones included. Returns how many rows it wrote.
+ * Looks at one worker (or every worker when `workerId` is null) and records any change from its last recorded state, in
+ * one observation and one batched insert per pass. Safe to run twice at once: each change follows exactly one previous
+ * change (`prev_seq`, unique per worker), so two evaluators that saw the same previous change write one row, and the
+ * insert does nothing on a conflict; a worker put in maintenance after the look gets no row either. `markEvaluated`
+ * stamps the evaluator's look on every worker it saw, maintenance ones included. Returns how many rows it wrote.
  */
 export async function settleWorkers(
   sql: Sql,
@@ -174,33 +250,47 @@ export async function settleWorkers(
   workerId: string | null,
   markEvaluated: boolean,
 ): Promise<{ looked: number; recorded: number }> {
-  const observed = await sql<Observed[]>`
-    SELECT w.id, w.user_id,
-           (SELECT max(s.created_at) FROM mining_pool.shares s WHERE s.worker_id = w.id AND s.weight IS NOT NULL) AS last_share_at,
-           EXISTS (SELECT 1 FROM mining_pool.worker_maintenance m WHERE m.worker_id = w.id) AS maintenance,
-           (SELECT c.to_state FROM mining_pool.worker_state_changes c WHERE c.worker_id = w.id ORDER BY c.seq DESC LIMIT 1) AS latest,
-           now() AS now
-    FROM mining_pool.workers w
-    WHERE (${workerId}::text IS NULL OR w.id = ${workerId})
-  `;
-  let recorded = 0;
-  for (const row of observed) {
+  const observed = await observeWorkers(sql, { userId: null, workerIds: workerId === null ? null : [workerId] });
+  const moves = observed.flatMap((row) => {
     const change = transitionOf({
       lastShareAt: row.last_share_at,
       now: row.now,
       quietSeconds,
-      maintenance: row.maintenance,
+      maintenance: row.maintenance_since !== null,
       latest: connectivityRow(row.latest),
     });
-    if (!change || !row.last_share_at) continue;
+    if (!change || !row.last_share_at) return [];
+    return [
+      {
+        key: stateChangeKey(change.to, row.id, row.last_share_at, row.latest_seq),
+        workerId: row.id,
+        userId: row.user_id,
+        from: change.from,
+        to: change.to,
+        lastShareAt: row.last_share_at.toISOString(),
+        prevSeq: row.latest_seq ?? '',
+      },
+    ];
+  });
+  let recorded = 0;
+  if (moves.length > 0) {
     const written = await sql`
-      INSERT INTO mining_pool.worker_state_changes (key, worker_id, user_id, from_state, to_state, last_share_at)
-      SELECT ${stateChangeKey(change.to, row.id, row.last_share_at)}, ${row.id}, ${row.user_id}, ${change.from}, ${change.to},
-             ${row.last_share_at}
-      WHERE NOT EXISTS (SELECT 1 FROM mining_pool.worker_maintenance m WHERE m.worker_id = ${row.id})
-      ON CONFLICT (key) DO NOTHING
+      INSERT INTO mining_pool.worker_state_changes (key, worker_id, user_id, from_state, to_state, last_share_at, prev_seq)
+      SELECT v.key, v.worker_id, v.user_id, v.from_state, v.to_state, v.last_share_at, NULLIF(v.prev_seq, '')::bigint
+      FROM unnest(
+        ${sql.array(moves.map((move) => move.key))}::text[],
+        ${sql.array(moves.map((move) => move.workerId))}::text[],
+        ${sql.array(moves.map((move) => move.userId))}::text[],
+        ${sql.array(moves.map((move) => move.from))}::text[],
+        ${sql.array(moves.map((move) => move.to))}::text[],
+        ${sql.array(moves.map((move) => move.lastShareAt))}::timestamptz[],
+        ${sql.array(moves.map((move) => move.prevSeq))}::text[]
+      ) WITH ORDINALITY AS v(key, worker_id, user_id, from_state, to_state, last_share_at, prev_seq, n)
+      WHERE NOT EXISTS (SELECT 1 FROM mining_pool.worker_maintenance m WHERE m.worker_id = v.worker_id)
+      ORDER BY v.n
+      ON CONFLICT DO NOTHING
     `;
-    recorded += written.count;
+    recorded = written.count;
   }
   if (markEvaluated && observed.length > 0) {
     await sql`
@@ -212,68 +302,67 @@ export async function settleWorkers(
   return { looked: observed.length, recorded };
 }
 
-/** One of the caller's own workers: hashing in the window, connectivity, state, quiet interval and alert limit. */
+export type WorkerTiming = {
+  readonly quietSeconds: number;
+  readonly alertShareBps: number | null;
+  readonly alertTrailingMinutes: number | null;
+};
+
+/**
+ * One of the caller's own workers: hashing in the window, connectivity, state, quiet interval and alert limit. An automatic
+ * alert limit is the owner's share of the worker's accepted weight over the owner's fixed trailing period, never the
+ * reader's window; a blank share or period leaves it unset. Writes nothing.
+ */
 export async function workerOne(
   sql: Sql,
   userId: string,
   workerId: string,
   windowMinutes: number,
-  timing: { readonly quietSeconds: number; readonly alertShareBps: number | null },
+  timing: WorkerTiming,
 ): Promise<WorkerOne> {
-  const worker = await ownedWorker(sql, userId, workerId);
-  const [row] = await sql<
-    {
-      last_share_at: Date | null;
-      weight: string | null;
-      since: Date | null;
-      mode: string | null;
-      manual_limit: string | null;
-      now: Date;
-    }[]
-  >`
-    SELECT
-      (SELECT max(s.created_at) FROM mining_pool.shares s WHERE s.worker_id = ${worker.id} AND s.weight IS NOT NULL) AS last_share_at,
-      (SELECT SUM(s.weight)::text FROM mining_pool.shares s
-         WHERE s.worker_id = ${worker.id} AND s.weight IS NOT NULL
-           AND s.created_at >= now() - (${windowMinutes}::int * interval '1 minute')) AS weight,
-      (SELECT m.since FROM mining_pool.worker_maintenance m WHERE m.worker_id = ${worker.id}) AS since,
-      (SELECT a.mode FROM mining_pool.worker_alert_limits a WHERE a.worker_id = ${worker.id}) AS mode,
-      (SELECT a.manual_limit::text FROM mining_pool.worker_alert_limits a WHERE a.worker_id = ${worker.id}) AS manual_limit,
-      now() AS now
-  `;
+  const [row] = await observeWorkers(
+    sql,
+    { userId, workerIds: [workerId] },
+    { window: windowMinutes, trailing: timing.alertTrailingMinutes },
+  );
   if (!row) throw new MiningError('Worker not found', WORKER_NOT_FOUND);
-  const hashrate = row.weight === null ? null : canonicalWeight(row.weight);
+  const [choice] = await sql<{ mode: string; manual_limit: string | null }[]>`
+    SELECT mode, manual_limit::text AS manual_limit FROM mining_pool.worker_alert_limits WHERE worker_id = ${row.id}
+  `;
+  const hashrate = row.window_weight === null ? null : canonicalWeight(row.window_weight);
   const connectivity = connectivityOf(row.last_share_at, row.now, timing.quietSeconds);
-  const mode = row.mode === 'automatic' || row.mode === 'manual' ? row.mode : null;
+  const mode = choice?.mode === 'automatic' || choice?.mode === 'manual' ? choice.mode : null;
   let alertLimit: string | null = null;
   let alertLimitReason: WorkerOne['alertLimitReason'] = null;
-  if (mode === 'manual' && row.manual_limit !== null) alertLimit = canonicalDecimal(row.manual_limit);
-  else if (mode === 'automatic' && timing.alertShareBps !== null) {
-    if (hashrate === null) alertLimitReason = NO_SHARES;
-    else alertLimit = shareOfWeight(BigInt(hashrate), timing.alertShareBps);
+  if (mode === 'manual' && choice?.manual_limit) alertLimit = canonicalDecimal(choice.manual_limit);
+  else if (mode === 'automatic' && timing.alertShareBps !== null && timing.alertTrailingMinutes !== null) {
+    if (row.trailing_weight === null) alertLimitReason = NO_SHARES;
+    else alertLimit = shareOfWeight(BigInt(canonicalWeight(row.trailing_weight)), timing.alertShareBps);
   } else alertLimitReason = ALERT_LIMIT_UNSET;
+  const state = stateOf(row.maintenance_since !== null, connectivity) ?? 'offline';
   return {
     asOf: row.now.toISOString(),
-    id: worker.id,
-    name: worker.name,
+    id: row.id,
+    name: row.name,
     windowMinutes,
     hashing: hashrate === null ? 'idle' : 'hashing',
     hashrate,
     hashrateReason: hashrate === null ? NO_SHARES : null,
     connectivity,
     lastShareAt: row.last_share_at ? row.last_share_at.toISOString() : null,
-    state: row.since ? 'maintenance' : connectivity === 'online' ? 'active' : 'offline',
+    state,
     quietSeconds: timing.quietSeconds,
     alertLimitMode: mode,
     alertLimit,
     alertLimitReason,
-    maintenanceSince: row.since ? row.since.toISOString() : null,
+    maintenanceSince: row.maintenance_since ? row.maintenance_since.toISOString() : null,
   };
 }
 
 /**
  * The recorded state changes of one of the caller's own workers, newest first, and when the evaluator last looked at it.
- * A read writes nothing: only the evaluator records a change, so a row appears at its next pass after the quiet interval.
+ * A read writes nothing: only the evaluator records a change, so a row appears at its next pass after the quiet interval,
+ * and none appears while the evaluator is off.
  */
 export async function workerStateChanges(sql: Sql, userId: string, workerId: string): Promise<StateChanges> {
   const worker = await ownedWorker(sql, userId, workerId);
@@ -387,23 +476,12 @@ export async function rosterStates(
 ): Promise<Map<string, { state: WorkerState | null; lastShareAt: string | null }>> {
   const out = new Map<string, { state: WorkerState | null; lastShareAt: string | null }>();
   if (workerIds.length === 0) return out;
-  const rows = await sql<{ id: string; last_share_at: Date | null; maintenance: boolean; now: Date }[]>`
-    SELECT w.id,
-           (SELECT max(s.created_at) FROM mining_pool.shares s WHERE s.worker_id = w.id AND s.weight IS NOT NULL) AS last_share_at,
-           EXISTS (SELECT 1 FROM mining_pool.worker_maintenance m WHERE m.worker_id = w.id) AS maintenance,
-           now() AS now
-    FROM mining_pool.workers w
-    WHERE w.user_id = ${userId} AND w.id = ANY(${sql.array([...workerIds])}::text[])
-  `;
-  for (const row of rows) {
-    const state: WorkerState | null = row.maintenance
-      ? 'maintenance'
-      : quietSeconds === null
-        ? null
-        : connectivityOf(row.last_share_at, row.now, quietSeconds) === 'online'
-          ? 'active'
-          : 'offline';
-    out.set(row.id, { state, lastShareAt: row.last_share_at ? row.last_share_at.toISOString() : null });
+  for (const row of await observeWorkers(sql, { userId, workerIds })) {
+    const connectivity = quietSeconds === null ? null : connectivityOf(row.last_share_at, row.now, quietSeconds);
+    out.set(row.id, {
+      state: stateOf(row.maintenance_since !== null, connectivity),
+      lastShareAt: row.last_share_at ? row.last_share_at.toISOString() : null,
+    });
   }
   return out;
 }

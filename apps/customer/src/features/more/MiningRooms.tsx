@@ -213,8 +213,14 @@ export function WorkersView({
   // Held here, outside the roster read, so the saved line survives the reload that follows a save.
   const [saving, setSaving] = useState<SaveState>({ status: 'idle' });
   const m = miningWorkerCopy.useCopy().t;
-  // The ticked rows, by worker id; a maintenance change applies to these only.
+  // The ticked rows, by worker id; a maintenance change applies to these only. Paging, a filter change and an applied
+  // change clear them, so the buttons never act on a worker the roster no longer shows.
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const clearPicked = () => setPicked(new Set());
+  const page = (cursor: string | null) => {
+    clearPicked();
+    onPage(cursor);
+  };
   const [maintenance, setMaintenance] = useState<MaintenanceState>({ status: 'idle' });
   async function applyMaintenance(on: boolean) {
     if (!onSetMaintenance || picked.size === 0) return;
@@ -222,6 +228,7 @@ export function WorkersView({
     const result = await onSetMaintenance([...picked], on);
     if (!result.ok) return setMaintenance({ status: 'failed', failure: result });
     setMaintenance({ status: 'saved', n: result.data.rows.length });
+    clearPicked();
     read.reload();
   }
   return (
@@ -249,7 +256,10 @@ export function WorkersView({
           hint={w('filterHint')}
           value={filter}
           maxLength={64}
-          onChange={(event) => onFilter(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
+          onChange={(event) => {
+            clearPicked();
+            onFilter(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''));
+          }}
         />
         <Read resource={read.resource} retry={read.reload}>
           {(data) => (
@@ -354,12 +364,12 @@ export function WorkersView({
               ) : null}
               <div className="actions">
                 {paged ? (
-                  <Button variant="secondary" onClick={() => onPage(null)}>
+                  <Button variant="secondary" onClick={() => page(null)}>
                     {w('firstPage')}
                   </Button>
                 ) : null}
                 {data.nextCursor !== null ? (
-                  <Button variant="secondary" onClick={() => onPage(data.nextCursor)}>
+                  <Button variant="secondary" onClick={() => page(data.nextCursor)}>
                     {w('nextPage')}
                   </Button>
                 ) : null}

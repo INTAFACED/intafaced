@@ -16,6 +16,7 @@ import {
   ALERT_LIMIT_INVALID,
   ALERT_LIMIT_UNSET,
   alertShareBpsOf,
+  alertTrailingMinutesOf,
   MAINTENANCE_BATCH_MAX,
   quietSecondsOf,
   QUIET_INTERVAL_INVALID,
@@ -159,7 +160,8 @@ export function createMiningRouter(
                   stateReason: z.enum([QUIET_INTERVAL_UNSET, QUIET_INTERVAL_INVALID]).nullable(),
                 })
                 .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null))
-                .refine((row) => row.state !== null || row.stateReason !== null),
+                // A reason names a blank or bad quiet interval, so it comes only with no state.
+                .refine((row) => row.stateReason === null || row.state === null),
             ),
           }),
         )
@@ -185,11 +187,9 @@ export function createMiningRouter(
               ...roster,
               workers: roster.workers.map((worker) => {
                 const state = states.get(worker.id)?.state ?? null;
-                return {
-                  ...worker,
-                  state,
-                  stateReason: state === null ? (typeof quiet === 'number' ? QUIET_INTERVAL_UNSET : quiet) : null,
-                };
+                // The unset or invalid code only when the interval really is; a worker the badge read did not see has
+                // no state and no false reason.
+                return { ...worker, state, stateReason: state === null && typeof quiet !== 'number' ? quiet : null };
               }),
               defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
               defaultDifficultyReason:
@@ -244,7 +244,9 @@ export function createMiningRouter(
        * One of the caller's own workers (another account's is `mining.worker_not_found`): hashing (an accepted share in
        * the window), connectivity (online while the newest accepted share is younger than `MINING_WORKER_QUIET_SECONDS`),
        * its state (maintenance, else offline when quiet, else active) and its alert limit. A blank quiet interval refuses
-       * `mining.quiet_interval_unset`. The read records a pending online/offline change once, as the evaluator would.
+       * `mining.quiet_interval_unset`. The read writes nothing: only the evaluator records an online/offline change, at its
+       * next pass, and nothing is recorded while it is off. An automatic alert limit is a share of the worker's weight over
+       * the owner's fixed trailing period (`MINING_WORKER_ALERT_TRAILING_MINUTES`), never this read's window.
        */
       one: customer
         .input(z.object({ workerId: WORKER_ID, windowMinutes: z.unknown().optional() }))
@@ -280,6 +282,7 @@ export function createMiningRouter(
             return await reads.workerOne(ctx.principal.userId, input.workerId, windowMinutes, {
               quietSeconds: quiet,
               alertShareBps: alertShareBpsOf(envOf()),
+              alertTrailingMinutes: alertTrailingMinutesOf(envOf()),
             });
           } catch (err) {
             fail(err);
@@ -326,7 +329,7 @@ export function createMiningRouter(
       }),
       /**
        * The account's own alert limit for one of its workers: `automatic` (the owner's published share of the worker's
-       * trailing hashrate), `manual` with a value above zero, or null to clear the choice. Neither is a default.
+       * accepted weight over the owner's trailing period), `manual` with a value above zero, or null to clear the choice. Neither is a default.
        */
       setAlertLimit: rigWriter
         .input(

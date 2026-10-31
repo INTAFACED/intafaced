@@ -22,6 +22,7 @@ import {
   type StateChanges,
   type WorkerOne,
   type WorkerState,
+  type WorkerTiming,
 } from './worker-state.js';
 
 const NO_SHARES = 'no_shares_in_window' as const;
@@ -268,12 +269,7 @@ export class MiningReadStore {
   }
 
   /** One of the caller's own workers (`worker-state.ts`). */
-  async workerOne(
-    userId: string,
-    workerId: string,
-    windowMinutes: number,
-    timing: { readonly quietSeconds: number; readonly alertShareBps: number | null },
-  ): Promise<WorkerOne> {
+  async workerOne(userId: string, workerId: string, windowMinutes: number, timing: WorkerTiming): Promise<WorkerOne> {
     return workerOne(this.db(), userId, workerId, windowMinutes, timing);
   }
 

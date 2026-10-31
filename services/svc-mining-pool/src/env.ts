@@ -167,6 +167,12 @@ export const miningPublishSchema = z.object({
    * NO DEFAULT. Blank leaves an automatic alert limit unset (`mining.alert_limit_unset`).
    */
   MINING_WORKER_ALERT_SHARE_BPS: blankAsAbsent(z.coerce.number().int().min(1).max(10_000).optional()),
+  /**
+   * The trailing period, in minutes (1..10080), whose accepted weight an automatic alert limit is a share of. It is the
+   * owner's, fixed for every reader, so the limit never moves with the window a person picks in the room.
+   * NO DEFAULT. Blank leaves an automatic alert limit unset (`mining.alert_limit_unset`).
+   */
+  MINING_WORKER_ALERT_TRAILING_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(10_080).optional()),
 });
 
 /** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */
