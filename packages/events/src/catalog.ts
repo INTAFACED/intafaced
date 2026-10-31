@@ -231,21 +231,30 @@ export const deathNoticeConfirmed = defineEvent(
 );
 
 /**
- * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status or
- * roles changed (activated, disabled, a role assigned or unassigned); `deleted`: the staff record was removed. Each is
- * a four-eyes change, so it names the actor and the approval spent. svc-identity publishes it from an outbox row in
- * the same transaction as the change, at least once, with the business key `identity.staff.<verb>:<staffId>:<version>`.
+ * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
+ * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
+ * in the same transaction as the change, at least once, with the business key
+ * `identity.staff.<verb>:<staffId>:<version>`.
+ *
+ * `cause` says what made the change:
+ *   - `approval`: a four-eyes change. `actorId` made it and `approvalId` names the approval a second person gave and
+ *     this change consumed. Invite, disable, remove, assign, unassign and role define are all this.
+ *   - `invite_accepted` (`updated` only): the invited person accepted and became active. There is no approval to name,
+ *     so `approvalId` is absent (a value is refused); `actorId` is the person themselves.
+ *
+ * A role define changes what every current holder can do without touching their records, so identity publishes one
+ * `updated` per current holder of the role, with `changedFields: ['permissions']`.
+ *
  * Only the NAMES of the changed fields ride on the bus: no value, email, password, secret or token. A consumer re-reads
  * the record through contracts.
  */
-export const STAFF_CHANGED_FIELDS = ['status', 'roleIds', 'displayName', 'email'] as const;
+export const STAFF_CHANGED_FIELDS = ['status', 'roleIds', 'displayName', 'email', 'permissions'] as const;
+export const STAFF_CHANGE_CAUSES = ['approval', 'invite_accepted'] as const;
 
-const staffChangePayload = z.object({
+const staffChangeCommon = {
   staffId: z.string().min(1).max(128),
-  /** The staff member who made the change. */
+  /** The staff member who made the change (on `invite_accepted`, the person who accepted). */
   actorId: z.string().min(1).max(128),
-  /** The identity action approval a second person gave and this change consumed. */
-  approvalId: z.string().min(1).max(128),
   changedFields: z
     .array(z.enum(STAFF_CHANGED_FIELDS))
     .max(STAFF_CHANGED_FIELDS.length)
@@ -253,6 +262,20 @@ const staffChangePayload = z.object({
   /** The staff record's version after the change; part of the business key. */
   version: z.string().regex(/^(?:0|[1-9]\d*)$/),
   at: z.string().datetime({ offset: true }),
+};
+
+const staffChangeByApproval = z.object({
+  ...staffChangeCommon,
+  cause: z.literal('approval'),
+  /** The identity action approval a second person gave and this change consumed. */
+  approvalId: z.string().min(1).max(128),
+});
+
+const staffChangeByInviteAccepted = z.object({
+  ...staffChangeCommon,
+  cause: z.literal('invite_accepted'),
+  /** No approval is spent when a person accepts their own invite. Present at all is refused. */
+  approvalId: z.undefined().optional(),
 });
 
 export const staffCreated = defineEvent(
@@ -260,7 +283,7 @@ export const staffCreated = defineEvent(
   'staff',
   'created',
   1,
-  staffChangePayload,
+  staffChangeByApproval,
   'A named person was invited as staff under a four-eyes approval (OPS-admin-access-03). They hold no access until they accept.',
 );
 
@@ -269,8 +292,8 @@ export const staffUpdated = defineEvent(
   'staff',
   'updated',
   1,
-  staffChangePayload,
-  "A staff member's status or roles changed under a four-eyes approval (OPS-admin-access-03): activated, disabled, a role assigned or unassigned.",
+  z.discriminatedUnion('cause', [staffChangeByApproval, staffChangeByInviteAccepted]),
+  "A staff member's status, roles or permissions changed (OPS-admin-access-03): accepted an invite, or under a four-eyes approval was disabled, given or lost a role, or had a role of theirs redefined.",
 );
 
 export const staffDeleted = defineEvent(
@@ -278,7 +301,7 @@ export const staffDeleted = defineEvent(
   'staff',
   'deleted',
   1,
-  staffChangePayload,
+  staffChangeByApproval,
   'A staff record was removed under a four-eyes approval (OPS-admin-access-03). The customer account, if any, is untouched.',
 );
 
