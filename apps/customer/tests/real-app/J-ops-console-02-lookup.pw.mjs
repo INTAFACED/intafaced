@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-02 #6 (OPS-rules-monitoring-12): a founder looks up a ledger object by an id that does not exist. The ledger

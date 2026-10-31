@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';

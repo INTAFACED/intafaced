@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
 import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 

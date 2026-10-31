@@ -76,6 +76,8 @@ export const GATE_PATHS = [
   ['tooling/scripts/gate-gh.mjs', 'the gh wrapper the gate tools share'],
   ['tooling/scripts/github-refusal.mjs', 'how the gate tools recognise a 403 or 429 and stop'],
   ['tooling/scripts/gate-tools.test.mjs', 'the gate tools test entry'],
+  ['tooling/scripts/journey-freeze-guard.mjs', 'the journey harness guard: no journey leaks the platform posting freeze'],
+  ['apps/customer/tests/real-app/journey.mjs', "every journey's test, wrapped by the posting-freeze guard"],
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
 ];
 

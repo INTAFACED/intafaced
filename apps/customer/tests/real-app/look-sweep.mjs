@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './journey.mjs';
 import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

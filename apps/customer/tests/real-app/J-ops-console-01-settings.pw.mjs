@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-01 #8: a founder opens the effective settings page. Every setting this console reads is a row; each blank one

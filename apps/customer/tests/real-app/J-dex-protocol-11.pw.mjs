@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 
 // J-dex-protocol-11, in the running app (docs/roadmap/journeys.json): buy a little every week with a recurring order.

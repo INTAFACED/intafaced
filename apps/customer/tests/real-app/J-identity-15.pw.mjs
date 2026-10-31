@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { api, signUpInBrowser } from './stack.mjs';
 
 // J-identity-15, in the running app (docs/roadmap/journeys.json): I run sub-accounts from my main account. Tests titled

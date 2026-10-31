@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { EDGE, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 

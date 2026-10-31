@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 
 // J-charts-desk-01, in the running app (docs/roadmap/journeys.json): a person opens the chart workbench signed out,

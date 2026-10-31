@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './journey.mjs';
 
 // J-more-catalogue-15, in the running app (docs/roadmap/journeys.json): read a prediction market and place a Yes or No
 // order. One test per step, titled "J-more-catalogue-15 #<n>", run in order. Every step waits for a slice that is not

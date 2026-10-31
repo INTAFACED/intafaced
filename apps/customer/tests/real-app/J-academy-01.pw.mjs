@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, restartWith } from './stack.mjs';
 
 // J-academy-01, in the running app (docs/roadmap/journeys.json): look around the Academy and open a lesson before I

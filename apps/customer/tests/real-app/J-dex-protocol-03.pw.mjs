@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 
 // J-dex-protocol-03, in the running app (docs/roadmap/journeys.json): swap smarter with permits, per-hop floors and signed

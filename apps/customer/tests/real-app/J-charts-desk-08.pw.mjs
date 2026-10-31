@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 
 // J-charts-desk-08, in the running app (docs/roadmap/journeys.json): several charts at once, synced, and a replay of a
 // past move. One test per step, titled "J-charts-desk-08 #<n>". The chart limit is the owner's value, served by

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { api, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { refusalCode } from './p2p.mjs';

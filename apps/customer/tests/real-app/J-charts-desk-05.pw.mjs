@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 import {
   atTick,

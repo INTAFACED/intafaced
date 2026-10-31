@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signIn } from './desk.mjs';
 import { api, journeyState, signUpInBrowser } from './stack.mjs';
 

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openFounderDesk, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { signOutBrowser } from './stack.mjs';

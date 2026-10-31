@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 

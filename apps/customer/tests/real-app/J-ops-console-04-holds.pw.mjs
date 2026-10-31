@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';

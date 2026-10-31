@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { UNBUILT, agentsRun, createOwnAgent, openAgents, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 

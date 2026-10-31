@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { mailedLines, signUpInBrowser } from './stack.mjs';
 
 // J-identity-03, in the running app (docs/roadmap/journeys.json): I forgot my password or my handle. One test per step,

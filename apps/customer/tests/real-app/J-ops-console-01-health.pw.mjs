@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { ROOT, tool } from './stack.mjs';

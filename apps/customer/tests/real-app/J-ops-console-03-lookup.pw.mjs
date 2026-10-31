@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { randomBytes } from 'node:crypto';
 import { signUp } from './desk.mjs';
 import { fund, signOutBrowser } from './stack.mjs';

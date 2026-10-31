@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 import { signUp } from './desk.mjs';
 import { EDGE, ORIGIN, json } from './stack.mjs';

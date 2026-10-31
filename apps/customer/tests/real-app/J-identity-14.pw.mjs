@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { api, mailedLines, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-14, in the running app (docs/roadmap/journeys.json): my account is restricted and I appeal.
