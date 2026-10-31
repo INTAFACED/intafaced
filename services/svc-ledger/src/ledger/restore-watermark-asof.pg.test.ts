@@ -11,8 +11,8 @@ import { LedgerService } from '../service.js';
 import { PostgresLedger } from './postgres-ledger.js';
 
 /**
- * The ledger's restore watermark as of a cut-off (OPS-ledger-desk-05, RS-3) on the real ledger: the newest seq posted at
- * or before the instant, unmoved by posts after it, and refused for a cut-off that has not passed.
+ * The ledger's restore watermark as of a cut-off (OPS-ledger-desk-05, RS-3) on the real ledger: the chain prefix posted at
+ * or before the instant and the hash at it, unmoved by posts after it, and refused for a cut-off that has not passed.
  *
  * H8a PG-hard: this file never skips. CI uses TEST_DATABASE_URL. Local without
  * that env starts Testcontainers postgres:16-alpine.
@@ -83,7 +83,7 @@ describe('restore watermark as of a cut-off on the real ledger', () => {
   it('answers the genesis tip before any post, and the newest seq at or before the cut-off after', async () => {
     const before = new Date();
     await pause();
-    expect((await engine.restoreWatermarkAsOf(before)).position).toBe('0');
+    expect(await engine.restoreWatermarkAsOf(before)).toMatchObject({ position: '0', integrity: null });
 
     await deposit(1);
     await deposit(2);
@@ -91,14 +91,23 @@ describe('restore watermark as of a cut-off on the real ledger', () => {
     const cutOff = new Date();
     await pause();
     const atCut = await engine.restoreWatermarkAsOf(cutOff);
-    expect(atCut.position).toBe((await engine.restoreWatermark()).position);
+    const liveAtCut = await engine.restoreWatermark();
+    expect(atCut.position).toBe(liveAtCut.position);
+    // The hash is the chain's at that position, which is the tip's while nothing has been posted since.
+    expect(atCut.integrity).toBe(liveAtCut.integrity);
+    const [row] = await db!.sql<Array<{ hash: string }>>`SELECT hash FROM ledger_tx WHERE seq = ${atCut.position}`;
+    expect(atCut.integrity).toBe(row!.hash);
 
     // Posts after the cut-off move the live tip, never the position as of the cut-off.
     await deposit(3);
     await deposit(4);
     const live = await engine.restoreWatermark();
     expect(BigInt(live.position)).toBeGreaterThan(BigInt(atCut.position));
-    expect((await engine.restoreWatermarkAsOf(cutOff)).position).toBe(atCut.position);
+    const again = await engine.restoreWatermarkAsOf(cutOff);
+    expect(again.position).toBe(atCut.position);
+    // A post after the cut-off moves the live hash, never the hash as of the cut-off.
+    expect(again.integrity).toBe(atCut.integrity);
+    expect(live.integrity).not.toBe(atCut.integrity);
     expect((await engine.restoreWatermarkAsOf(cutOff)).lastWriteAt?.getTime()).toBe(live.lastWriteAt?.getTime());
   });
 

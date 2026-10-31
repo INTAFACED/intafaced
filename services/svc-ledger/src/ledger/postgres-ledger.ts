@@ -451,8 +451,8 @@ export class PostgresLedger implements LedgerClient {
     }
     // The lock only waits out a post already in flight; it is released before the reads below, so no post waits on them.
     const [tip] = await this.sql.begin(
-      (tx) => tx<Array<{ hash: string | null; now: Date }>>`
-      SELECT hash, clock_timestamp() AS now FROM chain_tip WHERE id = true FOR SHARE`,
+      (tx) => tx<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS now FROM chain_tip WHERE id = true FOR SHARE`,
     );
     if (!tip) throw new LedgerError('chain_tip is missing: the ledger is not initialised', 'ledger.uninitialised');
     if (!(tip.now.getTime() - asOf.getTime() > bound)) {
@@ -461,10 +461,24 @@ export class PostgresLedger implements LedgerClient {
         RESTORE_ASOF_UNANSWERABLE,
       );
     }
-    const [at] = await this.sql<Array<{ seq: string | null; last: Date | null }>>`
-      SELECT (SELECT MAX(seq) FROM ledger_tx WHERE posted_at <= ${asOf})::text AS seq,
-             (SELECT MAX(posted_at) FROM ledger_tx) AS last`;
-    return { position: at?.seq ?? '0', integrity: tip.hash, lastWriteAt: at?.last ?? null };
+    // The position is the chain prefix posted at or before the cut-off (`posted_at` is each process's clock, so it need not
+    // rise with seq; seq is the chain's own order), or the whole chain when no post is stamped after it. `integrity` is the chain hash at that position, null at the genesis 0, as the contract defines it.
+    const [at] = await this.sql<Array<{ seq: string | null; hash: string | null; last: Date | null }>>`
+      WITH cut AS (
+        -- The newest seq before the first post stamped after the cut-off; seqs can skip (a rolled-back post), so the row is
+        -- looked up, never computed.
+        SELECT COALESCE(
+                 (SELECT MAX(seq) FROM ledger_tx
+                   WHERE seq < COALESCE((SELECT MIN(seq) FROM ledger_tx WHERE posted_at > ${asOf}), 9223372036854775807)),
+                 0
+               ) AS seq
+      )
+      SELECT cut.seq::text AS seq,
+             (SELECT hash FROM ledger_tx WHERE ledger_tx.seq = cut.seq) AS hash,
+             (SELECT MAX(posted_at) FROM ledger_tx) AS last
+        FROM cut`;
+    if (!at) throw new LedgerError('the as-of position could not be read', RESTORE_ASOF_UNANSWERABLE);
+    return { position: at.seq ?? '0', integrity: at.hash, lastWriteAt: at.last };
   }
 
   /**
