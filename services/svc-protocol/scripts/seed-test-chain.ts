@@ -129,6 +129,9 @@ async function seed(out: string) {
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
     { label: 'TEST A/B deep 0.30%', a: A, b: B, feeBps: 30, amountA: '1000000', amountB: '1000000' },
     { label: 'TEST A/B shallow 1.00%', a: A, b: B, feeBps: 100, amountA: '50000', amountB: '50000' },
+    // A third A/B pool left unsynced on purpose (below): its recorded reserves differ from what it holds, so route options
+    // list it "unavailable: stale" (J-dex-protocol-02 #4). Small, so its recorded reserves would never win a quote anyway.
+    { label: 'TEST A/B stale 0.50%', a: A, b: B, feeBps: 50, amountA: '10000', amountB: '10000', unsynced: '1000' },
     // A thin token: so little reserve that a price is not honest to show.
     { label: 'TEST A/Thin thin 0.30%', a: A, b: THIN, feeBps: 30, amountA: '0.001', amountB: '0.001' },
     // TEST USD pools, so each TEST token has a USD price on the stack: TEST Token A and TEST Token B each at 1 TEST USD.
@@ -178,6 +181,17 @@ async function seed(out: string) {
         args: [account.address, units[getAddress(token0)], units[getAddress(token1)]],
       }),
     );
+    if ('unsynced' in p && p.unsynced) {
+      // Tokens sent straight to the pool without sync(): its reserves no longer match its holdings. TEST only.
+      await send(
+        await walletClient.writeContract({
+          address: p.a.address as Address,
+          abi: token.abi,
+          functionName: 'mint',
+          args: [pool, parseUnits(p.unsynced, p.a.decimals)],
+        }),
+      );
+    }
     seeded.push({ label: p.label, pool, feeBps: p.feeBps, token0, token1: getAddress(token1) });
   }
   const record = {

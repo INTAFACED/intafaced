@@ -579,6 +579,29 @@ export const offerEdits = p2p.table(
   (t) => [primaryKey({ columns: [t.makerId, t.idempotencyKey] }), index('offer_edits_day_idx').on(t.makerId, t.editDay)],
 );
 
+/** P-ads-merchant-08: a person's presence; no row is online. `windows` holds {day 1-7, start, end} in `timezone`. */
+export const merchantPresence = p2p.table('merchant_presence', {
+  userId: text('user_id').primaryKey(),
+  mode: text('mode').notNull(),
+  timezone: text('timezone').notNull().default('UTC'),
+  windows: jsonb('windows').notNull().default([]),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
+/** P-ads-merchant-08: one bulk ad action per maker and key, with each ad's own result once it ran. */
+export const offerBulkRuns = p2p.table(
+  'offer_bulk_runs',
+  {
+    makerId: text('maker_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    action: text('action').notNull(),
+    results: jsonb('results'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.makerId, t.idempotencyKey] })],
+);
+
 /** P-ads-merchant-07: one link a maker made to their ad. Only the token's hash is kept. */
 export const offerShareLinks = p2p.table(
   'offer_share_links',

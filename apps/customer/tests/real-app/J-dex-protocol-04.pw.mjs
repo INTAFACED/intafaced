@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, continueSignIn, dexRun, walletSection } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { ROOT, fund, mailedLines, tool } from './stack.mjs';
@@ -35,6 +35,7 @@ test(`${J} starts: a TEST wallet with TEST tokens and one address book entry`, a
   dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
+  await continueSignIn(page);
   const book = page.getByRole('form', { name: 'Add a contact' });
   await book.getByRole('textbox', { name: /^Label/ }).fill('TEST friend');
   await book.getByRole('textbox', { name: /^Address/ }).fill(FRIEND);
@@ -54,6 +55,10 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   await send(page).getByRole('button', { name: 'Review' }).click();
   const summary = page.getByRole('dialog', { name: 'Review the send' });
   await expect(summary).toContainText(FRIEND);
+  // The summary names who sends, how much of which token, and on which network.
+  await expect(summary).toContainText(new RegExp(`From\\s*${wallet.address}`, 'i'));
+  await expect(summary).toContainText(/Amount\s*1 TEST Token A/);
+  await expect(summary).toContainText(/Network\s*Base Sepolia/);
   const confirm = summary.getByRole('button', { name: 'Send' });
   await expect(confirm).toBeDisabled();
   await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(FRIEND.slice(-4));
@@ -63,7 +68,15 @@ test(`${J} #1 opens Send and types a new address: a summary; confirming needs th
   await send(page).getByRole('textbox', { name: /^To/ }).fill(CONTRACT);
   await send(page).getByRole('button', { name: 'Review' }).click();
   await expect(summary.getByRole('note')).toContainText('This address is a contract.');
-  await expect(summary.getByRole('checkbox', { name: /I know this is a contract/ })).not.toBeChecked();
+  const tick = summary.getByRole('checkbox', { name: /I know this is a contract/ });
+  await expect(tick).not.toBeChecked();
+  // The last four alone do not open Send for a contract; the tick does.
+  await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(CONTRACT.slice(-4));
+  await expect(confirm).toBeDisabled();
+  await tick.check();
+  await expect(confirm).toBeEnabled();
+  await tick.uncheck();
+  await expect(confirm).toBeDisabled();
   await summary.getByRole('button', { name: 'Back' }).click();
 
   await send(page).getByRole('textbox', { name: /^To/ }).fill(wallet.address);
@@ -84,6 +97,7 @@ test(`${J} #3 saves the address in the address book and groups two wallets: the 
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
+  await continueSignIn(page);
   await expect(
     page.getByRole('region', { name: 'Contacts' }).getByRole('table').getByRole('row').filter({ hasText: 'TEST friend' }),
   ).toContainText(FRIEND);

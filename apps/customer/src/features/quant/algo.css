@@ -86,3 +86,21 @@
     display: none;
   }
 }
+
+/* A strategy version's source and a comparison of two versions (AL-editor-01): read only, kept as written. */
+.quant-source {
+  margin: 0;
+  padding: var(--if-space-3);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  background: var(--if-raised);
+  border-radius: var(--if-r-sm);
+}
+
+.quant-source [data-op='removed'] {
+  color: var(--if-down-text);
+}
+
+.quant-source [data-op='added'] {
+  color: var(--if-up-text);
+}

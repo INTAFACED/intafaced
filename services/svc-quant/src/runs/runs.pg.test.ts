@@ -100,6 +100,7 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
       'drizzle/0003_quant_signal_rules.sql',
       'drizzle/0005_quant_run_labels.sql',
       'drizzle/20261030134631_quant_strategy_heads.sql',
+      'drizzle/20261030142944_quant_release_notes.sql',
     ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
@@ -349,6 +350,35 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     const ids = page.runs.map((row) => row.id);
     expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
     expect(ids).not.toContain(fills.id);
+    // One strategy's runs only: a run of another strategy is left out.
+    const other = await repo.begin({
+      userId: ACCOUNT_A,
+      idempotencyKey: 'algo:bt:history:other',
+      kind: 'backtest',
+      strategyId: 'strategy-other',
+      strategyVersion: 1,
+    });
+    const page2 = await repo.history({
+      userId: ACCOUNT_A,
+      kind: 'backtest',
+      keyPrefix: 'algo:bt:',
+      limit: 50,
+      cursor: null,
+      strategyId: 'strategy-h',
+    });
+    expect(page2.runs.map((row) => row.id)).toEqual([newer.id, older.id]);
+    expect(
+      (
+        await repo.history({
+          userId: ACCOUNT_A,
+          kind: 'backtest',
+          keyPrefix: 'algo:bt:',
+          limit: 50,
+          cursor: null,
+          strategyId: 'strategy-other',
+        })
+      ).runs.map((row) => row.id),
+    ).toEqual([other.id]);
 
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'first' })).toEqual({ label: 'first' });
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'renamed' })).toEqual({ label: 'renamed' });

@@ -71,6 +71,7 @@ import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
+import { resolveWithdrawAdvanceConfig, startWithdrawAdvanceWorker } from './withdrawals/advance-worker.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { SendOutDoor } from './withdrawals/send-out/door.js';
@@ -565,6 +566,7 @@ const walletPay = new WalletPay({
 const withdrawSigners = assertWithdrawSignerPosture(process.env);
 const sendOut = new SendOutDoor({
   signer: withdrawSigners,
+  settleDepth: env.PAY_WITHDRAW_MIN_CONFIRMATIONS ?? null,
   destinations: createBankSendDestinationClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
 });
 
@@ -573,7 +575,14 @@ const withdrawalQuotes = new WithdrawalQuoteService({ sql });
 /** W-compliance-notices-04: no counterparty network is connected, and no message key means nothing is stored. */
 const travelRuleCipher = loadMessageCipher(process.env);
 
+/** W-withdraw-06: with the advance worker on, a send out of the platform answers `held` and the worker sends and settles it. */
+const withdrawAdvance = resolveWithdrawAdvanceConfig({
+  intervalMs: env.PAY_WITHDRAW_ADVANCE_INTERVAL_MS,
+  batchLimit: env.PAY_WITHDRAW_ADVANCE_BATCH_LIMIT,
+});
+
 const userMoney = new UserMoneyService(sql, ledger, rails, {
+  confirmLater: withdrawAdvance.mode === 'on',
   guards: payGuards,
   // The allowlist (W-withdraw-10) and approval (W-withdraw-11) gates ride the claim's own transaction, after the shared guards.
   claimGuards: composeGuards(createAllowlistGuards(), createWithdrawalApprovalGuards()),
@@ -1090,6 +1099,9 @@ const payoutReconciler = startPayoutReconciler(
   app.log,
 );
 
+/** Held sends out of the platform go out, confirm and settle at depth here. Off, with the blocker named, until the owner sets both. */
+const withdrawAdvanceWorker = startWithdrawAdvanceWorker(sql, userMoney, withdrawAdvance, app.log);
+
 /**
  * Multi-approval withdrawals (W-withdraw-11): expire waiting requests, give back their holds, run requests that reached
  * their approvals. Off, with the blocker named in the boot log, until the owner sets the interval.
@@ -1355,6 +1367,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(creditAnnouncements);
       clearInterval(travelRuleWaits);
       payoutReconciler?.stop();
+      withdrawAdvanceWorker?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the

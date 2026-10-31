@@ -229,11 +229,20 @@ export function createMoneyMock(ctx) {
             merchantId: MERCHANT_ID,
             railId: state.destination.railId,
             kind: state.destination.kind,
-            destinationMasked: `${state.destination.ref.slice(0, 6)}…${state.destination.ref.slice(-4)}`,
+            // svc-pay's mask: first 6 and last 4 of an address, the last 4 of an account.
+            destinationMasked:
+              state.destination.kind === 'crypto'
+                ? `${state.destination.ref.slice(0, 6)}…${state.destination.ref.slice(-4)}`
+                : `••••${state.destination.ref.slice(-4)}`,
             screeningState: 'not_recorded',
             defaultFlag: 'unset',
             createdAt: iso(now),
             lastUsedAt: null,
+            ...(!state.destination.verified
+              ? { state: 'unverified', activatesAt: null }
+              : Date.parse(state.destination.activatesAt) > Date.now()
+                ? { state: 'held', activatesAt: state.destination.activatesAt }
+                : { state: 'active', activatesAt: null }),
           },
         ]
       : [];
@@ -519,6 +528,13 @@ export function createMoneyMock(ctx) {
         }
         case 'merchant.payoutDestinations.list':
           return ok(route, page(destinationRows(), input));
+        case 'merchant.payoutDestinations.add': {
+          // Saved unverified (J-merchant-02 #5); a verified one changes only through the confirmation and the hold.
+          const onRail = destinationRows().find((d) => d.railId === input.railId);
+          if (onRail && onRail.state !== 'unverified') return refuse(route, 409, 'pay.payout_destination_verified_locked');
+          state.destination = { kind: input.kind, ref: input.ref, railId: input.railId, verified: false, activatesAt: null };
+          return ok(route, { kind: input.kind, ref: input.ref, railId: input.railId, status: 'unverified', activatesAt: null });
+        }
         case 'merchant.payoutDestinations.setDefault': {
           const d = destinationRows().find((x) => x.id === input.destinationId);
           if (!d) return refuse(route, 404, 'pay.payout_destination_not_found');

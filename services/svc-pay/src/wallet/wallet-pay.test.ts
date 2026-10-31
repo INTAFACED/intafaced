@@ -105,6 +105,7 @@ describe('WAL-0186 a send out with no custody signer posts no hold (J-wallet-05 
     const asked: unknown[] = [];
     const sendOut = new SendOutDoor({
       signer: assertWithdrawSignerPosture({ APP_ENV: 'test', PAY_TEST_WITHDRAW_SIGNER_NETWORKS: 'ethereum' }),
+      settleDepth: 6,
       destinations: { check: async (input) => (asked.push(input), { state: 'ready', destinationId: null, coolingOffEndsAt: null }) },
     });
     const sql = (() => Promise.resolve([])) as unknown as Sql;

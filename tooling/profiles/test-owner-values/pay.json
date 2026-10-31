@@ -6,6 +6,11 @@
       "value": "6",
       "note": ""
     },
+    "PAY_WITHDRAW_MIN_CONFIRMATIONS": {
+      "service": "pay",
+      "value": "6",
+      "note": "W-withdraw-06: the depth a send out of the platform settles at. Blank outside this profile: every send out refuses pay.withdraw_confirmations_unset."
+    },
     "PAY_WEBHOOK_TOLERANCE_SECONDS": {
       "service": "pay",
       "value": "300",
@@ -85,6 +90,11 @@
       "service": "pay",
       "value": "exact_normalised",
       "note": "TEST rule a bank transfer's sending name is checked under (RC-merchant-09). Not an owner decision; blank holds every bank transfer."
+    },
+    "PAY_DESTINATION_HOLD_SECONDS": {
+      "service": "pay",
+      "value": "45",
+      "note": "TEST seconds a newly verified payout destination (or a change of one) is held before it can receive a payout (J-merchant-02 #5), short so a journey can wait it out. Not an owner decision; blank refuses verifying or changing a destination."
     }
   }
 }

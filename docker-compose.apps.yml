@@ -962,6 +962,10 @@ services:
       # Owner-declared success fraction per checkout rail (railId:fraction). Blank
       # declares none and the hosted checkout refuses; never an invented rate.
       PAY_CHECKOUT_SUCCESS_RATES: ${PAY_CHECKOUT_SUCCESS_RATES:-}
+      # Seconds a newly verified payout destination (or a change of one) is held
+      # before it can receive a payout (J-merchant-02 #5). No default: blank
+      # refuses every verification and change (pay.destination_hold_unset).
+      PAY_DESTINATION_HOLD_SECONDS: ${PAY_DESTINATION_HOLD_SECONDS:-}
       # Payment-link default + max lifetime. No git default — blank refuses
       # (never 30 / 365). Owner may set 30 / 365 explicitly (see .env.example).
       # Same `:?` shape as webhook secrets / confirmations so compose-up fails
