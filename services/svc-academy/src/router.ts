@@ -1294,9 +1294,12 @@ export function createAcademyRouter(
       .query(({ input }) => guard(() => academy.authoredCoursePage(input.slug, null))),
 
     /** AC-articles-01: the hub's featured slot, only what staff chose (a curriculum item or a course lesson); null when nobody chose one. */
-    publicHub: publicProcedure
-      .output(academyPublicHubSchema)
-      .query(() => guard(async () => ({ featured: await academy.featuredItem(), lesson: await academy.featuredLesson() }))),
+    publicHub: publicProcedure.output(academyPublicHubSchema).query(() =>
+      guard(async () => {
+        const [featured, lesson] = await Promise.all([academy.featuredItem(), academy.featuredLesson()]);
+        return { featured, lesson };
+      }),
+    ),
 
     /**
      * Stage-1 import pipeline inventory: content source decision + count gate.

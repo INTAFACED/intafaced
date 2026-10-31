@@ -71,7 +71,6 @@ export const academyPublicCourseCardSchema = z.object({
 });
 export type AcademyPublicCourseCard = z.infer<typeof academyPublicCourseCardSchema>;
 
-/** `publicHub`: the item staff chose for the hub's featured slot, or null when nobody chose one. Never auto-promoted. */
 /**
  * A course lesson staff featured on the Learn hub (AC-articles-01), as a visitor sees it: its title and its course's.
  * `courseSlug` is set only while the course is published, so the hub links only to a page a visitor can open.
@@ -82,10 +81,13 @@ export const academyPublicHubLessonSchema = z.object({
   courseSlug: z.string().min(1).nullable(),
 });
 export type AcademyPublicHubLesson = z.infer<typeof academyPublicHubLessonSchema>;
-/** The hub's one featured slot: a curriculum item or a course lesson, never both; both null when nobody chose one. */
+/**
+ * `publicHub`: the hub's one featured slot as staff chose it, a curriculum item or a course lesson, never both; both null
+ * when nobody chose one. Never auto-promoted. A reply without `lesson` (a server from before it) reads as no lesson.
+ */
 export const academyPublicHubSchema = z.object({
   featured: academyCurriculumSummarySchema.nullable(),
-  lesson: academyPublicHubLessonSchema.nullable(),
+  lesson: academyPublicHubLessonSchema.nullable().default(null),
 });
 export type AcademyPublicHub = z.infer<typeof academyPublicHubSchema>;
 
