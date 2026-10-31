@@ -250,13 +250,31 @@ test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refus
 });
 
 test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({ page }) => {
+  const { TEST_QUOTA_PROFILE } = await import('../../../../tooling/scripts/local-test-gates.mjs');
   await signIn(page, developer());
+  // What this account holds, read from its own rooms: the saved strategies and the runs in its history.
+  await page.goto('/quant/strategies');
+  const saved = await page.getByTestId('quant-strategy-row').count();
+  expect(saved).toBeGreaterThan(0);
+  await page.goto('/quant/backtest');
+  const runs = await page.getByTestId('quant-run-history').getByTestId('quant-run-row').count();
+  expect(runs).toBeGreaterThan(0);
+
   await page.goto('/quant/strategies');
   const usage = page.getByTestId('quant-usage');
-  await expect(usage, 'the Usage panel is not built (AL-limits-01)').toBeVisible(UNBUILT);
-  for (const resource of ['strategies', 'runs', 'storage', 'collaborators']) {
-    await expect(usage.locator(`[data-resource="${resource}"]`)).toHaveCount(1);
+  await expect(usage.getByTestId('quant-usage-profile')).toHaveAttribute('data-profile', TEST_QUOTA_PROFILE.profile);
+  const row = (resource) => usage.locator(`[data-testid="quant-usage-row"][data-resource="${resource}"]`);
+  // Every resource of the plan, each against the TEST profile's limit.
+  for (const [resource, limit] of Object.entries(TEST_QUOTA_PROFILE.limits)) {
+    await expect(row(resource)).toHaveAttribute('data-limit', limit);
   }
+  await expect(row('strategies')).toHaveAttribute('data-used', String(saved));
+  await expect(row('stored_runs')).toHaveAttribute('data-used', String(runs));
+  await expect(row('concurrent_runs')).toHaveAttribute('data-used', '0');
+  expect(Number(await row('storage_bytes').getAttribute('data-used'))).toBeGreaterThan(0);
+  // Collaborators do not exist yet, so none are counted.
+  await expect(row('collaborators_per_strategy')).toHaveAttribute('data-used', '0');
+  await expect(row('strategies')).toContainText(`Saved strategies${saved}${TEST_QUOTA_PROFILE.limits.strategies}`);
 });
 
 test(`${J} #8 chooses a plan with more data freshness or execution priority: the plan page shows what each tier changes; with no tier published it says so`, async ({
