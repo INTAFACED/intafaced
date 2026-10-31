@@ -578,6 +578,25 @@ function compose(args, env, { timeout = 120_000 } = {}) {
   return { status: res.status ?? 1, out };
 }
 
+/** The last log lines of every compose service that is neither running healthy nor exited 0. */
+function notHealthyLogs(env) {
+  const ps = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
+  const bad = ps.out
+    .trim()
+    .split('\n')
+    .map((line) => line.split('|'))
+    .filter(
+      ([svc, state, health, code]) => svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && code === '0'),
+    )
+    .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
+  return bad
+    .map(
+      ({ svc, state }) =>
+        `\n\n--- ${svc} (${state}), last 60 lines ---\n${compose(['logs', '--no-color', '--tail', '60', svc], env).out.trim()}`,
+    )
+    .join('');
+}
+
 // The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
 // `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
 // else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
@@ -598,7 +617,10 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
     });
-    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${up.out}`).toBe(0);
+    // A dependency that never turns healthy names only itself; its own last lines say why, so the red carries them.
+    const why = up.status === 0 ? '' : notHealthyLogs(env);
+    const tail = up.out.trim().split('\n').slice(-40).join('\n');
+    expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${tail}${why}`).toBe(0);
     const ran = [...up.out.matchAll(/seed: (local-[a-z-]+\.mjs [a-z]+)$/gm)].map((m) => m[1]);
     expect(ran).toEqual(composeSteps(seed.block));
     expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
