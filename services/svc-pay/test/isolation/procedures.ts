@@ -485,6 +485,15 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
   },
   {
+    // J-merchant-02 #5 cancel: owner only, an `ifc_` key is refused by design.
+    path: 'merchant.payoutDestinations.cancelHold',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
     path: 'merchant.payoutDestinations.remove',
     scope: 'pay:write',
     own: 'service',
@@ -626,6 +635,12 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:read',
     own: 'ok',
     input: (i) => ({ merchantId: i.merchantId, ...series }),
+  },
+  {
+    path: 'merchantMetrics.settlementAssets',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId }),
   },
   {
     path: 'conversion.quote',
@@ -1125,6 +1140,7 @@ export const TREE_PROCS: TreeProc[] = [
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },
+  { path: 'merchantMetrics.settlementAssets', area: 'payment', input: (i) => ({ merchantId: i.merchantId }) },
   {
     path: 'submerchant.summary',
     area: 'merchant.profile',

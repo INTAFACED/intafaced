@@ -406,6 +406,79 @@ test(`${J} #5 a new payout destination reads Unverified and cannot receive a pay
   expect(refused).toEqual([]);
 });
 
+// Part of #5, the lead's ruling of 2026-10-30: the owner can cancel a verification while it waits out the hold. With no
+// code (it only lowers risk), svc-pay moves the destination back to Unverified, keeps the same id, and a repeat changes
+// nothing; the room reads Unverified again and offers Verify back.
+test(`${J} part of #5 the owner cancels a verification while it is held: svc-pay and the room read Unverified again, and a repeat changes nothing`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const owner = await businessReadyPerson(page, 'mpc', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Payout Cancel Ltd');
+  await verifiedBusiness(page, owner, merchantId);
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/payouts/destinations');
+  const refused = refusedPayCalls(page);
+  const api = await payApiOf(owner, (step) => {
+    owner.step = step;
+  });
+  const listed = async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 10 })).items;
+
+  const wallet = `0x${'c4'.repeat(20)}`;
+  await page.getByLabel('Payout network').selectOption({ label: 'Crypto network' });
+  await page.getByLabel('Wallet address *').fill(wallet);
+  await page.getByRole('button', { name: 'Save destination' }).click();
+  await page.getByRole('dialog', { name: 'Review: Save destination' }).getByRole('button', { name: 'Save destination' }).click();
+  await expect(page.getByText('Destination saved. It is unverified and can’t receive a payout until you verify it.')).toBeVisible();
+  const [saved] = await listed();
+  expect(saved).toMatchObject({ merchantId, state: 'unverified', activatesAt: null });
+
+  const item = page
+    .getByRole('list', { name: 'Manage saved destinations' })
+    .getByRole('listitem')
+    .filter({ hasText: saved.destinationMasked });
+  const row = page.getByRole('region', { name: 'Saved destinations' }).getByRole('row').filter({ hasText: saved.destinationMasked });
+  const status = row.getByRole('cell').nth(1);
+  await item.getByRole('button', { name: 'Verify' }).click();
+  const verify = page.getByRole('dialog', { name: 'Review: Verify' });
+  await verify.getByLabel('Wallet address *').fill(wallet);
+  const fresh = await nextCode(owner.totp, owner.secret, owner.step);
+  owner.step = fresh.step;
+  await verify.getByLabel('6-digit code from your authenticator app *').fill(fresh.code);
+  await verify.getByRole('button', { name: 'Verify' }).click();
+  await expect(page.getByText('Destination verified. It becomes active at the time shown in the list.')).toBeVisible();
+  const [held] = await listed();
+  expect(held).toEqual({ ...saved, state: 'held', activatesAt: expect.any(String) });
+  await expect(status).toContainText('Waiting until');
+  await expect(status.locator('time')).toHaveAttribute('datetime', held.activatesAt);
+
+  // Cancel: no code is asked for; svc-pay answers unverified for the same destination.
+  await item.getByRole('button', { name: 'Cancel verification' }).click();
+  const cancelDialog = page.getByRole('dialog', { name: 'Review: Cancel verification' });
+  await expect(cancelDialog.getByLabel('6-digit code from your authenticator app *')).toHaveCount(0);
+  const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.payoutDestinations.cancelHold');
+  await cancelDialog.getByRole('button', { name: 'Cancel verification' }).click();
+  const res = await answered;
+  expect(res.status()).toBe(200);
+  expect((await res.json()).result.data).toEqual({ destinationId: saved.id, state: 'unverified', changed: true });
+  await expect(page.getByText('Verification cancelled. The destination is unverified again.')).toBeVisible();
+  expect(await listed()).toEqual([{ ...saved, state: 'unverified', activatesAt: null }]);
+  await expect(status).toHaveText('Unverified');
+  await expect(item.getByRole('button', { name: 'Verify' })).toBeVisible();
+  await expect(item.getByRole('button', { name: 'Cancel verification' })).toHaveCount(0);
+
+  // A repeat is a no-op: still unverified, the same id, nothing changed.
+  expect(await api.mutate('merchant.payoutDestinations.cancelHold', { merchantId, destinationId: saved.id })).toEqual({
+    destinationId: saved.id,
+    state: 'unverified',
+    changed: false,
+  });
+  expect(await listed()).toEqual([{ ...saved, state: 'unverified', activatesAt: null }]);
+  await page.reload();
+  await expect(status).toHaveText('Unverified');
+  expect(refused).toEqual([]);
+});
+
 /** Step 2's business application on the verification page, started for one type and country. */
 async function startApplication(page, typeLabel, country = 'DE') {
   await page.goto('/pay/onboarding/verification');

@@ -14,7 +14,7 @@ const drawings = useDrawings(host, candles, {
   tickSize: market.tickSize,
   limits: drawingLimits,
 });
-// Beside the chart element, not inside it: <DrawingToolbar api={drawings} /> and <ObjectTree api={drawings} indicators={indicatorRows} />.
+// Beside the chart element, not inside it: <DrawingToolbar api={drawings} /> and <ObjectTree api={drawings} onIndicatorsSlot={setSlot} />.
 ```
 
 - Key the component that calls the hook by `` `${symbol}:${workbench}` ``, so a new market or workbench reads its own stored drawings.

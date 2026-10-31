@@ -76,6 +76,9 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.voucher_exceeds_remaining',
   'campaigns.voucher_sequence_invalid',
   'campaigns.attempt_limit_unset',
+  'campaigns.per_customer_limit_unset',
+  'campaigns.customer_limit_reached',
+  'campaigns.redemption_limit_reached',
   'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
@@ -415,6 +418,8 @@ export const campaignSchema = z.object({
   reward: campaignRewardSchema.nullable(),
   /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
   tasks: campaignTasksSchema.nullable(),
+  /** How often one customer, and everyone together, may take this campaign's reward (CM-eligibility-rules-03). */
+  limits: z.lazy(() => campaignLimitsSchema).nullish(),
   /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
   vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
@@ -545,6 +550,8 @@ export const campaignDefinitionInputSchema = z
       .object({ claimBy: z.string().max(64).nullish(), useBy: z.string().max(64).nullish() })
       .strict()
       .nullish(),
+    /** The campaign's limits; a blank per-customer limit refuses activation `campaigns.per_customer_limit_unset`. */
+    limits: z.lazy(() => campaignLimitsSchema).nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -604,6 +611,28 @@ export const campaignVoucherSchema = z.object({
   useBy: iso.nullable().default(null),
 });
 export type CampaignVoucher = z.infer<typeof campaignVoucherSchema>;
+
+/**
+ * A campaign's limits (CM-eligibility-rules-03, eligibility-rules-008), owner values per campaign. `perCustomer`: at most
+ * `count` rewards for one customer in any `periodSeconds` (a reward, a welcome task or a voucher redemption each count
+ * once); either blank refuses activation `campaigns.per_customer_limit_unset`, never a default. `totalRedemptions`: at
+ * most this many for everyone together; null means the budget is the only cap. Over either, the claim or redemption
+ * refuses `campaigns.customer_limit_reached` or `campaigns.redemption_limit_reached`. The budget is the spend cap, and a
+ * customer joins a campaign once.
+ */
+export const campaignLimitsSchema = z
+  .object({
+    perCustomer: z
+      .object({
+        count: z.number().int().min(1).max(1_000_000).nullable(),
+        periodSeconds: z.number().int().min(60).max(31_536_000).nullable(),
+      })
+      .strict()
+      .nullable(),
+    totalRedemptions: z.number().int().min(1).max(100_000_000).nullable(),
+  })
+  .strict();
+export type CampaignLimits = z.infer<typeof campaignLimitsSchema>;
 
 /** A voucher campaign's claim-by and use-by times, as stored; either may be blank. */
 export const voucherWindowSchema = z.object({ claimBy: iso.nullable(), useBy: iso.nullable() });

@@ -93,6 +93,8 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const { t } = chartsCopy.useCopy();
   const { userId } = useSession();
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
+  // The object tree's indicator slot, filled by the main chart's studies bar.
+  const [treeSlot, setTreeSlot] = useState<HTMLElement | null>(null);
   const owner = useChartOwnerValues(market.symbol);
   const limit: LimitRead = ownerValue(owner, 'chartCountLimit');
   const limitKey = limit.ok ? String(limit.value) : limit.why;
@@ -448,7 +450,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   markets={markets}
                   addons={(host, bars, view: AddonView) => (
                     <>
-                      {i === 0 ? mainAddons?.(host, bars, view) : null}
+                      {i === 0 ? mainAddons?.(host, bars, { ...view, onTreeSlot: setTreeSlot }) : null}
                       <StudiesBar
                         host={host}
                         market={cellMarket}
@@ -457,6 +459,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                         percent={view.percent}
                         replaying={view.replaying}
                         workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                        treeSlot={i === 0 ? treeSlot : null}
                         group={
                           cell.group
                             ? {

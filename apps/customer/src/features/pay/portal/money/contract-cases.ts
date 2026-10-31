@@ -35,6 +35,7 @@ export const moneyContract: ContractPart = {
   ],
   notMocked: {
     destinationAdd: 'a write: the stand-in answers it, and the Playwright run exercises it',
+    destinationCancelHold: 'a write: the stand-in answers it, and the Playwright run exercises it',
     destinationSetDefault: 'a write: the stand-in answers it, and the Playwright run exercises it',
     destinationRemove: 'a write: the stand-in answers it, and the Playwright run exercises it',
     decideApproval: 'a write: the stand-in answers it, and the Playwright run exercises it',

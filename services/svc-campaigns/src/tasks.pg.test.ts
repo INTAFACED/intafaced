@@ -85,6 +85,8 @@ const definition = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefini
   endsAt: new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
   participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '100' },
+  // TEST limits: wide enough that only a test about limits meets them.
+  limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
   reward: { asset: 'USDT', amount: '10' },
   tasks: STEPS,
   ...over,

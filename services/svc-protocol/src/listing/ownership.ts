@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { getAddress as toChecksum, hashMessage, recoverMessageAddress, type Address, type Hex } from 'viem';
+import { fromAnotherChain, type ChainIdentity } from '../chain/identity.js';
 
 /**
  * CONTRACT OWNERSHIP PROOF (D-launch-listing-01).
@@ -76,6 +77,8 @@ export interface ListingChallenge {
   readonly issuedAt: Date;
   readonly expiresAt: Date;
   readonly usedAt: Date | null;
+  /** The genesis of the chain it was issued on; null for a challenge issued before the column existed. */
+  readonly genesisHash: Hex | null;
 }
 
 /**
@@ -90,8 +93,9 @@ export interface OwnershipProof {
   readonly nonce: string;
   readonly messageHash: Hex;
   readonly signature: Hex;
-  /** The block the owner was read at. */
+  /** The block the owner was read at, on the chain this genesis names. */
   readonly blockNumber: bigint;
+  readonly genesisHash: Hex;
   readonly verifiedAt: Date;
 }
 
@@ -115,6 +119,8 @@ export interface ListingStore {
 /** What the service reads from the chain to decide ownership. */
 export interface OwnershipChain {
   readonly chainId: number;
+  /** Which chain the reads below come from (`chain/identity.ts`). */
+  identity(): Promise<ChainIdentity>;
   /** The token contract's `owner()`, with the block it was read at; null when the contract names no owner. */
   owner(token: Address): Promise<{ owner: Address; blockNumber: bigint } | null>;
   /** Whether `account` holds code at `blockNumber` (a contract owner answers through ERC-1271). */
@@ -165,10 +171,10 @@ export async function issueChallenge(
   // A token that names no owner can never be proven: refuse before anyone is asked to sign, and store nothing.
   if (!(await chain.owner(token))) throw ownerUnknown();
   await store.pruneExpired(new Date(now.getTime() - PRUNE_GRACE_MS));
-  const chainId = chain.chainId;
+  const { chainId, genesisHash } = await chain.identity();
   const issuedAt = new Date(now.getTime());
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
-  const challenge = { nonce, chainId, token: toChecksum(token), issuedAt, expiresAt, message: '' };
+  const challenge = { nonce, chainId, genesisHash, token: toChecksum(token), issuedAt, expiresAt, message: '' };
   const stored = { ...challenge, message: challengeMessage(challenge) };
   await store.putChallenge(stored);
   return stored;
@@ -185,7 +191,9 @@ export async function verifyOwnership(
   now: Date,
 ): Promise<OwnershipProof> {
   const challenge = await store.findChallenge(input.nonce);
-  if (!challenge || challenge.chainId !== chain.chainId)
+  const identity = await chain.identity();
+  // A challenge issued on another chain (or on a TEST chain since started again) is not this chain's: it reads as absent.
+  if (!challenge || challenge.chainId !== identity.chainId || fromAnotherChain(challenge.genesisHash, identity))
     throw new ListingRefusedError(LISTING_NONCE_UNKNOWN, 'This challenge was not issued here. Ask for a new one.');
   if (challenge.usedAt) throw new ListingRefusedError(LISTING_NONCE_USED, 'This challenge was already used. Ask for a new one.');
   if (now.getTime() >= challenge.expiresAt.getTime())
@@ -193,6 +201,10 @@ export async function verifyOwnership(
 
   const read = await chain.owner(challenge.token);
   if (!read) throw ownerUnknown();
+  // The owner was read on the chain named above only if block 0 is still the same after the read: a TEST chain started
+  // again in between makes this challenge another chain's.
+  if ((await chain.identity()).genesisHash !== identity.genesisHash)
+    throw new ListingRefusedError(LISTING_NONCE_UNKNOWN, 'This challenge was not issued here. Ask for a new one.');
   const owner = toChecksum(read.owner);
   const messageHash = hashMessage(challenge.message);
 
@@ -221,6 +233,7 @@ export async function verifyOwnership(
     messageHash,
     signature: input.signature,
     blockNumber: read.blockNumber,
+    genesisHash: identity.genesisHash,
   };
   if (!(await store.consume(challenge.nonce, now, proof)))
     throw new ListingRefusedError(LISTING_NONCE_USED, 'This challenge was already used. Ask for a new one.');

@@ -137,9 +137,13 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   const item = (name) => checklist.getByTestId('security__row').filter({ has: page.getByText(name, { exact: true }) });
   await expect(item('A second step at sign-in')).toContainText('To do');
   await expect(item('A second step at sign-in')).toContainText('anyone who learns it can sign in');
+  // Each open method says why it matters, in its own words.
   await expect(item('A passkey')).toContainText('To do');
+  await expect(item('A passkey')).toContainText('A passkey cannot be typed into a fake site, so phishing cannot take it.');
   await expect(item('An authenticator app')).toContainText('To do');
+  await expect(item('An authenticator app')).toContainText('Six-digit codes from your phone still work when this device is lost.');
   await expect(item('Recovery codes saved')).toContainText('To do');
+  await expect(item('Recovery codes saved')).toContainText('If you lose your phone, a recovery code is how you get back in.');
   // No owner policy is set on this stack: the floor actions still carry "Required", and nothing else does.
   await expect(checklist.getByText('Required', { exact: true })).toHaveCount(2);
   await expect(item('Moving money out')).toContainText('Required');
@@ -152,7 +156,11 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('An authenticator app')).toContainText('Done');
   await expect(item('A second step at sign-in')).toContainText('Done');
   await expect(item('Recovery codes saved')).toContainText('Done');
+  // A done method no longer argues for itself; the open one still does.
+  await expect(item('An authenticator app')).not.toContainText('Six-digit codes from your phone');
+  await expect(item('A second step at sign-in')).not.toContainText('anyone who learns it can sign in');
   await expect(item('A passkey')).toContainText('To do');
+  await expect(item('A passkey')).toContainText('phishing cannot take it');
   await expect(checklist).toContainText('Always needs a second step');
 
   // A passkey after "Confirm it is you" with the code ticks the last one.
@@ -201,6 +209,18 @@ test(`${J} #5 the first authenticator code turns it on; recovery codes show once
   for (const code of codes) expect(stored).not.toContain(code);
   expect(stored).not.toContain(secret);
   await expect(page.getByTestId('security__authenticator')).toContainText('Start authenticator setup');
+
+  // After a reload the authenticator is still on, and the codes are never shown again: only how many are left.
+  await page.reload();
+  const checklist = page.getByTestId('security__checklist');
+  await expect(
+    checklist.getByTestId('security__row').filter({ has: page.getByText('An authenticator app', { exact: true }) }),
+  ).toContainText('Done');
+  await expect(checklist.getByTestId('security__row').filter({ hasText: 'Recovery codes saved' })).toContainText(`${codes.length} left`);
+  await expect(page.getByTestId('security__recovery')).toHaveCount(0);
+  const again = await page.content();
+  for (const code of codes) expect(again).not.toContain(code);
+  expect(again).not.toContain(secret);
 });
 
 test(`${J}, part of #5: when the confirmation's answer is lost, the recovery codes still show, labelled as such`, async ({ page }) => {
@@ -327,7 +347,18 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
   const who = person('ck');
   await signUpInBrowser(page, who);
-  await addAuthenticator(page, totp);
+  let { secret, step } = await addAuthenticator(page, totp);
+  let signInCode;
+
+  // A returning person: signed in again with the authenticator, as replacing it needs a session that passed it.
+  await forgetSession(page);
+  await page.goto('/login');
+  ({ code: signInCode, step } = await nextCode(totp, secret, step));
+  await page.fill('input[name=totp]', signInCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
 
   // With the right time: codes should work, and Replace is offered.
   await page.goto('/uc/safe');
@@ -337,10 +368,26 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await expect(ok.getByRole('status')).toContainText('so codes should work');
   await expect(ok).toContainText('Apps that sync codes');
   await expect(ok.getByRole('listitem')).toHaveCount(4);
-  // Moving to a new phone starts the card's own replace, which first confirms it is you.
+  await expect(ok.getByRole('button', { name: 'Replace', exact: true })).toBeVisible();
+  // Moving to a new phone starts the card's own replace, which first confirms it is you, then takes the new app's code.
   await ok.getByRole('button', { name: 'Move to a new phone' }).click();
   await expect(ok).toHaveCount(0);
   await expect(real.getByRole('heading', { name: 'Confirm it is you' })).toBeVisible();
+  let code;
+  ({ code, step } = await nextCode(totp, secret, step));
+  await real.getByLabel('6-digit code or a recovery code').fill(code);
+  await real.getByRole('button', { name: 'Confirm', exact: true }).click();
+  // The new key shows in its own setup card, under the same name.
+  const setup = page
+    .locator('[data-testid="security__authenticator"]')
+    .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
+  await expect(setup).toHaveCount(1);
+  const newKey = (await setup.locator('code').innerText()).trim();
+  await setup.getByLabel('Code from the new app').fill(totp(newKey));
+  ({ code, step } = await nextCode(totp, secret, step));
+  await setup.getByLabel('Next code or a recovery code').fill(code);
+  await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
 
   // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
   await page.context().clock.install({ time: new Date(Date.now() + 90_000) });
@@ -373,7 +420,6 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await signUpInBrowser(page, other);
   await addPasskey(page);
   const [theirs] = await heldPasskeys(device);
-  const { credentials: theirCredentials } = await device.cdp.send('WebAuthn.getCredentials', { authenticatorId: device.authenticatorId });
   await forgetSession(page);
 
   // This person adds a passkey on the device, then asks for it after the password.
@@ -427,23 +473,66 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   expect(offered.passkey.allowCredentials.map((c) => c.id)).toEqual([kept]);
   expect(mine).toBeDefined();
 
-  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in. Their passkey is put
-  // on the security key too, so whichever authenticator answers holds it.
-  await key.cdp.send('WebAuthn.addCredential', { authenticatorId: key.authenticatorId, credential: theirCredentials[0] });
-  const loginCall = (url) => url.pathname.endsWith('/api/identity/trpc/auth.login');
-  await page.route(loginCall, async (route) => {
-    const res = await route.fetch();
-    const body = await res.json();
-    body.error.data.secondStep.passkey.allowCredentials = [{ type: 'public-key', id: theirs }];
-    await route.fulfill({ response: res, json: body });
-  });
-  await password();
-  await page.getByRole('button', { name: 'Use your passkey' }).click();
-  await expect(page.getByRole('alert')).toContainText('That passkey is not one this account signs in with.');
-  await expect(page).toHaveURL(/\/login/);
-  await page.unroute(loginCall);
+  // A browser that answers with the other person's passkey gets it refused, and nothing signs in. The page only offers
+  // the kept passkey, so this browser signs the account's own challenge with theirs (the device holds it) and sends it
+  // where the page sends its answer: the app and identity are unmodified.
+  const { passkey: challenge } = await password();
+  // Only the device that holds their passkey answers: the security key is unplugged for this attempt, with its passkey
+  // (and its sign count as it stands now) kept to plug back in.
+  const {
+    credentials: [keptCredential],
+  } = await key.cdp.send('WebAuthn.getCredentials', { authenticatorId: key.authenticatorId });
+  await key.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: key.authenticatorId });
+  const forged = await page.evaluate(
+    async ({ options, theirsId }) => {
+      const fromB64 = (value) => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+      const toB64 = (buffer) =>
+        btoa(String.fromCharCode(...new Uint8Array(buffer)))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          ...options,
+          challenge: fromB64(options.challenge),
+          allowCredentials: [{ type: 'public-key', id: fromB64(theirsId) }],
+        },
+      });
+      const response = credential.response;
+      const res = await fetch('/api/identity/trpc/auth.loginSecondStepPasskey', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          credential: {
+            id: credential.id,
+            rawId: toB64(credential.rawId),
+            type: 'public-key',
+            response: {
+              clientDataJSON: toB64(response.clientDataJSON),
+              authenticatorData: toB64(response.authenticatorData),
+              signature: toB64(response.signature),
+              userHandle: response.userHandle ? toB64(response.userHandle) : null,
+            },
+            clientExtensionResults: {},
+          },
+        }),
+      });
+      return { usedId: credential.id, status: res.status, body: await res.json() };
+    },
+    { options: challenge, theirsId: theirs },
+  );
+  expect(forged.usedId).toBe(theirs);
+  const refusal = forged.body.error?.data;
+  expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('auth.webauthn_invalid');
+  expect(JSON.stringify(forged.body)).not.toContain('accessToken');
+  await page.goto('/uc/safe');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
 
-  // The person's own kept passkey signs them in.
+  // The person's own kept passkey signs them in: the security key is plugged back in and the device is put away, so the
+  // browser offers the one authenticator that holds the kept passkey.
+  await device.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: device.authenticatorId });
+  const replugged = await virtualAuthenticator(page, 'usb');
+  await replugged.cdp.send('WebAuthn.addCredential', { authenticatorId: replugged.authenticatorId, credential: keptCredential });
   await password();
   await page.getByRole('button', { name: 'Use your passkey' }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
