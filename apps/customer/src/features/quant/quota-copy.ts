@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
-// The Usage panel (AL-limits-01, J-algo-dev-03 #7). Profile names and counts enter through parameters.
+// The Usage panel and quota refusals (AL-limits-01, J-algo-dev-03 #7, #9). Profile names and counts enter through parameters.
 const en = {
   title: 'Usage',
   intro: 'What this account holds against its quota profile. Every limit is set by INTAFACED; a limit not set refuses.',
@@ -19,6 +19,9 @@ const en = {
   storage_bytes: 'Stored source and results (bytes)',
   collaborators_per_strategy: 'Collaborators on one strategy',
   notifications_per_day: 'Notifications today',
+  exceeded: '{resource}: {used} used of {limit} allowed by quota profile {profile}. Nothing was created.',
+  limitUnset: '{resource}: the limit in quota profile {profile} is not set, so nothing was created.',
+  profileUnset: 'This account has no quota profile and none is set by default, so nothing was created.',
 } as const;
 
 export const quotaCopy = defineCopy('quant.quota', en);

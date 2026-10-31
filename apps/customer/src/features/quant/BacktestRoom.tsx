@@ -22,7 +22,7 @@ import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { downloadCsv } from '../more/depth-csv';
 import { utcInput } from '../more/quant-analysis';
 import { Read, Select } from '../more/common';
@@ -30,6 +30,7 @@ import { useApi } from '../session/session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
 import { ReportTab, ShareTab, type CreatedShare } from './ReportShare';
+import { QuotaRefusalOr } from './QuotaRefusal';
 import { ChecksTab, LogText, MetricsTab } from './result-figures';
 import { reportCopy } from './report-copy';
 import { RunHistory } from './RunHistory';
@@ -335,7 +336,7 @@ export function BacktestRoom() {
                     {t('run')}
                   </Button>
                   {busy && <Loading label={t('running')} />}
-                  {failure && <Failure result={failure} retry={() => strategy && void run(strategy)} />}
+                  {failure && <QuotaRefusalOr failure={failure} retry={() => strategy && void run(strategy)} />}
                 </form>
               );
             }}

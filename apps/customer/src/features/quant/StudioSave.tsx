@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field, Loading } from '../../shared/ui';
 import { useApi } from '../session/session';
+import { QuotaRefusalOr } from './QuotaRefusal';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
@@ -117,7 +118,7 @@ export function StudioSave({
           {refusalText(refusal)}
         </p>
       ) : (
-        failure && <Failure result={failure} retry={() => void save()} />
+        failure && <QuotaRefusalOr failure={failure} retry={() => void save()} />
       )}
     </div>
   );

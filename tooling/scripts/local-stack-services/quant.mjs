@@ -10,6 +10,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     DATABASE_URL: dbUrl('svc_quant', secrets),
     TRADE_URL: urlOf('trade'),
     ...profileEnvFor('quant', 'dev'),
+    // The default quota profile (AL-limits-01, J-algo-dev-03 #9) is TEST in the same profile.
+    // `LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE=off` on a start or restart leaves it blank, so an account with no profile
+    // of its own is refused quant.quota_profile_unset.
+    ...(process.env.LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE === 'off' ? { QUANT_DEFAULT_QUOTA_PROFILE: '' } : {}),
     // TEST: the only site that may frame a shared result is this stack's own customer app.
     QUANT_EMBED_ORIGINS: CUSTOMER_ORIGIN,
   }),

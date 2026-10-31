@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { api, journeyState, restartWith } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
-// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (AL-editor-03's template source, AL-limits-01, RC-algo-dev-05) check
+// verified and with no strategy (#9 makes its own account). Every strategy in Algo dev is simulated; nothing here moves
+// money. Steps whose slice is not built yet (RC-algo-dev-05) check
 // their step's text with a short wait, so they fail fast and name what is missing.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -20,8 +20,8 @@ function developer() {
   return who;
 }
 
-/** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
-async function saveSignalStrategy(page, name) {
+/** Fills Studio with a new signal-rules strategy on 1 minute bars of BTC/USDT and asks to save it. Every figure is TEST. */
+async function askToSaveSignalStrategy(page, name) {
   await page.goto('/quant/studio');
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
   if (await fresh.isVisible()) await fresh.click();
@@ -41,6 +41,11 @@ async function saveSignalStrategy(page, name) {
   await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
   await builder.getByLabel('Size', { exact: true }).fill('0.01');
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+}
+
+/** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. */
+async function saveSignalStrategy(page, name) {
+  await askToSaveSignalStrategy(page, name);
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
 
@@ -289,4 +294,120 @@ test(`${J} #8 chooses a plan with more data freshness or execution priority: the
   await signIn(page, developer());
   await page.goto('/quant/strategies');
   await expect(page.getByTestId('quant-plan-tiers'), 'compute tiers are not built (RC-algo-dev-05)').toBeVisible(UNBUILT);
+});
+
+/** The operator's quota doors (ops.quota.set, ops.quota.assign), as the founder console calls them. */
+async function quotaOps(procedure, input) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const res = await ctx.edge.mutate('quant', procedure, input, await founders.a.tradeOpsToken());
+  if (!res.json?.result?.data?.seq) throw new Error(`${procedure} refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
+/** The plan #9 runs on: three stored runs, and room for everything else a run and a save take. LOCAL TEST values. */
+const THREE_RUNS = {
+  profile: 'TEST three runs',
+  limits: {
+    strategies: '10',
+    versions_per_strategy: '10',
+    concurrent_runs: '10',
+    paper_runs: '10',
+    stored_runs: '3',
+    log_lines: '100000',
+    storage_bytes: '100000000',
+  },
+};
+
+test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000);
+  const { TEST_QUOTA_PROFILE } = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  // An account of its own, so its stored runs are only the ones this step starts.
+  const who = await signUp(page, 'jq');
+  await verify(page, who);
+  const { userId } = await api(who);
+  const usage = page.getByTestId('quant-usage');
+  const profile = usage.getByTestId('quant-usage-profile');
+  const row = (resource) => usage.locator(`[data-testid="quant-usage-row"][data-resource="${resource}"]`);
+
+  // No profile of its own: the default profile applies.
+  await page.goto('/quant/strategies');
+  await expect(profile).toHaveAttribute('data-profile', TEST_QUOTA_PROFILE.profile);
+
+  // With the default blank, the account has no profile: the usage says so, and a save refuses by name and stores nothing.
+  restartWith('quant', 'LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE', false);
+  try {
+    await page.goto('/quant/strategies');
+    await expect(profile).toHaveAttribute('data-profile', '');
+    await expect(profile).toHaveText('No quota profile is set for this account, so new strategies and runs are refused.');
+    await askToSaveSignalStrategy(page, 'TEST quota strategy');
+    const refused = page.getByTestId('quant-quota-refusal');
+    await expect(refused).toHaveAttribute('data-kind', 'profileUnset');
+    await expect(refused).toHaveText('This account has no quota profile and none is set by default, so nothing was created.');
+    await page.goto('/quant/strategies');
+    await expect(page.getByText('No strategy is saved on this account.')).toBeVisible();
+    await expect(row('strategies')).toHaveAttribute('data-used', '0');
+  } finally {
+    restartWith('quant', 'LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE', true);
+  }
+
+  // The operator publishes a plan of three stored runs and puts this account on it. Each write is keyed by its content,
+  // so a later run of this journey replays it.
+  for (const [resource, limit] of Object.entries(THREE_RUNS.limits)) {
+    await quotaOps('ops.quota.set', {
+      profile: THREE_RUNS.profile,
+      resource,
+      limit,
+      reason: 'LOCAL TEST J-algo-dev-03 #9 plan',
+      idempotencyKey: `journey:${J}:quota:${resource}:${limit}`,
+    });
+  }
+  await quotaOps('ops.quota.assign', {
+    accountId: userId,
+    profile: THREE_RUNS.profile,
+    reason: 'LOCAL TEST J-algo-dev-03 #9 plan',
+    idempotencyKey: `journey:${J}:assign:${userId}`,
+  });
+  await saveSignalStrategy(page, 'TEST quota strategy');
+  await page.goto('/quant/strategies');
+  await expect(profile).toHaveAttribute('data-profile', THREE_RUNS.profile);
+  await expect(row('stored_runs')).toHaveAttribute('data-limit', '3');
+  await expect(row('stored_runs')).toHaveAttribute('data-used', '0');
+
+  // Three backtests on the TEST tape, each a distinct run (its slippage differs), then a fourth.
+  const window = await tapeWindow(60);
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST quota strategy' });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  const ran = [];
+  for (const bps of ['1', '2', '3']) {
+    await room.getByLabel('Slippage (basis points)').fill(bps);
+    await room.getByTestId('quant-backtest-run').click();
+    ran.push(await room.getByTestId('quant-bar-result').getAttribute('data-run-id', { timeout: 120_000 }));
+  }
+  expect(new Set(ran).size).toBe(3);
+  await room.getByLabel('Slippage (basis points)').fill('4');
+  await room.getByTestId('quant-backtest-run').click();
+  const refused = room.getByTestId('quant-quota-refusal');
+  await expect(refused).toHaveAttribute('data-kind', 'exceeded');
+  await expect(refused).toHaveAttribute('data-resource', 'stored_runs');
+  await expect(refused).toHaveText(`Stored runs: 3 used of 3 allowed by quota profile ${THREE_RUNS.profile}. Nothing was created.`);
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+
+  // The stored runs are the same three: the history lists exactly them, and the usage still counts three.
+  await page.reload();
+  const history = page.getByTestId('quant-run-history').getByTestId('quant-run-row');
+  await expect(history).toHaveCount(3);
+  expect((await history.evaluateAll((rows) => rows.map((one) => one.getAttribute('data-run-id')))).sort()).toEqual([...ran].sort());
+  await page.goto('/quant/strategies');
+  await expect(row('stored_runs')).toHaveAttribute('data-used', '3');
+  await expect(row('concurrent_runs')).toHaveAttribute('data-used', '0');
 });
