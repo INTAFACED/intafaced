@@ -178,6 +178,10 @@
       "types": "./dist/support-forms.d.ts",
       "default": "./dist/support-forms.js"
     },
+    "./support-guest": {
+      "types": "./dist/support-guest.d.ts",
+      "default": "./dist/support-guest.js"
+    },
     "./support-categories": {
       "types": "./dist/support-categories.d.ts",
       "default": "./dist/support-categories.js"
