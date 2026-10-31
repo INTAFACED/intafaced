@@ -132,10 +132,12 @@ export class StatementService {
       }
       throw err;
     }
-    if (report === 'trades') items = items.filter(isTradeLine);
+    // The cap is checked on what was read, before the trades filter: collect stops at MAX_ROWS + 1 lines, so a filtered
+    // count under the cap could still be missing older lines.
     if (items.length > MAX_ROWS) {
       throw new BankError(`A statement holds at most ${MAX_ROWS} lines. Narrow the dates.`, 'bank.statement_too_large');
     }
+    if (report === 'trades') items = items.filter(isTradeLine);
     const generatedAt = (input.now ?? new Date()).toISOString();
     const bytes =
       input.format === 'csv'

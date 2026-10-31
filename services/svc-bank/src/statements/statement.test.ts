@@ -222,6 +222,58 @@ describe('bank.statements.export', () => {
     expect((await statements.export(ALICE, { ...range, format: 'csv', report: 'trades' })).sha256).toBe(trades.sha256);
   });
 
+  it('refuses a trades file whose read reached the cap, even when dropping fees with no order would bring it under', async () => {
+    const at = new Date('2026-10-04T00:00:00.000Z');
+    // 5,000 fills and one fee with no order: 5,001 lines read, 5,000 after the filter. Older lines may be missing, so it refuses.
+    const rows: LedgerPageEntry[] = [
+      {
+        txId: 'tx-withdraw-fee',
+        module: 'ledger',
+        reason: 'fee.charged',
+        direction: 'credit',
+        amount: '1.00',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: 'f',
+      },
+      ...Array.from({ length: 5_000 }, (_, i) => ({
+        txId: `tx-fill-${i}`,
+        module: 'trade',
+        reason: 'trade.fill',
+        direction: 'debit' as const,
+        amount: '0.001',
+        postedAt: at,
+        assetId: 'BTC',
+        entryId: String(i),
+      })),
+    ];
+    const service = new ActivityService(
+      { allNamedSpaces: async () => [] },
+      {
+        cursorSecret: SECRET,
+        pages: {
+          async page(req: LedgerPageRequest) {
+            if (req.ownerType !== 'user') return { entries: [], nextCursor: null };
+            // Paged the way svc-ledger pages: up to the limit asked for, with an offset cursor while rows remain.
+            const from = req.cursor === undefined ? 0 : Number(req.cursor);
+            const to = from + req.limit;
+            return { entries: rows.slice(from, to), nextCursor: to < rows.length ? String(to) : null };
+          },
+        },
+      },
+    );
+    const statements = new StatementService(service, SECRET);
+    await expect(
+      statements.export(ALICE, {
+        from: '2026-10-01T00:00:00.000Z',
+        to: '2026-10-31T23:59:59.999Z',
+        now: new Date('2026-11-02T00:00:00.000Z'),
+        format: 'csv',
+        report: 'trades',
+      }),
+    ).rejects.toMatchObject({ code: 'bank.statement_too_large' });
+  });
+
   it('refuses a balance snapshot, which needs a past-balance read the ledger does not offer', async () => {
     await expect(
       new StatementService(activity(), SECRET).export(ALICE, {
