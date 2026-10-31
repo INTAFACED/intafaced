@@ -218,9 +218,11 @@ test(`${J} #4 a worker stops sending shares: offline after the quiet interval wi
   const { who, quietWorker } = run.read();
   const { every, wait } = quietTiming();
   test.setTimeout(wait * 2 + 60_000);
-  // No share is sent: the pool's own evaluator marks the worker offline once the quiet interval has passed.
+  // No share is sent: the worker reads offline once the quiet interval has passed, and the pool's own evaluator records
+  // the change at its next pass (a read records nothing).
   await expect.poll(async () => (await worker(who, quietWorker)).connectivity, { timeout: wait, intervals: [every] }).toBe('offline');
   const offline = (changes) => changes.rows.filter((row) => row.workerId === quietWorker && row.to === 'offline');
+  await expect.poll(async () => offline(await stateChanges(who, quietWorker)).length, { timeout: wait, intervals: [every] }).toBe(1);
   const first = await stateChanges(who, quietWorker);
   expect(offline(first)).toHaveLength(1);
   // A later evaluation of the same quiet worker writes no second row.
@@ -229,8 +231,9 @@ test(`${J} #4 a worker stops sending shares: offline after the quiet interval wi
     .toBeGreaterThan(Date.parse(offline(first)[0].at));
   expect(offline(await stateChanges(who, quietWorker))).toEqual(offline(first));
 
-  // The stack publishes no alert limit; the pool answers blank by its code, and the room says "not set".
-  expect(PUBLISHED.MINING_WORKER_ALERT_LIMIT ?? '').toBe('');
+  // No alert limit is chosen for the worker and the stack publishes no automatic share; the pool answers blank by its code,
+  // and the room says "not set".
+  expect(PUBLISHED.MINING_WORKER_ALERT_SHARE_BPS ?? '').toBe('');
   const answer = await worker(who, quietWorker);
   expect(answer).toMatchObject({ connectivity: 'offline', alertLimit: null, alertLimitReason: 'mining.alert_limit_unset' });
 

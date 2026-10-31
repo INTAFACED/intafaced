@@ -10,8 +10,8 @@ import { MiningError } from './errors.js';
  * The miner door keeps no lasting connection, so a worker is online exactly when its newest accepted share is younger
  * than the owner's quiet interval (`MINING_WORKER_QUIET_SECONDS`), and offline otherwise. Every comparison uses the
  * database clock. A change between the two is recorded once, as a row keyed by a business key
- * (`mining:worker-offline:<workerId>:<newest share ISO>`, `mining:worker-online:…`), so a repeat evaluation, a read that
- * settles the same worker, or a second evaluator writes nothing new. A worker in maintenance gets no row. A worker that
+ * (`mining:worker-offline:<workerId>:<newest share ISO>`, `mining:worker-online:…`), so a repeat evaluation or a second
+ * evaluator writes nothing new. Only the evaluator records: a read writes nothing. A worker in maintenance gets no row. A worker that
  * has never sent an accepted share was never online, so it gets none either.
  *
  * `state` is what the room shows: `maintenance` while the worker is in it, else `offline` when quiet, else `active`.
@@ -221,8 +221,6 @@ export async function workerOne(
   timing: { readonly quietSeconds: number; readonly alertShareBps: number | null },
 ): Promise<WorkerOne> {
   const worker = await ownedWorker(sql, userId, workerId);
-  // A read settles the same worker the evaluator would, so the recorded change is there when the room says offline.
-  await settleWorkers(sql, timing.quietSeconds, worker.id, false);
   const [row] = await sql<
     {
       last_share_at: Date | null;
@@ -275,11 +273,10 @@ export async function workerOne(
 
 /**
  * The recorded state changes of one of the caller's own workers, newest first, and when the evaluator last looked at it.
- * With a quiet interval the read settles the worker first, as `workerOne` does; without one it only reads.
+ * A read writes nothing: only the evaluator records a change, so a row appears at its next pass after the quiet interval.
  */
-export async function workerStateChanges(sql: Sql, userId: string, workerId: string, quietSeconds: number | null): Promise<StateChanges> {
+export async function workerStateChanges(sql: Sql, userId: string, workerId: string): Promise<StateChanges> {
   const worker = await ownedWorker(sql, userId, workerId);
-  if (quietSeconds !== null) await settleWorkers(sql, quietSeconds, worker.id, false);
   const rows = await sql<{ worker_id: string; from_state: string; to_state: string; at: Date }[]>`
     SELECT worker_id, from_state, to_state, at
     FROM mining_pool.worker_state_changes

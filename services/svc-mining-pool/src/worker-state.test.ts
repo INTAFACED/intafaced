@@ -211,12 +211,10 @@ describe('worker procedures', () => {
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'mining.worker_not_found' } });
   });
 
-  it('workers.stateChanges settles only with a published quiet interval', async () => {
+  it("workers.stateChanges reads the caller's own worker, with or without a quiet interval", async () => {
     const store = reads();
     await createMiningRouter(store, undefined, { env: {} }).createCaller(signed()).workers.stateChanges({ workerId: WORKER });
-    expect(store.workerStateChanges).toHaveBeenLastCalledWith(USER, WORKER, null);
-    await createMiningRouter(store, undefined, { env: QUIET }).createCaller(signed()).workers.stateChanges({ workerId: WORKER });
-    expect(store.workerStateChanges).toHaveBeenLastCalledWith(USER, WORKER, 60);
+    expect(store.workerStateChanges).toHaveBeenLastCalledWith(USER, WORKER);
   });
 
   it('maintenance and the alert limit are trade:write; batches are 1 to 50', async () => {

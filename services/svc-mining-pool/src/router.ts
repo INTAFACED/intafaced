@@ -297,8 +297,7 @@ export function createMiningRouter(
         )
         .query(async ({ ctx, input }) => {
           try {
-            const quiet = quietSecondsOf(envOf());
-            return await reads.workerStateChanges(ctx.principal.userId, input.workerId, typeof quiet === 'number' ? quiet : null);
+            return await reads.workerStateChanges(ctx.principal.userId, input.workerId);
           } catch (err) {
             fail(err);
           }

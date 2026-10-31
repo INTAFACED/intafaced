@@ -277,8 +277,8 @@ export class MiningReadStore {
     return workerOne(this.db(), userId, workerId, windowMinutes, timing);
   }
 
-  async workerStateChanges(userId: string, workerId: string, quietSeconds: number | null): Promise<StateChanges> {
-    return workerStateChanges(this.db(), userId, workerId, quietSeconds);
+  async workerStateChanges(userId: string, workerId: string): Promise<StateChanges> {
+    return workerStateChanges(this.db(), userId, workerId);
   }
 
   async setWorkerMaintenance(userId: string, workerIds: readonly string[], on: boolean): Promise<MaintenanceRows> {

@@ -78,14 +78,14 @@ describe('mining worker states', () => {
     const id = await worker(ALICE, 'Rig-Q');
     await share(ALICE, id, 's1', 120);
     expect(await settleWorkers(db.sql, QUIET, null, true)).toEqual({ looked: 1, recorded: 1 });
-    const first = await workerStateChanges(db.sql, ALICE, id, QUIET);
+    const first = await workerStateChanges(db.sql, ALICE, id);
     expect(first.rows).toEqual([{ workerId: id, from: 'online', to: 'offline', at: expect.any(String) }]);
     expect(first.evaluatedAt).not.toBeNull();
     const [last] = await db.sql<{ created_at: Date }[]>`SELECT created_at FROM mining_pool.shares WHERE share_id = 's1'`;
     expect((await changes(id))[0]?.key).toBe(`mining:worker-offline:${id}:${last!.created_at.toISOString()}`);
 
     expect(await settleWorkers(db.sql, QUIET, null, true)).toEqual({ looked: 1, recorded: 0 });
-    const again = await workerStateChanges(db.sql, ALICE, id, QUIET);
+    const again = await workerStateChanges(db.sql, ALICE, id);
     expect(again.rows).toEqual(first.rows);
     expect(Date.parse(again.evaluatedAt!)).toBeGreaterThanOrEqual(Date.parse(first.evaluatedAt!));
   });
@@ -103,7 +103,7 @@ describe('mining worker states', () => {
     await share(ALICE, id, 'm1', 120);
     await setMaintenance(db.sql, ALICE, [id], true);
     expect(await settleWorkers(db.sql, QUIET, null, true)).toEqual({ looked: 1, recorded: 0 });
-    const read = await workerStateChanges(db.sql, ALICE, id, QUIET);
+    const read = await workerStateChanges(db.sql, ALICE, id);
     expect(read.rows).toEqual([]);
     expect(read.evaluatedAt).not.toBeNull();
     expect((await workerOne(db.sql, ALICE, id, 60, { quietSeconds: QUIET, alertShareBps: null })).state).toBe('maintenance');
@@ -155,10 +155,10 @@ describe('mining worker states', () => {
     await expect(workerOne(db.sql, BOB, id, 60, { quietSeconds: QUIET, alertShareBps: null })).rejects.toMatchObject({
       code: 'mining.worker_not_found',
     });
-    await expect(workerStateChanges(db.sql, BOB, id, QUIET)).rejects.toMatchObject({ code: 'mining.worker_not_found' });
+    await expect(workerStateChanges(db.sql, BOB, id)).rejects.toMatchObject({ code: 'mining.worker_not_found' });
   });
 
-  it('a read of a quiet worker records the change once, as the evaluator would, without stamping a look', async () => {
+  it('a read of a quiet worker says offline by its last share and writes nothing; the evaluator records the change', async () => {
     const id = await worker(ALICE, 'Rig-Q');
     await share(ALICE, id, 'r1', 120);
     const one = await workerOne(db.sql, ALICE, id, 1, { quietSeconds: QUIET, alertShareBps: null });
@@ -169,10 +169,12 @@ describe('mining worker states', () => {
       connectivity: 'offline',
       state: 'offline',
     });
-    await workerOne(db.sql, ALICE, id, 1, { quietSeconds: QUIET, alertShareBps: null });
-    const read = await workerStateChanges(db.sql, ALICE, id, QUIET);
-    expect(read.rows).toHaveLength(1);
-    expect(read.evaluatedAt).toBeNull();
+    const before = await workerStateChanges(db.sql, ALICE, id);
+    expect(before).toMatchObject({ rows: [], evaluatedAt: null });
+    expect(await settleWorkers(db.sql, QUIET, null, true)).toEqual({ looked: 1, recorded: 1 });
+    const after = await workerStateChanges(db.sql, ALICE, id);
+    expect(after.rows).toHaveLength(1);
+    expect(after.evaluatedAt).not.toBeNull();
   });
 
   it('the alert limit: manual is the account value, automatic is the owner share of the trailing weight, and both refuse blank', async () => {
