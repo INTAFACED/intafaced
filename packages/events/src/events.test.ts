@@ -940,6 +940,16 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
+    staffCreated: {
+      staffId: 'staff-1',
+      actorId: 'staff-0',
+      approvalId: 'appr-1',
+      changedFields: ['status', 'roleIds'],
+      version: '1',
+      at: ts(),
+    },
+    staffUpdated: { staffId: 'staff-1', actorId: 'staff-0', approvalId: 'appr-2', changedFields: ['roleIds'], version: '2', at: ts() },
+    staffDeleted: { staffId: 'staff-1', actorId: 'staff-0', approvalId: 'appr-3', changedFields: [], version: '3', at: ts() },
     ledgerTxPosted: {
       txId: uid(),
       module: 'trade',

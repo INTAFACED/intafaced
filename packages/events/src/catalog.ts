@@ -230,6 +230,58 @@ export const deathNoticeConfirmed = defineEvent(
   'A second person confirmed a death notice (RC-identity-02): the account is frozen and its sessions and API keys revoked. Its balances move only by the recovery keys the owner set (RC-identity-08).',
 );
 
+/**
+ * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status or
+ * roles changed (activated, disabled, a role assigned or unassigned); `deleted`: the staff record was removed. Each is
+ * a four-eyes change, so it names the actor and the approval spent. svc-identity publishes it from an outbox row in
+ * the same transaction as the change, at least once, with the business key `identity.staff.<verb>:<staffId>:<version>`.
+ * Only the NAMES of the changed fields ride on the bus: no value, email, password, secret or token. A consumer re-reads
+ * the record through contracts.
+ */
+export const STAFF_CHANGED_FIELDS = ['status', 'roleIds', 'displayName', 'email'] as const;
+
+const staffChangePayload = z.object({
+  staffId: z.string().min(1).max(128),
+  /** The staff member who made the change. */
+  actorId: z.string().min(1).max(128),
+  /** The identity action approval a second person gave and this change consumed. */
+  approvalId: z.string().min(1).max(128),
+  changedFields: z
+    .array(z.enum(STAFF_CHANGED_FIELDS))
+    .max(STAFF_CHANGED_FIELDS.length)
+    .refine((fields) => new Set(fields).size === fields.length, 'a field is named twice'),
+  /** The staff record's version after the change; part of the business key. */
+  version: z.string().regex(/^(?:0|[1-9]\d*)$/),
+  at: z.string().datetime({ offset: true }),
+});
+
+export const staffCreated = defineEvent(
+  'identity',
+  'staff',
+  'created',
+  1,
+  staffChangePayload,
+  'A named person was invited as staff under a four-eyes approval (OPS-admin-access-03). They hold no access until they accept.',
+);
+
+export const staffUpdated = defineEvent(
+  'identity',
+  'staff',
+  'updated',
+  1,
+  staffChangePayload,
+  "A staff member's status or roles changed under a four-eyes approval (OPS-admin-access-03): activated, disabled, a role assigned or unassigned.",
+);
+
+export const staffDeleted = defineEvent(
+  'identity',
+  'staff',
+  'deleted',
+  1,
+  staffChangePayload,
+  'A staff record was removed under a four-eyes approval (OPS-admin-access-03). The customer account, if any, is untouched.',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -1851,6 +1903,9 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  staffCreated,
+  staffUpdated,
+  staffDeleted,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -2021,6 +2076,48 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'staffCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
+  {
+    event: 'staffUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
+  {
+    event: 'staffDeleted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-admin-access-03 contracts PR. svc-identity publishes it from an outbox row in the staff change transaction (svc-identity PR, next). The staff record is a durable row the console reads through contracts, so nothing waits on the event.',
+  },
+  {
+    event: 'staffDeleted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (OPS-admin-access-03): the console re-reads the roster through contracts and the audit entry is written in the same transaction, so no one is promised anything off this stream. A record ahead of its reader.',
+  },
   {
     event: 'deathNoticeCreated',
     missing: 'subscriber',
