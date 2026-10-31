@@ -56,18 +56,10 @@ export type IdentityStaffActionType = (typeof IDENTITY_STAFF_ACTION_TYPES)[numbe
 
 /** An invite that does not name one person (a link anyone can use). */
 export const IDENTITY_STAFF_INVITE_OPEN_LINK_REFUSED = 'identity.staff_invite_open_link_refused' as const;
-/**
- * The codes `@intafaced/auth/staff-permissions` refuses with, re-exported so the literal has one source. The
- * `IDENTITY_*` names below are the same values under this contract's naming.
+/*
+ * The codes `@intafaced/auth/staff-permissions` refuses with are taken from there, so each literal has one source.
+ * Only the `IDENTITY_*` aliases are public here.
  */
-export {
-  STAFF_BUSINESS_USER_NOT_STAFF,
-  STAFF_PERMISSION_INVALID,
-  STAFF_ROLE_GRANT_EXCEEDS_HOLDER,
-  STAFF_ROLE_MAPPING_UNSET,
-  STAFF_SELF_GRANT,
-};
-
 /** The actor tried to grant a permission they do not hold themselves (including lifting a deny on a redefine). */
 export const IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER = STAFF_ROLE_GRANT_EXCEEDS_HOLDER;
 /** The action needs a permission an explicit deny on one of the actor's roles removes. */
@@ -347,14 +339,37 @@ export type StaffChangeApprovalSubject = {
   fields: Record<string, unknown>;
 };
 
+/** An action's fields as a caller holds them, raw or parsed, with or without the approval reference. */
+type StaffChangeInputOf<T extends z.ZodTypeAny> = z.input<T> & { approval?: z.input<typeof staffApprovalRefSchema> };
+
 /**
  * What one privileged change binds its approval to: the action type, the target and the fields hashed into the payload
  * hash. Identity computes the hash from these; the console shows the approver the same fields.
  *
  * The input is parsed through the action's schema first (an `approval` field, if present, is set aside), so raw input
  * and already-parsed input give the same subject: names, reasons and emails are trimmed, emails lower-cased, lists
- * sorted, and a new role's target uses its case-folded name. Input the schema refuses throws its `ZodError`.
+ * sorted, and a new role's target uses its case-folded name. Role names are unique case-insensitively, so 'Ops' and
+ * 'ops' naming one target is intended.
+ *
+ * It THROWS the schema's `ZodError` for input the schema refuses. Callers parse the request with its input schema
+ * first (and refuse there); this is not the validation step. The overloads keep each action's input type checked.
  */
+export function staffChangeApprovalSubject(
+  action: 'identity.staff.invite',
+  input: StaffChangeInputOf<typeof staffInviteFields>,
+): StaffChangeApprovalSubject;
+export function staffChangeApprovalSubject(
+  action: 'identity.staff.disable' | 'identity.staff.remove',
+  input: StaffChangeInputOf<typeof staffStatusChangeFields>,
+): StaffChangeApprovalSubject;
+export function staffChangeApprovalSubject(
+  action: 'identity.roles.define',
+  input: StaffChangeInputOf<typeof staffRoleDefineFields>,
+): StaffChangeApprovalSubject;
+export function staffChangeApprovalSubject(
+  action: 'identity.roles.assign' | 'identity.roles.unassign',
+  input: StaffChangeInputOf<typeof staffRoleAssignFields>,
+): StaffChangeApprovalSubject;
 export function staffChangeApprovalSubject(action: IdentityStaffActionType, input: unknown): StaffChangeApprovalSubject {
   const body =
     input !== null && typeof input === 'object' && 'approval' in input

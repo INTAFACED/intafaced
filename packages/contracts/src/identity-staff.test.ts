@@ -9,7 +9,6 @@ import {
   IDENTITY_STAFF_PERMISSION_INVALID,
   IDENTITY_STAFF_REFUSAL_CODES,
   IDENTITY_STAFF_SELF_GRANT,
-  STAFF_SELF_GRANT,
   readStaffInvite,
   staffAccessSchema,
   staffChangeApprovalSubject,
@@ -26,9 +25,15 @@ import {
   staffRoleSchema,
   staffRoleUnassignInputSchema,
   staffRolesListSchema,
+  type IdentityStaffActionType,
+  type StaffChangeApprovalSubject,
 } from './identity-staff.js';
 
 const NOW = '2026-10-31T12:00:00.000Z';
+/** Typed permission lists for fixtures the overloads check. */
+const perms = (...list: auth.StaffPermission[]): auth.StaffPermission[] => list;
+/** The overloads take one action at a time; a loop over every action goes through the implementation signature. */
+const anySubject = staffChangeApprovalSubject as (action: IdentityStaffActionType, input: unknown) => StaffChangeApprovalSubject;
 const HASH = `sha256:${'a'.repeat(64)}`;
 const approval = { approvalId: 'appr-1', payloadHash: HASH };
 
@@ -66,13 +71,25 @@ describe('refusal codes', () => {
     expect(IDENTITY_STAFF_REFUSAL_CODES).not.toContain('identity.idp_unset');
   });
 
+  it('keeps only the IDENTITY_* aliases public', async () => {
+    const mod = (await import('./identity-staff.js')) as Record<string, unknown>;
+    for (const name of [
+      'STAFF_BUSINESS_USER_NOT_STAFF',
+      'STAFF_PERMISSION_INVALID',
+      'STAFF_ROLE_GRANT_EXCEEDS_HOLDER',
+      'STAFF_ROLE_MAPPING_UNSET',
+      'STAFF_SELF_GRANT',
+    ]) {
+      expect(mod[name], name).toBeUndefined();
+    }
+  });
+
   it('takes the auth-owned codes from @intafaced/auth/staff-permissions, one source', () => {
     expect(IDENTITY_ROLE_GRANT_EXCEEDS_HOLDER).toBe(auth.STAFF_ROLE_GRANT_EXCEEDS_HOLDER);
     expect(IDENTITY_ROLE_MAPPING_UNSET).toBe(auth.STAFF_ROLE_MAPPING_UNSET);
     expect(IDENTITY_BUSINESS_USER_NOT_STAFF).toBe(auth.STAFF_BUSINESS_USER_NOT_STAFF);
     expect(IDENTITY_STAFF_PERMISSION_INVALID).toBe(auth.STAFF_PERMISSION_INVALID);
     expect(IDENTITY_STAFF_SELF_GRANT).toBe(auth.STAFF_SELF_GRANT);
-    expect(STAFF_SELF_GRANT).toBe(auth.STAFF_SELF_GRANT);
   });
 
   it('is published at the ./identity-staff subpath', () => {
@@ -142,7 +159,13 @@ describe('invite', () => {
 describe('every privileged change carries an approval reference', () => {
   const disable = { requestId: 'disable:staff-1:3', staffId: 'staff-1', reason: 'Left the team', expectedVersion: '3', approval };
   const assign = { requestId: 'assign:staff-1:role-1:3', staffId: 'staff-1', roleId: 'role-1', expectedVersion: '3', approval };
-  const define = { requestId: 'define:ops-read', name: 'Ops read', allow: ['staff:accounts:read:production'], deny: [], approval };
+  const define = {
+    requestId: 'define:ops-read',
+    name: 'Ops read',
+    allow: perms('staff:accounts:read:production'),
+    deny: perms(),
+    approval,
+  };
   const cases = [
     [staffInviteInputSchema, invite],
     [staffDisableInputSchema, disable],
@@ -218,9 +241,17 @@ describe('every privileged change carries an approval reference', () => {
     } as const;
     for (const [action, raw] of rawCases) {
       const parsed = schemas[action].parse(raw);
-      expect(staffChangeApprovalSubject(action, raw), action).toEqual(staffChangeApprovalSubject(action, parsed));
+      expect(anySubject(action, raw), action).toEqual(anySubject(action, parsed));
     }
-    expect(staffChangeApprovalSubject('identity.staff.invite', rawCases[0][1]).targetId).toBe('invite:ada@example.test');
+    expect(anySubject('identity.staff.invite', rawCases[0][1]).targetId).toBe('invite:ada@example.test');
+  });
+
+  it('keeps the input type of each action checked at compile time', () => {
+    const { approval: _a, roleId: _r, ...noRole } = assign;
+    // @ts-expect-error an assign without a roleId does not compile
+    expect(() => staffChangeApprovalSubject('identity.roles.assign', noRole)).toThrow();
+    // @ts-expect-error an invite's fields are not a disable's
+    expect(() => staffChangeApprovalSubject('identity.staff.disable', invite)).toThrow();
   });
 
   it('refuses input its schema refuses', () => {
@@ -230,7 +261,13 @@ describe('every privileged change carries an approval reference', () => {
 });
 
 describe('define (custom roles only)', () => {
-  const define = { requestId: 'define:ops-read', name: 'Ops read', allow: ['staff:accounts:read:production'], deny: [], approval };
+  const define = {
+    requestId: 'define:ops-read',
+    name: 'Ops read',
+    allow: perms('staff:accounts:read:production'),
+    deny: perms(),
+    approval,
+  };
 
   it('refuses a built-in name, a kind field, a malformed or repeated permission, and an empty role', () => {
     expect(staffRoleDefineInputSchema.safeParse({ ...define, name: 'Founder' }).success).toBe(false);
