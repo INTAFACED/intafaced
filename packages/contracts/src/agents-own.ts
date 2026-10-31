@@ -44,8 +44,9 @@ export const ownAgentToolSchema = z.object({
   name: z.string(),
   module: z.string(),
   movesMoney: z.boolean(),
-  shape: ownAgentToolShapeSchema.nullable(),
-  refusals: z.array(z.string()),
+  // Defaults keep an older service's catalogue readable: its tools read as shape not declared.
+  shape: ownAgentToolShapeSchema.nullable().default(null),
+  refusals: z.array(z.string()).default([]),
 });
 
 /** `own.catalogue`: the templates a draft starts from and the tools it may be offered. */

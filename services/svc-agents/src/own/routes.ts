@@ -38,7 +38,8 @@ const OWN_MAX_OUTPUT_TOKENS = 2048;
  * and the agent's own cap per session as the ceiling. The person's caps for it are held at every run, as they stand.
  */
 export function ownGuardrail(agent: OwnAgentView): Guardrail {
-  const tools = OWN_TOOLS.filter((tool) => !tool.movesMoney && agent.tools.includes(tool.name));
+  // A tool with no declared shape is never granted, even on a draft saved before shapes were declared.
+  const tools = OWN_TOOLS.filter((tool) => !tool.movesMoney && tool.shape !== null && agent.tools.includes(tool.name));
   return parseGuardrail({
     agentId: ownSessionAgentId(agent.id),
     version: agent.version,

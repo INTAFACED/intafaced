@@ -356,6 +356,7 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
                       }}
                     >
                       <code lang="zxx">{tool.name}</code> · {tool.movesMoney ? t('movesMoney') : t('readsModule', { module: tool.module })}
+                      {!tool.movesMoney && !tool.shape ? <> · {t('shapeNotDeclaredShort')}</> : null}
                     </li>
                   ))}
                 </ul>

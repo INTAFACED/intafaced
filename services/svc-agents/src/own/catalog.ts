@@ -1,5 +1,9 @@
 import { MoneyError, parseAmount, formatAmount } from '@intafaced/ledger-client';
+import type { OwnAgentToolShape } from '@intafaced/contracts/agents-own';
 import { FLEET_HARD_MONEY_WRITE_TOOLS, PRODUCT_AGENT_IDS } from '../fleet/guardrails.js';
+import type { DataToolRefuseReason } from '../navigator/data-tools.js';
+import type { ScannerDataToolRefuseReason } from '../scanner/data-tools.js';
+import type { SupportDataToolRefuseReason } from '../support-agent/data-tools.js';
 
 /**
  * AGENTS A PERSON BUILDS (AG-builder-01).
@@ -21,34 +25,47 @@ export type OwnTool = {
   readonly name: string;
   readonly module: string;
   readonly movesMoney: boolean;
-  readonly shape: { readonly input: Readonly<Record<string, string>>; readonly output: Readonly<Record<string, string>> } | null;
+  readonly shape: Readonly<OwnAgentToolShape> | null;
   readonly refusals: readonly string[];
 };
 
-/** Refusals every data tool route can answer, beside its own. */
-const TIER_REFUSALS = ['tool_not_declared', 'tool_not_in_tier', 'tier_law_blank', 'tier_not_granted'] as const;
+/**
+ * Each route's refusals, typed by the reason union it answers with, so a listed code is always one the route has.
+ * Every tool on a route first passes the route's own gates (its plane, tier law and declared tools).
+ */
+const support = (...own: SupportDataToolRefuseReason[]): string[] => [
+  ...own,
+  ...(['desk_plane_dark', 'tier_law_blank', 'tier_not_granted', 'tool_not_declared', 'tool_not_in_tier', 'missing_requester'] as const),
+];
+const navigator = (...own: DataToolRefuseReason[]): string[] => [
+  ...own,
+  ...(['trade_plane_dark', 'tier_law_blank', 'tier_not_granted', 'tool_not_declared', 'tool_not_in_tier', 'money_write'] as const),
+];
+const scanner = (...own: ScannerDataToolRefuseReason[]): string[] => [
+  ...own,
+  ...([
+    'market_plane_dark',
+    'tier_law_blank',
+    'tier_not_granted',
+    'depth_invalid',
+    'tool_not_declared',
+    'tool_not_in_tier',
+    'money_write',
+  ] as const),
+];
 
 /** Each tool's shape from its route's input and output schema (router.ts and the module's data-tools.ts). */
 const READ_TOOLS: readonly OwnTool[] = [
   {
-    // router.ts support desk data tools; support-agent/data-tools.ts searchKb
+    // router.ts support desk data tools (kbQuery); support-agent/data-tools.ts searchKb
     name: 'support.kb.search',
     module: 'support',
     movesMoney: false,
     shape: {
-      input: { limit: 'whole number from 1 to 500, optional' },
+      input: { kbQuery: 'text, up to 200 characters' },
       output: { articles: 'list of { articleKey, titleKey, bodyKey }' },
     },
-    refusals: [
-      'no_live_kb',
-      'kb_empty',
-      'empty_results',
-      'incomplete_article',
-      'kb_search_limit_unset',
-      'missing_requester',
-      'desk_plane_dark',
-      ...TIER_REFUSALS,
-    ],
+    refusals: [...support('no_live_kb', 'kb_empty', 'empty_results', 'incomplete_article'), 'agents.kb_search_limit_unset'],
   },
   {
     // support-agent/data-tools.ts readTicket
@@ -59,7 +76,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { ticketId: 'text, up to 120 characters' },
       output: { ticket: '{ ticketId, ownerUserId, status, category }' },
     },
-    refusals: ['missing_fixture', 'incomplete_ticket', 'not_ticket_owner', 'no_live_kb', 'missing_requester', 'tool_not_in_tier'],
+    refusals: support('missing_fixture', 'incomplete_ticket', 'not_ticket_owner', 'no_live_kb'),
   },
   {
     // support-agent/data-tools.ts readAccount: never a balance
@@ -70,14 +87,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { userId: 'text' },
       output: { account: '{ userId, status: active, frozen or closed, kycTier }' },
     },
-    refusals: [
-      'no_live_kb',
-      'account_plane_dark',
-      'incomplete_account',
-      'account_owner_mismatch',
-      'missing_fixture',
-      'balance_field_forbidden',
-    ],
+    refusals: support('no_live_kb', 'incomplete_account', 'account_owner_mismatch', 'missing_fixture', 'balance_field_forbidden'),
   },
   {
     // navigator/data-tools.ts quote
@@ -88,7 +98,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { marketId: 'text, up to 64 characters' },
       output: { marketId: 'text', last: 'decimal string', asOf: 'time' },
     },
-    refusals: ['trade_plane_dark', 'money_write', 'missing_fixture', 'incomplete_quote', 'invalid_decimal', 'stale', ...TIER_REFUSALS],
+    refusals: navigator('missing_fixture', 'incomplete_quote', 'invalid_decimal', 'stale'),
   },
   {
     // navigator and scanner data-tools.ts listMarkets
@@ -99,7 +109,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { limit: 'whole number from 1 to 500, optional' },
       output: { markets: 'list of { marketId, symbol, status: open, halted or closed }' },
     },
-    refusals: ['empty_markets', 'missing_fixture', 'markets_limit_unset', 'money_write', ...TIER_REFUSALS],
+    refusals: navigator('empty_markets', 'missing_fixture', 'markets_limit_unset'),
   },
   {
     // scanner/data-tools.ts ticker
@@ -110,7 +120,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { marketId: 'text, up to 64 characters' },
       output: { marketId: 'text', last: 'decimal string', volume24h: 'decimal string', change24hBps: 'whole number', asOf: 'time' },
     },
-    refusals: ['market_plane_dark', 'missing_fixture', 'incomplete_ticker', 'invalid_decimal', 'stale', 'money_write', ...TIER_REFUSALS],
+    refusals: scanner('missing_fixture', 'incomplete_ticker', 'invalid_decimal', 'stale'),
   },
   {
     // scanner/data-tools.ts bookTop
@@ -121,7 +131,7 @@ const READ_TOOLS: readonly OwnTool[] = [
       input: { marketId: 'text, up to 64 characters' },
       output: { marketId: 'text', bid: 'decimal string', ask: 'decimal string', asOf: 'time' },
     },
-    refusals: ['market_plane_dark', 'missing_fixture', 'incomplete_book', 'invalid_decimal', 'stale', 'money_write', ...TIER_REFUSALS],
+    refusals: scanner('missing_fixture', 'incomplete_book', 'invalid_decimal', 'stale'),
   },
   // An in-process runner tool of the merchant watch (merchant/session-run.ts), with no route and so no declared shape.
   {
