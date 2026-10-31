@@ -13,6 +13,7 @@ const world = vi.hoisted(() => ({
   list: undefined as unknown as () => Promise<unknown>,
   register: undefined as unknown as (fields: unknown) => Promise<unknown>,
   roll: undefined as unknown as (app: unknown) => Promise<unknown>,
+  lifetimes: undefined as unknown as () => Promise<unknown>,
 }));
 vi.mock('../../session/session', () => ({ useSession: () => ({ userId: world.userId, api: {} }) }));
 vi.mock('./oauth-api', async (original) => {
@@ -22,6 +23,7 @@ vi.mock('./oauth-api', async (original) => {
     readApps: () => world.list(),
     registerApp: (_api: unknown, _user: string, fields: unknown) => world.register(fields),
     rollSecret: (_api: unknown, app: unknown) => world.roll(app),
+    readLifetimes: () => world.lifetimes(),
   };
 });
 
@@ -35,6 +37,7 @@ beforeEach(() => {
   document.body.append(host);
   world.userId = 'u1';
   world.list = async () => ({ ok: true, data: { apps: [] } });
+  world.lifetimes = async () => ({ ok: true, data: { codeTtlSeconds: 60, accessTokenTtlSeconds: 3600 } });
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -186,5 +189,29 @@ describe('registered apps room', () => {
     await show();
     await wait();
     expect(host.textContent).toContain('Your apps could not be read.');
+  });
+});
+
+describe('the owner lifetimes blocker (oauth.lifetime_unset)', () => {
+  const unset = () => document.body.querySelector('[data-code="oauth.lifetime_unset"]');
+
+  it('names the blocker up front when a lifetime is unpublished', async () => {
+    world.lifetimes = async () => ({ ok: true, data: { codeTtlSeconds: null, accessTokenTtlSeconds: 3600 } });
+    await show();
+    await wait();
+    expect(unset()?.textContent).toBe(
+      'The owner has not published the lifetime that signing in with apps needs, so apps are switched off.',
+    );
+  });
+
+  it('says nothing when both lifetimes are published, or while the read has not answered', async () => {
+    await show();
+    await wait();
+    expect(unset()).toBeNull();
+    act(() => root?.unmount());
+    root = null;
+    world.lifetimes = () => new Promise(() => undefined);
+    await show();
+    expect(unset()).toBeNull();
   });
 });

@@ -281,6 +281,11 @@ export class OAuthService {
     });
   }
 
+  /** The owner's lifetimes as published; `null` for one that is not. */
+  lifetimes(): { codeTtlSeconds: number | null; accessTokenTtlSeconds: number | null } {
+    return { codeTtlSeconds: this.settings.codeTtlSeconds ?? null, accessTokenTtlSeconds: this.settings.accessTokenTtlSeconds ?? null };
+  }
+
   private requireLifetimes(): { codeTtl: number; accessTtl: number } {
     const { codeTtlSeconds, accessTokenTtlSeconds } = this.settings;
     if (codeTtlSeconds === undefined || accessTokenTtlSeconds === undefined) throw new OAuthError('oauth.lifetime_unset');

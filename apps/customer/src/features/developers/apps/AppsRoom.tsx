@@ -7,7 +7,7 @@ import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session/session';
 import { appsCopy, refusalCopyKey } from './apps-copy';
 import { firstBadRedirect, parseRedirectInput, parseScopeInput } from './oauth-model';
-import { readApps, registerApp, rollSecret } from './oauth-api';
+import { readApps, readLifetimes, registerApp, rollSecret } from './oauth-api';
 import './apps.css';
 
 type T = ReturnType<typeof appsCopy.useCopy>['t'];
@@ -210,6 +210,20 @@ export function AppsRoom() {
     (signal) => (userId ? readApps(api, signal) : Promise.resolve({ ok: true as const, data: { apps: [] as OAuthApp[] } })),
     `oauth-apps:${userId ?? 'out'}`,
   );
+  const lifetimes = useResource(
+    (signal) =>
+      userId
+        ? readLifetimes(api, signal)
+        : Promise.resolve({
+            ok: true as const,
+            data: { codeTtlSeconds: null as number | null, accessTokenTtlSeconds: null as number | null },
+          }),
+    `oauth-lifetimes:${userId ?? 'out'}`,
+  );
+  // Blank lifetimes are the room's blocker: apps can be registered, but none can sign a person in until both are set.
+  const unset =
+    lifetimes.resource.status === 'ready' &&
+    (lifetimes.resource.data.codeTtlSeconds === null || lifetimes.resource.data.accessTokenTtlSeconds === null);
   const reload = apps.reload;
   const onDone = useMemo(
     () => (value: Shown) => {
@@ -236,6 +250,11 @@ export function AppsRoom() {
   return (
     <Page eyebrow={t('eyebrow')} title={t('title')} description={t('lead')}>
       <div className="apps-room" data-testid="developers-apps">
+        {unset ? (
+          <p role="status" className="apps-unset" data-code="oauth.lifetime_unset">
+            {t('oauth.lifetime_unset')}
+          </p>
+        ) : null}
         {shown ? <SecretPanel shown={shown} onDone={() => setShown(null)} t={t} /> : null}
         <section aria-labelledby="apps-list">
           <h2 id="apps-list">{t('listHeading')}</h2>
