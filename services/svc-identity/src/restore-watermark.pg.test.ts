@@ -114,5 +114,21 @@ if (!available) {
       expect(frozen.position).toBe(before.position);
       expect(Date.parse(frozen.lastWriteAt!)).toBeGreaterThan(Date.parse(before.lastWriteAt!));
     });
+
+    it("leaves out the restore's own approval requests, and counts every other approval", async () => {
+      const approval = (id: string, actionType: string) => db.sql`
+        INSERT INTO action_approvals (approval_id, action_type, target_service, target_id, expected_version, payload_hash,
+                                      requester_id, policy_version, operation_id, status, created_at, expires_at)
+        VALUES (${id}, ${actionType}, 'svc-ops', 'run-1', '1', 'h', 'founder-a', 'v1', ${id}, 'PENDING', now(), now() + interval '1 hour')`;
+      const before = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      await approval('appr_wm_restore', 'ops.restore.record');
+      const restoring = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect({ ...restoring, readAt: '' }).toEqual({ ...before, readAt: '' });
+      await approval('appr_wm_freeze', 'identity.account.freeze');
+      const freezing = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      expect(BigInt(freezing.position)).toBe(BigInt(before.position) + 1n);
+      expect(freezing.integrity).not.toBe(before.integrity);
+      expect(Date.parse(freezing.lastWriteAt!)).toBeGreaterThanOrEqual(Date.parse(before.lastWriteAt!));
+    });
   });
 }
