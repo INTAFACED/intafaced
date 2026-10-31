@@ -1429,6 +1429,7 @@ registerPrivateRest(app, {
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
+  grid,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

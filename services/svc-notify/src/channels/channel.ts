@@ -148,6 +148,7 @@ export function allRefusalCodes(): readonly RefusalCode[] {
     'channel.verify_rate_limited',
     'channel.unprobed',
     'channel.recipient_quarantined',
+    'vendor.email',
   ];
 }
 
@@ -164,6 +165,11 @@ export function refusalCodeCount(): number {
  * untranslated string or a vendor's name.
  */
 export type RefusalCode =
+  /**
+   * No email sender is set, and this message's mailed copy is owed: the row waits `pending`, never attempted. Not a
+   * refusal of the message, which still reached the inbox.
+   */
+  | 'vendor.email'
   /** No credentials configured for this channel. The owner has not obtained them. */
   | 'channel.not_configured'
   /** The user has no address registered for this channel. */

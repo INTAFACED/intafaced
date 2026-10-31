@@ -141,6 +141,9 @@ export function App() {
     path !== '/pay/checkout' &&
     !isAcademyPath(path) &&
     !isLaunchCataloguePath(path);
+  // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), in the
+  // public frame, once the boot refresh says there is no session.
+  const guestRequest = path === '/support/new' && !session && !restoring && !restoreFailed;
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
@@ -208,7 +211,7 @@ export function App() {
   // `/` sends a signed-in person to /home, so it waits for the boot refresh instead of flashing the signed-out landing page.
   const content = redirectTo ? null : path === '/' && restoring && !session ? (
     fallback
-  ) : room?.area === 'public' ? (
+  ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />

@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./identity-staff": {
+      "types": "./dist/identity-staff.d.ts",
+      "default": "./dist/identity-staff.js"
+    },
     "./quant-algo": {
       "types": "./dist/quant-algo.d.ts",
       "default": "./dist/quant-algo.js"
@@ -93,6 +97,10 @@
     "./identity-appeals": {
       "types": "./dist/identity-appeals.d.ts",
       "default": "./dist/identity-appeals.js"
+    },
+    "./identity-signin-challenge": {
+      "types": "./dist/identity-signin-challenge.d.ts",
+      "default": "./dist/identity-signin-challenge.js"
     },
     "./identity-kyc-profile": {
       "types": "./dist/identity-kyc-profile.d.ts",
@@ -182,6 +190,10 @@
       "types": "./dist/support-forms.d.ts",
       "default": "./dist/support-forms.js"
     },
+    "./support-guest": {
+      "types": "./dist/support-guest.d.ts",
+      "default": "./dist/support-guest.js"
+    },
     "./support-categories": {
       "types": "./dist/support-categories.d.ts",
       "default": "./dist/support-categories.js"
@@ -237,6 +249,10 @@
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
+    },
+    "./p2p-cancel": {
+      "types": "./dist/p2p-cancel.d.ts",
+      "default": "./dist/p2p-cancel.js"
     },
     "./p2p-rule-class": {
       "types": "./dist/p2p-rule-class.d.ts",

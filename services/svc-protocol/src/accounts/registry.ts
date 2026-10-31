@@ -3,6 +3,7 @@ import type { Address, Hex } from 'viem';
 import { computeAccountAddress, DEFAULT_USER_SALT } from './address.js';
 import { assertMyAccountsListLimit } from './my-accounts-list-limit.js';
 import { withAuthoritySpan } from '../tracing.js';
+import { fromAnotherChain, type ChainIdentityReader } from '../chain/identity.js';
 
 /**
  * ACCOUNT REGISTRY — address ↔ user id. A read model, not custody.
@@ -27,6 +28,8 @@ export interface AccountRecord {
   readonly owner: Address;
   readonly userSalt: Hex;
   readonly deployed: boolean;
+  /** The genesis of the chain `deployed` was seen on; null when not deployed or stored before the column. */
+  readonly deployedGenesisHash?: Hex | null;
   /** When the user proved control of the owner key. Null = unverified claim. */
   readonly verifiedAt: Date | null;
 }
@@ -38,6 +41,8 @@ export interface AccountUpsert {
   owner: Address;
   userSalt: Hex;
   deployed: boolean;
+  /** The genesis of the chain `deployed` was read on (set with `deployed: true`). */
+  deployedGenesisHash?: Hex | null;
   verifiedAt: Date | null;
 }
 
@@ -50,7 +55,7 @@ export interface AccountStore {
   upsert(record: AccountUpsert): Promise<AccountRecord>;
   findByUser(userId: string, chainId: number, limit: number): Promise<AccountRecord[]>;
   findByAddress(chainId: number, address: Address): Promise<AccountRecord | null>;
-  markDeployed(chainId: number, address: Address, at: Date): Promise<void>;
+  markDeployed(chainId: number, address: Address, at: Date, genesisHash: Hex | null): Promise<void>;
 }
 
 export class MemoryAccountStore implements AccountStore {
@@ -72,6 +77,7 @@ export class MemoryAccountStore implements AccountStore {
       owner: toChecksum(record.owner),
       userSalt: record.userSalt,
       deployed: record.deployed || (existing?.deployed ?? false),
+      deployedGenesisHash: record.deployed ? (record.deployedGenesisHash ?? null) : (existing?.deployedGenesisHash ?? null),
       verifiedAt: record.verifiedAt ?? existing?.verifiedAt ?? null,
     };
     this.rows.set(key, next);
@@ -87,10 +93,10 @@ export class MemoryAccountStore implements AccountStore {
     return this.rows.get(this.#key(chainId, address)) ?? null;
   }
 
-  async markDeployed(chainId: number, address: Address, _at: Date): Promise<void> {
+  async markDeployed(chainId: number, address: Address, _at: Date, genesisHash: Hex | null): Promise<void> {
     const key = this.#key(chainId, address);
     const existing = this.rows.get(key);
-    if (existing) this.rows.set(key, { ...existing, deployed: true });
+    if (existing) this.rows.set(key, { ...existing, deployed: true, deployedGenesisHash: genesisHash });
   }
 }
 
@@ -136,7 +142,26 @@ export class AccountRegistry {
   constructor(
     private readonly store: AccountStore,
     private readonly config: RegistryConfig,
+    /**
+     * Which chain `deployed` is read on. A deployment seen on another genesis (a TEST chain since started again) is
+     * not one on this chain, so the account reads as not deployed. Absent: the stored flag is returned as it is.
+     */
+    private readonly identity?: ChainIdentityReader,
   ) {}
+
+  /** `deployed` holds only on the chain it was seen on. The chain is asked only when a row names a genesis. */
+  async #onThisChain(records: AccountRecord[]): Promise<AccountRecord[]> {
+    if (!this.identity || !records.some((r) => r.deployed && r.deployedGenesisHash)) return records;
+    const current = await this.identity();
+    return records.map((r) =>
+      r.deployed && fromAnotherChain(r.deployedGenesisHash, current) ? { ...r, deployed: false, deployedGenesisHash: null } : r,
+    );
+  }
+
+  /** The genesis a deployment is stored with, read afresh: a deployment is never labelled with a chain since gone. */
+  async #genesis(): Promise<Hex | null> {
+    return this.identity ? (await this.identity({ fresh: true })).genesisHash : null;
+  }
 
   /** The address a given owner key will have. No chain access needed. */
   predict(owner: Address, userSalt: Hex = DEFAULT_USER_SALT): Address {
@@ -196,6 +221,7 @@ export class AccountRegistry {
           owner: toChecksum(args.owner),
           userSalt,
           deployed: args.deployed,
+          deployedGenesisHash: args.deployed ? await this.#genesis() : null,
           verifiedAt: new Date(),
         });
       },
@@ -203,14 +229,19 @@ export class AccountRegistry {
   }
 
   async accountsOf(userId: string, limit: number | null | undefined): Promise<AccountRecord[]> {
-    return this.store.findByUser(userId, this.config.chainId, assertMyAccountsListLimit(limit));
+    return this.#onThisChain(await this.store.findByUser(userId, this.config.chainId, assertMyAccountsListLimit(limit)));
   }
 
   async ownerOfRecord(address: Address): Promise<AccountRecord | null> {
+    // Whether the address has a row, which the chain observer asks for every event. It never reads the chain, so a block 0
+    // read that fails cannot drop an event; `deployed` here is the stored flag (`accountsOf` places it on this chain).
     return this.store.findByAddress(this.config.chainId, address);
   }
 
   async recordDeployment(address: Address, at: Date = new Date()): Promise<void> {
-    await this.store.markDeployed(this.config.chainId, address, at);
+    // The deployment is recorded even when block 0 cannot be read right now: the event is not dropped, and the row is
+    // stored with no genesis, as one from before the column.
+    const genesis = await this.#genesis().catch(() => null);
+    await this.store.markDeployed(this.config.chainId, address, at, genesis);
   }
 }

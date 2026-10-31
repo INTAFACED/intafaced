@@ -28,6 +28,15 @@ import {
   shownOn,
   storeKey,
   updateStudy,
+  movePane,
+  panesOf,
+  PANE_SIZE_MAX,
+  PANE_SIZE_MIN,
+  resizePane,
+  setPaneSizes,
+  toggleCollapsed,
+  toggleMaximised,
+  toggleOnMain,
   type StudyInstance,
   type StudyStore,
 } from './model';
@@ -196,11 +205,14 @@ function StudyRow({
   result,
   cursor,
   words,
+  controls,
 }: {
   study: StudyInstance;
   result: StudyResult | null;
   cursor: number | null;
   words: Words;
+  /** The pane's own controls, for a study drawn in a pane of its own (or moved to the main pane). */
+  controls?: ReactNode;
 }) {
   const { t, word } = words;
   const def = studyDef(study.kind);
@@ -272,6 +284,7 @@ function StudyRow({
           <span className="st-row-formula">{word(result.series[0].name)}</span>
         </>
       )}
+      {controls}
       {body}
     </div>
   );
@@ -354,7 +367,14 @@ export function StudiesBar({
   }, [bars, market.symbol, market.tickSize, market.lotSize, interval, feeds, needsTape, shown, percent, replaying]);
 
   const drawn = useMemo<SeriesOut[]>(() => (results ?? []).flatMap((r) => (r.result.status === 'ready' ? r.result.series : [])), [results]);
-  useStudyDraw(host, drawn, market.tickSize);
+  const layout = panesOf(store);
+  const onSizes = useCallback((sizes: Record<string, number>) => setStore((now) => setPaneSizes(now, sizes)), [setStore]);
+  useStudyDraw(host, drawn, market.tickSize, layout, onSizes);
+  // The studies that draw in a pane under the price, top to bottom, and those moved onto the main pane.
+  const subIds = (results ?? [])
+    .filter((r) => r.result.status === 'ready' && r.result.series.some((x) => x.pane === 'sub'))
+    .map((r) => r.study.id);
+  const paneOrder = subIds.filter((id) => !layout.onMain.includes(id));
 
   // The pointer's bar. With the legend always shown and no pointer, the last bar is read.
   useEffect(() => {
@@ -389,6 +409,64 @@ export function StudiesBar({
         hiddenOn: shownOn(s, interval) ? [...s.hiddenOn, interval] : s.hiddenOn.filter((v) => v !== interval),
       });
     });
+
+  const paneControls = (s: StudyInstance) => {
+    const name = nameOf(s);
+    const onMain = layout.onMain.includes(s.id);
+    const at = paneOrder.indexOf(s.id);
+    const collapsed = layout.collapsed.includes(s.id);
+    const maximised = layout.maximised === s.id;
+    // Another pane is maximised: this one is a strip until it is restored, so its own size controls wait.
+    const other = layout.maximised !== null && layout.maximised !== s.id && paneOrder.includes(layout.maximised);
+    // The order is read from the store as it is when the click lands, so two quick moves both count.
+    const orderIn = (now: StudyStore) =>
+      now.studies.map((x) => x.id).filter((id) => subIds.includes(id) && !panesOf(now).onMain.includes(id));
+    const button = (label: string, onClick: () => void, disabled = false) => (
+      <button type="button" className="st-pane-button" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
+        {label}
+      </button>
+    );
+    return (
+      <span
+        className="st-pane"
+        role="group"
+        aria-label={t('{name} pane', { name })}
+        data-pane-state={onMain ? 'main' : collapsed ? 'collapsed' : maximised ? 'maximised' : 'open'}
+      >
+        {!onMain && (
+          <>
+            {button(t('Move {name} pane up', { name }), () => setStore((now) => movePane(now, s.id, -1, orderIn(now))), at <= 0)}
+            {button(
+              t('Move {name} pane down', { name }),
+              () => setStore((now) => movePane(now, s.id, 1, orderIn(now))),
+              at < 0 || at >= paneOrder.length - 1,
+            )}
+            {button(
+              t(collapsed ? 'Expand {name} pane' : 'Collapse {name} pane', { name }),
+              () => setStore((now) => toggleCollapsed(now, s.id)),
+              other,
+            )}
+            {button(
+              t('Make {name} pane taller', { name }),
+              () => setStore((now) => resizePane(now, s.id, 1.5)),
+              collapsed || maximised || other || (layout.sizes[s.id] ?? 1) >= PANE_SIZE_MAX,
+            )}
+            {button(
+              t('Make {name} pane shorter', { name }),
+              () => setStore((now) => resizePane(now, s.id, 1 / 1.5)),
+              collapsed || maximised || other || (layout.sizes[s.id] ?? 1) <= PANE_SIZE_MIN,
+            )}
+            {button(t(maximised ? 'Restore the panes' : 'Maximise {name} pane', { name }), () =>
+              setStore((now) => toggleMaximised(now, s.id)),
+            )}
+          </>
+        )}
+        {button(t(onMain ? 'Move {name} to its own pane' : 'Move {name} to the main pane', { name }), () =>
+          setStore((now) => toggleOnMain(now, s.id)),
+        )}
+      </span>
+    );
+  };
 
   return (
     <section className="st" aria-label={t('Studies on this chart')} data-testid="studies">
@@ -467,7 +545,14 @@ export function StudiesBar({
 
       <div className="st-legend" data-testid="study-legend">
         {shown.map((study) => (
-          <StudyRow key={study.id} study={study} result={resultFor(study.id)} cursor={cursor} words={words} />
+          <StudyRow
+            key={study.id}
+            study={study}
+            result={resultFor(study.id)}
+            cursor={cursor}
+            words={words}
+            controls={subIds.includes(study.id) ? paneControls(study) : undefined}
+          />
         ))}
         {hiddenHere.map((study) => (
           <div key={study.id} className="st-row" data-study={study.id} data-hidden-here="true">

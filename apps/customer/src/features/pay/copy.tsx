@@ -607,7 +607,6 @@ const messages = {
     'Confirm only after the external payment has arrived in your account. This asks the ledger to release the escrowed asset to the buyer.',
   release: 'Release',
   paymentToVerify: 'Payment to verify',
-  cancellationReason: 'Cancellation reason',
   cancelOrder: 'Cancel order',
   theServiceChecksCurrentOrderStateAn:
     'The service checks current order state. An external payment already sent must not be treated as refunded by cancelling an order.',
@@ -1455,7 +1454,6 @@ const es = {
     'Confirma solo después de que el pago externo haya llegado a tu cuenta. Esto solicita al libro contable que libere el activo en garantía al comprador.',
   release: 'Liberar',
   paymentToVerify: 'Pago que se verificará',
-  cancellationReason: 'Motivo de cancelación',
   cancelOrder: 'Cancelar orden',
   theServiceChecksCurrentOrderStateAn:
     'El servicio comprueba el estado actual de la orden. Un pago externo ya enviado no debe considerarse reembolsado por cancelar una orden.',
@@ -2305,7 +2303,6 @@ const fr = {
     'Confirmez uniquement après l’arrivée du paiement externe sur votre compte. Cela demande au grand livre de libérer l’actif sous séquestre à l’acheteur.',
   release: 'Libérer',
   paymentToVerify: 'Paiement à vérifier',
-  cancellationReason: 'Motif d’annulation',
   cancelOrder: 'Annuler l’ordre',
   theServiceChecksCurrentOrderStateAn:
     'Le service vérifie l’état actuel de l’ordre. Un paiement externe déjà envoyé ne doit pas être considéré comme remboursé par l’annulation d’un ordre.',
