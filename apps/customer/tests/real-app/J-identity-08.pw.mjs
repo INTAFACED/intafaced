@@ -332,7 +332,52 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toBeDisabled();
   await expect.poll(async () => Number((await locked.textContent()).match(/in (\d+) seconds/)[1])).toBeLessThan(seconds);
   await expect(cases).toHaveCount(2);
+
+  // Identity's own answer, not only the page's words: the limit and when it opens, and a third request refused by its
+  // typed code with the seconds left.
+  const own = await api(who);
+  const read = await own.get('/api/identity/trpc/kyc.attempts.read');
+  expect(read.body.result.data).toMatchObject({ limit: { maxDenials: 2 }, denialsInWindow: 2 });
+  // It opens when the page said it would: no later than the countdown read above, and only the seconds since then sooner.
+  const opensIn = (Date.parse(read.body.result.data.lockedUntil) - Date.now()) / 1000;
+  expect(opensIn).toBeLessThanOrEqual(seconds);
+  expect(opensIn).toBeGreaterThan(seconds - 60);
+  const third = await own.post('/api/identity/trpc/kyc.submit', { tier: 'basic', jurisdiction: 'DE' });
+  expect(third.status).toBe(429);
+  const data = third.body.error.data;
+  expect(data.intafacedCode ?? data.cause?.code ?? data.code).toBe('kyc.attempts_exhausted');
+  expect(data.retryAfterSeconds).toBeLessThanOrEqual(Math.ceil(opensIn) + 1);
+  expect(data.retryAfterSeconds).toBeGreaterThan(seconds - 60);
+  await page.reload();
+  await expect(cases).toHaveCount(2);
+
+  // With the owner's limit blank (identity restarted without it), the page says no limit is set and the form is open:
+  // the lockout does not invent a limit.
+  identityKycAttempts(false);
+  try {
+    await page.reload();
+    await expect(attempts).toHaveAttribute('data-state', 'unset', { timeout: 30_000 });
+    await expect(attempts).toContainText('No attempt limit is set.');
+    await expect(attempts.getByTestId('verification__attempts-locked')).toHaveCount(0);
+    const unset = await (await api(who)).get('/api/identity/trpc/kyc.attempts.read');
+    expect(unset.body.result.data).toMatchObject({ limit: null, denialsInWindow: null, lockedUntil: null });
+  } finally {
+    identityKycAttempts(true);
+  }
 });
+
+/** Identity restarted with the owner's verification attempt limit blank, or back on the stack's TEST limit. */
+function identityKycAttempts(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+  else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
+    else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = before;
+  }
+}
 
 /** Identity restarted with the owner's proof-of-address recency rule blank, or back on the stack's TEST rule. */
 function identityPoaRule(on) {
@@ -772,11 +817,25 @@ async function setPostingFreeze(browser, frozen) {
   expect((await readFreeze(a)).state.frozen).toBe(frozen);
 }
 
+/** Set from just before #7 asks for the posting freeze until it is lifted, so the teardown below can lift it after a timeout. */
+let freezeOn = false;
+
+// A posting freeze left on refuses every later journey's posts on this stack (main run 41151424814: J-ops-console-22 and
+// J-pay-03 went red with ledger.frozen). A timeout closes the test's own pages before its finally can run, so the
+// freeze is lifted here on fresh founder pages, as J-ops-console-04's holds journey does.
+test.afterEach(async ({ browser }) => {
+  if (!freezeOn) return;
+  founders.a = null;
+  founders.b = null;
+  await setPostingFreeze(browser, false);
+  freezeOn = false;
+});
+
 /** Wording that would make the platform's posting freeze read as this account's own restriction. */
 const ACCOUNT_HOLD_WORDS = /restricted|on hold|suspended|your account is (limited|blocked|frozen)/i;
 
 test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
   // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
   const who = await fundedTrader(page, 'kvfz', '100');
@@ -785,6 +844,7 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
   const before = await client.balances();
   const restingBefore = (await openOrders(who)).map((o) => o.id);
   try {
+    freezeOn = true;
     await setPostingFreeze(browser, true);
     // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
     const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
@@ -836,5 +896,6 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     ).toHaveCount(0);
   } finally {
     await setPostingFreeze(browser, false);
+    freezeOn = false;
   }
 });

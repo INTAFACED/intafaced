@@ -90,6 +90,14 @@ type Fields = {
   asset: string;
   budget: string;
   perPerson: string;
+  /** How many rewards one customer may take in each period, and the period in whole hours (CM-eligibility-rules-03). */
+  perCustomerCount: string;
+  perCustomerHours: string;
+  /** The most rewards for everyone together; blank: the budget is the only cap. */
+  totalRedemptions: string;
+  /** A voucher campaign's claim-by and use-by, read in the campaign's zone (J-campaigns-08); blank refuses each claim. */
+  claimBy: string;
+  useBy: string;
 };
 
 /** The zone stored times are shown in: the campaign's own, else the platform's, else UTC as this console shows times. */
@@ -112,7 +120,28 @@ const fieldsOf = (c: Campaign | null, platform: string | null): Fields => ({
   asset: c?.budget?.asset ?? c?.reward?.asset ?? 'USDT',
   budget: c?.budget?.limit ?? '',
   perPerson: c?.reward?.amount ?? '',
+  perCustomerCount: c?.limits?.perCustomer?.count ? String(c.limits.perCustomer.count) : '',
+  perCustomerHours: c?.limits?.perCustomer?.periodSeconds ? String(Number((c.limits.perCustomer.periodSeconds / 3600).toFixed(4))) : '',
+  totalRedemptions: c?.limits?.totalRedemptions ? String(c.limits.totalRedemptions) : '',
+  claimBy: c?.vouchers?.claimBy ? isoToZonedInput(c.vouchers.claimBy, shownZone(c, platform)) : '',
+  useBy: c?.vouchers?.useBy ? isoToZonedInput(c.vouchers.useBy, shownZone(c, platform)) : '',
 });
+
+/** A whole number from 1 to `max` typed in a field, or null when blank; NaN when it is not one. */
+const wholeOf = (raw: string, max: number): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = /^[1-9]\d*$/.test(t) ? Number(t) : NaN;
+  return n <= max ? n : NaN;
+};
+
+/** A period typed in hours (a decimal is allowed) as whole seconds, from a minute to a year; null when blank. */
+const periodOf = (raw: string): number | null => {
+  const t = raw.trim();
+  if (t === '') return null;
+  const seconds = /^\d+(\.\d+)?$/.test(t) ? Math.round(Number(t) * 3600) : NaN;
+  return seconds >= 60 && seconds <= 31_536_000 ? seconds : NaN;
+};
 
 type Outcome =
   | { kind: 'done'; text: string }
@@ -157,15 +186,27 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
       };
     }
     case 'time': {
-      const typed = f.startsAt.trim() || f.endsAt.trim();
+      const voucher = f.type === 'voucher';
+      const typed = f.startsAt.trim() || f.endsAt.trim() || (voucher && (f.claimBy.trim() || f.useBy.trim()));
       if (typed && !f.timeZone) return 'Pick the time zone first: the start and end are read in it.';
       // A time that is not one in the zone (30 February, or one a clock change skips) refuses; it is never moved.
       const at = (typed: string) => (typed.trim() ? zonedInputToIso(typed, f.timeZone) : undefined);
       const startsAt = at(f.startsAt);
       const endsAt = at(f.endsAt);
       if (startsAt === null || endsAt === null) return `A start or end time is not a time in ${f.timeZone}.`;
+      const claimBy = voucher ? at(f.claimBy) : undefined;
+      const useBy = voucher ? at(f.useBy) : undefined;
+      if (claimBy === null || useBy === null) return `A claim-by or use-by time is not a time in ${f.timeZone}.`;
       if ((f.hoursFrom === '') !== (f.hoursTo === '')) return 'Daily hours need both a from and a to time, or neither.';
       const asset = f.asset.trim().toUpperCase();
+      const [count, period, total] = [
+        wholeOf(f.perCustomerCount, 1_000_000),
+        periodOf(f.perCustomerHours),
+        wholeOf(f.totalRedemptions, 100_000_000),
+      ];
+      if (Number.isNaN(count)) return 'Rewards per customer is a whole number from 1 to 1,000,000, or blank.';
+      if (Number.isNaN(period)) return 'The period is in hours, from one minute (0.0167) to a year (8,760), or blank.';
+      if (Number.isNaN(total)) return 'Rewards in all is a whole number from 1 to 100,000,000, or blank.';
       // Blank stays blank: the gate names a blank budget or limit, and svc-campaigns checks every amount.
       return {
         startsAt: startsAt ?? null,
@@ -175,6 +216,12 @@ function patchFor(step: BuilderStep, f: Fields, rule: ParticipationRules['rule']
         hours: f.hoursFrom ? { from: f.hoursFrom, to: f.hoursTo } : null,
         budget: f.budget.trim() ? { asset, limit: f.budget.trim() } : null,
         reward: f.perPerson.trim() ? { asset, amount: f.perPerson.trim() } : null,
+        limits: {
+          perCustomer: count === null && period === null ? null : { count, periodSeconds: period },
+          totalRedemptions: total,
+        },
+        // Only a voucher campaign has a window; blank stays blank, and each claim then refuses campaigns.voucher_window_unset.
+        ...(voucher ? { vouchers: claimBy || useBy ? { claimBy: claimBy ?? null, useBy: useBy ?? null } : null } : {}),
       };
     }
     case 'rules':
@@ -685,6 +732,29 @@ export function CampaignBuilder({
                   <input id="cmp-ends" type="datetime-local" value={fields.endsAt} onChange={(e) => set({ endsAt: e.target.value })} />
                 </div>
               </div>
+              {fields.type === 'voucher' && (
+                <>
+                  <div className="dk-row">
+                    <div className="adm-field">
+                      <label htmlFor="cmp-claim-by">Vouchers claimable until</label>
+                      <input
+                        id="cmp-claim-by"
+                        type="datetime-local"
+                        value={fields.claimBy}
+                        onChange={(e) => set({ claimBy: e.target.value })}
+                      />
+                    </div>
+                    <div className="adm-field">
+                      <label htmlFor="cmp-use-by">Claimed vouchers usable until</label>
+                      <input id="cmp-use-by" type="datetime-local" value={fields.useBy} onChange={(e) => set({ useBy: e.target.value })} />
+                    </div>
+                  </div>
+                  <p className="dk-muted">
+                    Each voucher keeps the claim-by and use-by of the revision it was issued under. The use-by cannot be before the
+                    claim-by. While either is blank, every claim refuses campaigns.voucher_window_unset.
+                  </p>
+                </>
+              )}
               <fieldset className="adm-field">
                 <legend>Weekdays (none ticked: every day)</legend>
                 {WEEKDAYS.map((d, i) => (
@@ -730,6 +800,40 @@ export function CampaignBuilder({
                   />
                 </div>
               </div>
+              <div className="dk-row">
+                <div className="adm-field">
+                  <label htmlFor="cmp-per-customer">Rewards per customer</label>
+                  <input
+                    id="cmp-per-customer"
+                    inputMode="numeric"
+                    value={fields.perCustomerCount}
+                    onChange={(e) => set({ perCustomerCount: e.target.value })}
+                  />
+                </div>
+                <div className="adm-field">
+                  <label htmlFor="cmp-per-customer-hours">In any period of, hours</label>
+                  <input
+                    id="cmp-per-customer-hours"
+                    inputMode="numeric"
+                    value={fields.perCustomerHours}
+                    onChange={(e) => set({ perCustomerHours: e.target.value })}
+                  />
+                </div>
+                <div className="adm-field">
+                  <label htmlFor="cmp-total">Rewards in all</label>
+                  <input
+                    id="cmp-total"
+                    inputMode="numeric"
+                    value={fields.totalRedemptions}
+                    onChange={(e) => set({ totalRedemptions: e.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="dk-muted">
+                One customer takes at most that many rewards (a reward, a welcome task or a voucher redemption each count once) in any
+                period of that length; both must be set before the campaign can go live. Rewards in all, when set, caps everyone together;
+                blank leaves the budget as the only cap.
+              </p>
               <p className="dk-muted">
                 The budget is the most the campaign may ask the reward pot for: a limit, not a balance. Nothing is reserved or paid until a
                 customer qualifies. The reward per person is what one customer receives from this campaign, and the most they may: a task

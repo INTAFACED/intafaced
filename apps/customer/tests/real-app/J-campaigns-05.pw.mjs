@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
-import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode, tool, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode, restartWith, tool, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-campaigns-05, in the running app (docs/roadmap/journeys.json): I get my referral link and bring a friend. One test
@@ -241,6 +241,28 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
   expect(again.data.requestId).toBe(mine.requestId);
   expect((await (await api(late)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data).toBeNull();
   run.write({ requestId: mine.requestId, referrerId });
+
+  // With no window set at all, a new account inside any window is refused by that name, never as "too late".
+  await signOutBrowser(page.context());
+  const unsetWho = await signUp(page, 'jc5u');
+  restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', false);
+  try {
+    await signOutBrowser(page.context());
+    await signIn(page, unsetWho);
+    const unset = await accept(page, token);
+    await expect(unset.getByRole('heading', { name: /Visit recorded\.\s*No referral attached\./ })).toBeVisible();
+    await expect(
+      unset.getByText('Joining through an invitation link is closed: the owner has not set how long after sign-up it is allowed.'),
+    ).toBeVisible();
+    await expect(unset.getByText('HTTP 412 · referral.attach_window_unset')).toBeVisible();
+    await expect(unset.getByText('The time to join through an invitation link has passed for your account.')).toHaveCount(0);
+    await expect(page.locator('[data-window="unset"]')).toBeVisible();
+    const direct = await identity(unsetWho, 'affiliates.shareHits', { token });
+    expect(direct.code).toBe('referral.attach_window_unset');
+    expect((await (await api(unsetWho)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data).toBeNull();
+  } finally {
+    restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', true);
+  }
 });
 
 test(`${J} #6 a second person approves; the new parent applies from then; approving my own is refused`, async ({ page }) => {

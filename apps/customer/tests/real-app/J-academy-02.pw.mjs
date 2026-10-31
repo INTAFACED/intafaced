@@ -267,10 +267,22 @@ test(`${J} #8 with a mail address and no mail provider for Academy, enrolment wo
 }) => {
   const { who, first } = state('who', 'first');
   expect(who.email).toMatch(/@/);
+  // Academy's own answer names the missing mail provider: it has no mail sender of its own.
+  const terms = await (
+    await api(who)
+  ).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug: first }))}`);
+  expect(terms.status, JSON.stringify(terms.body).slice(0, 300)).toBe(200);
+  expect(terms.body.result.data.activationMail).toBe('vendor.email');
+
+  // The enrolment is made in this step: leave the course, then enrol again from its page.
   await signIn(page, who);
   await page.goto(`/academy/learning/course/${first}`);
   const block = enrolBlock(page);
+  await block.getByRole('button', { name: 'Leave course', exact: true }).click();
+  await block.getByRole('button', { name: 'Confirm leave', exact: true }).click();
+  await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  expect((await enrolments(who)).filter((row) => row.pathSlug === first)).toHaveLength(1);
   await expect(block.locator('[data-not-connected="vendor.email"]')).toHaveText(
     'The activation mail needs an email delivery provider. It is switched off in this build. vendor.email',
   );

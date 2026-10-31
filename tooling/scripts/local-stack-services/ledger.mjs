@@ -19,6 +19,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
+    // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
+    // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
+    LEDGER_CLOCK_SKEW_BOUND_MS: '1000',
     // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
     RECONCILE_CRON_MINUTES: '60',
     // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.

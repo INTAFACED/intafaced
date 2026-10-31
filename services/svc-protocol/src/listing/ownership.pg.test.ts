@@ -11,9 +11,11 @@ import { PostgresListingStore } from './ownership.pg.js';
 /** `protocol.listing_challenges` and `listing_ownership_proofs` (20261029070000) on a real test database. Deletes only this file's rows. */
 const URL = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
-const migrations = ['20261029070000_protocol_listing_ownership.sql', '20261030193000_protocol_listing_spent_expiry.sql'].map((file) =>
-  join(here, '..', '..', 'drizzle', file),
-);
+const migrations = [
+  '20261029070000_protocol_listing_ownership.sql',
+  '20261030193000_protocol_listing_spent_expiry.sql',
+  '20261031001738_protocol_listing_chain_identity.sql',
+].map((file) => join(here, '..', '..', 'drizzle', file));
 const available = URL ? await postgresAvailable(URL) : false;
 // The service's own client: drizzle shares it and reads timestamps back as text, which the store must handle.
 const db = URL && available ? createDb({ url: URL, schema: 'protocol', max: 4 }, {}) : null;
@@ -23,8 +25,10 @@ const TOKEN = '0x00000000000000000000000000000000000ab001' as const;
 const OWNER = privateKeyToAccount(`0x${'77'.repeat(32)}`);
 const T0 = new Date('2026-10-30T12:00:00.000Z');
 
+const GENESIS = `0x${'c'.repeat(64)}` as const;
 const chain: OwnershipChain = {
   chainId: CHAIN_ID,
+  identity: async () => ({ chainId: CHAIN_ID, genesisHash: GENESIS }),
   owner: async () => ({ owner: OWNER.address, blockNumber: 1234n }),
   hasCode: async () => false,
   isValidSignature: async () => null,
@@ -55,15 +59,21 @@ if (!sql) {
       const store = new PostgresListingStore(sql!);
       const challenge = await issueChallenge(store, chain, 300, TOKEN, T0, 'ab'.repeat(16));
       const found = await store.findChallenge(challenge.nonce);
-      expect(found).toMatchObject({ nonce: challenge.nonce, chainId: CHAIN_ID, message: challenge.message, usedAt: null });
+      expect(found).toMatchObject({
+        nonce: challenge.nonce,
+        chainId: CHAIN_ID,
+        genesisHash: GENESIS,
+        message: challenge.message,
+        usedAt: null,
+      });
       expect(found!.expiresAt.toISOString()).toBe('2026-10-30T12:05:00.000Z');
 
       const signature = await OWNER.signMessage({ message: challenge.message });
       const proof = await verifyOwnership(store, chain, { nonce: challenge.nonce, signature }, new Date(T0.getTime() + 1000));
       expect(proof.signer).toBe(OWNER.address);
       const rows =
-        await sql!`SELECT signer, block_number::text AS block, signature FROM protocol.listing_ownership_proofs WHERE nonce = ${challenge.nonce}`;
-      expect(rows).toEqual([{ signer: OWNER.address, block: '1234', signature }]);
+        await sql!`SELECT signer, block_number::text AS block, genesis_hash, signature FROM protocol.listing_ownership_proofs WHERE nonce = ${challenge.nonce}`;
+      expect(rows).toEqual([{ signer: OWNER.address, block: '1234', genesis_hash: GENESIS, signature }]);
       expect((await store.findChallenge(challenge.nonce))!.usedAt).not.toBeNull();
 
       await expect(

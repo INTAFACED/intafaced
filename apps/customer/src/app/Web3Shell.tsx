@@ -33,7 +33,7 @@ const PHONE = ['nav_swap', 'nav_pools', 'nav_wallet', 'nav_explorer'] as const;
  */
 export function Web3Shell({ path, children }: { path: string; children: ReactNode }) {
   return (
-    <WalletProvider>
+    <WalletProvider scope={path}>
       <Web3Frame path={path}>{children}</Web3Frame>
     </WalletProvider>
   );

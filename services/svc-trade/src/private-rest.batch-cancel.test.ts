@@ -156,6 +156,14 @@ describe('POST /api/v1/orders/batch-cancel', () => {
     expect(results[1]?.status).toBe('success');
   });
 
+  it('an order the cancel leaves open with its hold (a matched fill still settling) is unknown, never a success', async () => {
+    const app = await build(deps({ cancelOrder: async (_p, id) => fakeOrder({ id, status: id === ID1 ? 'open' : 'cancelled' }) }));
+    const res = await post(app, { ids: [ID1, ID2] });
+    const results = (res.json() as { results: Array<{ status: string; error?: { intafacedCode: string } }> }).results;
+    expect(results[0]).toMatchObject({ status: 'unknown', error: { intafacedCode: 'trade.cancel_ahead_of_fill' } });
+    expect(results[1]?.status).toBe('success');
+  });
+
   it('refuses a repeated id and a non-string id without calling cancel for them', async () => {
     let calls = 0;
     const app = await build(

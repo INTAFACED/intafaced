@@ -1,7 +1,9 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signUpInBrowser, staffFreeze } from './stack.mjs';
+import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
+import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signOutBrowser, signUpInBrowser, staffFreeze, tool } from './stack.mjs';
+import { founderSignIn } from './admin.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
@@ -45,8 +47,24 @@ test(`${J} #1 signs in with the email or the handle and a password; an unknown n
   await page.reload();
   await fillSignIn(page, who.email, `${who.password}-wrong`);
   await expect(refusal).toHaveText(unknown);
-  await fillSignIn(page, who.handle, who.password);
-  await expect(page).not.toHaveURL(/\/login/);
+  // The handle with the password signs in, and so does the email with the password; identity answers both with the
+  // same account.
+  const signedInAs = async (identifier) => {
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await fillSignIn(page, identifier, who.password);
+    const res = await answered;
+    expect(res.status(), identifier).toBe(200);
+    await expect(page).not.toHaveURL(/\/login/);
+    return (await res.json()).result.data.userId;
+  };
+  const byHandle = await signedInAs(who.handle);
+  await page.goto('about:blank');
+  await signOutBrowser(page.context());
+  await page.goto('/login');
+  const byEmail = await signedInAs(who.email);
+  expect(byEmail).toBe(byHandle);
+  await page.goto('/uc/account');
+  await expect(page).toHaveURL(/\/uc\/account$/);
 });
 
 test(`${J} #8 a private address while signed out goes to sign-in and back to that exact room; a reload keeps the sign-in`, async ({
@@ -86,6 +104,89 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
   // Even the right password waits out the pause, and the page says how long.
   await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min\./);
   await expect(page).toHaveURL(/\/login/);
+});
+
+/** Restarts identity with the sign-in challenge after `count` failures from an address, or the stack's TEST count. */
+function challengeAfter(count) {
+  const before = process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
+  if (count === null) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
+  else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = String(count);
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
+    else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = before;
+  }
+}
+
+/** A raw `auth.login` from this machine's address, answering the status and the typed code (or `ok`). */
+async function rawLogin(input) {
+  const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json();
+  const data = body.error?.data;
+  return { status: res.status, code: data ? (data.intafacedCode ?? data.cause?.code ?? data.code) : 'ok' };
+}
+
+test(`${J} #2 (I-signin-sessions-30): after the owner's count of failures from this address the next sign-in solves the self-hosted challenge; a used challenge is refused`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const who = await account(browser);
+  // The owner's count, for this test: one failure from this address (TEST), then every sign-in from it needs a challenge.
+  challengeAfter(1);
+  try {
+    await page.goto('/login');
+    await fillSignIn(page, who.email, `${who.password}-wrong`);
+    await expect(page.getByTestId('failure')).toContainText('Those details did not work');
+    await page.reload();
+
+    // Without a solved challenge the right password is refused by its code, the same for a name that does not exist.
+    expect(await rawLogin({ identifier: who.email, password: who.password })).toEqual({ status: 403, code: 'auth.challenge_required' });
+    expect(await rawLogin({ identifier: `nobody-${who.handle}@local-test.invalid`, password: who.password })).toEqual({
+      status: 403,
+      code: 'auth.challenge_required',
+    });
+
+    // The page solves the challenge in the browser, says so while it works, and signs in.
+    const issued = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/auth.challenge'));
+    await fillSignIn(page, who.email, who.password);
+    expect((await issued).status()).toBe(200);
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 30_000 });
+
+    // A challenge solved by hand works once; the same one again is refused.
+    const res = await fetch(`${EDGE}/api/identity/trpc/auth.challenge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    const challenge = (await res.json()).result.data;
+    expect(challenge.bits).toBe(12);
+    let nonce = 0;
+    const digestOf = (n) =>
+      createHash('sha256')
+        .update(signInChallengeText(challenge.token, n.toString(36)))
+        .digest();
+    while (!signInChallengeMet(digestOf(nonce), challenge.bits)) nonce += 1;
+    const proof = { token: challenge.token, nonce: nonce.toString(36) };
+    expect((await rawLogin({ identifier: who.email, password: who.password, challenge: proof })).code).not.toMatch(/^auth\.challenge/);
+    expect(await rawLogin({ identifier: who.email, password: who.password, challenge: proof })).toEqual({
+      status: 403,
+      code: 'auth.challenge_used',
+    });
+
+    // The founder console signs in from the same address, so it is asked too: the founder's browser solves the check.
+    const consolePage = await browser.newPage();
+    const asked = consolePage.waitForResponse((r) => new URL(r.url()).pathname === '/api/session/challenge');
+    await founderSignIn(consolePage, 'a');
+    expect((await asked).status()).toBe(200);
+    await consolePage.close();
+  } finally {
+    challengeAfter(null);
+  }
 });
 
 /** Ask for a sign-in code by email or handle on /login; answers with the newest code mailed to `email` (if any arrives). */
@@ -203,6 +304,65 @@ test(`${J} #5 a browser never used before is asked to authorise this device, by 
   await fillSignIn(page, who.email, who.password);
   await expect(page.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
   await fresh.close();
+});
+
+test(`${J} #5 a new device's sign-in waits until a signed-in session on a trusted device approves it`, async ({ browser }) => {
+  test.setTimeout(180_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person();
+  // The trusted side: the TEST browser this account signed up on, signed in, with an authenticator for the step-up.
+  const trustedContext = await browser.newContext();
+  const trusted = await trustedContext.newPage();
+  await signUpInBrowser(trusted, who);
+  let { secret, step } = await addAuthenticator(trusted, totp);
+
+  // A browser this account has never signed in on asks to authorise this device, and waits.
+  const fresh = await browser.newContext();
+  await fresh.clearCookies();
+  const waiting = await fresh.newPage();
+  await waiting.goto('/login');
+  await fillSignIn(waiting, who.email, who.password);
+  // The account has an authenticator, so its code comes first; only then is the browser itself asked about.
+  let code;
+  ({ code, step } = await nextCode(totp, secret, step));
+  await waiting.fill('input[name=totp]', code);
+  await fillSignIn(waiting, who.email, who.password);
+  await expect(waiting.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
+
+  // The signed-in session sees the waiting sign-in and approves it, confirmed with its authenticator.
+  await trusted.goto('/uc/safe');
+  const card = trusted.locator('section.security__trusted-devices');
+  await expect(card.getByRole('heading', { name: 'Waiting for your approval' })).toBeVisible({ timeout: 15_000 });
+  const approve = card.getByRole('button', { name: /^Approve / });
+  await expect(approve).toHaveCount(1);
+  await approve.click();
+  await expect(card.getByText('Confirm it is you. The waiting browser then signs in by itself.')).toBeVisible();
+  ({ code, step } = await nextCode(totp, secret, step));
+  await card.getByLabel('6-digit code from your authenticator app').fill(code);
+  const approved = trusted.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/trustedDevices.approve'));
+  await card.getByRole('button', { name: 'Confirm with code' }).click();
+  expect((await approved).status()).toBe(200);
+  await expect(card.getByRole('status').filter({ hasText: 'Approved.' })).toBeVisible();
+  await expect(card.getByRole('heading', { name: 'Waiting for your approval' })).toHaveCount(0);
+
+  // The waiting browser signs in by itself, with no code typed there, and is trusted from now on.
+  await expect(waiting).not.toHaveURL(/\/login/, { timeout: 30_000 });
+  // Signing in there again asks for the authenticator code, as every sign-in of this account does, but not about the
+  // browser any more.
+  // Signed out there (the session cookie and the tab's state go; the browser's own device cookie stays), and the page
+  // shows it, so the sign-in below really happens.
+  await waiting.context().clearCookies({ name: 'ifc_rt' });
+  await waiting.evaluate(() => sessionStorage.clear());
+  await waiting.goto('/uc/safe');
+  await expect(waiting.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  await waiting.goto('/login');
+  ({ code, step } = await nextCode(totp, secret, step));
+  await waiting.fill('input[name=totp]', code);
+  await fillSignIn(waiting, who.email, who.password);
+  await expect(waiting).not.toHaveURL(/\/login/, { timeout: 10_000 });
+  await expect(waiting.getByRole('heading', { name: 'Authorise this device' })).toHaveCount(0);
+  await fresh.close();
+  await trustedContext.close();
 });
 
 test(`${J} #7 a frozen account is named after the right password, with the way to support; a wrong password names nothing`, async ({
