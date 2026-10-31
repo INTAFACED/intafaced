@@ -1280,6 +1280,7 @@ describe('svc-p2p payment instruments', () => {
         'trades.markFiatSent': { tradeId: trade.id },
         'trades.confirmReceived': { tradeId: trade.id },
         'trades.cancel': { tradeId: trade.id },
+        'trades.requestCancel': { tradeId: trade.id },
         'trades.get': { tradeId: trade.id },
         'trades.list': { limit: 50 },
         'trades.paymentInstrument': { tradeId: trade.id },
