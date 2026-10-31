@@ -40,7 +40,7 @@ const en = {
   unreadable: 'The file came back damaged. Nothing was saved. Try again.',
   refused: 'The bank refused this export.',
   activityLink: 'Statements and exports',
-  activityLinkHint: 'for a monthly statement, your ledger, your trades or balances.',
+  activityLinkHint: 'for a monthly statement, every transaction, your trades or balances.',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -83,7 +83,7 @@ const es: Record<keyof typeof en, string> = {
   unreadable: 'El archivo llegó dañado. No se guardó nada. Inténtalo de nuevo.',
   refused: 'El banco rechazó esta exportación.',
   activityLink: 'Extractos y exportaciones',
-  activityLinkHint: 'para un extracto mensual, tu libro, tus operaciones o tus saldos.',
+  activityLinkHint: 'para un extracto mensual, cada transacción, tus operaciones o tus saldos.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -127,7 +127,7 @@ const fr: Record<keyof typeof en, string> = {
   unreadable: 'Le fichier est arrivé endommagé. Rien n’a été enregistré. Réessayez.',
   refused: 'La banque a refusé cet export.',
   activityLink: 'Relevés et exports',
-  activityLinkHint: 'pour un relevé mensuel, votre grand livre, vos opérations ou vos soldes.',
+  activityLinkHint: 'pour un relevé mensuel, chaque transaction, vos opérations ou vos soldes.',
 };
 
 export const statementCentreCopy = defineCopy('customer.money.statement-centre', en, { es, fr });
