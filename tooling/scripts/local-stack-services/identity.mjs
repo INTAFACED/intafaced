@@ -76,8 +76,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
     // not an owner decision. The confirm link is written to the outbox file, labelled
     // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
-    IDENTITY_MAIL_TRANSPORT: 'local-outbox',
-    IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
+    // `LOCAL_STACK_IDENTITY_MAIL=off` on a start or restart leaves the transport out, as a build with no mail provider
+    // runs, so the sign-up page's "email is switched off" notice can be seen (J-identity-01 #4).
+    ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
+      ? {}
+      : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
