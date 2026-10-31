@@ -25,7 +25,7 @@ import {
 import { approvalPayloadHash } from '../operator-desks.js';
 import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
-import { StaffHoldDesk, type StaffHoldLedger, type StaffHoldSettings } from './desk.js';
+import { StaffHoldDesk, type HoldOwnerArchive, type StaffHoldLedger, type StaffHoldSettings } from './desk.js';
 import { MemoryStaffHoldStore, type StaffHoldStore } from './store.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
@@ -169,7 +169,7 @@ async function build(
     ledger?: TestLedger | null;
     ticking?: boolean;
     /** Identity's archive answer for the hold's owner; null leaves the port unwired. */
-    archive?: { archived(userId: string): Promise<boolean | 'unreadable'> } | null;
+    archive?: HoldOwnerArchive | null;
   } = {},
 ) {
   const ids = identity();
@@ -185,7 +185,7 @@ async function build(
     store: options.store === null ? undefined : (options.store ?? new MemoryStaffHoldStore()),
     ledger: ledger ?? undefined,
     approvals: ids,
-    ...(options.archive === null ? {} : { ownerArchive: options.archive ?? { archived: async () => false } }),
+    ownerArchive: options.archive === null ? undefined : (options.archive ?? { archived: async () => false }),
     settings: options.settings ?? SETTINGS,
     // `ticking`: every reading of the clock is a millisecond later, as in a running process.
     now: () => new Date(options.ticking ? clock++ : clock),
@@ -313,16 +313,19 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
 
   it('an archived customer: confirm refuses identity.account_archived before the approval is spent; release still works', async () => {
     const asked: string[] = [];
+    let archived = false;
     const { caller, ledger, ids } = await build({
       archive: {
         archived: async (userId) => {
           asked.push(userId);
-          return true;
+          return archived;
         },
       },
     });
     const c = await caller();
     await c.staffHolds.place(place());
+    archived = true;
+    asked.length = 0;
     await expect(c.staffHolds.confirm(confirm(ids, '1'))).rejects.toThrow(/identity\.account_archived/);
     expect(asked).toEqual([CUSTOMER]);
     expect(ids.spent()).toBe(0);
@@ -333,15 +336,45 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
     expect(await ledger.balance(available())).toBe('100');
   });
 
-  it('confirm refuses ops.hold_account_unreadable when identity gives no answer, or is not wired, and nothing is spent', async () => {
-    for (const archive of [{ archived: async () => 'unreadable' as const }, null]) {
-      const { caller, ledger, ids } = await build({ archive });
+  it('a confirm done before the record was archived replays as stored, and posts nothing more', async () => {
+    let archived = false;
+    const { caller, ledger, ids } = await build({ archive: { archived: async () => archived } });
+    const c = await caller();
+    await c.staffHolds.place(place());
+    const input = confirm(ids, '1');
+    await c.staffHolds.confirm(input);
+    const posts = ledger.posts;
+    archived = true;
+    expect(await c.staffHolds.confirm(input)).toMatchObject({ outcome: 'replayed' });
+    expect(ledger.posts).toBe(posts);
+  });
+
+  it('confirm refuses ops.hold_account_unreadable when identity gives no answer, and nothing is spent', async () => {
+    let answer: boolean | 'unreadable' = false;
+    const { caller, ledger, ids } = await build({ archive: { archived: async () => answer } });
+    const c = await caller();
+    await c.staffHolds.place(place());
+    answer = 'unreadable';
+    await expect(c.staffHolds.confirm(confirm(ids, '1'))).rejects.toThrow(/ops\.hold_account_unreadable/);
+    expect(ids.spent()).toBe(0);
+    expect(await ledger.balance(held('1'))).toBe('40');
+  });
+
+  it('a new hold on an archived customer refuses identity.account_archived, and on no answer or no port ops.hold_account_unreadable; nothing is held', async () => {
+    for (const [answer, code] of [
+      [true, /identity\.account_archived/],
+      ['unreadable', /ops\.hold_account_unreadable/],
+    ] as const) {
+      const { caller, ledger } = await build({ archive: { archived: async () => answer } });
       const c = await caller();
-      await c.staffHolds.place(place());
-      await expect(c.staffHolds.confirm(confirm(ids, '1'))).rejects.toThrow(/ops\.hold_account_unreadable/);
-      expect(ids.spent()).toBe(0);
-      expect(await ledger.balance(held('1'))).toBe('40');
+      await expect(c.staffHolds.place(place())).rejects.toThrow(code);
+      expect(await ledger.balance(held('1'))).toBe('0');
+      expect(await ledger.balance(available())).toBe('100');
+      expect((await c.staffHolds.list({ userId: CUSTOMER })).holds).toEqual([]);
+      expect(ledger.posts).toBe(0);
     }
+    const { caller } = await build({ archive: null });
+    await expect((await caller()).staffHolds.place(place())).rejects.toThrow(/ops\.hold_account_unreadable/);
   });
 
   it('a release and a confirm asked for at the same moment: exactly one posts', async () => {

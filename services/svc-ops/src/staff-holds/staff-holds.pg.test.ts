@@ -81,6 +81,7 @@ describe('staff holds on real PostgreSQL', () => {
       );
       const ids = approvals();
       const desk = new StaffHoldDesk({
+        ownerArchive: { archived: async () => false },
         store: new SqlStaffHoldStore(sql),
         ledger: { post: (request) => ledger.post(request), findByKey: (key) => keyOf(ledger, key) },
         approvals: ids,
@@ -169,6 +170,7 @@ describe('staff holds on real PostgreSQL', () => {
       let clock = Date.parse('2026-10-24T08:00:00.000Z');
       const store = new SqlStaffHoldStore(sql);
       const desk = new StaffHoldDesk({
+        ownerArchive: { archived: async () => false },
         store,
         ledger,
         approvals: approvals(),
@@ -223,6 +225,7 @@ describe('staff holds on real PostgreSQL', () => {
       let clock = Date.parse('2026-10-24T08:00:00.000Z');
       const store = new SqlStaffHoldStore(sql);
       const desk = new StaffHoldDesk({
+        ownerArchive: { archived: async () => false },
         store,
         ledger,
         approvals: approvals(),
@@ -274,6 +277,7 @@ describe('staff holds on real PostgreSQL', () => {
       // A post turned back waits before it is sent again: unsettled() leaves it out until it is due.
       timeouts = 0;
       const frozen = new StaffHoldDesk({
+        ownerArchive: { archived: async () => false },
         store,
         ledger: {
           post: async () => {

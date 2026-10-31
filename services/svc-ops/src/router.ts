@@ -854,6 +854,7 @@ export function createOpsRouter(
           store: undefined,
           ledger: undefined,
           approvals: desks.approvals,
+          ownerArchive: undefined,
           settings: { confirmAccount: null, expiryMaxHours: null },
           now: () => new Date(),
         }),

@@ -77,8 +77,8 @@ export interface HoldOwnerArchive {
 
 export interface StaffHoldDeskDeps {
   readonly store: StaffHoldStore | undefined;
-  /** Identity's archive state of a hold's owner. Absent: a confirm refuses `ops.hold_account_unreadable`. */
-  readonly ownerArchive?: HoldOwnerArchive;
+  /** Identity's archive state of a hold's owner. Undefined: a place or a confirm refuses `ops.hold_account_unreadable`. */
+  readonly ownerArchive: HoldOwnerArchive | undefined;
   readonly ledger: StaffHoldLedger | undefined;
   readonly approvals: ApprovalConsumer | undefined;
   readonly settings: StaffHoldSettings;
@@ -226,6 +226,8 @@ export class StaffHoldDesk {
       if (!same(prior.hold)) throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'this key already placed a different hold');
       return this.finish(prior.hold.holdNo, placeKey, true);
     }
+    // An archived record takes no new staff action, so a new hold on it is refused before anything is stored or held.
+    await this.refuseArchived(input.userId, 'placed');
     if (hours !== null) {
       const max = this.deps.settings.expiryMaxHours;
       if (max === null)
@@ -289,6 +291,10 @@ export class StaffHoldDesk {
     this.ledger();
     const confirmAccount = this.deps.settings.confirmAccount;
     const requestKey = `ops.hold.confirm:${input.approvalId.trim()}`;
+    // Identity is asked before the hold's row lock is taken, so a slow answer holds no lock or connection; the answer is
+    // applied under the lock, and only to a new confirm (a replay answers as stored).
+    const owner = await this.store().lock(input.holdNo, async (locked) => locked.hold.userId);
+    const archived = owner === null ? null : await this.archivedOf(owner);
     return this.act(
       input.holdNo,
       requestKey,
@@ -301,17 +307,7 @@ export class StaffHoldDesk {
           );
         // A confirm moves the held money onward, a new movement, so an archived (read-only) record refuses it before the
         // approval is spent (lead ruling 2026-10-31). Release stays open: it only gives back what is already held.
-        const archived = this.deps.ownerArchive ? await this.deps.ownerArchive.archived(locked.hold.userId) : 'unreadable';
-        if (archived === 'unreadable')
-          throw new OpsError(
-            OPS_HOLD_ACCOUNT_UNREADABLE,
-            'Whether this customer record is archived could not be read, so the hold was not confirmed. Nothing was posted.',
-          );
-        if (archived)
-          throw new OpsError(
-            OPS_HOLD_ACCOUNT_ARCHIVED,
-            'This customer record is archived and read-only, so the hold cannot be confirmed; it can still be released. Nothing was posted.',
-          );
+        this.refuseArchive(locked.hold.userId === owner ? archived : 'unreadable', 'confirmed');
         const consumed = await consumeFounderApproval(this.deps.approvals, {
           approvalId: input.approvalId,
           operationId: input.operationId,
@@ -462,6 +458,31 @@ export class StaffHoldDesk {
   }
 
   /* ---------------------------------------------------------------- internals */
+
+  private async archivedOf(userId: string): Promise<boolean | 'unreadable'> {
+    return this.deps.ownerArchive ? this.deps.ownerArchive.archived(userId) : 'unreadable';
+  }
+
+  private refuseArchive(archived: boolean | 'unreadable' | null, verb: 'placed' | 'confirmed'): void {
+    if (archived === false) return;
+    if (archived === true)
+      throw new OpsError(
+        OPS_HOLD_ACCOUNT_ARCHIVED,
+        verb === 'placed'
+          ? 'This customer record is archived and read-only, so no hold can be placed on it. Nothing was held.'
+          : 'This customer record is archived and read-only, so the hold cannot be confirmed; it can still be released. Nothing was posted.',
+      );
+    throw new OpsError(
+      OPS_HOLD_ACCOUNT_UNREADABLE,
+      verb === 'placed'
+        ? 'Whether this customer record is archived could not be read, so no hold was placed. Nothing was held.'
+        : 'Whether this customer record is archived could not be read, so the hold was not confirmed. Nothing was posted.',
+    );
+  }
+
+  private async refuseArchived(userId: string, verb: 'placed' | 'confirmed'): Promise<void> {
+    this.refuseArchive(await this.archivedOf(userId), verb);
+  }
 
   private async act(
     holdNo: string,
