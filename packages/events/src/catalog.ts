@@ -234,7 +234,7 @@ export const deathNoticeConfirmed = defineEvent(
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
- * `identity.staff.<verb>:<staffId>:<version>`.
+ * `identity.staff.<verb>:<staffId>:<version>` (a role redefine's key is below).
  *
  * `cause` says what made the change:
  *   - `approval`: a four-eyes change. `actorId` made it and `approvalId` names the approval a second person gave and
@@ -243,7 +243,10 @@ export const deathNoticeConfirmed = defineEvent(
  *     so `approvalId` is absent (a value is refused); `actorId` is the person themselves.
  *
  * A role define changes what every current holder can do without touching their records, so identity publishes one
- * `updated` per current holder of the role, with `changedFields: ['permissions']`.
+ * `updated` (cause `approval`) per current holder of the role, with `changedFields` exactly `['permissions']`. The
+ * holder's record version does not move, so that update also carries `roleId` and `roleVersion` (the role's version
+ * after the define) and its business key is `identity.staff.updated:<staffId>:<version>:role:<roleId>:<roleVersion>`.
+ * `roleId` and `roleVersion` are required on such an update and refused on every other payload.
  *
  * Only the NAMES of the changed fields ride on the bus: no value, email, password, secret or token. A consumer re-reads
  * the record through contracts.
@@ -262,7 +265,38 @@ const staffChangeCommon = {
   /** The staff record's version after the change; part of the business key. */
   version: z.string().regex(/^(?:0|[1-9]\d*)$/),
   at: z.string().datetime({ offset: true }),
+  /** Permissions-only update from a role redefine: the role redefined and its version after it. Absent otherwise. */
+  roleId: z.string().min(1).max(128).optional(),
+  roleVersion: z
+    .string()
+    .regex(/^(?:0|[1-9]\d*)$/)
+    .optional(),
 };
+
+type StaffChangeShape = {
+  readonly cause: string;
+  readonly changedFields: readonly string[];
+  readonly roleId?: string;
+  readonly roleVersion?: string;
+};
+
+/**
+ * `roleId` and `roleVersion` go together, exactly on a permissions-only update (`changedFields` is `['permissions']`)
+ * of a four-eyes change; `created`, `deleted` and an accepted invite never are one.
+ */
+function staffRoleRedefineRule(redefineAllowed: boolean) {
+  return (payload: StaffChangeShape, ctx: z.RefinementCtx): void => {
+    const permissionsOnly = payload.changedFields.length === 1 && payload.changedFields[0] === 'permissions';
+    const hasRole = payload.roleId !== undefined || payload.roleVersion !== undefined;
+    if (permissionsOnly && !(redefineAllowed && payload.cause === 'approval')) {
+      ctx.addIssue({ code: 'custom', path: ['changedFields'], message: 'a permissions-only change is a role redefine update' });
+    } else if (permissionsOnly && (payload.roleId === undefined || payload.roleVersion === undefined)) {
+      ctx.addIssue({ code: 'custom', path: ['roleId'], message: 'a permissions-only update names the role and its version' });
+    } else if (!permissionsOnly && hasRole) {
+      ctx.addIssue({ code: 'custom', path: ['roleId'], message: 'roleId and roleVersion are only on a permissions-only update' });
+    }
+  };
+}
 
 const staffChangeByApproval = z.object({
   ...staffChangeCommon,
@@ -283,7 +317,7 @@ export const staffCreated = defineEvent(
   'staff',
   'created',
   1,
-  staffChangeByApproval,
+  staffChangeByApproval.superRefine(staffRoleRedefineRule(false)),
   'A named person was invited as staff under a four-eyes approval (OPS-admin-access-03). They hold no access until they accept.',
 );
 
@@ -292,7 +326,7 @@ export const staffUpdated = defineEvent(
   'staff',
   'updated',
   1,
-  z.discriminatedUnion('cause', [staffChangeByApproval, staffChangeByInviteAccepted]),
+  z.discriminatedUnion('cause', [staffChangeByApproval, staffChangeByInviteAccepted]).superRefine(staffRoleRedefineRule(true)),
   "A staff member's status, roles or permissions changed (OPS-admin-access-03): accepted an invite, or under a four-eyes approval was disabled, given or lost a role, or had a role of theirs redefined.",
 );
 
@@ -301,7 +335,7 @@ export const staffDeleted = defineEvent(
   'staff',
   'deleted',
   1,
-  staffChangeByApproval,
+  staffChangeByApproval.superRefine(staffRoleRedefineRule(false)),
   'A staff record was removed under a four-eyes approval (OPS-admin-access-03). The customer account, if any, is untouched.',
 );
 

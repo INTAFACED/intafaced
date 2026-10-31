@@ -61,12 +61,48 @@ describe('OPS-admin-access-03 staff events', () => {
 
   it('names changed fields from a closed list, once each, including permissions for a role redefine', () => {
     expect([...STAFF_CHANGED_FIELDS]).toEqual(['status', 'roleIds', 'displayName', 'email', 'permissions']);
-    expect(EVENT_CATALOG.staffUpdated.schema.safeParse({ ...byApproval(), changedFields: ['permissions'] }).success).toBe(true);
+    expect(
+      EVENT_CATALOG.staffUpdated.schema.safeParse({ ...byApproval(), changedFields: ['permissions'], roleId: 'r', roleVersion: '1' })
+        .success,
+    ).toBe(true);
     for (const event of events()) {
       expect(event.schema.safeParse({ ...byApproval(), changedFields: ['password'] }).success).toBe(false);
       expect(event.schema.safeParse({ ...byApproval(), changedFields: ['status', 'status'] }).success).toBe(false);
       expect(event.schema.safeParse({ ...byApproval(), version: 4 }).success).toBe(false);
     }
+  });
+
+  it('a role redefine update names the role and its version, for a business key that does not repeat', () => {
+    const redefine = { ...byApproval(), changedFields: ['permissions'], roleId: 'role-7', roleVersion: '3' };
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse(redefine).success).toBe(true);
+    // Two redefines of one role reach a holder whose record version did not move: the keys still differ.
+    const key = (p: { staffId: string; version: string; roleId: string; roleVersion: string }) =>
+      `identity.staff.updated:${p.staffId}:${p.version}:role:${p.roleId}:${p.roleVersion}`;
+    expect(key(redefine)).not.toBe(key({ ...redefine, roleVersion: '4' }));
+    // Required on a permissions-only update.
+    const { roleId: _r, ...noRole } = redefine;
+    const { roleVersion: _v, ...noVersion } = redefine;
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse(noRole).success).toBe(false);
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse(noVersion).success).toBe(false);
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse({ ...redefine, roleVersion: 3 }).success).toBe(false);
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse({ ...redefine, roleVersion: 'v3' }).success).toBe(false);
+  });
+
+  it('refuses roleId and roleVersion on every other payload', () => {
+    const role = { roleId: 'role-7', roleVersion: '3' };
+    for (const event of events()) {
+      expect(event.schema.safeParse({ ...byApproval(), ...role }).success).toBe(false);
+      expect(event.schema.safeParse({ ...byApproval(), roleId: 'role-7' }).success).toBe(false);
+      expect(event.schema.safeParse({ ...byApproval(), changedFields: ['permissions', 'roleIds'], ...role }).success).toBe(false);
+    }
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse({ ...accepted(), ...role }).success).toBe(false);
+  });
+
+  it('a permissions-only change is only ever a four-eyes update', () => {
+    const redefine = { changedFields: ['permissions'], roleId: 'role-7', roleVersion: '3' };
+    expect(EVENT_CATALOG.staffCreated.schema.safeParse({ ...byApproval(), ...redefine }).success).toBe(false);
+    expect(EVENT_CATALOG.staffDeleted.schema.safeParse({ ...byApproval(), ...redefine }).success).toBe(false);
+    expect(EVENT_CATALOG.staffUpdated.schema.safeParse({ ...accepted(), ...redefine }).success).toBe(false);
   });
 
   it('carries no secret or value on the bus', () => {
