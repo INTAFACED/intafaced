@@ -12,6 +12,7 @@ import { edgeTrustFromProcessEnv } from './edge-trust.js';
 import { listenHost } from './listen-host.js';
 import { MiningError } from './errors.js';
 import { readStratumTerms, startStratumDoor } from './stratum-door.js';
+import { startWorkerEvaluator } from './worker-evaluator.js';
 
 const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
@@ -41,13 +42,17 @@ function parsePayoutIntervalMs(raw: string | undefined): number | null {
 
 const intervalMs = parsePayoutIntervalMs(process.env.MINING_PAYOUT_INTERVAL_MS);
 const jobs = sql && ledger && intervalMs != null ? startMiningJobs({ sql, ledger, intervalMs }) : null;
+// The worker evaluator has its own switch (MINING_WORKER_EVALUATE_SECONDS and MINING_WORKER_QUIET_SECONDS); it moves no
+// value. Off, the log names the blank setting by its code.
+const evaluator = isDirectRun() ? startWorkerEvaluator({ sql, env: process.env }) : null;
+if (evaluator && 'off' in evaluator) console.error(`[workers] evaluator off: ${evaluator.off}`);
 
 const handler = createMiningRequestHandler({
   health: () =>
     miningHealthHonesty({
       ledgerConfigured: ledger != null,
       pgConfigured: sql != null,
-      jobs: jobs ? jobs.host.list() : [],
+      jobs: [...(jobs ? jobs.host.list() : []), ...(evaluator && 'host' in evaluator ? evaluator.host.list() : [])],
     }),
   sql,
   internalSecret,

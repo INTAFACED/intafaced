@@ -82,6 +82,7 @@ describe('miner door on a real socket', () => {
         migration('0003_share_workers.sql'),
         migration('0004_pow_solo.sql'),
         migration('0005_miner_credentials.sql'),
+        migration('20261031050905_worker_states.sql'),
       ],
     });
   });

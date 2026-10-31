@@ -63,6 +63,12 @@ function reads(): MiningReads & { myWorkers: ReturnType<typeof vi.fn> } {
     myPayouts: vi.fn(),
     minerSecretStatus: vi.fn(async () => ({ issuedAt: null })),
     issueMinerSecret: vi.fn(async () => ({ secret: `msk_${'A'.repeat(43)}`, issuedAt: '2026-10-29T00:00:00.000Z' })),
+    workerOne: vi.fn(),
+    workerStateChanges: vi.fn(),
+    setWorkerMaintenance: vi.fn(),
+    workerMaintenance: vi.fn(),
+    setWorkerAlertLimit: vi.fn(),
+    workerRosterStates: vi.fn(async () => new Map()),
   };
 }
 

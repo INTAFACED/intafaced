@@ -9,6 +9,20 @@ import { miningPayoutIdempotencyKey } from './ledger.js';
 import { issueMinerSecret, minerSecretStatus, type IssuedMinerSecret, type MinerSecretStatus } from './miner-credential.js';
 import { planPplns } from './pplns.js';
 import { workerIdOf } from './window-store.js';
+import {
+  maintenanceOf,
+  rosterStates,
+  setAlertLimit,
+  setMaintenance,
+  workerOne,
+  workerStateChanges,
+  type AlertLimitMode,
+  type AlertLimitSetting,
+  type MaintenanceRows,
+  type StateChanges,
+  type WorkerOne,
+  type WorkerState,
+} from './worker-state.js';
 
 const NO_SHARES = 'no_shares_in_window' as const;
 
@@ -251,6 +265,45 @@ export class MiningReadStore {
       await tx`UPDATE mining_pool.workers SET mode = ${mode} WHERE id = ${worker.id}`;
       return { id: worker.id, name, mode };
     });
+  }
+
+  /** One of the caller's own workers (`worker-state.ts`). */
+  async workerOne(
+    userId: string,
+    workerId: string,
+    windowMinutes: number,
+    timing: { readonly quietSeconds: number; readonly alertShareBps: number | null },
+  ): Promise<WorkerOne> {
+    return workerOne(this.db(), userId, workerId, windowMinutes, timing);
+  }
+
+  async workerStateChanges(userId: string, workerId: string, quietSeconds: number | null): Promise<StateChanges> {
+    return workerStateChanges(this.db(), userId, workerId, quietSeconds);
+  }
+
+  async setWorkerMaintenance(userId: string, workerIds: readonly string[], on: boolean): Promise<MaintenanceRows> {
+    return setMaintenance(this.db(), userId, workerIds, on);
+  }
+
+  async workerMaintenance(userId: string): Promise<MaintenanceRows> {
+    return maintenanceOf(this.db(), userId);
+  }
+
+  async setWorkerAlertLimit(
+    userId: string,
+    workerId: string,
+    mode: AlertLimitMode | null,
+    limit: string | null,
+  ): Promise<AlertLimitSetting> {
+    return setAlertLimit(this.db(), userId, workerId, mode, limit);
+  }
+
+  async workerRosterStates(
+    userId: string,
+    workerIds: readonly string[],
+    quietSeconds: number | null,
+  ): Promise<Map<string, { state: WorkerState | null; lastShareAt: string | null }>> {
+    return rosterStates(this.db(), userId, workerIds, quietSeconds);
   }
 
   async minerSecretStatus(userId: string): Promise<MinerSecretStatus> {

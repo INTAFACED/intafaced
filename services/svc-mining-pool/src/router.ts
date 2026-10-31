@@ -11,6 +11,16 @@ import { readPoolTerms } from './pool-terms.js';
 import { dialPool, ProbeRateLimit, runProbe, type Dial } from './probe.js';
 import { POW_SPEC_UNSET, publishedPowSpec } from './pow.js';
 import type { MiningReadStore } from './reads.js';
+import {
+  ALERT_LIMIT,
+  ALERT_LIMIT_INVALID,
+  ALERT_LIMIT_UNSET,
+  alertShareBpsOf,
+  MAINTENANCE_BATCH_MAX,
+  quietSecondsOf,
+  QUIET_INTERVAL_INVALID,
+  QUIET_INTERVAL_UNSET,
+} from './worker-state.js';
 
 const decimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 const money = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
@@ -28,12 +38,24 @@ export type MiningReads = Pick<
   | 'myPayouts'
   | 'minerSecretStatus'
   | 'issueMinerSecret'
+  | 'workerOne'
+  | 'workerStateChanges'
+  | 'setWorkerMaintenance'
+  | 'workerMaintenance'
+  | 'setWorkerAlertLimit'
+  | 'workerRosterStates'
 >;
+
+const BAD_INPUT = new Set(['mining.cursor_invalid', 'mining.share_range_invalid', ALERT_LIMIT_INVALID, 'mining.maintenance_batch_invalid']);
+const WORKER_ID = z.string().min(1).max(200);
+const connectivity = z.enum(['online', 'offline']);
+const workerState = z.enum(['active', 'offline', 'maintenance']);
+const maintenanceRows = z.object({ asOf: z.string(), rows: z.array(z.object({ workerId: z.string(), since: z.string() })) });
 
 function fail(err: unknown): never {
   if (err instanceof TRPCError) throw err;
   if (err instanceof MiningError) {
-    const code = err.code === 'mining.cursor_invalid' || err.code === 'mining.share_range_invalid' ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
+    const code = BAD_INPUT.has(err.code) ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: err.message, cause: err });
   }
   throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err });
@@ -133,8 +155,11 @@ export function createMiningRouter(
                   hashrateReason: z.enum(['no_shares_in_window']).nullable(),
                   minDifficulty: decimal.nullable(),
                   mode: z.enum(['pooled', 'solo']),
+                  state: workerState.nullable(),
+                  stateReason: z.enum([QUIET_INTERVAL_UNSET, QUIET_INTERVAL_INVALID]).nullable(),
                 })
-                .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null)),
+                .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null))
+                .refine((row) => row.state !== null || row.stateReason !== null),
             ),
           }),
         )
@@ -149,8 +174,23 @@ export function createMiningRouter(
             };
             const roster = await reads.myWorkers(ctx.principal.userId, windowMinutes, query);
             const fallback = publishedDifficulty(envOf().MINING_DEFAULT_DIFFICULTY);
+            // The badge: maintenance always; active or offline only when the owner published a quiet interval.
+            const quiet = quietSecondsOf(envOf());
+            const states = await reads.workerRosterStates(
+              ctx.principal.userId,
+              roster.workers.map((worker) => worker.id),
+              typeof quiet === 'number' ? quiet : null,
+            );
             return {
               ...roster,
+              workers: roster.workers.map((worker) => {
+                const state = states.get(worker.id)?.state ?? null;
+                return {
+                  ...worker,
+                  state,
+                  stateReason: state === null ? (typeof quiet === 'number' ? QUIET_INTERVAL_UNSET : quiet) : null,
+                };
+              }),
               defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
               defaultDifficultyReason:
                 fallback === null
@@ -196,6 +236,111 @@ export function createMiningRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             return await reads.setWorkerMode(ctx.principal.userId, input.name, input.mode);
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /**
+       * One of the caller's own workers (another account's is `mining.worker_not_found`): hashing (an accepted share in
+       * the window), connectivity (online while the newest accepted share is younger than `MINING_WORKER_QUIET_SECONDS`),
+       * its state (maintenance, else offline when quiet, else active) and its alert limit. A blank quiet interval refuses
+       * `mining.quiet_interval_unset`. The read records a pending online/offline change once, as the evaluator would.
+       */
+      one: customer
+        .input(z.object({ workerId: WORKER_ID, windowMinutes: z.unknown().optional() }))
+        .output(
+          z
+            .object({
+              asOf: z.string(),
+              id: z.string(),
+              name: z.string(),
+              windowMinutes: z.number().int(),
+              hashing: z.enum(['hashing', 'idle']),
+              hashrate: decimal.nullable(),
+              hashrateReason: z.enum(['no_shares_in_window']).nullable(),
+              connectivity,
+              lastShareAt: z.string().nullable(),
+              state: workerState,
+              quietSeconds: z.number().int().positive(),
+              alertLimitMode: z.enum(['automatic', 'manual']).nullable(),
+              alertLimit: z
+                .string()
+                .regex(/^(0|[1-9]\d*)(\.\d+)?$/)
+                .nullable(),
+              alertLimitReason: z.enum([ALERT_LIMIT_UNSET, 'no_shares_in_window']).nullable(),
+              maintenanceSince: z.string().nullable(),
+            })
+            .refine((row) => (row.alertLimit === null) !== (row.alertLimitReason === null)),
+        )
+        .query(async ({ ctx, input }) => {
+          try {
+            const windowMinutes = assertWindowMinutes(input.windowMinutes);
+            const quiet = quietSecondsOf(envOf());
+            if (typeof quiet !== 'number') refusal(quiet, 'The pool has no published quiet interval');
+            return await reads.workerOne(ctx.principal.userId, input.workerId, windowMinutes, {
+              quietSeconds: quiet,
+              alertShareBps: alertShareBpsOf(envOf()),
+            });
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /** The recorded online/offline changes of one of the caller's own workers, newest first, and the evaluator's last look. */
+      stateChanges: customer
+        .input(z.object({ workerId: WORKER_ID }))
+        .output(
+          z.object({
+            asOf: z.string(),
+            evaluatedAt: z.string().nullable(),
+            rows: z.array(z.object({ workerId: z.string(), from: connectivity, to: connectivity, at: z.string() })),
+          }),
+        )
+        .query(async ({ ctx, input }) => {
+          try {
+            const quiet = quietSecondsOf(envOf());
+            return await reads.workerStateChanges(ctx.principal.userId, input.workerId, typeof quiet === 'number' ? quiet : null);
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      /**
+       * Puts 1 to 50 of the caller's own workers in maintenance, or takes them out. Any id that is not the caller's refuses
+       * the whole call (`mining.worker_not_found`). One row per worker; asking again keeps the first `since`. A worker in
+       * maintenance gets no offline row.
+       */
+      setMaintenance: rigWriter
+        .input(z.object({ workerIds: z.array(WORKER_ID).min(1).max(MAINTENANCE_BATCH_MAX), on: z.boolean() }))
+        .output(maintenanceRows)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await reads.setWorkerMaintenance(ctx.principal.userId, input.workerIds, input.on);
+          } catch (err) {
+            fail(err);
+          }
+        }),
+      maintenance: customer.output(maintenanceRows).query(async ({ ctx }) => {
+        try {
+          return await reads.workerMaintenance(ctx.principal.userId);
+        } catch (err) {
+          fail(err);
+        }
+      }),
+      /**
+       * The account's own alert limit for one of its workers: `automatic` (the owner's published share of the worker's
+       * trailing hashrate), `manual` with a value above zero, or null to clear the choice. Neither is a default.
+       */
+      setAlertLimit: rigWriter
+        .input(
+          z.object({
+            workerId: WORKER_ID,
+            mode: z.enum(['automatic', 'manual']).nullable(),
+            limit: z.string().regex(ALERT_LIMIT).nullable().optional(),
+          }),
+        )
+        .output(z.object({ workerId: z.string(), mode: z.enum(['automatic', 'manual']).nullable(), manualLimit: decimal.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await reads.setWorkerAlertLimit(ctx.principal.userId, input.workerId, input.mode, input.limit ?? null);
           } catch (err) {
             fail(err);
           }

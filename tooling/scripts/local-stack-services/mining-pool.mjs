@@ -60,7 +60,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // host and port a miner copies, and the reachability test's limit, window and wait (J-more-catalogue-05 #1-#4).
     // Production stays blank and each read refuses by name (mining.overview_unset, mining.connection_unset,
     // mining.probe_limit_unset, mining.probe_timeout_unset). The TEST testnet proof-of-work parameters too (#7): a share
-    // must carry valid work and a testnet window earns no credit; production stays blank (mining.pow_spec_unset).
+    // must carry valid work and a testnet window earns no credit; production stays blank (mining.pow_spec_unset). The
+    // worker quiet interval and the evaluator's interval too (J-more-catalogue-06 #3, #4, #6), so a quiet worker turns
+    // offline within a journey; the automatic alert share stays blank (mining.alert_limit_unset).
     ...published(),
   }),
 });

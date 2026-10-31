@@ -65,6 +65,7 @@ describe('mining proof of work and solo mode', () => {
         migration('0002_mining_reads.sql'),
         migration('0003_share_workers.sql'),
         migration('0004_pow_solo.sql'),
+        migration('20261031050905_worker_states.sql'),
       ],
     });
   });

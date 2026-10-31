@@ -95,6 +95,16 @@
       "service": "mining-pool",
       "value": "TEST",
       "note": "TEST asset a miner-door window is mined for. Not a product default."
+    },
+    "MINING_WORKER_QUIET_SECONDS": {
+      "service": "mining-pool",
+      "value": "60",
+      "note": "TEST seconds without an accepted share before a worker reads offline, short so a journey sees a worker go quiet (J-more-catalogue-06 #4, #6). Not a product default."
+    },
+    "MINING_WORKER_EVALUATE_SECONDS": {
+      "service": "mining-pool",
+      "value": "10",
+      "note": "TEST how often the pool's worker evaluator looks for quiet workers and records their state changes. Not a product default."
     }
   }
 }

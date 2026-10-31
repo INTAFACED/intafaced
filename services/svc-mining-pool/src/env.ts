@@ -150,6 +150,23 @@ export const miningPublishSchema = z.object({
    * NO DEFAULT. Blank leaves the door closed (`mining.stratum_unset`).
    */
   MINING_STRATUM_ASSET_ID: blankAsAbsent(z.string().regex(STRATUM_ASSET_PATTERN).optional()),
+  /**
+   * Seconds without an accepted share after which a worker is offline (10..86400); the miner door keeps no lasting
+   * connection, so this is what "online" means.
+   * NO DEFAULT. Blank refuses `mining.quiet_interval_unset` on `workers.one`, the roster shows no active or offline badge,
+   * and the worker evaluator stays off.
+   */
+  MINING_WORKER_QUIET_SECONDS: blankAsAbsent(z.coerce.number().int().min(10).max(86_400).optional()),
+  /**
+   * How often, in seconds, the worker evaluator looks for quiet workers and records their state changes (1..3600).
+   * NO DEFAULT. Blank keeps the evaluator off (`mining.worker_evaluate_unset` in the log).
+   */
+  MINING_WORKER_EVALUATE_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(3_600).optional()),
+  /**
+   * The share of a worker's trailing accepted weight, in basis points (1..10000), that an automatic alert limit is.
+   * NO DEFAULT. Blank leaves an automatic alert limit unset (`mining.alert_limit_unset`).
+   */
+  MINING_WORKER_ALERT_SHARE_BPS: blankAsAbsent(z.coerce.number().int().min(1).max(10_000).optional()),
 });
 
 /** A whole share difficulty as published: digits, no leading zero, below 10^38. Blank is null; anything else is invalid. */
