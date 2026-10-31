@@ -45,5 +45,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
     // snippets on it. The local outbox above writes app paths and does not read it.
     NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
+    // svc-support's own secret for the guest verification door (SP-tickets-01): its links must open NOTIFY_PUBLIC_ORIGIN,
+    // and the LOCAL TEST outbox above writes them with `purpose: guest-verify`.
+    NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService,
   }),
 });

@@ -27,6 +27,11 @@ import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
 
+// A guest's support links (SP-tickets-01) load only when one is opened.
+const GuestVerify = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestVerify })));
+const GuestRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestRequest })));
+const GuestNewRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestNewRequest })));
+
 // A backtest result shared by link (AL-report-03) loads only when one is opened.
 const SharedResultRoute = lazy(() => import('../quant/SharedResultRoute'));
 
@@ -108,6 +113,12 @@ export function PublicRoutes({ path }: { path: string }) {
           <StatusPage />
         ) : path === '/status/confirm' || path === '/status/manage' || path === '/status/unsubscribe' ? (
           <StatusSubscriptionPage mode={path.slice('/status/'.length) as 'confirm' | 'manage' | 'unsubscribe'} />
+        ) : path === '/support/guest/verify' ? (
+          <GuestVerify />
+        ) : path === '/support/guest/request' ? (
+          <GuestRequest />
+        ) : path === '/support/new' ? (
+          <GuestNewRequest />
         ) : path === '/partner' ? (
           <PartnerPage />
         ) : path === '/notice' || path === '/announcement' ? (

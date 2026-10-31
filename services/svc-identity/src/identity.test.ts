@@ -1760,6 +1760,7 @@ if (!available) {
           userId: session.userId,
           status: 'active',
           kycTier: 'none',
+          archived: false,
         });
       });
 
@@ -1783,13 +1784,13 @@ if (!available) {
         expect(await auth.accountState(session.userId)).toMatchObject({ kycTier: 'basic' });
       });
 
-      it('carries no balance, no document and no name — three keys and no more', async () => {
+      it('carries no balance, no document and no name — four keys and no more', async () => {
         const session = await register();
         const state = await auth.accountState(session.userId);
         // §10 PII isolation and §0.6 in one assertion. The encrypted KYC vault
         // (a688e231) must not gain a second read path through the support desk,
         // and the shortness of this object is what prevents it.
-        expect(Object.keys(state!).sort()).toEqual(['kycTier', 'status', 'userId']);
+        expect(Object.keys(state!).sort()).toEqual(['archived', 'kycTier', 'status', 'userId']);
       });
 
       it('a closed account reads as closed, not as missing', async () => {
@@ -1797,7 +1798,13 @@ if (!available) {
         await db.sql`UPDATE users SET status = 'closed' WHERE id = ${session.userId}`;
         // Distinct from the null above: "this account is closed" is something a
         // support operator can act on; "no such account" is not.
-        expect(await auth.accountState(session.userId)).toMatchObject({ status: 'closed' });
+        expect(await auth.accountState(session.userId)).toMatchObject({ status: 'closed', archived: false });
+      });
+
+      it('an archived record reads as archived, so a staff action can refuse it', async () => {
+        const session = await register();
+        await db.sql`UPDATE users SET status = 'closed', archived_at = now(), archive_reason = 'dormant' WHERE id = ${session.userId}`;
+        expect(await auth.accountState(session.userId)).toMatchObject({ status: 'closed', archived: true });
       });
     });
 

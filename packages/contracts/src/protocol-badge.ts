@@ -12,6 +12,8 @@ export const PROTOCOL_BADGE_REFUSALS = [
   'badge.already_claimed',
   'audit.external',
   'rail.crypto',
+  // A chain that keeps its genesis answered with another one: the stored claim is kept, nothing is minted again.
+  'badge.chain_changed',
 ] as const;
 export type ProtocolBadgeRefusal = (typeof PROTOCOL_BADGE_REFUSALS)[number];
 

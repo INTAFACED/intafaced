@@ -123,6 +123,31 @@ const schema = serviceEnvSchema
        * A longer query refuses support.search_query_too_long. Never defaulted.
        */
       SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * The guest path (SP-tickets-01). The link lifetime, the per-address rate and its window, how long a guest's address
+       * is kept, and the key (32 bytes as hex) that seals it. Each blank refuses every guest request by name
+       * (support.guest_link_ttl_unset, support.guest_rate_limit_unset, support.guest_retention_unset,
+       * support.guest_address_key_unset). Never defaulted.
+       */
+      SUPPORT_GUEST_LINK_TTL_MINUTES: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_GUEST_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_GUEST_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_GUEST_RETENTION_DAYS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_GUEST_ADDRESS_KEY: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z
+          .string()
+          .regex(/^[0-9a-fA-F]{64}$/)
+          .optional(),
+      ),
+      /**
+       * Where guest verification mail is sent from: svc-notify's address and svc-support's own secret for its guest
+       * verification door (never the internal or edge secret), and the customer app origin the links open. Any one blank
+       * keeps every guest request pending with vendor.email.
+       */
+      NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+      NOTIFY_SUPPORT_SERVICE_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(32).optional()),
+      SUPPORT_PUBLIC_ORIGIN: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
