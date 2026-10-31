@@ -7,7 +7,10 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   JOURNEY_CAPPED_DAILY_PAYOUT,
+  JOURNEY_OPEN_ASSETS,
   JOURNEY_PRICING_RULE,
+  journeyIntakeCaps,
+  journeyPricingRules,
   journeyTier,
   planMove,
   planPricingLayer,
@@ -71,6 +74,48 @@ test('the capped tier is its own, with a TEST daily payout cap of 1 USDT; the ot
   assert.equal(pricingArgs([MERCHANT, '--tier', 'tight']), null);
 });
 
+test('every kind takes payments: each carries TEST intake caps far above a journey payment; open covers every journey asset', () => {
+  const intake = (kind) =>
+    journeyTier(MERCHANT, kind, false)
+      .caps.filter((c) => /intake|per_payment/.test(c.kind))
+      .map((c) => `${c.kind}:${c.assetCode}`);
+  for (const kind of ['priced', 'blank', 'capped'])
+    assert.deepEqual(intake(kind), ['per_payment:USDT', 'daily_intake:USDT', 'monthly_intake:USDT'], kind);
+  assert.deepEqual(JOURNEY_OPEN_ASSETS, ['USDT', 'USDC', 'USD', 'EUR']);
+  assert.deepEqual(
+    intake('open'),
+    JOURNEY_OPEN_ASSETS.flatMap((a) => [`per_payment:${a}`, `daily_intake:${a}`, `monthly_intake:${a}`]),
+  );
+  assert.ok(
+    journeyIntakeCaps('USDT').every((c) => /^\d+$/.test(c.limit) && BigInt(c.limit) > 100n),
+    'above the largest TEST journey payment',
+  );
+  const open = journeyTier(MERCHANT, 'open', false);
+  for (const asset of JOURNEY_OPEN_ASSETS) {
+    assert.ok(
+      open.caps.some((c) => c.kind === 'daily_payout' && c.assetCode === asset),
+      `open pays out ${asset}`,
+    );
+    assert.ok(
+      open.approvalThresholds.some((t) => t.assetCode === asset) && open.founderThresholds.some((t) => t.assetCode === asset),
+      asset,
+    );
+  }
+  assert.equal(journeyTier(MERCHANT, 'open', false).id, 'j07-open-1b2c3d4e');
+  assert.deepEqual(pricingArgs([MERCHANT, '--tier', 'open']), { merchantId: MERCHANT, tier: 'open', payoutNotCharged: false });
+});
+
+test('fees: open prices every journey asset on the same TEST terms, priced USDT alone, blank and capped none', () => {
+  assert.deepEqual(
+    journeyPricingRules('open').map((r) => r.assetCode),
+    JOURNEY_OPEN_ASSETS,
+  );
+  for (const rule of journeyPricingRules('open')) assert.deepEqual({ ...rule, assetCode: 'USDT' }, JOURNEY_PRICING_RULE);
+  assert.deepEqual(journeyPricingRules('priced'), [JOURNEY_PRICING_RULE]);
+  assert.deepEqual(journeyPricingRules('blank'), []);
+  assert.deepEqual(journeyPricingRules('capped'), []);
+});
+
 test('a tier is written when missing or when any term differs, the payout fee included; an equal tier is left alone', () => {
   const tier = journeyTier(MERCHANT, 'priced', false);
   assert.deepEqual(planTierUpsert({ listed: [], tier }), { kind: 'upsert', expectedVersion: '0' });
@@ -80,12 +125,20 @@ test('a tier is written when missing or when any term differs, the payout fee in
     caps: [
       { kind: 'beneficiaries_per_day', limit: 500 },
       { kind: 'daily_payout', assetCode: 'USDT', limit: '500.00' },
+      { kind: 'per_payment', assetCode: 'USDT', limit: '1000.000' },
+      { kind: 'daily_intake', assetCode: 'USDT', limit: '10000' },
+      { kind: 'monthly_intake', assetCode: 'USDT', limit: '100000.0' },
     ],
     approvalThresholds: [{ assetCode: 'USDT', amount: '10.0' }],
     payoutFee: null,
     version: '3',
   };
   assert.deepEqual(planTierUpsert({ listed: [view], tier }), { kind: 'exists', version: '3' });
+  // A tier written before the stack required merchant controls has no intake caps: it is written again.
+  assert.deepEqual(planTierUpsert({ listed: [{ ...view, caps: view.caps.slice(0, 2) }], tier }), {
+    kind: 'upsert',
+    expectedVersion: '3',
+  });
   assert.deepEqual(planTierUpsert({ listed: [{ ...view, payoutFee: { kind: 'not_charged' } }], tier }), {
     kind: 'upsert',
     expectedVersion: '3',

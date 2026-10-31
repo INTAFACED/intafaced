@@ -1369,13 +1369,18 @@ export function describeMoneyRefusal(refusal) {
 // of the change they were shown (`founderChangeHash`). On this stack the two founders are the two TEST operators.
 
 export const MERCHANT_TIER_ARCHETYPE = 'standard';
-const localTestTier = ({ id, name, approve, founder, payout, beneficiaries }) => ({
+const localTestTier = ({ id, name, approve, founder, payout, beneficiaries, intake }) => ({
   id,
   name,
   archetype: MERCHANT_TIER_ARCHETYPE,
   caps: [
     { kind: 'daily_payout', assetCode: MERCHANT_SETTLEMENT_ASSET, limit: payout },
     { kind: 'beneficiaries_per_day', limit: beneficiaries },
+    // The stack runs with PAY_MERCHANT_CONTROLS=required, which refuses a payment unless the tier caps one payment, a day
+    // and a month for its asset (pay.caps_unconfigured). TEST values, far above any TEST DATA payment.
+    { kind: 'per_payment', assetCode: MERCHANT_SETTLEMENT_ASSET, limit: intake.perPayment },
+    { kind: 'daily_intake', assetCode: MERCHANT_SETTLEMENT_ASSET, limit: intake.daily },
+    { kind: 'monthly_intake', assetCode: MERCHANT_SETTLEMENT_ASSET, limit: intake.monthly },
   ],
   reserve: null,
   approvalThresholds: [{ assetCode: MERCHANT_SETTLEMENT_ASSET, amount: approve }],
@@ -1394,6 +1399,7 @@ export const MERCHANT_TIERS = [
       founder: '1000',
       payout: '500',
       beneficiaries: 500,
+      intake: { perPayment: '1000', daily: '10000', monthly: '100000' },
     }),
   },
   {
@@ -1405,9 +1411,26 @@ export const MERCHANT_TIERS = [
       founder: '5000',
       payout: '5000',
       beneficiaries: 5000,
+      intake: { perPayment: '10000', daily: '100000', monthly: '1000000' },
     }),
   },
 ];
+
+/**
+ * TEST VALUE tier-layer fee on the assigned LOCAL TEST tier, and the journey tiers' too (local-test-merchant-pricing.mjs
+ * JOURNEY_PRICING_RULE is this one): with merchant controls required, a payment needs a pricing rule for its asset
+ * (pay.pricing_unconfigured). Not a proposal for a real price.
+ */
+export const MERCHANT_TIER_PRICING_RULE = {
+  assetCode: MERCHANT_SETTLEMENT_ASSET,
+  bands: [
+    { fromAmount: '0', feeBps: 250, flatFee: null },
+    { fromAmount: '10000', feeBps: 150, flatFee: '0.3' },
+  ],
+  spreadBps: null,
+  roundingBeneficiary: 'platform',
+  minFee: '0.5',
+};
 
 const canonicalJson = (value) =>
   JSON.stringify(value, (_k, v) =>
@@ -1453,7 +1476,11 @@ export function planTierDefinition({ listed, tier }) {
     have.archetype === tier.archetype &&
     sameCaps(have.caps, tier.caps) &&
     (have.reserve ?? null) === null;
-  return same ? { kind: 'exists', tier: have } : { kind: 'differs', tier: have };
+  if (same) return { kind: 'exists', tier: have };
+  // Populate's own tier (same id and name) on older terms, such as one defined before the stack required merchant controls
+  // and so without intake caps, is defined again from its version. Any other match stays someone else's and is never rewritten.
+  if (have.id === tier.id && have.name === tier.name) return { kind: 'redefine', tier: have, expectedVersion: String(have.version) };
+  return { kind: 'differs', tier: have };
 }
 
 /** `profile` is merchantControl.get: { tierId, version }. A merchant already on a tier is never moved by populate. */
@@ -2713,6 +2740,10 @@ async function populateMerchantStep(baseCtx) {
 
   let merchantId = me.data?.id ?? null;
   let moneyOpen = true;
+  // Merchant controls are required on the stack: no payment is admitted before the merchant has a tier, intake caps and a
+  // pricing rule, so the tier goes on first.
+  let tiered = Boolean(merchantId);
+  if (merchantId) await populateMerchantTiers(ctx, merchantId);
   for (const action of plan.actions) {
     if (!merchantId && action.kind !== 'create-merchant') {
       record('merchant', action.kind, 'skipped', 'merchant was not created');
@@ -2725,6 +2756,11 @@ async function populateMerchantStep(baseCtx) {
     const out = await runMerchantAction(ctx, action, () => merchantId);
     if (out.merchantId) merchantId = out.merchantId;
     if (out.moneyClosed) moneyOpen = false;
+    // A merchant created in this loop goes on its tier before the money actions after it.
+    if (merchantId && !tiered) {
+      tiered = true;
+      await populateMerchantTiers(ctx, merchantId);
+    }
   }
   if (merchantId && moneyOpen) await recordMerchantCounts(user, record, merchantId);
   if (merchantId && moneyOpen) await populateMerchantMoneyBlock(ctx, merchantId);
@@ -2948,8 +2984,8 @@ async function populateMerchantMoneyBlock(ctx, merchantId) {
     }
   }
 
-  // 2. Destination, refund and payout (request, second-person approval, send), through the owner's step-up.
-  await populateMerchantTiers(ctx, merchantId);
+  // 2. Destination, refund and payout (request, second-person approval, send), through the owner's step-up. The tier that
+  // admits them was put on before any payment (populateMerchant).
   await populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements });
 
   // 3. Dispute on one captured payment.
@@ -3193,7 +3229,60 @@ async function populateMerchantTiers(ctx, merchantId) {
         out.ok ? `${merchantId} on ${tier.id}: ${out.outcome} (operator A proposed, operator B confirmed)` : out.refusal,
       );
     }
+    await populateTierPricing(ctx, tier, merchantId);
   }
+}
+
+/**
+ * The assigned tier's TEST fee (MERCHANT_TIER_PRICING_RULE), set through the two founders when the tier layer differs. Only
+ * for a merchant that is on this tier; the merchant's own view is read first, so a run where the fee applies signs no one in.
+ */
+async function populateTierPricing(ctx, tier, merchantId) {
+  const { user, record } = ctx;
+  const what = `fee on ${tier.name} (${tier.id})`;
+  const profile = await call(user, 'q', 'pay', 'merchantControl.get', { merchantId });
+  if (!profile.ok) return record('merchant', what, 'refused', describeMoneyRefusal(profile.refusal));
+  if (profile.data.tierId !== tier.id)
+    return record('merchant', what, 'skipped', `${merchantId} is not on ${tier.id}, so populate prices no tier for it`);
+  const applies = (profile.data.pricing ?? []).find((r) => r.assetCode === MERCHANT_TIER_PRICING_RULE.assetCode);
+  if (applies) return record('merchant', what, 'exists', `a ${applies.assetCode} rule applies to ${merchantId}`);
+  const pair = await operatorPair(ctx);
+  if (!pair.ok) return record('merchant', what, 'refused', pair.refusal);
+  const { planPricingLayer, tierLayerRequestId } = await import('./local-test-merchant-pricing.mjs');
+  const read = await pair.gctx.edge.query(
+    'pay',
+    'founderAdmin.control.pricing.rules',
+    { layer: 'tier', scopeId: tier.id },
+    pair.a.loginToken,
+  );
+  const live = trpcData(read);
+  if (live === undefined) return record('merchant', what, 'refused', describeMoneyRefusal(pair.gates.refusalText(read)));
+  const rules = [MERCHANT_TIER_PRICING_RULE];
+  const plan = planPricingLayer({ live, wanted: rules });
+  if (plan.kind === 'exists') return record('merchant', what, 'exists', `layer version ${plan.version}`);
+  const target = { scope: 'pricing', change: { kind: 'set_pricing_layer', layer: 'tier', scopeId: tier.id, rules } };
+  const reason = `LOCAL TEST: TEST fee for ${tier.name}`;
+  const out = await founderChange(pair, {
+    submitProc: 'founderAdmin.control.configure.submit',
+    confirmProc: 'founderAdmin.control.configure.confirm',
+    input: {
+      requestId: tierLayerRequestId(tier.id, plan.expectedVersion),
+      change: target.change,
+      reason,
+      expectedVersion: plan.expectedVersion,
+    },
+    target,
+    expectedVersion: plan.expectedVersion,
+    reason,
+  });
+  record(
+    'merchant',
+    what,
+    out.ok ? (out.outcome === 'noop' ? 'exists' : 'created') : 'refused',
+    out.ok
+      ? `${out.outcome}: TEST ${rules.map((r) => r.assetCode).join(', ')} fee (operator A proposed, operator B confirmed)`
+      : out.refusal,
+  );
 }
 
 /**
