@@ -16,7 +16,6 @@ export type DataClass = 'real_time' | 'delayed' | 'end_of_day';
 export type ChartDataChip =
   | 'loading'
   | 'live'
-  | 'quiet'
   | 'delayed'
   | 'end_of_day'
   | 'stale'
@@ -92,6 +91,8 @@ export interface DataStatus {
   stateSinceMs: number | null;
   /** The owner's delayed boundary in seconds, when set. */
   thresholdSeconds: number | null;
+  /** Why the chip reads Delayed: the market's data class, or a real-time feed whose newest trade is past the boundary. */
+  delayedBy: 'class' | 'age' | null;
   /** Order entry from the chart is refused until the market state and the book are read and open. */
   orderEntry: 'open' | 'refused';
   test: boolean;
@@ -151,6 +152,7 @@ export function dataStatus(input: StatusInputs): DataStatus {
     stateSinceMs: life?.effectiveAt ?? null,
     thresholdSeconds: owner.status === 'ready' ? owner.data.delayedBoundarySeconds : null,
     test: life !== null && life.evidenceRefs.some((ref) => ref.startsWith(TEST_EVIDENCE_PREFIX)),
+    delayedBy: null,
   };
   const result = (value: ChartDataChip, orderEntry: 'open' | 'refused' = 'open'): DataStatus => ({ ...base, chip: value, orderEntry });
 
@@ -183,14 +185,15 @@ export function dataStatus(input: StatusInputs): DataStatus {
   const dataClass = owner.data.dataClass;
   if (dataClass === null) return result('class_unset');
   if (dataClass === 'end_of_day') return result('end_of_day');
-  if (dataClass === 'delayed') return result('delayed');
+  if (dataClass === 'delayed') return { ...result('delayed'), delayedBy: 'class' };
 
-  // Real-time: the newest trade's age on the server clock against the owner's boundary. A quiet market (no trade inside the
-  // boundary) is quiet, not delayed: nothing is behind. A blank boundary claims neither live nor quiet.
+  // Real-time: the newest trade's age on the server clock against the owner's boundary. A real-time market whose newest trade
+  // is older than the boundary reads Delayed with the age (C-embed-feed-ops-02). A blank boundary claims neither live nor
+  // delayed: the chip names the unset threshold and keeps the age.
   if (lastTrade.status === 'loading' || serverClock.status === 'loading') return result('loading');
   if (lastTrade.status !== 'ready' || serverClock.status !== 'ready') return result('tick_unread');
   if (lastTradeMs === null) return result('no_data');
   const threshold = owner.data.delayedBoundarySeconds;
   if (threshold === null) return result('threshold_unset');
-  return result((ageSeconds ?? 0) > threshold ? 'quiet' : 'live');
+  return (ageSeconds ?? 0) > threshold ? { ...result('delayed'), delayedBy: 'age' } : result('live');
 }

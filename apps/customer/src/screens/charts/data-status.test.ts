@@ -35,9 +35,9 @@ describe('dataStatus: the chip names the real state of the data', () => {
     expect(s).toMatchObject({ chip: 'live', ageSeconds: 5, orderEntry: 'open', feed: 'connected', test: false });
   });
 
-  it('a real-time market with no trade inside the boundary is quiet, not delayed: nothing is behind', () => {
+  it('a real-time market whose newest trade is older than the boundary reads delayed with the age', () => {
     const s = dataStatus(inputs({ lastTrade: tradeAt(95) }));
-    expect(s).toMatchObject({ chip: 'quiet', ageSeconds: 95, orderEntry: 'open' });
+    expect(s).toMatchObject({ chip: 'delayed', delayedBy: 'age', ageSeconds: 95, thresholdSeconds: 30, orderEntry: 'open' });
   });
 
   it('the trade age is judged on the server clock: a server ahead by a minute does not make a fresh trade look old', () => {
@@ -52,13 +52,13 @@ describe('dataStatus: the chip names the real state of the data', () => {
     expect(dataStatus(inputs({ serverClock: failed })).chip).toBe('tick_unread');
   });
 
-  it('a blank boundary claims neither live nor quiet: the chip names the unset threshold and keeps the age', () => {
+  it('a blank boundary claims neither live nor delayed: the chip names the unset threshold and keeps the age', () => {
     const s = dataStatus(inputs({ owner: owner('real_time', null), lastTrade: tradeAt(95) }));
     expect(s).toMatchObject({ chip: 'threshold_unset', ageSeconds: 95, thresholdSeconds: null });
   });
 
   it('a delayed class is delayed whatever the age, and end of day is its own word', () => {
-    expect(dataStatus(inputs({ owner: owner('delayed', 30) })).chip).toBe('delayed');
+    expect(dataStatus(inputs({ owner: owner('delayed', 30) }))).toMatchObject({ chip: 'delayed', delayedBy: 'class' });
     expect(dataStatus(inputs({ owner: owner('end_of_day', 30) })).chip).toBe('end_of_day');
   });
 
