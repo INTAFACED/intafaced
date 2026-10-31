@@ -131,9 +131,8 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await expect(deskA.getByTestId('kyc-document-viewer')).toHaveCount(0);
     expect(pdf.contentType).toBe('application/pdf');
 
-    // The same viewer as the KYC case: A opens the case for the verification this image is attached to, then its detail,
-    // and opens the document from there. The case is found by the service's own lookup of this person's cases (the KYC case
-    // history, newest first, by user id), so it never depends on the pending queue's loaded window.
+    // The KYC case this image is attached to exists: the service's own lookup of this person's cases (the KYC case history,
+    // newest first, by user id) names it, so the check never depends on the pending queue's loaded window.
     await a.goto(`${ADMIN}/tools`, { waitUntil: 'load' });
     await a.getByRole('button', { name: /^KYC case history/ }).click();
     await a.locator('#tool-field-userId').fill(record.userId);
@@ -141,20 +140,16 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await a.getByRole('button', { name: 'Run query' }).click();
     const kycCase = a.getByTestId('delivery-receipt');
     await expect(kycCase, 'the KYC case history answers for this person').toContainText(record.id, { timeout: 60_000 });
-    // The case detail has to offer a way to open its attached document, and that way has to be the same viewer on the same
-    // document. The product's case detail offers neither (kyc-document-viewer.tsx: "so will a KYC case's detail
-    // (OPS-cases-07)"), so both clauses fail by name; once the feature exists they pass through the real flow.
-    const openFromCase = kycCase.getByRole('button', { name: /open/i });
-    await expect
-      .soft(openFromCase.first(), 'the KYC case detail offers an action to open its attached document: it has none (OPS-cases-07)')
-      .toBeVisible({ timeout: 5_000 });
-    if ((await openFromCase.count()) > 0) await openFromCase.first().click();
-    await expect
+    // The row asks that the KYC case's detail opens this document in the same viewer. The console has no KYC case detail
+    // to open (kyc-document-viewer.tsx: "so will a KYC case's detail"; the history above is a raw service answer, not a
+    // case view), so there is nothing to drive and the clause fails by name. Whoever builds the case detail replaces this
+    // with its real flow: open the case, open its document, expect kyc-document-viewer with data-document=image.id.
+    expect
       .soft(
-        a.locator(`[data-testid="kyc-document-viewer"][data-document="${image.id}"]`),
-        'the KYC case detail shows its attached document in the same viewer (kyc-document-viewer) as the documents tab: the case detail has no document viewer (OPS-cases-07)',
+        null,
+        'the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)',
       )
-      .toBeVisible({ timeout: 5_000 });
+      .not.toBeNull();
   } finally {
     await a.context().close();
     await b.context().close();

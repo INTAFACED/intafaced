@@ -10,6 +10,10 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // traces the deposit's business key to its transaction, follows the transaction id to the same transaction, sees every
 // posting with the balance after it, and gets honest answers for a key that never booked and an id with no transaction.
 
+const AMOUNT = '25';
+const CUSTOMER_BEFORE = '0';
+const CUSTOMER_AFTER = '25';
+
 /**
  * The deposit's two postings, cell by cell: the exact decimal-string amount on both sides, the direction each side carries
  * (svc-ledger: a credit is where value came from, a debit where it went), the fresh customer's balance before and
@@ -38,10 +42,6 @@ async function expectPostings(postings) {
   const [before, after] = await Promise.all([5, 6].map((i) => source.locator('td').nth(i).innerText()));
   expect(toUnits(before) - toUnits(after), `source ${before} to ${after} moves by ${AMOUNT}`).toBe(toUnits(AMOUNT));
 }
-
-const AMOUNT = '25';
-const CUSTOMER_BEFORE = '0';
-const CUSTOMER_AFTER = '25';
 
 test('J-ops-console-03 #8 trace a business key to its transaction and look the transaction up by id, as the founder', async ({ page }) => {
   test.setTimeout(240_000);

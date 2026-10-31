@@ -52,9 +52,9 @@ async function archivePostsDuring(page, run) {
   page.on('request', seen);
   try {
     const result = await run();
-    // Requests the page's effects send after it rendered count too: listen until the network is idle, then a short settle.
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1_500);
+    // Requests the page's effects send after it rendered count too. run() returns once the archive panel has drawn identity's
+    // answer, so its reads have landed; a POST an effect sends after that would follow within a render, so a settle covers it.
+    await page.waitForTimeout(3_000);
     return { result, sent };
   } finally {
     page.off('request', seen);

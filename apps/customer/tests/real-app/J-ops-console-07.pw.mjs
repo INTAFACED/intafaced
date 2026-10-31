@@ -528,6 +528,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
 
     // A retire sent anyway, with two founders, is refused by the ledger with its code, and the control stays as it was.
+    await requireTreasury(section);
     const { b } = await founders(browser);
     const target = builtinIds[0];
     const control = (await controlsOf(a)).find((c) => c.id === target);
