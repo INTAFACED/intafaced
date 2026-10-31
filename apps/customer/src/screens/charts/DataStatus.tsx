@@ -11,7 +11,6 @@ type Words = ReturnType<typeof chartsCopy.useCopy>['t'];
 
 const CHIP_KEY = {
   live: 'Status live',
-  quiet: 'Status quiet',
   delayed: 'Status delayed',
   end_of_day: 'Status end of day',
   stale: 'Status stale',
@@ -31,7 +30,7 @@ const CHIP_KEY = {
 /** The chip's words, with the age of the newest trade where the state judges one. */
 export function chipText(status: DataStatus, t: Words): string {
   const word = t(CHIP_KEY[status.chip]);
-  const showsAge = ['live', 'quiet', 'delayed', 'stale', 'down', 'threshold_unset'].includes(status.chip);
+  const showsAge = ['live', 'delayed', 'stale', 'down', 'threshold_unset'].includes(status.chip);
   if (!showsAge) return word;
   return status.ageSeconds === null
     ? `${word} · ${t('Status no age')}`
@@ -88,22 +87,19 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
   } else if (status.chip === 'book_unavailable') {
     kind = 'book';
     body = t('Banner book');
-  } else if (status.chip === 'quiet' && status.ageSeconds !== null) {
-    kind = 'quiet';
-    body = t('Banner quiet', {
-      seconds: String(status.ageSeconds),
-      threshold: String(status.thresholdSeconds ?? 0),
-      tick,
-    });
   } else if (status.chip === 'down') {
     kind = 'down';
     body = t('Banner down', { tick });
   } else if (status.chip === 'stale') {
     kind = 'stale';
     body = t('Banner stale', { seconds: String(status.feedAgeSeconds ?? 0), tick });
+  } else if (status.chip === 'delayed' && status.delayedBy === 'class' && status.ageSeconds === null) {
+    // The class says delayed whatever the tape: the banner says so even when the newest trade is not read.
+    kind = 'delayed';
+    body = t('Banner delayed class no age');
   } else if (status.chip === 'delayed' && status.ageSeconds !== null) {
     kind = 'delayed';
-    body = t('Banner delayed', {
+    body = t(status.delayedBy === 'class' ? 'Banner delayed class' : 'Banner delayed', {
       seconds: String(status.ageSeconds),
       threshold: String(status.thresholdSeconds ?? 0),
       tick,
