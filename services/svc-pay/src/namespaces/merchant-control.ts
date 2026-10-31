@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   router,
   scopedProcedure,
+  anyScopeProcedure,
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
@@ -70,6 +71,14 @@ export function createMerchantControlRouter(control?: ControlService) {
   const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const payout = scopedProcedure('pay:payout', { module: 'pay' });
+  /**
+   * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
+   * role table, while the owner grant law gives `pay:write` to the owner alone and a team member's session carries
+   * `pay:onboard` (packages/auth/src/merchant-pay-scope-grant.ts). So deciding takes either scope; who may decide is the
+   * role check in `approvals.decide` (`canApprovePayout`, a person in a live session, never the maker). It moves no money:
+   * sending stays the owner's, under `pay:payout`.
+   */
+  const decide = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
 
   if (!control) {
     return router({
@@ -233,7 +242,7 @@ export function createMerchantControlRouter(control?: ControlService) {
           .input(approvalRequestInputSchema)
           .output(payoutApprovalSchema)
           .mutation(({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.request(principalOf(ctx), input)))),
-        decide: write
+        decide: decide
           .input(merchantControlApprovalDecideInputSchema)
           .output(payoutApprovalSchema)
           .mutation(({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.decide(principalOf(ctx), input)))),

@@ -156,6 +156,20 @@ describe('control-room procedures', () => {
       expect(real).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.approval_not_found' });
     });
 
+    it('a team checker deciding holds pay:onboard, not pay:write: the scope guard lets it through to the role check', async () => {
+      // The owner grant law gives pay:write to the owner alone; admin and finance carry pay:onboard and hold
+      // payout.approve in the role table, so the decision is the role check's, not the scope's.
+      const decide = (scopes: string[]) =>
+        failure(
+          at(
+            caller(OWNER_B, { scopes }),
+            'merchantControl.approvals.decide',
+          )({ approvalId: randomUUID(), decision: 'approve', expectedPayloadHash: `sha256:${'a'.repeat(64)}`, reason: 'looks fine' }),
+        );
+      expect(await decide(['pay:onboard'])).toMatchObject({ code: 'NOT_FOUND', cause: 'pay.approval_not_found' });
+      expect((await decide(['pay:read']))!.code).toBe('FORBIDDEN');
+    });
+
     it('an anonymous caller and a caller without the scope are refused before any data', async () => {
       expect((await failure(at(caller(null), 'merchantControl.get')({ merchantId: merchantA })))!.code).toBe('UNAUTHORIZED');
       const noScope = await failure(
