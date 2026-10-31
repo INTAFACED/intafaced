@@ -310,6 +310,10 @@ describe('escalation carries its case file', () => {
       listSearchMisses: (limit) => base.listSearchMisses(limit),
       hasSearchClick: (clientRequestId) => base.hasSearchClick(clientRequestId),
       recordSearchClick: (input) => base.recordSearchClick(input),
+      saveKbDraft: (input) => base.saveKbDraft(input),
+      getKbDraft: (id, revision) => base.getKbDraft(id, revision),
+      listKbHistory: (id) => base.listKbHistory(id),
+      publishKbDraft: (input) => base.publishKbDraft(input),
     };
     const support = new SupportService(store, new FixedAccountState({ userId: USER, status: 'active', kycTier: 'basic' }));
     const t = await support.createTicket({

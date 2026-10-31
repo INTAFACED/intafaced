@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
+import { parseSwapSlippageBps } from './amm/slippage.js';
+import { parseFeeCapWei } from './amm/fee-levels.js';
 
 /** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
 function parseWhole(raw: string): number | null {
@@ -12,8 +15,6 @@ function parsePositiveWhole(raw: string): number | null {
   const n = parseWhole(raw);
   return n !== null && n > 0 ? n : null;
 }
-import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
-import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
 /**
@@ -162,6 +163,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_SWAP_CONFIRMATIONS: z.string().default('').transform(parseWhole),
     /**
+     * The fee cap: the most per unit of gas, in whole wei, that the swap form lets a person offer at any network fee
+     * level or as a custom fee (D-swap-11). NO DEFAULT: blank or not a positive whole number is null and
+     * `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`, so no level is offered and Swap stays off.
+     */
+    PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
+    /**
      * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
      * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
      */
@@ -245,6 +252,30 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
         .optional(),
     ),
     PROTOCOL_REPRESENTATION_TEXT: blankIsUnset(z.string().max(4000).optional()),
+
+    /**
+     * The wallet session that opens the address book (D-portfolio-wallet-03, src/address-book/session.ts). NO DEFAULT for
+     * any of the three: blank refuses `protocol.wallet_session_unset` and no book opens.
+     * - the secret seals the sign-in challenge and the session token (an HMAC key, at least 32 characters). It is not a
+     *   chain key and signs nothing on any chain; a TEST secret refuses to boot outside dev or test;
+     * - the lifetime of a session, in seconds (60 to 86400);
+     * - the page origins wallet messages are written for, comma-separated (`https://app.example`).
+     */
+    PROTOCOL_WALLET_SESSION_SECRET: blankIsUnset(z.string().optional()),
+    PROTOCOL_WALLET_SESSION_TTL_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(86_400).optional()),
+    PROTOCOL_WALLET_SESSION_ORIGINS: blankIsUnset(z.string().max(2000).optional()),
+    /**
+     * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
+     * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
+     */
+    PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: blankIsUnset(z.coerce.number().int().min(1).max(10_000).optional()),
+    PROTOCOL_WALLET_GROUPS_MAX: blankIsUnset(z.coerce.number().int().min(1).max(1_000).optional()),
+
+    /**
+     * How long a contract ownership challenge stays signable, in seconds (D-launch-listing-01). The owner's setting, no
+     * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
+     */
+    PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
 
     /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.

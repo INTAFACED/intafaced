@@ -153,7 +153,7 @@ describe('loans.releasable (BK-loan-05)', () => {
 
   function services(marks: Parameters<typeof fixedPriceSource>[0]) {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      loans: { priceSource: fixedPriceSource(marks, () => new Date()) },
+      loans: { originationFeeBps: '0', priceSource: fixedPriceSource(marks, () => new Date()) },
     });
   }
 

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
@@ -21,6 +22,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',
     PAY_MIN_CONFIRMATIONS: '6',
+    // LOCAL-TEST settle depth for a send out (tooling/profiles/test-owner-values/pay.json; W-withdraw-06).
+    // `LOCAL_STACK_PAY_WITHDRAW_DEPTH=off` on a restart leaves it blank, so the refusal can be seen too (J-wallet-05 #8).
+    ...(process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH === 'off' ? {} : { PAY_WITHDRAW_MIN_CONFIRMATIONS: '6' }),
     PAY_WEBHOOK_TOLERANCE_SECONDS: '300',
     PAY_CHECKOUT_SESSION_TTL_SECONDS: '900',
     PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
@@ -75,9 +79,21 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // APP_ENV dev or test, and beside a live chain.
     PAY_TEST_CHAIN_SEND_DELAY_MS: '6000',
     PAY_TEST_CHAIN_REFUSE_AMOUNT: '13',
+    // LOCAL-TEST: that chain makes a block every 3 seconds once a send is answered, so an accepted send reads Broadcast, then
+    // Confirming, and settles only at PAY_MIN_CONFIRMATIONS deep (about 18 seconds). svc-pay refuses it outside APP_ENV dev
+    // or test, and beside a live chain.
+    PAY_TEST_CHAIN_BLOCK_MS: '3000',
+    // LOCAL-TEST values, not the owner's: the withdrawal advance worker (W-withdraw-06) runs every 3 seconds, 20 withdrawals a
+    // pass, so a send out answers Held and is sent, confirmed and settled after the request. Blank, the worker is off.
+    PAY_WITHDRAW_ADVANCE_INTERVAL_MS: '3000',
+    PAY_WITHDRAW_ADVANCE_BATCH_LIMIT: '20',
     // LOCAL-TEST: that in-memory chain keeps its own TEST record of each send out of custody, in the stack's rail records
     // (local-test-rail-records.mjs reads them), so rail crypto-native is reconciled in the chain's words, never the ledger's.
     // svc-pay refuses this outside APP_ENV dev or test, or over any chain but the sandbox one.
     PAY_TEST_RAIL_RECORDS_DIR: path.join(STATE, 'test-rail-records'),
+    // LOCAL TEST developer sandbox settings (J-developer-02 #5, #8), never an owner decision: blank, so Fund and Reset
+    // refuse by name (#4), until `local-test-gates.mjs sandbox-funds set` writes this marker and restarts pay. The
+    // sandbox store holds TEST figures only and never reaches the ledger.
+    ...(fs.existsSync(path.join(STATE, 'sandbox-funds.json')) ? { PAY_SANDBOX_FUND_AMOUNT: '1000', PAY_SANDBOX_RESETS_PER_DAY: '3' } : {}),
   }),
 });

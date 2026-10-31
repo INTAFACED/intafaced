@@ -37,6 +37,32 @@ export const guestNotificationCodeSchema = z.enum([
   'guest.delivery_in_progress',
 ]);
 
+/**
+ * The evidence a guest mail receipt must hold for its status, shared by the ops guest route and the support verification
+ * door (guest-verification.ts), which differ only in their codes.
+ */
+export function guestReceiptEvidence(
+  value: { status: string; attemptedAt: string | null; acceptedAt: string | null; code: string | null; reference: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.status === 'accepted') {
+    if (value.attemptedAt === null || value.acceptedAt === null || value.code !== null)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Acceptance requires actual attempt and acceptance evidence' });
+  } else if (value.acceptedAt !== null || value.reference !== null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Unaccepted states cannot claim gateway acceptance' });
+  }
+  if ((value.status === 'queued' || value.status === 'attempting') && value.code !== null)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pending work cannot carry a terminal error' });
+  if (value.status === 'queued' && value.attemptedAt !== null)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Queued work has not been attempted' });
+  if ((value.status === 'attempting' || value.status === 'unresolved') && value.attemptedAt === null)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'An in-flight or uncertain outcome requires an actual attempt' });
+  if ((value.status === 'refused' || value.status === 'unresolved') && value.code === null)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Refusal and uncertainty require a typed reason' });
+  if (value.attemptedAt && value.acceptedAt && Date.parse(value.acceptedAt) < Date.parse(value.attemptedAt))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Acceptance cannot precede the attempt' });
+}
+
 /** Gateway acceptance is evidence of acceptance, never arrival or a completed review. */
 export const guestNotificationReceiptSchema = z
   .object({
@@ -49,24 +75,7 @@ export const guestNotificationReceiptSchema = z
     reference: z.string().max(256).nullable(),
   })
   .strict()
-  .superRefine((value, ctx) => {
-    if (value.status === 'accepted') {
-      if (value.attemptedAt === null || value.acceptedAt === null || value.code !== null)
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Acceptance requires actual attempt and acceptance evidence' });
-    } else if (value.acceptedAt !== null || value.reference !== null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Unaccepted states cannot claim gateway acceptance' });
-    }
-    if ((value.status === 'queued' || value.status === 'attempting') && value.code !== null)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pending work cannot carry a terminal error' });
-    if (value.status === 'queued' && value.attemptedAt !== null)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Queued work has not been attempted' });
-    if ((value.status === 'attempting' || value.status === 'unresolved') && value.attemptedAt === null)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'An in-flight or uncertain outcome requires an actual attempt' });
-    if ((value.status === 'refused' || value.status === 'unresolved') && value.code === null)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Refusal and uncertainty require a typed reason' });
-    if (value.attemptedAt && value.acceptedAt && Date.parse(value.acceptedAt) < Date.parse(value.attemptedAt))
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Acceptance cannot precede the attempt' });
-  });
+  .superRefine(guestReceiptEvidence);
 export type GuestNotificationReceipt = z.infer<typeof guestNotificationReceiptSchema>;
 
 export const guestNotificationEraseInputSchema = z.object({ requestId: id, submissionId: id }).strict();

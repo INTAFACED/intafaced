@@ -1,0 +1,360 @@
+/**
+ * AC-quizzes-04 — score changes after grading: a key fix is a new revision that changes only keys, a rescore applies it
+ * once per attempt and revision, an override changes one question with a reason; the learner and the gradebook read the
+ * newest score event.
+ */
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import type { AcademySaveCourseQuizInput } from '@intafaced/contracts';
+import { CourseRecords } from './courses.js';
+import { CoursePreview } from './course-preview.js';
+import { CourseLearners } from './course-learners.js';
+import { CourseQuizzes } from './course-quizzes.js';
+import { CourseQuizTrail } from './course-quiz-trail.js';
+import { CourseGradebook } from './course-gradebook.js';
+import { CourseQuizAnalytics } from './course-quiz-analytics.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const drizzle = join(here, '..', '..', 'drizzle');
+const MIGRATIONS = readdirSync(drizzle)
+  .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
+  .sort()
+  .map((name) => readFileSync(join(drizzle, name), 'utf8'));
+
+function adminUrl(): string {
+  const raw = process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:55432/intafaced_test';
+  const url = new URL(raw);
+  if (!url.pathname.replace(/^\//, '').endsWith('_test')) url.pathname = '/intafaced_test';
+  return url.toString();
+}
+
+const db: TestDatabase = await createTestDatabase({ service: 'academy', url: adminUrl(), migrations: MIGRATIONS });
+const A = '33333333-3333-4333-8333-333333333333';
+const L = '55555555-5555-4555-8555-555555555555';
+const OUTSIDER = '66666666-6666-4666-8666-666666666666';
+const NOW = new Date('2026-10-23T12:00:00.000Z');
+
+afterAll(async () => {
+  await db.drop();
+}, 30_000);
+
+beforeEach(async () => {
+  await db.truncateAll();
+});
+
+const courses = () => new CourseRecords(db.sql, { maxSections: 5, maxItems: 5 });
+const learners = () => new CourseLearners(db.sql, new CoursePreview(db.sql));
+const quizzes = () => new CourseQuizzes(db.sql);
+const trail = () => new CourseQuizTrail(db.sql);
+const M = '77777777-7777-4777-8777-777777777777';
+
+const QUESTIONS: AcademySaveCourseQuizInput['questions'] = [
+  {
+    kind: 'single',
+    id: 'q1',
+    prompt: 'TEST What caps the loss on a trade?',
+    points: 2,
+    choices: [
+      { id: 'a', text: 'A stop' },
+      { id: 'b', text: 'Hope' },
+    ],
+    correctChoiceId: 'a',
+  },
+];
+
+const draft = (over: Partial<AcademySaveCourseQuizInput> = {}): Omit<AcademySaveCourseQuizInput, 'itemId' | 'revision'> => ({
+  passMark: 1,
+  attemptLimit: 1,
+  scoringPolicy: null,
+  timeLimitSeconds: null,
+  reviewMode: 'score_only',
+  ipAllow: null,
+  kind: 'quiz',
+  anonymous: false,
+  resultsVisibility: 'always',
+  questions: QUESTIONS,
+  ...over,
+});
+
+/** A free course with one quiz item (and a lesson item), published, with learner L enrolled. */
+async function course() {
+  const created = await courses().create({
+    slug: 'risk-basics',
+    title: 'Risk basics',
+    summary: null,
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+    operatorId: A,
+    now: NOW,
+  });
+  const detail = await courses().saveOutline({
+    courseId: created.id,
+    revision: 1,
+    sections: [
+      {
+        title: 'Check',
+        items: [
+          { kind: 'quiz', title: 'Check yourself', indent: 0, url: null },
+          { kind: 'lesson', title: 'Read me', indent: 0, url: null },
+        ],
+      },
+    ],
+    operatorId: A,
+    now: NOW,
+  });
+  const current = await courses().get(created.id);
+  await courses().setState({
+    courseId: created.id,
+    to: 'published',
+    revision: current.course.revision,
+    reason: 'TEST',
+    operatorId: A,
+    now: NOW,
+  });
+  for (const userId of [L, M]) await learners().enrol({ userId, slug: 'risk-basics', track: 'audit', now: NOW });
+  return { courseId: created.id, quiz: detail.outline[0]!.items[0]!, lesson: detail.outline[0]!.items[1]! };
+}
+
+const start = (itemId: string, over: { userId?: string; accessCode?: string | null; clientAddress?: string | null } = {}) =>
+  quizzes().start({ itemId, userId: L, accessCode: null, clientAddress: null, now: NOW, ...over });
+
+/** Q1 single (2 points, key a), Q2 numeric (3 points, key 10 ± 0); pass mark 3. Published. L answers b and 10; M answers a and 12. */
+const TWO: AcademySaveCourseQuizInput['questions'] = [
+  QUESTIONS[0]!,
+  { kind: 'numeric', id: 'n1', prompt: 'TEST Size?', points: 3, answer: '10', tolerance: '0' },
+];
+async function taken() {
+  const { courseId, quiz } = await course();
+  await quizzes().save({ itemId: quiz.id, revision: 0, ...draft({ questions: TWO, passMark: 3 }), operatorId: A, now: NOW });
+  await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+  const ids: Record<string, string> = {};
+  for (const [userId, choice, size] of [
+    [L, 'b', '10'],
+    [M, 'a', '12'],
+  ] as const) {
+    const attempt = await start(quiz.id, { userId });
+    await quizzes().answer({ attemptId: attempt.attemptId, userId, questionId: 'q1', answer: choice, now: NOW });
+    await quizzes().answer({ attemptId: attempt.attemptId, userId, questionId: 'n1', answer: size, now: NOW });
+    await quizzes().finish({ attemptId: attempt.attemptId, userId, now: NOW });
+    ids[userId] = attempt.attemptId;
+  }
+  return { courseId, itemId: quiz.id, ids };
+}
+
+const later = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+
+describe('score changes after grading (AC-quizzes-04)', () => {
+  it('an override is a new event with the new total, keeps the old one, and the learner and gradebook see the new score', async () => {
+    const { courseId, itemId, ids } = await taken();
+    const before = await trail().attempts(itemId);
+    const lRow = before.attempts.find((a) => a.attemptId === ids[L])!;
+    expect(lRow).toMatchObject({ alias: 1, score: 3, originalScore: 3, maxScore: 5, nextN: 1, events: [] });
+    expect(JSON.stringify(before)).not.toContain(L);
+    const override = (over: Partial<{ n: number; points: number; reason: string }> = {}) =>
+      trail().override({
+        itemId,
+        attemptId: ids[L]!,
+        questionId: 'q1',
+        points: 2,
+        n: 1,
+        comment: 'TEST stop named in words',
+        reason: 'TEST regrade',
+        operatorId: A,
+        now: later(1),
+        ...over,
+      });
+    const after = await override();
+    const row = after.attempts.find((a) => a.attemptId === ids[L])!;
+    expect(row).toMatchObject({ score: 5, originalScore: 3, passed: true, nextN: 2 });
+    expect(row.events).toEqual([
+      expect.objectContaining({
+        n: 1,
+        kind: 'override',
+        questionId: 'q1',
+        previousScore: 3,
+        score: 5,
+        comment: 'TEST stop named in words',
+      }),
+    ]);
+    // The same n again answers as stored; a stale n and points above the question's refuse.
+    await expect(override()).resolves.toBeDefined();
+    await expect(override({ points: 1 })).rejects.toMatchObject({ code: 'academy.revision_stale' });
+    await expect(override({ n: 2, points: 9 })).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+    const mine = await quizzes().current({ itemId, userId: L, now: later(2) });
+    expect(mine?.result).toMatchObject({ state: 'graded', score: 5, pass: true });
+    const book = await new CourseGradebook(db.sql).view(courseId);
+    expect(JSON.stringify(book)).toContain('"score":"1"');
+  });
+
+  it('a key fix changes only keys as a new revision; a rescore applies it once per attempt, and learners see the new score', async () => {
+    const { itemId, ids } = await taken();
+    const quiz = await quizzes().adminView(itemId);
+    const fixed: AcademySaveCourseQuizInput['questions'] = TWO.map((q) => (q.kind === 'numeric' ? { ...q, answer: '12' } : q));
+    const fix = (questions = fixed, revision = quiz.revision) =>
+      trail().fixKey({ itemId, revision, questions, reason: 'TEST the size was 12', operatorId: A, now: later(1) });
+    await expect(fix(TWO)).rejects.toMatchObject({ code: 'academy.key_fix_invalid' });
+    await expect(fix(fixed.map((q) => ({ ...q, prompt: `${q.prompt}!` })))).rejects.toMatchObject({ code: 'academy.key_fix_invalid' });
+    await expect(fix(fixed.slice(0, 1))).rejects.toMatchObject({ code: 'academy.key_fix_invalid' });
+    await fix();
+    await expect(fix()).rejects.toMatchObject({ code: 'academy.revision_stale' });
+    // Until a rescore, every attempt keeps its score.
+    expect((await trail().attempts(itemId)).attempts.map((a) => a.score)).toEqual([3, 2]);
+    const rescored = await trail().rescore({ itemId, reason: 'TEST key fixed', operatorId: A, now: later(2) });
+    expect(rescored.revision).toBe(quiz.revision + 1);
+    expect(rescored.rescored).toEqual([
+      { alias: 1, number: 1, from: 3, to: 0 },
+      { alias: 2, number: 1, from: 2, to: 5 },
+    ]);
+    const m = rescored.attempts.attempts.find((a) => a.attemptId === ids[M])!;
+    expect(m).toMatchObject({ score: 5, originalScore: 2, passed: true });
+    expect(m.events).toEqual([expect.objectContaining({ kind: 'rescore', revision: quiz.revision + 1, previousScore: 2, score: 5 })]);
+    expect((await quizzes().current({ itemId, userId: M, now: later(3) }))?.result).toMatchObject({ score: 5, pass: true });
+    // Again at the same revision: nothing changes.
+    expect((await trail().rescore({ itemId, reason: 'TEST again', operatorId: A, now: later(4) })).rescored).toEqual([]);
+  });
+
+  it('an attempt waiting for an essay score, or on another quiz, is not overridden', async () => {
+    const { itemId, ids } = await taken();
+    await expect(
+      trail().override({
+        itemId: OUTSIDER,
+        attemptId: ids[L]!,
+        questionId: 'q1',
+        points: 1,
+        n: 1,
+        comment: null,
+        reason: 'TEST',
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_not_found' });
+    await expect(trail().rescore({ itemId: OUTSIDER, reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
+      code: 'academy.quiz_not_found',
+    });
+  });
+  it('an override survives a later key fix on another question; a fix of its own question rescores it', async () => {
+    const { itemId, ids } = await taken();
+    // L answered q1 "b" (0 of 2) and n1 10 (3 of 3). Staff give q1 2 by hand: 5.
+    await trail().override({
+      itemId,
+      attemptId: ids[L]!,
+      questionId: 'q1',
+      points: 2,
+      n: 1,
+      comment: null,
+      reason: 'TEST by hand',
+      operatorId: A,
+      now: later(1),
+    });
+    const fixN1: AcademySaveCourseQuizInput['questions'] = TWO.map((q) => (q.kind === 'numeric' ? { ...q, answer: '12' } : q));
+    let revision = (await quizzes().adminView(itemId)).revision;
+    await trail().fixKey({ itemId, revision, questions: fixN1, reason: 'TEST n1 is 12', operatorId: A, now: later(2) });
+    expect((await trail().attempts(itemId)).attempts.every((a) => a.rescoreDue)).toBe(true);
+    await trail().rescore({ itemId, reason: 'TEST n1', operatorId: A, now: later(3) });
+    let l = (await trail().attempts(itemId)).attempts.find((a) => a.attemptId === ids[L])!;
+    // q1 keeps the override (2); n1 is rescored to 0: 2.
+    expect(l).toMatchObject({ score: 2, rescoreDue: false });
+    expect(l.questions.map((q) => q.earned)).toEqual([2, 0]);
+    // Now q1's own key changes to "b": the rescore applies it to q1 (2 points for "b").
+    const fixQ1 = fixN1.map((q) => (q.kind === 'single' ? { ...q, correctChoiceId: 'b' } : q));
+    revision = (await quizzes().adminView(itemId)).revision;
+    await trail().fixKey({ itemId, revision, questions: fixQ1, reason: 'TEST q1 is b', operatorId: A, now: later(4) });
+    const again = await trail().rescore({ itemId, reason: 'TEST q1', operatorId: A, now: later(5) });
+    expect(again.rescored.map((r) => r.alias)).toEqual([2]);
+    l = again.attempts.attempts.find((a) => a.attemptId === ids[L])!;
+    expect(l.questions.map((q) => q.earned)).toEqual([2, 0]);
+    expect(l.events.map((e) => e.kind)).toEqual(['override', 'rescore']);
+  });
+});
+
+describe('a curve file and quiz analytics (AC-quizzes-04)', () => {
+  const curve = (itemId: string, csv: string, dryRun: boolean, limit: number | null = 4096) =>
+    new CourseQuizTrail(db.sql, limit).curve({
+      itemId,
+      fileName: 'TEST-curve.csv',
+      csv,
+      dryRun,
+      reason: 'TEST curve',
+      operatorId: A,
+      now: later(1),
+    });
+
+  it('a dry run lists an unknown learner and applies nothing; applying refuses while a row is refused; a good file applies once', async () => {
+    const { itemId, ids } = await taken();
+    const bad = 'learner,score\nLearner 1,4\nLearner 9,5\n';
+    const dry = await curve(itemId, bad, true);
+    expect(dry).toMatchObject({ dryRun: true, applied: false, repeated: false, rows: [{ line: 2, alias: 1, number: 1, from: 3, to: 4 }] });
+    expect(dry.rejected).toEqual([{ line: 3, alias: 9, code: 'academy.attempt_not_found', message: 'no Learner 9 took this quiz' }]);
+    await expect(curve(itemId, bad, false)).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    expect((await trail().attempts(itemId)).attempts.every((a) => a.events.length === 0)).toBe(true);
+
+    const good = 'learner,score\nLearner 1,4\nLearner 2,3\n';
+    const applied = await curve(itemId, good, false);
+    expect(applied).toMatchObject({ applied: true, repeated: false });
+    expect(applied.rows.map((r) => [r.alias, r.from, r.to])).toEqual([
+      [1, 3, 4],
+      [2, 2, 3],
+    ]);
+    expect(await curve(itemId, good, false)).toMatchObject({ applied: false, repeated: true, rows: applied.rows });
+    // A row that leaves a score as it is writes no event.
+    const same = await curve(itemId, 'learner,score\nLearner 1,4\n', false);
+    expect(same.rows).toEqual([{ line: 2, alias: 1, number: 1, from: 4, to: 4 }]);
+    const l = (await trail().attempts(itemId)).attempts.find((a) => a.attemptId === ids[L])!;
+    expect(l).toMatchObject({
+      score: 4,
+      originalScore: 3,
+      events: [expect.objectContaining({ kind: 'curve', previousScore: 3, score: 4 })],
+    });
+    // An override after a curve keeps the curve's difference, held to the maximum: q1 0 → 2 would make 6 of 5, so 5.
+    const after = await trail().override({
+      itemId,
+      attemptId: ids[L]!,
+      questionId: 'q1',
+      points: 2,
+      n: 2,
+      comment: null,
+      reason: 'TEST',
+      operatorId: A,
+      now: later(2),
+    });
+    expect(after.attempts.find((a) => a.attemptId === ids[L])!.score).toBe(5);
+  });
+
+  it('a blank size limit, a file over it, a bad header and a score above the maximum refuse', async () => {
+    const { itemId } = await taken();
+    await expect(curve(itemId, 'learner,score\n1,4\n', true, null)).rejects.toMatchObject({ code: 'academy.bulk_limit_unset' });
+    await expect(curve(itemId, 'learner,score\n1,4\n', true, 10)).rejects.toMatchObject({ code: 'academy.bulk_file_too_large' });
+    await expect(curve(itemId, 'alias,score\n1,4\n', true)).rejects.toMatchObject({ code: 'academy.bulk_file_invalid' });
+    expect((await curve(itemId, 'learner,score\n1,6\n', true)).rejected[0]).toMatchObject({ code: 'academy.assessment_invalid' });
+  });
+
+  it('analytics: an empty state with no graded attempt, then item analysis and the distribution from real attempts', async () => {
+    const { quiz } = await course();
+    await quizzes().save({ itemId: quiz.id, revision: 0, ...draft({ questions: TWO, passMark: 3 }), operatorId: A, now: NOW });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const empty = await new CourseQuizAnalytics(db.sql).analytics(quiz.id);
+    expect(empty).toMatchObject({ graded: 0, learners: 0, scoreDistribution: [] });
+    expect(empty.items.map((i) => [i.attempts, i.fullMarksShare, i.meanPoints])).toEqual([
+      [0, null, null],
+      [0, null, null],
+    ]);
+    await db.truncateAll();
+    const { itemId } = await taken();
+    const stats = await new CourseQuizAnalytics(db.sql).analytics(itemId);
+    // L: q1 0, n1 3 (score 3); M: q1 2, n1 0 (score 2).
+    expect(stats).toMatchObject({ graded: 2, learners: 2 });
+    expect(stats.scoreDistribution).toEqual([0, 1, 2, 3, 4, 5].map((score) => ({ score, count: score === 2 || score === 3 ? 1 : 0 })));
+    expect(stats.items.map((i) => [i.questionId, i.attempts, i.fullMarksShare, i.meanPoints, i.firstAttemptFullMarksShare])).toEqual([
+      ['q1', 2, '50.0', '1.00', '50.0'],
+      ['n1', 2, '50.0', '1.50', '50.0'],
+    ]);
+    await expect(new CourseQuizAnalytics(db.sql).answers({ itemId, operatorId: A })).rejects.toMatchObject({
+      code: 'academy.permission_denied',
+    });
+  });
+});

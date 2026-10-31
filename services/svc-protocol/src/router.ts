@@ -30,6 +30,8 @@ import {
   protocolTokenPricesOutputSchema,
   PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
+  protocolSwapFeesOutputSchema,
+  protocolAllowancesOutputSchema,
   SWAP_SETTINGS_UNSET,
 } from '@intafaced/contracts';
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
@@ -53,8 +55,11 @@ import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
+import { listAllowances } from './amm/allowances.js';
+import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -102,6 +107,30 @@ import {
   type RepresentationSetting,
   type RepresentationStore,
 } from './representation/representation.js';
+import {
+  createAddressBookRouter,
+  createWalletSessionRouter,
+  unwiredAddressBookStore,
+  type AddressBookDeps,
+} from './address-book/router.js';
+import {
+  issueChallenge,
+  LISTING_CHALLENGE_TTL_UNSET,
+  LISTING_NONCE_UNKNOWN,
+  LISTING_NOT_OWNER,
+  LISTING_OWNER_UNKNOWN,
+  ListingRefusedError,
+  verifyOwnership,
+  type ListingStore,
+  type OwnershipChain,
+} from './listing/ownership.js';
+import { ownershipChain } from './listing/ownership-chain.js';
+import {
+  protocolListingChallengeInputSchema,
+  protocolListingChallengeOutputSchema,
+  protocolListingVerifyInputSchema,
+  protocolListingVerifyOutputSchema,
+} from '@intafaced/contracts/protocol-listing';
 
 /**
  * svc-protocol's API.
@@ -273,6 +302,17 @@ function toTrpcError(err: unknown): TRPCError {
           : 'CONFLICT';
     return new TRPCError({ code, message: err.message, cause: err });
   }
+  if (err instanceof ListingRefusedError) {
+    const code =
+      err.code === LISTING_CHALLENGE_TTL_UNSET || err.code === LISTING_OWNER_UNKNOWN
+        ? 'PRECONDITION_FAILED'
+        : err.code === LISTING_NOT_OWNER
+          ? 'FORBIDDEN'
+          : err.code === LISTING_NONCE_UNKNOWN
+            ? 'NOT_FOUND'
+            : 'CONFLICT';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof BadgeRefusedError) {
     const code =
       err.code === BADGE_STUCK_APPROVAL_REFUSED
@@ -343,6 +383,9 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof PoolTokenError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
+  if (err instanceof SwapFeeError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
   /**
    * A launch parameter the platform will not put its name on, or an address
    * that does not parse. Both are the caller's input, and both carry their own
@@ -376,6 +419,8 @@ export interface ProtocolRouterDeps {
   swapQuoteTtlSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_CONFIRMATIONS`. Null or absent: `amm.swapSettings` refuses. */
   swapConfirmations?: () => number | null;
+  /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`, the fee cap. Null or absent: `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`. */
+  swapFeeCapWei?: () => bigint | null;
   /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
   priceSetting?: () => PriceSetting | null;
   /** `PROTOCOL_TOKENS_QUOTE_TOKEN`: what the token pages state prices in. Null or absent: `tokens.*` refuses. */
@@ -396,6 +441,17 @@ export interface ProtocolRouterDeps {
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
   /**
+   * Contract ownership proof (D-launch-listing-01). `ttlSeconds()` is null while the owner's challenge lifetime is blank
+   * (`protocol.listing.challenge_ttl_unset`). Absent = not wired, which refuses the same way. `chain` defaults to the
+   * service's own client.
+   */
+  listing?: {
+    store: ListingStore;
+    ttlSeconds: () => number | null;
+    chain?: OwnershipChain;
+    now?: () => Date;
+  };
+  /**
    * The first-signing representation (D-developer-compliance-03). `setting()` is null while counsel's text or the owner's
    * version is blank (`compliance.representation_unset`). Absent = not wired, which refuses the same way.
    */
@@ -403,6 +459,11 @@ export interface ProtocolRouterDeps {
     store: RepresentationStore;
     setting: () => RepresentationSetting | null;
   };
+  /**
+   * The wallet address book and wallet groups (D-portfolio-wallet-03), opened with a wallet session the wallet signs.
+   * Absent = not wired, which refuses `protocol.wallet_session_unset`.
+   */
+  addressBook?: Omit<AddressBookDeps, 'chainId'>;
   /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
@@ -432,6 +493,9 @@ const unwiredRepresentationStore: RepresentationStore = {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const readPairs = pairsReader(chain);
+  // The ownership proof's chain reads, built once: the challenge's chain id and the verify reads come from this one object.
+  let ownership: OwnershipChain | null = null;
+  const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -445,6 +509,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     return blockTime!.at;
   };
   const peers = deps.peers ?? noPeers;
+  const addressBookDeps: AddressBookDeps = {
+    chainId: () => chain.config.chainId,
+    ...(deps.addressBook ?? {
+      store: unwiredAddressBookStore,
+      session: () => null,
+      maxContacts: () => undefined,
+      maxGroups: () => undefined,
+    }),
+  };
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -1006,6 +1079,57 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       }),
 
     /**
+     * Contract ownership proof (D-launch-listing-01). Public: the token's owner may be signed out. A challenge is a fresh
+     * one-time message; a proof is stored only when the token's on-chain owner signed it.
+     */
+    listing: router({
+      ownershipChallenge: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolListingChallengeInputSchema)
+        .output(protocolListingChallengeOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const l = deps.listing;
+            if (!l) throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'Ownership proofs are not wired on this service.');
+            const now = l.now?.() ?? new Date();
+            const c = await issueChallenge(l.store, listingChain(), l.ttlSeconds(), input.token as Address, now);
+            return {
+              nonce: c.nonce,
+              token: c.token,
+              chainId: c.chainId,
+              message: c.message,
+              issuedAt: c.issuedAt.toISOString(),
+              expiresAt: c.expiresAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      verifyOwnership: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolListingVerifyInputSchema)
+        .output(protocolListingVerifyOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const l = deps.listing;
+            if (!l) throw new ListingRefusedError(LISTING_CHALLENGE_TTL_UNSET, 'Ownership proofs are not wired on this service.');
+            const proof = await verifyOwnership(
+              l.store,
+              listingChain(),
+              { nonce: input.nonce, signature: input.signature as Hex },
+              l.now?.() ?? new Date(),
+            );
+            return {
+              token: proof.token,
+              signer: proof.signer,
+              blockNumber: proof.blockNumber.toString(),
+              verifiedAt: proof.verifiedAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
+
+    /**
      * The representation a wallet signs once per version before its first signing action. Public like the rest of this
      * plane: the visitor may be signed out. `accept` writes only on proof that the address signed `status.message`.
      */
@@ -1044,6 +1168,10 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           }
         }),
     }),
+
+    // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
+    walletSession: createWalletSessionRouter(addressBookDeps),
+    addressBook: createAddressBookRouter(addressBookDeps),
 
     // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
     // Account = signed principal; address = that account's own registered smart account. Never a body field.
@@ -1218,6 +1346,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createPoolFeesProcedures({
+        chain: poolFeesChain(
+          () => chain.client,
+          () => chain.config.rpcUrl,
+          () => chain.headBlock(),
+        ),
+        factory: () => deps.ammFactoryAddress(),
+        toTrpcError,
+      }),
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.
        *
@@ -1333,6 +1470,46 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return { slippageCeilingBps, quoteTtlSeconds, confirmations };
           } catch (err) {
             throw err instanceof TRPCError ? err : toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The swap form's network fee levels (D-swap-11): Slow, Normal and Fast are the owner percentiles of the last N
+       * blocks' priority fees, on top of the next block's base fee, with the owner's fee cap. Both owner settings are
+       * checked before the node is asked; a blank one refuses by name. No paymaster is wired, so `sponsored` is false.
+       */
+      feeLevels: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolSwapFeesOutputSchema)
+        .query(async () => {
+          try {
+            const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
+            const setting = deps.gasPercentiles?.() ?? null;
+            if (!setting) throw new GasPercentilesUnsetError();
+            return feeLevels(await chain.gasPrice(setting, deps.now?.() ?? new Date()), cap);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The live allowances `owner` has given for the tokens the factory's pools trade (D-swap-09), read at one block:
+       * each listed pool and each spender in the owner's recent Approval logs, kept only when `allowance()` is above zero.
+       * Allowances are public chain data, so the address asked about is the scope and no session is needed.
+       */
+      allowances: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(z.object({ owner: addressSchema }))
+        .output(protocolAllowancesOutputSchema)
+        .query(async ({ input }) => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          try {
+            return await listAllowances(chain, await readPairs(factory), input.owner as Address);
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 

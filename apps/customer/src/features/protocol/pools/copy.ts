@@ -1,0 +1,98 @@
+import { defineCopy } from '../../../shared/i18n';
+
+/**
+ * Authored copy for the pool list and the pool page (D-explorer-05). English only for now; other languages fall back
+ * to it. Every figure is read from the chain through the indexer; nothing here prices a pool in a currency it was not
+ * traded in, and nothing claims a reading the indexer did not give.
+ */
+const en = {
+  poolsTitle: 'Pools',
+  poolsNote: 'Every pool the published pool factory created on {network}, newest first, read from the chain by the indexer.',
+  poolsEmpty: 'The indexer holds no pool from the published pool factory on {network}.',
+  poolsRefused: 'The pool list was not read: {reason}',
+  poolsMore: 'Older pools',
+  hdrPool: 'Pool',
+  hdrFee: 'Fee',
+  hdrReserves: 'Reserves',
+  hdrCreated: 'Created at block',
+  hdrContracts: 'Token contracts',
+  symbolsNote:
+    'Each name and symbol is what the token contract says about itself, and anyone can deploy a token with any name. Check the contract address.',
+  pairName: '{token0} / {token1}',
+  reservesPair: '{amount0} {symbol0} · {amount1} {symbol1}',
+  reservesNone: 'No reserves recorded',
+  feePercent: '{percent}%',
+  poolTitle: 'Pool {pair}',
+  poolFacts: 'Pool',
+  poolAddress: 'Pool contract',
+  poolTokens: 'Tokens',
+  poolReservesAt: 'Reserves after block {height}',
+  poolCreatedAt: 'Created at block {height}',
+  poolFee: 'Swap fee',
+  tokenLink: '{name} ({symbol})',
+  tokenUnnamed: 'Token {address}',
+  notAPoolTitle: 'Not a pool',
+  notAPool: '{address} is not a pool on {network}: the indexer holds no pool the published pool factory created there.',
+  poolRefused: 'This pool was not read: {reason}',
+  volumeTitle: 'Volume',
+  volumeDay: '{amount} {symbol} in the last 24 hours, {swaps} swaps',
+  volumeRaw: '{amount} base units of {symbol} in the last 24 hours, {swaps} swaps',
+  chartTitle: 'Price',
+  chartLabel: 'Price chart: {base} in {quote}, last 24 hours, {width} candles',
+  chartWidth5m: '5 minute',
+  chartWidth1h: '1 hour',
+  chartWidthGroup: 'Candle width',
+  chartEmpty: 'No swaps in the last 24 hours, so there is no price to draw.',
+  chartUnread: 'The price was not read: a token in this pool did not say its decimals.',
+  candleTitle: '{time}: open {open}, high {high}, low {low}, close {close}, {swaps} swaps',
+  chartRange: 'Low {low} · high {high} {quote} per {base}',
+  tradesTitle: 'Trades',
+  tradesEmpty: 'This pool has no recorded swaps.',
+  tradesRefused: 'The trades were not read: {reason}',
+  tradesMore: 'Older trades',
+  hdrTime: 'Time',
+  hdrSide: 'Side',
+  hdrAmount: 'Amount',
+  hdrTx: 'Transaction',
+  sideBuy: 'Buy',
+  sideSell: 'Sell',
+  sideBoth: 'Both ways',
+  sideBuyDetail: 'Buy {symbol}',
+  sideSellDetail: 'Sell {symbol}',
+  amountMove: '{in} in · {out} out',
+  rawUnits: '{amount} base units',
+  retry: 'Try again',
+  loading: 'Loading',
+  backToPools: 'Back to pools',
+  asOf: 'As of {time}',
+  feesTitle: 'Fees',
+  feesSwap: 'Swap fee {percent}% of each swap’s input, fixed in the pool contract when it was created.',
+  feesSharesLabel: 'Who gets the swap fee',
+  feesShare: '{to}: {percent}% of the swap fee',
+  shareLiquidityProviders: 'Liquidity providers, kept in the pool',
+  shareCreator: 'The token creator',
+  sharePlatform: 'The platform',
+  shareGovernance: 'Governance',
+  feesDiffer:
+    'The indexer recorded a {indexed}% fee when the pool was created; the pool contract now answers {read}%. The contract’s answer is shown.',
+  reasonProtocolNotConnected: 'the protocol service is not running here',
+  reasonProtocolNoAnswer: 'the protocol service didn’t answer',
+  reasonNodeNoAnswer: 'the network’s node didn’t answer',
+  reasonFactoryUnset: 'the pool factory address is not published',
+  feesRequestAnswered:
+    'The protocol service answered without refusing, but no protocol fee is set up: the pool contract has no fee recipient.',
+  feesNoThird: 'There is no third share: no creator, platform or governance share. The pool contract has no fee recipient.',
+  feesReadAt: 'Read from the pool contract at block {height}.',
+  feesRefused: 'The pool’s fee fields were not read: {reason}',
+  feesNotFactoryPool:
+    'The protocol service does not recognise this pool as one the published pool factory created, so it says nothing about its fees.',
+  feesRequest: 'Request a protocol fee',
+  feesRequestNote:
+    'A protocol fee would take a share of the swap fee for the platform. It needs a published policy and new contracts; the existing pools take no protocol fee.',
+  feesRequestPolicyUnset:
+    'Not requested: the protocol fee policy is not set. The owner has not published the share, the pools it applies to, the collector or the release rules.',
+  feesRequestRefused: 'Not requested: {reason}',
+} as const;
+
+export const poolsCopy = defineCopy('customer.protocol.pools', en);
+export type PoolsTranslate = ReturnType<typeof poolsCopy.forLocale>['t'];

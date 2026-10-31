@@ -328,3 +328,192 @@ export const academyStartCourseQuizInputSchema = z
   .object({ itemId: z.string().guid(), accessCode: z.string().trim().max(64).nullable() })
   .strict();
 export type AcademyStartCourseQuizInput = z.infer<typeof academyStartCourseQuizInputSchema>;
+
+/**
+ * AC-quizzes-04: score changes after grading. An attempt stays as the learner finished it; every change is an event in its
+ * score trail: an override of one question's points with a comment and a reason (`override:<attempt>:<question>:<n>`), or
+ * a rescore after an author fixes a key (`rescore:<attempt>:<revision>`, once per attempt and revision). The score the
+ * learner and the gradebook see is the newest event's. A key fix is a new revision of a published quiz that changes only
+ * keys (`academy.key_fix_invalid` otherwise) and keeps every attempt as it was until a rescore.
+ */
+export const academyFixCourseQuizKeyInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    revision: z.number().int().nonnegative(),
+    questions: z.array(academyCourseQuizQuestionSchema).max(ACADEMY_QUIZ_MAX_QUESTIONS),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyFixCourseQuizKeyInput = z.infer<typeof academyFixCourseQuizKeyInputSchema>;
+
+/** `admin.rescoreCourseQuiz`: apply the quiz's current keys to every graded attempt whose answers they change. */
+export const academyRescoreCourseQuizInputSchema = z
+  .object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyRescoreCourseQuizInput = z.infer<typeof academyRescoreCourseQuizInputSchema>;
+
+/** `admin.overrideCourseQuizScore`: one question's whole points on a graded attempt, as score event `n`. */
+export const academyOverrideCourseQuizScoreInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    attemptId: z.string().guid(),
+    questionId: z.string().min(1).max(80),
+    points: z.number().int().nonnegative().max(1000),
+    n: z.number().int().positive(),
+    comment: z.string().trim().max(2000).nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyOverrideCourseQuizScoreInput = z.infer<typeof academyOverrideCourseQuizScoreInputSchema>;
+
+export const academyCourseQuizScoreEventSchema = z.object({
+  n: z.number().int().positive(),
+  kind: z.enum(['override', 'rescore', 'curve']),
+  questionId: z.string().nullable(),
+  revision: z.number().int().positive().nullable(),
+  previousScore: z.number().int().nonnegative(),
+  score: z.number().int().nonnegative(),
+  passed: z.boolean(),
+  comment: z.string().nullable(),
+  reason: z.string(),
+  at: isoInstant,
+});
+export type AcademyCourseQuizScoreEvent = z.infer<typeof academyCourseQuizScoreEventSchema>;
+
+/** `admin.courseQuizAttempts`: every finished attempt under its per-quiz alias, never the account, with its score trail. */
+export const academyCourseQuizAttemptsSchema = z.object({
+  itemId: z.string().guid(),
+  title: z.string(),
+  revision: z.number().int().nonnegative(),
+  passMark: z.number().int().nonnegative().nullable(),
+  attempts: z.array(
+    z.object({
+      attemptId: z.string().guid(),
+      alias: z.number().int().positive(),
+      number: z.number().int().positive(),
+      finishedAt: isoInstant,
+      state: z.enum(['pending_review', 'graded']),
+      /** The score as finished, and as it stands after its score trail; null while an essay waits. */
+      originalScore: z.number().int().nonnegative().nullable(),
+      score: z.number().int().nonnegative().nullable(),
+      maxScore: z.number().int().nonnegative(),
+      passed: z.boolean().nullable(),
+      /** The pass mark this attempt is judged against: the one in force when it was taken. */
+      passMark: z.number().int().nonnegative(),
+      /** Graded on keys other than the quiz's current ones (graded after the last rescore, say): a rescore would apply them. */
+      rescoreDue: z.boolean(),
+      questions: z.array(
+        z.object({ questionId: z.string(), prompt: z.string(), points: z.number().int().positive(), earned: z.number().nullable() }),
+      ),
+      events: z.array(academyCourseQuizScoreEventSchema),
+      nextN: z.number().int().positive(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAttempts = z.infer<typeof academyCourseQuizAttemptsSchema>;
+
+/** `admin.rescoreCourseQuiz`'s answer: the attempts it changed now, and the trail as it stands. */
+export const academyRescoreCourseQuizResultSchema = z.object({
+  revision: z.number().int().positive(),
+  rescored: z.array(
+    z.object({ alias: z.number().int().positive(), number: z.number().int().positive(), from: z.number(), to: z.number() }),
+  ),
+  attempts: academyCourseQuizAttemptsSchema,
+});
+export type AcademyRescoreCourseQuizResult = z.infer<typeof academyRescoreCourseQuizResultSchema>;
+
+/**
+ * `admin.curveCourseQuiz`: a CSV file of new total scores, a header `learner,score` and one row per learner by the alias
+ * staff see ("Learner 3" or "3"), applied to that learner's newest graded attempt. A dry run lists every row it would
+ * change and every row it refuses (an unknown learner, a score above the maximum, an attempt waiting for an essay
+ * score) and writes nothing. Applying refuses the whole file (`academy.bulk_file_invalid`) while any row is refused, so
+ * a curve applies whole or not at all, in one transaction, each row an event keyed by the file's sha256 and its line. The
+ * same file again answers with what it applied. The file's size limit is an owner value: blank refuses
+ * `academy.bulk_limit_unset`, and a larger file refuses `academy.bulk_file_too_large` before it is read.
+ */
+export const ACADEMY_CURVE_FILE_MAX_CHARS = 900_000;
+export const academyCurveCourseQuizInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    fileName: z.string().trim().min(1).max(200),
+    csv: z.string().min(1).max(ACADEMY_CURVE_FILE_MAX_CHARS),
+    dryRun: z.boolean(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyCurveCourseQuizInput = z.infer<typeof academyCurveCourseQuizInputSchema>;
+export const academyCurveCourseQuizResultSchema = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  fileName: z.string().min(1),
+  dryRun: z.boolean(),
+  /** True when this file was applied before: the rows are what it applied then, and nothing changed now. */
+  repeated: z.boolean(),
+  /** True when the rows below were written now. */
+  applied: z.boolean(),
+  rows: z.array(
+    z.object({
+      line: z.number().int().positive(),
+      alias: z.number().int().positive(),
+      number: z.number().int().positive(),
+      from: z.number().int().nonnegative(),
+      to: z.number().int().nonnegative(),
+    }),
+  ),
+  rejected: z.array(
+    z.object({
+      line: z.number().int().positive(),
+      alias: z.number().int().positive().nullable(),
+      code: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ),
+});
+export type AcademyCurveCourseQuizResult = z.infer<typeof academyCurveCourseQuizResultSchema>;
+
+/**
+ * `admin.courseQuizAnalytics`: item analysis and the score distribution, worked out from real graded attempts as their
+ * score trail leaves them, never an invented figure. With no graded attempt, `graded` is 0, the distribution is empty and
+ * every item has no answers. Shares are percentages as decimal strings with one place; null with nothing to divide by.
+ * Answers learner by learner are `admin.courseQuizAnswers`, which needs the data researcher role (AC-roles-01).
+ */
+export const academyCourseQuizAnalyticsSchema = z.object({
+  itemId: z.string().guid(),
+  title: z.string(),
+  revision: z.number().int().nonnegative(),
+  graded: z.number().int().nonnegative(),
+  learners: z.number().int().nonnegative(),
+  /** How many graded attempts finished at each total, from 0 to the highest maximum; empty with none graded. */
+  scoreDistribution: z.array(z.object({ score: z.number().int().nonnegative(), count: z.number().int().nonnegative() })),
+  items: z.array(
+    z.object({
+      questionId: z.string(),
+      prompt: z.string(),
+      kind: z.enum(['single', 'multi', 'numeric', 'essay']),
+      points: z.number().int().positive(),
+      /** Graded attempts that hold this question. */
+      attempts: z.number().int().nonnegative(),
+      /** Share of those that earned the question's full points: its difficulty as the share who got it right. */
+      fullMarksShare: z.string().nullable(),
+      /** The mean points earned, as a decimal string with two places. */
+      meanPoints: z.string().nullable(),
+      /** The same share on each learner's first attempt only. */
+      firstAttemptFullMarksShare: z.string().nullable(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAnalytics = z.infer<typeof academyCourseQuizAnalyticsSchema>;
+
+/** `admin.courseQuizAnswers`: each answer under an anonymised id; refuses `academy.permission_denied` without the role. */
+export const academyCourseQuizAnswersSchema = z.object({
+  itemId: z.string().guid(),
+  rows: z.array(
+    z.object({
+      learner: z.string(),
+      attempt: z.number().int().positive(),
+      questionId: z.string(),
+      answer: academyCourseQuizAnswerSchema.nullable(),
+      earned: z.number(),
+    }),
+  ),
+});
+export type AcademyCourseQuizAnswers = z.infer<typeof academyCourseQuizAnswersSchema>;

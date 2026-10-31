@@ -80,6 +80,16 @@
       "service": "p2p",
       "value": "{\"currency\":\"EUR\",\"tiers\":{\"none\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"basic\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"full\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"institutional\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"}}}",
       "note": "Verification-level buy allowances in EUR, the same for every level; small enough for a journey to reach the daily allowance."
+    },
+    "P2P_OFFER_EDITS_PER_DAY": {
+      "service": "p2p",
+      "value": "20",
+      "note": "Ad edits one person may make per UTC day; small enough that J-p2p-05 #1 reaches the cap with its own maker."
+    },
+    "P2P_SHARE_LINK_MAX_SECONDS": {
+      "service": "p2p",
+      "value": "86400",
+      "note": "Longest a share link to an ad may live (a day); J-p2p-05 #3 also makes a link that ends after a few seconds."
     }
   }
 }

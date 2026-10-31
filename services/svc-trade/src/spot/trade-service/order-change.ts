@@ -9,6 +9,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, LedgerError, orderHoldAccount, parseAmount, recipes, sub, type Amount } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../../tracing.js';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
+import { BUYBACK_INVALID, isBuybackUser } from '../buyback-order.js';
 import { orderIdFor } from '../ids.js';
 import { settlementOrderId } from '../oco-legs.js';
 import {
@@ -158,6 +159,34 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       }
     }
 
+    // Keep the engine's own remainder, the first answer only: a retry after the engine already cancelled reads absent.
+    if (cancellation.cancelled && cancellation.cancellation) {
+      await svc.sql`
+        UPDATE trade.orders SET engine_left_qty = ${cancellation.cancellation.remainingQty}::numeric
+         WHERE id = ${orderId} AND engine_left_qty IS NULL
+      `;
+    }
+    // The engine matched part of this order just before the cancel, and the taker's settlement has not written that
+    // fill yet. Closing now would release the hold the fill is about to draw, and a caller that places again (a chase
+    // re-price) would count that quantity twice. The order stays as it is; the engine's cancel event closes it once
+    // the fill lands (`releaseOnCancelEvent` waits the same way). A retry reads the stored remainder, not the miss.
+    const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
+      SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
+    `;
+    // A paper market never writes a fill (it is refused before trade.fills), so there is nothing to wait for there.
+    const paper = (await svc.marketById(order.marketId))?.paper === true;
+    if (answer?.engine_left_qty != null && !paper) {
+      try {
+        await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
+      } catch (err) {
+        if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
+        throw err;
+      }
+    } else if (!cancellation.cancelled) {
+      // No live order and no earlier answer: it may have matched in full. Said on the row, for a chase to read.
+      await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+    }
+
     // A successful cancel or a verified engine absence is now safe to
     // reconcile. Transport ambiguity above is deliberately kept separate and
     // remains recovery-required.
@@ -188,6 +217,10 @@ export async function amendOrder(
     const order = await svc.findOrder(orderId);
     if (!order || order.userId !== principal.userId) {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
+    }
+    // A buyback order is IOC and its hold lives in the buyback account: refuse before the engine is asked to change it.
+    if (isBuybackUser(order.userId)) {
+      return svc.amendOutcome(order, 'NOT_AMENDABLE', BUYBACK_INVALID, false, false, null);
     }
     if (order.status === 'recovery_required') {
       return svc.amendOutcome(order, 'AMEND_UNKNOWN', order.recoveryReason ?? 'AMEND_UNKNOWN', true, false, null);
@@ -386,6 +419,11 @@ export async function applyNativeAmendHold(
   version: number,
   sequence: number | null,
 ): Promise<void> {
+  // A buyback order is IOC and never rests, and its hold lives in the buyback account under its own
+  // release recipe. Refuse before reading or releasing a customer order-hold account for it.
+  if (isBuybackUser(order.userId)) {
+    throw new TradeError(`buyback order ${order.id} is never amended`, BUYBACK_INVALID);
+  }
   if (order.price == null) return;
   // The release post commits in the ledger on its own. If it lands and this
   // transaction then aborts, amend_released rolls back and the terminal

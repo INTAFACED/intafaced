@@ -132,6 +132,15 @@ import {
   academySurveySubmittedSchema,
   academyCourseQuizReviewsSchema,
   academyScoreCourseQuizEssaysInputSchema,
+  academyCourseQuizAttemptsSchema,
+  academyCurveCourseQuizInputSchema,
+  academyCurveCourseQuizResultSchema,
+  academyCourseQuizAnalyticsSchema,
+  academyCourseQuizAnswersSchema,
+  academyFixCourseQuizKeyInputSchema,
+  academyRescoreCourseQuizInputSchema,
+  academyRescoreCourseQuizResultSchema,
+  academyOverrideCourseQuizScoreInputSchema,
   academyAssignmentInputSchema,
   academyAssignmentViewSchema,
   academySaveAssignmentInputSchema,
@@ -1018,6 +1027,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.upload_incomplete':
     case 'academy.file_unavailable':
     case 'academy.grader_lease_unset':
+    case 'academy.bulk_limit_unset':
     case 'academy.programme_limit_unset':
     case 'academy.post_limit_unset':
     case 'academy.attachment_limit_unset':
@@ -1065,7 +1075,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
     case 'academy.grade_invalid':
+    case 'academy.key_fix_invalid':
     case 'academy.bulk_file_invalid':
+    case 'academy.bulk_file_too_large':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -3381,6 +3393,61 @@ export function createAcademyRouter(
         .output(academyCourseQuizReviewsSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseQuizzes.scoreEssays({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: every finished attempt under its alias, with points per question and its score trail. */
+      courseQuizAttempts: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAttemptsSchema)
+        .query(({ input }) => guard(() => academy.courseQuizTrail.attempts(input.itemId))),
+
+      /** AC-quizzes-04: a new revision of a published quiz that changes only keys; attempts keep their score until a rescore. */
+      fixCourseQuizKey: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyFixCourseQuizKeyInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            await academy.courseQuizTrail.fixKey({ ...input, operatorId: ctx.principal!.userId, now: new Date() });
+            return academy.courseQuizzes.adminView(input.itemId);
+          }),
+        ),
+
+      /** AC-quizzes-04: apply the current keys to each graded attempt they change, `rescore:<attempt>:<revision>`. */
+      rescoreCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRescoreCourseQuizInputSchema)
+        .output(academyRescoreCourseQuizResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.rescore({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: a curve file by alias; a dry run writes nothing, applying writes all rows or none. */
+      curveCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCurveCourseQuizInputSchema)
+        .output(academyCurveCourseQuizResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.curve({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-04: item analysis and the score distribution from real graded attempts. */
+      courseQuizAnalytics: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAnalyticsSchema)
+        .query(({ input }) => guard(() => academy.courseQuizAnalytics.analytics(input.itemId))),
+
+      /** AC-quizzes-04: answers learner by learner; needs the data researcher role (AC-roles-01). */
+      courseQuizAnswers: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizAnswersSchema)
+        .query(({ input, ctx }) =>
+          guard(() => academy.courseQuizAnalytics.answers({ itemId: input.itemId, operatorId: ctx.principal!.userId })),
+        ),
+
+      /** AC-quizzes-04: one question's points on a graded attempt, `override:<attempt>:<question>:<n>`, with a reason. */
+      overrideCourseQuizScore: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyOverrideCourseQuizScoreInputSchema)
+        .output(academyCourseQuizAttemptsSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizTrail.override({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
       /** AC-release-access-01: a course's pacing and each section's release rule. */

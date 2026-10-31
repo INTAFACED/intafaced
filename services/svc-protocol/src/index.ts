@@ -22,6 +22,10 @@ import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nf
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
+import { walletSessionFromSetting } from './address-book/session.js';
+import { PostgresAddressBookStore } from './address-book/book.pg.js';
+import { challengeTtlFromSetting } from './listing/ownership.js';
+import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
 import { loadNetworkRegistry } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -63,6 +67,11 @@ for (const tableName of [
   'founding_badge_list',
   'founding_badge_mint_clears',
   'signing_representations',
+  'wallet_contacts',
+  'wallet_groups',
+  'wallet_group_members',
+  'listing_challenges',
+  'listing_ownership_proofs',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -115,6 +124,15 @@ const representationSetting = representationFromSetting(
   process.env.APP_ENV,
 );
 
+// Raw APP_ENV again: a TEST session secret refuses to boot anywhere but the local test stack.
+const walletSessionSetting = walletSessionFromSetting(
+  env.PROTOCOL_WALLET_SESSION_SECRET,
+  env.PROTOCOL_WALLET_SESSION_TTL_SECONDS,
+  env.PROTOCOL_WALLET_SESSION_ORIGINS,
+  process.env.APP_ENV,
+);
+const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
+
 export const appRouter = createProtocolRouter({
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
@@ -126,15 +144,26 @@ export const appRouter = createProtocolRouter({
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
   swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
   swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
+  swapFeeCapWei: () => env.PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI,
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null
       ? { usdTokens: env.PROTOCOL_PRICE_USD_TOKENS, minReserveUsd: env.PROTOCOL_PRICE_MIN_RESERVE_USD }
       : null,
   tokensQuoteToken: () => env.PROTOCOL_TOKENS_QUOTE_TOKEN,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
+  listing: {
+    store: new PostgresListingStore(db.sql),
+    ttlSeconds: () => listingChallengeTtl,
+  },
   representation: {
     store: new PostgresRepresentationStore(db.sql),
     setting: () => representationSetting,
+  },
+  addressBook: {
+    store: new PostgresAddressBookStore(db.sql),
+    session: () => walletSessionSetting,
+    maxContacts: () => env.PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS,
+    maxGroups: () => env.PROTOCOL_WALLET_GROUPS_MAX,
   },
   badge: {
     store: new PostgresBadgeStore(db.sql),

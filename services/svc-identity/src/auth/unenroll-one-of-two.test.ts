@@ -133,6 +133,8 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
       factorNotices.push(values);
       return [];
     }
+    // A rotation carries the old key's sandbox link to the new key; these keys are live, so they have none to copy.
+    if (text.includes('into developer_sandbox_keys') && text.includes('from developer_sandbox_keys')) return [];
     throw new Error(`unexpected sql: ${text}`);
   };
   return Object.assign(fn, {

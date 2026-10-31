@@ -16,6 +16,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
+import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
@@ -192,6 +193,11 @@ export interface CopyServiceOptions {
   /** Tells the follower about a skip or a stop (`trade.copy.skipped` / `.stopped`, J-copy-bots-otc-03 #6). Omitted → nobody is told. */
   notices?: CopyNotices;
   /**
+   * Identity's step-up check for a close-all (`trade.step_up.copy.flatten`, J-copy-bots-otc-03 #4). Omitted → every
+   * copy.flatten refuses `identity.step_up_unavailable`: a close-all is never sent unconfirmed.
+   */
+  stepUp?: StepUpCheck | null;
+  /**
    * What the follower's grid bots still reserve of one asset (grid/store.ts sumUnusedReserves). Read under the same
    * reserve lock a grid create takes, so a follow and a grid never both fit the same balance. Omitted → none.
    */
@@ -259,6 +265,11 @@ export interface CopyServiceOptions {
 }
 
 type FollowRef = { followId: string };
+/** A close-all: the follow, a business request key the client keeps across retries, and the step-up approval id. */
+export type CopyFlattenInput = { followId: string; requestId?: string | null; stepUpApprovalId?: string | null };
+const COPY_FLATTEN_REQUEST_KEY = /^[A-Za-z0-9:._-]{8,64}$/;
+/** The longest request id identity's step-up check accepts (`ID_MAX` in packages/contracts/src/step-up-check.ts). */
+const COPY_STEP_UP_REQUEST_ID_MAX = 128;
 
 type PlanMirrorInput = {
   followId: string;
@@ -347,6 +358,7 @@ export class CopyService {
   private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
   private readonly copyClose: CopyClosePort | null;
+  private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
 
   constructor(
@@ -372,6 +384,7 @@ export class CopyService {
     this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
     this.copyClose = options.copyClose ?? null;
+    this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
@@ -1229,9 +1242,55 @@ export class CopyService {
    * DETACH_FLATTEN — follower-chosen close of the copy position.
    * Pause/stop/detach never call this. Missing follow id refuses.
    */
-  async flatten(principal: Principal, input: FollowRef) {
-    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
+  /**
+   * Close every position of the caller's follow and end it. It sells at market and can realise a loss, so identity's
+   * step-up for exactly this follow and request comes first, before the follow is read (J-copy-bots-otc-03 #4): no
+   * approval refuses `identity.step_up_required`, identity unwired or down `identity.step_up_unavailable`, and either
+   * reads and writes nothing. The step-up's request id is `copy.flatten:<followId>:<requestId>`.
+   */
+  async flatten(principal: Principal, input: CopyFlattenInput) {
+    const followId = requireCopyFollowId(input.followId);
+    if (!this.stepUp) {
+      throw new StepUpCheckError(
+        'Your confirmation could not be checked right now, so nothing was changed: identity is not wired in this deployment',
+        'identity.step_up_unavailable',
+      );
+    }
+    // A call with no confirmation is refused as one, before its request key is read: the person confirms first.
+    if (!input.stepUpApprovalId?.trim()) {
+      throw new StepUpCheckError('Confirm this with your passkey or authenticator code first', 'identity.step_up_required');
+    }
+    const requestId = input.requestId?.trim() ?? '';
+    const stepUpRequestId = `copy.flatten:${followId}:${requestId}`;
+    if (!COPY_FLATTEN_REQUEST_KEY.test(requestId) || stepUpRequestId.length > COPY_STEP_UP_REQUEST_ID_MAX) {
+      throw new CopyError('requestId must be 8 to 64 letters, digits or : . _ -', 'trade.copy_request_key_invalid');
+    }
+    const approved = await this.stepUp.require({
+      scope: 'trade.step_up.copy.flatten',
+      userId: principal.userId,
+      sessionId: principal.sid,
+      approvalId: input.stepUpApprovalId,
+      fields: { followId, requestId },
+      requestId: stepUpRequestId,
+    });
+    return this.store.runFollowExclusive(followId, async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      // A follow already left is refused like every other control on it (#6920). Identity's replay of this same request
+      // (a retry after a lost reply) is answered from the closes the first call placed, found by their business keys,
+      // and never places one: a follow left with Keep, or a leg with no close, is refused all the same.
+      if (followRelationshipState(follow) === 'DETACHED') {
+        if (approved.replayed && this.flattenCopyPosition) {
+          const answered = await this.flattenCopyPosition(principal, {
+            followId: follow.followId,
+            followerId: follow.followerId,
+            lookupOnly: true,
+          });
+          if (!answered.refuse && !answered.unplaced && answered.orderIds.length > 0) {
+            return presentCopyFlattenAck(follow, answered.orderIds);
+          }
+        }
+        throw new CopyError('Cannot close all on a DETACHED copy follow: you have left this leader', 'trade.copy_detached');
+      }
       // Flag off or place port unwired: refuse and leave the follow attached (TRD-0723).
       if (!this.placeMirrorEnabled || !this.placeFollowerOrder || !this.flattenCopyPosition) {
         throw new CopyError(

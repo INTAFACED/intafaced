@@ -88,7 +88,19 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
   await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
+  // The table is drawn from the two stored guardrails the page reads now; their answers are what each column must show.
+  const read = (agentId) =>
+    page.waitForResponse(
+      (r) =>
+        r.ok() &&
+        r.request().method() === 'GET' &&
+        r.url().includes('/api/agents/trpc/agent.get') &&
+        decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+      { timeout: 15_000 },
+    );
+  const reads = [read('navigator'), read('support')];
   await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
+  const [navigator, support] = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
   const compare = tableIn(main(page), 'Compare agents');
   await expect(compare.getByRole('columnheader', { name: 'Navigator' })).toBeVisible();
   await expect(compare.getByRole('columnheader', { name: 'Support helper' })).toBeVisible();
@@ -102,6 +114,28 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
     '1 USDT per session',
     '0.5 USDT per session',
   ]);
+  // Tools, modes and tasks side by side, each cell exactly the stored guardrail's values for its column.
+  const joined = (values) => (values.length ? values.join(', ') : 'None');
+  const stored = {
+    Tools: (g) => joined(g.tools.map((tool) => tool.name)),
+    Modes: (g) => joined([...new Set(g.tools.map((tool) => tool.mode))]),
+    'Allowed engine tasks': (g) => joined(g.limits.allowedTasks),
+  };
+  for (const [g, who] of [
+    [navigator, 'navigator'],
+    [support, 'support'],
+  ])
+    expect(g?.tools?.length, `${who}: ${JSON.stringify(g).slice(0, 300)}`).toBeGreaterThan(0);
+  // The two agents differ in what they may do, so the comparison is not one value twice.
+  expect(stored.Tools(navigator)).not.toBe(stored.Tools(support));
+  for (const [row, of] of Object.entries(stored)) {
+    await expect(
+      compare
+        .getByRole('row')
+        .filter({ has: page.getByRole('cell', { name: row, exact: true }) })
+        .getByRole('cell'),
+    ).toHaveText([row, of(navigator), of(support)]);
+  }
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
@@ -134,13 +168,31 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('button', { name: 'Open a session' }).click();
   const rates = tableIn(main(page), 'Published engine routing prices');
-  await expect(rates.getByRole('row').filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) })).toContainText(
-    '3 USDT',
-  );
+  // The rate row is the service's published route, cell for cell, as routes.list answers it now.
+  const routes = await agentsCall('routes.list', undefined, 'GET');
+  expect(routes.status).toBe(200);
+  const route = routes.body.result.data.find((row) => row.task === 'navigator.plan' && row.capability === 'complete');
+  expect(route?.inputPerMillion && route?.outputPerMillion, 'the stack publishes both navigator.plan rates').toBeTruthy();
+  const rateRow = rates.getByRole('row').filter({ has: page.getByRole('cell', { name: 'navigator.plan', exact: true }) });
+  await expect(rateRow).toHaveCount(1);
+  await expect(rateRow.getByRole('cell')).toHaveText([
+    'navigator.plan',
+    'complete',
+    `${route.inputPerMillion} ${route.assetId}`,
+    `${route.outputPerMillion} ${route.assetId}`,
+  ]);
   await main(page).getByRole('button', { name: 'Estimate the cost' }).click(UNBUILT);
   const estimate = main(page).getByRole('region', { name: 'Cost estimate' });
-  // The worst case is the one the cap check uses: the session's spend cap (1 USDT on the stack).
-  await expect(estimate.getByTestId('worst-case')).toHaveText('At most 1 USDT for this run');
+  // The worst case is the figure the cap check holds a run against: the stored guardrail's session spend cap, which the
+  // runtime passes as the run's agent cap (runtime.ts agentCapOf), in the route's fee asset.
+  const guardrail = await agentsCall('agent.get', { agentId: 'navigator' }, 'GET');
+  expect(guardrail.status).toBe(200);
+  const cap = guardrail.body.result.data.limits.maxSpendPerSession;
+  expect(cap, 'navigator has a stored session spend cap').toBeTruthy();
+  await expect(estimate.getByTestId('worst-case')).toHaveText(`At most ${cap} ${route.assetId} for this run`);
+  await expect(estimate).toContainText(
+    'The worst case is the session’s spend cap: a run that could cost more is refused before the engine is called.',
+  );
   await expect(estimate).toContainText('No expected range yet: this agent has no run history.');
 });
 

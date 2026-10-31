@@ -73,6 +73,36 @@ const step = (page, body) =>
 
 const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
 
+/** One step of a two-founder posting freeze or unfreeze, as the signed-in founder in `page` (as J-ops-console-03 does it). */
+const freezeStep = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/ledger-freeze', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+/** A asks, B approves, A runs: svc-ledger's platform-wide posting freeze on (`frozen`) or off. */
+async function setPostingFreeze(a, b, frozen, why) {
+  const record = await a.evaluate(async () => (await fetch('/api/ledger-freeze', { cache: 'no-store' })).json());
+  expect(record.ok, JSON.stringify(record)).toBe(true);
+  if (record.state.frozen === frozen) return;
+  const request = frozen
+    ? { kind: 'ledger.freeze', reason: why, version: record.state.version }
+    : { kind: 'ledger.unfreeze', version: record.state.version };
+  const confirm = frozen ? 'FREEZE LEDGER' : 'UNFREEZE LEDGER';
+  const proposed = await freezeStep(a, { step: 'propose', request, confirm });
+  expect(proposed.body.ok, JSON.stringify(proposed.body)).toBe(true);
+  const packet = decode(proposed.body.packet);
+  const approved = await freezeStep(b, { step: 'approve', request, confirm, approvalId: packet.approvalId });
+  expect(approved.body.ok, JSON.stringify(approved.body)).toBe(true);
+  const ran = await freezeStep(a, { step: 'execute', request, confirm, approvalId: packet.approvalId, operationId: packet.operationId });
+  expect(ran.body.ok, JSON.stringify(ran.body)).toBe(true);
+}
+
 const row = (holds, holdNo) => holds.locator(`[data-testid=hold-row][data-hold-no="${holdNo}"]`);
 
 /** A asks on one of the hold's two desks; returns the packet text. */
@@ -137,8 +167,25 @@ test('J-ops-console-04 #2 holds part of a customer’s funds with a reason: avai
   run.write({ who, userId, firstHold });
 });
 
+/** Set while #3 holds the platform-wide posting freeze on, so the teardown below can lift it even after a timeout. */
+let freezeOn = false;
+
+// A posting freeze left on would refuse every later journey's posts on this stack, so it is lifted here on fresh pages
+// when #3 ends with it on (a timeout closes that test's own pages before its own cleanup can run).
+test.afterEach(async ({ browser }) => {
+  if (!freezeOn) return;
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(a, 'a');
+  await founderSignIn(b, 'b');
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await setPostingFreeze(a, b, false);
+  freezeOn = false;
+});
+
 test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored time, with no approver, once', async ({ browser }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   const { who, userId } = saved();
   const tag = randomUUID().slice(0, 8);
   const a = await (await browser.newContext()).newPage();
@@ -155,16 +202,50 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
   await holds.getByLabel(/^Expires in hours/).fill('25');
   await expect(holds.getByTestId('hold-place-why')).toContainText('at most 24 hours');
 
-  // The stored expiry is moved to just past; svc-ops' worker checks it against its own clock and releases the rest.
-  tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
-  await expect.poll(async () => (await usdt(who)).free, { timeout: 60_000, message: 'the expiry worker released the 10' }).toBe('60');
-  // Worker ticks after the release keep the one stored release: no second number, no second post.
+  // The stored expiry is moved to just past while svc-ledger's posting freeze is on: svc-ops' worker checks it against its
+  // own clock, stores release 1 and the ledger refuses it (ledger.frozen), so the release waits with its number. When the
+  // freeze is lifted the worker sends it again under that same number and key, and it posts once.
+  const releaseKey = `ops:hold-release:${holdNo}:1`;
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(b, 'b');
+  await a.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  await b.goto(`${ADMIN}/`, { waitUntil: 'load' });
+  let failure = null;
+  try {
+    // Marked on before the call: a freeze that reached the ledger is lifted even if the call's own answer failed.
+    freezeOn = true;
+    await setPostingFreeze(a, b, true, `LOCAL TEST J-ops-console-04 #3 retried release ${tag}`);
+    tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
+    await expect
+      .poll(
+        async () => {
+          const movement = row(await openHolds(a, userId), holdNo)
+            .getByTestId('hold-movement')
+            .nth(1);
+          return (await movement.count()) ? movement.innerText() : '';
+        },
+        { timeout: 90_000, message: 'the expiry worker stored release 1 and could not post it while posting was frozen' },
+      )
+      .toMatch(new RegExp(`^Release 1: 10, the expiry, no approver, waiting to be sent again \\(ledger\\.frozen\\) · key ${releaseKey}$`));
+  } catch (error) {
+    failure = error;
+  }
+  // Lift the freeze for the journeys after this one; a failure to lift it never hides the release's own failure.
+  try {
+    await setPostingFreeze(a, b, false);
+    freezeOn = false;
+  } catch (unfreeze) {
+    failure ??= unfreeze;
+  }
+  if (failure) throw failure;
+  await expect.poll(async () => (await usdt(who)).free, { timeout: 120_000, message: 'the retried release posted the 10' }).toBe('60');
+  // The retry reused the stored release: still one release, number 1, its key, posted; worker ticks after it add nothing.
   await a.waitForTimeout(12_000);
   const listed = row(await openHolds(a, userId), holdNo);
   await expect(listed.getByTestId('hold-state')).toHaveText('Released when it expired');
   await expect(listed.getByTestId('hold-movement')).toHaveCount(2);
   await expect(listed.getByTestId('hold-movement').nth(1)).toContainText(
-    `Release 1: 10, the expiry, no approver, posted · key ops:hold-release:${holdNo}:1`,
+    `Release 1: 10, the expiry, no approver, posted · key ${releaseKey}`,
   );
   expect(await usdt(who)).toEqual({ free: '60', total: '100' });
 });

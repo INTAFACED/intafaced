@@ -138,6 +138,8 @@ import { createRequestSigningPolicyRouter } from './request-signing-policy-route
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
+import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -145,6 +147,7 @@ import { parseKycDocKey } from './kyc/document-crypto.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
+import { approvalPolicySource } from './auth/action-approval-policy.js';
 import { createActionApprovalRouter } from './action-approval-router.js';
 import { createStepUpRouter } from './step-up-router.js';
 import { CustomerStepUpService } from './auth/customer-step-up.js';
@@ -560,6 +563,8 @@ const actionApprovals = new ActionApprovalService(
     // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
     // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
     founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
+    // Governed types (OPS-change-control-01 CR-1): the owner rows, read again on every propose, approve and consume.
+    policies: approvalPolicySource(() => env.IDENTITY_ACTION_APPROVAL_POLICIES),
   },
   () => new Date(),
   (row, at) =>
@@ -717,6 +722,15 @@ export const appRouter = mergeRouters(
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
   }),
+  createDeveloperSandboxesRouter({
+    sql,
+    gate: auth,
+    kycTier: (userId, executor) => auth.kycTier(userId, executor),
+    capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    mayMint: passkeyMintRule(sql),
+    sandboxCapByTier: parseSandboxCapByTier(env.IDENTITY_SANDBOXES_MAX_BY_TIER),
+    baseUrl: parseSandboxBaseUrl(env.IDENTITY_SANDBOX_BASE_URL),
+  }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
@@ -786,7 +800,7 @@ export const appRouter = mergeRouters(
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createFreezeLinkRouter(auth),
-  createAppealsRouter(appeals),
+  createAppealsRouter(appeals, auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),

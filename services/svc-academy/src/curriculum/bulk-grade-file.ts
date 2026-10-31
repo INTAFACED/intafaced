@@ -18,7 +18,7 @@ export type BulkGradeRow = { line: number; alias: number; score: string; comment
 export type BulkGradeBadRow = { line: number; alias: number | null; code: string; message: string };
 
 /** Records of a CSV text, each with the line it starts on. Throws on a quote left open. */
-function records(text: string): Array<{ line: number; fields: string[] }> {
+export function csvRecords(text: string): Array<{ line: number; fields: string[] }> {
   const out: Array<{ line: number; fields: string[] }> = [];
   let fields: string[] = [];
   let field = '';
@@ -67,11 +67,12 @@ function records(text: string): Array<{ line: number; fields: string[] }> {
   return out;
 }
 
-const ALIAS = /^(?:learner\s+)?([1-9][0-9]{0,8})$/i;
+/** A learner alias as staff see it: "Learner 3" or "3". */
+export const ALIAS = /^(?:learner\s+)?([1-9][0-9]{0,8})$/i;
 
 /** The file's rows: good ones to check against the queue, bad ones with their line. */
 export function readBulkGradeFile(text: string): { rows: BulkGradeRow[]; bad: BulkGradeBadRow[] } {
-  const all = records(text.startsWith('﻿') ? text.slice(1) : text);
+  const all = csvRecords(text.startsWith('﻿') ? text.slice(1) : text);
   const header = all.shift();
   const names = header?.fields.map((f) => f.trim().toLowerCase()) ?? [];
   if (names.length !== BULK_GRADE_HEADER.length || BULK_GRADE_HEADER.some((name, i) => names[i] !== name))

@@ -55,6 +55,32 @@ async function makeLink(page, label, amount, asset) {
   return page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
 }
 
+/** A tRPC reply's data, single or batched. */
+const dataOf = (sent) => (Array.isArray(sent) ? sent[0] : sent)?.result?.data;
+
+/**
+ * A time the room shows for `value`: its machine value is the service's own, exactly, and its words are that instant
+ * written as the portal writes every time (ui/format.ts formatDateTime: short month, day, year, time and zone) in the
+ * page's own language and time zone.
+ */
+async function expiryIs(time, value) {
+  await expect(time).toHaveCount(1);
+  await expect(time).toHaveAttribute('datetime', value);
+  const words = await time.evaluate(
+    (el, at) =>
+      new Date(at).toLocaleString(el.getAttribute('lang') ?? undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+      }),
+    value,
+  );
+  await expect(time).toHaveText(words);
+}
+
 test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an oversized logo refused, logo and colour on the payer page`, async ({
   page,
   browser,
@@ -160,12 +186,33 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   await page.getByRole('button', { name: 'Create link' }).click();
   const review = page.getByRole('dialog');
   await expect(review).toContainText('TEST Tote bag · 25.00 USDC');
+  const answered = page.waitForResponse((r) => r.url().includes('merchant.createLink') && r.request().method() === 'POST');
   await review.getByRole('button', { name: 'Create link' }).dblclick();
+  // The service's own link: its id, its expiry and the checkout address it stored or the token it gave.
+  const made = dataOf(await (await answered).json());
+  expect(made.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(Number.isFinite(Date.parse(made.expiresAt))).toBe(true);
+  // The receipt is the innermost section under its heading (the form's own section holds it).
+  const receipt = page
+    .getByTestId('pay-section')
+    .filter({ has: page.getByRole('heading', { name: 'Your link is ready', level: 2 }) })
+    .last();
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const address = page.getByTestId('link-address');
-  await expect(address.getByRole('link', { name: 'Open the link' })).toHaveAttribute('href', /\/api\/pay\/checkout\?token=pl_/);
+  // The receipt shows the link address, the service's own, once: one address block, one link to open it.
+  const shownAddress = await page.evaluate((link) => {
+    if (link.checkoutUrl && /^https?:\/\//i.test(link.checkoutUrl)) return link.checkoutUrl;
+    if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${location.origin}${link.checkoutUrl}`;
+    return link.token ? `${location.origin}/api/pay/checkout?token=${encodeURIComponent(link.token)}` : null;
+  }, made);
+  expect(shownAddress).toMatch(/\/api\/pay\/checkout\?token=pl_/);
+  const address = receipt.getByTestId('link-address');
+  await expect(page.getByTestId('link-address')).toHaveCount(1);
+  await expect(address.getByRole('link', { name: 'Open the link' })).toHaveAttribute('href', shownAddress);
+  await expect(address).toContainText(shownAddress);
   const linkId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
-  expect(linkId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(linkId).toBe(made.id);
+  // The receipt's expiry is the service's expiresAt for this link, to the millisecond, written as the room writes every time.
+  await expiryIs(receipt.getByTestId('pp-facts').locator('time'), made.expiresAt);
   // The second press of a double press sends nothing: one request, so one key.
   expect(creates).toHaveLength(1);
   const sent = creates[0];
@@ -192,15 +239,34 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   expect(again.text).toContain(linkId);
   run.write({ owner: saved(journey().owner), toteLinkId: linkId });
 
-  // The list shows the one link: active, 0 of 3 uses, with its expiry.
+  // Hiding the address closes the receipt; the address is not shown on the new-link page again.
+  await receipt.getByRole('button', { name: 'Hide address' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toHaveCount(0);
+  await expect(page.getByTestId('link-address')).toHaveCount(0);
+  await expect(page.getByText(shownAddress)).toHaveCount(0);
+
+  // The list shows the one link: active, 0 of 3 uses, with its expiry as the service lists it, and never the address.
+  let listed = null;
+  const listRead = page.waitForResponse(async (r) => {
+    if (!r.url().includes('merchant.listLinks') || r.status() !== 200) return false;
+    const data = dataOf(await r.json().catch(() => null));
+    listed = (data?.items ?? data ?? []).find?.((link) => link.id === made.id) ?? null;
+    return listed !== null;
+  });
   await page.goto('/pay/links');
+  await listRead;
+  expect(listed).toMatchObject({ id: made.id, expiresAt: made.expiresAt, uses: 0, maxUses: 3, active: true });
   const rows = page.getByRole('row').filter({ hasText: 'TEST Tote bag' });
   await expect(rows).toHaveCount(1);
   // "Available" is the portal's plain word for an active link.
   await expect(rows.first()).toContainText('Available');
   await expect(rows.first()).toContainText('0 of 3');
-  await expect(rows.first().locator('td').last()).not.toHaveText('—');
-  await expect(rows.first().locator('td').last()).toContainText(/\d{4}|[A-Z][a-z]{2}/);
+  await expiryIs(rows.first().locator('time'), listed.expiresAt);
+  await expect(page.getByTestId('link-address')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open the link' })).toHaveCount(0);
+  await expect(page.getByText(shownAddress)).toHaveCount(0);
+  const token = new URL(shownAddress).searchParams.get('token');
+  await expect(page.locator('main')).not.toContainText(token);
 
   // Its page names the product and price it sells.
   await page.goto(`/pay/links/${linkId}`);
@@ -347,6 +413,24 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const tipAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+
+  // A link the owner turned off: created with a fixed amount, then deactivated on its own page.
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill('TEST Retired print');
+  await page.getByLabel('Fixed amount', { exact: true }).fill('7');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const offAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const offId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
+  expect(offId, 'the new link has an id').toBeTruthy();
+  await page.goto(`/pay/links/${offId}`);
+  await page.getByLabel('Message for customers').fill('TEST This print is retired');
+  await page.getByRole('button', { name: 'Deactivate link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Deactivate link' }).click();
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST This print is retired');
+  await expect(page.getByText('Deactivated').first()).toBeVisible();
   expect(refused).toEqual([]);
 
   const payer = await browser.newContext();
@@ -382,6 +466,14 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
       await payerPage.goto(flashAddress);
       await expect(payerPage.getByRole('heading', { name: 'Link expired' })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
+    await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
+
+    // A link that is off opens a plain state with the merchant's words: no amount, no payment form, no Continue.
+    const offOpened = await payerPage.goto(offAddress);
+    expect(offOpened.status()).toBe(404);
+    await expect(payerPage.getByRole('heading', { level: 1 })).toHaveText('TEST This print is retired');
+    await expect(payerPage.locator('.amount')).toHaveCount(0);
+    await expect(payerPage.locator('form')).toHaveCount(0);
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
 
     // With no amount on the link, the payer is asked for one, and the payment is for what they named.

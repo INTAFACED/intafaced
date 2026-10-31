@@ -53,6 +53,7 @@ function fakeHost(): { host: ChartHost; handlers: Clicks; attach: ReturnType<typ
     priceToCoordinate: (price: number) => (200 - price) * 2,
     attachPrimitive: attach,
     detachPrimitive: vi.fn(),
+    getPane: () => ({ paneIndex: () => 0 }),
   };
   const host = {
     lib: {},

@@ -99,6 +99,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/academy-hub', 'academy-ops'],
   ['/api/academy-course-links', 'academy-ops'],
   ['/api/more-ops', 'more-ops'],
+  ['/api/launch', 'launch'],
   ['/api/protocol-ops', 'protocol-ops'],
   ['/api/operator-tools', 'tools'],
   ['/api/analytics', 'tools'],
@@ -211,6 +212,8 @@ export function moduleForPage(pathname: string): ModuleId | null {
     return 'merchants';
   if (under(path, '/compliance')) return 'jurisdiction';
   if (under(path, '/restore')) return 'ledger';
+  // The approval policy of governed changes is identity's (OPS-change-control-01 CR-1).
+  if (under(path, '/changes')) return 'identity-ops';
   // The module health board sits with the module board (kill switches): both are the whole-platform view.
   if (under(path, '/health')) return 'killswitches';
   for (const route of MODULE_ROUTES) {

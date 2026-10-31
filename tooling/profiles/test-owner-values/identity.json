@@ -121,6 +121,16 @@
       "value": "none=3,basic=3,full=3,institutional=3",
       "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
     },
+    "IDENTITY_SANDBOXES_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "LOCAL TEST ONLY, not an owner decision: three named developer sandboxes per account at each verification level, so a second named sandbox can be made. `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a restart leaves it blank, so the second is refused (J-developer-02 #2)."
+    },
+    "IDENTITY_SANDBOX_BASE_URL": {
+      "service": "identity",
+      "value": "http://localhost:14500",
+      "note": "LOCAL TEST ONLY, not an owner decision: the sandbox address a sandbox key is shown with, the edge's sandbox host on this stack (EDGE_SANDBOX_HOSTS), so the same edge serves the live host at 127.0.0.1 (J-developer-02 #3, #7)."
+    },
     "IDENTITY_ACCOUNT_TIERS": {
       "service": "identity",
       "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
@@ -245,6 +255,11 @@
       "service": "identity",
       "value": "7776000",
       "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
+    },
+    "IDENTITY_ACTION_APPROVAL_POLICIES": {
+      "service": "identity",
+      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows so both governed ledger correction types need two operators other than the requester and are applied by svc-ops (OPS-change-control-01 CR-1)."
     },
     "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL": {
       "service": "identity",

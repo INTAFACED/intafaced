@@ -233,6 +233,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
+       * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
+       * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_SANDBOXES_MAX_BY_TIER: z.string().optional(),
+      /**
+       * Owner setting: the origin where the door serves sandbox keys (one of the edge's `EDGE_SANDBOX_HOSTS`), shown
+       * with a new sandbox key. Blank: the room says the sandbox address is not set. Never git-default.
+       */
+      IDENTITY_SANDBOX_BASE_URL: z.string().optional(),
+      /**
        * Owner setting: whole seconds an API key may go unused before it is due to end (DV-keys-03, ENGINE KS-7). The key
        * detail shows it; no dormant sweep is built yet, so a set value ends no key today and the detail says so. NO
        * DEFAULT. Blank: the detail shows the idle expiry as `not set`. Parsed at start by `parseApiKeyIdleExpirySeconds`;
@@ -448,6 +459,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
+       * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:
+       * `{"<type>": {"requiredApprovals", "approverAudience", "applier", "maxAgeSeconds"}}`. `requiredApprovals` counts
+       * distinct approvers other than the requester (whole number, at least 1); `approverAudience` is founder, operator or
+       * trade_ops; `applier` is the only service that may consume; `maxAgeSeconds` caps the approval lifetime. NO DEFAULT.
+       * A missing, blank, zero, fractional or unreadable row refuses `action_approval.policy_unset` for that type at
+       * propose, approve and consume. Never parsed at start: a bad row refuses its own type and stops nothing else.
+       */
+      IDENTITY_ACTION_APPROVAL_POLICIES: z.string().optional(),
       /**
        * Owner-published lifetime of a social sign-in flow, in seconds. Blank / unset →
        * unpublished; a start refuses (`identity.social_flow_ttl_unset`). Never git-default.

@@ -22,6 +22,89 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  // svc-token governance founder doors (J-more-catalogue-10). Each is checked before the approval is spent, except a
+  // founder approving a role for their own account, which only the approval names.
+  'token.settings_invalid': {
+    title: 'Those settings are outside what governance stores',
+    body: 'The voting delay is 0 to one year and the voting period more than 0 and at most one year. Nothing was changed.',
+    next: 'Pick figures in range and ask again.',
+  },
+  'token.settings_stale': {
+    title: 'The governance settings changed since you read them',
+    body: 'The settings are no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the settings again and decide again.',
+  },
+  'token.role_invalid': {
+    title: 'That role change is not allowed',
+    body: 'The account already has that role, or a founder on this request is the account that would receive it. Nothing was changed.',
+    next: 'Pick another account or role.',
+  },
+  'token.role_stale': {
+    title: 'The role changed since you read it',
+    body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
+    next: 'Read the roles again and decide again.',
+  },
+  // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
+  'launch.issuer_not_onboarded': {
+    title: 'This issuer is not onboarded',
+    body: 'svc-token announces, snapshots or opens a launch only for an onboarded issuer. The launch status did not change.',
+    next: 'Review and onboard the issuer first, then ask again.',
+  },
+  'launch.issuer_move_invalid': {
+    title: 'The issuer cannot move to that state from where it is',
+    body: 'Issuer review goes one step at a time, and a suspended issuer goes back through review. Nothing was changed.',
+    next: 'Read the issuer again and pick its next step.',
+  },
+  'launch.issuer_conflict': {
+    title: 'That issuer id is taken',
+    body: 'svc-token already has an issuer with this id under another name. Nothing was changed.',
+    next: 'Choose another id.',
+  },
+  'launch.issuer_stale': {
+    title: 'The issuer changed since you read it',
+    body: 'The issuer is no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the issuer again and decide again.',
+  },
+  'launch.issuer_not_found': {
+    title: 'No such issuer',
+    body: 'svc-token has no issuer with this id. Nothing was changed.',
+    next: 'Add the issuer first.',
+  },
+  'launch.event_conflict': {
+    title: 'That launch id is taken',
+    body: 'svc-token already has a launch under this id with other details. Nothing was changed.',
+    next: 'Choose another id.',
+  },
+  'launch.event_stale': {
+    title: 'The launch changed since you read it',
+    body: 'The launch is no longer at the revision this request was built on. Nothing was changed.',
+    next: 'Read the launch again and decide again.',
+  },
+  'launch.event_move_invalid': {
+    title: 'The launch cannot move to that status from where it is',
+    body: 'A launch moves one step forward at a time, or is cancelled. Nothing was changed.',
+    next: 'Read the launch again and pick its next step.',
+  },
+  'launch.period_not_due': {
+    title: 'That period of the launch has not started',
+    body: 'svc-token moves a launch only once the period for that step has begun. Nothing was changed.',
+    next: 'Wait for the period, or save a new draft with other times.',
+  },
+  'launch.period_passed': {
+    title: 'That period of the launch is over',
+    body: 'The window for this step has already closed. Nothing was changed.',
+    next: 'Cancel this launch or save a new draft with other times.',
+  },
+  'launch.allocation_unwired': {
+    title: 'Allocation is not wired',
+    body: 'Allocation and distribution have no ledger recipe wired, so a launch cannot move past closed. Nothing was changed.',
+    next: 'This waits for the allocation recipe (MC-launch-03).',
+  },
+  'launch.event_invalid': {
+    title: 'The launch details are not valid',
+    body: 'svc-token did not accept these details. Nothing was saved.',
+    next: 'Check the periods are in order and the amounts are plain decimals, then try again.',
+  },
   'ops.hold_storage_unconfigured': {
     title: 'Staff holds have no storage',
     body: 'svc-ops has no database configured for staff holds, so none can be read or placed. Nothing was changed.',
@@ -1259,6 +1342,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That grade file cannot be read',
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
+  },
+  'academy.permission_denied': {
+    title: 'This needs a role you do not hold',
+    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
+    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+  },
+  'academy.bulk_limit_unset': {
+    title: 'The curve file limit is not set',
+    body: 'The owner has not set how large a curve file may be, so no curve file is read.',
+    next: 'Ask the owner to set the curve file limit. Nothing was changed.',
+  },
+  'academy.bulk_file_too_large': {
+    title: 'That file is over the limit',
+    body: 'The file is larger than the owner allows for one curve file, so it was refused before it was read.',
+    next: 'Split the file and upload each part. Nothing was changed.',
+  },
+  'academy.key_fix_invalid': {
+    title: 'That is not a key fix',
+    body: 'A key fix changes only the answer keys of a published quiz: every question stays, with its wording, choices and points.',
+    next: 'Change only keys, or make a new quiz for other changes. Nothing was changed.',
   },
   'academy.grade_invalid': {
     title: 'That score is above the points',

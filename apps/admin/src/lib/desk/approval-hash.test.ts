@@ -20,6 +20,15 @@ import {
   IDENTITY_UNFREEZE_ACTION_TYPE,
 } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
 import { payActionPayloadHash } from '../../../../../services/svc-pay/src/action-approval-consume';
+import { tokenActionPayloadHash } from '../../../../../services/svc-token/src/action-approval-consume';
+import {
+  LAUNCH_EVENT_CREATE_ACTION,
+  LAUNCH_EVENT_MOVE_ACTION,
+  LAUNCH_ISSUER_SET_ACTION,
+  launchEventPayload,
+} from '../../../../../services/svc-token/src/launch/payload';
+import { createInputFor, draftPayload, readLaunchEventPayload } from '@/lib/launch-issuers/model';
+import { readDeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
 /**
@@ -461,5 +470,80 @@ describe('identity account limit override', () => {
       payloadHash: payloadHashFor(raise),
       policyVersion: 'v1',
     });
+  });
+});
+
+describe('token launch issuer lens (J-more-catalogue-14)', () => {
+  const issuer = {
+    kind: 'token.launch.issuer.set' as const,
+    issuerId: 'test-issuer',
+    name: 'TEST Issuer',
+    state: 'onboarded' as const,
+    revision: '2',
+  };
+  const move = { kind: 'token.launch.event.move' as const, eventId: 'test-launch', to: 'announced' as const, revision: '0' };
+  const draft = draftPayload({
+    id: 'test-launch',
+    issuerId: 'test-issuer',
+    type: 'token_sale',
+    projectName: ' TEST Project ',
+    symbol: 'tst',
+    periods: ['2026-11-01T00:00', '2026-11-01T01:00', '2026-11-01T02:00', '2026-11-01T10:00', '2026-11-01T11:00'],
+    method: 'pro_rata',
+    perUserCap: '250',
+    ticketSize: '',
+    price: '0.5',
+    paymentAsset: 'usdt',
+    rateSource: '',
+  });
+  if (!draft.ok) throw new Error(draft.message);
+  const create = { kind: 'token.launch.event.create' as const, event: draft.event };
+
+  it('hash equals svc-token’s own function over the fields its launch router binds', () => {
+    expect(payloadHashFor(issuer)).toBe(
+      tokenActionPayloadHash(LAUNCH_ISSUER_SET_ACTION, {
+        issuerId: 'test-issuer',
+        name: 'TEST Issuer',
+        state: 'onboarded',
+        expectedRevision: '2',
+      }),
+    );
+    expect(payloadHashFor(move)).toBe(
+      tokenActionPayloadHash(LAUNCH_EVENT_MOVE_ACTION, { eventId: 'test-launch', to: 'announced', expectedRevision: '0' }),
+    );
+  });
+
+  it('a draft’s text is svc-token’s canonical payload for the create input it sends, so its hash binds', () => {
+    const payload = readLaunchEventPayload(draft.event);
+    if (!payload) throw new Error('payload unreadable');
+    const input = createInputFor(payload);
+    const canonical = launchEventPayload({
+      ...input,
+      periods: Object.fromEntries(Object.entries(input.periods).map(([k, v]) => [k, new Date(v)])) as never,
+    });
+    expect(canonical).toBe(draft.event);
+    expect(payloadHashFor(create)).toBe(tokenActionPayloadHash(LAUNCH_EVENT_CREATE_ACTION, { event: canonical }));
+  });
+
+  it('is proposed against svc-token’s own verb at the revision read, a new draft at 0', () => {
+    expect(proposeInputFor(issuer)).toEqual({
+      actionType: LAUNCH_ISSUER_SET_ACTION,
+      targetService: 'svc-token',
+      targetId: LAUNCH_ISSUER_SET_ACTION,
+      expectedVersion: '2',
+      payloadHash: payloadHashFor(issuer),
+      policyVersion: 'v1',
+    });
+    expect(proposeInputFor(move)).toMatchObject({ targetId: LAUNCH_EVENT_MOVE_ACTION, expectedVersion: '0' });
+    expect(proposeInputFor(create)).toMatchObject({ targetId: LAUNCH_EVENT_CREATE_ACTION, expectedVersion: '0' });
+  });
+
+  it('a packet carries only a request svc-token could accept', () => {
+    expect(readDeskRequest(issuer)).toEqual(issuer);
+    expect(readDeskRequest(create)).toEqual(create);
+    expect(readDeskRequest({ ...create, event: draft.event.replace('"0.5"', '"0.50"') })).toBeNull();
+    expect(readDeskRequest({ ...issuer, state: 'deleted' })).toBeNull();
+    expect(readDeskRequest({ ...move, to: 'allocated' })).toBeNull();
+    expect(readDeskRequest({ ...move, extra: 1 })).toBeNull();
   });
 });

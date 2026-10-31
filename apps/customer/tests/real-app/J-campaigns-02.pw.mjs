@@ -1,4 +1,7 @@
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { openDesk, signIn } from './desk.mjs';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
@@ -145,6 +148,63 @@ async function waitForProgress(who, campaignId, done) {
   await expect.poll(async () => (await progressOf(who, campaignId)).completed, { timeout: 30_000 }).toBe(done);
 }
 
+/**
+ * The same fill event delivered to svc-campaigns twice more: the customer's newest trade.fill.settled on the stack's bus,
+ * published again with its payload unchanged (same fill id) under new envelope keys, so the bus does not drop it as its
+ * own duplicate and the campaign's consumer is what must hold. Returns the payload.
+ */
+function redeliverFill(userId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId } = process.env;
+    const subject = EVENT_CATALOG.fillSettled.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName(EVENT_CATALOG.fillSettled.service, prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.userId === userId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-trade', streamPrefix: prefix });
+    for (const n of [1, 2]) {
+      await bus.publish('fillSettled', payload, { idempotencyKey: payload.fillId + ':again:' + n + ':' + Date.now() });
+    }
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(root, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the fill event again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+const FILL_STREAM = 'LOCAL_TEST_TRADE';
+
+/** Until svc-campaigns' task fill consumer has taken and acknowledged every message on the bus. */
+async function fillConsumerCaughtUp() {
+  await expect(async () => {
+    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const consumer = info.account_details
+      ?.flatMap((a) => a.stream_detail ?? [])
+      .filter((st) => st.name === FILL_STREAM)
+      .flatMap((st) => st.consumer_detail ?? [])
+      .find((c) => c.name === 'campaigns-task-fill-settled');
+    expect(consumer?.num_pending ?? -1).toBe(0);
+    expect(consumer?.num_ack_pending ?? -1).toBe(0);
+  }).toPass({ timeout: 30_000 });
+}
+
 async function openCampaign(page, id) {
   await page.goto(`/campaigns/${encodeURIComponent(id)}`);
   await expect(page.getByTestId('campaign-detail')).toBeVisible();
@@ -180,6 +240,11 @@ test(`${J} #1 does the first step by a real trade: progress shows 1 of 3, and re
   await expect(steps.nth(0)).toHaveAttribute('data-complete', 'true');
   await expect(steps.nth(1)).toHaveAttribute('data-complete', 'false');
   await expect(steps.nth(2)).toContainText('1 of 3');
+  // The same fill event reaches svc-campaigns twice more on the bus: it is counted once.
+  const fill = redeliverFill((await api(me)).userId);
+  expect(fill).toMatchObject({ side: 'buy' });
+  await fillConsumerCaughtUp();
+  expect((await progressOf(me, campaign.id)).steps.map((s) => s.done)).toEqual([1, 0, 1]);
   // Read again: the same fill is counted once.
   await page.reload();
   await expect(page.getByTestId('task-progress')).toHaveText('1 of 3 steps done');
@@ -291,6 +356,11 @@ test(`${J} #6 opens the ledger history: the reward credited once, matching the r
   await expect(rows.first()).toContainText('Campaign reward');
   await expect(rows.first()).toContainText('USDT');
   await expect(rows.first()).toContainText(`+${REWARD}`);
+  // Credited once across the whole history: this account was opened for this journey, its whole history fits on the
+  // tab's first page (50 lines), and its only reward is this one, so a second credit under any other transaction
+  // would be a second 'Campaign reward' row.
+  expect(await table.locator('tbody tr').count()).toBeLessThan(50);
+  await expect(table.locator('tbody tr', { hasText: 'Campaign reward' })).toHaveCount(1);
 });
 
 test(`${J} #7 opens the reward's redemption log: the outcome, any failure reason and the rollback window`, async ({ page }) => {
@@ -335,9 +405,24 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
   await expect(page.getByTestId('task-step').first()).toContainText('1 of 3 days in a row');
   await expect(run1).toHaveAttribute('data-reset', 'false');
   await expect(run1).toContainText('Your streak resets at');
+  // The boundary is midnight in the platform time zone (UTC on this stack) after the next day: a run whose last day is
+  // D lives through D+1 and resets at D+2 00:00.
+  const midnightAfter = (day, n) => new Date(Date.parse(`${day}T00:00:00.000Z`) + n * DAY).toISOString();
+  const today = (await progressOf(me, streak.id)).steps[0].streak;
+  // The trade's day: today, or yesterday if UTC midnight passed since the trade.
+  expect([new Date().toISOString().slice(0, 10), new Date(Date.now() - DAY).toISOString().slice(0, 10)]).toContain(today.lastDay);
+  expect(today.resetsAt).toBe(midnightAfter(today.lastDay, 2));
 
-  // That trading day becomes two days ago (LOCAL TEST fixture): yesterday was missed, so the run ended at midnight.
-  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '2')).toContain('1 join(s) and 1 counted event(s)');
+  // One side of the boundary (LOCAL TEST fixture): that trading day becomes yesterday, so today is still inside the run
+  // and its reset moves to tomorrow's midnight.
+  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
+  const yesterday = (await progressOf(me, streak.id)).steps[0].streak;
+  expect(yesterday).toMatchObject({ days: 1, reset: false, lastDay: midnightAfter(today.lastDay, -1).slice(0, 10) });
+  expect(yesterday.resetsAt).toBe(midnightAfter(today.lastDay, 1));
+  expect(Date.parse(yesterday.resetsAt)).toBeGreaterThan(Date.now());
+
+  // The other side: one day more makes it two days ago, so yesterday was missed and the run ended at last midnight.
+  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
   await page.reload();
   const reset = page.getByTestId('task-streak');
   await expect(reset).toHaveAttribute('data-reset', 'true');

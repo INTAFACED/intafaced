@@ -66,6 +66,7 @@ import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployme
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
@@ -126,6 +127,7 @@ const P = {
   procs: path.join(STATE, 'run', 'processes.json'),
   s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
+  tls: path.join(STATE, 'tls'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
   pgdata: path.join(STATE, 'data', 'postgres'),
@@ -189,6 +191,8 @@ const PORTS = {
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
   apex: 3260,
   admin: 3100,
+  // LOCAL TEST HTTPS front for the founder console (local-test-team-tls.mjs): the Customer build's Team link.
+  'team-tls': 3143,
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
@@ -196,6 +200,8 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
+// The Customer build links to the Team console only over HTTPS, so the stack's build points at this TEST front.
+const TEAM_TLS_ORIGIN = `https://${HOST}:${PORTS['team-tls']}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
 const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
@@ -767,6 +773,8 @@ export async function inPool(items, limit, task) {
 }
 
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+/** What the running Node services are built from: a Customer-only change rebuilds no service process. */
+const BACKEND_SOURCE_PATHS = ['services', 'packages', 'pnpm-lock.yaml'];
 
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
 function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
@@ -774,6 +782,71 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
   if (oldHead === head) return true;
   const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
   return r.status === 0;
+}
+
+/**
+ * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
+ * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
+ */
+function worktreeEdits(paths, exclude = []) {
+  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+  // A read that fails or is cut short is never "same as before".
+  if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
+  if (status.stdout.length === 0) return '';
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
+  const hash = crypto
+    .createHash('sha256')
+    .update(status.stdout)
+    .update(diff.stdout ?? '');
+  for (const entry of status.stdout.toString('utf8').split('\0')) {
+    // Untracked files are in no diff: hash their bytes too.
+    if (entry.startsWith('?? ')) {
+      try {
+        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+      } catch {
+        hash.update(`unreadable:${entry}`);
+      }
+    }
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Whether a build stamp still vouches for what is on disk: it was made by this checkout (every worktree shares one state
+ * folder), from source no commit has changed since, with the same uncommitted edits. An older stamp without the checkout
+ * or the edits vouches for nothing, so it builds once.
+ */
+export function buildStillFresh({ stampRepo, stampHead, stampEdits }, { repo, head, edits }, unchanged = sourceUnchangedSince) {
+  return stampRepo === repo && stampEdits === edits && unchanged(stampHead, head);
+}
+
+/** A new id for a build that ran, so a service started on an older build can tell. */
+const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).toString('hex')}`;
+
+/**
+ * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
+ * process recorded before builds had ids started on an unknown build.
+ */
+export function onCurrentBuild(rec, wanted) {
+  return !wanted || rec?.build === wanted;
+}
+
+/** The stamp's id for one part's last build (`backendBuild`, `adminBuild`, …), or undefined before any build had one. */
+function currentBuild(part) {
+  return fs.existsSync(P.buildStamp) ? readJson(P.buildStamp)[part] : undefined;
+}
+
+/**
+ * Stops `name` when it runs on another build than `build`: a running process keeps serving what it loaded, so it would
+ * hide the new build. Waits for its port to close, so the start that follows does not mistake it for a stranger.
+ */
+async function stopForNewBuild(name, rec, build, port) {
+  if (!ownedAlive(rec) || onCurrentBuild(rec, build)) return;
+  say(`  ${name}: restarting onto the new build`);
+  await stopProc(name, rec);
+  for (let i = 0; i < 50 && (await portOpen(port)); i++) await sleep(200);
 }
 
 const distOf = (pkg) => path.join(REPO, 'services', pkg, 'dist', 'index.js');
@@ -891,11 +964,16 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
-  const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
-  const fresh = !rebuild && sourceUnchangedSince(stamp.head, head);
+  // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  const customerOk = override
+    ? !act.error
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
+  const edits = worktreeEdits(SOURCE_PATHS);
+  const fresh =
+    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
-  return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
+  return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
 // The founder console has its own stamp, so a console-only change never rebuilds the services and the reverse.
@@ -904,11 +982,23 @@ const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
 function ensureAdminBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  if (!rebuild && fs.existsSync(P.adminBuildId) && sourceUnchangedSince(stamp.adminHead, head, ADMIN_SOURCE_PATHS)) return;
+  // next-env.d.ts is rewritten by `next dev` and `next build` themselves, so it is no edit of the founder's.
+  const edits = worktreeEdits(ADMIN_SOURCE_PATHS, ['apps/admin/next-env.d.ts']);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, ADMIN_SOURCE_PATHS);
+  const now = { repo: REPO, head, edits };
+  if (
+    !rebuild &&
+    fs.existsSync(P.adminBuildId) &&
+    buildStillFresh({ stampRepo: stamp.adminRepo, stampHead: stamp.adminHead, stampEdits: stamp.adminEdits }, now, unchanged)
+  )
+    return;
   say('  build: founder console (apps/admin)…');
   runPnpm(['--filter', '@intafaced/admin...', 'build'], 'build-admin');
-  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
+  const after = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...after, adminHead: head, adminRepo: REPO, adminEdits: edits, adminBuild: newBuildId() }, null, 2),
+  );
 }
 
 const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
@@ -918,17 +1008,23 @@ function ensureInvitationBuilt(rebuild) {
   const head = gitHead();
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
-  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
+  const edits = worktreeEdits(INVITATION_SOURCE_PATHS);
+  const unchanged = (a, b) => sourceUnchangedSince(a, b, INVITATION_SOURCE_PATHS);
+  const stamped = { stampRepo: stamp.invitationRepo, stampHead: stamp.invitationHead, stampEdits: stamp.invitationEdits };
+  if (!rebuild && built && buildStillFresh(stamped, { repo: REPO, head, edits }, unchanged)) return;
   say('  build: invitation site (apps/invitation)…');
   runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
   const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
-  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ ...now, invitationHead: head, invitationRepo: REPO, invitationEdits: edits, invitationBuild: newBuildId() }, null, 2),
+  );
 }
 
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
-  const { head, stamp, override, missing, backend } = buildPlan(rebuild, act);
+  const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
@@ -941,19 +1037,47 @@ function ensureBuilt(rebuild) {
     // Build just those so running services keep their files untouched.
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
-    writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    // Only services that were never built: nothing running was built from them, so the running build id stands.
+    writePrivate(
+      P.buildStamp,
+      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
+    );
     ensureAdminBuilt(rebuild);
     return;
   }
+  // The services restart onto this build only when their own source moved (not for a Customer-only change).
+  const backendEdits = worktreeEdits(BACKEND_SOURCE_PATHS);
+  const backendChanged =
+    rebuild ||
+    !buildStillFresh(
+      { stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.backendEdits },
+      { repo: REPO, head, edits: backendEdits },
+      (a, b) => sourceUnchangedSince(a, b, BACKEND_SOURCE_PATHS),
+    );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
   }
   writePrivate(
     P.buildStamp,
-    JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override, adminHead: stamp.adminHead }, null, 2),
+    JSON.stringify(
+      {
+        ...stamp,
+        head,
+        repo: REPO,
+        edits,
+        builtAt: new Date().toISOString(),
+        customerBuilt: !override,
+        backendEdits,
+        backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
+        customerBuild: override ? stamp.customerBuild : newBuildId(),
+        customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
+      },
+      null,
+      2,
+    ),
   );
   ensureAdminBuilt(rebuild);
 }
@@ -1357,12 +1481,14 @@ async function startNodeService(def) {
   const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
-  if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild(def.name, procs[def.name], build, port);
+  if (ownedAlive(readProcs()[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
+  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`), { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -1420,12 +1546,14 @@ async function pinOpsFounders() {
 }
 
 async function startCustomer() {
+  const build = currentBuild('customerBuild');
+  await stopForNewBuild('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
   const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
-  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO);
+  const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
 
@@ -1454,12 +1582,14 @@ async function startRailStatements() {
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
+  const build = currentBuild('invitationBuild');
+  await stopForNewBuild('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
-  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
+  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
   await waitHealthy('invitation', url, pid, 20_000);
 }
 
@@ -1528,9 +1658,12 @@ function treasuryHeldUntil(rec) {
 }
 
 async function startAdmin(secrets) {
-  const procs = readProcs();
+  let procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
   let treasury = null;
+  const build = currentBuild('adminBuild');
+  await stopForNewBuild('admin', procs.admin, build, PORTS.admin);
+  procs = readProcs();
   if (ownedAlive(procs.admin)) {
     const until = treasuryHeldUntil(procs.admin);
     // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
@@ -1546,8 +1679,42 @@ async function startAdmin(secrets) {
   treasury ??= await consoleTreasuryEnv();
   const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
     treasuryExpiresAt: treasury.expiresAt,
+    build,
   });
   await waitHealthy('admin', url, pid, 60_000);
+}
+
+/** The front answers on HTTPS with the stack's TEST certificate and sends `/login` on to the console's own origin. */
+async function teamTlsAnswers(cert, timeoutMs = 2000) {
+  const r = await httpsGetTrusting(`${TEAM_TLS_ORIGIN}/login`, cert, timeoutMs);
+  return r.status === 308 && r.location === `${ADMIN_ORIGIN}/login`;
+}
+
+/**
+ * The HTTPS address the Customer build's Team link names (local-test-team-tls.mjs), with the stack's own TEST certificate.
+ * A machine whose openssl cannot make the certificate starts without it: the link's address then does not answer, and
+ * the start says why, instead of failing the whole stack over a TEST convenience.
+ */
+async function startTeamTls() {
+  const procs = readProcs();
+  let cert;
+  try {
+    ({ cert } = ensureTestCert(P.tls));
+  } catch (err) {
+    say(`  team-tls: not started: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (ownedAlive(procs['team-tls']) && (await teamTlsAnswers(cert))) return;
+  if (ownedAlive(procs['team-tls'])) await stopProc('team-tls', procs['team-tls']);
+  if (await portOpen(PORTS['team-tls'])) fail(`port ${PORTS['team-tls']} (team-tls) is in use by a process this script did not start`);
+  const pid = startProc('team-tls', [process.execPath, SCRIPT, '__serve-team-tls'], baseEnv(), REPO);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20_000) {
+    if (!psCommand(pid)) fail(`team-tls exited during start. Log ${path.join(P.logs, 'team-tls.log')}`);
+    if (await teamTlsAnswers(cert)) return;
+    await sleep(500);
+  }
+  fail(`team-tls did not answer at ${TEAM_TLS_ORIGIN}/login within 20s (see ${path.join(P.logs, 'team-tls.log')})`);
 }
 
 /**
@@ -1650,6 +1817,9 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
+  const teamCert = path.join(P.tls, 'team-tls.crt');
+  const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
+  rows.push(['team-tls (TEST)', PORTS['team-tls'], procs['team-tls']?.pid ?? '-', teamTlsOk ? 'ok' : 'DOWN']);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -1665,7 +1835,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1750,6 +1920,7 @@ async function cmdStart(flags) {
   if (!only || only.includes('apex')) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
+  if (!only || only.includes('admin') || only.includes('team-tls')) await startTeamTls();
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -1800,8 +1971,20 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'rail-statements', 'nats'];
-  const only = names.length ? names : null;
+  const order = [
+    'team-tls',
+    'admin',
+    'apex',
+    'invitation',
+    'customer',
+    ...serviceNames().reverse(),
+    'chain',
+    'video-store',
+    'rail-statements',
+    'nats',
+  ];
+  // The console's HTTPS front starts with it (`--only admin`), so it stops with it too.
+  const only = names.length ? (names.includes('admin') ? [...new Set([...names, 'team-tls'])] : names) : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
@@ -1874,7 +2057,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -3355,6 +3538,8 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-team-tls')
+    await serveTeamTls({ host: HOST, port: PORTS['team-tls'], target: ADMIN_ORIGIN, ...ensureTestCert(P.tls) });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,
