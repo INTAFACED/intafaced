@@ -858,7 +858,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'This account’s spot grid bots',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'fetchGridBot',
@@ -867,7 +866,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'One spot grid bot, with its levels and orders',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'createGridBot',
@@ -876,7 +874,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'Start a neutral spot grid bot; the same clientId returns the same bot',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'stopGridBot',
@@ -885,7 +882,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'Stop a grid bot; what it bought stays in the balance (settlement keep)',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'withdrawGridProfit',
@@ -895,7 +891,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'fetchAlgoOrders',
@@ -904,7 +899,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'Your algo orders (TWAP, VWAP, POV, chase), newest first; limit is required',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'fetchAlgoOrder',
@@ -913,7 +907,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'One algo order with its filled quantity',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'createAlgoOrder',
@@ -923,7 +916,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'Place a twap, vwap, pov or chase order (kind in the body); the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'editAlgoOrder',
@@ -932,7 +924,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'Refused trade.algo_params_immutable: an algo order’s parameters are fixed at create',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'cancelAlgoOrder',
@@ -941,7 +932,6 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary: 'Cancel an algo order; no new slices are placed',
-    signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
     name: 'fetchVipApplications',
