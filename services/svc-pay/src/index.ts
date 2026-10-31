@@ -63,6 +63,7 @@ import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
 import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { recordOwnershipReader, registerRecordOwnershipRoute } from './support-door/record-ownership.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
 import { CustodyOpenItems } from './custody/deposits/open-items.js';
 import { registerCustodyOpenItemsRoute } from './custody/deposits/open-items-route.js';
@@ -937,6 +938,14 @@ registerMerchantMfaRuleRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   read: (userId) => mfaRuleForUser(sql, userId),
+});
+
+/** svc-support's question whether a withdrawal or deposit is the ticket customer's (J-support-public-20 #1, RC-support-public-01). */
+registerRecordOwnershipRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  owns: recordOwnershipReader(sql),
 });
 
 registerRestoreWatermarkRoute(app, {
