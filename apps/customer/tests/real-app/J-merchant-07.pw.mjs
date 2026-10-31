@@ -964,7 +964,8 @@ test(`${J} #8 a finance teammate asks for the same: they request an approval and
     await main.getByRole('button', { name: 'Pay out', exact: true }).click();
     const confirm = page.getByRole('dialog', { name: "Confirm it's you" });
     const code = await nextCode(finance.totp, finance.secret, finance.step);
-    run.write({ finance: { ...saved({ ...finance, step: code.step }), userId: finance.userId } });
+    finance.step = code.step;
+    run.write({ finance: { ...saved(finance), userId: finance.userId } });
     await confirm.getByLabel('6-digit code from your authenticator app').fill(code.code);
     await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
     await page.getByRole('dialog', { name: 'Review: Pay out' }).getByRole('button', { name: 'Pay out', exact: true }).click();
@@ -995,20 +996,20 @@ test(`${J} #8 a finance teammate asks for the same: they request an approval and
     await expect(approving).toContainText('It does not send it');
     await approving.getByRole('button', { name: 'Approve payout' }).click();
     await expect(page.getByRole('note').filter({ hasText: 'The money has not been sent yet.' })).toBeVisible();
+    await forgetSession(page);
   }
   const decided = (await requests()).find((a) => a.approvalId === asked.approvalId);
   expect(decided).toMatchObject({ status: 'approved', makerUserId: finance.userId, checkerUserId: expect.any(String) });
   expect(decided.checkerUserId, 'the owner decided, not the teammate who asked').not.toBe(finance.userId);
   expect(await api.query('settlement.get', { settlementId: posted.id }), 'approving sent nothing').toEqual(settlementBefore);
-  await forgetSession(page);
 
   // Approved, the teammate still cannot send: the page says only the owner sends and offers no send control.
   await signInWithCode(page, finance, '/pay/payouts');
   run.write({ finance: { ...saved(finance), userId: finance.userId } });
   await page.goto(`/pay/payouts/new?settlement=${posted.id}`);
   await expect(page.getByLabel('Settlement')).toHaveValue(posted.id);
-  await expect(page.getByText('Only the account owner can send a payout.').first()).toBeVisible();
-  await expect(page.getByRole('main').getByRole('button', { name: 'Send this payout', exact: true })).not.toBeEnabled();
+  await expect(page.getByRole('main').getByRole('note').filter({ hasText: 'Only the account owner can send payouts.' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Send this payout', exact: true })).toBeDisabled();
   expect(await api.query('settlement.get', { settlementId: posted.id })).toEqual(settlementBefore);
   expect(refused).toEqual([]);
 });

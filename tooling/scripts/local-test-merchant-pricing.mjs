@@ -71,11 +71,18 @@ export function journeyTier(merchantId, kind, payoutNotCharged) {
     archetype: 'standard',
     caps: [
       { kind: 'daily_payout', assetCode: 'USDT', limit: kind === 'capped' ? JOURNEY_CAPPED_DAILY_PAYOUT : '500' },
+      { kind: 'daily_payout', assetCode: 'USDC', limit: kind === 'capped' ? JOURNEY_CAPPED_DAILY_PAYOUT : '500' },
       { kind: 'beneficiaries_per_day', limit: 500 },
     ],
     reserve: null,
-    approvalThresholds: [{ assetCode: 'USDT', amount: '10' }],
-    founderThresholds: [{ assetCode: 'USDT', amount: '1000' }],
+    approvalThresholds: [
+      { assetCode: 'USDT', amount: '10' },
+      { assetCode: 'USDC', amount: '10' },
+    ],
+    founderThresholds: [
+      { assetCode: 'USDT', amount: '1000' },
+      { assetCode: 'USDC', amount: '1000' },
+    ],
     approvalTtlSeconds: 86_400,
     merchantVisible: false,
     // Always sent: svc-pay keeps a published payout fee when the field is left out, and null withdraws it.
