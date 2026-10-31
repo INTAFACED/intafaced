@@ -44,6 +44,28 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
     next: 'Read the roles again and decide again.',
   },
+  // Same-person step-ups (a governance role change, J-more-catalogue-10 #6): the owning service refuses a run without
+  // the running person's fresh step-up for exactly that change.
+  'identity.step_up_required': {
+    title: 'Your fresh authenticator code is needed to run this',
+    body: 'This change runs only with a fresh step-up by the person who runs it, for exactly this change. Nothing was changed.',
+    next: 'Type the current code from your authenticator app and try again.',
+  },
+  'identity.step_up_unavailable': {
+    title: 'The step-up could not be checked',
+    body: 'The service could not reach identity to check the step-up, so it refused the change. Nothing was changed.',
+    next: 'Try again shortly with a new code.',
+  },
+  'auth.mfa_invalid': {
+    title: 'That authenticator code was not accepted',
+    body: 'Identity did not accept the code: it was wrong, already used, or from an old window. Nothing was changed.',
+    next: 'Wait for the next code in your authenticator app and try again.',
+  },
+  'auth.too_many_attempts': {
+    title: 'Too many authenticator codes were tried',
+    body: 'Identity paused codes for your account for a while. Nothing was changed.',
+    next: 'Wait a few minutes, then run it again with a fresh code.',
+  },
   // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
   'launch.issuer_not_onboarded': {
     title: 'This issuer is not onboarded',

@@ -776,6 +776,51 @@ export const offerEditQuotaSchema = z.object({
   resetsAt: z.string().datetime(),
 });
 
+/** P-ads-merchant-08: the person's presence. A scheduled week is a list of windows in their own time zone. */
+export const presenceWindowSchema = z.object({ day: z.number().int().min(1).max(7), start: z.string(), end: z.string() });
+export type PresenceWindow = z.infer<typeof presenceWindowSchema>;
+export const presenceSchema = z.object({
+  mode: z.enum(['online', 'offline', 'scheduled']),
+  timezone: z.string(),
+  windows: z.array(presenceWindowSchema),
+  onBoard: z.boolean(),
+  nextChangeAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime().nullable(),
+});
+export type Presence = z.infer<typeof presenceSchema>;
+
+/** P-ads-merchant-08: one open order that waits on someone, with its deadline and where it is answered. */
+export const todoItemSchema = z.object({
+  kind: z.enum(['payment_required', 'release_required', 'counterparty_action', 'dispute_open']),
+  tradeId: z.string(),
+  role: z.enum(['buyer', 'seller']),
+  status: z.string(),
+  asset: z.string(),
+  amount: amount,
+  fiatCurrency: z.string(),
+  fiatAmount: amount,
+  deadlineAt: z.string().datetime().nullable(),
+  link: z.string().regex(/^\/uc\/order\?tradeId=[0-9a-f-]{36}$/),
+});
+export type TodoItem = z.infer<typeof todoItemSchema>;
+export const todosSchema = z.object({ items: z.array(todoItemSchema) });
+
+/** P-ads-merchant-08: a bulk action's answer, one result per ad. */
+export const bulkOutcomeSchema = z.object({
+  action: z.enum(['pause', 'resume', 'remove']),
+  replayed: z.boolean(),
+  more: z.boolean(),
+  results: z.array(
+    z.object({
+      offerId: z.string(),
+      ok: z.boolean(),
+      status: z.enum(['active', 'paused', 'closed']).nullable(),
+      code: z.string().nullable(),
+    }),
+  ),
+});
+export type BulkOutcome = z.infer<typeof bulkOutcomeSchema>;
+
 /** P-ads-merchant-06: the fields an edit of a published ad may change; only the changed ones are sent. */
 export type OfferUpdateInput = {
   price?: string;

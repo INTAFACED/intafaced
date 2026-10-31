@@ -19,6 +19,7 @@ import { settlementCopy } from './personal/settlement-copy';
 import { MyAdsLifecycle, StateSince, closeRefusal } from './personal/p2p-my-ads';
 import { myAdsCopy } from './personal/p2p-my-ads-copy';
 import { OfferSharing } from './personal/p2p-share';
+import { BulkAds, MerchantPresence } from './personal/p2p-console';
 import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
@@ -495,6 +496,19 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                 setPausedRevision((n) => n + 1);
               }}
               side={(offer) => <OfferSide offer={offer} own />}
+            />
+          ) : null}
+          {mine ? <MerchantPresence pay={pay} userId={userId} onChanged={() => list.reload()} /> : null}
+          {mine ? (
+            <BulkAds
+              pay={pay}
+              userId={userId}
+              revision={pausedRevision}
+              side={(offer) => <OfferSide offer={offer} own />}
+              onChanged={() => {
+                list.reload();
+                setPausedRevision((n) => n + 1);
+              }}
             />
           ) : null}
           <p className="muted">
