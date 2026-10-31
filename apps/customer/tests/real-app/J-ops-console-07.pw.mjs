@@ -1093,12 +1093,18 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const section = await openLedger(a);
     await requireTreasury(section);
 
-    // A floor over every customer's USDT, set 5 above what the book holds now, so it fails until 5 USDT more is deposited.
+    // A floor over one fresh TEST customer's USDT, set 5 above what they hold now, so it fails until 5 USDT more is deposited
+    // to them. The control's account set is that customer alone (owner id), so other journeys moving USDT on the shared stack
+    // never shift its figures.
+    state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
+    await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
+    const fixOwner = (await api(state.fixPayer)).userId;
     state.fixId = await define(section, {
       template: 'threshold',
       explanation: `LOCAL TEST customer USDT floor ${tag}`,
       fill: async (form) => {
         await form.getByLabel('Owner type').selectOption('user');
+        await form.getByLabel('Owner id starts with').fill(fixOwner);
         await form.getByLabel('Threshold bound').selectOption('min');
         await form.getByLabel(/^Threshold by asset/).fill('USDT=0');
         await setPolicy(form, { tolerance: '0' });
@@ -1149,11 +1155,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       ).toEqual(openedAs);
       await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
-      // The corrective booking: a TEST deposit of 2 USDT to a new customer, posted through the ledger's deposit recipe. (The
-      // reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what svc-ops
-      // checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
-      state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
-      await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
+      // The corrective booking: a TEST deposit of 2 USDT to the floor's customer, posted through the ledger's deposit recipe.
+      // (The reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what
+      // svc-ops checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
       const booked = fund(state.fixPayer.email, 'USDT', '2');
       expect(booked.tx, `the deposit names its ledger transaction: ${booked.out}`).toMatch(/^[0-9a-f-]{36}$/);
       const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by deposit ${tag}`);
