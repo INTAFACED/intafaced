@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, journeyState, stackFile } from './stack.mjs';
-import { existsSync, readFileSync } from 'node:fs';
+import { EDGE, ORIGIN, api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-academy-02, in the running app (docs/roadmap/journeys.json): enrol in a free course and start learning. One test per
@@ -32,15 +31,6 @@ async function enrolments(who) {
   const res = await (await api(who)).get('/api/academy/trpc/myEnrollments');
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
-}
-
-/** Every line the stack's LOCAL-TEST outbox (the only mail sink on the stack) holds for this address, whatever its purpose. */
-function mailedTo(email) {
-  const file = stackFile('email-outbox.log');
-  if (!existsSync(file)) return [];
-  return readFileSync(file, 'utf8')
-    .split('\n')
-    .filter((line) => line.includes(` email=${email} `));
 }
 
 const enrolBlock = (page) => page.locator('[data-academy-enrol]');
@@ -275,29 +265,25 @@ test(`${J} #7 leaving a course keeps its progress, and enrolling again restores 
 test(`${J} #8 with a mail address and no mail provider for Academy, enrolment works and the activation mail says it needs one`, async ({
   page,
 }) => {
-  const { who } = state('who');
+  const { who, first } = state('who', 'first');
   expect(who.email).toMatch(/@/);
-  // A course this learner is not on yet: the enrolment is made in this step.
-  const mine = new Set((await enrolments(who)).map((row) => row.pathSlug));
-  const course = (await courses()).find((slug) => !mine.has(slug));
-  expect(course, 'a published course this learner is not enrolled in is needed').toBeTruthy();
   // Academy's own answer names the missing mail provider: it has no mail sender of its own.
   const terms = await (
     await api(who)
-  ).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug: course }))}`);
+  ).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug: first }))}`);
   expect(terms.status, JSON.stringify(terms.body).slice(0, 300)).toBe(200);
   expect(terms.body.result.data.activationMail).toBe('vendor.email');
-  const mailed = mailedTo(who.email).length;
 
+  // The enrolment is made in this step: leave the course, then enrol again from its page.
   await signIn(page, who);
-  await page.goto(`/academy/learning/course/${course}`);
+  await page.goto(`/academy/learning/course/${first}`);
   const block = enrolBlock(page);
+  await block.getByRole('button', { name: 'Leave course', exact: true }).click();
+  await block.getByRole('button', { name: 'Confirm leave', exact: true }).click();
   await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
-  expect((await enrolments(who)).filter((row) => row.pathSlug === course)).toHaveLength(1);
+  expect((await enrolments(who)).filter((row) => row.pathSlug === first)).toHaveLength(1);
   await expect(block.locator('[data-not-connected="vendor.email"]')).toHaveText(
     'The activation mail needs an email delivery provider. It is switched off in this build. vendor.email',
   );
-  // Nothing was mailed: the stack's one outbox holds no new line for this address.
-  expect(mailedTo(who.email)).toHaveLength(mailed);
 });

@@ -127,7 +127,7 @@ test(`${J} #1 Complete and continue records the completion once, pressed twice, 
   await page.goto(`/academy/${items[0]}`);
   const control = completion(page, items[0]);
   await expect(control).toHaveAttribute('data-item-state', /unlocked|started/);
-  // The course rule for this item is "view": opening it meets the rule, so Complete and continue is on, with no reason.
+  // The course rule for this item is "view", which the open item meets, so Complete and continue is on, with no reason.
   const before = (await outlineRows(who, items[0])).find((row) => row.slug === items[0]);
   expect(before).toMatchObject({ rule: 'view', ruleMet: true, completedAt: null });
   const press = control.getByRole('button', { name: 'Complete and continue', exact: true });

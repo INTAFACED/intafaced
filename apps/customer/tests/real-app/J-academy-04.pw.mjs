@@ -230,12 +230,17 @@ test(`${J} #3 text and a file handed in with the reply lost show one submission;
   // Late is read against the due date: with the due date moved before the hand-in, the same version reads Late, and
   // moved back it does not. Nothing new is recorded either way.
   await setDue(browser, tomorrow(-1));
+  try {
+    await page.reload();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Late');
+    expect((await assignmentOf(run.me)).body.result.data.submissions).toMatchObject([{ version: 1, late: true }]);
+  } finally {
+    // Put the due date back for the steps after this one, whatever happened above.
+    await setDue(browser, tomorrow());
+  }
   await page.reload();
-  await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('Late');
-  expect((await assignmentOf(run.me)).body.result.data.submissions).toMatchObject([{ version: 1, late: true }]);
-  await setDue(browser, tomorrow());
-  await page.reload();
+  await expect(rows.first()).toContainText('On time');
   await expect(rows.first()).not.toContainText('Late');
   expect((await assignmentOf(run.me)).body.result.data.submissions).toMatchObject([{ version: 1, late: false }]);
   await page.context().close();
