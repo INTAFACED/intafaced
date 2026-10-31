@@ -87,9 +87,20 @@ test('every kind takes payments: each carries TEST intake caps far above a journ
     JOURNEY_OPEN_ASSETS.flatMap((a) => [`per_payment:${a}`, `daily_intake:${a}`, `monthly_intake:${a}`]),
   );
   assert.ok(
-    journeyIntakeCaps('USDT').every((c) => Number(c.limit) > 100),
+    journeyIntakeCaps('USDT').every((c) => /^\d+$/.test(c.limit) && BigInt(c.limit) > 100n),
     'above the largest TEST journey payment',
   );
+  const open = journeyTier(MERCHANT, 'open', false);
+  for (const asset of JOURNEY_OPEN_ASSETS) {
+    assert.ok(
+      open.caps.some((c) => c.kind === 'daily_payout' && c.assetCode === asset),
+      `open pays out ${asset}`,
+    );
+    assert.ok(
+      open.approvalThresholds.some((t) => t.assetCode === asset) && open.founderThresholds.some((t) => t.assetCode === asset),
+      asset,
+    );
+  }
   assert.equal(journeyTier(MERCHANT, 'open', false).id, 'j07-open-1b2c3d4e');
   assert.deepEqual(pricingArgs([MERCHANT, '--tier', 'open']), { merchantId: MERCHANT, tier: 'open', payoutNotCharged: false });
 });

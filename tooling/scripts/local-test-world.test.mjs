@@ -627,7 +627,7 @@ try {
     'unavailable',
   );
 
-  // LOCAL TEST tiers: agreed values, defined by id and name, assigned once, never rewritten.
+  // LOCAL TEST tiers: agreed values, defined by id and name, assigned once; only populate's own tier is ever defined again.
   assert.deepEqual(
     MERCHANT_TIERS.map((t) => [t.tier.id, t.tier.name, t.assign]),
     [
@@ -658,7 +658,16 @@ try {
         ['monthly_intake', 'USDT'],
       ],
     );
-  assert.ok(Math.max(...MERCHANT_PAYMENTS.map((p) => Number(p.amount))) <= Number(tier1.caps[2].limit));
+  // Amounts compare as scaled integers (two decimals), never as JS numbers.
+  const cents = (v) => {
+    const [whole, frac = ''] = String(v).split('.');
+    return BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
+  };
+  const perPayment = tier1.caps.find((c) => c.kind === 'per_payment');
+  assert.ok(
+    MERCHANT_PAYMENTS.every((p) => cents(p.amount) <= cents(perPayment.limit)),
+    'every TEST DATA payment fits one payment',
+  );
   assert.equal(MERCHANT_TIER_PRICING_RULE.assetCode, 'USDT');
   assert.ok(
     Number(tier1.founderThresholds[0].amount) >= Number(tier1.approvalThresholds[0].amount),
@@ -680,7 +689,18 @@ try {
       listed: [{ ...tierSeen, caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: '501.000000000000000000' }, tier1.caps[1]] }],
       tier: tier1,
     }).kind,
+    'redefine',
+    "populate's own tier (same id and name) on older terms is defined again",
+  );
+  assert.deepEqual(
+    planTierDefinition({ listed: [{ ...tierSeen, caps: tierSeen.caps.slice(0, 2), version: '4' }], tier: tier1 }),
+    { kind: 'redefine', tier: { ...tierSeen, caps: tierSeen.caps.slice(0, 2), version: '4' }, expectedVersion: '4' },
+    'a tier from before the stack required merchant controls (no intake caps) is defined again from its version',
+  );
+  assert.equal(
+    planTierDefinition({ listed: [{ ...tierSeen, name: 'someone else' }], tier: tier1 }).kind,
     'differs',
+    'the same id under another name is not ours to rewrite',
   );
   assert.equal(
     planTierDefinition({
