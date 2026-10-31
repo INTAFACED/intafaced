@@ -1,6 +1,5 @@
 import { NOT_CONNECTED_CODES, ServiceOffNotice as KitServiceOffNotice, type NotConnectedCode } from '@intafaced/ui/lit/templates';
 import { defineCopy } from './i18n';
-import './service-off.css';
 
 // The allowlist codes and the notice itself live in the kit (`@intafaced/ui/lit/templates`); this file holds its copy and fills the sentence in.
 export { NOT_CONNECTED_CODES, type NotConnectedCode };
