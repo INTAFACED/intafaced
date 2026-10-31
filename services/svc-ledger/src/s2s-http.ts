@@ -1,3 +1,5 @@
+import { RESTORE_ASOF_INVALID, RESTORE_ASOF_UNANSWERABLE } from './ledger/postgres-ledger.js';
+import { SKEW_BOUND_UNSET } from './ledger/clock-skew.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import {
@@ -130,9 +132,14 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
       err.code === MAKER_REBATE_UNBOUND_CODE ||
       err.code === CAMPAIGN_LOCK_UNBOUND_CODE ||
       err.code === WITHDRAW_RETURN_UNBOUND_CODE ||
-      err.code === WITHDRAW_FEE_UNBOUND_CODE)
+      err.code === WITHDRAW_FEE_UNBOUND_CODE ||
+      err.code === RESTORE_ASOF_INVALID)
   ) {
     return { status: 400, body: { message: err.message, code: err.code } };
+  }
+  // A restore cut-off not yet far enough past (the caller asks again later), or no skew bound to fix it by (the owner's).
+  if (err instanceof LedgerError && (err.code === RESTORE_ASOF_UNANSWERABLE || err.code === SKEW_BOUND_UNSET)) {
+    return { status: 409, body: { message: err.message, code: err.code } };
   }
   // The registry's refusals (W-balances-05): the asset as asked is unknown, unpublished or the request malformed.
   // The caller's to fix or to show; never a fault in this service.
@@ -283,9 +290,9 @@ export async function handleS2sFeeRevenue(ledger: LedgerService, body: unknown) 
   return serializeFeeRevenue(range, await ledger.feeRevenue(range));
 }
 
-/** The ledger's `restore.watermark.read`: chain tip position and hash, for svc-ops alone. A read. */
-export async function handleS2sRestoreWatermark(ledger: LedgerService) {
-  return ledger.restoreWatermark();
+/** The ledger's `restore.watermark.read`: chain tip position and hash, live or as of `{ asOf }`, for svc-ops alone. A read. */
+export async function handleS2sRestoreWatermark(ledger: LedgerService, body: unknown) {
+  return ledger.restoreWatermark(body);
 }
 
 /** Finished reconciliation evaluations after a cursor, oldest first, for svc-ops' alert store alone. A read. */
@@ -591,7 +598,7 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/feeRevenue', guarded('feeRevenue', handleS2sFeeRevenue));
   app.post(
     '/trpc/restoreWatermark',
-    guarded('restoreWatermark', (_svc, _body) => handleS2sRestoreWatermark(ledger)),
+    guarded('restoreWatermark', (_svc, body) => handleS2sRestoreWatermark(ledger, body)),
   );
   app.post('/trpc/reconciliationEvaluations', guarded('reconciliationEvaluations', handleS2sReconciliationEvaluations));
   app.post('/trpc/transactionsExist', guarded('transactionsExist', handleS2sTransactionsExist));

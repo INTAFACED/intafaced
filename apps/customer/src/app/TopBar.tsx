@@ -7,7 +7,6 @@ import { proCopy } from '../screens/home/pro-copy';
 import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
-import { isFeatureLive } from './feature-registry';
 import { ShellIcon } from './icons';
 import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -253,7 +252,6 @@ export function TopBar({
   const { language, layoutMode } = usePreferences();
   const { session, restoring } = useSession();
   useBannerOffset();
-  const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
@@ -282,8 +280,8 @@ export function TopBar({
           <TopSearch />
           {session ? (
             <>
-              {isFeatureLive('pro-mode-switch') && <ModeSwitch />}
-              {notificationsLive && <BellPopover path={path} />}
+              <ModeSwitch />
+              <BellPopover path={path} />
               <ProfileChip />
               <AccountButton onSignOut={onSignOut} />
             </>

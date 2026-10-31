@@ -117,7 +117,7 @@ import { trackRun } from './runs/track.js';
 import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
-import { compileSignalRules } from './studio/modules.js';
+import { compileSignalRules, templateSource } from './studio/modules.js';
 import { versionDiff } from './studio/diff.js';
 import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
@@ -1511,7 +1511,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             accountOf(ctx, input.accountId);
             const versions = await templates.get(input.id);
             if (!versions) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
-            return { id: input.id, versions: versions.map((row) => ({ ...row })) };
+            return { id: input.id, versions: versions.map((row) => ({ ...row, source: templateSource(row.rules) })) };
           } catch (err) {
             toTrpc(err);
           }

@@ -27,6 +27,8 @@ export const publicAuthCopy = defineCopy(
     secondStep: 'Passkey after your password',
     wallet: 'Wallet sign-in',
     help: 'Get account help',
+    challenging: 'Checking this browser before signing you in: {tries} tries so far.',
+    challengeStarting: 'Checking this browser before signing you in.',
     changed: 'This sign-in context changed. No further authentication was sent and no returned session was applied here.',
     storage:
       'This browser cannot safely save or read the attempt reference. No new authentication is sent. Account help remains available.',

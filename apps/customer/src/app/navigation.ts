@@ -71,6 +71,9 @@ export const rooms: readonly Room[] = [
   { path: '/status/confirm', title: 'Confirm status updates', description: 'Start status emails', area: 'public', hidden: true },
   { path: '/status/manage', title: 'Status updates', description: 'Choose what you are told about', area: 'public', hidden: true },
   { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
+  // The links in a guest's support mail (SP-tickets-01): open the request, then read and reply on it. Neither is a sign-in.
+  { path: '/support/guest/verify', title: 'Open your request', description: 'Use the link Support emailed', area: 'public', hidden: true },
+  { path: '/support/guest/request', title: 'Your request', description: 'Read and reply by link', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   // A backtest result shared by link (AL-report-03): public, as the service returns only the simulated result.

@@ -80,6 +80,7 @@ export const GATE_FIELD_LABEL: Record<string, string> = {
   timeFrame: 'Time frame',
   timeZone: 'Time zone',
   reward: 'Reward per person',
+  perCustomerLimit: 'Rewards per customer and period',
   claimWindow: 'Claim window',
   holdPeriod: 'Risk-review hold',
   lockPeriod: 'Lock period',
@@ -96,6 +97,7 @@ export const BLANK_SENTENCE: Record<string, string> = {
   'campaigns.time_frame_unset': 'The time frame is not set',
   'campaigns.timezone_unset': 'The time zone is not set',
   'campaigns.reward_unset': 'The reward per person is not set',
+  'campaigns.per_customer_limit_unset': 'The rewards per customer and period are not set',
   'campaigns.budget_asset_mismatch': 'The budget and the reward are in different assets',
   'campaigns.claim_window_unset': 'The claim window is not set',
   'campaigns.hold_period_unset': 'The risk-review hold is not set',
@@ -164,6 +166,8 @@ export function editedView(c: Campaign): Campaign {
     reward: d.reward ? { asset: d.reward.asset, amount: amount(d.reward.amount) } : null,
     tasks: d.tasks ?? null,
     earning: d.earning ?? [],
+    limits: d.limits ?? null,
+    vouchers: d.vouchers ? { claimBy: d.vouchers.claimBy ?? null, useBy: d.vouchers.useBy ?? null } : null,
   };
 }
 
@@ -192,6 +196,9 @@ export function definitionOf(c: Campaign): CampaignDefinitionInput {
     reward: c.reward ? { asset: c.reward.asset, amount: c.reward.amount } : null,
     tasks: c.tasks,
     ...(c.earning.length > 0 ? { earning: c.earning } : {}),
+    // Carried as stored, so a tab that does not show them never blanks them.
+    ...(c.limits ? { limits: c.limits } : {}),
+    ...(c.vouchers ? { vouchers: c.vouchers } : {}),
   };
 }
 

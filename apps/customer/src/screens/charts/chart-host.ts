@@ -44,6 +44,8 @@ export interface ChartApi {
     paneIndex(): number;
     moveTo(index: number): void;
     setHeight(height: number): void;
+    getHeight(): number;
+    getStretchFactor(): number;
   }>;
   removePane(index: number): void;
   timeScale(): {

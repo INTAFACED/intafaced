@@ -7,6 +7,7 @@ import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { t as copyText } from './copy';
+import { categoryLabel } from './support-category';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
@@ -47,17 +48,6 @@ const VIEW_KEY = { help: 'tabHelp', requests: 'tabRequests', new: 'tabNew' } as 
 /** Each tab is an address of its own (SP-tickets-01), so a request, the list and the form can be linked and reloaded. */
 const VIEW_HREF = { help: '/support', requests: SUPPORT_TICKETS_HREF, new: '/support/new' } as const;
 const FILTER_KEY = { all: 'filterAll', active: 'filterActive', resolved: 'filterResolved', closed: 'filterClosed' } as const;
-const CATEGORY_KEYS = {
-  account: 'support.category.account',
-  trading: 'support.category.trading',
-  deposit_withdraw: 'support.category.deposit_withdraw',
-  phishing: 'support.category.phishing',
-  fraud_report: 'support.category.fraud_report',
-  other: 'support.category.other',
-} as const;
-const categoryLabel = (value: string): string =>
-  value in CATEGORY_KEYS ? copyText(CATEGORY_KEYS[value as keyof typeof CATEGORY_KEYS]) : value;
-
 /** The page title for each support address. */
 export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
   if (route.view === 'new') return 'pageNewRequest';

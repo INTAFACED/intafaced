@@ -109,7 +109,7 @@ describe('the published route list matches what the services really mount', () =
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    expect(ours).toHaveLength(102);
+    expect(ours).toHaveLength(112);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });

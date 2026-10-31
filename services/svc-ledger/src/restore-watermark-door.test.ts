@@ -8,6 +8,7 @@ import {
   type Keyring,
   type ServiceName,
 } from '@intafaced/contracts';
+import { LedgerError } from '@intafaced/ledger-client';
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
@@ -22,7 +23,7 @@ function pair() {
   };
 }
 
-async function mount(asked: { read: number; other: number }) {
+async function mount(asked: { read: number; other: number; bodies?: unknown[] }) {
   const callers: ServiceName[] = ['svc-ops', 'svc-bank'];
   const keys = callers.map((svc) => ({ svc, ...pair() }));
   const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
@@ -30,8 +31,14 @@ async function mount(asked: { read: number; other: number }) {
     createServiceSigner({ service: svc, kid: `${svc}.a`, privateKey: keys.find((k) => k.svc === svc)!.privateKey, keyring });
   const ledger = new Proxy(
     {
-      restoreWatermark: async () => {
+      restoreWatermark: async (body?: unknown) => {
         asked.read += 1;
+        asked.bodies?.push(body);
+        const asOf = (body as { asOf?: string } | undefined)?.asOf;
+        if (asOf === 'bad')
+          throw new LedgerError('restore watermark: asOf must be one instant with an offset', 'ledger.restore_asof_invalid');
+        if (asOf === '2999-01-01T00:00:00.000Z')
+          throw new LedgerError('the cut-off has not passed yet', 'ledger.restore_asof_unanswerable');
         return {
           service: 'ledger',
           kind: 'chain_tip.seq',
@@ -39,6 +46,7 @@ async function mount(asked: { read: number; other: number }) {
           integrity: 'abc',
           lastWriteAt: '2026-10-20T11:00:00.000Z',
           readAt: '2026-10-20T12:00:00.000Z',
+          ...(asOf ? { asOf } : {}),
         };
       },
     },
@@ -84,6 +92,22 @@ describe('restoreWatermark door', () => {
     expect(res.statusCode).toBe(200);
     expect(restoreWatermarkReadSchema.parse(res.json())).toMatchObject({ service: 'ledger', position: '42', integrity: 'abc' });
     expect(asked.read).toBe(1);
+    await m.app.close();
+  });
+
+  it('passes { asOf } through and answers the read as of it; a bad instant is 400 and an unpassed cut-off 409, by name', async () => {
+    const asked = { read: 0, other: 0, bodies: [] as unknown[] };
+    const m = await mount(asked);
+    const res = await m.send('svc-ops', '/trpc/restoreWatermark', { asOf: '2026-10-20T11:30:00.000Z' });
+    expect(res.statusCode).toBe(200);
+    expect(restoreWatermarkReadSchema.parse(res.json())).toMatchObject({ asOf: '2026-10-20T11:30:00.000Z' });
+    expect(asked.bodies[0]).toEqual({ asOf: '2026-10-20T11:30:00.000Z' });
+    const bad = await m.send('svc-ops', '/trpc/restoreWatermark', { asOf: 'bad' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({ code: 'ledger.restore_asof_invalid' });
+    const early = await m.send('svc-ops', '/trpc/restoreWatermark', { asOf: '2999-01-01T00:00:00.000Z' });
+    expect(early.statusCode).toBe(409);
+    expect(early.json()).toMatchObject({ code: 'ledger.restore_asof_unanswerable' });
     await m.app.close();
   });
 

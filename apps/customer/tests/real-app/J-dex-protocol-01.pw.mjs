@@ -53,15 +53,28 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   await expect(page.locator('main [data-blocker="indexer"]')).toBeVisible();
   // The indexer reads blocks now; with this journey's node gated off it names why this one could not be read.
   await expect(page.locator('main')).toContainText('This block could not be read: indexer.chain_unreachable');
-  await expect(page.locator('main table th').first()).toBeVisible();
+  // The full layout: the block's details panel with its retry, and its transactions table with every header and the
+  // sentence saying when its rows come.
+  await expect(page.getByRole('heading', { name: 'Block details' })).toBeVisible();
+  const details = page.locator('main section', { has: page.getByRole('heading', { name: 'Block details' }) });
+  await expect(details.getByRole('button', { name: 'Try again' })).toBeVisible();
+  const txs = page.getByRole('region', { name: 'Transactions in this block' }).getByRole('table');
+  await expect(txs.getByRole('columnheader')).toHaveText(['Hash', 'From', 'To', 'Status']);
+  await expect(txs).toContainText('Its transactions are listed once the block can be read.');
 
   await page.goto('/chain/blocks/abc');
-  await expect(page.locator('main [data-code="protocol.not_found"]')).toBeVisible();
+  const malformed = page.locator('main [data-code="protocol.not_found"]');
+  await expect(malformed).toBeVisible();
+  // The empty state draws its mark before the sentence.
+  await expect(malformed).toHaveText(/(^|\W)That id is not a valid .+ on this network, so nothing is looked up\.$/);
+  await expect(page.locator('main')).toContainText('Not found on this network');
   await expect(page.locator('main [data-blocker]')).toHaveCount(0);
 
   await page.goto('/dex/nothing-here');
-  await expect(page.locator('main [data-code="protocol.not_found"]')).toBeVisible();
-  await expect(page.locator('main h1')).toBeVisible();
+  const unclaimed = page.locator('main [data-code="protocol.not_found"]');
+  await expect(unclaimed).toHaveText(/(^|\W)There is no page at this address on this network\.$/);
+  await expect(page.locator('main h1')).toHaveText('Not found on this network');
+  await expect(page.locator('main').getByRole('button', { name: 'Back to DEX' })).toBeVisible();
 });
 
 test(`${J} #3 Swap while the node is unreachable lists its blockers in order, chain unreachable first as a crypto network notice`, async ({
@@ -69,8 +82,14 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
 }) => {
   await page.goto('/dex');
   const swap = page.locator('main [data-action="swap"]');
-  await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
-  await expect(swap.locator('[data-not-connected="rail.crypto"]')).toBeVisible();
+  const button = swap.getByRole('button', { name: 'Swap' });
+  await expect(button).toBeDisabled();
+  // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
+  // (drawn only for the first blocker) is the crypto network notice.
+  await expect(button).toHaveAttribute('title', /^The chain is unreachable/);
+  const firstReason = swap.locator(':scope > .protocol-actions__reason');
+  await expect(firstReason).toHaveCount(1);
+  await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
   await expect(listed.first()).toContainText('The chain is unreachable');
@@ -89,7 +108,21 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
   page,
 }) => {
   const wallet = await installTestWallet(page, { chainId: 84532 });
+  // A second browser wallet announces itself beside the TEST wallet; each is offered by its own name.
+  await page.addInitScript(() => {
+    const provider = {
+      request: async () => Promise.reject(Object.assign(new Error('TEST Other Wallet stays unconnected'), { code: 4001 })),
+      on() {},
+      removeListener() {},
+    };
+    const info = { uuid: '00000000-0000-4000-8000-0000000000b2', name: 'TEST Other Wallet', rdns: 'test.intafaced.other', icon: '' };
+    const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: Object.freeze({ info, provider }) }));
+    window.addEventListener('eip6963:requestProvider', announce);
+    announce();
+  });
   await page.goto('/wallet');
+  await expect(page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect TEST Other Wallet' })).toBeVisible();
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');

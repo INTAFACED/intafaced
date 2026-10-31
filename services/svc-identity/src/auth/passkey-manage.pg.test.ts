@@ -110,6 +110,9 @@ if (!available) {
             }
             spent.add(input.approvalId);
           },
+          async check() {
+            throw new Error('not used by passkey management');
+          },
         },
         secondFactor: requireEnrolledSecondFactor(db.sql),
       });

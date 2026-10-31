@@ -2,9 +2,22 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, api, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser, toUnits } from './stack.mjs';
+import {
+  DEVICE_KEY,
+  EDGE,
+  ORIGIN,
+  ROOT,
+  api,
+  fund,
+  json,
+  mailedCodes,
+  mailedLines,
+  nextMailedCode,
+  signUpInBrowser,
+  toUnits,
+} from './stack.mjs';
 import { verify } from './desk.mjs';
-import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-05, in the running app (docs/roadmap/journeys.json): I lost my phone and got back in. One test per step,
 // titled "J-identity-05 #<n>". Every person is a TEST person on the local stack, signed up through the browser
@@ -136,15 +149,41 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
   page,
   browser,
 }) => {
-  test.setTimeout(120_000);
-  const { who } = await withAuthenticator(page);
+  test.setTimeout(180_000);
+  const { who, codes } = await withAuthenticator(page);
+  // No recovery codes left: each one is spent signing in with it (a sign-in on this TEST browser's device key), until
+  // identity says none remain.
+  const signInWith = (code) =>
+    fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: code }),
+    }).then(json);
+  for (const [i, code] of codes.entries()) {
+    const spent = await signInWith(code);
+    expect(spent.status, JSON.stringify(spent.body).slice(0, 300)).toBe(200);
+    expect(spent.body.result.data.recoveryCodesLeft).toBe(codes.length - i - 1);
+  }
   const seen = mailedLines(who.email, 'mfa-reset-started').length;
   const { context, page: other } = await startLockedOutReset(browser, who);
   // Every contact on file: this person's only contact is the proved email, which is told with the end of the wait. (A
   // phone number on file is named as not texted in this build: mfa-reset.pg.test.ts.)
   await expect(other.getByText('an email went to')).toBeVisible();
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-started').length).toBeGreaterThan(seen);
-  expect(mailedLines(who.email, 'mfa-reset-started').at(-1)).toMatch(/ until=\d{4}-\d\d-\d\dT/);
+  const until = mailedLines(who.email, 'mfa-reset-started')
+    .at(-1)
+    .match(/ until=(\S+)/)?.[1];
+  expect(until).toMatch(/^\d{4}-\d\d-\d\dT/);
+  // The page shows the same end of the wait as the mail, in this browser's clock.
+  const shown = await other.evaluate((iso) => {
+    const at = Date.parse(iso);
+    const sameYear = new Date(at).getFullYear() === new Date().getFullYear();
+    const options = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', ...(sameYear ? {} : { year: 'numeric' }) };
+    return new Intl.DateTimeFormat('en-GB', options).format(at);
+  }, until);
+  await expect(other.getByRole('status').filter({ hasText: 'second step is being reset' })).toContainText(
+    `Your second step is being reset. It waits until ${shown}.`,
+  );
   // During the wait the password alone still does not get in.
   await other.getByRole('button', { name: 'Back to sign in' }).click();
   await fillSignIn(other, who);
@@ -193,10 +232,16 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
 }) => {
   test.setTimeout(150_000);
   const totp = await totpOf();
-  const { who, codes } = await withAuthenticator(page);
+  const { who, codes, secret, step: enrolled } = await withAuthenticator(page);
+  let step = enrolled;
+  const oldCode = async () => {
+    let code;
+    ({ code, step } = await nextCode(totp, secret, step));
+    return code;
+  };
 
-  // On the new phone: sign in with a recovery code, then replace the app from Security. The old app is gone, so a
-  // recovery code confirms it is them and a second one proves the old factor; each is spent.
+  // On the new phone: sign in with a recovery code, then replace the app from Security. The old app still works
+  // until the new one is proved; recovery codes confirm it is them and each is spent.
   const { context, page: other } = await atSecondStep(browser, who);
   await other.getByRole('button', { name: 'Use a recovery code' }).click();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
@@ -208,6 +253,29 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
     .click();
   await expect(other).toHaveURL(/\/uc\/safe/);
   const card = other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' });
+  // Until the new app is proved, the old one still works: its code confirms the replace, and a wrong code from the new
+  // app is refused, which leaves the old app in place (its next code still confirms a fresh replace) and the new key unused.
+  await card.getByRole('button', { name: 'Replace', exact: true }).click();
+  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const firstKey = (await card.locator('code').innerText()).trim();
+  const right = totp(firstKey);
+  await card.getByLabel('Code from the new app').fill(String((Number(right) + 1) % 1_000_000).padStart(6, '0'));
+  await card.getByLabel('Next code or a recovery code').fill(await oldCode());
+  const refused = other.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/totpManage.replaceConfirm'));
+  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
+  const wrong = await (await refused).json();
+  expect(wrong.error.data.intafacedCode ?? wrong.error.data.cause?.code ?? wrong.error.data.code).toBe('auth.mfa_invalid');
+  await expect(card.getByText('Authenticator app replaced')).toHaveCount(0);
+  await other.reload();
+  // The old app's code still confirms it is them, so the refused attempt changed nothing; the fresh replace is then done
+  // with recovery codes, as a person whose old phone is gone would.
+  await card.getByRole('button', { name: 'Replace', exact: true }).click();
+  await card.getByLabel('6-digit code or a recovery code').fill(await oldCode());
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(card.getByLabel('Code from the new app')).toBeVisible();
+  await expect((await card.locator('code').innerText()).trim()).not.toBe(firstKey);
+  await other.reload();
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -389,18 +457,92 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
   await lost.close();
 });
 
-test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {
-  test.setTimeout(120_000);
-  const { who } = await withAuthenticator(page);
-  // The mail to the proved address says what changed (I-signin-sessions-08).
-  await expect
-    .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes('change=totp_added')), { timeout: 20_000 })
-    .toBe(true);
-  // The inbox row follows the event, which svc-identity's outbox relay publishes within a few seconds: reload until it shows.
-  await expect(async () => {
-    await page.goto('/notifications');
-    await expect(page.getByText('Authenticator app turned on')).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
+// The passkey steps need the passkey origin (the stack's relying party is localhost).
+test.describe('factor notices', () => {
+  test.use({ baseURL: PASSKEY_ORIGIN });
+
+  test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {
+    test.setTimeout(300_000);
+    const totp = await totpOf();
+    await virtualAuthenticator(page);
+    const started = await withAuthenticator(page);
+    const { who } = started;
+    let { secret, step } = started;
+    // Each change is mailed to the proved address saying what changed (I-signin-sessions-08), and its inbox row follows the
+    // event, which svc-identity's outbox relay publishes within a few seconds: reload until it shows.
+    const notified = async (change, title) => {
+      await expect
+        .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes(`change=${change}`)), { timeout: 20_000 })
+        .toBe(true);
+      await expect(async () => {
+        await page.goto('/notifications');
+        await expect(page.getByText(title, { exact: true }).first()).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 30_000 });
+      await page.goto('/uc/safe');
+    };
+    const code = async () => {
+      let next;
+      ({ code: next, step } = await nextCode(totp, secret, step));
+      return next;
+    };
+    /** Answers identity's "Confirm it is you" sheet with the next authenticator code. */
+    const confirmSheet = async () => {
+      const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+      await sheet.getByLabel('Authenticator code or recovery code').fill(await code());
+      await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await expect(sheet).toBeHidden();
+    };
+    await notified('totp_added', 'Authenticator app turned on');
+
+    // A passkey added, after "Confirm it is you" with the code.
+    await page.getByRole('button', { name: 'Add passkey' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+    await confirmSheet();
+    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toBeVisible();
+    await notified('passkey_added', 'Passkey added');
+
+    // The passkey removed.
+    await page.getByRole('button', { name: /^Remove passkey / }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+    // Removing a factor needs the second step first, as adding one did: confirm with the code, and the removal goes ahead.
+    await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+    await confirmSheet();
+    await expect(page.getByTestId('security__checklist').getByText('1 on this account')).toHaveCount(0);
+    await notified('passkey_removed', 'Passkey removed');
+
+    // The same session replaces the app: its "Confirm it is you" with the old app's code starts and finishes the replace.
+    await page.goto('/uc/safe');
+    await expect(page).not.toHaveURL(/\/login/);
+
+    // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
+    const card = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
+    await card.getByRole('button', { name: 'Replace', exact: true }).click();
+    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+    const setup = page
+      .locator('[data-testid="security__authenticator"]')
+      .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
+    await expect(setup).toHaveCount(1);
+    const newKey = (await setup.locator('code').innerText()).trim();
+    await setup.getByLabel('Code from the new app').fill(totp(newKey));
+    await setup.getByLabel('Next code or a recovery code').fill(await code());
+    await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+    await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
+    await notified('totp_replaced', 'Authenticator app replaced');
+
+    // The new app turned off, with its codes.
+    secret = newKey;
+    step = Math.floor(Date.now() / 30_000);
+    await card.getByRole('button', { name: 'Turn off', exact: true }).click();
+    await card.getByLabel('6-digit code or a recovery code').fill(await code());
+    await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+    // Turning it off asks for the app's next code too.
+    await card.getByLabel('Next code or a recovery code').fill(await code());
+    await card.getByRole('button', { name: 'Turn off authenticator app' }).click();
+    await expect(page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
+    await notified('totp_removed', 'Authenticator app turned off');
+  });
 });
 
 /**

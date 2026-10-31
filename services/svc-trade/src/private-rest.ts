@@ -3,6 +3,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
+import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
@@ -89,6 +90,8 @@ import { readOcoFromBody } from './spot/oco-place.js';
 import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
+import { attachGridRestRoutes } from './grid/grid-rest.js';
+import type { GridService } from './grid/grid-service.js';
 
 /**
  * Private CCXT-style REST (trade.ccxt-api — authenticated).
@@ -187,6 +190,10 @@ export interface PrivateRestDeps {
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
   gatedList?: (subject: GatedListSubject) => Promise<readonly GatedContract[]>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
+  /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
+  grid?: GridService;
+  /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
+  algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
@@ -1296,6 +1303,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
+  attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
 
@@ -1323,6 +1331,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
     return true;
   }
+
+  attachGridRestRoutes(app, deps.grid, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
@@ -2790,6 +2800,18 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const wire = presentCcxtOrder(order, symbol);
         if (wire.executionOutcome !== null) {
           results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
+        } else if (order.status === 'open' || order.status === 'pending' || order.status === 'recovery_required') {
+          // The order stays with its hold until a fill the engine matched lands (#6874): not a success to re-place on.
+          results.push({
+            ...base,
+            status: 'unknown',
+            order: wire,
+            error: {
+              code: 'ExchangeError',
+              message: 'the cancel waits for a fill the engine matched; read the order to reconcile',
+              intafacedCode: 'trade.cancel_ahead_of_fill',
+            },
+          });
         } else {
           results.push({ ...base, status: 'success', order: wire });
         }

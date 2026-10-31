@@ -84,6 +84,12 @@ export function knownAuthRefusal(kind: AuthKind, answer: ApiResult<unknown>): bo
       'auth.too_many_attempts': 429,
       // Every factor passed on a browser the account has not trusted yet: nothing was signed in; approval comes next.
       'auth.device_authorisation_required': 403,
+      // The self-hosted sign-in challenge (I-signin-sessions-30): asked for, failed, or not set by the owner.
+      'auth.challenge_required': 403,
+      'auth.challenge_invalid': 403,
+      'auth.challenge_expired': 403,
+      'auth.challenge_used': 403,
+      'identity.challenge_unconfigured': 412,
     },
     passkey: { 'auth.invalid_credentials': 401, 'auth.account_frozen': 403, 'auth.webauthn_not_enrolled': 403 },
     // A wallet's signature (I-account-lifecycle-07): an unlinked wallet, a spent challenge or a refused signature signs nothing in.

@@ -12,6 +12,7 @@ import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-ev
 import { BUYBACK_INVALID, isBuybackUser } from '../buyback-order.js';
 import { orderIdFor } from '../ids.js';
 import { settlementOrderId } from '../oco-legs.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../hold-outcome.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -128,10 +129,9 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       throw new TradeError(`order ${orderId} is ${order.status} and cannot be cancelled`, 'trade.order_not_open');
     }
 
-    // `cancelled: false` means the engine has no such live order — it already
-    // filled, or it never arrived (the indeterminate-submit case above).
-    // Either way the hold still has to be reconciled, so the answer is the
-    // same and this is not an error path.
+    // `cancelled: false` means the engine has no such live order: it filled,
+    // or an earlier cancel or expiry took it off. That is not an error path,
+    // but it is not a release either (below).
     let cancellation: Awaited<ReturnType<MatchingClient['cancel']>>;
     try {
       cancellation = await svc.matching.cancel(order.marketId, orderId);
@@ -182,14 +182,30 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
         if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
         throw err;
       }
-    } else if (!cancellation.cancelled) {
-      // No live order and no earlier answer: it may have matched in full. Said on the row, for a chase to read.
+    } else if (!cancellation.cancelled && paper) {
       await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+    } else if (!cancellation.cancelled) {
+      // No live order and no earlier answer (#6874). The engine took it off the book by a fill, a cancel or an expiry,
+      // and its event for that is how this service learns which: it may have matched in full with the taker's
+      // settlement still on its way, or an earlier cancel's answer may not be written yet (two cancels racing).
+      // Releasing now would hand back what that fill draws, so a miss never releases. The order keeps its hold; its
+      // fill closes it (`finalizeIfComplete`), or the engine's cancel event does (`releaseOnCancelEvent`). Said on the
+      // row, for a chase to read. Past the in-flight bound from the first miss with neither heard (a submit whose
+      // outcome was unknown may never have reached the engine), it goes to reconciliation, still with its hold.
+      await svc.finalizeIfComplete(orderId);
+      const [absent] = await svc.sql<Array<{ past_bound: boolean }>>`
+        UPDATE trade.orders
+           SET engine_absent_at_cancel = true, engine_absent_since = COALESCE(engine_absent_since, now())
+         WHERE id = ${orderId} AND status IN ('open', 'pending', 'recovery_required')
+         RETURNING engine_absent_since <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS}) AS past_bound
+      `;
+      if (absent?.past_bound) await svc.markRecoveryRequired(orderId, 'RECONCILIATION_REQUIRED');
+      return (await svc.findOrder(orderId)) as OrderRecord;
     }
 
-    // A successful cancel or a verified engine absence is now safe to
-    // reconcile. Transport ambiguity above is deliberately kept separate and
-    // remains recovery-required.
+    // A successful cancel whose fills are all written (or a paper market's
+    // verified absence) is now safe to reconcile. Transport ambiguity above is
+    // deliberately kept separate and remains recovery-required.
     await svc.finalize(orderId, 'cancelled');
 
     const settled = await svc.findOrder(orderId);

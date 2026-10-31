@@ -36,10 +36,10 @@ async function stakeReadable(client) {
 }
 
 /**
- * A new approved TEST seller with one published TEST strategy listing titled `title`. Returns the seller and the
- * listing as svc-market answered its creation.
+ * A new approved TEST seller holding one free listing slot. Returns the seller and their API client; verification leaves
+ * `page` signed out, so a browser step signs the seller in first.
  */
-export async function testStrategyListing(page, { title, price = '10', assetId = 'USDT', periodSeconds = 30 * 86_400 }) {
+export async function approvedSeller(page) {
   const seller = await signUp(page, 'mks');
   await verify(page, seller);
   expect(fund(seller.email, 'IFC', '1100').tx).toBeTruthy();
@@ -55,6 +55,15 @@ export async function testStrategyListing(page, { title, price = '10', assetId =
   const ctx = await gates.makeContext({ log: () => {} });
   const vetted = await gates.vetVendor(ctx, applied.id, 'approved', 'TEST seller for J-more-catalogue-02');
   expect(vetted.vendor.status).toBe('approved');
+  return { seller, client };
+}
+
+/**
+ * A new approved TEST seller with one published TEST strategy listing titled `title`. Returns the seller and the
+ * listing as svc-market answered its creation.
+ */
+export async function testStrategyListing(page, { title, price = '10', assetId = 'USDT', periodSeconds = 30 * 86_400 }) {
+  const { seller, client } = await approvedSeller(page);
   const listing = data(
     await client.post('/api/market/trpc/createStrategyListing', {
       title,
