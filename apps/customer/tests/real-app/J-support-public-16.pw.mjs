@@ -208,8 +208,15 @@ test(`${J} #8 the help centre settings show name, theme and languages, and a mis
   expect(settings).toHaveProperty('name');
   expect(settings).toHaveProperty('languages');
   expect(settings).toHaveProperty('theme');
-  const translations = await desk('lead', 'query', 'helpCentreTranslations', { limit: 100 });
-  expect(JSON.stringify(translations)).toContain('missing');
+  // Gaps are counted per offered language: a stack whose owner has offered none offers one for this step, then puts it back.
+  const offered = settings.languages === null;
+  if (offered) await setHelpCentre({ languages: ['en'] }, `TEST ${J} #8 offer a language`);
+  try {
+    const translations = await desk('lead', 'query', 'helpCentreTranslations', { limit: 100 });
+    expect(JSON.stringify(translations)).toContain('missing');
+  } finally {
+    if (offered) await setHelpCentre({ languages: null }, `TEST ${J} #8 put the languages back`);
+  }
 });
 
 test(`${J} #9 the publish switch change is audited with its reason; switched off, /help says so`, async ({ browser }) => {
