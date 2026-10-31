@@ -39,6 +39,7 @@ import {
   type MethodSettlement,
 } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
+import { BULK_ACTIONS, MAX_BULK_OFFERS, MAX_PRESENCE_WINDOWS, PRESENCE_MODES, TODO_KINDS, type Presence } from './merchant-console.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
@@ -142,6 +143,21 @@ export type P2pRouterOptions = {
 
 /** Decimal string on the wire. Rejects anything a float could have mangled. */
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18dp');
+
+/** P-ads-merchant-08: a person's presence, as the console shows it. */
+const presenceOutput = z.object({
+  mode: z.enum(PRESENCE_MODES),
+  timezone: z.string(),
+  windows: z.array(z.object({ day: z.number().int(), start: z.string(), end: z.string() })),
+  onBoard: z.boolean(),
+  nextChangeAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+const presentPresence = (presence: Presence): z.infer<typeof presenceOutput> => ({
+  ...presence,
+  nextChangeAt: presence.nextChangeAt ? presence.nextChangeAt.toISOString() : null,
+  updatedAt: presence.updatedAt ? presence.updatedAt.toISOString() : null,
+});
 
 /**
  * Shared board filters. `offers.list` stays an array for the live customer
@@ -702,6 +718,9 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.content_rule_violation':
       // P-ads-merchant-12: the person meets the fiat's posting thresholds, which the checklist shows.
       case 'p2p.posting_threshold_not_met':
+      // P-ads-merchant-08: a presence schedule that is not a valid week; a bulk action naming no ads or too many.
+      case 'p2p.schedule_invalid':
+      case 'p2p.bulk_scope_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
@@ -722,6 +741,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.buying_restricted':
       // P-ads-merchant-06: an ad with open orders closes once they finish (the error data counts them).
       case 'p2p.offer_has_open_trades':
+      // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
+      case 'p2p.maker_offline':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':
@@ -1455,6 +1476,49 @@ export function createP2pRouter(
               }),
             );
           }),
+        ),
+
+      /**
+       * P-ads-merchant-08: pause, resume or remove (close) several of the caller's ads at once: named ads, or `all` that
+       * the action applies to. Each ad answers for itself (`ok`, its status, or the code that refused it, such as
+       * `p2p.offer_closed`). The key is answered once: a repeat returns the same results and changes nothing.
+       */
+      bulk: merchantApiProcedure('p2p:write')
+        .input(
+          z
+            .object({
+              action: z.enum(BULK_ACTIONS),
+              offerIds: z.array(z.string().guid()).min(1).max(MAX_BULK_OFFERS).optional(),
+              all: z.literal(true).optional(),
+              idempotencyKey: z.string().min(8).max(200),
+            })
+            .refine((v) => (v.all === true) !== (v.offerIds !== undefined), { message: 'Name ads, or all, not both' }),
+        )
+        .output(
+          z.object({
+            action: z.enum(BULK_ACTIONS),
+            replayed: z.boolean(),
+            more: z.boolean(),
+            results: z.array(
+              z.object({
+                offerId: z.string(),
+                ok: z.boolean(),
+                status: z.enum(['active', 'paused', 'closed']).nullable(),
+                code: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            p2p.bulkOffers({
+              makerId: ctx.principal.userId,
+              action: input.action,
+              ...(input.offerIds ? { offerIds: input.offerIds } : {}),
+              ...(input.all ? { all: true } : {}),
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
         ),
 
       /** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. */
@@ -3240,6 +3304,9 @@ export function createP2pRouter(
             offerEdits: z.array(z.unknown()),
             /** P-ads-merchant-07: links the person made to their ads (no tokens; only their hashes are held). */
             shareLinks: z.array(z.unknown()),
+            /** P-ads-merchant-08: the person's presence and their bulk ad actions' results. */
+            presence: z.unknown().nullable(),
+            bulkRuns: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which
@@ -3700,6 +3767,73 @@ export function createP2pRouter(
      * empty — the same shape `moderationConfigured` uses above.
      */
     merchants: router({
+      /**
+       * P-ads-merchant-08: the caller's presence. Offline, or scheduled outside every window, takes their ads off the
+       * board for others; open orders carry on. `nextChangeAt` is when a schedule next puts them on or off the board.
+       */
+      presence: merchantApiProcedure('p2p:read')
+        .output(presenceOutput)
+        .query(async ({ ctx }) => guard(async () => presentPresence(await p2p.presence(requireUser(ctx))))),
+
+      setPresence: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            mode: z.enum(PRESENCE_MODES),
+            timezone: z.string().min(1).max(64).optional(),
+            windows: z
+              .array(z.object({ day: z.number().int().min(1).max(7), start: z.string().max(5), end: z.string().max(5) }))
+              .max(MAX_PRESENCE_WINDOWS)
+              .optional(),
+          }),
+        )
+        .output(presenceOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            presentPresence(
+              await p2p.setPresence(requireUser(ctx), {
+                mode: input.mode,
+                ...(input.timezone ? { timezone: input.timezone } : {}),
+                ...(input.windows ? { windows: input.windows } : {}),
+              }),
+            ),
+          ),
+        ),
+
+      /**
+       * P-ads-merchant-08: the console to-do list. The caller's open orders that wait on someone, soonest deadline
+       * first: pay, release, the other side's move, an open dispute. Each item links to its order.
+       */
+      todos: merchantApiProcedure('p2p:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                kind: z.enum(TODO_KINDS),
+                tradeId: z.string(),
+                role: z.enum(['buyer', 'seller']),
+                status: z.string(),
+                asset: z.string(),
+                amount: amountString,
+                fiatCurrency: z.string(),
+                fiatAmount: amountString,
+                deadlineAt: z.string().nullable(),
+                link: z.string(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({
+            items: (await p2p.todos(requireUser(ctx), input.limit)).map((item) => ({
+              ...item,
+              amount: formatAmount(parseAmount(item.amount)),
+              fiatAmount: formatAmount(parseAmount(item.fiatAmount)),
+              deadlineAt: item.deadlineAt ? item.deadlineAt.toISOString() : null,
+            })),
+          })),
+        ),
+
       /**
        * P-ads-merchant-20: the caller's own P2P performance for the user
        * center. Any signed-in trader, merchant or not; recomputed from trades.
