@@ -375,7 +375,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   for (const stop of stops) expect((await me.delete(`/api/v1/futures/conditional-orders/${stop.id}`)).status).toBe(200);
 });
 
-test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
+test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once (one fill, one ledger posting); the other leg cancelled`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -419,6 +419,9 @@ async function firesOnceWithTwoWorkers(page, me) {
   await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
   const pair = (await legs(me, positionId)).filter((o) => o.status === 'armed');
   expect(pair).toHaveLength(2);
+  // The ledger lines already there, so the close's own postings can be told apart.
+  const ledgerIds = async () => new Set((await me.get('/api/v1/ledger?limit=200')).body.entries.map((e) => e.id));
+  const postedBefore = await ledgerIds();
   // Every status each leg is seen in from now on, read through the service as often as it answers.
   const seen = Object.fromEntries(pair.map((o) => [o.id, ['armed']]));
   const refused = [];
@@ -488,6 +491,17 @@ async function firesOnceWithTwoWorkers(page, me) {
     [fired.closeOrderId, 'sell', true, 'filled', size],
   ]);
   expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
+  // And one ledger posting for it: the close released the position's margin once, and nothing was posted twice
+  // (a realised profit, when the take profit fired, is its own line, also once).
+  const { body: ledger } = await me.get('/api/v1/ledger?limit=200');
+  const posted = ledger.entries.filter((e) => !postedBefore.has(e.id) && e.module === 'trade');
+  const types = posted.map((e) => e.type);
+  expect(
+    types.filter((t) => t === 'futures.margin.release'),
+    JSON.stringify(posted),
+  ).toHaveLength(1);
+  expect(new Set(types).size, JSON.stringify(posted)).toBe(types.length);
+  expect(new Set(posted.map((e) => e.referenceId)).size, JSON.stringify(posted)).toBe(posted.length);
 }
 
 test(`${J} #7 a fired stop fails: the reason in words and what happened to the position`, async ({ page }) => {
