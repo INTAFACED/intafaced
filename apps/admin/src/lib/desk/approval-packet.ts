@@ -24,6 +24,7 @@ import {
   ACCOUNT_LIMIT_RAILS,
   type AccountLimitRail,
 } from '@intafaced/contracts/account-controls';
+import { describeStaffRequest, isStaffRequestKind, readStaffRequest, staffConfirmPhrase, type StaffDeskRequest } from './approval-staff';
 
 /**
  * The request a founder hands to the other founder.
@@ -50,7 +51,11 @@ export type AccountArchiveReasonCode = (typeof ARCHIVE_REASON_CODES)[number];
 export const PACKET_PREFIX = 'ifa1.';
 export const REASON_MIN = 12;
 export const REASON_MAX = 500;
-const MAX_PACKET_CHARS = 6_000;
+/**
+ * A packet's size bound. A custom role definition may name every permission of the staff catalogue (264, about 30 characters
+ * each, in allow or deny), which encodes to about 12,000 characters; the bound sits above that and below the BFF's 16 KiB body.
+ */
+const MAX_PACKET_CHARS = 14_000;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
 const WHOLE = /^[1-9][0-9]{0,8}$/;
@@ -248,7 +253,12 @@ export type DeskRequest =
    * its position counts and the watermark the operator read; finalize binds the run and its cut-off. svc-ops spends each once.
    */
   | { readonly kind: 'ops.restore.record'; readonly service: RestoreServiceName; readonly stampKind: string; readonly watermark: string }
-  | { readonly kind: 'ops.restore.finalize'; readonly restoreNo: string; readonly cutOff: string };
+  | { readonly kind: 'ops.restore.finalize'; readonly restoreNo: string; readonly cutOff: string }
+  /**
+   * The staff roster and roles (svc-identity `staff.*` and `roles.*`, OPS-admin-access-03): invite, disable, remove, define a
+   * custom role, assign and unassign. Each kind is the identity action type it spends; see `approval-staff.ts`.
+   */
+  | StaffDeskRequest;
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -322,6 +332,7 @@ export function validReason(value: unknown): value is string {
 export function readDeskRequest(raw: unknown): DeskRequest | null {
   if (!isRecord(raw)) return null;
   const keys = Object.keys(raw).sort().join(',');
+  if (isStaffRequestKind(raw.kind)) return readStaffRequest(raw);
   if (raw.kind === 'edge.kill') {
     if (keys !== 'disabled,kind,module,reason') return null;
     if (typeof raw.module !== 'string' || !isModuleId(raw.module)) return null;
@@ -833,6 +844,13 @@ export function confirmPhrase(request: DeskRequest): string {
       return `STAMP ${request.service.toUpperCase()} ${request.watermark.slice(0, 16)}`;
     case 'ops.restore.finalize':
       return `FINALIZE RESTORE ${request.restoreNo}`;
+    case 'identity.staff.invite':
+    case 'identity.staff.disable':
+    case 'identity.staff.remove':
+    case 'identity.roles.define':
+    case 'identity.roles.assign':
+    case 'identity.roles.unassign':
+      return staffConfirmPhrase(request);
   }
 }
 
@@ -952,6 +970,13 @@ export function describeRequest(request: DeskRequest): string {
       return `Record a joint-restore stamp for svc-${request.service}: its ${request.stampKind} position is ${request.watermark}. The stamp is what the restore compares that service's live position with; a later stamp for the same service takes its place, and the earlier one stays listed. Nothing is restored and no money moves.`;
     case 'ops.restore.finalize':
       return `Finalize joint restore ${request.restoreNo} at cut-off ${request.cutOff}. svc-ops checks again that the ledger, identity, bank and pay each match their stamp and wrote nothing after the cut-off, and refuses if any does not; only then is the run recorded as restored. No money moves.`;
+    case 'identity.staff.invite':
+    case 'identity.staff.disable':
+    case 'identity.staff.remove':
+    case 'identity.roles.define':
+    case 'identity.roles.assign':
+    case 'identity.roles.unassign':
+      return describeStaffRequest(request);
   }
 }
 
@@ -976,6 +1001,10 @@ export function requestReason(request: DeskRequest): string | null {
     case 'ops.restore.finalize':
     case 'token.governance.settings.set':
     case 'token.governance.role.set':
+    case 'identity.staff.invite':
+    case 'identity.roles.define':
+    case 'identity.roles.assign':
+    case 'identity.roles.unassign':
       return null;
     default:
       return request.reason;

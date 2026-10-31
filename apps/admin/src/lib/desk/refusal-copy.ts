@@ -1520,6 +1520,63 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This course has no stored grade report with that number.',
     next: 'Pick a report from the list. Nothing was made.',
   },
+  // The staff roster and roles (svc-identity `staff.*`, `roles.*`, OPS-admin-access-03): every code in the contract's
+  // IDENTITY_STAFF_REFUSAL_CODES (a test keeps the two equal). Each is refused before anything changes.
+  'identity.staff_invite_open_link_refused': {
+    title: 'An invite must name one person',
+    body: 'svc-identity refuses an invite that is a link anyone could use, or that names no email or no name. Nothing was changed.',
+    next: 'Invite one person by their email and display name.',
+  },
+  'identity.role_grant_exceeds_holder': {
+    title: 'You can only grant permissions you hold yourself',
+    body: 'The role or grant includes a permission your own roles do not give you, or lifts a deny you are bound by. Nothing was changed.',
+    next: 'Leave out what you do not hold, or ask a founder who holds it to make the change.',
+  },
+  'identity.permission_denied_explicit': {
+    title: 'A deny on one of your roles stops this',
+    body: 'One of your roles explicitly denies the permission this action needs, and a deny wins over every allow. Nothing was changed.',
+    next: 'Check your access overview; a founder can change the role that denies it.',
+  },
+  'identity.staff_last_founder': {
+    title: 'The last founder cannot be removed',
+    body: 'This change would leave no active founder (a disable, a removal, or taking the founder role from the last one). Nothing was changed.',
+    next: 'Add and approve another founder first.',
+  },
+  'identity.staff_not_invited': {
+    title: 'This person was never invited and approved',
+    body: 'svc-identity gives staff access only to a person who was invited by name and approved by a second founder. Nothing was changed.',
+    next: 'Invite them first; their roles come with the approved invite.',
+  },
+  'identity.role_mapping_unset': {
+    title: 'This built-in role has no mapping yet',
+    body: 'The owner has not set which permissions this built-in role gives, so it cannot be assigned or granted. Nothing was changed.',
+    next: 'The owner sets the mapping. Until then, use a custom role.',
+  },
+  'identity.business_user_not_staff': {
+    title: 'A business account cannot hold a staff role',
+    body: 'Staff roles go to individual accounts only; a business account gets merchant admin. Nothing was changed.',
+    next: 'Invite the person with an individual account.',
+  },
+  'identity.staff_permission_invalid': {
+    title: 'A permission is not in the catalogue',
+    body: 'svc-identity refused a permission or environment that is not in the staff permission catalogue. Nothing was changed.',
+    next: 'Pick permissions from the editor only, then ask again.',
+  },
+  'identity.staff_self_grant': {
+    title: 'Nobody changes their own roles or status',
+    body: 'You are the staff member this change is about. Nothing was changed.',
+    next: 'Another founder makes this change.',
+  },
+  'action_approval.policy_unset': {
+    title: 'The approval policy is not set',
+    body: 'The owner has not set how many approvers this change needs, so svc-identity refuses it. No approval was spent and nothing was changed.',
+    next: 'The owner sets the approver count on the approval policy page.',
+  },
+  'admin.staff_roster_not_built': {
+    title: 'svc-identity has no staff roster yet',
+    body: 'svc-identity has no staff roster yet (OPS-admin-access-03 step 2): it does not answer the staff and roles procedures on this deployment. No approval was spent and nothing was changed.',
+    next: 'Nothing to do here until svc-identity serves the staff roster.',
+  },
   'admin.session_required': {
     title: 'You are signed out',
     body: 'Your founder session ended.',

@@ -11,6 +11,7 @@ import {
 } from '@intafaced/contracts/ops-staff-holds';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
+import { staffExpectedVersion, staffSubjectFor, type StaffDeskRequest } from './approval-staff';
 
 /** The verb svc-identity binds a waitlist wave release to (`waitlist.waves.release`). */
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
@@ -79,8 +80,27 @@ function shaIdentity(targetId: string, fields: Record<string, string>): string {
     .digest('hex')}`;
 }
 
+/**
+ * A staff change (OPS-admin-access-03): identity's own form, `{ targetId, ...fields }`, over the contract's
+ * `staffChangeApprovalSubject` (fields already normalised: trimmed, emails lower-cased, lists sorted, a new role's version
+ * null). Some fields are lists, so the values are not all strings; the serialisation is the same `JSON.stringify`.
+ */
+export function staffPayloadHash(request: StaffDeskRequest): string {
+  const subject = staffSubjectFor(request);
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ targetId: subject.targetId, ...subject.fields }))
+    .digest('hex')}`;
+}
+
 export function payloadHashFor(request: DeskRequest): string {
   switch (request.kind) {
+    case 'identity.staff.invite':
+    case 'identity.staff.disable':
+    case 'identity.staff.remove':
+    case 'identity.roles.define':
+    case 'identity.roles.assign':
+    case 'identity.roles.unassign':
+      return staffPayloadHash(request);
     case 'edge.kill':
       return sha('edge.kill', { module: request.module, disabled: request.disabled ? 'true' : 'false', reason: request.reason });
     case 'ledger.freeze':
@@ -243,6 +263,24 @@ export interface ProposeInput {
 export function proposeInputFor(request: DeskRequest): ProposeInput {
   const payloadHash = payloadHashFor(request);
   switch (request.kind) {
+    // svc-identity binds a staff change to the contract's target (`invite:<email>`, `staff:<id>`, `role:<id>` or
+    // `role:new:<name>`) at the record or role version read, and 0 for something new. The action type is the request kind.
+    case 'identity.staff.invite':
+    case 'identity.staff.disable':
+    case 'identity.staff.remove':
+    case 'identity.roles.define':
+    case 'identity.roles.assign':
+    case 'identity.roles.unassign': {
+      const subject = staffSubjectFor(request);
+      return {
+        actionType: subject.actionType,
+        targetService: subject.targetService,
+        targetId: subject.targetId,
+        expectedVersion: staffExpectedVersion(request),
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    }
     case 'edge.kill':
       return {
         actionType: 'edge.kill',

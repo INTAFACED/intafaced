@@ -262,6 +262,8 @@ export interface WorkbenchProps {
   readonly externalReply?: StepReply | null;
   /** Set when running needs the runner's fresh authenticator code (a same-person step-up); says why. */
   readonly stepUpNote?: string | null;
+  /** Optional: the reply of every step, before the desk re-reads (see `ControlDesk`). */
+  readonly onStepReply?: (reply: StepReply) => void;
 }
 
 export function ApprovalWorkbench({
@@ -273,6 +275,7 @@ export function ApprovalWorkbench({
   onChanged,
   externalReply,
   stepUpNote = null,
+  onStepReply,
 }: WorkbenchProps) {
   const [confirm, setConfirm] = useState('');
   const [stepUpCode, setStepUpCode] = useState('');
@@ -300,6 +303,7 @@ export function ApprovalWorkbench({
       if (step === 'execute') setStepUpCode('');
       setReply(result);
       if (result.ok && (step === 'reject' || step === 'revoke')) setConfirm('');
+      onStepReply?.(result);
       onChanged();
     } finally {
       lock.current = false;

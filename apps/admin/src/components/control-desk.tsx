@@ -108,6 +108,8 @@ export interface ControlDeskProps {
   /** Set when running needs the runner's fresh authenticator code (a same-person step-up); says why. */
   readonly stepUpNote?: string | null;
   readonly onChanged: () => void;
+  /** Optional: every step's reply, so a desk can tell a lost reply (outcome unknown) from an answer and say it re-read. */
+  readonly onStepReply?: (reply: StepReply) => void;
   readonly children?: ReactNode;
 }
 
@@ -121,6 +123,7 @@ export function ControlDesk({
   formHold = null,
   stepUpNote = null,
   onChanged,
+  onStepReply,
   children,
 }: ControlDeskProps) {
   const [reason, setReason] = useState('');
@@ -145,6 +148,7 @@ export function ControlDesk({
     try {
       const result = await postStep(endpoint, { step: 'propose', request, confirm });
       setReply(result);
+      onStepReply?.(result);
       if (result.ok && result.step === 'propose' && result.packet) {
         setPacketText(result.packet);
         setReason('');
@@ -215,6 +219,7 @@ export function ControlDesk({
           blockedReason={blockedReason}
           onChanged={onChanged}
           stepUpNote={stepUpNote}
+          {...(onStepReply ? { onStepReply } : {})}
         />
       </div>
     </div>

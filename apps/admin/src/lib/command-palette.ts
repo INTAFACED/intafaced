@@ -36,6 +36,8 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/merchants/registries', label: 'Merchants: registries', keywords: ['venues', 'networks', 'wallets'] },
   { href: '/tools/console-mode', label: 'Maintenance mode', keywords: ['read only', 'read-only', 'maintenance', 'console mode'] },
   { href: '/tools/announcements', label: 'Announcements: console banner', keywords: ['banner', 'announcement', 'staff notice'] },
+  { href: '/system/users', label: 'Staff and founders', keywords: ['staff', 'roster', 'invite', 'founders', 'access', 'users'] },
+  { href: '/system/roles', label: 'Staff roles', keywords: ['roles', 'permissions', 'custom role', 'access'] },
   { href: '/system/settings', label: 'Platform settings', keywords: ['effective', 'configuration', 'blank', 'owner'] },
   { href: '/system/profile', label: 'Profile and preferences', keywords: ['preferences', 'time zone', 'home page', 'theme', 'profile'] },
   { href: '/support/settings', label: 'Support: contact settings' },

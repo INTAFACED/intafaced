@@ -67,7 +67,7 @@ describe('request packets', () => {
     expect(decodePacket('   ')).toEqual({ ok: false, reason: 'empty' });
     expect(decodePacket('hello')).toEqual({ ok: false, reason: 'not_a_packet' });
     expect(decodePacket(`${PACKET_PREFIX}@@@`)).toEqual({ ok: false, reason: 'damaged' });
-    expect(decodePacket(`${PACKET_PREFIX}${'A'.repeat(7000)}`)).toEqual({ ok: false, reason: 'not_a_packet' });
+    expect(decodePacket(`${PACKET_PREFIX}${'A'.repeat(15_000)}`)).toEqual({ ok: false, reason: 'not_a_packet' });
     const text = encodePacket(packet);
     // Flip a character in the middle: it either stops being a packet or reads as a DIFFERENT packet. The hash an
     // approver recomputes from what they read is what stops a different request being approved (approval-hash.test.ts).

@@ -29,7 +29,8 @@ export type ApprovalEndpoint =
   | '/api/console-mode'
   | '/api/launch/issuers'
   | '/api/restore/approvals'
-  | '/api/more-ops/token-governance';
+  | '/api/more-ops/token-governance'
+  | '/api/system/staff';
 
 export interface StepPayload {
   readonly step: StepName;

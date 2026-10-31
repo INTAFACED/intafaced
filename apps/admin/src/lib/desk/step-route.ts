@@ -27,6 +27,11 @@ export interface StepRouteOptions {
   readonly kinds: readonly string[];
   /** Pre-dispatch refusal for a parsed step (unconfigured console, module that must not be armed), or null. */
   readonly check: (body: StepBody) => { refusal: RefusalView; status: number } | null;
+  /**
+   * Optional pre-dispatch refusal that needs a read of the target first (the staff desk asks svc-identity whether it serves
+   * the roster before an approval is proposed). Runs after `check`, never for reject or withdraw.
+   */
+  readonly precheck?: (body: StepBody) => Promise<{ refusal: RefusalView; status: number } | null>;
   readonly execute: ExecuteFn;
 }
 
@@ -65,7 +70,7 @@ export async function handleStep(request: Request, ctx: FounderCallContext, opti
   }
   // Undoing (reject, withdraw) is never blocked by deployment state: it only ever removes a pending approval.
   if (body.step !== 'reject' && body.step !== 'revoke') {
-    const blocked = options.check(body);
+    const blocked = options.check(body) ?? (options.precheck ? await options.precheck(body) : null);
     if (blocked) return refusalResponse(body.step, blocked.refusal, blocked.status);
   }
   const reply = await runStep(ctx, body, options.execute);

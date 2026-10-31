@@ -104,6 +104,8 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/operator-tools', 'tools'],
   ['/api/analytics', 'tools'],
   ['/api/merchants', 'merchants'],
+  // The founder System pages (`/system/*`) sit with the merchants module, as their pages do.
+  ['/api/system', 'merchants'],
   ['/api/trade-ops', 'tradeops'],
   ['/api/identity-ops', 'identity-ops'],
   ['/api/custody-ops', 'custody-ops'],

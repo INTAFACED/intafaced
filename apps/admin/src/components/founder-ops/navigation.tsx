@@ -38,6 +38,8 @@ export function PageFinder() {
             { route: '/conversion/venues', title: 'Venue registry' },
             { route: '/conversion/networks', title: 'Settlement networks' },
             { route: '/conversion/wallets', title: 'Wallet routes' },
+            { route: '/system/users', title: 'Staff and founders' },
+            { route: '/system/roles', title: 'Staff roles' },
             ...SCREENS.filter((s) => !s.route.includes(':')),
           ]
             .filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))

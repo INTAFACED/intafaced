@@ -76,7 +76,6 @@ export interface OpsData {
   userId: string;
   expiresAt: string;
   fraud?: PayCallResult<FraudRow[]>;
-  enrolment?: PayCallResult<{ open: boolean }>;
   treasury?: TreasuryData;
   metrics?: DashboardData;
   approvals?: PayCallResult<ApprovalQueueData>;
@@ -125,18 +124,6 @@ export async function loadOps(
       'GET',
       { limit: 100, ...(merchant ? { merchantId: merchant } : {}) },
       parseFraud,
-    );
-  if (screen.id === 'F73')
-    data.enrolment = await payCall(
-      ctx,
-      'auth.founderEnrolmentStatus',
-      'GET',
-      {},
-      (raw) => {
-        if (!raw || typeof raw !== 'object' || !('open' in raw) || typeof raw.open !== 'boolean') return null;
-        return { open: raw.open };
-      },
-      'identity',
     );
   if (screen.id === 'F02' || screen.id === 'F03' || screen.id === 'F51' || screen.id === 'F61') data.treasury = await loadTreasury(ctx);
   if (screen.id === 'F69' || screen.id === 'F70') data.metrics = await loadDashboard(ctx, new Date(), days);

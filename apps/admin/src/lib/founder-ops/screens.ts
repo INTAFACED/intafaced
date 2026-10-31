@@ -408,15 +408,6 @@ export const SCREENS: readonly FounderScreen[] = [
     'The merchant list has lifetime figures, not ranked Today/7d/30d analytics. Ranking them as a different period would mislead.',
   ),
   screen(
-    'F73',
-    '/system/users',
-    'Founders and access',
-    'LIST',
-    'Inspect the current founder session and the enrolment door.',
-    ['Founder', 'Entitlement', 'Session expiry', 'Enrolment'],
-    'Only the signed-in founder can be verified here. The backend exposes no founder roster, last sign-in or revoke API. Reserved roles cannot be assigned.',
-  ),
-  screen(
     'F74',
     '/system/api-keys',
     'Merchant API keys',

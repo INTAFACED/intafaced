@@ -139,7 +139,6 @@ export function FounderScreenView({
           This review was not found in the bounded open queue. It may be closed or outside this read. No decision is available here.
         </StateBlock>
       ) : null}
-      {screen.id === 'F73' ? <FounderAccess data={data} path={path} /> : null}
       {data.metrics ? <MetricsCharts data={data.metrics} path={path} /> : null}
       {data.treasury ? (
         screen.id === 'F03' || screen.id === 'F51' ? (
@@ -189,7 +188,7 @@ export function FounderScreenView({
           launched here.
         </StateBlock>
       ) : null}
-      {isList && screen.id !== 'F30' && screen.id !== 'F73' && !handled ? (
+      {isList && screen.id !== 'F30' && !handled ? (
         <>
           <div className="mp-kpis">
             {screen.sections.slice(0, 4).map((label) => (
@@ -448,44 +447,6 @@ function FraudDetail({ row }: { row: FraudRow }) {
     </>
   );
 }
-function FounderAccess({ data, path }: { data: OpsData; path: string }) {
-  return (
-    <>
-      <AsOf freshness={{ asOf: data.readAt, lagSeconds: 0 }} label="Founder authority checked" />
-      <Card
-        title="Current founder"
-        sub="Verified by the live founder entitlement guard for this request. This is not the full founder roster."
-      >
-        <div className="mp-facts">
-          <span>
-            User <code>{data.userId}</code>
-            <CopyButton value={data.userId} label="Copy founder id" />
-          </span>
-          <Chip tone="live" title="The current entitlement check accepted this founder session.">
-            Enabled founder
-          </Chip>
-          <span>
-            Session expires <time dateTime={data.expiresAt}>{data.expiresAt}</time>
-          </span>
-        </div>
-        <p>MFA is enforced by the existing sign-in and session authority. Enrolled factors and last sign-in are not exposed as a roster.</p>
-      </Card>
-      <Card title="Founder enrolment">
-        {data.enrolment?.kind === 'ok' ? (
-          <Chip tone={data.enrolment.data.open ? 'warn' : 'neutral'} title="Read from the identity enrolment status procedure.">
-            {data.enrolment.data.open ? 'Enrolment door open · invite required' : 'Enrolment door closed'}
-          </Chip>
-        ) : data.enrolment ? (
-          <FailureState failure={data.enrolment} what="Enrolment status" retryHref={path} />
-        ) : null}
-        <p className="mp-footnote">
-          Treasury operator, compliance analyst, finance viewer and support roles are reserved; assignment is unavailable.
-        </p>
-      </Card>
-    </>
-  );
-}
-
 /** F13 and F14 read their data in the merchant's Controls tab, so these pages point there instead of repeating it. */
 function noPointer(id: string): boolean {
   return id === 'F12' || id === 'F13' || id === 'F14' || id === 'F23';
