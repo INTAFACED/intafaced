@@ -8,6 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
 import { SECTIONS } from './developers-model';
 import {
+  AUTH_REQUIRED,
   CALL_COST,
   NEVER_ON_A_KEY,
   REST_REFERENCE,
@@ -253,6 +254,14 @@ describe('the machine-readable files', () => {
         route.access !== 'internal',
       ]);
     }
+  });
+
+  it("the grid bot and algo routes answer signed out as svc-trade's requirePrincipal does: 401 auth.required", () => {
+    // svc-trade's route-inventory test pins every private route, these included, to 401 intafacedCode auth.required; the
+    // reference said trade.unauthenticated for them (J-developer-01 #5 on main after #7008 and #6976).
+    const routes = REST_REFERENCE.filter((r) => /^\/api\/v1\/(bots\/grid|algo)(\/|$)/.test(r.path));
+    expect(routes.map((r) => r.name)).toHaveLength(10);
+    for (const route of routes) expect(signedOutOf(route), route.name).toEqual(AUTH_REQUIRED);
   });
 
   it('permission table: one row per scope a key can hold, each key-callable route under its method scope once', () => {
