@@ -1,4 +1,4 @@
-import { createPublicClient, defineChain, getAddress, http } from 'viem';
+import { createPublicClient, decodeFunctionResult, defineChain, encodeFunctionData, getAddress, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { factoryAbi, poolAbi } from '../amm/abi.js';
@@ -129,6 +129,13 @@ export interface ChainStatus {
   readonly expectedChainId: number | null;
   readonly actualChainId: number | null;
 }
+
+/**
+ * The most gas a `balanceOf` read may burn on the node. Route options read it on every factory pool's tokens for a public
+ * request, and a token is a contract anyone can write, so an unbounded call could spend the node's whole call gas cap
+ * each time. An ERC-20 balance read needs a few thousand gas; this leaves ample room for a token with hooks.
+ */
+export const BALANCE_READ_GAS = 100_000n;
 
 export class ProtocolChain {
   readonly client: PublicClient;
@@ -480,9 +487,16 @@ export class ProtocolChain {
 
   /** `holder`'s balance of `token` at `blockNumber`, so a pool's holdings compare with its reserves at the same block. */
   async tokenBalanceAt(token: Address, holder: Address, blockNumber: bigint): Promise<bigint> {
-    return this.#read('tokenBalanceAt', 'chain.tokenBalanceAt', async () =>
-      this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder], blockNumber }),
-    );
+    return this.#read('tokenBalanceAt', 'chain.tokenBalanceAt', async () => {
+      const { data } = await this.client.call({
+        to: token,
+        data: encodeFunctionData({ abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder] }),
+        blockNumber,
+        gas: BALANCE_READ_GAS,
+      });
+      // An empty answer is not a balance: decoding refuses it, as readContract did.
+      return decodeFunctionResult({ abi: erc20ReadAbi, functionName: 'balanceOf', data: data ?? '0x' });
+    });
   }
 
   /** `owner`'s allowance for `spender` at `blockNumber`. Null when the token reverts rather than answering. */
