@@ -508,6 +508,23 @@ if (!databaseUrl) {
       }
       expect(await db.sql`SELECT 1 FROM oauth_codes`).toHaveLength(0);
     });
+
+    it('reads the lifetimes as published and a blank one as null, never a default', async () => {
+      const user = await person();
+      for (const [settings, want] of [
+        [{ codeTtlSeconds: undefined }, { codeTtlSeconds: null }],
+        [{ accessTokenTtlSeconds: undefined }, { accessTokenTtlSeconds: null }],
+      ] as const) {
+        const read = await createOAuthRouter(build(settings)).createCaller(user.ctx).oauth.lifetimes();
+        expect(read).toMatchObject(want);
+      }
+      const both = build({ codeTtlSeconds: undefined, accessTokenTtlSeconds: undefined }).lifetimes();
+      expect(both).toEqual({ codeTtlSeconds: null, accessTokenTtlSeconds: null });
+      expect(build().lifetimes()).toEqual({
+        codeTtlSeconds: settings.codeTtlSeconds,
+        accessTokenTtlSeconds: settings.accessTokenTtlSeconds,
+      });
+    });
   });
 
   describe('router', () => {
