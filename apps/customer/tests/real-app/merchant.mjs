@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { expect } from '@playwright/test';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -45,8 +47,23 @@ export async function signInWithCode(page, who, destination) {
   await expect(page).toHaveURL(new RegExp(`${destination.replace(/[/.]/g, '\\$&')}$`));
 }
 
+/**
+ * Puts a business on its TEST tier through the two founders (`tooling/scripts/local-test-merchant-pricing.mjs`) and returns
+ * what they read back. Asynchronous, so the worker keeps answering Playwright while the founders sign in, which can wait out
+ * TOTP steps.
+ */
+export async function merchantTier(merchantId, kind = 'priced') {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), merchantId, '--tier', kind],
+    { cwd: ROOT, encoding: 'utf8', timeout: 300_000 },
+  );
+  return JSON.parse(stdout.trim().split('\n').pop());
+}
+
 /** Step 1 of setup, as the owner fills it: a TEST business with the stack's TEST starter fee. Stays on onboarding and
- * returns the new merchant's id. */
+ * returns the new merchant's id. The stack enforces merchant controls (PAY_MERCHANT_CONTROLS=required), so the founders
+ * then put the business on its TEST tier, with TEST intake caps and a TEST fee, before any journey takes a payment. */
 export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.goto('/pay/onboarding/business');
@@ -58,7 +75,9 @@ export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
   await page.getByRole('dialog').getByRole('button', { name: 'Create my account' }).click();
   const sent = await (await created).json();
   await expect(page.getByText('Your merchant account exists.')).toBeVisible();
-  return (Array.isArray(sent) ? sent[0] : sent).result.data.id;
+  const merchantId = (Array.isArray(sent) ? sent[0] : sent).result.data.id;
+  expect((await merchantTier(merchantId)).onTier, `the founders put ${merchantId} on its TEST tier`).toBe(true);
+  return merchantId;
 }
 
 /**

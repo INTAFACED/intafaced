@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   JOURNEY_CAPPED_DAILY_PAYOUT,
+  JOURNEY_INTAKE_CAPS,
   JOURNEY_PRICING_RULE,
   journeyTier,
   planMove,
@@ -71,6 +72,30 @@ test('the capped tier is its own, with a TEST daily payout cap of 1 USDT; the ot
   assert.equal(pricingArgs([MERCHANT, '--tier', 'tight']), null);
 });
 
+test('every kind takes payments: each carries TEST intake caps for USDT far above a journey payment', () => {
+  for (const kind of ['priced', 'blank', 'capped']) {
+    const caps = journeyTier(MERCHANT, kind, false).caps;
+    for (const want of JOURNEY_INTAKE_CAPS)
+      assert.deepEqual(
+        caps.find((c) => c.kind === want.kind),
+        want,
+        `${kind} ${want.kind}`,
+      );
+  }
+  assert.deepEqual(
+    JOURNEY_INTAKE_CAPS.map((c) => [c.kind, c.assetCode]),
+    [
+      ['per_payment', 'USDT'],
+      ['daily_intake', 'USDT'],
+      ['monthly_intake', 'USDT'],
+    ],
+  );
+  assert.ok(
+    JOURNEY_INTAKE_CAPS.every((c) => Number(c.limit) > 100),
+    'above the largest TEST journey payment',
+  );
+});
+
 test('a tier is written when missing or when any term differs, the payout fee included; an equal tier is left alone', () => {
   const tier = journeyTier(MERCHANT, 'priced', false);
   assert.deepEqual(planTierUpsert({ listed: [], tier }), { kind: 'upsert', expectedVersion: '0' });
@@ -80,12 +105,20 @@ test('a tier is written when missing or when any term differs, the payout fee in
     caps: [
       { kind: 'beneficiaries_per_day', limit: 500 },
       { kind: 'daily_payout', assetCode: 'USDT', limit: '500.00' },
+      { kind: 'per_payment', assetCode: 'USDT', limit: '1000.000' },
+      { kind: 'daily_intake', assetCode: 'USDT', limit: '10000' },
+      { kind: 'monthly_intake', assetCode: 'USDT', limit: '100000.0' },
     ],
     approvalThresholds: [{ assetCode: 'USDT', amount: '10.0' }],
     payoutFee: null,
     version: '3',
   };
   assert.deepEqual(planTierUpsert({ listed: [view], tier }), { kind: 'exists', version: '3' });
+  // A tier written before the stack required merchant controls has no intake caps: it is written again.
+  assert.deepEqual(planTierUpsert({ listed: [{ ...view, caps: view.caps.slice(0, 2) }], tier }), {
+    kind: 'upsert',
+    expectedVersion: '3',
+  });
   assert.deepEqual(planTierUpsert({ listed: [{ ...view, payoutFee: { kind: 'not_charged' } }], tier }), {
     kind: 'upsert',
     expectedVersion: '3',

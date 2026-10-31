@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * LOCAL TEST merchant pricing — puts one TEST business on a TEST risk tier through svc-pay's own two-founder doors, for
- * journey tests that read Pricing and Fees (J-merchant-07 #3) and that need today's payout limit exceeded (#6, which puts
- * the business back on its priced tier after). The payout steps after #3 (#6, #7, #8) rely on the priced tier's caps and
+ * LOCAL TEST merchant pricing — puts one TEST business on a TEST risk tier through svc-pay's own two-founder doors. Every
+ * business a journey opens goes on its priced tier at once (merchant.mjs openBusiness), since the stack runs with
+ * PAY_MERCHANT_CONTROLS=required and an untiered business can take no payment; J-merchant-07 also reads Pricing and Fees on
+ * each kind (#3) and needs today's payout limit exceeded (#6, which puts the business back on its priced tier after). The payout steps after #3 (#6, #7, #8) rely on the priced tier's caps and
  * thresholds, so a change to `journeyTier`'s shared caps changes them too. Local only.
  *
  *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]
@@ -60,6 +61,17 @@ export const JOURNEY_PRICING_RULE = {
 export const JOURNEY_CAPPED_DAILY_PAYOUT = '1';
 
 /**
+ * TEST VALUE intake caps on every journey tier: svc-pay refuses a payment with PAY_MERCHANT_CONTROLS=required unless the
+ * tier caps one payment, a day and a month for its asset (pay.caps_unconfigured). Far above any journey's TEST payment
+ * (10 to 100 USDT), so no journey meets them by chance.
+ */
+export const JOURNEY_INTAKE_CAPS = [
+  { kind: 'per_payment', assetCode: 'USDT', limit: '1000' },
+  { kind: 'daily_intake', assetCode: 'USDT', limit: '10000' },
+  { kind: 'monthly_intake', assetCode: 'USDT', limit: '100000' },
+];
+
+/**
  * The TEST tier for one business. Its caps and thresholds are the LOCAL TEST tier's (local-test-world.mjs), so the payout
  * steps after it behave as on that tier. A tier id is a slug of at most 32 characters, so it carries 8 hex of the id.
  */
@@ -72,6 +84,7 @@ export function journeyTier(merchantId, kind, payoutNotCharged) {
     caps: [
       { kind: 'daily_payout', assetCode: 'USDT', limit: kind === 'capped' ? JOURNEY_CAPPED_DAILY_PAYOUT : '500' },
       { kind: 'beneficiaries_per_day', limit: 500 },
+      ...JOURNEY_INTAKE_CAPS,
     ],
     reserve: null,
     approvalThresholds: [{ assetCode: 'USDT', amount: '10' }],
