@@ -275,6 +275,21 @@ function ManageDestinations({
                     }}
                   />
                 )}
+                {d.state === 'held' && (
+                  <PortalReview
+                    title={t('dstCancelHold')}
+                    variant="sell"
+                    description={t('dstCancelHoldBody')}
+                    disabled={!owner}
+                    disabledReason={t('dstCancelHoldOwnerOnly')}
+                    review={review}
+                    perform={() => portal.destinationCancelHold({ merchantId, destinationId: d.id })}
+                    onConfirmed={() => {
+                      setSaid(t('dstCancelHoldDone'));
+                      onChanged();
+                    }}
+                  />
+                )}
                 {!isDefault && (
                   <PortalReview
                     title={t('dstMakeDefault')}
