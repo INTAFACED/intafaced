@@ -98,11 +98,12 @@ async function type(selector: string, value: string) {
 const click = (element: HTMLElement) => act(async () => void element.click());
 
 describe('sandboxRoute', () => {
-  it('reads the list, one sandbox, its key form, and nothing else', () => {
+  it('reads the list, one sandbox, its key form, the test values, and nothing else', () => {
     expect(sandboxRoute('/developers/sandbox/')).toEqual({ kind: 'list' });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX.toUpperCase()}?x=1`)).toEqual({ kind: 'sandbox', id: SANDBOX });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX}/keys/new`)).toEqual({ kind: 'new-key', id: SANDBOX });
-    expect(sandboxRoute('/developers/sandbox/test-values')).toEqual({ kind: 'unknown' });
+    expect(sandboxRoute('/developers/sandbox/test-values')).toEqual({ kind: 'test-values' });
+    expect(sandboxRoute('/developers/sandbox/test-values/x')).toEqual({ kind: 'unknown' });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX}/keys`)).toEqual({ kind: 'unknown' });
   });
 });
@@ -197,6 +198,18 @@ describe('sandbox rooms', () => {
     expect(world.reset).toHaveBeenCalledWith({ ...set, amount: '1000', version: 4 });
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('daily reset limit');
     expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('lists the card test values from the contract, with the decline token and its failure code', async () => {
+    await show('/developers/sandbox/test-values');
+    expect(document.querySelector('h1')?.textContent).toBe('Sandbox test values');
+    const table = document.querySelector('[role="region"][aria-label="Test values"] table')!;
+    const row = (id: string) => table.querySelector(`tr[data-test-value="${id}"]`)!;
+    expect(row('decline').querySelector('th')?.textContent).toBe('Decline');
+    expect([...row('decline').querySelectorAll('code')].map((c) => c.textContent)).toEqual(['tok_decline', 'card.declined']);
+    expect(row('acquirer_outage').querySelector('code')?.textContent).toBe('tok_rail_error');
+    expect(row('funds_held').querySelector('code')?.textContent).toBe('tok_funds_held');
+    expect(row('approve').textContent).toContain('Any other token');
   });
 
   it('sends the trade preset as asked and shows the sandbox refusal by code', async () => {
