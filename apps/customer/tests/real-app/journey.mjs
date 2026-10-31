@@ -1,17 +1,18 @@
 import { test as base } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
-import { tool } from './stack.mjs';
+import { LEDGER, ROOT } from './stack.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does). Everything else is Playwright's own.
 export * from '@playwright/test';
 
-const LEDGER = 'http://127.0.0.1:14501';
-
 /** svc-ledger's posting switch: true (open), false (frozen) or null when the ledger does not answer. */
 async function readPosting() {
   try {
-    const res = await fetch(`${LEDGER}/health`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${LEDGER}/health`, { signal: AbortSignal.timeout(2_000) });
     return postingFromHealth(await res.json());
   } catch {
     return null;
@@ -20,8 +21,13 @@ async function readPosting() {
 
 /** Lift a LOCAL TEST freeze through the founders' freeze door, signing them in afresh (refuses any other freeze). */
 async function lift() {
-  const out = tool('local-test-gates.mjs', 'posting-freeze', 'lift-leaked');
-  return out.trim().split('\n').at(-1) ?? 'lifted';
+  // Asynchronous, so the worker keeps answering Playwright while two founders sign in.
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-gates.mjs'), 'posting-freeze', 'lift-leaked'],
+    { cwd: ROOT, encoding: 'utf8', timeout: 120_000 },
+  );
+  return stdout.trim().split('\n').at(-1) ?? 'lifted';
 }
 
 export const test = base.extend({
