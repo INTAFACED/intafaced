@@ -77,6 +77,8 @@ export type SecurityStepUpDeps = {
   readonly approvals: { consume(callerService: string, input: ActionApprovalConsumeInput): Promise<unknown> };
   /** Throws `auth.mfa_not_enrolled` when the account has neither a passkey nor an authenticator. */
   readonly secondFactor: (userId: string) => Promise<unknown>;
+  /** The approvals' own clock, so `assertHeld` reads expiry as `consume` does. Defaults to the system clock. */
+  readonly now?: () => Date;
 };
 
 export class SecurityStepUp {
@@ -130,6 +132,61 @@ export class SecurityStepUp {
     } catch (err) {
       if (!(err instanceof ActionApprovalError)) throw err;
       throw new SecurityStepUpError(await this.codeFor(err, stepUpApprovalId, principal.userId));
+    }
+  }
+
+  /**
+   * Resolves when `stepUpApprovalId` is this session's approved, unspent and unexpired step-up for exactly these values,
+   * without spending it. A first phase (starting an authenticator replace) checks the approval its second phase then
+   * consumes through `require`, so one confirmation covers both and neither can run without it. Throws
+   * `SecurityStepUpError` otherwise.
+   */
+  async assertHeld(
+    principal: SecurityStepUpPrincipal,
+    scope: SecurityStepUpScope,
+    fields: Readonly<Record<string, string>>,
+    stepUpApprovalId?: string | null,
+  ): Promise<void> {
+    if (principal.kid || principal.sub_account) throw new SecurityStepUpError('identity.delegated_refused');
+    const door = doorForScope(scope);
+    if (!door || !(SECURITY_STEP_UP_SCOPES as readonly string[]).includes(scope)) {
+      throw new TypeError(`${scope} is not a security step-up scope`);
+    }
+    const bound = bindCustomerStepUp(principal.userId, {
+      scope,
+      purpose: door.purpose,
+      ...(door.amountField ? { amount: fields[door.amountField] ?? '' } : {}),
+      ...(door.targetField ? { target: fields[door.targetField] ?? '' } : {}),
+      fields,
+    });
+    if (!bound.ok) throw new SecurityStepUpError('identity.step_up_target');
+    if (!stepUpApprovalId) throw new SecurityStepUpError('identity.step_up_required');
+    const rows = await this.deps.sql<
+      Array<{
+        requester_id: string;
+        session_id: string | null;
+        payload_hash: string;
+        target_service: string;
+        target_id: string;
+        status: string;
+        consumed_at: Date | null;
+        expires_at: Date;
+      }>
+    >`
+      SELECT requester_id, session_id, payload_hash, target_service, target_id, status, consumed_at, expires_at
+        FROM action_approvals WHERE approval_id = ${stepUpApprovalId}
+    `;
+    const row = rows[0];
+    if (!row) throw new SecurityStepUpError('identity.step_up_required');
+    if (row.requester_id !== principal.userId || row.session_id !== principal.sid) {
+      throw new SecurityStepUpError('identity.step_up_not_yours');
+    }
+    if (row.consumed_at || row.status === 'CONSUMED') throw new SecurityStepUpError('identity.step_up_used');
+    const now = this.deps.now?.() ?? new Date();
+    if (row.expires_at.getTime() <= now.getTime() || row.status === 'EXPIRED') throw new SecurityStepUpError('identity.step_up_expired');
+    if (row.status !== 'APPROVED') throw new SecurityStepUpError('identity.step_up_required');
+    if (row.target_service !== 'svc-identity' || row.target_id !== scope || row.payload_hash !== bound.payloadHash) {
+      throw new SecurityStepUpError('identity.step_up_target');
     }
   }
 

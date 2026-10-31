@@ -74,11 +74,22 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
           }
         }),
       replaceStart: scopedProcedure('identity:write')
+        // A session that signed in without its second factor (for example one that turned the authenticator on just
+        // now) starts with the confirmation it just gave: the same approval replaceConfirm then spends.
+        .input(z.object({ clientRequestId: requestId, stepUpApprovalId: approvalId }).strict().optional())
         .output(z.object({ secret: z.string(), uri: z.string() }))
-        .mutation(async ({ ctx }) => {
+        .mutation(async ({ ctx, input }) => {
           try {
             if (!ctx.principal.mfa) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('auth.step_up_required') });
+              if (!input?.clientRequestId || !input.stepUpApprovalId) {
+                throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('auth.step_up_required') });
+              }
+              await stepUp.assertHeld(
+                ctx.principal,
+                'identity.step_up.totp_replace',
+                { clientRequestId: input.clientRequestId },
+                input.stepUpApprovalId,
+              );
             }
             return await lifecycle.replaceStart(ctx.principal.userId);
           } catch (err) {

@@ -119,7 +119,13 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
         if (mounted.current) setMode({ kind: 'disable', requestId, approvalId: approved.data.stepUpApprovalId });
         return;
       }
-      const started = await api.mutate('identity', 'totpManage.replaceStart', undefined, replaceStarted);
+      // The confirmation just given lets a session that signed in without its second factor start the replace too.
+      const started = await api.mutate(
+        'identity',
+        'totpManage.replaceStart',
+        { clientRequestId: requestId, stepUpApprovalId: approved.data.stepUpApprovalId },
+        replaceStarted,
+      );
       if (fail(started)) return;
       if (mounted.current) setMode({ kind: 'replace', requestId, approvalId: approved.data.stepUpApprovalId, ...started.data });
     });

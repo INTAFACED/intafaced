@@ -85,6 +85,7 @@ if (!(await postgresAvailable(URL))) {
     sql: db.sql,
     approvals,
     secondFactor: (userId) => auth.customerStepUpMaterial(userId, 'security_change'),
+    now: clock,
   });
 
   let n = 0;
@@ -275,6 +276,59 @@ if (!(await postgresAvailable(URL))) {
         caller.stepUp.complete({ challengeId: begun.challengeId, totpCode: totpNext(user.secret), recoveryCode: user.recoveryCodes[0]! }),
       ).rejects.toThrow(/exactly one of totpCode, recoveryCode or webauthn/);
       expect(await left(user.session.userId)).toBe(10);
+    });
+  });
+
+  describe('SecurityStepUp.assertHeld', () => {
+    it("accepts this session's approval for these values without spending it; require then spends it once", async () => {
+      const user = await newUser();
+      const approvalId = await mintRemove(user);
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, approvalId)).resolves.toBeUndefined();
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, approvalId)).resolves.toBeUndefined();
+      await expect(guard.require(user.principal, REMOVE, removeFields, approvalId)).resolves.toBeUndefined();
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, approvalId)).rejects.toMatchObject({
+        code: 'identity.step_up_used',
+      });
+    });
+
+    it('refuses no approval, an unknown one, other values, another scope, another session and another person', async () => {
+      const user = await newUser();
+      const other = await newUser();
+      const approvalId = await mintRemove(user);
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, undefined)).rejects.toMatchObject({
+        code: 'identity.step_up_required',
+      });
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, 'appr_made_up')).rejects.toMatchObject({
+        code: 'identity.step_up_required',
+      });
+      await expect(
+        guard.assertHeld(user.principal, REMOVE, { credentialId: 'cred-2', clientRequestId: 'req-1' }, approvalId),
+      ).rejects.toMatchObject({ code: 'identity.step_up_target' });
+      await expect(guard.assertHeld(user.principal, ADD, { label: 'Phone', clientRequestId: 'req-1' }, approvalId)).rejects.toMatchObject({
+        code: 'identity.step_up_target',
+      });
+      await expect(guard.assertHeld({ ...user.principal, sid: 'another-session' }, REMOVE, removeFields, approvalId)).rejects.toMatchObject(
+        {
+          code: 'identity.step_up_not_yours',
+        },
+      );
+      await expect(guard.assertHeld(other.principal, REMOVE, removeFields, approvalId)).rejects.toMatchObject({
+        code: 'identity.step_up_not_yours',
+      });
+      await expect(guard.assertHeld({ ...user.principal, kid: 'key-1' }, REMOVE, removeFields, approvalId)).rejects.toMatchObject({
+        code: 'identity.delegated_refused',
+      });
+      // None of those spent it.
+      await expect(guard.require(user.principal, REMOVE, removeFields, approvalId)).resolves.toBeUndefined();
+    });
+
+    it('refuses an expired approval', async () => {
+      const user = await newUser();
+      const approvalId = await mintRemove(user);
+      clockMs += 301_000;
+      await expect(guard.assertHeld(user.principal, REMOVE, removeFields, approvalId)).rejects.toMatchObject({
+        code: 'identity.step_up_expired',
+      });
     });
   });
 }
