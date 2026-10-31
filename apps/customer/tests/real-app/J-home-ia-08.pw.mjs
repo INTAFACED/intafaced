@@ -74,16 +74,20 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   browser,
 }) => {
   const page = await device(browser);
-  await page.goto('/dex/pools/TEST-pool');
-  await expectWeb3(page);
-  await expect(page.getByRole('heading', { name: 'Pool TEST-pool' })).toBeVisible();
-  await expect(page.getByText('Blocked by')).toBeVisible();
-  await expect(page.getByText('The indexer reader for this page is not built in this build.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
-
+  // Every indexer room is built now (the pool page since #6880), so the room still waiting is the wallet one: its full
+  // layout, the blocker named, and the way back.
   await page.goto('/dex/pools/new');
   await expectWeb3(page);
+  await expect(page.getByText('Blocked by')).toBeVisible();
   await expect(page.getByText('Wallet connection is not built in this build, so there is nothing to sign with or read.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
+
+  // A malformed pool id is not found, with no lookup and no blocker: the page says so in words.
+  await page.goto('/dex/pools/TEST-pool');
+  await expectWeb3(page);
+  await expect(page.locator('[data-code="protocol.not_found"]')).toBeVisible();
+  await expect(page.getByText('Not found on this network').first()).toBeVisible();
+  await expect(page.getByText('Blocked by')).toHaveCount(0);
 
   await page.goto('/chain/tx/not-a-hash');
   await expectWeb3(page);
