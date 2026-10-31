@@ -366,6 +366,11 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
     expect(placed).toMatchObject({ side: 'sell', status: 'open', price, amount: '0.002' });
     const resting = (await openOrders(who)).find((o) => o.id === placed.id);
     if (resting && toUnits(resting.filled ?? '0') === 0n) sell = resting;
+    else if (resting) {
+      // Partly bought already: cancel it, so it cannot sit under the next attempt's price and take the other trader's buys.
+      const cancel = await (await api(who)).delete(`/api/v1/orders/${resting.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+      expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
+    }
   }
   expect(sell, 'a 0.002 BTC sale resting untouched after three tries').toMatchObject({ side: 'sell', price, amount: '0.002' });
   const other = await api(otherTrader());
