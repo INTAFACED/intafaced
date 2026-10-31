@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';

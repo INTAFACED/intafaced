@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { agentsRun, openFounderDesk, openNavigatorSession, tableIn } from './agents.mjs';
 import { api, ROOT } from './stack.mjs';
 

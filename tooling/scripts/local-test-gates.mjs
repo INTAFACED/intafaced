@@ -19,6 +19,7 @@
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
+ *   node tooling/scripts/local-test-gates.mjs posting-freeze lift-leaked   lift a LOCAL TEST freeze a journey left on
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
@@ -85,6 +86,7 @@ import { GuardError, assertLocalTarget as assertMarketTarget } from './local-tes
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { leakedFreezePlan } from './journey-freeze-guard.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 /** Written by `sandbox-funds set`, read by local-stack-services/pay.mjs. */
@@ -1170,7 +1172,7 @@ export function postingFreezePlan(state, frozen) {
  * it). Founder A reads the record first; founder B signs in only when there is something to approve. svc-ledger
  * consumes the approval once and writes who moved the switch. Reads keep answering.
  */
-export async function setPostingFreeze(ctx, frozen) {
+export async function setPostingFreeze(ctx, frozen, plan = (state) => postingFreezePlan(state, frozen), verb = frozen ? 'on' : 'off') {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0)
     throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
@@ -1184,9 +1186,9 @@ export async function setPostingFreeze(ctx, frozen) {
     return res.json;
   };
   const before = await read();
-  const plan = postingFreezePlan(before, frozen);
-  if (plan.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${plan.why}`);
-  if (plan.action === 'skip') return { frozen, changed: false, actor: before.actor };
+  const step = plan(before);
+  if (step.action === 'refuse') throw new Error(`posting-freeze ${verb} refused: ${step.why}`);
+  if (step.action === 'skip') return { frozen, changed: false, actor: before.actor };
 
   const b = await signInOne(ctx, ops.b, saveSteps);
   const ids = await twoPerson(ctx, { a, b }, postingFreezeProposal(frozen, before.version));
@@ -3077,8 +3079,8 @@ export async function scopedConsoleSession(ctx, without) {
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
-  if (cmd === 'posting-freeze' && process.argv[3] !== 'on' && process.argv[3] !== 'off')
-    die('usage: local-test-gates.mjs posting-freeze on|off', 2);
+  if (cmd === 'posting-freeze' && !['on', 'off', 'lift-leaked'].includes(process.argv[3]))
+    die('usage: local-test-gates.mjs posting-freeze on|off|lift-leaked', 2);
   if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
     die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   let ctx;
@@ -3200,7 +3202,11 @@ async function main() {
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
     } else if (cmd === 'posting-freeze') {
-      const r = await setPostingFreeze(ctx, process.argv[3] === 'on');
+      // lift-leaked: the journey harness's guard lifts a LOCAL TEST freeze a journey left on (journey-freeze-guard.mjs).
+      const r =
+        process.argv[3] === 'lift-leaked'
+          ? await setPostingFreeze(ctx, false, leakedFreezePlan, 'lift-leaked')
+          : await setPostingFreeze(ctx, process.argv[3] === 'on');
       say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))

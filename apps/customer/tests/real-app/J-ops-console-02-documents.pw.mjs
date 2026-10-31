@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { deflateSync } from 'node:zlib';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { unconfirmedAccount } from './p2p.mjs';

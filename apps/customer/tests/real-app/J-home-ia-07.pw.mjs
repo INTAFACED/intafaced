@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 

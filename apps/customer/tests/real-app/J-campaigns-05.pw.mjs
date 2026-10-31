@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { randomBytes } from 'node:crypto';
 import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode, restartWith, tool, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';

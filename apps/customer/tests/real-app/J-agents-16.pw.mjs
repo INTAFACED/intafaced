@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { UNBUILT, openFounderDesk, tableIn } from './agents.mjs';
 import { journeyState } from './stack.mjs';
 

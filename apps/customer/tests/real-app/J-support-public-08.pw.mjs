@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 import { campaignTotals, enquiriesFor, inviteCampaign, publicSettings, setPublicSettings } from './outreach.mjs';
 import { ORIGIN, tool } from './stack.mjs';

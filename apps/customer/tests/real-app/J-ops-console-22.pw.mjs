@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, paidCardPayment, payApiOf, signInWithCode, verifiedBusiness } from './merchant.mjs';

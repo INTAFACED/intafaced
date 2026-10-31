@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-01 #9: founder A turns on maintenance mode and founder B approves the same packet on their own console. The

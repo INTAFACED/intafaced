@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-01 #4: one module's service page at /health/:module. Founder A opens the ledger from the module health

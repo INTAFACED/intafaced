@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { createPublicClient, decodeEventLog, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';

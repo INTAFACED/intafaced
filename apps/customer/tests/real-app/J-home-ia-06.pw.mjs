@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
 import {
   NOTICE_DRAIN_MINUTES,

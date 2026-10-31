@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 
 // J-dex-protocol-20, in the running app (docs/roadmap/journeys.json): trade the on-chain book and make markets. One test

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { agentsRun, openNavigatorSession, tableIn } from './agents.mjs';
 import { fundedTrader, signIn } from './desk.mjs';

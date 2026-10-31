@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { api, fund, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 

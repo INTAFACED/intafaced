@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { matchPath } from '../../src/app/path-match.ts';
 import { features } from '../../src/app/feature-registry.ts';

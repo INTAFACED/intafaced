@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 

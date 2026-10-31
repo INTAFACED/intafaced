@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { asDesk, helpCentre, publishText, saveCategory, saveSection, setAudience, setHelpCentre } from './help-centre.mjs';
 import { EDGE, ORIGIN, journeyState } from './stack.mjs';

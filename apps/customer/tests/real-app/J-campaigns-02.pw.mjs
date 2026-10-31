@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { openDesk, signIn } from './desk.mjs';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
 

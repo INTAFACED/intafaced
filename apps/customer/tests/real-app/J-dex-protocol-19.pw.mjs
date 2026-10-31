@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { UNBUILT, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { chooseContract, confirmOpen, fillTicket } from './futures-desk.mjs';

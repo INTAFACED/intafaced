@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { agentsRun, createOwnAgent, OWN_AGENT, tableIn } from './agents.mjs';
 import { fundedTrader } from './desk.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';

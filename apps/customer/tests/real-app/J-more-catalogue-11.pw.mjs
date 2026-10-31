@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, fund, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { createEvent, moveEvent, onboardedIssuer } from './launch.mjs';

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
 import { awayBid, chosePro, confirm, deskPath, free, held, openDesk, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
 

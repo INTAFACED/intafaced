@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
 
 // J-more-catalogue-15, in the running app (docs/roadmap/journeys.json): read a prediction market and place a Yes or No

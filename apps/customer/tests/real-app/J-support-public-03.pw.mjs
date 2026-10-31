@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './journey.mjs';
 import { asDesk, ensureDeskGroup } from './help-centre.mjs';
 import { journeyState, ORIGIN, restartWith, stackFile, tool } from './stack.mjs';
 

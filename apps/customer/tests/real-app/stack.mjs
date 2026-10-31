@@ -23,6 +23,7 @@ export async function signOutBrowser(context) {
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';
+export const LEDGER = 'http://127.0.0.1:14501';
 export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();

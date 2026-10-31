@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-01 #10: founder A sets an announcement banner with a window, and personal preferences. The banner shows on
