@@ -334,6 +334,27 @@ export interface EngineMarketList {
   /** Operator halts on matching's board: the whole venue, and the halted market ids. Older engines omit them. */
   readonly venueHalted?: boolean;
   readonly halted?: readonly string[];
+  /** When each halted market's halt began (ISO), and the venue halt's start (null when open). Older engines omit them. */
+  readonly haltedSince?: Readonly<Record<string, string>>;
+  readonly venueHaltedSince?: string | null;
+}
+
+/**
+ * One market's halt read from matching's board, by market id. An engine that omits its halt fields has reported no halt
+ * state: that is not an open book, so it throws (the route answers 503). The starts pass on as served, or null.
+ */
+export function bookHaltFromBoard(
+  board: EngineMarketList,
+  marketId: string,
+): { halted: boolean; venueHalted: boolean; haltedSince: string | null; venueHaltedSince: string | null } {
+  if (board.halted === undefined && board.venueHalted === undefined) throw new Error('matching reports no halt state');
+  const since = board.haltedSince?.[marketId];
+  return {
+    halted: board.halted?.includes(marketId) === true,
+    venueHalted: board.venueHalted === true,
+    haltedSince: typeof since === 'string' ? since : null,
+    venueHaltedSince: typeof board.venueHaltedSince === 'string' ? board.venueHaltedSince : null,
+  };
 }
 
 export interface EngineMarkResult {

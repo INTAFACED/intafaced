@@ -38,6 +38,8 @@ import {
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
   payPayoutDestinationItemSchema,
+  payDestinationCancelHoldInputSchema,
+  payDestinationCancelHoldOutputSchema,
   payPayoutDestinationListInputSchema,
   payPayoutLifecycleInputSchema,
   payPayoutLifecycleSchema,
@@ -79,6 +81,8 @@ import {
   PayoutDestinationHeldError,
   PayoutDestinationInFlightError,
   PayoutDestinationMissingError,
+  PayoutDestinationNotFoundError,
+  PayoutDestinationNotHeldError,
   PayoutDestinationUnverifiedError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
@@ -1044,6 +1048,23 @@ export function createPayRouter(
             }),
           )
           .mutation(({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input))),
+        /**
+         * The owner sends a held destination back to unverified (J-merchant-02 #5, the lead's ruling of 2026-10-30).
+         * Owner only, interactive, never an API key; no step-up, since it only lowers risk. Idempotent: an
+         * unverified destination answers `changed: false`. An active one refuses `pay.payout_destination_not_held`.
+         */
+        cancelHold: scopedProcedure('pay:write', { module: 'pay' })
+          .input(payDestinationCancelHoldInputSchema)
+          .output(payDestinationCancelHoldOutputSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () =>
+              destinationChange.cancelHold({
+                caller: destinationCaller(ctx.principal),
+                merchantId: input.merchantId,
+                destinationId: input.destinationId,
+              }),
+            ),
+          ),
         list: ownMerchantRead()
           .input(payPayoutDestinationListInputSchema)
           .output(payPageSchema(payPayoutDestinationItemSchema))
@@ -2730,7 +2751,14 @@ export function toTrpcError(err: unknown): unknown {
   if (err instanceof DestinationKindError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
   }
-  if (err instanceof PayoutDestinationInFlightError || err instanceof PayoutDestinationConflictError) {
+  if (err instanceof PayoutDestinationNotFoundError) {
+    return new TRPCError({ code: 'NOT_FOUND', message: `${err.code}: ${err.message}`, cause: err });
+  }
+  if (
+    err instanceof PayoutDestinationInFlightError ||
+    err instanceof PayoutDestinationConflictError ||
+    err instanceof PayoutDestinationNotHeldError
+  ) {
     return new TRPCError({ code: 'CONFLICT', message: `${err.code}: ${err.message}`, cause: err });
   }
   if (
@@ -2845,6 +2873,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_verified_locked':
       case 'pay.destination_change_pending':
       case 'pay.destination_verify_mismatch':
+      case 'pay.payout_destination_not_held':
       case 'pay.payout_destination_conflict':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
