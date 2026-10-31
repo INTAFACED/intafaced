@@ -258,6 +258,11 @@ const schema = serviceEnvSchema
        * published: each door refuses `tier_law_blank`. The tier itself is always the signed principal's.
        */
       AGENTS_TIER_LAWS: z.string().optional(),
+      /**
+       * Own-agent templates offered in the builder, comma-separated ids (AG-catalogue-02). Unset offers every built-in
+       * template; `blank` is always offered, so `blank` alone offers only "Start blank". An unknown id stops the boot.
+       */
+      AGENTS_OWN_TEMPLATES: z.string().optional(),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

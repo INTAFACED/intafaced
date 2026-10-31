@@ -9,8 +9,6 @@ import { api, tool } from './stack.mjs';
 // (owner.decision) while the rest of the builder works. The draft each step leaves is read back from svc-agents
 // (own.* through Edge), not only from the page.
 // A clause the product cannot run yet stays red in a test of its own, named by that clause:
-// - #1 "with no templates only the blank option shows": the template set is fixed in svc-agents, so nothing can leave
-//   it empty (AG-catalogue-02);
 // - #4 "tool shapes": a tool is a name only, with no declared inputs or outputs to set (AG-tools-01);
 // - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
 // The identity page, publishing to a surface and sharing are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
@@ -108,8 +106,8 @@ test(`${J} #1 opens the template picker and chooses the service starter: a draft
 });
 
 test(`${J} #1 with no templates only the blank option shows`, async ({ page }) => {
-  // svc-agents restarted with its template set blank. The set is fixed in the service today (AG-catalogue-02), so the
-  // switch changes nothing yet and the starter still shows: this clause stays red, by name, until it can be blank.
+  // svc-agents restarted offering no template but "Start blank" (AGENTS_OWN_TEMPLATES=blank, AG-catalogue-02): the
+  // picker and the service's catalogue both show the blank option alone, and the starter comes back after.
   test.setTimeout(240_000);
   process.env.LOCAL_STACK_AGENTS_TEMPLATES = 'off';
   try {

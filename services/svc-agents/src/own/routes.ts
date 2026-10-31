@@ -20,7 +20,7 @@ import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
-import { OWN_AGENTS_MAX, OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
+import { OWN_AGENTS_MAX, OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal, type OwnTemplate } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
@@ -128,14 +128,14 @@ async function ownedOwnSession(sql: Sql | undefined, runtime: AgentRuntime, user
  * signed-in person; a delegated token can neither build nor read their drafts,
  * whose instructions are theirs alone. Building moves no value.
  */
-export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
+export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps, templates: readonly OwnTemplate[] = OWN_TEMPLATE_IDS) {
   return router({
     /** The templates and the tools a draft may be given, with the ones that move money marked so they can be refused. */
     catalogue: scopedProcedure('agents:read', { module: 'agents' })
       .output(ownAgentCatalogueSchema)
       .query(() => {
         return {
-          templates: OWN_TEMPLATE_IDS.map((id) => ({ id, tools: [...OWN_TEMPLATES[id].tools] })),
+          templates: templates.map((id) => ({ id, tools: [...OWN_TEMPLATES[id].tools] })),
           tools: OWN_TOOLS.map((tool) => ({ ...tool })),
         };
       }),
@@ -146,7 +146,8 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps) {
       .mutation(({ ctx, input }) => {
         assertPersonSetsLimits(ctx.principal);
         return guard(async () => {
-          const template = OWN_TEMPLATE_IDS.find((id) => id === input.template);
+          // Only an offered template: one taken off the list is unknown to a create, as it is to the picker.
+          const template = templates.find((id) => id === input.template);
           if (!template) throw new OwnAgentRefusal('agents.own.template_unknown');
           return storeOf(sql).create(ctx.principal.userId, template, input.createKey);
         });

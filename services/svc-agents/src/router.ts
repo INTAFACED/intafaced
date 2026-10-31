@@ -68,6 +68,7 @@ import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
 import { ownRouter } from './own/routes.js';
+import type { OwnTemplate } from './own/catalog.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
@@ -346,6 +347,8 @@ export interface AgentsRouterDeps {
   readonly runStore?: RunStore;
   /** Published tier law of the scanner, navigator and support doors. Absent or blank → every door refuses closed. */
   readonly tierLaws?: TierLaws;
+  /** The own-agent templates offered (`AGENTS_OWN_TEMPLATES`, AG-catalogue-02). Absent offers every built-in one. */
+  readonly ownTemplates?: readonly OwnTemplate[];
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -4010,7 +4013,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     spend: spendRouter(sql),
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
-    own: ownRouter(sql, { runtime, feeAssetId }),
+    own: ownRouter(sql, { runtime, feeAssetId }, deps.ownTemplates),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
