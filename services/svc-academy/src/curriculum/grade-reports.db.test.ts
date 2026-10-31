@@ -81,7 +81,10 @@ describe('grade report CSV', () => {
     const two = book('c');
     const OTHER = '99999999-9999-4999-8999-999999999999';
     two.items.push({ itemId: OTHER, title: 'Journal', kind: 'assignment' });
-    two.learners[0] = { ...two.learners[0]!, items: [{ itemId: OTHER, state: 'pending', score: null, entered: null }, ...two.learners[0]!.items] };
+    two.learners[0] = {
+      ...two.learners[0]!,
+      items: [{ itemId: OTHER, state: 'pending', score: null, entered: null }, ...two.learners[0]!.items],
+    };
     expect(gradeReportCsv(two, 1, T1).split('\r\n')[2]).toBe(`${L},0.8,pending,0.8,0.8`);
   });
 

@@ -5,7 +5,9 @@
  * assignment's points. A hand-in later than its due date (a learner's extension moves it) by more than the grace loses the
  * deduction for each started day past the grace, at most all of the points, never below 0. Worked out in hundredths, the
  * deduction rounded up so the score is cut, never raised. The entered grade is never changed: the late score is worked
- * out from it on each read. With no policy, or no due date, nothing is deducted. No money moves.
+ * out from it on each read. A policy takes off only from hand-ins made at or after the moment it was set, so nothing is
+ * ever taken off under a rule the learner was not shown when they handed in; a change or a clear starts again from its own
+ * moment. With no policy, or no due date, nothing is deducted. No money moves.
  */
 import type { AcademyLatePolicy } from '@intafaced/contracts';
 import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
@@ -22,7 +24,7 @@ export function policyOf(row: { grace_hours: string | null; deduction_per_day: s
   return { graceHours: formatAmount(parseAmount(row.grace_hours)), deductionPerDay: formatAmount(parseAmount(row.deduction_per_day)) };
 }
 
-/** The course's late policy now, or null with none (never set, or cleared). */
+/** The course's late policy now, or null with none (never set, or cleared): what the assignment page states. */
 export async function latePolicyOf(sql: Sql | TransactionSql, courseId: string): Promise<AcademyLatePolicy | null> {
   const [row] = await sql<Array<{ grace_hours: string | null; deduction_per_day: string | null }>>`
     SELECT grace_hours::text, deduction_per_day::text FROM academy.course_late_policies WHERE course_id = ${courseId}

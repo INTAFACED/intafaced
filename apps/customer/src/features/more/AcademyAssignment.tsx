@@ -55,7 +55,6 @@ async function base64Of(file: File): Promise<string> {
   return btoa(binary);
 }
 
-/** A refusal this page words itself, with the code the service would have sent. */
 /** A share of the points ("0.1", up to four places) as a percentage with up to two places ("10", "3.33"), worked out in digits. */
 export function percentOf(share: string): string {
   const [whole, frac = ''] = share.split('.');
@@ -64,6 +63,7 @@ export function percentOf(share: string): string {
   return hundredths ? `${basis / 100n}.${hundredths}` : `${basis / 100n}`;
 }
 
+/** A refusal this page words itself, with the code the service would have sent. */
 const refusalOf = (code: string): Failure => ({ ok: false, reason: 'error', message: code, code });
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

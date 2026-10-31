@@ -98,13 +98,18 @@ export async function changeGradebook(
   }
   if (op === 'saveLatePolicy') {
     const late = academySaveLatePolicyInputSchema.safeParse(input);
-    if (!late.success) return { why: LATE_WHY };
+    if (!late.success)
+      return { why: input.policy === null ? 'Say why you are clearing the late policy, in up to 500 characters.' : LATE_WHY };
     const saved = await founderCall(ctx, 'academy', 'admin.saveLatePolicy', 'POST', late.data, readGradebook);
     if (saved.kind !== 'ok' || !saved.data) return refusal(saved);
-    return {
-      status: 200,
-      reply: { ok: true, what: late.data.policy ? 'late policy saved' : 'late policy cleared', gradebook: saved.data },
-    };
+    // svc-academy writes nothing when the course already holds what was sent: the revision read is still the one stored.
+    const what =
+      (saved.data.latePolicy?.revision ?? 0) === late.data.revision
+        ? 'late policy unchanged: the course already holds it, so nothing was recorded'
+        : late.data.policy
+          ? 'late policy saved'
+          : 'late policy cleared';
+    return { status: 200, reply: { ok: true, what, gradebook: saved.data } };
   }
   const parsed = academySaveGradingPolicyInputSchema.safeParse(input);
   if (!parsed.success) return { why: WHY };

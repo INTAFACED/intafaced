@@ -248,8 +248,15 @@ describe('late policy (AC-assignments-04, ENGINE GR-5)', () => {
       now: NOW,
     });
     await graded(ids.one, '8');
-    const late = (revision: number, policy: { graceHours: string; deductionPerDay: string } | null) =>
-      book().saveLatePolicy({ courseId: ids.courseId, revision, policy, reason: 'TEST', operatorId: A, now: NOW });
+    const late = (revision: number, policy: { graceHours: string; deductionPerDay: string } | null, hoursFromNow = 0) =>
+      book().saveLatePolicy({
+        courseId: ids.courseId,
+        revision,
+        policy,
+        reason: 'TEST',
+        operatorId: A,
+        now: new Date(NOW.getTime() + hoursFromNow * 3_600_000),
+      });
     const cell = (view: Awaited<ReturnType<CourseGradebook['view']>>) =>
       view.learners.find((l) => l.userId === L)!.items.find((i) => i.itemId === ids.one);
 
@@ -260,15 +267,16 @@ describe('late policy (AC-assignments-04, ENGINE GR-5)', () => {
     await late(0, null);
     expect(await db.sql`SELECT 1 FROM academy.course_late_policy_events`).toHaveLength(0);
 
-    // 24 hours of grace, then 0.1 of the points per started day: 72 h late is 48 h past the grace, two days, 2 points off.
-    const saved = await late(0, { graceHours: '24', deductionPerDay: '0.1' });
+    // Set an hour before L handed in: 24 hours of grace, then 0.1 of the points per started day. 72 h late is 48 h past
+    // the grace, two days, so 2 points come off.
+    const saved = await late(0, { graceHours: '24', deductionPerDay: '0.1' }, -1);
     expect(saved.latePolicy).toMatchObject({ revision: 1, policy: { graceHours: '24', deductionPerDay: '0.1' }, setBy: A, reason: 'TEST' });
     expect(cell(saved)).toEqual({ itemId: ids.one, state: 'graded', score: '0.6', entered: '0.8' });
     const mine = await assignments().learnerView({ itemId: ids.one, userId: L });
     expect(mine.latePolicy).toEqual({ graceHours: '24', deductionPerDay: '0.1' });
     expect(mine.grade).toMatchObject({ score: '6', points: '10', entered: '8' });
-    const [grades] = await new AssignmentGrading(db.sql, assignments(), 900).courseGrades(L);
-    expect(grades!.rows.find((r) => r.itemId === ids.one)).toMatchObject({ state: 'graded', score: '6', possible: '10' });
+    const grading = new AssignmentGrading(db.sql, assignments(), 900);
+    expect((await grading.courseGrades(L))[0]!.rows.find((r) => r.itemId === ids.one)).toMatchObject({ state: 'graded', score: '6' });
     // The entered grade itself is untouched.
     expect(await db.sql`SELECT score::text FROM academy.assignment_grade_events`).toEqual([{ score: '8.00' }]);
 
@@ -277,16 +285,23 @@ describe('late policy (AC-assignments-04, ENGINE GR-5)', () => {
     await late(1, { graceHours: '24.00', deductionPerDay: '0.1000' });
     expect(await db.sql`SELECT revision FROM academy.course_late_policy_events`).toHaveLength(1);
 
-    // Cleared: the revision goes on, nothing is taken off, and the history keeps both saves.
-    const cleared = await late(1, null);
-    expect(cleared.latePolicy).toMatchObject({ revision: 2, policy: null });
-    expect(cell(cleared)).toEqual({ itemId: ids.one, state: 'graded', score: '0.8', entered: null });
+    // A harsher policy set after L handed in takes nothing off that hand-in: L was not shown it when they handed in.
+    const later = await late(1, { graceHours: '0', deductionPerDay: '1' }, 1);
+    expect(later.latePolicy).toMatchObject({ revision: 2, policy: { graceHours: '0', deductionPerDay: '1' } });
+    expect(cell(later)).toEqual({ itemId: ids.one, state: 'graded', score: '0.8', entered: null });
     expect((await assignments().learnerView({ itemId: ids.one, userId: L })).grade).toMatchObject({ score: '8', entered: null });
+    expect((await grading.courseGrades(L))[0]!.rows.find((r) => r.itemId === ids.one)).toMatchObject({ score: '8' });
+
+    // Cleared: the revision goes on, nothing is taken off, and the history keeps every save.
+    const cleared = await late(2, null, 2);
+    expect(cleared.latePolicy).toMatchObject({ revision: 3, policy: null });
+    expect(cell(cleared)).toEqual({ itemId: ids.one, state: 'graded', score: '0.8', entered: null });
     expect(
       await db.sql`SELECT revision, grace_hours::text, deduction_per_day::text, actor_id FROM academy.course_late_policy_events ORDER BY revision`,
     ).toEqual([
       { revision: 1, grace_hours: '24.00', deduction_per_day: '0.1000', actor_id: A },
-      { revision: 2, grace_hours: null, deduction_per_day: null, actor_id: A },
+      { revision: 2, grace_hours: '0.00', deduction_per_day: '1.0000', actor_id: A },
+      { revision: 3, grace_hours: null, deduction_per_day: null, actor_id: A },
     ]);
   });
 

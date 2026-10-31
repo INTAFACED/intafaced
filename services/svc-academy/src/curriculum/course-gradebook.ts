@@ -217,18 +217,20 @@ export class CourseGradebook {
     const cells = new Map<string, Cell>();
     const key = (itemId: string, userId: string) => `${itemId}:${userId}`;
     for (const h of handIns) {
-      // The score after the late policy; the entered grade stays beside it when something was taken off.
+      // The score after the late policy, which counts only for a hand-in made after it was set; the entered grade stays
+      // beside it when something was taken off.
       const points = h.points === null ? null : canonicalPrice(h.points)!;
-      const late =
+      const policy = late && late.set_at.getTime() <= h.submitted_at.getTime() ? latePolicy : null;
+      const cut =
         h.score !== null && points !== null
-          ? lateScore(canonicalPrice(h.score)!, points, h.submitted_at, dueFor(h.due_at, h.extended), latePolicy)
+          ? lateScore(canonicalPrice(h.score)!, points, h.submitted_at, dueFor(h.due_at, h.extended), policy)
           : null;
-      const score = late && points !== null ? fractionOf(late.score, points) : null;
-      if (score !== null)
+      const score = cut && points !== null ? fractionOf(cut.score, points) : null;
+      if (score !== null && points !== null)
         cells.set(key(h.item_id, h.user_id), {
           state: 'graded',
           score,
-          entered: late?.entered ? fractionOf(late.entered, points!) : null,
+          entered: cut?.entered ? fractionOf(cut.entered, points) : null,
         });
       else if (h.state !== 'draft' && h.state !== 'withdrawn')
         cells.set(key(h.item_id, h.user_id), { state: 'pending', score: null, entered: null });

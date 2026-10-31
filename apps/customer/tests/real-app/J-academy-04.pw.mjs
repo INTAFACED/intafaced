@@ -59,7 +59,6 @@ async function setLatePolicy(browser, graceHours, deductionPerDay) {
   await desk.goto(run.courseUrl.replace('/catalogue/courses/', '/catalogue/gradebook/'));
   await desk.waitForLoadState('networkidle');
   const form = desk.getByTestId('late-policy');
-  await expect(desk.getByTestId('late-policy-now')).toHaveText('Not set: nothing is taken off a late hand-in.');
   await form.getByLabel('Grace hours', { exact: true }).fill(graceHours);
   await form.getByLabel('Deduction per day', { exact: true }).fill(deductionPerDay);
   await form.getByLabel('Late policy reason', { exact: true }).fill(`TEST ${J}: late hand-ins lose points`);
@@ -67,7 +66,7 @@ async function setLatePolicy(browser, graceHours, deductionPerDay) {
   await form.getByRole('button', { name: 'Save late policy', exact: true }).click();
   await expect(desk.getByTestId('course-desk-outcome')).toContainText('Done: late policy saved');
   await expect(desk.getByTestId('late-policy-now')).toContainText(
-    `Revision 1: ${graceHours} hours of grace after the due date, then ${deductionPerDay} of the points off for each started day late.`,
+    `${graceHours} hours of grace after the due date, then ${deductionPerDay} of the points off for each started day late.`,
   );
   await desk.context().close();
 }

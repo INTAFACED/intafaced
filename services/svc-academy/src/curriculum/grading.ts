@@ -30,7 +30,7 @@ import type { CourseAssignments } from './assignments.js';
 import { canonicalPrice } from './courses.js';
 import { hundredths } from './peer-review.js';
 import { dueFor } from './course-item-rules.js';
-import { latePolicyOf, lateScore, policyOf } from './late-policy.js';
+import { lateScore, policyOf } from './late-policy.js';
 import { readBulkGradeFile, type BulkGradeBadRow } from './bulk-grade-file.js';
 
 type Db = Sql | TransactionSql;
@@ -103,18 +103,21 @@ export async function learnerGradeOf(sql: Db, itemId: string, userId: string): P
       at: Date;
       read_at: Date | null;
       submitted_at: Date;
-      course_id: string;
       due_at: Date | null;
       extended: Date | null;
+      grace_hours: string | null;
+      deduction_per_day: string | null;
     }>
   >`
     SELECT s.version, g.n, g.score::text AS score, g.points::text AS points, g.comment, g.at, r.read_at, s.submitted_at,
-      i.course_id, a.due_at, x.due_at AS extended
+      a.due_at, x.due_at AS extended, lp.grace_hours::text AS grace_hours, lp.deduction_per_day::text AS deduction_per_day
     FROM academy.assignment_submissions s
     JOIN academy.assignment_grade_events g ON g.submission_id = s.id
     JOIN academy.course_items i ON i.id = s.item_id
     LEFT JOIN academy.course_assignments a ON a.item_id = s.item_id
     LEFT JOIN academy.course_item_extensions x ON x.item_id = s.item_id AND x.user_id = s.user_id
+    -- The late policy counts only for a hand-in made after it was set (late-policy.ts).
+    LEFT JOIN academy.course_late_policies lp ON lp.course_id = i.course_id AND lp.set_at <= s.submitted_at
     LEFT JOIN academy.assignment_feedback_reads r ON r.grade_event_id = g.id
     WHERE s.item_id = ${itemId} AND s.user_id = ${userId}
     ORDER BY s.version DESC, g.n DESC
@@ -123,7 +126,7 @@ export async function learnerGradeOf(sql: Db, itemId: string, userId: string): P
   if (!row) return null;
   const score = canonicalPrice(row.score)!;
   const points = canonicalPrice(row.points)!;
-  const late = lateScore(score, points, row.submitted_at, dueFor(row.due_at, row.extended), await latePolicyOf(sql, row.course_id));
+  const late = lateScore(score, points, row.submitted_at, dueFor(row.due_at, row.extended), policyOf(row));
   return {
     version: row.version,
     n: row.n,
@@ -341,7 +344,8 @@ export class AssignmentGrading {
         SELECT g.score, g.points FROM academy.assignment_grade_events g WHERE g.submission_id = l.id ORDER BY g.n DESC LIMIT 1
       ) g ON TRUE
       LEFT JOIN academy.course_item_extensions x ON x.item_id = i.id AND x.user_id = ${userId}
-      LEFT JOIN academy.course_late_policies lp ON lp.course_id = c.id
+      -- The late policy counts only for a hand-in made after it was set (late-policy.ts).
+      LEFT JOIN academy.course_late_policies lp ON lp.course_id = c.id AND lp.set_at <= l.submitted_at
       WHERE e.user_id = ${userId} AND e.left_at IS NULL
       ORDER BY c.title, c.id, sec.position, i.position
     `;
