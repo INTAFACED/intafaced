@@ -35,6 +35,32 @@ describe('own agent templates offered (AGENTS_OWN_TEMPLATES)', () => {
   });
 });
 
+describe('declared tool shapes (AG-tools-01)', () => {
+  it('every attachable read tool but pay.metrics.read declares an input, an output and its refusals', () => {
+    for (const tool of OWN_TOOLS.filter((entry) => !entry.movesMoney && entry.name !== 'pay.metrics.read')) {
+      expect(Object.keys(tool.shape?.input ?? {}).length, tool.name).toBeGreaterThan(0);
+      expect(Object.keys(tool.shape?.output ?? {}).length, tool.name).toBeGreaterThan(0);
+      expect(tool.refusals.length, tool.name).toBeGreaterThan(0);
+    }
+    // identity.account.read never answers a balance.
+    expect(JSON.stringify(OWN_TOOLS.find((entry) => entry.name === 'identity.account.read')?.shape)).not.toMatch(/balance/i);
+  });
+
+  it('a tool with no declared shape is refused with agents.tool_shape_missing, naming it', () => {
+    expect(OWN_TOOLS.find((entry) => entry.name === 'pay.metrics.read')?.shape).toBeNull();
+    try {
+      draft({ tools: ['support.kb.search', 'pay.metrics.read'] });
+      throw new Error('not refused');
+    } catch (err) {
+      expect(err).toMatchObject({ code: 'agents.tool_shape_missing', params: { tool: 'pay.metrics.read' } });
+    }
+  });
+
+  it('a money tool is still refused as a money tool first', () => {
+    expect(refusal(() => draft({ tools: ['ledger.transfer'] }))).toBe('agents.own.money_tool');
+  });
+});
+
 describe('own agent drafts', () => {
   it('starts the service starter with read tools only, all from the addable catalogue', () => {
     for (const tool of OWN_TEMPLATES['service-starter'].tools) {

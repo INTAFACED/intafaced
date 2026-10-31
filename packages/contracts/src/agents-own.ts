@@ -29,7 +29,24 @@ export const ownAgentSchema = z.object({
 });
 export type OwnAgent = z.infer<typeof ownAgentSchema>;
 
-export const ownAgentToolSchema = z.object({ name: z.string(), module: z.string(), movesMoney: z.boolean() });
+/**
+ * A tool's declared shape (AG-tools-01): its input and output fields, each named with its type in words. Null is not
+ * declared: the surface says so and never guesses one, and a person's agent cannot attach the tool.
+ */
+export const ownAgentToolShapeSchema = z.object({
+  input: z.record(z.string(), z.string()),
+  output: z.record(z.string(), z.string()),
+});
+export type OwnAgentToolShape = z.infer<typeof ownAgentToolShapeSchema>;
+
+/** One tool a draft may be offered: its module, whether it moves money, its declared shape and the refusals it returns. */
+export const ownAgentToolSchema = z.object({
+  name: z.string(),
+  module: z.string(),
+  movesMoney: z.boolean(),
+  shape: ownAgentToolShapeSchema.nullable(),
+  refusals: z.array(z.string()),
+});
 
 /** `own.catalogue`: the templates a draft starts from and the tools it may be offered. */
 export const ownAgentCatalogueSchema = z.object({

@@ -35,6 +35,7 @@ export const ownAgentId = (path: string): string | null => OWN_AGENT_PATH.exec(p
 const CODE_WORDS = {
   'agents.spend.per_call_above_session': 'code_spend_per_call_above_session',
   'agents.own.money_tool': 'code_own_money_tool',
+  'agents.tool_shape_missing': 'code_tool_shape_missing',
   'agents.own.tool_unknown': 'code_own_tool_unknown',
   'agents.own.name_too_long': 'code_own_name_too_long',
   'agents.own.instructions_too_long': 'code_own_instructions_too_long',
@@ -284,6 +285,47 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
           ) : (
             <p className="muted">{t('noTools')}</p>
           )}
+          {tools.length ? (
+            // Each attached tool's declared shape and refusals, as the service's registry holds them (AG-tools-01).
+            <section role="group" aria-label={t('toolShapesTitle')}>
+              <h3>{t('toolShapesTitle')}</h3>
+              <Read resource={catalogue.resource} retry={catalogue.reload}>
+                {({ tools: offered }) => (
+                  <>
+                    {tools.map((name) => {
+                      const declared = offered.find((tool) => tool.name === name);
+                      return (
+                        <article key={name} aria-label={name}>
+                          <h4>
+                            <code lang="zxx">{name}</code>
+                          </h4>
+                          {declared?.shape ? (
+                            <dl>
+                              <dt>{t('shapeInput')}</dt>
+                              <dd data-testid="shape-input">{fieldsOf(declared.shape.input)}</dd>
+                              <dt>{t('shapeOutput')}</dt>
+                              <dd data-testid="shape-output">{fieldsOf(declared.shape.output)}</dd>
+                              <dt>{t('shapeRefusals')}</dt>
+                              <dd data-testid="shape-refusals">
+                                {declared.refusals.map((code, at) => (
+                                  <span key={code}>
+                                    {at ? ', ' : null}
+                                    <code lang="zxx">{code}</code>
+                                  </span>
+                                ))}
+                              </dd>
+                            </dl>
+                          ) : (
+                            <p className="muted">{t('shapeNotDeclared')}</p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </>
+                )}
+              </Read>
+            </section>
+          ) : null}
           <Button variant="secondary" onClick={() => setPicking(true)}>
             {t('addTool')}
           </Button>
@@ -325,6 +367,13 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
       <ProtectionCheck agent={agent} />
     </>
   );
+}
+
+/** A declared shape's fields as one line: each field name with its type in words. */
+function fieldsOf(fields: Readonly<Record<string, string>>): string {
+  return Object.entries(fields)
+    .map(([field, type]) => `${field}: ${type}`)
+    .join('; ');
 }
 
 /** What blocks publishing this draft, from the service's own check of what was last saved. */

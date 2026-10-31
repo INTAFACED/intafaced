@@ -136,7 +136,11 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps, templates: rea
       .query(() => {
         return {
           templates: templates.map((id) => ({ id, tools: [...OWN_TEMPLATES[id].tools] })),
-          tools: OWN_TOOLS.map((tool) => ({ ...tool })),
+          tools: OWN_TOOLS.map((tool) => ({
+            ...tool,
+            shape: tool.shape ? { input: { ...tool.shape.input }, output: { ...tool.shape.output } } : null,
+            refusals: [...tool.refusals],
+          })),
         };
       }),
 
