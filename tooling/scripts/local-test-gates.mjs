@@ -1172,7 +1172,7 @@ export function postingFreezePlan(state, frozen) {
  * it). Founder A reads the record first; founder B signs in only when there is something to approve. svc-ledger
  * consumes the approval once and writes who moved the switch. Reads keep answering.
  */
-export async function setPostingFreeze(ctx, frozen, plan = (state) => postingFreezePlan(state, frozen)) {
+export async function setPostingFreeze(ctx, frozen, plan = (state) => postingFreezePlan(state, frozen), verb = frozen ? 'on' : 'off') {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0)
     throw new Error('posting-freeze needs the LOCAL TEST founder pair: enrol the founder pair first (pnpm local:stack enrols it)');
@@ -1187,7 +1187,7 @@ export async function setPostingFreeze(ctx, frozen, plan = (state) => postingFre
   };
   const before = await read();
   const step = plan(before);
-  if (step.action === 'refuse') throw new Error(`posting-freeze ${frozen ? 'on' : 'off'} refused: ${step.why}`);
+  if (step.action === 'refuse') throw new Error(`posting-freeze ${verb} refused: ${step.why}`);
   if (step.action === 'skip') return { frozen, changed: false, actor: before.actor };
 
   const b = await signInOne(ctx, ops.b, saveSteps);
@@ -3205,7 +3205,7 @@ async function main() {
       // lift-leaked: the journey harness's guard lifts a LOCAL TEST freeze a journey left on (journey-freeze-guard.mjs).
       const r =
         process.argv[3] === 'lift-leaked'
-          ? await setPostingFreeze(ctx, false, leakedFreezePlan)
+          ? await setPostingFreeze(ctx, false, leakedFreezePlan, 'lift-leaked')
           : await setPostingFreeze(ctx, process.argv[3] === 'on');
       say(`  ledger posting ${r.frozen ? 'frozen' : 'open'}${r.changed ? ` (approval ${r.approvalId})` : ' (already)'}`);
     } else if (cmd === 'limits') {
