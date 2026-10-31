@@ -231,12 +231,13 @@ test(`${J} #4 presses Buy on the strategy: the charge into the held account once
   expect(bought).toMatchObject({ status: 'held', flow: 'hold', outcome: null, outcomeTxId: null, refundRequestedAt: null });
   expect(toUnits(bought.price)).toBe(toUnits(price));
   expect(Date.parse(bought.refundWindowEndsAt)).toBeGreaterThan(Date.now());
-  // The charge is in the held account, once: the ledger booked the price from the buyer into an empty market pot under
-  // the purchase's own key. It left the buyer's balance altogether, so nothing of it sits in the buyer's own "used".
+  // The charge is in the held account, once: the ledger booked the price from the buyer's available into an empty
+  // market pot under the purchase's own key. The buyer still owns it until the window ends, so it shows as theirs, set
+  // aside: the total is unchanged and "used" rose by exactly the price.
   await heldOnce(bought.id, price);
   const after = await usdt(who);
-  expect(toUnits(after.total)).toBe(toUnits(before.total) - toUnits(price));
-  expect(toUnits(after.used)).toBe(toUnits(before.used));
+  expect(toUnits(after.total)).toBe(toUnits(before.total));
+  expect(toUnits(after.used)).toBe(toUnits(before.used) + toUnits(price));
   expect(await usdt(seller)).toEqual(sellerBefore);
   await page.goto('/market/purchases');
   await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) })).toContainText(

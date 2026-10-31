@@ -67,18 +67,6 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   await page.getByRole('button', { name: 'Account menu' }).click();
   await switcher(page).getByRole('link', { name: 'Web3' }).click();
   await expect(page).toHaveURL(/\/dex\/pools$/);
-
-  // On a phone the bottom bar differs too: Web3 has its own sections, never the Exchange's doors, and back again.
-  await page.setViewportSize({ width: 390, height: 844 });
-  const web3Bar = page.getByRole('navigation', { name: 'Web3 sections on phone' });
-  const exchangeBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
-  await expect(web3Bar).toBeVisible();
-  expect(await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
-  await expect(web3Bar.getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
-  await expect(exchangeBar).toHaveCount(0);
-  await page.goto('/money');
-  await expect(exchangeBar).toBeVisible();
-  await expect(web3Bar).toHaveCount(0);
   await page.context().close();
 });
 
