@@ -71,6 +71,22 @@ export const payPayoutDestinationItemSchema = z
   .strict();
 export type PayPayoutDestinationItem = z.infer<typeof payPayoutDestinationItemSchema>;
 
+/** `merchant.payoutDestinations.cancelHold`: the owner sends a held destination back to unverified (J-merchant-02 #5). */
+export const payDestinationCancelHoldInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    destinationId: z.string().guid(),
+  })
+  .strict();
+/** `changed` is false when the destination was already unverified (a repeat cancel). */
+export const payDestinationCancelHoldOutputSchema = z
+  .object({
+    destinationId: z.string().guid(),
+    state: z.literal('unverified'),
+    changed: z.boolean(),
+  })
+  .strict();
+
 export const payPayoutDestinationListInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,

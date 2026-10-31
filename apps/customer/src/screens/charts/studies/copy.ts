@@ -18,6 +18,13 @@ const messages = {
   'Shown on': 'Shown on',
   'Shown on {interval}': 'Shown on {interval}',
   'Hidden on this interval': 'Hidden on this interval',
+  // The object tree's indicator list
+  'Indicators on this chart': 'Indicators on this chart',
+  'No indicators on this chart': 'No indicators on this chart.',
+  'Hide on {interval}': 'Hide on {interval}',
+  'Show on {interval}': 'Show on {interval}',
+  'Edit {name}': 'Edit {name}',
+  'Remove {name}': 'Remove {name}',
   'Legend always shown': 'Legend always shown',
   'Add to every chart in this sync group ({n})': 'Add to every chart in this sync group ({n})',
   'Data window': 'Data window',

@@ -6,11 +6,25 @@ import { createOpsRouter } from './router.js';
 
 describe('home.config owner values', () => {
   it('answers every blank value as blank, never a default', () => {
-    expect(homeConfigFromEnv({})).toEqual({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 });
-    expect(homeConfigFromEnv({ OPS_HOME_WORK_LIST_CAP: '  ', OPS_HOME_WORK_LIST_ORDER: '', OPS_HOME_SEARCH_RESULT_CAP: '' })).toEqual({
+    expect(homeConfigFromEnv({})).toEqual({
       workListCap: null,
       workListOrder: null,
       searchResultCap: null,
+      noticeStripLimit: null,
+      revision: 0,
+    });
+    expect(
+      homeConfigFromEnv({
+        OPS_HOME_WORK_LIST_CAP: '  ',
+        OPS_HOME_WORK_LIST_ORDER: '',
+        OPS_HOME_SEARCH_RESULT_CAP: '',
+        OPS_HOME_NOTICE_STRIP_LIMIT: ' ',
+      }),
+    ).toEqual({
+      workListCap: null,
+      workListOrder: null,
+      searchResultCap: null,
+      noticeStripLimit: null,
       revision: 0,
     });
   });
@@ -20,11 +34,13 @@ describe('home.config owner values', () => {
       OPS_HOME_WORK_LIST_CAP: '5',
       OPS_HOME_WORK_LIST_ORDER: 'verification, margin_health,card_frozen',
       OPS_HOME_SEARCH_RESULT_CAP: '3',
+      OPS_HOME_NOTICE_STRIP_LIMIT: '2',
     });
     expect(config).toEqual({
       workListCap: 5,
       workListOrder: ['verification', 'margin_health', 'card_frozen'],
       searchResultCap: 3,
+      noticeStripLimit: 2,
       revision: 0,
     });
     expect(homeConfigOutputSchema.parse(config)).toEqual(config);
@@ -38,6 +54,9 @@ describe('home.config owner values', () => {
     ['OPS_HOME_WORK_LIST_CAP', '0x10'],
     ['OPS_HOME_SEARCH_RESULT_CAP', '1e1'],
     ['OPS_HOME_SEARCH_RESULT_CAP', '21'],
+    ['OPS_HOME_NOTICE_STRIP_LIMIT', '0'],
+    ['OPS_HOME_NOTICE_STRIP_LIMIT', '11'],
+    ['OPS_HOME_NOTICE_STRIP_LIMIT', 'three'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,verification'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,loan_late'],
     ['OPS_HOME_WORK_LIST_ORDER', ' , '],
@@ -53,6 +72,12 @@ describe('home.config owner values', () => {
 
   it('is mounted as home.config, blank when the service is given no values', async () => {
     const caller = createOpsRouter(new OpsService()).createCaller({} as never);
-    await expect(caller.home.config()).resolves.toEqual({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 });
+    await expect(caller.home.config()).resolves.toEqual({
+      workListCap: null,
+      workListOrder: null,
+      searchResultCap: null,
+      noticeStripLimit: null,
+      revision: 0,
+    });
   });
 });
