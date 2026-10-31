@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SUPPORT_OWNED_RECORD_KINDS,
   SUPPORT_RECORD_OWNERSHIP_CALLERS,
-  SUPPORT_RECORD_OWNERSHIP_PROCEDURES,
+  SUPPORT_RECORD_OWNERSHIP_PATH,
   supportRecordOwnershipInputSchema,
   supportRecordOwnershipResultSchema,
 } from './support-record-ownership.js';
@@ -15,7 +15,7 @@ describe('support record ownership door', () => {
   it('names svc-support as its only caller, a real service, and one path', () => {
     expect(SUPPORT_RECORD_OWNERSHIP_CALLERS).toEqual(['svc-support']);
     for (const caller of SUPPORT_RECORD_OWNERSHIP_CALLERS) expect(SERVICE_NAMES).toContain(caller);
-    expect(Object.values(SUPPORT_RECORD_OWNERSHIP_PROCEDURES)).toEqual(['supportRecordOwnership.owns']);
+    expect(SUPPORT_RECORD_OWNERSHIP_PATH).toBe('/internal/support/record-ownership');
   });
 
   it('asks about a withdrawal or a deposit by its id, for one customer', () => {
@@ -38,6 +38,6 @@ describe('support record ownership door', () => {
   });
 
   it('is exported from the package root', () => {
-    expect(root.SUPPORT_RECORD_OWNERSHIP_PROCEDURES).toBe(SUPPORT_RECORD_OWNERSHIP_PROCEDURES);
+    expect(root.SUPPORT_RECORD_OWNERSHIP_PATH).toBe(SUPPORT_RECORD_OWNERSHIP_PATH);
   });
 });

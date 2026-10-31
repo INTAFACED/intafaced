@@ -13,12 +13,10 @@ import type { ServiceName } from './service-keys.js';
  * whether an id exists or whose it is. Only svc-support may call it, as a service, never under a customer's scope.
  */
 
-/** The tRPC path on svc-pay's root router. */
-export const SUPPORT_RECORD_OWNERSHIP_PROCEDURES = {
-  owns: 'supportRecordOwnership.owns',
-} as const;
+/** svc-pay's signed internal door (a POST, the body bound to the signature, like its other inbound doors). */
+export const SUPPORT_RECORD_OWNERSHIP_PATH = '/internal/support/record-ownership';
 
-/** The only service allowed to call it. Passed to `serviceProcedureFor`; enforced under either S2S mode. */
+/** The only service allowed to call it: svc-pay refuses any other verified caller. */
 export const SUPPORT_RECORD_OWNERSHIP_CALLERS: readonly ServiceName[] = ['svc-support'];
 
 /** The svc-pay records support can ask about. */
