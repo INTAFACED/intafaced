@@ -50,9 +50,9 @@ export interface LifecycleView {
 export interface BookHaltView {
   halted: boolean;
   venueHalted: boolean;
-  /** When matching halted this book / the venue (epoch ms); null or absent when not in force or the route names no time. */
-  haltedSinceMs?: number | null;
-  venueHaltedSinceMs?: number | null;
+  /** When matching halted this book / the venue (epoch ms); null when not in force or the route names no time. */
+  haltedSinceMs: number | null;
+  venueHaltedSinceMs: number | null;
 }
 
 export interface OwnerValuesView {
@@ -162,11 +162,13 @@ export function dataStatus(input: StatusInputs): DataStatus {
     if (refusal.code === 'book_unavailable') return result('book_unavailable', 'refused');
     if (refusal.code === 'not_open') return result('not_open', 'refused');
     if (refusal.code === 'book_halted' && bookHalt.status === 'ready') {
-      // The lifecycle reads OPEN here, so its time is when it opened: the halt's own time is the book's (the venue's when
-      // only the venue is halted), or unknown when matching names none.
+      // The lifecycle reads OPEN here, so its time is when it opened: the halt's own time is the earliest named time of the
+      // halts in force (the book's, the venue's), or unknown when matching names none.
       const book = bookHalt.data;
-      const since = (book.halted ? book.haltedSinceMs : book.venueHaltedSinceMs) ?? null;
-      return { ...result('halted', 'refused'), stateSinceMs: since };
+      const named = [book.halted ? book.haltedSinceMs : null, book.venueHalted ? book.venueHaltedSinceMs : null].filter(
+        (ms): ms is number => ms !== null,
+      );
+      return { ...result('halted', 'refused'), stateSinceMs: named.length > 0 ? Math.min(...named) : null };
     }
     return result('halted', 'refused');
   }

@@ -24,15 +24,16 @@ const haltSchema = z
   .object({
     halted: z.boolean(),
     venueHalted: z.boolean(),
-    haltedSince: z.string().nullable().optional(),
-    venueHaltedSince: z.string().nullable().optional(),
+    // Informational: a time that is missing or not an ISO string reads as unknown, never as an unreadable halt.
+    haltedSince: z.unknown().optional(),
+    venueHaltedSince: z.unknown().optional(),
   })
   .passthrough();
 
 /** An ISO time from the route as epoch ms; null when it names none or names one that does not parse. */
-const msOf = (iso: string | null | undefined): number | null => {
-  const ms = typeof iso === 'string' ? Date.parse(iso) : NaN;
-  return Number.isNaN(ms) ? null : ms;
+const msOf = (iso: unknown): number | null => {
+  const ms = typeof iso === 'string' && iso !== '' ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : null;
 };
 const tapeSchema = z.array(z.object({ timestamp: z.number() }).passthrough());
 
@@ -51,12 +52,11 @@ export function useMarketLifecycle(symbol: string): Loadable<LifecycleView> {
               z.infer<typeof lifecycleSchema>
             >;
             if (!res.ok) return res;
-            const effective = res.data.effectiveAt ? Date.parse(res.data.effectiveAt) : NaN;
             return {
               ok: true,
               data: {
                 state: res.data.state,
-                effectiveAt: Number.isFinite(effective) ? effective : null,
+                effectiveAt: msOf(res.data.effectiveAt),
                 evidenceRefs: res.data.evidenceRefs ?? [],
               },
             };

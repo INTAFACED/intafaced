@@ -7,7 +7,7 @@ const POLL = 10_000;
 const ready = <T>(data: T, asOf = NOW) => ({ status: 'ready' as const, data, asOf });
 const failed = { status: 'error' as const, retry: () => {} };
 const open = ready({ state: 'OPEN', effectiveAt: NOW - 3_600_000, evidenceRefs: ['trade.lifecycle.evidence:x'] });
-const liveBook = ready({ halted: false, venueHalted: false });
+const liveBook = ready({ halted: false, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null });
 const owner = (dataClass: 'real_time' | 'delayed' | 'end_of_day' | null, delayedBoundarySeconds: number | null) =>
   ready({ dataClass, delayedBoundarySeconds });
 const fresh = ready([], NOW - 1_000);
@@ -79,23 +79,39 @@ describe('dataStatus: the chip names the real state of the data', () => {
   });
 
   it('a book halted on matching is halted even when the lifecycle reads OPEN, and refuses order entry', () => {
-    const s = dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false }) }));
+    const s = dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null }) }));
     expect(s).toMatchObject({ chip: 'halted', state: 'OPEN', orderEntry: 'refused' });
   });
 
   it('a book halt gives the halt time matching names, not the lifecycle opening time; none named reads unknown', () => {
     const at = NOW - 90_000;
-    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: at }) })).stateSinceMs).toBe(at);
-    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: null }) })).stateSinceMs).toBeNull();
-    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false }) })).stateSinceMs).toBeNull();
+    expect(
+      dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: at, venueHaltedSinceMs: null }) }))
+        .stateSinceMs,
+    ).toBe(at);
+    expect(
+      dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null }) }))
+        .stateSinceMs,
+    ).toBeNull();
     expect(
       dataStatus(inputs({ bookHalt: ready({ halted: false, venueHalted: true, haltedSinceMs: null, venueHaltedSinceMs: at }) }))
         .stateSinceMs,
     ).toBe(at);
   });
 
+  it('with the book and the venue both halted, the earlier named time; one with no time gives the other', () => {
+    const [venue, book] = [NOW - 300_000, NOW - 60_000];
+    const both = (haltedSinceMs: number | null, venueHaltedSinceMs: number | null) =>
+      dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: true, haltedSinceMs, venueHaltedSinceMs }) })).stateSinceMs;
+    expect(both(book, venue)).toBe(venue);
+    expect(both(null, venue)).toBe(venue);
+    expect(both(book, null)).toBe(book);
+  });
+
   it('a venue-wide halt on matching halts every market', () => {
-    expect(dataStatus(inputs({ bookHalt: ready({ halted: false, venueHalted: true }) })).chip).toBe('halted');
+    expect(
+      dataStatus(inputs({ bookHalt: ready({ halted: false, venueHalted: true, haltedSinceMs: null, venueHaltedSinceMs: null }) })).chip,
+    ).toBe('halted');
   });
 
   it('a book whose halt state cannot be read is refused, never live', () => {
@@ -150,7 +166,9 @@ describe('tradeRefusal: one rule for the chip and the trade link', () => {
   });
 
   it('names the halted book and the unreadable book', () => {
-    expect(tradeRefusal(open, ready({ halted: true, venueHalted: false }), NOW)).toMatchObject({ code: 'book_halted' });
+    expect(
+      tradeRefusal(open, ready({ halted: true, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null }), NOW),
+    ).toMatchObject({ code: 'book_halted' });
     expect(tradeRefusal(open, failed, NOW)).toMatchObject({ code: 'book_unavailable' });
   });
 });
