@@ -100,7 +100,11 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
   const leaders = page.getByRole('table', { name: 'Leaders' });
   await expect(leaders).toBeVisible();
   const order = async () => (await leaders.locator('tbody tr').allInnerTexts()).map((row) => row.trim());
+  // The list as loaded: real leader rows with their Follow buttons, never the loading placeholder.
+  await expect(leaders.getByRole('button', { name: /^Follow / }).first()).toBeVisible();
+  await expect(leaders.locator('tbody')).not.toContainText('Loading');
   const before = await order();
+  expect(before.length, 'the leader list has leaders to compare').toBeGreaterThan(0);
   for (const name of ['Top return', 'Trending']) {
     const answer = page.waitForResponse(
       (res) => res.url().includes('copy.listLeaders') && res.url().includes(name === 'Trending' ? 'trending' : 'category'),
@@ -111,7 +115,7 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
     await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
     // No returns-ranked board: the only table is still the plain leader list, in the same order, with no rank column.
     await expect(page.getByRole('table')).toHaveCount(1);
-    expect(await order(), `the leader list after ${name}`).toEqual(before);
+    await expect.poll(order, { message: `the leader list after ${name}` }).toEqual(before);
     await expect(leaders.getByRole('columnheader', { name: /rank/i })).toHaveCount(0);
   }
 });
