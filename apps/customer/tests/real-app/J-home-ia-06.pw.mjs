@@ -134,11 +134,18 @@ test.afterAll(async () => {
 test(`${J} #1 with nothing published, Home draws no strip and no banner`, async () => {
   const { status, current } = await openHome();
   // Both reads answered, and answered "nothing": the status read with no incident and no maintenance window, and the
-  // announcements read with no published announcement. A refused read would also draw nothing.
+  // announcements read with no open announcement. A refused read would also draw nothing.
   expect(status.ok, JSON.stringify(status.json)).toBe(true);
   expect(status.json.result.data).toMatchObject({ incidents: [], maintenance: [] });
   expect(current.ok, JSON.stringify(current.json)).toBe(true);
-  expect(current.json.result.data, JSON.stringify(current.json)).toEqual([]);
+  // notify.notices also returns closed and scheduled announcements (a reused stack keeps earlier runs' ones); none is
+  // open now, which is what Home's strip draws from.
+  const now = Date.now();
+  const open = current.json.result.data.filter(
+    (row) =>
+      row.kind === 'announcement' && !(row.startsAt && Date.parse(row.startsAt) > now) && !(row.endsAt && Date.parse(row.endsAt) <= now),
+  );
+  expect(open, JSON.stringify(current.json)).toEqual([]);
   await expectNoNoticeRows();
 });
 
