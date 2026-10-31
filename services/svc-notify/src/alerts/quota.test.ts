@@ -26,7 +26,7 @@ describe('price alert quota', () => {
     await expect(alerts.create(base, NOW)).rejects.toMatchObject({ code: 'notify.alert_quota_unset' });
     await expect(alerts.create(base, NOW)).rejects.toBeInstanceOf(AlertLimitError);
     expect(await alerts.list('u1')).toHaveLength(0);
-    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 0, max: null, burst: null });
+    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 0, max: null, burst: null, maxConditions: null });
   });
 
   it('refuses the create that would pass the cap, and names the cap', async () => {
@@ -36,7 +36,7 @@ describe('price alert quota', () => {
     await expect(alerts.create({ ...base, targetPrice: '102' }, NOW)).rejects.toMatchObject({ code: 'alert.quota_reached' });
     await expect(alerts.create({ ...base, targetPrice: '102' }, NOW)).rejects.toThrow(/2 open price alerts/);
     expect(await alerts.list('u1')).toHaveLength(2);
-    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 2, max: 2, burst: null });
+    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 2, max: 2, burst: null, maxConditions: null });
   });
 
   it('counts each person on their own', async () => {
@@ -100,7 +100,7 @@ describe('watchlist alert (one rule, several markets)', () => {
     expect(rows.map((r) => r.marketId)).toEqual(MARKETS);
     expect(rows.every((r) => r.targetPrice === '100' && r.status === 'active' && r.kind === 'price')).toBe(true);
     expect(new Set(rows.map((r) => r.id)).size).toBe(3);
-    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 3, max: 10, burst: null });
+    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 3, max: 10, burst: null, maxConditions: null });
   });
 
   it('creates none when the batch would pass the cap, and says how many are open and asked for', async () => {

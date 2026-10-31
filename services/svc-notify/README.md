@@ -805,11 +805,18 @@ a row. A redelivery reuses the same key and cannot double-send.
   window opens at the alert's first trigger and restarts once it has run out; the count is taken under a row lock together with the
   trigger count. Resuming clears the reason and the window. A pause by the person has no reason. One-shot alerts are not counted.
   Migration 0026.
+- Price source (J-charts-desk-09 #2): a price alert stores `source`, the price it is evaluated against: `mark` (the default and
+  every older row: mid of bid and ask when two-sided, else last), `bid`, `ask` or `last`. `notify.createAlert`, `createAlerts` and
+  `updateAlert` take it; every wire alert carries it. The trade ticker port reads only the side named; a ticker without it refuses
+  `notify.price_source_unavailable` (the evaluation refuses `alert.price_unavailable` with that detail) and never falls back to
+  another side. The sweep quotes each market once per source its active price alerts chose. Other kinds stay on the mark (whale on
+  its flow mark). Migration 0038 (CHECK on the four values).
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
   and an alert past its stop time is expired before the count. The count and the write happen under one per-person lock, so
-  two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank).
+  two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank), and
+  `maxConditions` (`NOTIFY_ALERT_MAX_CONDITIONS`, the most conditions one alert may hold, main one included; `null` while blank).
   Other alert kinds have no quota setting and are not counted. Burst auto-stop is below.
 - Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
   market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole

@@ -43,6 +43,7 @@ const base: PriceAlert = {
   burstStartedAt: null,
   burstCount: 0,
   lastFiredAt: null,
+  source: 'mark',
 };
 
 describe('decimal string compare — no JS number', () => {

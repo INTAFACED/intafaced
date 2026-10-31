@@ -254,6 +254,8 @@ export const priceAlerts = schema.table('price_alerts', {
   stopReason: text('stop_reason').$type<'burst'>(),
   burstStartedAt: timestamp('burst_started_at', { withTimezone: true, mode: 'date' }),
   burstCount: integer('burst_count').notNull().default(0),
+  /** Which price the alert is evaluated against. See drizzle/0038_notify_alert_price_source.sql. */
+  source: text('source').$type<'mark' | 'bid' | 'ask' | 'last'>().notNull().default('mark'),
 });
 
 /** One row each time an alert fired, keyed by alert and fire number. See drizzle/0022_notify_alert_frequency.sql (it replaced alert_triggers). */
