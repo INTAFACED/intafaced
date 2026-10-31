@@ -610,6 +610,10 @@ export type TradeErrorCode =
   | 'trade.algo_market_closed'
   | 'trade.algo_volume_immature'
   | 'trade.algo_no_volume'
+  /** CB-execution-08: an algo kind the API names (trigger, OCO, conditional, trailing) that no engine runs yet. */
+  | 'trade.algo_kind_not_built'
+  /** CB-execution-08: a schedule's parameters are fixed at create, as in the web; amend is refused. */
+  | 'trade.algo_params_immutable'
   /**
    * Resume would stretch the schedule past 2× the order's own durationMs
    * (ADR 2026-08-08). Trader may cancel-and-recreate; parent stays paused.

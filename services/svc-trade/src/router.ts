@@ -60,9 +60,10 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk, presentChase, presentScheduleHonesty } from './algo/present.js';
+import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
+import { algoCreateInputSchema } from './algo/create-input.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { awaitingTrigger, POV_BASES } from './algo/types.js';
+import { POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -70,7 +71,7 @@ import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insuranc
 import { supportTradeSummaryRouter } from './support/router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
-import { ALGO_STOP_REASONS, algoStopReason, type AlgoStopReasonCode } from './algo/stop-reason.js';
+import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -1392,24 +1393,7 @@ export function createTradeRouter(
       ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            side: orderSideSchema,
-            totalQty: decimal,
-            durationMs: z.number().int().min(1_000).max(86_400_000),
-            sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
-            limitPrice: decimal.optional(),
-            clientAlgoId: z.string().trim().min(1).max(48),
-            subAccountId: z.string().guid().optional(),
-            kind: z.enum(['twap', 'vwap', 'pov', 'chase']).optional(),
-            participationBps: z.number().int().min(1).max(10_000).optional(),
-            chaseDistanceBps: z.number().int().min(1).max(10_000).optional(),
-            povBasis: z.enum(POV_BASES).optional(),
-            randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
-            triggerPrice: decimal.optional(),
-          }),
-        )
+        .input(algoCreateInputSchema)
         .output(algoParentOutputSchema)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -2096,38 +2080,6 @@ export function createTradeRouter(
 
     scale: scaleProcedures(trade),
   });
-}
-
-function presentAlgo(parent: import('./algo/index.js').TwapParent) {
-  return {
-    id: parent.id,
-    symbol: parent.symbol,
-    side: parent.side,
-    kind: parent.kind,
-    totalQty: formatAmount(parent.totalQty),
-    durationMs: parent.durationMs,
-    sliceIntervalMs: parent.sliceIntervalMs,
-    limitPrice: parent.limitPrice === null ? null : formatAmount(parent.limitPrice),
-    status: parent.status,
-    slicesPlanned: parent.slicesPlanned,
-    nextSliceIndex: parent.nextSliceIndex,
-    childrenEmitted: parent.children.length,
-    missesRecorded: parent.misses.length,
-    haltReason: parent.haltReason,
-    stopReason: algoStopReason(parent),
-    participationBps: parent.participationBps,
-    povBasis: parent.povBasis ?? null,
-    createdAt: parent.createdAt.toISOString(),
-    startedAt: parent.startedAt.toISOString(),
-    nextDueAt: parent.nextDueAt.toISOString(),
-    projectedEndsAt: parent.projectedEndsAt.toISOString(),
-    scheduleStretchReason: parent.scheduleStretchReason,
-    randomSeed: parent.randomSeed ?? null,
-    triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
-    triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
-    awaitingTrigger: awaitingTrigger(parent),
-    ...presentChase(parent),
-  };
 }
 
 export type TradeRouter = ReturnType<typeof createTradeRouter>;

@@ -173,3 +173,36 @@ export function presentChase(parent: TwapParent): {
     chaseReprices: parent.children.filter((c, i) => i > 0 && c.price != null && c.price !== parent.children[i - 1]!.price).length,
   };
 }
+
+/** One algo parent as the web's `trade.algo` doors and the public `/api/v1/algo` doors answer it. */
+export function presentAlgo(parent: TwapParent) {
+  return {
+    id: parent.id,
+    symbol: parent.symbol,
+    side: parent.side,
+    kind: parent.kind,
+    totalQty: formatAmount(parent.totalQty),
+    durationMs: parent.durationMs,
+    sliceIntervalMs: parent.sliceIntervalMs,
+    limitPrice: parent.limitPrice === null ? null : formatAmount(parent.limitPrice),
+    status: parent.status,
+    slicesPlanned: parent.slicesPlanned,
+    nextSliceIndex: parent.nextSliceIndex,
+    childrenEmitted: parent.children.length,
+    missesRecorded: parent.misses.length,
+    haltReason: parent.haltReason,
+    stopReason: algoStopReason(parent),
+    participationBps: parent.participationBps,
+    povBasis: parent.povBasis ?? null,
+    createdAt: parent.createdAt.toISOString(),
+    startedAt: parent.startedAt.toISOString(),
+    nextDueAt: parent.nextDueAt.toISOString(),
+    projectedEndsAt: parent.projectedEndsAt.toISOString(),
+    scheduleStretchReason: parent.scheduleStretchReason,
+    randomSeed: parent.randomSeed ?? null,
+    triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
+    triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
+    awaitingTrigger: awaitingTrigger(parent),
+    ...presentChase(parent),
+  };
+}
