@@ -2800,6 +2800,18 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const wire = presentCcxtOrder(order, symbol);
         if (wire.executionOutcome !== null) {
           results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
+        } else if (order.status === 'open' || order.status === 'pending' || order.status === 'recovery_required') {
+          // The order stays with its hold until a fill the engine matched lands (#6874): not a success to re-place on.
+          results.push({
+            ...base,
+            status: 'unknown',
+            order: wire,
+            error: {
+              code: 'ExchangeError',
+              message: 'the cancel waits for a fill the engine matched; read the order to reconcile',
+              intafacedCode: 'trade.cancel_ahead_of_fill',
+            },
+          });
         } else {
           results.push({ ...base, status: 'success', order: wire });
         }
