@@ -14,7 +14,7 @@ describe('the Learn hub featured lesson (AC-articles-01)', () => {
 
     const draft = html(<FeaturedLessonCard lesson={{ title: 'Position size', courseTitle: 'Risk basics', courseSlug: null }} />);
     expect(draft).toContain('A lesson from the course Risk basics.');
-    expect(draft).toContain('Its course is not open to learners yet, so there is no course page to open.');
+    expect(draft).toContain('Its course is a draft, closed to learners, so there is no course page to open.');
     expect(draft).not.toContain('<a ');
   });
 });

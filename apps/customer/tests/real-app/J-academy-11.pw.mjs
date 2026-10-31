@@ -495,7 +495,7 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   const featuredLesson = learnHub.locator('[data-featured-lesson="true"]');
   await expect(featuredLesson.getByRole('heading', { level: 3 })).toHaveText('TEST Position size');
   await expect(featuredLesson).toContainText(`A lesson from the course ${TITLE}.`);
-  await expect(featuredLesson).toContainText('Its course is not open to learners yet, so there is no course page to open.');
+  await expect(featuredLesson).toContainText('Its course is a draft, closed to learners, so there is no course page to open.');
   await expect(featuredLesson.getByRole('link')).toHaveCount(0);
 
   // Withdrawn from learners: it leaves the slot in the same step.
