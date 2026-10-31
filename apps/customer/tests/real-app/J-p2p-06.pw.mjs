@@ -242,7 +242,7 @@ test('J-p2p-06 #5 the release window passes after payment: a dispute opens once,
   const tradeId = state.cashTradeId;
   expect(tradeId, '#5 needs the cash order marked paid in #1').toBeTruthy();
   // The method's own release window, from the catalogue (the transfer's is 1800 s, too long to wait out here).
-  const method = (await s.query('methods.list', { limit: 200 })).find((m) => m.methodId === CASH_METHOD);
+  const method = (await s.query('instruments.methods.list', { limit: 200 })).find((m) => m.methodId === CASH_METHOD);
   const windowSeconds = method?.cashRules?.releaseWindowSeconds;
   expect(windowSeconds, 'the TEST cash method carries no release window').toEqual(expect.any(Number));
   const left = Math.max(0, state.cashPaidAt + windowSeconds * 1_000 - Date.now());
