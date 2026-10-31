@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { parseAmount } from '@intafaced/ledger-client';
+import { DeskError } from '../desk/errors.js';
 import { TradeError } from '../spot/types.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo-rest.js';
 import type { TwapParent } from './types.js';
@@ -92,29 +93,38 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
   it('places a TWAP through the web engine with its kind and client algo id, and answers the parent', async () => {
     const { algo, calls } = fakeAlgo({ createTwap: async () => parent() });
     await mount(algo);
-    const res = await app.inject({ method: 'POST', url: '/api/v1/algo/twap', payload: TWAP });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, kind: 'TWAP', triggerPrice: '70000' } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ id: 'algo-1', kind: 'twap', totalQty: '0.002', limitPrice: '50000', status: 'active' });
     const [[name, [input]]] = calls as [[string, [Record<string, unknown>]]];
     expect(name).toBe('createTwap');
     expect(input).toMatchObject({ symbol: 'BTC/USDT', side: 'buy', kind: 'twap', clientAlgoId: 'J19-7', durationMs: 600_000 });
     expect(input.totalQty).toEqual(parseAmount('0.002'));
+    expect(input.triggerPrice).toEqual(parseAmount('70000'));
   });
 
   it('refuses each kind no engine runs by name, and an unknown kind or a malformed body as invalid, before the engine is asked', async () => {
     const { algo, calls } = fakeAlgo();
     await mount(algo);
-    for (const kind of ['trigger', 'oco', 'conditional', 'trailing']) {
-      const res = await app.inject({ method: 'POST', url: `/api/v1/algo/${kind}`, payload: TWAP });
+    for (const kind of ['trigger', 'oco', 'conditional', 'Trailing']) {
+      const res = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, kind } });
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toMatchObject({ code: 'NotSupported', intafacedCode: 'trade.algo_kind_not_built', data: { kind } });
+      expect(res.json()).toMatchObject({
+        code: 'NotSupported',
+        intafacedCode: 'trade.algo_kind_not_built',
+        data: { kind: kind.toLowerCase() },
+      });
     }
-    const unknown = await app.inject({ method: 'POST', url: '/api/v1/algo/iceberg', payload: TWAP });
+    const unknown = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, kind: 'iceberg' } });
     expect(unknown.statusCode).toBe(400);
     expect(unknown.json()).toMatchObject({ code: 'InvalidOrder', intafacedCode: 'trade.validation_failed' });
-    const malformed = await app.inject({ method: 'POST', url: '/api/v1/algo/twap', payload: { ...TWAP, totalQty: 2 } });
+    const malformed = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, totalQty: 2 } });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json()).toMatchObject({ intafacedCode: 'trade.validation_failed' });
+    // A field the order does not take is refused, never dropped.
+    const extra = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, stopPrice: '1' } });
+    expect(extra.statusCode).toBe(400);
+    expect(extra.json()).toMatchObject({ intafacedCode: 'trade.validation_failed' });
     expect(calls).toEqual([]);
   });
 
@@ -160,7 +170,7 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
   it('a key without trade:write is refused scope.denied, and a write from a region that may not trade is refused, with no engine call', async () => {
     const { algo, calls } = fakeAlgo();
     await mount(algo, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
-    const write = await app.inject({ method: 'POST', url: '/api/v1/algo/twap', payload: TWAP });
+    const write = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: TWAP });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
     await app.close();
@@ -180,9 +190,35 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
       },
     });
     await mount(algo);
-    const res = await app.inject({ method: 'POST', url: '/api/v1/algo/twap', payload: TWAP });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: TWAP });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ intafacedCode: 'trade.bots_verification_insufficient', data: { required: 'full' } });
+  });
+
+  it('a client algo id that already names another kind is a conflict, not that order', async () => {
+    const { algo } = fakeAlgo({ createTwap: async () => parent({ kind: 'twap' }) });
+    await mount(algo);
+    const res = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, kind: 'vwap' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.client_order_id_conflict', data: { algoId: 'algo-1', kind: 'twap' } });
+  });
+
+  it("answers the list's own refusals as typed 400s and a missing parent as 404, never a 500", async () => {
+    const { algo } = fakeAlgo({
+      algoList: async () => {
+        throw new DeskError('The algo list limit is not set', 'trade.algo_list_limit_unset');
+      },
+      getAlgo: async () => {
+        throw new DeskError('Algo order not found', 'trade.algo_report_not_found');
+      },
+      algoProgress: async () => ({ filledQty: '0' }),
+    });
+    await mount(algo);
+    const list = await app.inject({ method: 'GET', url: '/api/v1/algo' });
+    expect(list.statusCode).toBe(400);
+    expect(list.json()).toMatchObject({ code: 'BadRequest', intafacedCode: 'trade.algo_list_limit_unset' });
+    const missing = await app.inject({ method: 'GET', url: '/api/v1/algo/nope' });
+    expect(missing.statusCode).toBe(404);
   });
 
   it('with no algo engine mounted every door answers 503 trade.algo_unavailable', async () => {

@@ -61,6 +61,7 @@ import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
+import { algoCreateInputSchema } from './algo/create-input.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
 import { POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
@@ -1392,24 +1393,7 @@ export function createTradeRouter(
       ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            symbol: z.string().min(3),
-            side: orderSideSchema,
-            totalQty: decimal,
-            durationMs: z.number().int().min(1_000).max(86_400_000),
-            sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
-            limitPrice: decimal.optional(),
-            clientAlgoId: z.string().trim().min(1).max(48),
-            subAccountId: z.string().guid().optional(),
-            kind: z.enum(['twap', 'vwap', 'pov', 'chase']).optional(),
-            participationBps: z.number().int().min(1).max(10_000).optional(),
-            chaseDistanceBps: z.number().int().min(1).max(10_000).optional(),
-            povBasis: z.enum(POV_BASES).optional(),
-            randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
-            triggerPrice: decimal.optional(),
-          }),
-        )
+        .input(algoCreateInputSchema)
         .output(algoParentOutputSchema)
         .mutation(({ ctx, input }) =>
           guard(async () => {
