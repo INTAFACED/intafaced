@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { drawingsCopy, drawingsMessages } from './copy';
 import { isVisible, type Drawing } from './model';
 import type { DrawingsApi } from './useDrawings';
@@ -8,8 +8,11 @@ type Translate = (key: keyof typeof drawingsMessages, vars?: Record<string, stri
 /** A bar time as the chart's own axis reads it: UTC, to the minute. */
 export const barTimeText = (seconds: number): string => `${new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
-/** Every drawing on the chart, with its bar times and decimal prices, so a test can read the exact stored values. */
-export function ObjectTree({ api, indicators }: { api: DrawingsApi; indicators?: ReactNode }) {
+/**
+ * Every drawing on the chart, with its bar times and decimal prices, so a test can read the exact stored values. The
+ * chart's indicators list themselves in the slot above the drawings (the studies bar fills it through `onIndicatorsSlot`).
+ */
+export function ObjectTree({ api, onIndicatorsSlot }: { api: DrawingsApi; onIndicatorsSlot?: (slot: HTMLElement | null) => void }) {
   const { t: copyT } = drawingsCopy.useCopy();
   const t = copyT as unknown as Translate;
   const { drawings, doc } = api;
@@ -19,7 +22,7 @@ export function ObjectTree({ api, indicators }: { api: DrawingsApi; indicators?:
     <section className="dw-tree" aria-label={t('Object tree')} data-testid="object-tree">
       <h2 className="dw-tree-title">{t('Object tree')}</h2>
       <p className="dw-note">{t('Object tree lead')}</p>
-      {indicators ? <div className="dw-tree-slot">{indicators}</div> : null}
+      {onIndicatorsSlot ? <div className="dw-tree-slot" ref={onIndicatorsSlot} /> : null}
 
       {drawings.length === 0 ? <p className="dw-note">{t('Object tree empty')}</p> : null}
 

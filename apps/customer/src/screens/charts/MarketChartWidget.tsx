@@ -38,6 +38,8 @@ import { useNow } from '../trade/desk/hooks';
 export interface AddonView {
   percent: boolean;
   replaying: boolean;
+  /** The main chart only: hands the object tree's indicator slot to the studies bar, which lists its studies there. */
+  onTreeSlot?: (slot: HTMLElement | null) => void;
 }
 
 export interface WidgetProps {
