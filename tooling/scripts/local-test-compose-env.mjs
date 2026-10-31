@@ -36,18 +36,32 @@ export function blankableVariable(raw) {
   return m ? m[1] : null;
 }
 
-/** `KEY=` lines with no value in an env file, as a set. */
+/** An env-file value as compose reads it for blankness: an inline comment and a pair of empty quotes are no value. */
+const envValue = (raw) =>
+  raw
+    .replace(/(^|\s)#.*$/, '')
+    .trim()
+    .replace(/^(["'])\1$/, '');
+
+/** `KEY=` lines (also `export KEY=`) with no value in an env file, and those with one, as sets. */
 export function blankKeys(text) {
   const blank = new Set();
   const set = new Set();
   for (const line of text.split('\n')) {
-    const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
+    const m = /^(?:export\s+)?([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
     if (!m) continue;
-    if (m[2].trim() === '') blank.add(m[1]);
+    if (envValue(m[2]) === '') blank.add(m[1]);
     else set.add(m[1]);
   }
   return { blank, set };
 }
+
+/**
+ * A value that names the stack's own host: a loopback address or host name. `pnpm local:stack` runs every service on
+ * the host, so its addresses are 127.0.0.1 ports; inside a compose container that address is the container itself, so
+ * such a value is never copied (a blank compose value stays blank, and a required one refuses by name).
+ */
+export const hostOnly = (value) => /(^|[/@,\s])(127\.0\.0\.1|localhost|\[::1\])(?=[:/,\s]|$)/i.test(String(value));
 
 const WHOLE_VALUE = /^\s+[A-Z][A-Z0-9_]*:\s*["']?(\$\{[A-Z][A-Z0-9_]*(?::?\?[^}]*|:?-)?\})["']?\s*$/;
 
@@ -61,13 +75,16 @@ export function markedVariables(composeText, example) {
   const whole = new Map();
   const elsewhere = new Set();
   for (const line of composeText.split('\n')) {
-    const m = WHOLE_VALUE.exec(line);
+    // A YAML comment is not a use: only the line's text before its comment counts.
+    if (/^\s*#/.test(line)) continue;
+    const text = line.replace(/\s#.*$/, '');
+    const m = WHOLE_VALUE.exec(text);
     if (m) {
       const variable = blankableVariable(m[1]);
       if (!whole.has(variable) || /:?\?/.test(m[1])) whole.set(variable, /:?\?/.test(m[1]) ? `\${${variable}:?}` : `\${${variable}:-}`);
       continue;
     }
-    for (const r of line.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)) elsewhere.add(r[1]);
+    for (const r of text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)) elsewhere.add(r[1]);
   }
   for (const variable of [...whole.keys()])
     if (set.has(variable) || elsewhere.has(variable) || variable in PARSE_ONLY) whole.delete(variable);
@@ -106,9 +123,11 @@ export function startedBy(services, root) {
 }
 
 /**
- * The values to write: `services` is compose's service map with each blankable value as its compose reference (unmark), `stackEnvs` maps a stack name (`edge`) to that
- * service's stack env, `example` is .env.example's text, `started` the services `up seed` starts (null: all). Returns
- * { values, conflicts, unfilled }.
+ * The values to write: `services` is compose's service map with each blankable value as its compose reference (unmark),
+ * `stackEnvs` maps a stack name (`edge`) to that service's stack env, `example` is .env.example's text, `started` the
+ * services `up seed` starts (null: all). Values come only from started services, and never one that names the stack's
+ * own host (`hostOnly`). Compose refuses a blank `${X:?}` in every service, started or not, so each of those left blank
+ * is `unfilled`. Returns { values, conflicts, unfilled }.
  */
 export function composeEnvValues({ services, stackEnvs, example, started = null }) {
   const { set } = blankKeys(example);
@@ -117,13 +136,13 @@ export function composeEnvValues({ services, stackEnvs, example, started = null 
   const conflicts = [];
   const unfilled = new Set();
   for (const [name, svc] of Object.entries(services)) {
-    if (started && !started.has(name)) continue;
-    const stack = stackEnvs[name.replace(/^svc-/, '')];
+    const runs = !started || started.has(name);
+    const stack = runs ? stackEnvs[name.replace(/^svc-/, '')] : undefined;
     for (const [key, raw] of Object.entries(svc.environment ?? {})) {
       const variable = blankableVariable(raw);
       if (!variable || set.has(variable) || variable in PARSE_ONLY) continue;
       const value = stack?.[key];
-      if (value === undefined || value === '') {
+      if (value === undefined || value === '' || hostOnly(value)) {
         if (/:?\?/.test(String(raw))) unfilled.add(variable);
         continue;
       }
@@ -166,7 +185,8 @@ export function renderEnvFile(values) {
 
 async function main(argv) {
   const at = argv.indexOf('--out');
-  const out = path.resolve(ROOT, at >= 0 ? (argv[at + 1] ?? '') : '.env.tester.local');
+  if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('usage: local-test-compose-env.mjs [--out <file>]');
+  const out = path.resolve(ROOT, at >= 0 ? argv[at + 1] : '.env.tester.local');
   if (!process.env.LOCAL_STACK_STATE) throw new Error('LOCAL_STACK_STATE must name the state folder the tester profile mounts');
   const { loadOrCreateSecrets, localTestServiceEnvs } = await import('./local-test-stack.mjs');
   // An interpolated read: older compose cannot parse a volume spec without interpolation, so each variable to fill is
@@ -195,7 +215,7 @@ async function main(argv) {
     { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
   );
   fs.rmSync(markers, { recursive: true, force: true });
-  if (config.status !== 0) throw new Error(`docker compose config failed:\n${config.stderr}`);
+  if (config.status !== 0) throw new Error(`docker compose config failed:\n${config.error?.message ?? config.stderr}`);
   const services = unmark(JSON.parse(config.stdout).services, marked);
   const stackEnvs = Object.fromEntries(localTestServiceEnvs(loadOrCreateSecrets()).map((s) => [s.name, s.env]));
   const started = startedBy(services, 'seed');

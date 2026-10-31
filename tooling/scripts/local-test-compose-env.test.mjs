@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   PARSE_ONLY,
+  blankKeys,
   blankableVariable,
   composeEnvValues,
   envFileValue,
+  hostOnly,
   marker,
   markedVariables,
   markerEnvFile,
@@ -80,4 +82,45 @@ test('marks only whole environment values a port or path never uses, and reads t
   const services = unmark({ edge: { environment: { A: marker('NEEDED'), B: 'fixed' } }, seed: {} }, marked);
   assert.deepEqual(services.edge.environment, { A: '${NEEDED:?}', B: 'fixed' });
   assert.deepEqual(services.seed.environment, {});
+});
+
+test("never copies a value that names the stack's own host: inside a container that address is the container", () => {
+  for (const v of ['localhost:14500', 'http://127.0.0.1:14502', 'http://127.0.0.1:1', 'http://[::1]:3000/x', 'a.example,localhost'])
+    assert.equal(hostOnly(v), true, v);
+  for (const v of ['nats://nats:4222', 'http://svc-identity:4002', 'https://terms.example/x', 'local-test', '127.0.0.10x'])
+    assert.equal(hostOnly(v), false, v);
+  const services = {
+    edge: { environment: { EDGE_SANDBOX_HOSTS: '${EDGE_SANDBOX_HOSTS:-}', NEEDED_URL: '${NEEDED_URL:?}' } },
+  };
+  const stackEnvs = { edge: { EDGE_SANDBOX_HOSTS: 'localhost:14500', NEEDED_URL: 'http://127.0.0.1:14502' } };
+  const out = composeEnvValues({ services, stackEnvs, example: '' });
+  assert.equal(out.values.EDGE_SANDBOX_HOSTS, undefined, 'a blank compose value stays blank');
+  assert.deepEqual(out.unfilled, ['NEEDED_URL'], 'a required one refuses by name');
+});
+
+test('a required value blank in a service up seed does not start still refuses: compose interpolates every service', () => {
+  const services = {
+    seed: { environment: {} },
+    other: { environment: { ONLY_OTHER: '${ONLY_OTHER:?}', OPTIONAL: '${OPTIONAL:-}' } },
+  };
+  const out = composeEnvValues({ services, stackEnvs: { other: { ONLY_OTHER: 'x' } }, example: '', started: new Set(['seed']) });
+  assert.deepEqual(out.unfilled, ['ONLY_OTHER'], 'not filled from a service that does not start, and named');
+  assert.equal(out.values.ONLY_OTHER, undefined);
+});
+
+test('.env.example blanks: quoted empty, export and an inline comment are no value', () => {
+  const { blank, set } = blankKeys('A=\nB=""\nC=\'\'\nexport D=\nE= # note\nF=1\nexport G=x\nH="#"\n');
+  assert.deepEqual([...blank].sort(), ['A', 'B', 'C', 'D', 'E']);
+  assert.deepEqual([...set].sort(), ['F', 'G', 'H']);
+});
+
+test('a variable a YAML comment mentions is still marked', () => {
+  const compose = [
+    'services:',
+    '  edge:',
+    '    environment:',
+    '      # blank ${EDGE_X} refuses',
+    '      EDGE_X: ${EDGE_X:-} # ${EDGE_X} again',
+  ].join('\n');
+  assert.deepEqual(Object.fromEntries(markedVariables(compose, '')), { EDGE_X: '${EDGE_X:-}' });
 });

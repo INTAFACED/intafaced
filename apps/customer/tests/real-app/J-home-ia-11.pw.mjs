@@ -552,9 +552,11 @@ test(`${J} #5 the deployed apex, app and join hosts are served (BLOCKED until a 
 
 /**
  * `docker compose` on the repo's compose files under the tester profile, as a person runs it: { status, out }.
- * `.env.tester.local` (local-test-compose-env.mjs, git-ignored) layers what `pnpm local:stack` runs with, and this stack's
- * generated keys, over the documented example env, which keeps them blank for a real deployment.
+ * The env file compose-env wrote into the step's own state folder (`testerEnvFile`) layers what `pnpm local:stack` runs
+ * with, and this stack's generated keys, over the documented example env, which keeps them blank for a real deployment.
+ * It is never the repo's `.env.tester.local`, which a person may hold for their own state folder.
  */
+const testerEnvFile = (env) => path.join(env.LOCAL_STACK_STATE, 'tester.env.local');
 function compose(args, env, { timeout = 120_000 } = {}) {
   const files = COMPOSE.flatMap((name) => ['-f', name]);
   const res = spawnSync(
@@ -566,7 +568,7 @@ function compose(args, env, { timeout = 120_000 } = {}) {
       '--env-file',
       '.env.example',
       '--env-file',
-      '.env.tester.local',
+      testerEnvFile(env),
       ...files,
       '--profile',
       'tester',
@@ -578,7 +580,10 @@ function compose(args, env, { timeout = 120_000 } = {}) {
   return { status: res.status ?? 1, out };
 }
 
-/** The last log lines of every compose service that is neither running healthy nor exited 0. */
+/**
+ * The last log lines of every compose service that failed on its own: neither running healthy, nor exited 0, nor stopped
+ * by compose's abort (137 or 143, the signals `--abort-on-container-exit` sends), so the red names the culprit.
+ */
 function notHealthyLogs(env) {
   const ps = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
   const bad = ps.out
@@ -586,7 +591,8 @@ function notHealthyLogs(env) {
     .split('\n')
     .map((line) => line.split('|'))
     .filter(
-      ([svc, state, health, code]) => svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && code === '0'),
+      ([svc, state, health, code]) =>
+        svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && ['0', '137', '143'].includes(code)),
     )
     .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
   return bad
@@ -608,7 +614,7 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
   const seed = seedService();
   expect(seed, `no compose file (${COMPOSE.join(', ')}) has a seed service`).not.toBeNull();
   try {
-    const generated = run('tooling/scripts/local-test-compose-env.mjs', [], env);
+    const generated = run('tooling/scripts/local-test-compose-env.mjs', ['--out', testerEnvFile(env)], env);
     expect(generated.status, `BLOCKED compose_seed: compose-env could not write the tester profile's values:\n${generated.out}`).toBe(0);
     const config = compose(['config', '--quiet'], env);
     // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
@@ -617,7 +623,7 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
     });
-    // A dependency that never turns healthy names only itself; its own last lines say why, so the red carries them.
+    // Compose names only the service that stopped the run; that service's own last lines say why, so the red carries them.
     const why = up.status === 0 ? '' : notHealthyLogs(env);
     const tail = up.out.trim().split('\n').slice(-40).join('\n');
     expect(up.status, `BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:\n${tail}${why}`).toBe(0);
