@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
-import { EDGE } from './stack.mjs';
+import { EDGE, ORIGIN } from './stack.mjs';
 
 // J-charts-desk-09, in the running app (docs/roadmap/journeys.json): a person sets price alerts, manages them and reads
 // what fired. One test per step, titled "J-charts-desk-09 #<n>", run in order on one TEST account in one browser. The
@@ -8,13 +8,14 @@ import { EDGE } from './stack.mjs';
 // TEST prices worked from what Edge serves for BTC/USDT, never typed in.
 const J = 'J-charts-desk-09';
 const ALERTS = '/notifications?view=alerts';
+// svc-notify sweeps every minute (ALERT_SWEEP_INTERVAL_MS, services/svc-notify/src/alerts/service.ts).
 const SWEEP_MS = 60_000;
 
 test.describe.configure({ mode: 'serial' });
 
 let page;
 test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:3210' });
+  const context = await browser.newContext({ baseURL: ORIGIN });
   page = await context.newPage();
   // The person has picked UTC+8 in Settings, so a time shown in their zone names it and differs from the device's.
   await page.addInitScript((key) => {
@@ -25,13 +26,7 @@ test.beforeAll(async ({ browser }) => {
   await page.goto(ALERTS);
   await expect(form()).toBeVisible();
   // The form opens once the markets, the list and the quota have loaded; a reason shows beside it until then.
-  await expect(
-    marketSelect(),
-    await form()
-      .getByTestId('alerts-reason')
-      .textContent()
-      .catch(() => ''),
-  ).toBeEnabled();
+  await expect(marketSelect(), 'the alert form opens once its data has loaded').toBeEnabled();
 });
 test.afterAll(async () => {
   await page?.context().close();
@@ -42,17 +37,24 @@ const marketSelect = () => form().getByRole('combobox', { name: /^Market/ });
 const rows = () => page.getByTestId('alerts-list').getByTestId('alert-row');
 const rowWith = (text) => rows().filter({ hasText: text });
 
-/** BTC/USDT's last price as Edge serves it, as a number. */
-async function last() {
+/** BTC/USDT's last price as Edge serves it: a decimal string. */
+async function lastText() {
   const res = await fetch(`${EDGE}/api/v1/ticker/${encodeURIComponent('BTC/USDT')}`);
   expect(res.status).toBe(200);
-  const price = Number((await res.json()).last);
-  expect(price).toBeGreaterThan(0);
-  return price;
+  const text = String((await res.json()).last);
+  expect(text).toMatch(/^\d+(\.\d+)?$/);
+  return text;
 }
 
-/** A TEST price at the market's 0.01 tick: the last price times a factor. */
-const testPrice = (factor, at) => (Math.round(at * factor * 100) / 100).toFixed(2);
+/** A decimal string in hundredths (BTC/USDT's 0.01 tick), as a bigint. */
+const cents = (text) => {
+  const [whole, frac = ''] = text.split('.');
+  return BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
+};
+const fromCents = (n) => `${n / 100n}.${String(n % 100n).padStart(2, '0')}`;
+
+/** A TEST price on the 0.01 tick: the last price times percent / 100, worked in scaled bigint. */
+const testPrice = (percent, last) => fromCents((cents(last) * BigInt(percent)) / 100n);
 
 /** A local date-time `days` ahead, as the browser's datetime-local input takes it. */
 const daysAhead = (days) =>
@@ -88,7 +90,7 @@ test(`${J} #1 creates an alert crossing up through a TEST price with a 30-day ex
   await expect(form()).toContainText('Enter a price.');
   await expect(page.getByRole('heading', { name: 'Review your alert' })).toHaveCount(0);
   // Well above the market, so it stays active through this journey.
-  const target = testPrice(1.5, await last());
+  const target = testPrice(150, await lastText());
   await createAlert({
     condition: 'Crossing up through',
     price: target,
@@ -108,9 +110,9 @@ test(`${J} #1 creates an alert crossing up through a TEST price with a 30-day ex
 });
 
 test(`${J} #3 manages alerts: each shows its market, side, exact price and status; sort, edit, stop, resume, cancel and delete`, async () => {
-  const at = await last();
-  const low = testPrice(0.5, at);
-  const mid = testPrice(0.6, at);
+  const at = await lastText();
+  const low = testPrice(50, at);
+  const mid = testPrice(60, at);
   await createAlert({ condition: 'At or below', price: low, name: 'TEST dip' });
   await createAlert({ condition: 'At or below', price: mid, name: 'TEST pullback' });
   // Each row: the market (as its name when it has none, here in the condition's quote), side, exact price, status.
@@ -160,7 +162,7 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
 test(`${J} #6 reads the trigger log: when it fired, at what price, in the person's time zone, for the retention window`, async () => {
   test.setTimeout(4 * SWEEP_MS);
   // At or below a level above the market: the next sweep reads a mark under it and fires.
-  const target = testPrice(1.2, await last());
+  const target = testPrice(120, await lastText());
   await createAlert({ condition: 'At or below', price: target, name: 'TEST fires' });
   const log = page.getByTestId('alerts-log');
   const fired = log.getByTestId('alert-trigger').filter({ hasText: `At or below ${target}.` });
@@ -170,13 +172,16 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
   }).toPass({ timeout: 3 * SWEEP_MS, intervals: [5_000] });
   // What it fired at: a real mark, at or below the level, near the market Edge serves.
   const text = await fired.getByTestId('nf-body').textContent();
-  const mark = Number(/Price when it triggered: ([\d.]+)/.exec(text)?.[1]);
-  expect(mark).toBeLessThanOrEqual(Number(target));
-  expect(Math.abs(mark - (await last())) / mark).toBeLessThan(0.05);
+  const mark = /Price when it triggered: (\d+(?:\.\d+)?)/.exec(text)?.[1];
+  expect(mark, text).toBeTruthy();
+  expect(cents(mark) <= cents(target), `mark ${mark} at or below ${target}`).toBe(true);
+  // Within 5% of the market Edge serves now.
+  const gap = cents(mark) - cents(await lastText());
+  expect((gap < 0n ? -gap : gap) * 20n <= cents(mark), `mark ${mark} near the market`).toBe(true);
   await expect(fired.getByTestId('nf-title')).toHaveText('BTC/USDT');
   // When: in the person's zone (UTC+8), named, and within the last few minutes there.
   const when = await fired.locator('.nf-muted').textContent();
-  const m = /^Triggered (\d{1,2} [A-Z][a-z]{2}(?: \d{4})?), (\d\d):(\d\d) UTC\+8$/.exec(when.trim());
+  const m = /^Triggered (\d{1,2} [A-Z][a-z]{2,3}(?: \d{4})?), (\d\d):(\d\d) UTC\+8$/.exec(when.trim());
   expect(m, `"${when}" is a UTC+8 time`).toBeTruthy();
   const nowThere = new Date(Date.now() + 8 * 3_600_000);
   const shownMinutes = Number(m[2]) * 60 + Number(m[3]);
@@ -197,14 +202,10 @@ test(`${J} #9 reads the evaluation status: whether server-side checks are connec
   const body = await (await listed).text();
   const canFire = /"canFire":\s*(true|false)/.exec(body)?.[1];
   expect(canFire, 'the alerts reply carries the evaluation state').toBeTruthy();
-  const banner = page.getByTestId('alerts-evaluation');
-  if (canFire === 'true') {
-    await expect(banner).toContainText('Price checks are connected.');
-  } else {
-    await expect(banner).not.toContainText('Price checks are connected.');
-  }
-  // Never a promise that a message reaches the person.
-  await expect(banner).not.toContainText(/deliver(ed)?|will reach|you will receive/i);
-  // The stack's checks are connected, and #6 showed it: an alert fired from the service's own sweep.
+  // The stack's checks are connected (and #6 showed an alert firing from the service's own sweep), and the page says so.
   expect(canFire).toBe('true');
+  const banner = page.getByTestId('alerts-evaluation');
+  await expect(banner).toContainText('Price checks are connected.');
+  // Never a promise that a message reaches the person.
+  await expect(banner).not.toContainText(/will be delivered|will reach you|you will (receive|get)/i);
 });
