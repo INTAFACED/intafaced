@@ -2199,9 +2199,10 @@ services:
   # only through a loopback edge, so this service shares the host's network and reaches svc-edge on its published :4000
   # once it is healthy; the TEST content seed refuses unless a local test stack marker with a loopback database is in
   # LOCAL_STACK_STATE. KNOWN GAP on a plain compose stack: identity reads the founder invites at boot from the host's
-  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` writes its own copy inside
-  # the container, so `enrol` here is refused by identity, and compose writes no stack marker, so the content step would
-  # refuse too. The run stops with that refusal and creates nothing. `pnpm local:stack` runs the same scripts and seeds.
+  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` would write its own copy in
+  # /app, which the image's `node` user cannot write (run 41170820323: EACCES on /app/.env.founder.local), so `init` stops
+  # the run there; were it written, `enrol` would be refused by identity, and compose writes no stack marker, so the
+  # content step would refuse too. The run creates nothing (#6853). `pnpm local:stack` runs the same scripts and seeds.
   seed:
     <<: *app
     container_name: intafaced-seed
