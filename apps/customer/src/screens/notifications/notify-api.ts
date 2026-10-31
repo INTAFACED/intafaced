@@ -216,7 +216,8 @@ export const priceAlertSchema = z.object({
   frequency: z.enum(['once', 'every_crossing']).optional(),
   fireCount: z.number().int().min(0).optional(),
   lastFiredAt: date.nullable().optional(),
-  // When the alert last changed (an edit, a stop or a resume). A service that does not send it shows no modified time.
+  // When the alert last changed (an edit, a stop, a resume, or how it ended). A service that does not send it shows no
+  // modified time.
   updatedAt: date.optional(),
   // Why the platform stopped it: `burst` (it triggered too often). Null or absent for a pause by the person.
   stopReason: z.enum(['burst']).nullable().optional(),

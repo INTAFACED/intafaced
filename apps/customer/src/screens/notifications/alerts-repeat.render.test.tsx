@@ -133,8 +133,10 @@ describe('repeating alerts on the page', () => {
 });
 
 describe('a stop the platform made, and a modified time', () => {
-  it('names the burst rule beside an alert it stopped, and says nothing of a pause the person made', async () => {
-    reads.burst = { windowMinutes: 10, maxTriggers: 5 };
+  beforeEach(() => {
+    reads.burst = null;
+  });
+  it('says why the platform stopped an alert, and says nothing of a pause the person made', async () => {
     reads.items = [
       row({ status: 'stopped', stopReason: 'burst' }),
       row({ id: '22222222-2222-4222-8222-222222222222', status: 'stopped', stopReason: null }),
@@ -142,25 +144,31 @@ describe('a stop the platform made, and a modified time', () => {
     await mount();
     const reasons = host.querySelectorAll('[data-testid="alert-stop-reason"]');
     expect(reasons).toHaveLength(1);
-    expect(reasons[0]!.textContent).toBe('Stopped because it triggered more than 5 times in 10 minutes. Resume it to watch again.');
+    expect(reasons[0]!.textContent).toBe('Stopped because it triggered too often. Resume it to watch again.');
   });
-  it('a burst stop with the rule unread still says why, without inventing the rule', async () => {
-    reads.burst = null;
-    reads.items = [row({ status: 'stopped', stopReason: 'burst' })];
+  it('the quota banner names the owner\u2019s burst rule as it is now, and nothing while it is unset', async () => {
+    reads.items = [];
+    reads.burst = { windowMinutes: 10, maxTriggers: 5 };
     await mount();
-    expect(host.querySelector('[data-testid="alert-stop-reason"]')!.textContent).toBe(
-      'Stopped because it triggered too often. Resume it to watch again.',
+    expect(host.querySelector('[data-testid="alerts-quota"]')!.textContent).toContain(
+      'An alert that triggers more than 5 times in 10 minutes is stopped.',
     );
+    reads.burst = null;
+    await mount();
+    expect(host.querySelector('[data-testid="alerts-quota"]')!.textContent).not.toContain('is stopped');
   });
-  it('shows a modified time only once the alert changed after it was created', async () => {
+  it('shows a modified time only on an open alert that changed after it was created', async () => {
     reads.items = [
-      row({ name: 'changed', updatedAt: '2026-10-18T09:30:00.000Z' }),
-      row({ id: '22222222-2222-4222-8222-222222222222', name: 'unchanged', updatedAt: '2026-10-17T08:00:00.000Z' }),
+      row({ name: 'edited', updatedAt: '2026-10-18T09:30:00.000Z' }),
+      row({ id: '22222222-2222-4222-8222-222222222222', name: 'untouched', updatedAt: '2026-10-17T08:00:00.000Z' }),
+      row({ id: '33333333-3333-4333-8333-333333333333', name: 'ended', status: 'cancelled', updatedAt: '2026-10-18T09:30:00.000Z' }),
     ];
     await mount();
     const rows = [...host.querySelectorAll('[data-testid="alert-row"]')];
-    const muted = (name: string) => rows.find((r) => r.textContent?.includes(name))!.querySelector('.nf-muted')!.textContent;
-    expect(muted('changed')).toContain('Modified ');
-    expect(muted('unchanged')).not.toContain('Modified');
+    const muted = (name: string) =>
+      rows.find((r) => r.querySelector('[data-testid="nf-title"]')?.textContent === name)!.querySelector('.nf-muted')!.textContent;
+    expect(muted('edited')).toContain('Modified ');
+    expect(muted('untouched')).not.toContain('Modified');
+    expect(muted('ended')).not.toContain('Modified');
   });
 });

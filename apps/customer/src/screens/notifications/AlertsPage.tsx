@@ -162,8 +162,6 @@ export default function AlertsPage() {
   const gate = useRef(createGate());
 
   const list = state.status === 'ready' ? state : null;
-  // The owner's burst rule, to name it beside an alert it stopped; null when it is unset or unread.
-  const burstRule = quota.state.status === 'ready' ? (quota.state.quota.burst ?? null) : null;
   const marketList: AlertMarket[] = markets.status === 'ready' ? markets.markets : [];
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
@@ -395,6 +393,10 @@ export default function AlertsPage() {
                 used: String(quota.state.quota.used),
                 max: String(quota.state.quota.max),
               })}
+          {/* The owner's burst rule as it is now, where the limits are named; an alert's row says only that it was stopped. */}
+          {quota.state.quota.burst
+            ? ` ${copy.t('burstRule', { max: String(quota.state.quota.burst.maxTriggers), minutes: String(quota.state.quota.burst.windowMinutes) })}`
+            : null}
         </p>
       ) : null}
       {evaluation ? (
@@ -836,14 +838,15 @@ export default function AlertsPage() {
                         ) : null}
                         {alert.status === 'stopped' && alert.stopReason === 'burst' ? (
                           <span className="nf-body nf-body--wrap" data-testid="alert-stop-reason">
-                            {burstRule
-                              ? copy.t('stoppedBurst', { max: String(burstRule.maxTriggers), minutes: String(burstRule.windowMinutes) })
-                              : copy.t('stoppedBurstNoRule')}
+                            {copy.t(alert.kind === 'price' ? 'stoppedBurst' : 'stoppedBurstNoResume')}
                           </span>
                         ) : null}
                         <span className="nf-muted">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
-                            (alert.updatedAt && Date.parse(alert.updatedAt) > Date.parse(alert.createdAt)
+                            // An open alert's last change (an edit, a stop or a resume); a finished one's is its end, already named.
+                            ((alert.status === 'active' || alert.status === 'stopped') &&
+                            alert.updatedAt &&
+                            Date.parse(alert.updatedAt) > Date.parse(alert.createdAt)
                               ? ` · ${copy.t('modifiedAt', { when: stamp(alert.updatedAt, timeZone) })}`
                               : '') +
                             (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '') +

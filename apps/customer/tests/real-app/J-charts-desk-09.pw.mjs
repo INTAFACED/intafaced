@@ -160,19 +160,24 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
 });
 
 test(`${J} #4 edits an alert from one price to another: the new price and a modified time`, async () => {
-  const row = rowWith('TEST deeper pullback');
-  const before = await row.getByTestId('nf-body').first().textContent();
-  const price = testPrice(55, await lastText());
-  expect(before).not.toContain(price);
+  // A fresh alert nothing has changed yet: it shows no modified time until the edit.
+  const first = testPrice(55, await lastText());
+  await createAlert({ condition: 'At or below', price: first, name: 'TEST edit me' });
+  const row = rowWith('TEST edit me');
+  await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${first} USDT`);
+  await expect(row.locator('.nf-muted')).not.toContainText('Modified');
+  const price = testPrice(52, await lastText());
+  expect(price).not.toBe(first);
   await row.getByRole('button', { name: 'Edit the alert on BTC/USDT' }).click();
   const edit = page.getByTestId('alert-edit');
   await edit.getByLabel('Price (USDT)').fill(price);
   await edit.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByTestId('alerts-notices').getByRole('status')).toHaveText('Alert updated.');
   // The new price, kept by the service: it is there after a reload.
   await page.reload();
-  await expect(rowWith('TEST deeper pullback').getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
-  // A modified time, in the person's zone (UTC+8), within the last few minutes there and after the created time.
-  const muted = await rowWith('TEST deeper pullback').locator('.nf-muted').textContent();
+  await expect(rowWith('TEST edit me').getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
+  // A modified time, in the person's zone (UTC+8), within the last few minutes there, after the created time.
+  const muted = await rowWith('TEST edit me').locator('.nf-muted').textContent();
   const m = /Modified (\d{1,2} [A-Z][a-z]{2,3}(?: \d{4})?), (\d\d):(\d\d) UTC\+8/.exec(muted);
   expect(m, `"${muted}" names a UTC+8 modified time`).toBeTruthy();
   const nowThere = new Date(Date.now() + 8 * 3_600_000);
