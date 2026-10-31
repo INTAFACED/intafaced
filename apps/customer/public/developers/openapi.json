@@ -1779,11 +1779,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:read"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1795,11 +1795,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1814,11 +1814,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:read"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1833,11 +1833,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1852,11 +1852,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1870,11 +1870,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:read"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1886,11 +1886,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1905,11 +1905,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:read"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1922,11 +1922,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
@@ -1941,11 +1941,11 @@
         "security": [{ "apiKey": [] }],
         "x-access": "private",
         "x-scopes": ["trade:write"],
-        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
         "x-cost": 1,
         "responses": {
           "200": { "description": "Success" },
-          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
