@@ -74,11 +74,10 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
 
   // Orders the later steps need, taken before #2 pauses this buyer: one left unpaid to run out (#4, #8) and one the
   // buyer marks paid (#3, #6, #7).
-  const sellerFreeBeforeExpiry = await free(seller);
   const expiring = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
   const paid = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
   await b.mutate('trades.markFiatSent', { tradeId: paid.id });
-  run.write({ buyerPasskey: b.passkey().saved(), expiringTradeId: expiring.id, paidTradeId: paid.id, sellerFreeBeforeExpiry });
+  run.write({ buyerPasskey: b.passkey().saved(), expiringTradeId: expiring.id, paidTradeId: paid.id });
 
   const before = await free(seller);
   const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
@@ -114,13 +113,15 @@ test('J-p2p-06 #2 too many cancels restrict buying with the end time, and the co
   test.setTimeout(240_000);
   const state = journey();
   const { b, save } = await buyerClient(state);
-  // Two more cancels make three today.
-  for (let i = 0; i < 2; i++) {
-    const trade = await b.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
-    await b.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' });
+  // Cancel until buying pauses: three cancels within the TEST window, counting #1's if it went through.
+  let refused = null;
+  for (let i = 0; i < 4 && !refused; i++) {
+    const res = await b.raw.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+    if (res.status !== 200) refused = res;
+    else await b.mutate('trades.cancel', { tradeId: res.body.result.data.id, reason: 'TEST changed my mind' });
   }
   save();
-  const refused = await b.raw.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(refused, 'three cancels did not pause buying').not.toBeNull();
   expect(refusalCode(refused)).toBe('p2p.buying_restricted');
   const pause = refused.body.error.data.p2pLimit;
   expect(pause.until).toEqual(expect.any(String));
@@ -140,8 +141,11 @@ test('J-p2p-06 #3 the buyer cannot cancel after paying; the seller cancels only 
   const { b } = await buyerClient(state);
   const tradeId = state.paidTradeId;
   expect(tradeId, '#3 needs the order the buyer marked paid in #1').toBeTruthy();
+  // Paid: the buyer's cancel is refused (open a dispute instead), and so is the seller's straight cancel.
   const refused = await b.raw.mutate('trades.cancel', { tradeId });
-  expect(refusalCode(refused)).toBe('p2p.cancel_after_paid');
+  expect(refusalCode(refused)).toBe('p2p.not_the_seller');
+  expect(refusalCode(await s.raw.mutate('trades.cancel', { tradeId }))).toBe('p2p.cancel_after_paid');
+  expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
   const request = await s.raw.mutate('trades.requestCancel', { tradeId, reason: 'TEST payment never arrived' });
   expect(request.status, 'svc-p2p has no seller cancellation request (P-trade-orders-19)').toBe(200);
 });
@@ -154,7 +158,10 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   const s = await sellerClient(state);
   const tradeId = state.expiringTradeId;
   expect(tradeId, '#4 needs an order left unpaid, taken in #1').toBeTruthy();
-  const before = state.sellerFreeBeforeExpiry;
+  // The seller's free balance while the order still holds its 10 USDT; the refund adds exactly that back, once.
+  const holding = (await s.query('trades.get', { tradeId })).status === 'escrowed';
+  expect(holding, 'the order ran out before this step could watch it').toBe(true);
+  const before = await free(state.seller);
   await expect
     .poll(async () => (await s.query('trades.get', { tradeId })).status, {
       timeout: (PAYMENT_SECONDS + 3 * SWEEP_SECONDS) * 1_000,
@@ -163,7 +170,9 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
     .toBe('cancelled');
   const expired = await s.query('trades.get', { tradeId });
   expect(expired).toMatchObject({ resolution: 'refunded', displayStatus: 'cancelled_by_timeout' });
-  expect(await free(state.seller)).toBe(before);
+  await expect.poll(() => free(state.seller), { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + toUnits('10')));
+  await new Promise((resolve) => setTimeout(resolve, SWEEP_SECONDS * 1_000));
+  expect(await free(state.seller)).toBe(fromUnits(toUnits(before) + toUnits('10')));
   await signIn(page, state.buyer);
   await page.goto('/uc/order');
   await expect(page.locator(`[data-trade-id="${tradeId}"]`)).toContainText('Cancelled: payment time ran out');
@@ -195,14 +204,13 @@ test('J-p2p-06 #6 a reminder before the wait is refused with the time left; afte
   const tradeId = state.paidTradeId;
   expect(tradeId, '#6 needs an order the buyer marked paid, taken in #1').toBeTruthy();
   const { b } = await buyerClient(state);
+  // The order was paid in #1, so the wait has passed: the reminder goes. Pressing again at once is before the next wait,
+  // and is refused with the time left; the seller has one reminder.
+  const first = await b.raw.mutate('trades.remind', { tradeId });
+  expect(first.status).toBe(200);
   const early = await b.raw.mutate('trades.remind', { tradeId });
-  if (early.status !== 200) {
-    expect(refusalCode(early)).toBe('p2p.remind_too_early');
-    expect(Date.parse(early.body.error.data.p2pLimit.until)).toBeGreaterThan(Date.now() - 1_000);
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(early.body.error.data.p2pLimit.until) - Date.now()) + 500));
-  }
-  const reminded = await b.mutate('trades.remind', { tradeId });
-  expect(reminded).toBeTruthy();
+  expect(refusalCode(early)).toBe('p2p.remind_too_early');
+  expect(Date.parse(early.body.error.data.p2pLimit.until)).toBeGreaterThan(Date.now() - 1_000);
   await signIn(page, state.seller);
   await page.goto(`/uc/order?tradeId=${tradeId}`);
   await expect(page.getByTestId('order-reminder')).toContainText('The buyer reminded you to release');
