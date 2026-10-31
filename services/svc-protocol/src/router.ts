@@ -96,6 +96,7 @@ import {
   BADGE_STUCK_APPROVAL_REFUSED,
   BADGE_STUCK_APPROVAL_UNWIRED,
   BADGE_STUCK_NOT_STALE,
+  BADGE_CHAIN_CHANGED,
   type BadgeApprovalConsumer,
   type BadgeMinter,
   type BadgeStore,
@@ -320,7 +321,7 @@ function toTrpcError(err: unknown): TRPCError {
     const code =
       err.code === BADGE_STUCK_APPROVAL_REFUSED
         ? 'FORBIDDEN'
-        : err.code === BADGE_STUCK_NOT_STALE
+        : err.code === BADGE_STUCK_NOT_STALE || err.code === BADGE_CHAIN_CHANGED
           ? 'CONFLICT'
           : err.code === BADGE_STUCK_APPROVAL_UNWIRED
             ? 'PRECONDITION_FAILED'
@@ -479,6 +480,11 @@ export interface ProtocolRouterDeps {
     minter: BadgeMinter;
     window: () => BadgeWindow | null;
     mainnet: () => boolean;
+    /**
+     * True only for a chain started again from a new genesis (`badgeChainIsRestartable`); absent = false, so a claim from
+     * another genesis refuses `badge.chain_changed` and is never reset.
+     */
+    restartable?: () => boolean;
     now?: () => Date;
     /** Identity four-eyes approval for the operator stuck-mint clear; null/absent = `badge.stuck_approval_unwired`. */
     approvals?: BadgeApprovalConsumer | null;
@@ -1195,7 +1201,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return await badgeEligibility(
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
-              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet() },
+              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet(), restartable: b.restartable?.() ?? false },
             );
           } catch (err) {
             throw toTrpcError(err);
@@ -1215,7 +1221,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
               own ? { address: own.address, owner: own.owner } : null,
-              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet() },
+              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet(), restartable: b.restartable?.() ?? false },
               input?.signature ?? null,
             );
             return {
@@ -1264,6 +1270,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
                 staleAfterSeconds: b.stuckMintAgeSeconds?.(),
                 now: b.now ?? (() => new Date()),
                 identity: () => chainIdentity({ fresh: true }),
+                restartable: b.restartable?.() ?? false,
               },
               {
                 accountId: input.accountId,
