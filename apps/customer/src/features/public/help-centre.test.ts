@@ -8,6 +8,7 @@ const settings = (published: boolean | null): SupportHelpCentre => ({
   defaultLanguage: null,
   languages: null,
   setupMode: null,
+  theme: null,
   published,
   revision: published === null ? 0 : 1,
   updatedAt: published === null ? null : '2026-10-23T00:00:00.000Z',

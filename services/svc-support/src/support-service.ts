@@ -136,6 +136,7 @@ import {
   type KbFeedbackCount,
   type KbFeedbackVote,
   type KbSearchMiss,
+  type KbAudienceChange,
   type SupportStore,
   type TicketRating,
 } from './store.js';
@@ -1242,6 +1243,11 @@ export class SupportService implements SupportContract {
       }
       return toPublicKb(result.article);
     });
+  }
+
+  /** The audience trail of one article, oldest first. An unknown article has an empty trail. */
+  async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
+    return withSupportSpan('support.kbAudienceChanges', { op: 'kbAudienceChanges' }, () => this.store.listKbAudienceChanges(articleId));
   }
 
   /**

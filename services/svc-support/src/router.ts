@@ -9,6 +9,8 @@ import {
   escalateTicketInputSchema,
   getKbArticleInputSchema,
   setKbAudienceInputSchema,
+  kbAudienceChangesInputSchema,
+  supportKbAudienceChangeListSchema,
   type SupportAttachment,
   publicProcedure,
   router,
@@ -59,6 +61,7 @@ import { mapRequestForm, requestFormProcedures } from './request-forms-router.js
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
 import { kbReviewProcedures } from './kb-review-router.js';
+import { kbSegmentProcedures } from './kb-segment-router.js';
 import { KbAuthoring } from './kb-authoring.js';
 import { MemoryKbReviewBook } from './kb-review.js';
 import { MemorySupportStore } from './store.js';
@@ -218,6 +221,8 @@ export function createSupportRouter(
   forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
   macros: DeskMacros = new DeskMacros(new MemoryMacroBook(), support, null),
   kbAuthoring: KbAuthoring = new KbAuthoring(new MemorySupportStore(), new MemoryKbReviewBook()),
+  /** The owner's `SUPPORT_KB_SEGMENT_CAP`; null (blank) refuses `support.kb_segment_cap_unset`. Never defaulted. */
+  kbSegmentCap: number | null = null,
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -230,6 +235,7 @@ export function createSupportRouter(
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
     ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
     ...kbReviewProcedures(kbAuthoring, kbLibrary),
+    ...kbSegmentProcedures(kbSegmentCap),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -717,6 +723,19 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.setKbAudience({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The audience trail of one article, oldest first: old and new audience, revisions, who and when. */
+    kbAudienceChanges: scopedProcedure('support:ops')
+      .input(kbAudienceChangesInputSchema)
+      .output(supportKbAudienceChangeListSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.listKbAudienceChanges(input.id);
         } catch (err) {
           mapError(err);
         }

@@ -4,6 +4,9 @@ import {
   publicKbArticleOrNull,
   kbAudienceVisibleTo,
   setKbAudienceInputSchema,
+  setKbSegmentInputSchema,
+  kbAudienceChangesInputSchema,
+  supportKbAudienceChangeSchema,
   supportKbAudienceSchema,
   publishedKbArticles,
   createTicketInputSchema,
@@ -24,6 +27,7 @@ import {
   type SupportContract,
   type SupportKbArticle,
 } from './support.js';
+import { supportHelpCentreChangesInputSchema, supportHelpCentreSchema, supportHelpCentreSetInputSchema } from './support-help-centre.js';
 
 const LIVE: SupportKbArticle = {
   id: 'kb-account-access',
@@ -266,5 +270,61 @@ describe('help article audiences (SP-help-centre-02)', () => {
     expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'signed_in' }).success).toBe(true);
     expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 0, audience: 'signed_in' }).success).toBe(false);
     expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'all' }).success).toBe(false);
+  });
+});
+
+describe('help article audience trail and segments (SP-help-centre-02)', () => {
+  it('an audience change row names the old and the new audience', () => {
+    const row = {
+      articleId: 'a',
+      fromAudience: 'public',
+      toAudience: 'signed_in',
+      fromRevision: 1,
+      toRevision: 2,
+      actorId: 'op',
+      createdAt: '2026-10-31T12:00:00.000Z',
+    };
+    expect(supportKbAudienceChangeSchema.safeParse(row).success).toBe(true);
+    expect(supportKbAudienceChangeSchema.safeParse({ ...row, toAudience: 'everyone' }).success).toBe(false);
+    expect(kbAudienceChangesInputSchema.safeParse({ id: 'a' }).success).toBe(true);
+    expect(kbAudienceChangesInputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('a segment needs an article and a name', () => {
+    expect(setKbSegmentInputSchema.safeParse({ id: 'a', segment: 'TEST vip' }).success).toBe(true);
+    expect(setKbSegmentInputSchema.safeParse({ id: 'a', segment: '  ' }).success).toBe(false);
+  });
+});
+
+describe('help centre theme and change log (SP-help-centre-03)', () => {
+  const blank = {
+    name: null,
+    address: null,
+    defaultLanguage: null,
+    languages: null,
+    setupMode: null,
+    theme: null,
+    published: null,
+    revision: 0,
+    updatedAt: null,
+  };
+
+  it('the theme is blank or one of system, light and dark', () => {
+    expect(supportHelpCentreSchema.safeParse(blank).success).toBe(true);
+    expect(supportHelpCentreSchema.safeParse({ ...blank, theme: 'dark' }).success).toBe(true);
+    expect(supportHelpCentreSchema.safeParse({ ...blank, theme: 'neon' }).success).toBe(false);
+    const { theme: _theme, ...withoutTheme } = blank;
+    expect(supportHelpCentreSchema.safeParse(withoutTheme).success).toBe(false);
+  });
+
+  it('a theme alone is a change, and null clears it', () => {
+    expect(supportHelpCentreSetInputSchema.safeParse({ theme: 'light', expectedRevision: 0, reason: 'r' }).success).toBe(true);
+    expect(supportHelpCentreSetInputSchema.safeParse({ theme: null, expectedRevision: 0, reason: 'r' }).success).toBe(true);
+    expect(supportHelpCentreSetInputSchema.safeParse({ theme: 'neon', expectedRevision: 0, reason: 'r' }).success).toBe(false);
+  });
+
+  it('the change log page size may be left out so the service names the refusal', () => {
+    expect(supportHelpCentreChangesInputSchema.safeParse({}).success).toBe(true);
+    expect(supportHelpCentreChangesInputSchema.safeParse({ limit: 0 }).success).toBe(false);
   });
 });

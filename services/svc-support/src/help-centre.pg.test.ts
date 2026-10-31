@@ -10,8 +10,10 @@ import {
   HelpCentreLanguagesUnsetError,
   HelpCentreConflictError,
   HelpCentreNotFoundError,
+  HelpCentreLimitUnsetError,
   HelpCentreStaleError,
   SqlHelpCentreBook,
+  helpCentreFingerprint,
 } from './help-centre.js';
 
 /** SP-help-centre-03 against Postgres: one settings row, an append-only log, and translation receipts. */
@@ -50,6 +52,7 @@ const blank = {
   defaultLanguage: null,
   languages: null,
   setupMode: null,
+  theme: null,
   published: null,
   revision: 0,
   updatedAt: null,
@@ -358,6 +361,52 @@ if (!url) {
         await db.sql.unsafe('ALTER TABLE support.help_centre DROP CONSTRAINT help_centre_address_ck');
         await db.sql.unsafe(`ALTER TABLE support.help_centre ADD CONSTRAINT help_centre_address_ck ${def?.def ?? ''}`);
       }
+    });
+
+    it('stores the theme, the column refuses anything outside system, light and dark', async () => {
+      const book = new SqlHelpCentreBook(db.sql);
+      const dark = await book.set(change({ changes: { theme: 'dark' }, reason: 'Owner chose dark' }));
+      expect(dark).toMatchObject({ theme: 'dark', revision: 1 });
+      expect(await book.get()).toEqual(dark);
+      expect(await book.set(change({ changes: { theme: 'dark' }, reason: 'Owner chose dark' }))).toEqual(dark);
+      await expect(db.sql`UPDATE support.help_centre SET theme = 'neon'`).rejects.toMatchObject({
+        code: '23514',
+        constraint_name: 'help_centre_theme_ck',
+      });
+      expect((await book.set(change({ changes: { theme: null }, expectedRevision: 1, reason: 'Unset' }))).theme).toBeNull();
+    });
+
+    it('lists the change log newest first with who, why, before, after and the fields changed; a blank page size refuses', async () => {
+      const book = new SqlHelpCentreBook(db.sql);
+      await book.set(change());
+      await book.set(change({ changes: { theme: 'light', name: 'Help' }, expectedRevision: 1, reason: 'Name and theme' }));
+      const log = await book.listChanges(10);
+      expect(log.map((row) => [row.revision, row.by, row.reason, row.at, row.changed])).toEqual([
+        [2, 'lead-1', 'Name and theme', AT, ['name', 'theme']],
+        [1, 'lead-1', 'Switch the help centre off', AT, ['published']],
+      ]);
+      expect(log[0]).toMatchObject({ before: { name: null, theme: null }, after: { name: 'Help', theme: 'light' } });
+      expect(await book.listChanges(1)).toHaveLength(1);
+      await expect(book.listChanges(undefined)).rejects.toBeInstanceOf(HelpCentreLimitUnsetError);
+    });
+
+    it('a log row written before theme existed reads with a blank theme and its lost reply still replays', async () => {
+      const book = new SqlHelpCentreBook(db.sql);
+      const legacy = { ...blank, published: false, revision: 1, updatedAt: AT } as Record<string, unknown>;
+      delete legacy.theme;
+      const before = { ...blank } as Record<string, unknown>;
+      delete before.theme;
+      await db.sql`INSERT INTO support.help_centre (singleton, published, revision, updated_by, updated_at) VALUES (true, false, 1, 'lead-1', ${AT})`;
+      await db.sql`
+        INSERT INTO support.help_centre_log (key, fingerprint, revision_after, before, after, set_by, reason, set_at)
+        VALUES (
+          'support.helpCentre:r0', ${helpCentreFingerprint({ published: false }, 'Switch the help centre off')}, 1,
+          ${db.sql.json(before as never)}, ${db.sql.json(legacy as never)}, 'lead-1', 'Switch the help centre off', ${AT}
+        )
+      `;
+      expect(await book.set(change())).toEqual({ ...legacy, theme: null });
+      const [row] = await book.listChanges(10);
+      expect(row).toMatchObject({ revision: 1, changed: ['published'], before: { theme: null }, after: { theme: null } });
     });
   });
 }

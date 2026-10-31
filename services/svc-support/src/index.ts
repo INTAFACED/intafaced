@@ -212,6 +212,7 @@ const appRouter = createSupportRouter(
   new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
   new DeskMacros(new SqlMacroBook(sql), support, env.SUPPORT_MACRO_SHORTCODE_MIN ?? null),
   new KbAuthoring(store, new SqlKbReviewBook(sql)),
+  env.SUPPORT_KB_SEGMENT_CAP ?? null,
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

@@ -123,6 +123,11 @@ const schema = serviceEnvSchema
        * A longer query refuses support.search_query_too_long. Never defaulted.
        */
       SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * How many segments one help article may be restricted to (SP-help-centre-02). Blank is an owner value left unset:
+       * restricting an article to a segment refuses support.kb_segment_cap_unset. Never defaulted.
+       */
+      SUPPORT_KB_SEGMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
