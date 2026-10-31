@@ -2,6 +2,8 @@ import { TRPCError } from '@trpc/server';
 import {
   publicProcedure,
   scopedProcedure,
+  supportHelpCentreChangeListSchema,
+  supportHelpCentreChangesInputSchema,
   supportHelpCentreLanguageInputSchema,
   supportHelpCentreLanguageSchema,
   supportHelpCentreSchema,
@@ -91,6 +93,19 @@ export function helpCentreProcedures(book: HelpCentreBook, support: Pick<Support
         requireSupportOps(ctx.principal!);
         try {
           return await book.listTranslations(input.limit);
+        } catch (err) {
+          throw mapHelpCentre(err);
+        }
+      }),
+
+    /** The settings change log, newest first: revision, who, why, when, before and after. A blank page size refuses. */
+    helpCentreChanges: scopedProcedure('support:ops')
+      .input(supportHelpCentreChangesInputSchema)
+      .output(supportHelpCentreChangeListSchema)
+      .query(async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal!);
+        try {
+          return await book.listChanges(input.limit);
         } catch (err) {
           throw mapHelpCentre(err);
         }

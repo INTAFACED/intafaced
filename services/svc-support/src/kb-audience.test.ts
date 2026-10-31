@@ -144,4 +144,31 @@ describe('help article audiences (SP-help-centre-02)', () => {
     expect(hidden.audience).toBe('signed_in');
     expect(await visitor.getKb({ id: 'zz-members' })).toBeNull();
   });
+
+  it('kbAudienceChanges gives the desk one row per change with the old and the new audience, and the same audience twice one row', async () => {
+    const { customer, visitor, staff, publish } = await desk();
+    const a = await publish('zz-members');
+    const changed = await staff.setKbAudience({ id: 'zz-members', baseRevision: a.revision!, audience: 'signed_in' });
+    await staff.setKbAudience({ id: 'zz-members', baseRevision: changed.revision!, audience: 'signed_in' });
+    const trail = await staff.kbAudienceChanges({ id: 'zz-members' });
+    expect(trail).toEqual([
+      {
+        articleId: 'zz-members',
+        fromAudience: 'public',
+        toAudience: 'signed_in',
+        fromRevision: 1,
+        toRevision: 2,
+        actorId: AGENT,
+        createdAt: expect.any(String),
+      },
+    ]);
+    await staff.setKbAudience({ id: 'zz-members', baseRevision: changed.revision!, audience: 'staff' });
+    expect((await staff.kbAudienceChanges({ id: 'zz-members' })).map((row) => [row.fromAudience, row.toAudience])).toEqual([
+      ['public', 'signed_in'],
+      ['signed_in', 'staff'],
+    ]);
+    expect(await staff.kbAudienceChanges({ id: 'never-existed' })).toEqual([]);
+    await expect(customer.kbAudienceChanges({ id: 'zz-members' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(visitor.kbAudienceChanges({ id: 'zz-members' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
 });

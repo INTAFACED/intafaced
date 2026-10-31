@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
@@ -26,6 +27,7 @@ const BLANK = {
   defaultLanguage: null,
   languages: null,
   setupMode: null,
+  theme: null,
   published: null,
   revision: 0,
   updatedAt: null,
@@ -290,5 +292,64 @@ describe('help centre settings', () => {
     expect(helpCentreFingerprint({ published: true }, 'r')).not.toBe(helpCentreFingerprint({ published: false }, 'r'));
     expect(helpCentreFingerprint({ published: null }, 'r')).not.toBe(helpCentreFingerprint({}, 'r'));
     expect(helpCentreFingerprint({ languages: ['en', 'fr'] }, 'r')).not.toBe(helpCentreFingerprint({ languages: ['fr', 'en'] }, 'r'));
+  });
+
+  it('the fingerprint of a change without a theme is what it was before theme existed', () => {
+    const legacy = createHash('sha256')
+      .update(JSON.stringify([[null, null, null, null, null, ['published', true]], 'r']))
+      .digest('hex');
+    expect(helpCentreFingerprint({ published: true }, 'r')).toBe(legacy);
+    expect(helpCentreFingerprint({ published: true, theme: 'dark' }, 'r')).not.toBe(legacy);
+  });
+});
+
+describe('help centre theme (SP-help-centre-03)', () => {
+  it('reads blank, a lead sets it with a reason, a repeat writes nothing more and null clears it', async () => {
+    const { as, helpCentre, lead } = await desk();
+    expect((await (await as(null)).helpCentre()).theme).toBeNull();
+    const dark = await lead.setHelpCentre({ reason: 'Owner chose dark', expectedRevision: 0, theme: 'dark' });
+    expect(dark).toMatchObject({ theme: 'dark', revision: 1 });
+    expect(await (await as(null)).helpCentre()).toEqual(dark);
+    expect(await lead.setHelpCentre({ reason: 'Owner chose dark', expectedRevision: 0, theme: 'dark' })).toEqual(dark);
+    expect(helpCentre.log).toHaveLength(1);
+    const cleared = await lead.setHelpCentre({ reason: 'Back to unset', expectedRevision: 1, theme: null });
+    expect(cleared.theme).toBeNull();
+    expect(helpCentre.log).toHaveLength(2);
+  });
+
+  it('refuses a theme outside system, light and dark, and stores nothing', async () => {
+    const { helpCentre, lead } = await desk();
+    await expect(lead.setHelpCentre({ reason, expectedRevision: 0, theme: 'neon' as 'dark' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(await helpCentre.get()).toEqual(BLANK);
+  });
+});
+
+describe('help centre change log (SP-help-centre-03)', () => {
+  it('lists changes newest first with revision, who, reason, time, before, after and the fields changed', async () => {
+    const { lead } = await desk();
+    await lead.setHelpCentre({ reason: 'Name it', expectedRevision: 0, name: 'Help' });
+    await lead.setHelpCentre({ reason: 'Switch it off', expectedRevision: 1, published: false, theme: 'light' });
+    const log = await lead.helpCentreChanges({ limit: 10 });
+    expect(log.map((row) => [row.revision, row.reason, row.by, row.changed])).toEqual([
+      [2, 'Switch it off', LEAD, ['theme', 'published']],
+      [1, 'Name it', LEAD, ['name']],
+    ]);
+    expect(log[0]).toMatchObject({ before: { published: null, theme: null }, after: { published: false, theme: 'light' } });
+    expect(await lead.helpCentreChanges({ limit: 1 })).toHaveLength(1);
+  });
+
+  it('a blank page size refuses support.help_centre_list_limit_unset, and only the desk reads the log', async () => {
+    const { as, lead } = await desk();
+    await expect(lead.helpCentreChanges({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'support.help_centre_list_limit_unset',
+    });
+    await expect((await as(CUSTOMER, ['support:read', 'support:write'])).helpCentreChanges({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect((await as(null)).helpCentreChanges({ limit: 10 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(await (await as(AGENT)).helpCentreChanges({ limit: 10 })).toEqual([]);
   });
 });

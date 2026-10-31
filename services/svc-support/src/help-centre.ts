@@ -4,7 +4,8 @@
  * The publish switch, the name, the address, the default language, the offered languages and the setup mode are each
  * null until the owner sets them. A read never turns a blank switch into on or off. Asking for a language while none
  * are offered refuses `support.languages_unset`. A translation the owner has not recorded reads as missing; the gap
- * is not stored until someone records it.
+ * is not stored until someone records it. The theme (system, light or dark) is a blank owner value like the rest.
+ * Every change is logged with who, why and the record before and after; `listChanges` reads that log newest first.
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -15,12 +16,15 @@ import {
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
   SUPPORT_HELP_CENTRE_REVISION_STALE,
   SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
+  SUPPORT_HELP_CENTRE_FIELDS,
   kbAudienceVisibleTo,
   supportHelpCentreAddressProblem,
   supportHelpCentreSchema,
   supportHelpCentreSetKey,
   supportHelpCentreTranslationKey,
   type SupportHelpCentre,
+  type SupportHelpCentreChange,
+  type SupportHelpCentreField,
   type SupportHelpCentreLanguage,
   type SupportHelpCentreSetInput,
   type SupportHelpCentreTranslation,
@@ -73,9 +77,13 @@ export class HelpCentreNotFoundError extends Error {
   }
 }
 
-type Values = Pick<SupportHelpCentre, 'name' | 'address' | 'defaultLanguage' | 'languages' | 'setupMode' | 'published'>;
+type Values = Pick<SupportHelpCentre, SupportHelpCentreField>;
 
-const FIELDS = ['name', 'address', 'defaultLanguage', 'languages', 'setupMode', 'published'] as const;
+/**
+ * The fields a change fingerprint covers positionally. Theme came later: it joins the fingerprint only when a change
+ * sets it, so a change logged before theme existed keeps its fingerprint and its replay still answers.
+ */
+const FINGERPRINT_FIELDS = ['name', 'address', 'defaultLanguage', 'languages', 'setupMode', 'published'] as const;
 
 export interface HelpCentreChange {
   readonly changes: Partial<Values>;
@@ -102,6 +110,7 @@ const blank = (): SupportHelpCentre => ({
   defaultLanguage: null,
   languages: null,
   setupMode: null,
+  theme: null,
   published: null,
   revision: 0,
   updatedAt: null,
@@ -115,6 +124,7 @@ export function helpCentreChangesOf(input: SupportHelpCentreSetInput): Partial<V
   if (input.defaultLanguage !== undefined) out.defaultLanguage = input.defaultLanguage;
   if (input.languages !== undefined) out.languages = input.languages === null ? null : [...input.languages];
   if (input.setupMode !== undefined) out.setupMode = input.setupMode;
+  if (input.theme !== undefined) out.theme = input.theme;
   if (input.published !== undefined) out.published = input.published;
   return out;
 }
@@ -126,6 +136,7 @@ function applyChanges(prior: SupportHelpCentre, changes: Partial<Values>): Value
     defaultLanguage: changes.defaultLanguage === undefined ? prior.defaultLanguage : changes.defaultLanguage,
     languages: changes.languages === undefined ? prior.languages : changes.languages,
     setupMode: changes.setupMode === undefined ? prior.setupMode : changes.setupMode,
+    theme: changes.theme === undefined ? prior.theme : changes.theme,
     published: changes.published === undefined ? prior.published : changes.published,
   };
 }
@@ -135,13 +146,33 @@ const sameList = (a: readonly string[] | null, b: readonly string[] | null): boo
   return a.length === b.length && a.every((tag, i) => tag === b[i]);
 };
 
-const sameValues = (a: Values, b: Values): boolean =>
-  a.name === b.name &&
-  a.address === b.address &&
-  a.defaultLanguage === b.defaultLanguage &&
-  sameList(a.languages, b.languages) &&
-  a.setupMode === b.setupMode &&
-  a.published === b.published;
+const sameField = (a: Values, b: Values, field: SupportHelpCentreField): boolean =>
+  field === 'languages' ? sameList(a.languages, b.languages) : a[field] === b[field];
+
+const sameValues = (a: Values, b: Values): boolean => SUPPORT_HELP_CENTRE_FIELDS.every((field) => sameField(a, b, field));
+
+/** The fields that differ between two records, in the contract's order. */
+export function helpCentreChangedFields(before: Values, after: Values): SupportHelpCentreField[] {
+  return SUPPORT_HELP_CENTRE_FIELDS.filter((field) => !sameField(before, after, field));
+}
+
+/** A record logged before theme existed reads with a blank theme, so the strict schema still parses it. */
+function settingsOf(raw: unknown): SupportHelpCentre {
+  const record = raw as Partial<SupportHelpCentre>;
+  return supportHelpCentreSchema.parse({ ...record, theme: record.theme ?? null });
+}
+
+function changeRow(row: SettingsLogRow): SupportHelpCentreChange {
+  return {
+    revision: row.after.revision,
+    by: row.by,
+    reason: row.reason,
+    at: row.at,
+    changed: helpCentreChangedFields(row.before, row.after),
+    before: row.before,
+    after: row.after,
+  };
+}
 
 /** The https href of an address the contract accepts. Anything else is the typed refusal, before a write. */
 export function canonicalHelpCentreAddress(value: string): string {
@@ -183,7 +214,8 @@ export function helpCentreCombinationProblem(values: Values): string | null {
 
 /** What identifies one change: the fields it sets, in a fixed order, and the reason. The actor and the time are not part of it. */
 export function helpCentreFingerprint(changes: Partial<Values>, reason: string): string {
-  const parts = FIELDS.map((field) => (changes[field] === undefined ? null : [field, changes[field]]));
+  const parts: unknown[] = FINGERPRINT_FIELDS.map((field) => (changes[field] === undefined ? null : [field, changes[field]]));
+  if (changes.theme !== undefined) parts.push(['theme', changes.theme]);
   return createHash('sha256')
     .update(JSON.stringify([parts, reason]))
     .digest('hex');
@@ -211,6 +243,8 @@ export interface HelpCentreBook {
   language(input: HelpCentreLanguageRead): Promise<SupportHelpCentreLanguage>;
   setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation>;
   listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList>;
+  /** The settings change log, newest first. A blank page size refuses `support.help_centre_list_limit_unset`. */
+  listChanges(limit: number | undefined): Promise<SupportHelpCentreChange[]>;
 }
 
 type SettingsLogRow = {
@@ -319,6 +353,12 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
     return { languages: [...languages], total: rows.length, rows: rows.slice(0, limit) };
   }
 
+  async listChanges(limit: number | undefined): Promise<SupportHelpCentreChange[]> {
+    assertLimit(limit);
+    // The log is appended in revision order: the newest page is its tail, reversed.
+    return this.log.slice(-limit!).reverse().map(changeRow);
+  }
+
   private requireOffered(language: string): void {
     if (this.state.languages === null) throw new HelpCentreLanguagesUnsetError();
     if (!this.state.languages.includes(language)) throw new HelpCentreInvalidError();
@@ -370,6 +410,7 @@ type SettingsRow = {
   default_language: string | null;
   languages: string[] | null;
   setup_mode: 'setup' | 'live' | null;
+  theme: 'system' | 'light' | 'dark' | null;
   published: boolean | null;
   revision: number;
   updated_at: Date | string | null;
@@ -383,6 +424,7 @@ const fromRow = (row: SettingsRow | undefined): SupportHelpCentre =>
         defaultLanguage: row.default_language,
         languages: row.languages,
         setupMode: row.setup_mode,
+        theme: row.theme ?? null,
         published: row.published,
         revision: row.revision,
         updatedAt: row.updated_at === null ? null : new Date(row.updated_at).toISOString(),
@@ -394,7 +436,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
 
   async get(): Promise<SupportHelpCentre> {
     const rows = await this.sql<SettingsRow[]>`
-      SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+      SELECT name, address, default_language, languages, setup_mode, theme, published, revision, updated_at
       FROM support.help_centre
     `;
     return fromRow(rows[0]);
@@ -408,7 +450,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       return (await this.sql.begin(async (tx) => {
         await tx`INSERT INTO support.help_centre (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
         const [locked] = await tx<SettingsRow[]>`
-          SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+          SELECT name, address, default_language, languages, setup_mode, theme, published, revision, updated_at
           FROM support.help_centre WHERE singleton FOR UPDATE
         `;
         const prior = fromRow(locked);
@@ -416,7 +458,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
           const [logged] = await tx<{ fingerprint: string; after: SupportHelpCentre }[]>`
             SELECT fingerprint, after FROM support.help_centre_log WHERE key = ${key}
           `;
-          if (logged?.fingerprint === fingerprint) return supportHelpCentreSchema.parse(logged.after);
+          if (logged?.fingerprint === fingerprint) return settingsOf(logged.after);
           throw new HelpCentreStaleError();
         }
         const next = applyChanges(prior, normalized.changes);
@@ -426,7 +468,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
         await tx`
           UPDATE support.help_centre
           SET name = ${after.name}, address = ${after.address}, default_language = ${after.defaultLanguage},
-              languages = ${after.languages}, setup_mode = ${after.setupMode}, published = ${after.published},
+              languages = ${after.languages}, setup_mode = ${after.setupMode}, theme = ${after.theme}, published = ${after.published},
               revision = ${after.revision}, updated_by = ${normalized.by}, updated_at = ${normalized.at}
           WHERE singleton
         `;
@@ -528,7 +570,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
     // One snapshot, so the languages, the total and the rows are read at the same moment.
     return this.sql.begin('isolation level repeatable read read only', async (tx) => {
       const [settingsRow] = await tx<SettingsRow[]>`
-      SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+      SELECT name, address, default_language, languages, setup_mode, theme, published, revision, updated_at
       FROM support.help_centre
     `;
       const settings = fromRow(settingsRow);
@@ -557,5 +599,25 @@ export class SqlHelpCentreBook implements HelpCentreBook {
         rows: rows.map((row) => ({ articleId: row.article_id, version: row.version, language: row.language, state: row.state })),
       };
     }) as Promise<SupportHelpCentreTranslationList>;
+  }
+
+  async listChanges(limit: number | undefined): Promise<SupportHelpCentreChange[]> {
+    assertLimit(limit);
+    const rows = await this.sql<{ before: unknown; after: unknown; set_by: string; reason: string; set_at: Date | string }[]>`
+      SELECT before, after, set_by, reason, set_at
+      FROM support.help_centre_log
+      ORDER BY revision_after DESC
+      LIMIT ${limit}
+    `;
+    return rows.map((row) =>
+      changeRow({
+        key: '',
+        before: settingsOf(row.before),
+        after: settingsOf(row.after),
+        by: row.set_by,
+        reason: row.reason,
+        at: new Date(row.set_at).toISOString(),
+      }),
+    );
   }
 }

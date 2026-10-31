@@ -6,7 +6,8 @@
  * refusal when a reader asks for a language and none are offered.
  *
  * The language-list length is a wire bound, not an owner cap: the owner value is the list itself, and an unset list is
- * `null`. Theme is not a stored field; the desk look stays the product tokens.
+ * `null`. Theme is the owner's choice of which product palette the public help centre opens in (`system`, `light` or
+ * `dark`); it is blank until the owner sets it and never a template editor: the look stays the product tokens.
  */
 import { z } from 'zod';
 
@@ -38,6 +39,10 @@ export const SUPPORT_HELP_CENTRE_LIST_LIMIT_MAX = 500;
 
 export const SUPPORT_HELP_CENTRE_SETUP_MODES = ['setup', 'live'] as const;
 export type SupportHelpCentreSetupMode = (typeof SUPPORT_HELP_CENTRE_SETUP_MODES)[number];
+
+/** The product palette the public help centre opens in. A blank theme is `null`, never a built-in choice. */
+export const SUPPORT_HELP_CENTRE_THEMES = ['system', 'light', 'dark'] as const;
+export type SupportHelpCentreTheme = (typeof SUPPORT_HELP_CENTRE_THEMES)[number];
 
 export const SUPPORT_HELP_CENTRE_TRANSLATION_STATES = ['translated', 'missing'] as const;
 export type SupportHelpCentreTranslationState = (typeof SUPPORT_HELP_CENTRE_TRANSLATION_STATES)[number];
@@ -110,6 +115,8 @@ export const supportHelpCentreSchema = z
     defaultLanguage: z.string().min(1).nullable(),
     languages: z.array(z.string().min(1)).nullable(),
     setupMode: z.enum(SUPPORT_HELP_CENTRE_SETUP_MODES).nullable(),
+    /** Blank until the owner sets it. A reply from a service that predates the field reads as blank, never as an error. */
+    theme: z.enum(SUPPORT_HELP_CENTRE_THEMES).nullable().default(null),
     published: z.boolean().nullable(),
     revision: z.number().int().min(0),
     updatedAt: z.string().datetime().nullable(),
@@ -128,6 +135,7 @@ export const supportHelpCentreSetInputSchema = z
     defaultLanguage: languageTag.nullable().optional(),
     languages: languagesField.optional(),
     setupMode: z.enum(SUPPORT_HELP_CENTRE_SETUP_MODES).nullable().optional(),
+    theme: z.enum(SUPPORT_HELP_CENTRE_THEMES).nullable().optional(),
     published: z.boolean().nullable().optional(),
     expectedRevision: z.number().int().min(0).max(2_147_483_646),
     reason: z.string().trim().min(1).max(SUPPORT_HELP_CENTRE_REASON_MAX),
@@ -140,6 +148,7 @@ export const supportHelpCentreSetInputSchema = z
       input.defaultLanguage !== undefined ||
       input.languages !== undefined ||
       input.setupMode !== undefined ||
+      input.theme !== undefined ||
       input.published !== undefined,
     { message: SUPPORT_HELP_CENTRE_SETTING_INVALID },
   );
@@ -239,6 +248,39 @@ export const supportHelpCentreTranslationListSchema = z
   })
   .strict();
 export type SupportHelpCentreTranslationList = z.infer<typeof supportHelpCentreTranslationListSchema>;
+
+export const supportHelpCentreChangesInputSchema = z
+  .object({
+    /**
+     * Page size. Optional so an omit reaches the named refusal `support.help_centre_list_limit_unset` instead of a
+     * schema "Required". Blank is not 100.
+     */
+    limit: z.number().int().positive().max(SUPPORT_HELP_CENTRE_LIST_LIMIT_MAX).optional(),
+  })
+  .strict();
+export type SupportHelpCentreChangesInput = z.infer<typeof supportHelpCentreChangesInputSchema>;
+
+/** The settings fields a change can touch, in the order the change log names them. */
+export const SUPPORT_HELP_CENTRE_FIELDS = ['name', 'address', 'defaultLanguage', 'languages', 'setupMode', 'theme', 'published'] as const;
+export type SupportHelpCentreField = (typeof SUPPORT_HELP_CENTRE_FIELDS)[number];
+
+/**
+ * One row of the settings change log (`helpCentreChanges`, `support:ops`): the revision it made, who, why, when, the
+ * record before and after, and the fields that differ. Append-only; newest first on the wire.
+ */
+export const supportHelpCentreChangeSchema = z
+  .object({
+    revision: z.number().int().positive(),
+    by: z.string().min(1),
+    reason: z.string().min(1),
+    at: z.string().datetime(),
+    changed: z.array(z.enum(SUPPORT_HELP_CENTRE_FIELDS)),
+    before: supportHelpCentreSchema,
+    after: supportHelpCentreSchema,
+  })
+  .strict();
+export type SupportHelpCentreChange = z.infer<typeof supportHelpCentreChangeSchema>;
+export const supportHelpCentreChangeListSchema = z.array(supportHelpCentreChangeSchema);
 
 /** The key a settings change is logged under. The revision it moves from makes a lost reply a replay, never a second change. */
 export function supportHelpCentreSetKey(expectedRevision: number): string {

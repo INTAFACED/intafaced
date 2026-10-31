@@ -210,6 +210,46 @@ export const setKbAudienceInputSchema = z.object({
 });
 export type SetKbAudienceInput = z.infer<typeof setKbAudienceInputSchema>;
 
+/** Router `kbAudienceChanges` input (`support:ops`): the article whose audience trail the desk reads. */
+export const kbAudienceChangesInputSchema = z.object({ id: z.string().min(1).max(200) }).strict();
+export type KbAudienceChangesInput = z.infer<typeof kbAudienceChangesInputSchema>;
+
+/**
+ * One audience change of one article (`support.kb_audience_changes`, append-only): the old and the new audience, the
+ * revision it moved from and the revision it wrote, who changed it and when. Oldest first on the wire.
+ */
+export const supportKbAudienceChangeSchema = z
+  .object({
+    articleId: z.string().min(1),
+    fromAudience: supportKbAudienceSchema,
+    toAudience: supportKbAudienceSchema,
+    fromRevision: z.number().int().positive(),
+    toRevision: z.number().int().positive(),
+    actorId: z.string().min(1),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+export type SupportKbAudienceChange = z.infer<typeof supportKbAudienceChangeSchema>;
+export const supportKbAudienceChangeListSchema = z.array(supportKbAudienceChangeSchema);
+
+/**
+ * Per-segment visibility (SP-help-centre-02). The number of segments one article may name is a blank owner value
+ * (`SUPPORT_KB_SEGMENT_CAP`): blank refuses `support.kb_segment_cap_unset`. With a cap set it still refuses
+ * `support.kb_segment_membership_unwired`: who is in a segment is svc-identity's answer, read through a contract that
+ * does not exist yet, so the desk never stores a restriction it cannot enforce.
+ */
+export const SUPPORT_KB_SEGMENT_CAP_UNSET = 'support.kb_segment_cap_unset';
+export const SUPPORT_KB_SEGMENT_MEMBERSHIP_UNWIRED = 'support.kb_segment_membership_unwired';
+
+/** Router `setKbSegment` input (`support:ops`): the article and the segment name the desk wants to restrict it to. */
+export const setKbSegmentInputSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    segment: z.string().trim().min(1).max(80),
+  })
+  .strict();
+export type SetKbSegmentInput = z.infer<typeof setKbSegmentInputSchema>;
+
 /**
  * Public get: missing and unpublished are the same answer (`null`).
  * Never throw — svc-support `getKb` is a query that returns null, not an error.

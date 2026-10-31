@@ -124,6 +124,11 @@ const schema = serviceEnvSchema
        */
       SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * How many segments one help article may be restricted to (SP-help-centre-02). Blank is an owner value left unset:
+       * restricting an article to a segment refuses support.kb_segment_cap_unset. Never defaulted.
+       */
+      SUPPORT_KB_SEGMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
        * The guest path (SP-tickets-01). The link lifetime, the per-address rate and its window, how long a guest's address
        * is kept, and the key (32 bytes as hex) that seals it. Each blank refuses every guest request by name
        * (support.guest_link_ttl_unset, support.guest_rate_limit_unset, support.guest_retention_unset,
