@@ -7,7 +7,6 @@ import { signIn, signUp, verify } from './desk.mjs';
 // opens the token rooms; each figure on screen is checked against the token service's own read, so no number is
 // invented and a blank owner value must read "not set". Steps whose slice is not built fail by name, cheaply:
 // - #1 has no slice: the room does not stake, because the staking asset is not published to the app.
-// - RC-more-catalogue-09 (#5): no supply and distribution read.
 // - RC-more-catalogue-04 (#6): no founding badge claim door.
 // - RC-more-catalogue-08 (#7): no IFC gas charge on any internal action.
 const J = 'J-more-catalogue-20';
@@ -129,10 +128,42 @@ test(`${J} #4 Opens the emission schedule: epochs, halvings and the minter rule;
   await expect(panel.getByTestId('emission-minter')).toHaveText(/^Only the token service mints/);
 });
 
-test(
-  `${J} #5 Opens the supply and distribution panel: supply and distribution from the service; missing figures "not reported"`,
-  notBuilt('RC-more-catalogue-09', 'svc-token has no supply and distribution read, and the economy page has no such panel'),
-);
+test(`${J} #5 Opens the supply and distribution panel: supply and distribution from the service; missing figures "not reported"`, async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const { client } = await holder(page);
+  const schedule = await read(client, 'emissionSchedule', { count: 12 });
+  const treasury = await read(client, 'treasury');
+  const buyback = await read(client, 'buybackRuns', { limit: 1 });
+  const absent = (reason) => (reason === 'token.params_invalid' ? 'cannot be read' : 'not reported');
+  await page.goto('/token/economy');
+  const panel = page.getByRole('region', { name: 'Supply and distribution', exact: true });
+  await expect(panel).toBeVisible();
+  const figures = panel.getByTestId('supply-figures');
+  const expected = [
+    ['Maximum supply (the published cap)', schedule.params ? shown(schedule.params.maxSupply) : absent(schedule.reason)],
+    ['Minted by emission', treasury.minted === null ? 'none: no epoch mint has closed' : shown(treasury.minted)],
+    ['Burned', shown(treasury.burned)],
+    [
+      'Buyback share of house fees',
+      buyback.rate ? `${buyback.rate.buybackBps.toLocaleString('en-US')} basis points` : absent(buyback.reason),
+    ],
+    [
+      'Share of each buyback burned',
+      buyback.rate ? `${buyback.rate.burnSplitBps.toLocaleString('en-US')} basis points` : absent(buyback.reason),
+    ],
+    // No service publishes an allocation schedule, so distribution is always "not reported" today.
+    ['Distribution', 'not reported'],
+  ];
+  for (const [label, value] of expected) {
+    const row = figures.locator('div', {
+      has: page.getByRole('term').filter({ hasText: new RegExp(`^${label.replace(/[()]/g, '\\$&')}$`) }),
+    });
+    await expect(row.getByRole('definition'), label).toHaveText(value);
+  }
+  await expect(panel.getByTestId('supply-distribution')).toHaveText(/^Distribution is not reported/);
+});
 
 test(
   `${J} #6 Claims the founding badge: the badge shown once`,
