@@ -7,7 +7,7 @@ settings:
 overrides:
   fast-uri@>=3.0.0 <3.1.9: 3.1.9
   fast-uri@>=4.0.0 <4.2.3: 4.2.3
-  follow-redirects@<1.16.1: 1.16.1
+  follow-redirects@<1.16.2: 1.16.2
   ip-address@>=10.0.0 <10.7.4: 10.7.4
   js-yaml@>=4.0.0 <4.3.1: 4.3.1
   nanoid@<3.3.18: 3.3.18
@@ -4913,8 +4913,8 @@ packages:
   flatted@3.4.3:
     resolution: {integrity: sha512-/zipXxyO6rGvuNGDiULY9MvEGSkb2gaG4GGH4ygMi0ZZzyMHdUZBmntJmx5x1G2VuPytCwGN4xsJP6cw+sK+vQ==}
 
-  follow-redirects@1.16.1:
-    resolution: {integrity: sha512-FNvFGzoMLWmE6Yj9spb/zjd7yiNCHiAW9/Tg9CXrQ8wuu32HtlJOwWO11OJafl5FfY3DxTdQ0vj42zU1kvv5jg==}
+  follow-redirects@1.16.2:
+    resolution: {integrity: sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -8326,7 +8326,7 @@ snapshots:
 
   flatted@3.4.3: {}
 
-  follow-redirects@1.16.1: {}
+  follow-redirects@1.16.2: {}
 
   foreground-child@3.3.1:
     dependencies:
@@ -9119,7 +9119,7 @@ snapshots:
     dependencies:
       command-exists: 1.2.9
       commander: 8.3.0
-      follow-redirects: 1.16.1
+      follow-redirects: 1.16.2
       js-sha3: 0.8.0
       memorystream: 0.3.1
       semver: 5.7.2

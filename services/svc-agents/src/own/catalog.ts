@@ -41,6 +41,23 @@ export const OWN_TEMPLATES = {
 export type OwnTemplate = keyof typeof OWN_TEMPLATES;
 export const OWN_TEMPLATE_IDS = Object.keys(OWN_TEMPLATES) as OwnTemplate[];
 
+/**
+ * The templates offered to a person, from `AGENTS_OWN_TEMPLATES` (AG-catalogue-02): a comma-separated list of template
+ * ids. Unset or blank offers every built-in template. `blank` is always offered, so "Start blank" is never taken away and a list
+ * of just `blank` offers nothing else. An id that is not a template stops the service at boot, never at a call.
+ */
+export function parseOwnTemplates(value: string | undefined): readonly OwnTemplate[] {
+  const ids = (value ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.length === 0) return OWN_TEMPLATE_IDS;
+  for (const id of ids) {
+    if (!OWN_TEMPLATE_IDS.includes(id as OwnTemplate)) throw new Error(`AGENTS_OWN_TEMPLATES names an unknown template: ${id}`);
+  }
+  return OWN_TEMPLATE_IDS.filter((id) => id === 'blank' || ids.includes(id));
+}
+
 /** Words the Agents room uses in its own addresses, and the product agents' ids, are not names a person may take. */
 export const RESERVED_NAMES: readonly string[] = [
   'new',

@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
-// Starter templates in Studio (J-algo-dev-01 #2). Names, versions and notes enter through parameters.
+// Starter templates in Studio (J-algo-dev-01 #2) and their read-only source (J-algo-dev-03 #4). Names, versions and notes enter through parameters.
 const en = {
   title: 'Starter templates',
   intro:
@@ -17,6 +17,12 @@ const en = {
   using: 'Reading the template',
   used: '{name} version {version} is in the form as a new draft. Fill in every number before you save.',
   showMore: 'Show more templates',
+  viewSource: 'View the source of {name}',
+  sourceTitle: 'Source of {name}',
+  versionPick: 'Version to read',
+  readOnly:
+    'Read only: a template is never edited here. Every number is a named blank you fill in after Use, and Use takes the newest version, version {version}.',
+  closeSource: 'Close the source',
 } as const;
 
 export const templatesCopy = defineCopy('quant.templates', en);

@@ -5,6 +5,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
+import { channelGuestMailSender, GuestVerificationService, outboxGuestMailSender } from './guests/verification.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { PostgresNotifyStore } from './store.js';
@@ -198,18 +199,28 @@ const account = new AccountPrefs(topicStore, digestStore, commandLog, () => chan
 const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), commandLog, () => channels.status());
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door and the approval call stay on the shared secrets alone.
 const s2s = s2sFromEnv(env, 'svc-notify');
+if (env.NOTIFY_SUPPORT_SERVICE_SECRET || s2s.s2sMode) {
+  const shared = [env.EDGE_PRINCIPAL_SECRET, process.env.INTERNAL_SERVICE_SECRET, env.NOTIFY_OPS_SERVICE_SECRET];
+  if (env.NOTIFY_SUPPORT_SERVICE_SECRET && shared.includes(env.NOTIFY_SUPPORT_SERVICE_SECRET))
+    throw new Error('Guest verification ingress requires a dedicated secret');
+  await sql`SELECT 1 FROM notify.guest_verifications LIMIT 1`.catch(() => {
+    throw new Error('Guest verification schema is missing — apply migration 0037_notify_guest_verifications');
+  });
+}
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const statusBook = new SqlStatusPageBook(sql);
+// One email transport for status mail and the guest verification door: the owner's gateway, the LOCAL TEST outbox, or none.
+const mailer = openStatusMailer({
+  appEnv: env.APP_ENV,
+  transport: env.NOTIFY_STATUS_MAIL_TRANSPORT,
+  outboxPath: env.NOTIFY_STATUS_MAIL_OUTBOX,
+  email: channels.get('email'),
+  publicOrigin: env.NOTIFY_PUBLIC_ORIGIN,
+});
 const statusSubscriptions = new StatusSubscriptions({
   store: new SqlSubscriptionStore(sql),
   page: statusBook,
-  mailer: openStatusMailer({
-    appEnv: env.APP_ENV,
-    transport: env.NOTIFY_STATUS_MAIL_TRANSPORT,
-    outboxPath: env.NOTIFY_STATUS_MAIL_OUTBOX,
-    email: channels.get('email'),
-    publicOrigin: env.NOTIFY_PUBLIC_ORIGIN,
-  }),
+  mailer,
   secret: env.NOTIFY_STATUS_LINK_SECRET ?? null,
   linkTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES ?? null,
   webhookTimeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
@@ -380,6 +391,18 @@ export const appRouter = createNotifyRouter(
   },
   statusPageDeps,
   new SqlNavMetricStore(sql),
+  // The guest verification door (ADR 2026-10-22 §3.5): links must open NOTIFY_PUBLIC_ORIGIN; blank refuses every send.
+  new GuestVerificationService(
+    sql,
+    mailer.kind === 'local-outbox' ? outboxGuestMailSender(mailer) : channelGuestMailSender(channels.get('email')),
+    {
+      origin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
+      enabled: env.NOTIFY_FANOUT_ENABLED && env.NOTIFY_OUT_OF_APP_ENABLED,
+      timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+      addressMaxPerWindow: env.NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW,
+      addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
+    },
+  ),
 );
 export type AppRouter = typeof appRouter;
 
@@ -387,6 +410,7 @@ const edgeContext = createGuestIngressContext({
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   opsSecret: env.NOTIFY_OPS_SERVICE_SECRET,
+  supportSecret: env.NOTIFY_SUPPORT_SERVICE_SECRET,
   ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
 });
 

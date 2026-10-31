@@ -9,6 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 
 import type { Market } from './types.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
 import {
   CancelTimeoutMatching,
@@ -364,8 +365,15 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
       expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
       expect(await held(ALICE, 'USDT')).toBe('200');
 
-      // Recovery: cancel. Engine answers not-live; hold comes back once.
-      await service.cancelOrder(principalFor(ALICE), orderId);
+      // A cancel: the engine answers not-live, so it may still have matched the order with the fill on its way. The
+      // hold stays (#6874), past the in-flight bound too.
+      expect((await service.cancelOrder(principalFor(ALICE), orderId)).status).toBe('recovery_required');
+      await sql`UPDATE trade.orders SET engine_absent_since = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1}) WHERE id = ${orderId}`;
+      expect((await service.cancelOrder(principalFor(ALICE), orderId)).status).toBe('recovery_required');
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+
+      // Recovery: reconcile reads the engine and the fills; nothing was matched, so the hold comes back once.
+      expect(await service.reconcileOrder(orderId)).toMatchObject({ action: 'released' });
       expect(await avail(ALICE, 'USDT')).toBe('1000');
       expect(await held(ALICE, 'USDT')).toBe('0');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);

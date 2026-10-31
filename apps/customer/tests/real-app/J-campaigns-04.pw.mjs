@@ -62,6 +62,8 @@ async function liveWelcome(name, { windowSeconds, blank = [] }) {
     endsAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
     participation: { exclusions: [], regionScope: 'platform' },
     budget: { asset: 'USDT', limit: '0.06' },
+    // TEST limits (CM-eligibility-rules-03), wide enough that only a step about limits meets them.
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
     tasks: { steps, claimWindowSeconds: null, holdSeconds: 0, kycGate: 'none', welcomeWindowSeconds: windowSeconds },
   };
   const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');

@@ -338,6 +338,11 @@ if (!available) {
       expect(await codeOf(who.api.linkSigninMethod({ method: 'password', clientRequestId: 'p2', password: next }))).toBe(
         'identity.method_already_linked',
       );
+      // Removing the password and setting one again are each a password change for the inbox; refusals queue nothing.
+      expect(await db.sql`SELECT change FROM security_factor_events WHERE user_id = ${who.userId} ORDER BY created_at`).toEqual([
+        { change: 'password_changed' },
+        { change: 'password_changed' },
+      ]);
     });
   });
 

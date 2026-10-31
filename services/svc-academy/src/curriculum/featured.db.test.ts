@@ -61,7 +61,7 @@ const visitor = (academy: AcademyService) =>
 describe('hub featured slot', () => {
   it('is empty until staff choose an item, then shows that item, and clears again', async () => {
     const academy = service();
-    expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    expect(await visitor(academy).publicHub()).toEqual({ featured: null, lesson: null });
 
     const chosen = await academy.setFeatured({ itemSlug: ' foundations-risk-first ', reason: 'Start here', operatorId: OPERATOR });
     expect(chosen).toMatchObject({ itemSlug: 'foundations-risk-first', reason: 'Start here' });
@@ -70,7 +70,7 @@ describe('hub featured slot', () => {
     expect(Object.keys(hub.featured!)).not.toContain('body');
 
     await academy.setFeatured({ itemSlug: null, reason: 'Rotating', operatorId: OPERATOR });
-    expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    expect(await visitor(academy).publicHub()).toEqual({ featured: null, lesson: null });
     // A clear of an empty slot records nothing; every real feature and clear is a featured_events row with who and why.
     await academy.setFeatured({ itemSlug: null, reason: 'Again', operatorId: OPERATOR });
     const events = await db.sql<Array<{ action: string; item_slug: string | null; reason: string; actor: string }>>`
@@ -90,14 +90,14 @@ describe('hub featured slot', () => {
     await expect(academy.setFeatured({ itemSlug: 'no-such-item', reason: 'x', operatorId: OPERATOR })).rejects.toMatchObject({
       code: 'academy.curriculum_not_found',
     });
-    expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    expect(await visitor(academy).publicHub()).toEqual({ featured: null, lesson: null });
     expect(await db.sql`SELECT 1 FROM academy.featured_events`).toHaveLength(0);
   });
 
   it('drops an item that has left the spine instead of showing it', async () => {
     await db.sql`INSERT INTO academy.featured_items (slot, item_slug, reason, chosen_by, chosen_at)
       VALUES ('hub', 'retired-item', 'old pick', ${OPERATOR}, now())`;
-    expect(await visitor(service()).publicHub()).toEqual({ featured: null });
+    expect(await visitor(service()).publicHub()).toEqual({ featured: null, lesson: null });
   });
 });
 
@@ -106,7 +106,7 @@ describe('hub featured slot and release rules', () => {
     const academy = service();
     await academy.setFeatured({ itemSlug: 'foundations-order-types', reason: 'Start here', operatorId: OPERATOR });
     await academy.setItemPrerequisites({ itemSlug: 'foundations-order-types', prerequisites: ['foundations-risk-first'] });
-    expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    expect(await visitor(academy).publicHub()).toEqual({ featured: null, lesson: null });
   });
 });
 
