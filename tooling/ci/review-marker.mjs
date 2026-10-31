@@ -252,7 +252,9 @@ function selfTest() {
     [input([pass('nino', `Independent review: PASS ${'b'.repeat(40)}`)]), false],
     [input([pass('nino', `Independent review: PASS ${sha} but not really`)]), false],
     [input([]), false],
-    [input([pass('nino', `Independent review: PASS ${sha}`)], { requireDistinctFromAuthor: true }), false],
+    // The author's own login never counts when the PR asks for a distinct reviewer, even with a session named.
+    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: true }), false],
+    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: false }), true],
     [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), false],
     [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
     [
