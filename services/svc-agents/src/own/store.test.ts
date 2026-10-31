@@ -96,6 +96,23 @@ if (!available) {
     await sql.end({ timeout: 5 });
   });
 
+  it('with only blank offered, the catalogue lists blank alone and a create from the starter is unknown', async () => {
+    const blankOnly = createAgentsRouter({
+      runtime: {} as AgentsRouterDeps['runtime'],
+      gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
+      meter: {} as AgentsRouterDeps['meter'],
+      feeAssetId: 'IFC',
+      sql,
+      ownTemplates: ['blank'],
+    }).createCaller(callerFor(USER, ['agents:read', 'identity:write']));
+    expect((await blankOnly.own.catalogue()).templates).toEqual([{ id: 'blank', tools: [] }]);
+    await expect(blankOnly.own.create({ template: 'service-starter', createKey: 'blank-only:starter' })).rejects.toMatchObject({
+      message: 'agents.own.template_unknown',
+    });
+    expect(await blankOnly.own.list({ limit: 10 })).toEqual([]);
+    expect((await blankOnly.own.create({ template: 'blank', createKey: 'blank-only:blank' })).tools).toEqual([]);
+  });
+
   it('creates a draft from the service starter with its tools and no cap; a retried create is the same draft, a new one the next', async () => {
     const before = await balance();
     const first = await person.own.create({ template: 'service-starter', createKey: 'picker:one' });

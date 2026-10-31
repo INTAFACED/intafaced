@@ -1351,6 +1351,8 @@ services:
       # The scanner, navigator and support doors' tier law (pass-through). Unset
       # refuses each door with tier_law_blank.
       AGENTS_TIER_LAWS:
+      # The own-agent templates the builder offers (pass-through). Unset offers every built-in template.
+      AGENTS_OWN_TEMPLATES:
       # The operator agent log's owner values (pass-through form, as above: an
       # empty string would be a present value). Unset refuses every log read,
       # and keeps no transcript.
