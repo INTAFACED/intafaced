@@ -1754,6 +1754,98 @@
         }
       }
     },
+    "/api/v1/algo": {
+      "get": {
+        "operationId": "fetchAlgoOrders",
+        "summary": "Your algo orders (TWAP, VWAP, POV, chase), newest first",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/algo/{id}": {
+      "get": {
+        "operationId": "fetchAlgoOrder",
+        "summary": "One algo order with its filled quantity",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
+      "patch": {
+        "operationId": "editAlgoOrder",
+        "summary": "Refused trade.algo_params_immutable: an algo order’s parameters are fixed at create",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/algo/{kind}": {
+      "post": {
+        "operationId": "createAlgoOrder",
+        "summary": "Place a twap, vwap, pov or chase order; the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built",
+        "tags": ["spot"],
+        "parameters": [{ "name": "kind", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/algo/{id}/cancel": {
+      "post": {
+        "operationId": "cancelAlgoOrder",
+        "summary": "Cancel an algo order; no new slices are placed",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "code", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with code trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/vip/applications": {
       "get": {
         "operationId": "fetchVipApplications",

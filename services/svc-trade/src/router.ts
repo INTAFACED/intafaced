@@ -60,9 +60,9 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk, presentChase, presentScheduleHonesty } from './algo/present.js';
+import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { MAX_ALGO_SEED } from './algo/schedule.js';
-import { awaitingTrigger, POV_BASES } from './algo/types.js';
+import { POV_BASES } from './algo/types.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -70,7 +70,7 @@ import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insuranc
 import { supportTradeSummaryRouter } from './support/router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
-import { ALGO_STOP_REASONS, algoStopReason, type AlgoStopReasonCode } from './algo/stop-reason.js';
+import { ALGO_STOP_REASONS, type AlgoStopReasonCode } from './algo/stop-reason.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -2096,38 +2096,6 @@ export function createTradeRouter(
 
     scale: scaleProcedures(trade),
   });
-}
-
-function presentAlgo(parent: import('./algo/index.js').TwapParent) {
-  return {
-    id: parent.id,
-    symbol: parent.symbol,
-    side: parent.side,
-    kind: parent.kind,
-    totalQty: formatAmount(parent.totalQty),
-    durationMs: parent.durationMs,
-    sliceIntervalMs: parent.sliceIntervalMs,
-    limitPrice: parent.limitPrice === null ? null : formatAmount(parent.limitPrice),
-    status: parent.status,
-    slicesPlanned: parent.slicesPlanned,
-    nextSliceIndex: parent.nextSliceIndex,
-    childrenEmitted: parent.children.length,
-    missesRecorded: parent.misses.length,
-    haltReason: parent.haltReason,
-    stopReason: algoStopReason(parent),
-    participationBps: parent.participationBps,
-    povBasis: parent.povBasis ?? null,
-    createdAt: parent.createdAt.toISOString(),
-    startedAt: parent.startedAt.toISOString(),
-    nextDueAt: parent.nextDueAt.toISOString(),
-    projectedEndsAt: parent.projectedEndsAt.toISOString(),
-    scheduleStretchReason: parent.scheduleStretchReason,
-    randomSeed: parent.randomSeed ?? null,
-    triggerPrice: parent.triggerPrice == null ? null : formatAmount(parent.triggerPrice),
-    triggeredAt: parent.triggeredAt ? parent.triggeredAt.toISOString() : null,
-    awaitingTrigger: awaitingTrigger(parent),
-    ...presentChase(parent),
-  };
 }
 
 export type TradeRouter = ReturnType<typeof createTradeRouter>;
