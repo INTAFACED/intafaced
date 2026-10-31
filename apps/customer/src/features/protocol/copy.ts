@@ -88,7 +88,7 @@ const en = {
   blocksEmpty: 'No block list is available here. The summary below shows how far the network has been read.',
   // Validators
   validatorsTitle: 'Validator set',
-  validatorsEmpty: 'There is no validator set: the INTACHAIN network is not running, so it is not connected here.',
+  validatorsEmpty: 'There is no validator set because the INTACHAIN network is not running.',
   hdr_validator: 'Validator',
   hdr_stake: 'Stake',
   hdr_status: 'Status',

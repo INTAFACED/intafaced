@@ -43,7 +43,7 @@ test(`${J} #1 opens Validators: the table headers and a sentence saying why it i
   const rows = bodyRows(validators);
   await expect(rows).toHaveCount(1);
   // The empty state draws its mark before the sentence; the sentence itself is the whole reason.
-  await expect(rows).toHaveText(/(^|\W)There is no validator set: the INTACHAIN network is not running, so it is not connected here\.$/);
+  await expect(rows).toHaveText(/(^|\W)There is no validator set because the INTACHAIN network is not running\.$/);
   await expect(rows.getByRole('link')).toHaveCount(0);
 });
 
