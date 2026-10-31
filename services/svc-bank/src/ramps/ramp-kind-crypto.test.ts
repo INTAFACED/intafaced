@@ -23,6 +23,17 @@ import { RampService } from './ramp-service.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './rails.js';
 import { memorySecurityLock } from '../security-lock.js';
 
+// The owner's destination sanctions list, a TEST entry for this file: without one every save and send refuses
+// bank.destination_sanctions_unset. No address these tests use is on it.
+const sanctionsBefore = process.env.BANK_DESTINATION_SANCTIONS;
+beforeAll(() => {
+  process.env.BANK_DESTINATION_SANCTIONS = '*:0x5a7c7100000000000000000000000000000ba5ed';
+});
+afterAll(() => {
+  if (sanctionsBefore === undefined) delete process.env.BANK_DESTINATION_SANCTIONS;
+  else process.env.BANK_DESTINATION_SANCTIONS = sanctionsBefore;
+});
+
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
 const migrations = readdirSync(drizzle)

@@ -31,6 +31,7 @@ import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debit
 import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { incomeSorterBody } from './sorter/income-sorter.js';
 import { rampProgrammeFor } from './ramps/rails.js';
+import { destinationSanctions } from './ramps/sanctions-list.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
 import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
@@ -316,6 +317,8 @@ const bank = createBankServices(sql, ledger, history, {
     programme: rampProgrammeFor(env.BANK_RAMP_MODE),
     offrampCoolingHours: env.BANK_OFFRAMP_COOLING_HOURS,
     addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
+    // The owner's destination sanctions list: blank refuses every address save (bank.destination_sanctions_unset).
+    sanctions: destinationSanctions(() => env.BANK_DESTINATION_SANCTIONS),
     walletProofWindowMinutes: env.BANK_WALLET_PROOF_WINDOW_MINUTES,
     addressApprovalLinkMinutes: env.BANK_ADDRESS_APPROVAL_LINK_MINUTES,
     walletProofValidDays: env.BANK_WALLET_PROOF_VALID_DAYS,

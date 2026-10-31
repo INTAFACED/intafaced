@@ -12,6 +12,7 @@ import { CRYPTO_LEDGER_PROGRAMME } from './ramps/rails.js';
 import { memoryWithdrawDestinations } from './withdraw-destination.js';
 import { memorySecurityLock } from './security-lock.js';
 import { memoryFraudList } from './ramps/fraud-list.js';
+import { memorySanctions } from './ramps/sanctions-list.js';
 
 function unusedSql(): Sql {
   const trap = () => {
@@ -52,6 +53,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
     const ramps = new RampService(unusedSql(), ledger, {
       securityLock: memorySecurityLock(),
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       offrampCoolingHours: '',
     });
@@ -78,6 +80,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
     const ramps = new RampService(unusedSql(), ledger, {
       securityLock: memorySecurityLock(),
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       destinations: dests,
       offrampCoolingHours: '48',
@@ -100,6 +103,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
     const ramps = new RampService(unusedSql(), ledger, {
       securityLock: memorySecurityLock(),
       fraudList: memoryFraudList(),
+      sanctions: memorySanctions(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       destinations: memoryWithdrawDestinations(),
       offrampCoolingHours: '48',

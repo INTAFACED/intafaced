@@ -276,6 +276,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.address_checksum_mismatch': 'BAD_REQUEST',
   'bank.address_lookalike': 'BAD_REQUEST',
   'bank.destination_fraud_listed': 'BAD_REQUEST',
+  'bank.destination_sanctions_listed': 'BAD_REQUEST',
+  'bank.destination_sanctions_unset': 'PRECONDITION_FAILED',
   'bank.wallet_proof_expired': 'BAD_REQUEST',
   'bank.wallet_proof_signature_invalid': 'BAD_REQUEST',
   'bank.wallet_proof_wrong_signer': 'BAD_REQUEST',
