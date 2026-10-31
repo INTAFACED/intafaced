@@ -5,7 +5,7 @@ import { homeCopy } from './copy';
 import { StatusTag } from './deps';
 import { homeNotices, type HomeNotice } from './notice-model';
 import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
-import { readLatestAnnouncements, readNoticeStatus } from '../../features/public/notices-api';
+import { NOTICE_LIST_LIMIT, readLatestAnnouncements, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
@@ -53,7 +53,8 @@ export function HomeNotices() {
   );
   const limit = config.resource.status === 'ready' ? config.resource.data.noticeStripLimit : null;
   const announcement = useResource(
-    (signal) => (limit === null ? Promise.resolve({ ok: true as const, data: [] }) : readLatestAnnouncements(api, limit, signal)),
+    (signal) =>
+      limit === null ? Promise.resolve({ ok: true as const, data: [] }) : readLatestAnnouncements(api, NOTICE_LIST_LIMIT, signal),
     `home-announcements:${limit ?? 'unset'}`,
   );
   useLogged(status.resource, 'notice status');
@@ -73,7 +74,10 @@ export function HomeNotices() {
   }, []);
   const lastStatus = useLastAnswer(status.resource);
   const lastAnnouncement = useLastAnswer(announcement.resource);
-  const { banner, strip } = useMemo(() => homeNotices(lastStatus, lastAnnouncement, now), [lastStatus, lastAnnouncement, now]);
+  const { banner, strip } = useMemo(
+    () => homeNotices(lastStatus, lastAnnouncement, now, limit),
+    [lastStatus, lastAnnouncement, now, limit],
+  );
   if (banner.length === 0 && strip.length === 0 && !stripUnset) return null;
   return (
     <div data-testid="home-notices" className="home-notices">

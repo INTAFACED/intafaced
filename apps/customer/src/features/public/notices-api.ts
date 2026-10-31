@@ -16,7 +16,7 @@ export const feedNotices = (rows: readonly Notice[]): Notice[] => rows.filter((r
 export const readNotices = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
   api.query('notify', 'notify.notices', { limit: NOTICE_LIST_LIMIT }, z.array(entrySchema).max(NOTICE_LIST_LIMIT), { signal });
 
-/** The latest `limit` published announcements, newest first (Home's strip; `limit` is the owner's strip count). */
+/** The latest `limit` published announcements, newest first, scheduled and closed ones included (Home's strip filters them). */
 export const readLatestAnnouncements = (api: ApiClient, limit: number, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
   api.query('notify', 'notify.notices', { kind: 'announcement', limit }, z.array(entrySchema).max(limit), { signal });
 

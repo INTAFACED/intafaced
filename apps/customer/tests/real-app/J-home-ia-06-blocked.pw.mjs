@@ -62,7 +62,7 @@ test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the 
     await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
     const unset = page.locator('[data-code="home.notice_strip_limit_unset"]');
     await expect(unset).toContainText(/not set/i, { timeout: 15_000 });
-    await expect(page.getByTestId('home-notice').filter({ has: page.locator('[data-kind="announcement"]') })).toHaveCount(0);
+    await expect(page.locator('[data-testid="home-notice"][data-kind="announcement"]')).toHaveCount(0);
   } finally {
     blankCount(false);
     await context.close();
