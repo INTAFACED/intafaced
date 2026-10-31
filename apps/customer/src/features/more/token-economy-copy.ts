@@ -21,6 +21,19 @@ const en = {
   mintedNone: 'Minted to date: no epoch mint has closed.',
   minterRule:
     'Only the token service mints, and only the scheduled reward of the next epoch, once per epoch and never above the cap, so near the cap an epoch mints only what is left of its scheduled reward. No person can start a mint, and an epoch with no published schedule mints nothing.',
+  supplyTitle: 'Supply and distribution',
+  supplyBody: 'Each figure is the one the token service reports. A figure it does not report reads "not reported" and shows no number.',
+  totalSupply: 'Total supply (the published cap)',
+  emitted: 'Minted by emission',
+  emittedNone: 'none: no epoch mint has closed',
+  burnedTotal: 'Burned',
+  buybackShare: 'Buyback share of house fees',
+  burnSplit: 'Share of each buyback burned',
+  bps: '{bps} basis points',
+  distribution: 'Distribution',
+  notReported: 'not reported',
+  distributionUnset:
+    'Distribution is not reported: no allocation schedule is published to the token service, so no holder group, share or vesting is shown.',
   yieldTitle: 'Your real yield',
   yieldBody:
     'Each week the token service pays stakers a share of house fees, pro rata to each stake and its multiplier, once per window. These are the payouts to this account, each read from its ledger posting.',
@@ -58,6 +71,20 @@ const es = {
   mintedNone: 'Acuñado hasta hoy: ninguna acuñación de época se ha cerrado.',
   minterRule:
     'Solo el servicio del token acuña, y solo la recompensa programada de la próxima época, una vez por época y nunca por encima del tope, así que cerca del tope una época solo acuña lo que queda de su recompensa programada. Ninguna persona puede iniciar una acuñación, y una época sin calendario publicado no acuña nada.',
+  supplyTitle: 'Suministro y distribución',
+  supplyBody:
+    'Cada cifra es la que informa el servicio del token. Una cifra que no informa dice "no informado" y no muestra ningún número.',
+  totalSupply: 'Suministro total (el tope publicado)',
+  emitted: 'Acuñado por emisión',
+  emittedNone: 'nada: ninguna acuñación de época se ha cerrado',
+  burnedTotal: 'Quemado',
+  buybackShare: 'Parte de las comisiones de la casa para recompras',
+  burnSplit: 'Parte de cada recompra que se quema',
+  bps: '{bps} puntos básicos',
+  distribution: 'Distribución',
+  notReported: 'no informado',
+  distributionUnset:
+    'La distribución no se informa: no hay un calendario de asignación publicado en el servicio del token, así que no se muestra ningún grupo de titulares, parte ni periodo de consolidación.',
   yieldTitle: 'Tu rendimiento real',
   yieldBody:
     'Cada semana el servicio del token paga a quienes tienen stake una parte de las comisiones de la casa, en proporción a cada stake y su multiplicador, una vez por ventana. Estos son los pagos a esta cuenta, cada uno leído de su asiento contable.',
@@ -95,6 +122,20 @@ const fr = {
   mintedNone: 'Frappé à ce jour : aucune frappe d’époque n’est close.',
   minterRule:
     'Seul le service du jeton frappe, et seulement la récompense prévue de la prochaine époque, une fois par époque et jamais au-delà du plafond : près du plafond, une époque ne frappe que ce qui reste de sa récompense prévue. Personne ne peut lancer une frappe, et une époque sans calendrier publié ne frappe rien.',
+  supplyTitle: 'Offre et répartition',
+  supplyBody:
+    'Chaque chiffre est celui que communique le service du jeton. Un chiffre qu’il ne communique pas indique « non communiqué » et n’affiche aucun nombre.',
+  totalSupply: 'Offre totale (le plafond publié)',
+  emitted: 'Frappé par émission',
+  emittedNone: 'rien : aucune frappe d’époque n’est close',
+  burnedTotal: 'Détruit',
+  buybackShare: 'Part des frais de la maison pour les rachats',
+  burnSplit: 'Part de chaque rachat détruite',
+  bps: '{bps} points de base',
+  distribution: 'Répartition',
+  notReported: 'non communiqué',
+  distributionUnset:
+    'La répartition n’est pas communiquée : aucun calendrier d’allocation n’est publié au service du jeton, donc aucun groupe de détenteurs, aucune part ni aucune acquisition progressive n’est affiché.',
   yieldTitle: 'Votre rendement réel',
   yieldBody:
     'Chaque semaine, le service du jeton verse aux stakers une part des frais de la maison, au prorata de chaque stake et de son multiplicateur, une fois par fenêtre. Voici les versements à ce compte, chacun lu dans son écriture comptable.',

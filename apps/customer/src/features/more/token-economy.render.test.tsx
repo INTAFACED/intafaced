@@ -9,15 +9,17 @@ vi.mock('../../shared/preferences', async (original) => {
 import { SessionProvider } from '../session/session';
 import {
   EmissionScheduleView,
+  SupplyView,
   YieldHistoryView,
   emissionScheduleSchema,
   type EmissionScheduleRead,
   type MintedRead,
   type YieldHistoryRead,
 } from './TokenEconomy';
+import type { BuybackRunsRead } from './BuybackRuns';
 
 const ready = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
-const schedule = (data: EmissionScheduleRead, minted: MintedRead = { minted: null }) =>
+const schedule = (data: EmissionScheduleRead, minted: MintedRead = { minted: null, burned: '0' }) =>
   renderToStaticMarkup(
     <SessionProvider>
       <EmissionScheduleView schedule={ready(data)} minted={ready(minted)} />
@@ -27,6 +29,22 @@ const yields = (data: YieldHistoryRead) =>
   renderToStaticMarkup(
     <SessionProvider>
       <YieldHistoryView read={ready(data)} />
+    </SessionProvider>,
+  );
+const supply = (data: EmissionScheduleRead, minted: MintedRead, rate: BuybackRunsRead['rate']) =>
+  renderToStaticMarkup(
+    <SessionProvider>
+      <SupplyView
+        schedule={ready(data)}
+        minted={ready(minted)}
+        buyback={ready({
+          job: 'unset',
+          runs: [],
+          rate,
+          missing: rate ? null : 'token_params.buyback_bps',
+          reason: rate ? null : 'token.params_unset',
+        } as BuybackRunsRead)}
+      />
     </SessionProvider>,
   );
 const unset = { params: null, epochs: null, missing: 'token_params', reason: 'token.params_unset' } as const;
@@ -55,7 +73,7 @@ describe('token economy: emission schedule', () => {
         missing: null,
         reason: null,
       },
-      { minted: '150.5' },
+      { minted: '150.5', burned: '0' },
     );
     expect(out).toContain('Every 2 epochs');
     expect(out).toContain('1,000');
@@ -119,5 +137,30 @@ describe('token economy: real yield', () => {
     const out = yields({ items: [], nextCursor: null });
     expect(out).toContain('aria-label="Payouts by window"');
     expect(out).toContain('No real-yield payout has been made to this account.');
+  });
+});
+
+describe('token economy: supply and distribution', () => {
+  it('with every owner value blank reports no number except the burn account balance', () => {
+    const out = supply(unset, { minted: null, burned: '0' }, null);
+    const figures = out.slice(out.indexOf('data-testid="supply-figures"'), out.indexOf('data-testid="supply-distribution"'));
+    expect(figures.match(/not reported/g)).toHaveLength(4);
+    expect(figures.replace(/<[^>]*>/g, '').replace('Burned0', '')).not.toMatch(/\d/);
+    expect(figures).toContain('none: no epoch mint has closed');
+    expect(out).toContain('Distribution is not reported');
+  });
+
+  it('shows each published figure as the service reports it; distribution stays not reported', () => {
+    const out = supply(
+      { params: { initialEpochReward: '100', halvingIntervalEpochs: 2, maxSupply: '1000000' }, epochs: [], missing: null, reason: null },
+      { minted: '150.5', burned: '20' },
+      { buybackBps: 2500, burnSplitBps: 6000 },
+    );
+    expect(out).toContain('1,000,000');
+    expect(out).toContain('150.5');
+    expect(out).toContain('2,500 basis points');
+    expect(out).toContain('6,000 basis points');
+    const figures = out.slice(out.indexOf('data-testid="supply-figures"'), out.indexOf('data-testid="supply-distribution"'));
+    expect(figures.match(/not reported/g)).toHaveLength(1);
   });
 });
