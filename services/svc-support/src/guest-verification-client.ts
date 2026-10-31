@@ -13,6 +13,7 @@ import {
   type GuestVerificationSendInput,
   type ServiceAuthMode,
   type ServiceSigner,
+  unwrapTrpcData,
 } from '@intafaced/contracts';
 
 /** svc-notify answered with one of the door's typed refusals. */
@@ -89,7 +90,7 @@ export function createGuestVerificationClient(options: {
           if (code.success) throw new GuestVerificationRefusal(code.data);
           return null;
         }
-        return (envelope as { result?: { data?: unknown } } | null)?.result?.data ?? null;
+        return unwrapTrpcData(envelope) ?? null;
       } catch (error) {
         if (error instanceof GuestVerificationRefusal) throw error;
         return null;
