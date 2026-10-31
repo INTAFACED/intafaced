@@ -111,7 +111,7 @@ describe('a TEST chain started again (over HTTP)', () => {
         deps,
         ACCOUNT,
         { address, owner: OWNER.address },
-        { chainId: CHAIN_ID, identity, mainnet: false },
+        { chainId: CHAIN_ID, identity, mainnet: false, restartable: true },
         await OWNER.signMessage({ message: badgeClaimMessage({ accountId: ACCOUNT, chainId: CHAIN_ID, address }) }),
       );
 
@@ -137,7 +137,7 @@ describe('a TEST chain started again (over HTTP)', () => {
     expect(second.genesisHash).toBe(`0x${'b2'.repeat(32)}`);
     expect(second.genesisHash).not.toBe(first.genesisHash);
 
-    expect(await badgeEligibility(deps, ACCOUNT, { chainId: CHAIN_ID, identity, mainnet: false })).toMatchObject({
+    expect(await badgeEligibility(deps, ACCOUNT, { chainId: CHAIN_ID, identity, mainnet: false, restartable: true })).toMatchObject({
       claimed: false,
       txHash: null,
     });
