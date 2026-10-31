@@ -1,4 +1,5 @@
-import { useEffect, useId, useReducer, useRef, type FormEvent } from 'react';
+import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
+import { z } from 'zod';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { navigate } from '../../app/location';
@@ -20,6 +21,9 @@ import {
 import { recoveryCopy } from './password-recovery-copy';
 import './public-pages.css';
 
+/** Whether reset mail can leave the server at all (`auth.passwordResetChannel`); the same answer for every visitor. */
+const channelSchema = z.object({ emailDelivery: z.enum(['on', 'off']) });
+
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;
 
@@ -40,6 +44,15 @@ export function PasswordRecovery() {
   const abort = useRef<AbortController | null>(null);
   const states = stepStates(state.step);
   const problemId = useId();
+  const [mailOff, setMailOff] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.query('identity', 'auth.passwordResetChannel', undefined, channelSchema, { signal: controller.signal }).then((channel) => {
+      if (!controller.signal.aborted && channel.ok) setMailOff(channel.data.emailDelivery === 'off');
+    });
+    return () => controller.abort();
+  }, [api]);
 
   useEffect(() => {
     mounted.current = true;
@@ -121,6 +134,11 @@ export function PasswordRecovery() {
         <h1>{copy.t('title')}</h1>
         <p className="muted">{copy.t('intro')}</p>
       </header>
+      {mailOff && (
+        <p className="pub-notice" role="status">
+          {copy.t('mailOff')}
+        </p>
+      )}
       <ol className="pub-steps" aria-label={copy.t('stepsLabel')}>
         {RECOVERY_STEPS.map((step, index) => (
           <li key={step} className={`pub-step pub-step--${states[step]}`} aria-current={states[step] === 'current' ? 'step' : undefined}>

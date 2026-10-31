@@ -22,6 +22,7 @@ const messages = {
   saving: 'Saving…',
   askAgain: 'Ask for a new code',
   codeOnItsWay: 'If an account uses this email, a code is on its way. It can take a few minutes to arrive.',
+  mailOff: 'Email delivery is switched off in this build, so a reset code cannot be sent. Contact support below to get back in.',
   invalidEmail: 'Enter the email address on your account.',
   codeMissing: 'Enter the code from the email.',
   doneBody:
@@ -56,6 +57,8 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     saving: 'Guardando…',
     askAgain: 'Pedir un código nuevo',
     codeOnItsWay: 'Si una cuenta usa este correo, el código va en camino. Puede tardar unos minutos en llegar.',
+    mailOff:
+      'El envío de correos está desactivado en esta versión, así que no se puede enviar un código. Contacta con soporte más abajo para recuperar el acceso.',
     invalidEmail: 'Escribe el correo electrónico de tu cuenta.',
     codeMissing: 'Introduce el código del correo.',
     doneBody:
@@ -88,6 +91,8 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     saving: 'Enregistrement…',
     askAgain: 'Demander un nouveau code',
     codeOnItsWay: 'Si un compte utilise cette adresse, un code est en route. Il peut mettre quelques minutes à arriver.',
+    mailOff:
+      "L'envoi d'e-mails est désactivé dans cette version, donc aucun code ne peut être envoyé. Contactez le support ci-dessous pour retrouver l'accès.",
     invalidEmail: 'Saisissez l’adresse e-mail de votre compte.',
     codeMissing: 'Saisissez le code reçu par e-mail.',
     doneBody:

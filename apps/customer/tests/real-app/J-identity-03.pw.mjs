@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { mailedLines, signUpInBrowser } from './stack.mjs';
+import { mailedLines, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-03, in the running app (docs/roadmap/journeys.json): I forgot my password or my handle. One test per step,
 // titled "J-identity-03 #<n>". Every person is a TEST person on the local stack, signed up through the browser
@@ -70,6 +70,23 @@ test(`${J} #1 the find-password page answers the same whether or not the account
   await nextResetCode(who.email, seen);
   expect(mailedLines(unknown, 'password-reset')).toHaveLength(0);
   expect(mailedLines(unknown, 'reset-no-account')).toHaveLength(0);
+
+  // With mail switched off on the server, the page names it before anyone asks, the same for every visitor.
+  process.env.LOCAL_STACK_IDENTITY_MAIL = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+    await page.goto('/findPwd');
+    await expect(page.getByRole('status').filter({ hasText: 'Email delivery is switched off in this build' })).toContainText(
+      'so a reset code cannot be sent',
+      { timeout: 15_000 },
+    );
+  } finally {
+    delete process.env.LOCAL_STACK_IDENTITY_MAIL;
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  }
+  await page.goto('/findPwd');
+  await expect(page.getByLabel('Email address', { exact: true })).toBeVisible();
+  await expect(page.getByText('Email delivery is switched off in this build')).toHaveCount(0);
 });
 
 test(`${J} #2 the code step: three wrong codes lock the reset, and a used code is refused`, async ({ page, browser }) => {
