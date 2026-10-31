@@ -67,6 +67,18 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   await page.getByRole('button', { name: 'Account menu' }).click();
   await switcher(page).getByRole('link', { name: 'Web3' }).click();
   await expect(page).toHaveURL(/\/dex\/pools$/);
+
+  // On a phone the bottom bar differs too: Web3 has its own sections, never the Exchange's doors, and back again.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const web3Bar = page.getByRole('navigation', { name: 'Web3 sections on phone' });
+  const exchangeBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
+  await expect(web3Bar).toBeVisible();
+  expect(await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
+  await expect(web3Bar.getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
+  await expect(exchangeBar).toHaveCount(0);
+  await page.goto('/money');
+  await expect(exchangeBar).toBeVisible();
+  await expect(web3Bar).toHaveCount(0);
   await page.context().close();
 });
 
@@ -74,16 +86,20 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   browser,
 }) => {
   const page = await device(browser);
-  await page.goto('/dex/pools/TEST-pool');
-  await expectWeb3(page);
-  await expect(page.getByRole('heading', { name: 'Pool TEST-pool' })).toBeVisible();
-  await expect(page.getByText('Blocked by')).toBeVisible();
-  await expect(page.getByText('The indexer reader for this page is not built in this build.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
-
+  // Every indexer room is built now (the pool page since #6880), so the room still waiting is the wallet one: its full
+  // layout, the blocker named, and the way back.
   await page.goto('/dex/pools/new');
   await expectWeb3(page);
+  await expect(page.getByText('Blocked by')).toBeVisible();
   await expect(page.getByText('Wallet connection is not built in this build, so there is nothing to sign with or read.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
+
+  // A malformed pool id is not found, with no lookup and no blocker: the page says so in words.
+  await page.goto('/dex/pools/TEST-pool');
+  await expectWeb3(page);
+  await expect(page.locator('[data-code="protocol.not_found"]')).toBeVisible();
+  await expect(page.getByText('Not found on this network').first()).toBeVisible();
+  await expect(page.getByText('Blocked by')).toHaveCount(0);
 
   await page.goto('/chain/tx/not-a-hash');
   await expectWeb3(page);

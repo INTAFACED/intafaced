@@ -1356,12 +1356,54 @@ function testChain() {
 }
 
 /**
+ * What services stored from the TEST chain: rows that describe blocks and logs of one node. A new anvil starts at
+ * block 0 with other hashes, so rows kept from an earlier node make the indexer see a chain that is not its own and halt
+ * (`indexer.halted`). Each entry is the service and the schema of the stack's one database it keeps those rows in.
+ */
+export const CHAIN_DERIVED = [{ service: 'indexer', schema: 'indexer' }];
+
+/**
+ * SQL that empties every table in `schema` but its migration journal (`__migrations`), so the tables and the record of
+ * which migrations ran both stay. It waits at most 10 s for a lock, so a session left holding one fails the start by
+ * name instead of hanging it.
+ */
+export function emptySchemaSql(schema) {
+  if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`not a schema name: ${schema}`);
+  return `SET lock_timeout = '10s';
+DO $$ DECLARE t text; BEGIN
+  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO t FROM pg_tables
+    WHERE schemaname = '${schema}' AND tablename <> '__migrations';
+  IF t IS NOT NULL THEN EXECUTE 'TRUNCATE ' || t || ' RESTART IDENTITY CASCADE'; END IF;
+END $$;`;
+}
+
+/**
+ * A new TEST chain: every service that stored the old one's blocks is stopped and its chain rows emptied, so it starts
+ * again from the new node's block 0. Called only when this script starts a new anvil, never for a running one.
+ */
+async function forgetOldChain(secrets) {
+  const procs = readProcs();
+  const stopped = [];
+  for (const { service, schema } of CHAIN_DERIVED) {
+    if (ownedAlive(procs[service])) {
+      say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
+      stopped.push(service);
+    }
+    psql(secrets, emptySchemaSql(schema), { db: DB_NAME });
+    say(`  ${service}: rows from the earlier TEST chain emptied (schema ${schema}); it reads the new chain from block 0`);
+  }
+  return stopped;
+}
+
+/**
  * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
  * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
- * journeys fail later for a reason the log no longer shows.
+ * journeys fail later for a reason the log no longer shows. Returns the services it stopped for a new chain
+ * (forgetOldChain), which the start brings back even when `--only` leaves them out.
  */
-async function startTestChain() {
+async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
+  let renewed = false;
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1373,13 +1415,15 @@ async function startTestChain() {
       }
     }
     say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
-    return;
+    return [];
   }
   if (!ownedAlive(procs.chain)) {
     for (const port of Object.values(CHAIN_PORTS))
       if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
-    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
+    // service stored from it.
     fs.rmSync(chainRecordPath(STATE), { force: true });
+    renewed = true;
     startProc(
       'chain',
       [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
@@ -1401,6 +1445,8 @@ async function startTestChain() {
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+  // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
+  return renewed ? forgetOldChain(secrets) : [];
 }
 
 async function rpcChainId() {
@@ -1741,6 +1787,20 @@ function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
 }
 
+/**
+ * Why the indexer halted, or null. It stays up and answers /health when it halts (its projection no longer matches the
+ * chain), so only /ready says so; a /ready that is down for another reason (no chain door yet) is not a halt.
+ */
+async function indexerHalt() {
+  const r = await httpGet(`${urlOf('indexer')}/ready`, 2500);
+  try {
+    const body = JSON.parse(r.text);
+    return body?.haltedAt ? String(body.reason ?? 'no reason given').slice(0, 120) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function healthTable({ gateMarket = false } = {}) {
   const procs = readProcs();
   const rows = [];
@@ -1764,7 +1824,9 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   for (const n of serviceNames()) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
+    const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
+    const state = r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
   }
   if (procs.chain) {
     const status = await chainStatus();
@@ -1885,15 +1947,27 @@ async function cmdStart(flags) {
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
-  // Migrate only what is about to start: a service that is already running was migrated when it started.
-  const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
+  // Migrate only what is about to start: a service that is already running on the current build was migrated when it
+  // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
+  const backendBuild = currentBuild('backendBuild');
+  const procsNow = readProcs();
+  const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
+  // An old build never serves a schema migrated past it: stop it before its migrations run.
+  for (const d of toStart) await stopForNewBuild(d.name, procsNow[d.name], backendBuild, PORTS[d.name]);
   await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
   await startNats();
   ensureStreams();
-  if (!only || only.includes('protocol')) await startTestChain();
+  const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
+  // A service stopped for the new chain that this start did not plan for is migrated before it comes back.
+  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
+  if (extra.length)
+    await migrate(
+      secrets,
+      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
+    );
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1906,7 +1980,10 @@ async function cmdStart(flags) {
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices(wanted);
+  await startServices([
+    ...wanted,
+    ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
+  ]);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();

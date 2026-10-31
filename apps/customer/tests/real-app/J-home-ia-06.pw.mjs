@@ -32,11 +32,12 @@ let kept;
 
 /**
  * Home after both notice reads have answered, so "nothing drawn" is an answer and not a page still loading. Returns what
- * the two reads answered: { status, current }, each the tRPC reply's JSON.
+ * the two reads answered: { status, current }, each the tRPC reply's JSON; `current` is the strip's read of the latest
+ * announcements (`notify.notices` of kind announcement, made once the owner's strip count is read from home.config).
  */
 async function openHome() {
   const status = page.waitForResponse((res) => res.url().includes('/notify.noticeStatus'));
-  const current = page.waitForResponse((res) => res.url().includes('/notify.announcement'));
+  const current = page.waitForResponse((res) => res.url().includes('/notify.notices') && res.url().includes('announcement'));
   await page.goto('/home');
   const [statusRes, currentRes] = await Promise.all([status, current]);
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeAttached();
@@ -76,7 +77,7 @@ async function expectNoNoticeRows() {
 /** Both of Home's notice reads answered ok: a failed read also draws nothing, so "nothing" must be an answer. */
 function expectAnswered({ status, current }) {
   expect(status.ok, JSON.stringify(status.json)).toBe(true);
-  expect(current.ok || refusalCode(current.json) === 'notify.announcement_unset', JSON.stringify(current.json)).toBe(true);
+  expect(current.ok, JSON.stringify(current.json)).toBe(true);
 }
 
 /** svc-notify stopped for `run`, then started again whatever happened; a failed start never hides `run`'s own failure. */
@@ -133,10 +134,18 @@ test.afterAll(async () => {
 test(`${J} #1 with nothing published, Home draws no strip and no banner`, async () => {
   const { status, current } = await openHome();
   // Both reads answered, and answered "nothing": the status read with no incident and no maintenance window, and the
-  // announcement read with its one typed answer for none published. A refused read would also draw nothing.
+  // announcements read with no open announcement. A refused read would also draw nothing.
   expect(status.ok, JSON.stringify(status.json)).toBe(true);
   expect(status.json.result.data).toMatchObject({ incidents: [], maintenance: [] });
-  expect(refusalCode(current.json), JSON.stringify(current.json)).toBe('notify.announcement_unset');
+  expect(current.ok, JSON.stringify(current.json)).toBe(true);
+  // notify.notices also returns closed and scheduled announcements (a reused stack keeps earlier runs' ones); none is
+  // open now, which is what Home's strip draws from.
+  const now = Date.now();
+  const open = current.json.result.data.filter(
+    (row) =>
+      row.kind === 'announcement' && !(row.startsAt && Date.parse(row.startsAt) > now) && !(row.endsAt && Date.parse(row.endsAt) <= now),
+  );
+  expect(open, JSON.stringify(current.json)).toEqual([]);
   await expectNoNoticeRows();
 });
 
@@ -316,7 +325,7 @@ test(`${J} #1 with the notice service down, Home draws no strip and no banner, t
       // One line per failed read: Home re-reads, so a line may repeat; each read's line is there, and no other.
       await expect.poll(() => new Set(warnings).size).toBe(2);
       expect([...new Set(warnings)].sort()).toEqual([
-        expect.stringMatching(/^home notices: announcement unread \(\S+\)$/),
+        expect.stringMatching(/^home notices: announcements unread \(\S+\)$/),
         expect.stringMatching(/^home notices: notice status unread \(\S+\)$/),
       ]);
     } finally {

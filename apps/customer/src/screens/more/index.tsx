@@ -3,9 +3,9 @@ import type { ScreenProps } from '../../app/screen-types';
 import { moreCopy } from './copy';
 import { doorLabel, roomTitle } from '../../app/navigation';
 import { usePreferences } from '../../shared/preferences';
-import { allServices, visibleSections, type ServiceGroupId } from './tiles';
+import { allServices, sectionId, visibleSections, type ServiceGroupId } from './tiles';
 
-/** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only live ones are drawn. */
+/** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only a hidden route is left out. */
 export default function MoreScreen(_props: ScreenProps) {
   const { t } = moreCopy.useCopy();
   const { language } = usePreferences();
@@ -16,8 +16,8 @@ export default function MoreScreen(_props: ScreenProps) {
         {t('More')}
       </h1>
       {visibleSections().map(({ section, tiles }) => (
-        <section key={section} className="more-section" aria-labelledby={`more-${section}`}>
-          <h2 data-testid="more-h2" className="more-h2" id={`more-${section}`}>
+        <section key={section} className="more-section" aria-labelledby={sectionId(section)}>
+          <h2 data-testid="more-h2" className="more-h2" id={sectionId(section)}>
             {t(section)}
           </h2>
           <ul className="more-hub-grid">

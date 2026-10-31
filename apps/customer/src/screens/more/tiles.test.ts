@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { findRoom, rooms, type Room } from '../../app/navigation';
-import { isFeatureLive, isHiddenPath } from '../../app/feature-registry';
+import { features, isFeatureLive, isHiddenPath } from '../../app/feature-registry';
 import { moreCopy } from './copy';
-import { allServices, TILES, visibleSections } from './tiles';
+import { allServices, SECTIONS, sectionId, TILES, visibleSections } from './tiles';
 
-const allLive = { hidden: () => false, featureLive: () => true };
+const allLive = { hidden: () => false };
 
 describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
   it('draws the sections in IA-SPEC order, with the spec tiles', () => {
@@ -61,19 +61,40 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
     }
   });
 
-  it('drops a tile whose screen is hidden or whose registry feature is not live, and a section left empty', () => {
-    const groups = visibleSections({
-      hidden: (path) => path === '/view' || path === '/uc/promotion' || path === '/campaigns',
-      featureLive: (id) => id !== 'help-support',
-    });
-    expect(groups.map((group) => group.section)).not.toContain('Help');
+  it('drops only a tile whose screen is hidden, and a section left empty; a blocked registry row stays', () => {
+    const groups = visibleSections({ hidden: (path) => path === '/view' || path === '/uc/promotion' || path === '/campaigns' });
     expect(groups.map((group) => group.section)).not.toContain('Rewards');
+    expect(groups.map((group) => group.section)).toContain('Help');
     expect(groups.find((group) => group.section === 'Account')!.tiles.map((tile) => tile.id)).toEqual([
       'account',
       'security',
       'verification',
       'notifications',
     ]);
+  });
+
+  it('gives every section an id made from its key: no spaces, unique', () => {
+    const ids = SECTIONS.map(sectionId);
+    for (const id of ids) expect(id).toMatch(/^more-[a-z0-9-]+$/);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(sectionId('Learn and build')).toBe('more-learn-and-build');
+  });
+
+  it('hides no registry row: every address of every row opens from More, from its parent room, by redirect, or is a flow', () => {
+    const linked = [...TILES.map((tile) => tile.href), ...allServices().flatMap((group) => group.rooms.map((room) => room.path))];
+    const reachable = (path: string): boolean => {
+      if (linked.includes(path) || linked.some((room) => path.startsWith(`${room}/`))) return true;
+      const room = rooms.find((candidate) => candidate.path === path);
+      // An old address redirects to a room that is reachable; a flow page (consent, claim) is opened by a redirect, not a link.
+      return room?.alias ? reachable(room.alias) : room?.hidden === true;
+    };
+    for (const feature of features) {
+      // A hidden row is the one status that leaves More; none is hidden today (owner order 2026-10-17: nothing is hidden).
+      expect(feature.status, `${feature.id} is hidden, so More leaves it out`).not.toBe('hidden');
+      for (const path of feature.paths.filter((candidate) => !/[:*]/.test(candidate))) {
+        expect(reachable(path), `${feature.id}: ${path} is not reachable from More`).toBe(true);
+      }
+    }
   });
 
   it('every tile opens a real screen: not hidden, not an alias (no redirect), and only the Web3 tiles leave the shell', () => {
@@ -138,7 +159,7 @@ describe('All services (generated from the route table)', () => {
   });
 
   it('leaves out a room whose feature is hidden, and lists the public information pages', () => {
-    const groups = allServices({ hidden: (path) => path === '/p2p', featureLive: () => true });
+    const groups = allServices({ hidden: (path) => path === '/p2p' });
     expect(groups.flatMap((group) => group.rooms.map((room) => room.path))).not.toContain('/p2p');
     expect(groups.find((group) => group.id === 'Information')!.rooms.map((room) => room.path)).toEqual(
       expect.arrayContaining(['/help', '/notice', '/invite']),

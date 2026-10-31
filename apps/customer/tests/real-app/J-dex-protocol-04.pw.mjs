@@ -123,26 +123,54 @@ test(`${J} #4 opens Receive: the address, a code and a warning naming the networ
 test(`${J} #5 scans a code on a phone: an address opens Send pre-filled, a token address opens its page, a connection code opens the confirm, unknown reads "Not recognised"`, async ({
   page,
 }) => {
-  await connectWallet(page, dex, { tokens: [TOKEN_A] });
-  await walletSection(page, 'Scan');
+  // A phone: its viewport, and its camera. Headless Chromium has no camera and no code reader, so both are stood in for
+  // at the browser's edge: the camera gives a blank stream and the reader returns what the next code holds. The app's own
+  // camera path (Use the camera, the video, the read loop) runs unchanged.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    window.__codes = [];
+    window.BarcodeDetector = class {
+      static async getSupportedFormats() {
+        return ['qr_code'];
+      }
+      async detect() {
+        return window.__codes.length > 0 ? [{ rawValue: window.__codes.shift() }] : [];
+      }
+    };
+    navigator.mediaDevices.getUserMedia = async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const paint = canvas.getContext('2d');
+      // A canvas stream carries a frame only when the canvas is painted: keep painting so the video always has one.
+      setInterval(() => paint.fillRect(0, 0, 2, 2), 50);
+      return canvas.captureStream();
+    };
+  });
+  const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const asked = { requests: wallet.requests.length, sends: wallet.sends.length };
   const scan = page.getByRole('region', { name: 'Scan a code' });
-  // The camera is stood in for by pasting what the code holds.
-  const read = async (text) => {
-    await scan.getByRole('textbox', { name: /^Or paste what the code holds/ }).fill(text);
-    await scan.getByRole('button', { name: 'Read' }).click();
+  const scanCode = async (text) => {
+    await walletSection(page, 'Scan');
+    await scan.getByRole('button', { name: 'Use the camera' }).click();
+    await expect(scan.getByLabel('Use the camera')).toBeVisible();
+    await page.evaluate((code) => window.__codes.push(code), text);
   };
-  await read(`ethereum:${FRIEND}`);
+  await scanCode(`ethereum:${FRIEND}`);
   await expect(send(page).getByRole('textbox', { name: /^To/ })).toHaveValue(FRIEND);
   expect(await send(page).getByRole('button', { name: 'Send' }).count()).toBe(0);
-  await walletSection(page, 'Scan');
-  await read(`ethereum:${TOKEN_A.address}@84532`);
+  // Unsubmitted: no review is open, and the wallet was asked for nothing.
+  await expect(page.getByRole('dialog', { name: 'Review the send' })).toHaveCount(0);
+  expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
+  await scanCode(`ethereum:${TOKEN_A.address}@84532`);
   await expect(page).toHaveURL(new RegExp(`/dex/tokens/${TOKEN_A.address}$`, 'i'));
   await page.goBack();
-  await read('wc:00000000-0000-4000-8000-000000000000@2?relay-protocol=irn&symKey=00');
+  await scanCode('wc:00000000-0000-4000-8000-000000000000@2?relay-protocol=irn&symKey=00');
   await expect(page.getByRole('dialog', { name: 'Connect to this app?' })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
-  await read('hello');
+  await scanCode('hello');
   await expect(scan.getByRole('alert')).toHaveText('Not recognised');
+  expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
 });
 
 test(`${J} #6 creates a claim link for TEST tokens: amount and expiry; the recipient claims once and a second claim fails; claw back after expiry`, async ({

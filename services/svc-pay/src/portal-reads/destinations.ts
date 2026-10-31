@@ -1,14 +1,17 @@
 import type { Sql } from 'postgres';
 import { maskDestination, safeDestinationLabel } from '../control/mask-destination.js';
 import type { PayFail } from './common.js';
+import { lifecycleOfColumns, promoteDueHeldDestinations, type DestinationLifecycle } from '../merchant-payout-destination.js';
 import { assertPortalPageLimit, portalFilters, pageCursor } from './common.js';
 
 /**
  * DESTINATION INVENTORY.
  *
- * `merchant.setPayoutDestination` and `merchant.payoutDestinations.change`
- * add or change the one row for a rail. Adding the first one needs step-up.
- * Changing a verified one needs step-up and the hold. A payout cannot name
+ * `merchant.payoutDestinations.add` saves the one row for a rail unverified
+ * (no step-up; not payable). `merchant.setPayoutDestination` and
+ * `merchant.payoutDestinations.change` verify it with step-up: it is then
+ * held until `activatesAt` and active after. Changing a verified one needs
+ * step-up and the hold. Each item carries `state` and `activatesAt`. A payout cannot name
  * a destination. Remove applies only to unverified rows. A verified
  * destination changes only through step-up plus the hold. Set-default is an
  * owner write: it does not change the paid ref, and it needs no second
@@ -46,17 +49,31 @@ export interface PayoutDestinationItem {
   defaultFlag: 'unset' | 'default';
   createdAt: string;
   lastUsedAt: string | null;
+  /** J-merchant-02 #5: `unverified` (saved, not payable), `held` until `activatesAt`, or `active`. */
+  state: DestinationLifecycle;
+  /** When a held destination becomes active. Null unless `state` is `held`. */
+  activatesAt: string | null;
+}
+
+type StateColumns = { verified: boolean; activates_at: Date | null };
+
+function lifecycleOf(row: StateColumns, now: Date): Pick<PayoutDestinationItem, 'state' | 'activatesAt'> {
+  const life = lifecycleOfColumns(row, now);
+  return { state: life.state, activatesAt: life.activatesAt?.toISOString() ?? null };
 }
 
 export async function listMerchantPayoutDestinations(
   sql: Sql,
   input: { merchantId: string; limit?: number; cursor?: string },
   fail: PayFail,
+  now: Date = new Date(),
 ): Promise<{ items: PayoutDestinationItem[]; nextCursor: string | null }> {
   const limit = assertPortalPageLimit(input.limit, 'pay.destination_list_limit_unset', 'merchant.payoutDestinations.list', fail);
   const filters = portalFilters({ cursor: input.cursor }, fail);
   const cursorAt = filters.cursor?.createdAtCursor ?? null;
   const cursorId = filters.cursor?.id ?? null;
+  // A held row whose hold has passed is stored active before it is listed.
+  await promoteDueHeldDestinations(sql, input.merchantId, now);
   const rows = await sql<
     Array<{
       id: string;
@@ -67,9 +84,11 @@ export async function listMerchantPayoutDestinations(
       created_at: Date;
       created_at_cursor: string;
       last_used_at: string | null;
+      verified: boolean;
+      activates_at: Date | null;
     }>
   >`
-    SELECT d.id, d.rail_id, d.kind, d.ref, d.is_default, d.created_at,
+    SELECT d.id, d.rail_id, d.kind, d.ref, d.is_default, d.created_at, d.verified, d.activates_at,
            to_char(d.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
            (
              SELECT to_char(max(s.sent_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
@@ -100,12 +119,13 @@ export async function listMerchantPayoutDestinations(
       defaultFlag: row.is_default ? ('default' as const) : ('unset' as const),
       createdAt: row.created_at.toISOString(),
       lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null,
+      ...lifecycleOf(row, now),
     })),
     nextCursor: pageCursor(rows, limit),
   };
 }
 
-interface DestinationRow {
+interface DestinationRow extends StateColumns {
   id: string;
   rail_id: string;
   kind: string;
@@ -114,7 +134,7 @@ interface DestinationRow {
   created_at: Date;
 }
 
-function toItem(merchantId: string, row: DestinationRow, lastUsedAt: string | null): PayoutDestinationItem {
+function toItem(merchantId: string, row: DestinationRow, lastUsedAt: string | null, now: Date): PayoutDestinationItem {
   return {
     id: row.id,
     merchantId,
@@ -125,6 +145,7 @@ function toItem(merchantId: string, row: DestinationRow, lastUsedAt: string | nu
     defaultFlag: row.is_default ? 'default' : 'unset',
     createdAt: row.created_at.toISOString(),
     lastUsedAt,
+    ...lifecycleOf(row, now),
   };
 }
 
@@ -140,10 +161,11 @@ export async function setDefaultMerchantPayoutDestination(
   sql: Sql,
   input: { merchantId: string; destinationId: string },
   fail: PayFail,
+  now: Date = new Date(),
 ): Promise<PayoutDestinationItem> {
   const updated = await sql.begin(async (tx) => {
     const locked = await tx<DestinationRow[]>`
-      SELECT id, rail_id, kind, ref, is_default, created_at
+      SELECT id, rail_id, kind, ref, is_default, created_at, verified, activates_at
         FROM pay.merchant_payout_destinations
        WHERE merchant_id = ${input.merchantId}
        ORDER BY id
@@ -160,7 +182,7 @@ export async function setDefaultMerchantPayoutDestination(
       UPDATE pay.merchant_payout_destinations
          SET is_default = true, updated_at = now()
        WHERE merchant_id = ${input.merchantId} AND id = ${row.id}
-       RETURNING id, rail_id, kind, ref, is_default, created_at,
+       RETURNING id, rail_id, kind, ref, is_default, created_at, verified, activates_at,
          (
            SELECT to_char(max(s.sent_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
              FROM pay.settlements s
@@ -173,12 +195,12 @@ export async function setDefaultMerchantPayoutDestination(
     return saved[0] ?? null;
   });
   if (!updated) return notFound(fail);
-  return toItem(input.merchantId, updated, updated.last_used_at ? new Date(updated.last_used_at).toISOString() : null);
+  return toItem(input.merchantId, updated, updated.last_used_at ? new Date(updated.last_used_at).toISOString() : null, now);
 }
 
 /**
- * Delete one unverified destination. A verified row, including one with a
- * pending change, is refused (`pay.payout_destination_verified_locked`) and
+ * Delete one unverified destination. A verified row (held or active),
+ * including one with a pending change, is refused (`pay.payout_destination_verified_locked`) and
  * nothing is deleted. A verified destination changes only through step-up
  * plus the hold. An unverified row is still refused while a payout that
  * names this rail, kind and ref has not finished, then deleted. Does not
@@ -190,15 +212,17 @@ export async function removeMerchantPayoutDestination(
   fail: PayFail,
 ): Promise<{ removed: true }> {
   const outcome = await sql.begin(async (tx) => {
-    const locked = await tx<Array<DestinationRow & { verified: boolean }>>`
-      SELECT id, rail_id, kind, ref, is_default, created_at, verified
+    const locked = await tx<DestinationRow[]>`
+      SELECT id, rail_id, kind, ref, is_default, created_at, verified, activates_at
         FROM pay.merchant_payout_destinations
        WHERE id = ${input.destinationId} AND merchant_id = ${input.merchantId}
          FOR UPDATE
     `;
     const row = locked[0];
     if (!row) return 'missing' as const;
-    if (row.verified) return 'verified_locked' as const;
+    // Held (verified, waiting out the hold; stored `verified = false` with `activates_at`) is locked like active: a
+    // verified destination changes only through step-up plus the hold, never through remove.
+    if (row.verified || row.activates_at !== null) return 'verified_locked' as const;
     const live = await tx<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM pay.control_payout_approvals a
