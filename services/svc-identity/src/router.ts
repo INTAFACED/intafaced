@@ -1,5 +1,5 @@
 import { SecurityLockError } from './auth/security-lock.js';
-import { SignInChallengeError, type SignInChallengeService } from './auth/signin-challenge.js';
+import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
@@ -1530,18 +1530,23 @@ export function createIdentityRouter(
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           const address = requestIpAls.getStore();
+          let admission: SignInAdmission | undefined;
+          let wrongPassword = false;
           try {
             // Before the account is looked up, so the challenge says nothing about whether the identifier exists.
-            await options.signInChallenge?.admit(address, input.challenge);
+            admission = await options.signInChallenge?.admit(address, input.challenge);
             const { challenge: _challenge, ...credentials } = input;
             const session = await auth.login({ ...credentials, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
             return sessionWire(ctx, session);
           } catch (err) {
-            // Every wrong password counts against the address, whether or not the identifier names an account.
-            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
-              await options.signInChallenge?.recordFailure(address);
-            }
+            // A wrong password keeps its count on the address, whether or not the identifier names an account.
+            wrongPassword = err instanceof AuthError && err.code === 'auth.invalid_credentials';
             throw toTrpcError(err);
+          } finally {
+            // The bookkeeping never replaces the sign-in's own answer: a failure here is logged, not thrown.
+            await admission?.settle(wrongPassword).catch((err: unknown) => {
+              console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
+            });
           }
         }),
 

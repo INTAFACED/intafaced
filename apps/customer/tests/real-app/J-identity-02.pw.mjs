@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { signInChallengeMet, signInChallengeText } from '@intafaced/contracts/identity-signin-challenge';
 import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signOutBrowser, signUpInBrowser, staffFreeze, tool } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -164,21 +165,11 @@ test(`${J} #2 (I-signin-sessions-30): after the owner's count of failures from t
     const challenge = (await res.json()).result.data;
     expect(challenge.bits).toBe(12);
     let nonce = 0;
-    const met = (digest, bits) => {
-      for (let i = 0, left = bits; left > 0; i += 1, left -= 8) {
-        if (left >= 8 ? digest[i] !== 0 : digest[i] >> (8 - left) !== 0) return false;
-      }
-      return true;
-    };
-    while (
-      !met(
-        createHash('sha256')
-          .update(`signin:${challenge.token}:${nonce.toString(36)}`)
-          .digest(),
-        challenge.bits,
-      )
-    )
-      nonce += 1;
+    const digestOf = (n) =>
+      createHash('sha256')
+        .update(signInChallengeText(challenge.token, n.toString(36)))
+        .digest();
+    while (!signInChallengeMet(digestOf(nonce), challenge.bits)) nonce += 1;
     const proof = { token: challenge.token, nonce: nonce.toString(36) };
     expect((await rawLogin({ identifier: who.email, password: who.password, challenge: proof })).code).not.toMatch(/^auth\.challenge/);
     expect(await rawLogin({ identifier: who.email, password: who.password, challenge: proof })).toEqual({

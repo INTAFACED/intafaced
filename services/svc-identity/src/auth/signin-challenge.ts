@@ -35,6 +35,10 @@ export type SignInChallengeCode =
   | 'auth.challenge_used'
   | 'identity.challenge_unconfigured';
 
+/** A sign-in let through to the password check; `settle` is called once with whether the password was wrong. */
+export type SignInAdmission = { readonly settle: (wrongPassword: boolean) => Promise<void> };
+const NO_RESERVATION: SignInAdmission = { settle: async () => undefined };
+
 export class SignInChallengeError extends Error {
   constructor(readonly code: SignInChallengeCode) {
     super(code);
@@ -66,7 +70,7 @@ export function parseSignInChallengePolicy(env: {
   }
   return {
     afterFailures: whole(env.IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES, 'IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES', 1, 1_000_000),
-    bits: whole(env.IDENTITY_SIGNIN_CHALLENGE_BITS, 'IDENTITY_SIGNIN_CHALLENGE_BITS', 1, 32),
+    bits: whole(env.IDENTITY_SIGNIN_CHALLENGE_BITS, 'IDENTITY_SIGNIN_CHALLENGE_BITS', 1, 24),
     ttlSeconds: whole(env.IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS, 'IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS', 10, 3600),
     key,
   };
@@ -99,12 +103,51 @@ export class SignInChallengeService {
   }
 
   /**
-   * Resolves when this sign-in may go on to the password: either the address is under the owner's count, or `proof`
-   * is a good, unexpired, unspent challenge solved to the current difficulty, which this spends. Runs before the
-   * account is looked up.
+   * Called before the password is checked, and before the account is looked up. With a failure count set, it first
+   * reserves this attempt on the address's count in one atomic upsert (reserve, then verify, as attempt-lockout.ts does),
+   * so parallel guesses cannot all read a count under the threshold. An attempt past the owner's count, or every attempt
+   * when the count is blank, must carry a good, unexpired, unspent challenge solved to the current difficulty, which this
+   * spends. The answer's `settle` gives the reservation back unless the password was wrong: call it once with whether
+   * the sign-in failed on the password.
    */
-  async admit(address: string | undefined, proof: SignInChallengeProof | undefined): Promise<void> {
-    if (!(await this.required(address))) return;
+  async admit(address: string | undefined, proof: SignInChallengeProof | undefined): Promise<SignInAdmission> {
+    const n = this.policy.afterFailures;
+    const hash = this.addressHash(address);
+    if (n === null || hash === null) {
+      await this.spend(proof);
+      return NO_RESERVATION;
+    }
+    const now = this.now();
+    const windowStart = new Date(now.getTime() - ATTEMPT_POLICY.password.windowSeconds * 1000);
+    const [row] = await this.sql<Array<{ failures: number }>>`
+      INSERT INTO signin_address_failures (address_hash, window_started_at, failures)
+      VALUES (${hash}, ${now}, 1)
+      ON CONFLICT (address_hash) DO UPDATE SET
+        failures = CASE WHEN signin_address_failures.window_started_at < ${windowStart} THEN 1
+                        ELSE signin_address_failures.failures + 1 END,
+        window_started_at = CASE WHEN signin_address_failures.window_started_at < ${windowStart} THEN ${now}
+                                 ELSE signin_address_failures.window_started_at END
+      RETURNING failures
+    `;
+    const admission: SignInAdmission = {
+      settle: async (wrongPassword: boolean) => {
+        if (!wrongPassword) await this.refund(hash);
+      },
+    };
+    // `failures` counts this attempt too: the ones before it reached the owner's count, so this one needs a challenge.
+    if ((row?.failures ?? 1) > n) {
+      try {
+        await this.spend(proof);
+      } catch (err) {
+        await admission.settle(false);
+        throw err;
+      }
+    }
+    return admission;
+  }
+
+  /** Verifies and spends one solved challenge, or refuses by its code. */
+  private async spend(proof: SignInChallengeProof | undefined): Promise<void> {
     const { bits, ttlSeconds, key } = this.policy;
     if (bits === null || ttlSeconds === null || key === null) throw new SignInChallengeError('identity.challenge_unconfigured');
     if (!proof) throw new SignInChallengeError('auth.challenge_required');
@@ -129,36 +172,19 @@ export class SignInChallengeService {
       RETURNING token_hash
     `;
     if (spent.length === 0) throw new SignInChallengeError('auth.challenge_used');
-    await this.sql`DELETE FROM signin_challenges_used WHERE expires_at < ${this.now()}`;
-  }
-
-  /** Counts one failed password sign-in from `address`, whether or not the identifier names an account. */
-  async recordFailure(address: string | undefined): Promise<void> {
-    const hash = this.addressHash(address);
-    if (hash === null) return;
-    const now = this.now();
-    const windowStart = new Date(now.getTime() - ATTEMPT_POLICY.password.windowSeconds * 1000);
+    // A bounded sweep of spent tokens past their lifetime; a used token past its expiry is refused as expired anyway.
     await this.sql`
-      INSERT INTO signin_address_failures (address_hash, window_started_at, failures)
-      VALUES (${hash}, ${now}, 1)
-      ON CONFLICT (address_hash) DO UPDATE SET
-        failures = CASE WHEN signin_address_failures.window_started_at < ${windowStart} THEN 1
-                        ELSE signin_address_failures.failures + 1 END,
-        window_started_at = CASE WHEN signin_address_failures.window_started_at < ${windowStart} THEN ${now}
-                                 ELSE signin_address_failures.window_started_at END
+      DELETE FROM signin_challenges_used
+       WHERE token_hash IN (SELECT token_hash FROM signin_challenges_used WHERE expires_at < ${this.now()} LIMIT 100)
     `;
   }
 
-  private async required(address: string | undefined): Promise<boolean> {
-    const n = this.policy.afterFailures;
-    const hash = this.addressHash(address);
-    if (n === null || hash === null) return true;
-    const windowStart = new Date(this.now().getTime() - ATTEMPT_POLICY.password.windowSeconds * 1000);
-    const rows = await this.sql<Array<{ failures: number }>>`
-      SELECT failures FROM signin_address_failures
-       WHERE address_hash = ${hash} AND window_started_at >= ${windowStart}
+  /** Gives one reserved attempt back: the sign-in did not fail on its password. */
+  private async refund(hash: string): Promise<void> {
+    const lowered = await this.sql`
+      UPDATE signin_address_failures SET failures = failures - 1 WHERE address_hash = ${hash} AND failures > 1
     `;
-    return (rows[0]?.failures ?? 0) >= n;
+    if (lowered.count === 0) await this.sql`DELETE FROM signin_address_failures WHERE address_hash = ${hash} AND failures <= 1`;
   }
 
   private addressHash(address: string | undefined): string | null {

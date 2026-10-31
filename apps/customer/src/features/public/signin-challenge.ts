@@ -8,7 +8,8 @@ export function fetchSignInChallenge(api: ApiClient, signal?: AbortSignal): Prom
 
 /**
  * Solves the challenge in a worker, so the page stays responsive and can show its progress. `onProgress` gets the
- * number of tries so far. Rejects with an AbortError when `signal` aborts.
+ * number of tries so far. Rejects with an AbortError when `signal` aborts, and gives up when the token expires, since
+ * identity would refuse the answer anyway.
  */
 export function solveSignInChallenge(
   challenge: SignInChallenge,
@@ -17,7 +18,16 @@ export function solveSignInChallenge(
 ): Promise<SignInChallengeProof> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./signin-challenge.worker.ts', import.meta.url), { type: 'module' });
+    const expiry = setTimeout(
+      () => {
+        signal.removeEventListener('abort', stop);
+        worker.terminate();
+        reject(new Error('challenge expired before it was solved'));
+      },
+      Math.max(0, Date.parse(challenge.expiresAt) - Date.now()),
+    );
     const stop = () => {
+      clearTimeout(expiry);
       worker.terminate();
       reject(new DOMException('aborted', 'AbortError'));
     };
@@ -26,12 +36,14 @@ export function solveSignInChallenge(
     worker.onmessage = (event: MessageEvent<{ nonce?: string; tries?: number }>) => {
       if (event.data.tries !== undefined) onProgress(event.data.tries);
       if (event.data.nonce !== undefined) {
+        clearTimeout(expiry);
         signal.removeEventListener('abort', stop);
         worker.terminate();
         resolve({ token: challenge.token, nonce: event.data.nonce });
       }
     };
     worker.onerror = (event) => {
+      clearTimeout(expiry);
       signal.removeEventListener('abort', stop);
       worker.terminate();
       reject(new Error(event.message || 'challenge worker failed'));

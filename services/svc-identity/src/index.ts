@@ -885,8 +885,9 @@ app.get('/ready', async () => ({
   }),
   argon2: await argon2Available(),
   founderControls: founderControls.readiness(),
-  // Not ready while any sign-in challenge setting is blank: sign-in then needs a challenge that cannot be issued.
-  signInChallenge: { ready: signInChallenge.unset().length === 0, unset: signInChallenge.unset() },
+  // Not ready while any sign-in challenge setting is blank (I-signin-sessions-30): a blank difficulty, lifetime or key
+  // closes every sign-in that needs a challenge, and a blank failure count means every sign-in needs one.
+  signInChallenge: ((unset) => ({ ready: unset.length === 0, unset }))(signInChallenge.unset()),
   operationAdmission: configuredIdentityOperationOwners({
     privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
     edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,

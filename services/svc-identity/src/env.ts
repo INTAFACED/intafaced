@@ -369,7 +369,7 @@ const schema = serviceEnvSchema
       /**
        * Owner settings for the self-hosted sign-in challenge (I-signin-sessions-30, J-identity-02 #2). NO DEFAULTS.
        * AFTER_FAILURES: failed password sign-ins from one address, inside the password lockout window, before its next
-       * sign-in needs a solved challenge; blank means every sign-in needs one. BITS (1-32): the proof of work's leading
+       * sign-in needs a solved challenge; blank means every sign-in needs one. BITS (1-24): the proof of work's leading
        * zero bits. TTL_SECONDS (10-3600): how long a challenge token is good. KEY (32+ characters, a secret): signs the
        * tokens and keys the address count. With BITS, TTL_SECONDS or KEY blank no challenge can be issued, so a sign-in
        * that needs one refuses `identity.challenge_unconfigured`. Parsed at start by `parseSignInChallengePolicy`.

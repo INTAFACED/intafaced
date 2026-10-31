@@ -216,6 +216,27 @@ if (!(await postgresAvailable(URL))) {
       }
     });
 
+    it('parallel wrong passwords from one address cannot all slip past the count: each reserves its place first', async () => {
+      const handle = await register();
+      const api = callerWith(POLICY);
+      const codes = await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          from('203.0.113.13', () => codeOf(api.auth.login({ identifier: handle, password: `wrong ${i}` }))),
+        ),
+      );
+      expect(codes.filter((c) => c === 'auth.invalid_credentials')).toHaveLength(3);
+      expect(codes.filter((c) => c === 'auth.challenge_required')).toHaveLength(7);
+    });
+
+    it('a right password gives its place back, so ordinary sign-ins never build up the count', async () => {
+      const handle = await register();
+      const api = callerWith(POLICY);
+      for (let i = 0; i < 5; i++)
+        expect(await from('203.0.113.14', () => codeOf(api.auth.login({ identifier: handle, password: PASSWORD })))).toBe('ok');
+      const rows = await db.sql`SELECT failures FROM signin_address_failures`;
+      expect(rows).toHaveLength(0);
+    });
+
     it('a window that ended starts the count again', async () => {
       const handle = await register();
       const api = callerWith(POLICY);
