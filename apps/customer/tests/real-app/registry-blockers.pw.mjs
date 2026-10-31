@@ -35,7 +35,10 @@ const SWEEP = {
   'bank-analytics': { proof: 'its reason is that no journey proves the room' },
   'bank-business': { at: '/bank/business', shows: 'Registered company accounts need business verification' },
   'margin-futures-options': { at: '/trade/options', shows: 'The rule for which asset settles an option is not published.' },
-  copy: { silent: 'the room does not say that the leader fee share and the allowed countries are not approved' },
+  copy: {
+    proof:
+      'the desk closes, naming its blank owner value, only while the service reports it blank; the TEST stack sets both, and J-copy-bots-otc-01 #5 restarts trade with the country list blank and sees "Copy desk closed"',
+  },
   'execution-quote': { proof: 'its reason is that it is not a first-release customer path' },
   'simulated-markets': { noRoute: true },
   'request-bills-global': { at: '/pay/bills', shows: 'No biller network or bill-payment service is connected' },
@@ -64,7 +67,14 @@ const blocked = features.filter((feature) => feature.status === 'blocked');
 const routes = (feature) =>
   feature.paths
     .filter((path) => !path.endsWith('*'))
-    .map((path) => path.replace(/:asset\b/g, 'BTC').replace(/:[A-Za-z]+/g, 'TEST-not-a-record'));
+    .map((path) =>
+      path
+        .replace(/:asset\b/g, 'BTC')
+        // A well-formed id that names no record: rooms that route only a uuid show their honest not-found state.
+        .replace(/:agentId\b/g, '00000000-0000-4000-8000-000000000000')
+        .replace(/:campaignId\b/g, 'cmp_TEST-not-a-record')
+        .replace(/:[A-Za-z]+/g, 'TEST-not-a-record'),
+    );
 
 test.describe.configure({ mode: 'default' });
 
