@@ -31,15 +31,37 @@ export const restoreWatermarkReadSchema = z.object({
   /** When the service last wrote at all; null when it never has. */
   lastWriteAt: z.string().datetime({ offset: true }).nullable(),
   readAt: z.string().datetime({ offset: true }),
+  /**
+   * The instant `position` was read as of, echoed from the request. Absent on a live read. A service that cannot say
+   * what its position was at that instant refuses by name (`<service>.restore_asof_unanswerable`), never a live number.
+   */
+  asOf: z.string().datetime({ offset: true }).optional(),
 });
 export type RestoreWatermarkRead = z.infer<typeof restoreWatermarkReadSchema>;
+
+/**
+ * `restore.watermark.read` as of an instant: the joint restore's cut-off. On a live stack other writes land after the
+ * cut-off, so a live position can never equal the stamp; the position as of the cut-off can.
+ */
+export const restoreWatermarkReadInputSchema = z.object({ asOf: z.string().datetime({ offset: true }) }).strict();
+// A door served as a GET carries it as the `asOf` query parameter; a POST door as the JSON body.
+export type RestoreWatermarkReadInput = z.infer<typeof restoreWatermarkReadInputSchema>;
 
 export interface RestoreStampView {
   readonly service: string;
   readonly watermark: string;
 }
 
-export type RestoreDisagreeReason = 'stamp_missing' | 'position_differs' | 'written_after_cutoff' | 'read_missing' | 'cutoff_invalid';
+export type RestoreDisagreeReason =
+  | 'stamp_missing'
+  | 'position_differs'
+  | 'written_after_cutoff'
+  | 'read_missing'
+  | 'cutoff_invalid'
+  /** The service answered a live position, or one as of another instant, so it says nothing about the cut-off. */
+  | 'read_not_as_of'
+  /** The read was taken before the cut-off, so its position cannot be the one at the cut-off. */
+  | 'read_before_cutoff';
 
 export interface RestoreServiceVerdict {
   readonly service: RestoreService;
@@ -55,30 +77,67 @@ export interface JointWatermark {
   readonly services: readonly RestoreServiceVerdict[];
 }
 
-/**
- * The joint check. `stamps` may hold several per service; the newest (last) wins.
- * Agree only when every service has a stamp, a read, a read position equal to
- * its stamp, and no write after the cut-off.
- */
-export function jointWatermark(input: {
+type JointInput = {
   readonly cutOff: string;
   readonly stamps: readonly RestoreStampView[];
   readonly reads: readonly RestoreWatermarkRead[];
-}): JointWatermark {
-  const cut = Date.parse(input.cutOff);
+};
+
+/**
+ * The shared walk: for each service the newest (last) stamp and the newest (last) read, then `judge` for the rest. A
+ * missing stamp or read is named before anything is judged.
+ */
+function joint(
+  input: JointInput,
+  cutValid: boolean,
+  judge: (read: RestoreWatermarkRead, stamp: string) => RestoreDisagreeReason | null,
+): JointWatermark {
   const services = RESTORE_SERVICES.map((service): RestoreServiceVerdict => {
-    const stamp = [...input.stamps].reverse().find((s) => s.service === service)?.watermark ?? null;
-    const read = input.reads.find((r) => r.service === service) ?? null;
+    const stamp = input.stamps.findLast((s) => s.service === service)?.watermark ?? null;
+    const read = input.reads.findLast((r) => r.service === service) ?? null;
     const position = read?.position ?? null;
     const fail = (reason: RestoreDisagreeReason): RestoreServiceVerdict => ({ service, ok: false, reason, stamp, position });
-    if (Number.isNaN(cut)) return fail('cutoff_invalid');
+    if (!cutValid) return fail('cutoff_invalid');
     if (stamp === null) return fail('stamp_missing');
     if (read === null) return fail('read_missing');
-    if (read.position !== stamp) return fail('position_differs');
-    if (read.lastWriteAt !== null && !(Date.parse(read.lastWriteAt) <= cut)) return fail('written_after_cutoff');
-    return { service, ok: true, reason: null, stamp, position };
+    const reason = judge(read, stamp);
+    return reason === null ? { service, ok: true, reason: null, stamp, position } : fail(reason);
   });
   return { agree: services.every((s) => s.ok), cutOff: input.cutOff, services };
+}
+
+/**
+ * The joint check on live reads. Agree only when every service has a stamp, a read, a read position equal to its stamp,
+ * and no write after the cut-off.
+ */
+export function jointWatermark(input: JointInput): JointWatermark {
+  const cut = Date.parse(input.cutOff);
+  return joint(input, !Number.isNaN(cut), (read, stamp) => {
+    if (read.position !== stamp) return 'position_differs';
+    if (read.lastWriteAt !== null && !(Date.parse(read.lastWriteAt) <= cut)) return 'written_after_cutoff';
+    return null;
+  });
+}
+
+/** An instant at millisecond precision or coarser, so two readings of it compare exactly. */
+const MILLIS_INSTANT = /^[^.]*(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * The joint check as of the cut-off (OPS-ledger-desk-05, RS-3). Each service is read as of `cutOff`; agree only when every
+ * service has a stamp and a read made as of exactly that instant, at or after it, whose position equals its stamp. Writes
+ * after the cut-off do not count against it: they are what a restore to the cut-off leaves out. `integrity` and
+ * `lastWriteAt` on an as-of read stay the live values and are shown, never judged.
+ */
+export function jointWatermarkAsOf(input: JointInput): JointWatermark {
+  const cutValid = restoreWatermarkReadInputSchema.safeParse({ asOf: input.cutOff }).success && MILLIS_INSTANT.test(input.cutOff);
+  const cut = Date.parse(input.cutOff);
+  return joint(input, cutValid, (read, stamp) => {
+    if (read.asOf === undefined || !MILLIS_INSTANT.test(read.asOf) || Date.parse(read.asOf) !== cut) return 'read_not_as_of';
+    // A read taken before the cut-off can only know its live position, not the one at the cut-off.
+    if (!(Date.parse(read.readAt) >= cut)) return 'read_before_cutoff';
+    if (read.position !== stamp) return 'position_differs';
+    return null;
+  });
 }
 
 /** Restore steps in the only order they may run (RS-2). Each is its own stored row. */

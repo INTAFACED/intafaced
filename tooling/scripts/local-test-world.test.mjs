@@ -561,6 +561,17 @@ try {
     planPayoutDestination({ destinations: [{ railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x..' }] }).kind,
     'exists',
   );
+  // J-merchant-02 #5: only an active destination is ready; a held one is waited out, an unverified one is left alone.
+  const onRail = (state, activatesAt = null) => [
+    { railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x..', state, activatesAt },
+  ];
+  assert.equal(planPayoutDestination({ destinations: onRail('active') }).kind, 'exists');
+  assert.deepEqual(planPayoutDestination({ destinations: onRail('held', '2026-10-30T12:00:45.000Z') }), {
+    kind: 'wait',
+    destination: onRail('held', '2026-10-30T12:00:45.000Z')[0],
+    activatesAt: '2026-10-30T12:00:45.000Z',
+  });
+  assert.equal(planPayoutDestination({ destinations: onRail('unverified') }).kind, 'unverified');
 
   // Payout stage: request, then the second person decides, then the owner sends; a sent payout is never redone.
   // Only the settlement of the payout window is paid; an older posted window (held down by the dispute) is left alone.

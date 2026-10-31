@@ -1,11 +1,13 @@
 /**
  * Home's owner values (HM-dashboard-03, HM-navigation-04), answered by the public `home.config` read: how many work
- * items Home shows, in which order of kinds, and how many help articles the header search lists.
+ * items Home shows, in which order of kinds, how many help articles the header search lists, and how many of the latest
+ * announcements Home's strip shows (HM-widgets-03).
  *
  * Each value is an owner decision with no value yet, so each is blank (`null`) until the owner sets it in this service's
  * environment: `OPS_HOME_WORK_LIST_CAP`, `OPS_HOME_WORK_LIST_ORDER` (kinds, comma separated, each once) and
- * `OPS_HOME_SEARCH_RESULT_CAP`. Blank is answered as blank, never as a default: the customer app refuses the work list
- * (`home.work_list_cap_unset`), keeps the owners' order and says so, or shows the search's Help group as not set.
+ * `OPS_HOME_SEARCH_RESULT_CAP` and `OPS_HOME_NOTICE_STRIP_LIMIT`. Blank is answered as blank, never as a default: the
+ * customer app refuses the work list (`home.work_list_cap_unset`), keeps the owners' order and says so, shows the
+ * search's Help group as not set, or has the announcement strip say its count is not set (`home.notice_strip_limit_unset`).
  *
  * The values are display settings, not secrets, so the read is public (the signed-out header search reads the help cap
  * too). They come from the environment, so `revision` is 0: a value changes only with a restart. A founder settings desk
@@ -37,6 +39,7 @@ export interface HomeConfigEnv {
   OPS_HOME_WORK_LIST_CAP?: string;
   OPS_HOME_WORK_LIST_ORDER?: string;
   OPS_HOME_SEARCH_RESULT_CAP?: string;
+  OPS_HOME_NOTICE_STRIP_LIMIT?: string;
 }
 
 /**
@@ -55,6 +58,7 @@ export function homeConfigFromEnv(env: HomeConfigEnv): HomeConfig {
     workListCap: parse('OPS_HOME_WORK_LIST_CAP', count(field.workListCap.unwrap())),
     workListOrder: parse('OPS_HOME_WORK_LIST_ORDER', orderSchema),
     searchResultCap: parse('OPS_HOME_SEARCH_RESULT_CAP', count(field.searchResultCap.unwrap())),
+    noticeStripLimit: parse('OPS_HOME_NOTICE_STRIP_LIMIT', count(field.noticeStripLimit.removeDefault().unwrap())),
     revision: 0,
   });
 }

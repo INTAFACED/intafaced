@@ -59,6 +59,8 @@ export const QUANT_SHARE_NOT_FOUND = 'quant.share_not_found' as const;
 export const QUANT_SHARE_SEQ_UNSET = 'quant.share_seq_unset' as const;
 export const QUANT_SHARE_SEQ_STALE = 'quant.share_seq_stale' as const;
 export const QUANT_SHARE_TOKEN_UNSET = 'quant.share_token_unset' as const;
+export const QUANT_RELEASE_NOTE_LIMIT_UNSET = 'quant.release_note_limit_unset' as const;
+export const QUANT_VERSION_NOT_FOUND = 'quant.version_not_found' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -122,6 +124,8 @@ export type QuantCode =
   | typeof QUANT_SHARE_SEQ_UNSET
   | typeof QUANT_SHARE_SEQ_STALE
   | typeof QUANT_SHARE_TOKEN_UNSET
+  | typeof QUANT_RELEASE_NOTE_LIMIT_UNSET
+  | typeof QUANT_VERSION_NOT_FOUND
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

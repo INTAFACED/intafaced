@@ -358,7 +358,8 @@ describe('payout maker-checker', () => {
 
   it('lists a masked destination and rail, never the full destination, and names the first founder only on the founder queue', async () => {
     const iban = 'DE89370400440532013000';
-    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${merchantId}, 'card-sandbox', 'bank', ${iban})`;
+    // A verified destination: an unverified one is refused before any request (J-merchant-02 #5, tested below).
+    await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at) VALUES (${merchantId}, 'card-sandbox', 'bank', ${iban}, true, now())`;
     const bankSettlement = await settled(merchantId, ['60'], 'w-mask-bank');
     const bank = toContractApproval(
       await approvals.request(maker(), { merchantId, settlementId: bankSettlement.id, railId: 'card-sandbox' }),
@@ -570,6 +571,26 @@ describe('payout maker-checker', () => {
     await expect(approvals.request(maker(), { merchantId, settlementId: randomUUID(), railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.settlement_not_payable',
     });
+  });
+  it('J-merchant-02 #5: a request to an unverified or held destination is refused with its code and records no approval', async () => {
+    const s = await settled(merchantId, ['60'], 'w-dest-state');
+    await sql`UPDATE pay.merchant_payout_destinations SET verified = false, verified_at = NULL WHERE merchant_id = ${merchantId}`;
+    await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_destination_unverified',
+    });
+    // Held is stored fail closed: verified = false with its hold end set.
+    await sql`
+      UPDATE pay.merchant_payout_destinations
+         SET verified = false, verified_at = now(), activates_at = now() + interval '1 hour'
+       WHERE merchant_id = ${merchantId}
+    `;
+    await expect(approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_destination_held',
+    });
+    expect(await sql`SELECT id FROM pay.control_payout_approvals WHERE settlement_id = ${s.id}`).toHaveLength(0);
+    // Past its end it is active and the request goes through.
+    await sql`UPDATE pay.merchant_payout_destinations SET activates_at = now() - interval '1 second' WHERE merchant_id = ${merchantId}`;
+    expect((await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).status).toBe('pending');
   });
   it('a payout request for a window the rail still holds is refused pay.payout_clearing_pending, and records no approval', async () => {
     const created = await pay.createPayment({

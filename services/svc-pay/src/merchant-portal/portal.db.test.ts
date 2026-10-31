@@ -203,9 +203,9 @@ describe('merchant portal procedures', () => {
     await member(merchantA, removed, 'viewer', 'removed');
     await member(merchantA, owner, 'viewer', 'invited');
     await sql`
-      INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref)
-      VALUES (${merchantA}, 'crypto-native', 'crypto', ${destRef}),
-             (${grandId}, 'crypto-native', 'crypto', ${GRAND_DEST})`;
+      INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at)
+      VALUES (${merchantA}, 'crypto-native', 'crypto', ${destRef}, true, now()),
+             (${grandId}, 'crypto-native', 'crypto', ${GRAND_DEST}, true, now())`;
     await sql`
       UPDATE pay.merchants SET
         legal_name = 'Alpha Ltd', display_name = 'Alpha',
@@ -1243,6 +1243,29 @@ describe('merchant portal procedures', () => {
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect(compliance.kyb.decisionBinding({ merchantId: id() })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect((await as(user).merchant.businessProfile.get({ merchantId })).legalName).toBe('Reviewed Shop Ltd');
+  });
+
+  it('J-merchant-02 #5: onboarding counts a verified or held destination as present, never an unverified one', async () => {
+    const present = async () => {
+      const progress = await as(viewer).merchant.onboarding.progress({ merchantId: merchantA });
+      return { present: progress.destination.present, missing: progress.blocking.includes('destination_missing') };
+    };
+    try {
+      await sql`UPDATE pay.merchant_payout_destinations SET verified = false, verified_at = NULL WHERE merchant_id = ${merchantA}`;
+      expect(await present()).toEqual({ present: false, missing: true });
+      // Held: stored fail closed (verified = false) with its hold end; verified all the same, so it counts.
+      await sql`
+        UPDATE pay.merchant_payout_destinations
+           SET verified_at = now(), activates_at = now() + interval '1 hour'
+         WHERE merchant_id = ${merchantA}`;
+      expect(await present()).toEqual({ present: true, missing: false });
+    } finally {
+      await sql`
+        UPDATE pay.merchant_payout_destinations
+           SET verified = true, verified_at = now(), activates_at = NULL
+         WHERE merchant_id = ${merchantA}`;
+    }
+    expect(await present()).toEqual({ present: true, missing: false });
   });
 
   it('reports onboarding blockers without a document vendor, a terms version, a category table, or a raw destination', async () => {

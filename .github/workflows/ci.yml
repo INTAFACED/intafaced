@@ -71,7 +71,7 @@ jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # healthy run: 1 min
+    timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
     steps:
       # fetch-depth: 0 — the value-gate step at the end of this job needs
       # `origin/main` and ten ancestor subjects. The default is 1, which gives
