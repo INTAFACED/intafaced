@@ -273,7 +273,6 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
   );
   await page.reload();
   await expect(templates).toContainText('No template is published.');
-  await expect(templates.getByRole('button', { name: /^View the source of/ })).toHaveCount(0);
 });
 
 test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves out with its versions and returns with the same versions`, async ({

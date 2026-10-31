@@ -56,6 +56,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     if (busy) return;
     setBusy(id);
     setFailure(null);
+    setViewing(null);
     const res = await api.query('quant', 'template.get', { id }, quantTemplateDetailSchema);
     setBusy(null);
     if (!res.ok) return setFailure({ result: res, retry: () => void view(id, name) });

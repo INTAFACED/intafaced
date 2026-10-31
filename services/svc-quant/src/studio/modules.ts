@@ -121,8 +121,8 @@ export function signalSource(rules: QuantSignalRules): string {
 }
 
 /**
- * A starter template version's source (AL-editor-03), read only: the same generated source, with every number the
- * template leaves blank written as a named blank, so it reads as what Use will put in the form before you fill it in.
+ * A starter template version's source (AL-editor-03), read only: the same generated source, with the averages and the
+ * size written as named blanks, and the optional exits, which add no line while blank, named on a last comment line.
  */
 export function templateSource(rules: QuantSignalRules): string {
   const exits = [
