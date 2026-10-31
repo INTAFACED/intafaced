@@ -11,7 +11,7 @@ import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import { disputeEvidenceScanEnabled, disputeEvidenceUploadEnabled } from './merchant-ops/dispute-evidence-policy.js';
 import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { createPayNamespaces } from './namespaces/index.js';
-import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { createMetricsRuntime, parseSettlementAssets, startMetricsRefresher } from './metrics/index.js';
 import { retryAdoptConfig } from './halts/adopt-boot.js';
 import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
 import { loadHaltAutoTripConfig } from './halts/config.js';
@@ -687,7 +687,9 @@ const founderAuthority = createFounderAuthority({
 });
 
 /** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */
-const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+// The assets a business settles in: blank stays unset (that read refuses by name); a malformed list stops the boot here.
+const settlementAssets = parseSettlementAssets(env.PAY_SETTLEMENT_ASSETS);
+const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails }, { settlementAssets });
 /** Blank, zero, or a partial triple leaves email invites unconfigured. */
 const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 

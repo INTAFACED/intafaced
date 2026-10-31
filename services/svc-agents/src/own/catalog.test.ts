@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal, protectionFindings, validateDraft } from './catalog.js';
+import {
+  OWN_TEMPLATE_IDS,
+  OWN_TEMPLATES,
+  OWN_TOOLS,
+  OwnAgentRefusal,
+  parseOwnTemplates,
+  protectionFindings,
+  validateDraft,
+} from './catalog.js';
 import { FLEET_HARD_MONEY_WRITE_TOOLS } from '../fleet/guardrails.js';
 
 const draft = (over: Partial<Parameters<typeof validateDraft>[0]> = {}) =>
@@ -13,6 +21,19 @@ const refusal = (fn: () => unknown) => {
   }
   return null;
 };
+
+describe('own agent templates offered (AGENTS_OWN_TEMPLATES)', () => {
+  it('unset or blank offers every built-in template; a list offers those and blank; blank alone offers only blank', () => {
+    expect(parseOwnTemplates(undefined)).toEqual(OWN_TEMPLATE_IDS);
+    expect(parseOwnTemplates(' , ')).toEqual(OWN_TEMPLATE_IDS);
+    expect(parseOwnTemplates('service-starter')).toEqual(['service-starter', 'blank']);
+    expect(parseOwnTemplates(' blank ')).toEqual(['blank']);
+  });
+
+  it('an unknown template id stops the boot, naming it', () => {
+    expect(() => parseOwnTemplates('blank,growth-pack')).toThrow('AGENTS_OWN_TEMPLATES names an unknown template: growth-pack');
+  });
+});
 
 describe('own agent drafts', () => {
   it('starts the service starter with read tools only, all from the addable catalogue', () => {

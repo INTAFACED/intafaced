@@ -100,7 +100,9 @@ export interface BadgeStore {
   findClaimByAddress(chain: ChainIdentity, to: Address): Promise<BadgeClaimRecord | null>;
   /**
    * Insert-if-absent on `key`; returns the stored row either way. A stored claim from another genesis (a TEST chain since
-   * started again) is replaced: its mint did not happen on this chain, so the claim starts again with no tx hash.
+   * started again) is replaced: its mint did not happen on this chain, so the claim starts again with no tx hash. Refuses
+   * `badge.already_claimed` when another account's claim holds the address (a race the `findClaimByAddress` check before
+   * it can lose).
    */
   putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord>;
   /**

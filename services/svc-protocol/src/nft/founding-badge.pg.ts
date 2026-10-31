@@ -1,7 +1,6 @@
 import type { Sql } from 'postgres';
 import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import type { ChainIdentity } from '../chain/identity.js';
 import {
   BADGE_ALREADY_CLAIMED,
   BadgeRefusedError,
@@ -48,7 +47,7 @@ export class PostgresBadgeStore implements BadgeStore {
     return rows[0] ? toRecord(rows[0]) : null;
   }
 
-  async findClaimByAddress(chain: ChainIdentity, to: Address): Promise<BadgeClaimRecord | null> {
+  async findClaimByAddress(chain: { chainId: number; genesisHash: Hex | null }, to: Address): Promise<BadgeClaimRecord | null> {
     // This chain's claim, or one stored before the genesis column (it cannot be placed, so it keeps its meaning).
     const rows = await this.sql<Row[]>`
       SELECT key, account_id, chain_id, genesis_hash, to_address, tx_hash, minting_at FROM protocol.founding_badge_claims
@@ -58,32 +57,42 @@ export class PostgresBadgeStore implements BadgeStore {
   }
 
   async putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord> {
-    try {
-      await this.sql`
-        INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, genesis_hash, to_address, tx_hash)
-        VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${record.genesisHash ?? null}, ${toChecksum(record.to)},
-                ${record.txHash})
-        ON CONFLICT (key) DO NOTHING`;
-      // A stored claim from another genesis is replaced in place: its mint did not happen on this chain. This chain's
-      // claim, and one stored before the column, are kept as they are. One row per key, so a racing second claim finds
-      // the genesis already current and changes nothing.
-      if (record.genesisHash)
+    // No conflict target: the insert arbitrates every unique index (key, account, chain + genesis + address). A racing
+    // insert on any of them waits for the other to commit and then does nothing, never 23505. `ON CONFLICT (key)`
+    // arbitrated the key alone, so two simultaneous claims from one account could both pass the key check and the loser
+    // then raised 23505 on the account or address index: its own claim refused (#6121).
+    await this.sql`
+      INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, genesis_hash, to_address, tx_hash)
+      VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${record.genesisHash ?? null}, ${toChecksum(record.to)},
+              ${record.txHash})
+      ON CONFLICT DO NOTHING`;
+    // A stored claim from another genesis is replaced in place: its mint did not happen on this chain. This chain's claim,
+    // and one stored before the column, are kept as they are. One row per key, so a racing second claim finds the genesis
+    // already current and changes nothing.
+    if (record.genesisHash) {
+      try {
         await this.sql`
           UPDATE protocol.founding_badge_claims
           SET chain_id = ${record.chainId}, genesis_hash = ${record.genesisHash}, to_address = ${toChecksum(record.to)},
               tx_hash = NULL, minting_at = NULL, updated_at = now()
           WHERE key = ${record.key} AND genesis_hash IS NOT NULL AND genesis_hash <> ${record.genesisHash}`;
-    } catch (err) {
-      // Two accounts racing to one address: the loser hits the unique address index; that is already_claimed, not a 500.
-      const e = err as { code?: string; constraint_name?: string };
-      if (e.code === '23505' && e.constraint_name === 'founding_badge_claims_chain_address_idx') {
-        throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
+      } catch (err) {
+        // Another account already claimed this address on this genesis: already_claimed, not a 500.
+        const e = err as { code?: string; constraint_name?: string };
+        if (e.code === '23505' && e.constraint_name === 'founding_badge_claims_chain_address_idx')
+          throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
+        throw err;
       }
-      throw err;
     }
     const stored = await this.findClaim(record.key);
-    if (!stored) throw new Error('protocol.founding_badge_claims insert returned no row');
-    return stored;
+    if (stored) return stored;
+    // Nothing under this account's key: the insert gave way to another account's claim to the address, which is
+    // already_claimed, not a 500. Any other reason is not a refusal to show the person.
+    // The claim's own chain: its genesis, or none for a claim made without one (only a claim from before the column).
+    const onAddress = await this.findClaimByAddress({ chainId: record.chainId, genesisHash: record.genesisHash ?? null }, record.to);
+    if (onAddress && onAddress.accountId !== record.accountId)
+      throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
+    throw new Error('protocol.founding_badge_claims insert stored no row for this claim');
   }
 
   async claimMintSlot(key: string): Promise<boolean> {

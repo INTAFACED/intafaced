@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Address, Hex } from 'viem';
+import { getAddress, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import {
@@ -36,8 +36,11 @@ const BETA = 'bad9e000-6666-4666-8666-666666666666';
 const STUCK = 'bad9e000-8888-4888-8888-888888888888';
 const CRASH = 'bad9e000-9999-4999-8999-999999999999';
 const REBORN = 'bad9e000-7777-4777-8777-777777777777';
-const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, REBORN];
+const HELD = 'bad9e000-3333-4333-8333-333333333333';
+const LATE = 'bad9e000-2222-4222-8222-222222222222';
+const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, REBORN, HELD, LATE];
 const REBORN_ADDR = '0x00000000000000000000000000000000000000C5' as Address;
+const HELD_ADDR = '0x00000000000000000000000000000000000000C6' as Address;
 const CRASH_ADDR = '0x00000000000000000000000000000000000000C4' as Address;
 const STUCK_ADDR = '0x00000000000000000000000000000000000000C3' as Address;
 const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
@@ -127,6 +130,91 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     for (const r of results) expect([null, rows[0]!.tx_hash]).toContain(r.txHash);
     // A later claim on the new chain returns the stored tx and mints nothing more.
     expect((await claimAs(harness().deps, REBORN, REBORN_ADDR, RESTARTED)).txHash).toBe(rows[0]!.tx_hash);
+  });
+
+  /**
+   * One transaction has inserted a claim and not yet committed when `second` runs. The helper releases it only once the
+   * second insert is seen waiting on a lock, so the wait is proven, not assumed from a sleep.
+   */
+  async function whileHeld<T>(row: { accountId: string; to: Address }, second: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let inserted!: () => void;
+    const holding = new Promise<void>((resolve) => (inserted = resolve));
+    const first = sql!.begin(async (tx) => {
+      await tx`
+        INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, to_address, tx_hash)
+        VALUES (${badgeClaimKey(row.accountId)}, ${row.accountId}, ${CHAIN_ID}, ${getAddress(row.to)}, NULL)`;
+      inserted();
+      await gate;
+    });
+    // A first insert that fails surfaces its own error here instead of hanging the helper.
+    await Promise.race([holding, first]);
+    const pending = second().then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    let waiting = false;
+    for (let i = 0; i < 100 && !waiting; i++) {
+      const rows = await sql!`
+        SELECT 1 FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE '%INSERT INTO protocol.founding_badge_claims%'`;
+      waiting = rows.length > 0;
+      if (!waiting) await new Promise((r) => setTimeout(r, 20));
+    }
+    release();
+    expect(waiting).toBe(true);
+    await first;
+    const settled = await pending;
+    if (!settled.ok) throw settled.error;
+    return settled.value;
+  }
+
+  it('the same claim stored by simultaneous requests returns that claim every time, never badge.already_claimed (#6121)', async () => {
+    // Truly simultaneous inserts can both pass Postgres's arbiter pre-check. `ON CONFLICT (key)` then waited on the address
+    // index, which was not an arbiter, and raised 23505 there: one account's own claim refused as already claimed. On
+    // the store before #6121's fix this loop refused some of the account's own claims in each of three runs; it must
+    // refuse none.
+    const store = new PostgresBadgeStore(sql!);
+    const refused: unknown[] = [];
+    try {
+      for (let i = 0; i < 100; i++) {
+        const accountId = `5a5a5a5a-0000-4000-8000-${String(i).padStart(12, '0')}`;
+        const record = {
+          key: badgeClaimKey(accountId),
+          accountId,
+          chainId: CHAIN_ID,
+          to: getAddress(`0x${'e'.repeat(28)}${String(i).padStart(12, '0')}`),
+          txHash: null,
+        };
+        const settled = await Promise.allSettled([1, 2, 3, 4].map(() => store.putClaim(record)));
+        for (const s of settled) {
+          if (s.status === 'rejected') refused.push(s.reason);
+          // Every caller gets the one stored claim.
+          else expect(s.value).toMatchObject({ key: record.key, accountId, to: record.to });
+        }
+      }
+      // One row per account, however many requests raced.
+      expect(
+        await sql!`SELECT count(*)::int AS n, count(DISTINCT account_id)::int AS accounts FROM protocol.founding_badge_claims WHERE account_id::text LIKE '5a5a5a5a-%'`,
+      ).toEqual([{ n: 100, accounts: 100 }]);
+    } finally {
+      await sql!`DELETE FROM protocol.founding_badge_claims WHERE account_id::text LIKE '5a5a5a5a-%'`;
+    }
+    expect(refused).toEqual([]);
+  });
+
+  it('another account racing an uncommitted claim to the same address is refused badge.already_claimed (not a 500)', async () => {
+    const store = new PostgresBadgeStore(sql!);
+    await sql!`DELETE FROM protocol.founding_badge_claims WHERE account_id IN ${sql!([HELD, LATE])}`;
+    await expect(
+      whileHeld({ accountId: HELD, to: HELD_ADDR }, () =>
+        store.putClaim({ key: badgeClaimKey(LATE), accountId: LATE, chainId: CHAIN_ID, to: HELD_ADDR, txHash: null }),
+      ),
+    ).rejects.toThrow(/badge\.already_claimed/);
+    expect(await sql!`SELECT account_id FROM protocol.founding_badge_claims WHERE to_address = ${getAddress(HELD_ADDR)}`).toEqual([
+      { account_id: HELD },
+    ]);
   });
 
   it('two accounts racing to one address: one claim, the other badge.already_claimed (not a 500)', async () => {

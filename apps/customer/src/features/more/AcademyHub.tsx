@@ -4,6 +4,7 @@ import {
   academyPublicCourseCardSchema,
   academyPublicCourseSchema,
   academyPublicHubSchema,
+  type AcademyPublicHubLesson,
 } from '@intafaced/contracts/academy-catalogue';
 import { safeReturnTo } from '../../app/navigation';
 import { useApi } from '../session/session';
@@ -27,6 +28,7 @@ export function AcademyHub() {
   const { t, Copy } = copy.useCopy();
   const hub = useResource((signal) => api.query('academy', 'publicHub', undefined, academyPublicHubSchema, { signal }), 'public-hub');
   const featured = hub.resource.status === 'ready' ? hub.resource.data.featured : null;
+  const lesson = hub.resource.status === 'ready' ? hub.resource.data.lesson : null;
   return (
     <div className="more-columns" data-academy-hub="true">
       <Panel title={t('hubFeatured')}>
@@ -52,6 +54,8 @@ export function AcademyHub() {
               </p>
             )}
           </article>
+        ) : lesson ? (
+          <FeaturedLessonCard lesson={lesson} />
         ) : (
           <EmptyState title={t('hubNothingFeatured')} />
         )}
@@ -60,6 +64,31 @@ export function AcademyHub() {
         <ServiceOffNotice code="feed.news" action={t('hubNewsAction')} role="status" />
       </Panel>
     </div>
+  );
+}
+
+/**
+ * A course lesson staff featured: its title and course, and Open the course only while the course is published (its page
+ * is public then); a draft course's lesson says there is no course page yet.
+ */
+export function FeaturedLessonCard({ lesson }: { lesson: AcademyPublicHubLesson }) {
+  const { Copy } = copy.useCopy();
+  return (
+    <article className="academy-lms-card" data-featured-lesson="true">
+      <h3 lang="und">{lesson.title}</h3>
+      <p className="muted">
+        <Copy k="hubLessonFrom" params={{ course: lesson.courseTitle }} />
+      </p>
+      {lesson.courseSlug ? (
+        <a className="academy-learning-link" href={academyCourseHref(lesson.courseSlug)}>
+          <Copy k="hubLessonOpen" />
+        </a>
+      ) : (
+        <p className="muted">
+          <Copy k="hubLessonNotOpen" />
+        </p>
+      )}
+    </article>
   );
 }
 
