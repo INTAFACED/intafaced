@@ -8,6 +8,7 @@ import {
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
   actionApprovalIdInputSchema,
+  actionApprovalPoliciesReadSchema,
   actionApprovalProposeInputSchema,
   actionApprovalSchema,
   protectedProcedure,
@@ -19,7 +20,6 @@ import {
 import { AuthError as GuardError, hasScope, requireMfa } from '@intafaced/auth';
 import { ActionApprovalError, type ActionApprovalService } from './auth/action-approval-service.js';
 import {
-  audienceOfApproval,
   isInteractiveFounderPrincipal,
   isOperatorPrincipal,
   isTradeOpsOperatorPrincipal,
@@ -109,7 +109,8 @@ function toTrpc(err: unknown): never {
             err.code === 'action_approval.service_mismatch' ||
             err.code === 'action_approval.operator_only' ||
             err.code === 'action_approval.trade_ops_only' ||
-            err.code === 'action_approval.founder_only'
+            err.code === 'action_approval.founder_only' ||
+            err.code === 'action_approval.audience_mismatch'
           ? 'FORBIDDEN'
           : err.code === 'action_approval.founders_unavailable'
             ? 'SERVICE_UNAVAILABLE'
@@ -144,10 +145,22 @@ export function createActionApprovalRouter(
     return { operator, founder, tradeOps, adminRead };
   }
 
-  async function assertAudienceFor(principal: Parameters<typeof isOperatorPrincipal>[0], subject: ApprovalSubject | null): Promise<void> {
+  async function assertAudienceFor(
+    principal: Parameters<typeof isOperatorPrincipal>[0],
+    subject: ApprovalSubject | null,
+    whenUnset: 'refuse' | 'default' = 'refuse',
+  ): Promise<void> {
     // An unknown approval id falls through to the service's own `not_found`; nothing is disclosed here.
     if (subject === null) return;
-    const audience = audienceOfApproval(subject);
+    // A governed type takes its audience from the owner policy row (refusing `policy_unset` when it is blank), and a
+    // caller outside it is `audience_mismatch`. Every other type keeps the fixed audience and its codes.
+    const audience = svc.audienceFor(subject, whenUnset);
+    if (svc.isGoverned(subject) && !(await inAudience(principal, audience))) {
+      throw new ActionApprovalError(
+        'this caller is not in the approval policy audience for this action type',
+        'action_approval.audience_mismatch',
+      );
+    }
     if (audience === 'self') return;
     if (audience === 'founder') {
       if (!isInteractiveFounderPrincipal(principal) || !(await svc.isFounder(principal.userId))) {
@@ -164,6 +177,13 @@ export function createActionApprovalRouter(
     if (!isOperatorPrincipal(principal, privilegedUserIds)) {
       throw new ActionApprovalError('this action type is an operator action', 'action_approval.operator_only');
     }
+  }
+
+  async function inAudience(principal: Parameters<typeof isOperatorPrincipal>[0], audience: string): Promise<boolean> {
+    if (audience === 'founder') return isInteractiveFounderPrincipal(principal) && (await svc.isFounder(principal.userId));
+    if (audience === 'trade_ops') return isTradeOpsOperatorPrincipal(principal);
+    if (audience === 'operator') return isOperatorPrincipal(principal, privilegedUserIds);
+    return false;
   }
 
   return router({
@@ -238,7 +258,7 @@ export function createActionApprovalRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId));
+            await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId), 'default');
             return await svc.reject(ctx.principal.userId, input.approvalId);
           } catch (err) {
             toTrpc(err);
@@ -264,6 +284,22 @@ export function createActionApprovalRouter(
             toTrpc(err);
           }
         }),
+
+      /**
+       * Every policy-governed action type with its owner policy row, or `unset` with `action_approval.policy_unset`
+       * (OPS-change-control-01 CR-1). A founder or operator read for the console; it changes nothing.
+       */
+      policies: protectedProcedure.output(actionApprovalPoliciesReadSchema).query(async ({ ctx }) => {
+        try {
+          const access = await callerAccess(ctx.principal);
+          if (!access.operator && !access.founder) {
+            throw new ActionApprovalError('approval policies are an operator or founder read', 'action_approval.operator_only');
+          }
+          return { policies: svc.policyEntries() };
+        } catch (err) {
+          toTrpc(err);
+        }
+      }),
 
       /** One approval by id. The requester, or an operator/founder in its audience. */
       get: protectedProcedure
