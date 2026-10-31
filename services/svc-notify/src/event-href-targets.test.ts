@@ -31,6 +31,10 @@ const LIVE_ROOMS = [
   '/bank/transfers',
   '/uc/recharge',
   '/uc/recharge?asset=:id&network=:id',
+  // Copy trading's My follows, where a skipped or stopped follow is (J-copy-bots-otc-03 #6).
+  '/trade/copy?tab=follows',
+  // A person's own agent, whose Limits page holds the monthly alert (J-agents-02 #6).
+  '/agents/:id',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */

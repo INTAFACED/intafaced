@@ -27,6 +27,7 @@ import {
   TRPCError,
   type BlockerSource,
   protocolSwapPairsOutputSchema,
+  protocolRouteOptionsOutputSchema,
   protocolTokenPricesOutputSchema,
   PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
@@ -56,9 +57,11 @@ import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { pairsReader } from './amm/pairs.js';
 import { listAllowances } from './amm/allowances.js';
+import { blockBalances, routeOptions } from './amm/routes.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -106,6 +109,12 @@ import {
   type RepresentationSetting,
   type RepresentationStore,
 } from './representation/representation.js';
+import {
+  createAddressBookRouter,
+  createWalletSessionRouter,
+  unwiredAddressBookStore,
+  type AddressBookDeps,
+} from './address-book/router.js';
 import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
@@ -453,6 +462,11 @@ export interface ProtocolRouterDeps {
     setting: () => RepresentationSetting | null;
   };
   /**
+   * The wallet address book and wallet groups (D-portfolio-wallet-03), opened with a wallet session the wallet signs.
+   * Absent = not wired, which refuses `protocol.wallet_session_unset`.
+   */
+  addressBook?: Omit<AddressBookDeps, 'chainId'>;
+  /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
@@ -484,6 +498,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   // The ownership proof's chain reads, built once: the challenge's chain id and the verify reads come from this one object.
   let ownership: OwnershipChain | null = null;
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
+  const routeBalances = blockBalances(chain);
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -497,6 +512,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     return blockTime!.at;
   };
   const peers = deps.peers ?? noPeers;
+  const addressBookDeps: AddressBookDeps = {
+    chainId: () => chain.config.chainId,
+    ...(deps.addressBook ?? {
+      store: unwiredAddressBookStore,
+      session: () => null,
+      maxContacts: () => undefined,
+      maxGroups: () => undefined,
+    }),
+  };
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -1148,6 +1172,10 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         }),
     }),
 
+    // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
+    walletSession: createWalletSessionRouter(addressBookDeps),
+    addressBook: createAddressBookRouter(addressBookDeps),
+
     // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
     // Account = signed principal; address = that account's own registered smart account. Never a body field.
     badge: router({
@@ -1321,6 +1349,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createPoolFeesProcedures({
+        chain: poolFeesChain(
+          () => chain.client,
+          () => chain.config.rpcUrl,
+          () => chain.headBlock(),
+        ),
+        factory: () => deps.ammFactoryAddress(),
+        toTrpcError,
+      }),
       /**
        * PURE MATH OVER RESERVES THE CALLER SUPPLIES. Not a market quote.
        *
@@ -1474,6 +1511,43 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             });
           try {
             return await listAllowances(chain, await readPairs(factory), input.owner as Address);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Route options (J-dex-protocol-02 #4): every factory pool for the pair, ranked for `amountIn` at one block, best
+       * first; a lost leg says how much less it gives, an excluded one keeps its place, an unsynced pool reads
+       * `unavailable: stale` and is never quoted or dropped. The pool venue only (D-swap-05's books, hops and splits are
+       * svc-dex's).
+       */
+      routes: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            tokenIn: addressSchema,
+            tokenOut: addressSchema,
+            amountIn: z.string().regex(/^[1-9][0-9]{0,77}$/),
+            exclude: z.array(addressSchema).max(200).default([]),
+          }),
+        )
+        .output(protocolRouteOptionsOutputSchema)
+        .query(async ({ input }) => {
+          const factory = deps.ammFactoryAddress();
+          if (isZeroAddress(factory))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+            });
+          if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.route_same_token: pay and receive name the same token.' });
+          try {
+            return await routeOptions(routeBalances, await readPairs(factory), {
+              tokenIn: input.tokenIn as Address,
+              tokenOut: input.tokenOut as Address,
+              amountIn: BigInt(input.amountIn),
+              exclude: input.exclude,
+            });
           } catch (err) {
             throw toTrpcError(err);
           }

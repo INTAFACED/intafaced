@@ -2481,18 +2481,6 @@ export const WIRING_SOCKETS = [
       'The ledger post has already happened when this is published, and it carries the chargeKey precisely so reconciliation can be done against the ledger rather than by accumulating this stream. A consumer that added up these amounts would be a balance outside packages/ledger-client (§0.6), so the absence here is deliberate.',
   },
   {
-    event: 'agentUsageAlertCrossed',
-    missing: 'subscriber',
-    /**
-     * CLASS C — owned and unbuilt, disclosed. svc-notify's consumer, which writes the person's one inbox row per
-     * alert key, lands in its own PR after this subject. Until then the agent's Limits page says in its alert form
-     * that the inbox note is not delivered yet (`agents.usage.alert_inbox_unwired`), so no one is told to expect it.
-     */
-    class: 'C',
-    reason:
-      'svc-agents records and publishes the alert once per agent and month on its business key; the svc-notify consumer that turns it into one inbox row per key is the next PR (J-agents-02 #6). The Limits page discloses the gap in code until it lands.',
-  },
-  {
     event: 'p2pOfferCreated',
     missing: 'subscriber',
     /**
@@ -2615,13 +2603,6 @@ export const WIRING_SOCKETS = [
       'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
   },
   {
-    event: 'copySkipped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy skip notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). svc-trade publishes it; until svc-notify reads it, the skip log on the follow is where the person sees it.',
-  },
-  {
     event: 'copyFailed',
     missing: 'publisher',
     class: 'A',
@@ -2634,13 +2615,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the copy failure notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, leaderFillId). Until then no publisher exists either, so no user is promised a notice.',
-  },
-  {
-    event: 'copyStopped',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the copy stop notice in the J-copy-bots-otc-03 svc-notify change, idempotent on (followId, closeOnly). svc-trade publishes it; until svc-notify reads it, the state of the follow is where the person sees it.',
   },
   {
     event: 'payCustodyAuditCreated',

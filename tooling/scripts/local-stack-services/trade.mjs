@@ -7,6 +7,19 @@ function testValue(name) {
   return entry.value;
 }
 
+/**
+ * The TEST developer hosts. `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds a TEST regional host for every protocol,
+ * named from its production host under the reserved .test domain, so J-developer-01 #3 can see the redundant endpoint
+ * with its hosts set; the profile leaves regional out, so by default those rows read "host not set".
+ */
+function developerHosts() {
+  const hosts = JSON.parse(testValue('TRADE_DEVELOPER_HOSTS'));
+  if (process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'regional') {
+    for (const protocol of Object.keys(hosts)) hosts[protocol].regional = `regional.${hosts[protocol].production}`;
+  }
+  return JSON.stringify(hosts);
+}
+
 /** The TEST desk law, with its settle window, its minimum, its asset list or its level left out when the switch says so. */
 function otcDeskLaw() {
   const law = JSON.parse(testValue('TRADE_OTC_DESK_LAW'));
@@ -110,7 +123,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
     // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
     TRADE_COPY_FEE_SHARE_LAW: testValue('TRADE_COPY_FEE_SHARE_LAW'),
-    TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
+    // `LOCAL_STACK_TRADE_COPY_JURISDICTION=blank` on a restart leaves the country list blank, so J-copy-bots-otc-01 #5
+    // sees every follow refused.
+    TRADE_COPY_JURISDICTION_LAW:
+      process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION === 'blank' ? '' : testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
@@ -168,8 +184,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST ONLY, not an owner decision: the developer portal's hosts, regional host rule and data terms
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`
     // or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves that setting blank, so its refusal can be
-    // seen too.
-    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: testValue('TRADE_DEVELOPER_HOSTS') }),
+    // seen too; `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds TEST regional hosts (developerHosts).
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: developerHosts() }),
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE === 'off'
       ? {}
       : { TRADE_DEVELOPER_REGIONAL_RULE: testValue('TRADE_DEVELOPER_REGIONAL_RULE') }),

@@ -9,13 +9,25 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 
 const SANDBOX = '0b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e10';
+const unsetBalance = {
+  sandboxId: SANDBOX,
+  label: 'TEST',
+  asset: 'USDT',
+  amount: '0',
+  version: 0,
+  fundAmount: null,
+  resetsPerDay: null,
+  resetsToday: 0,
+};
 const world = vi.hoisted(() => ({
   userId: 'u1' as string | null,
   list: undefined as unknown as () => Promise<unknown>,
   get: undefined as unknown as () => Promise<unknown>,
   create: undefined as unknown as (name: string) => Promise<unknown>,
   createKey: undefined as unknown as (asked: unknown) => Promise<unknown>,
-  fund: undefined as unknown as (sandboxId: string) => Promise<unknown>,
+  fund: undefined as unknown as (read: unknown) => Promise<unknown>,
+  reset: undefined as unknown as (read: unknown) => Promise<unknown>,
+  balance: undefined as unknown as () => Promise<unknown>,
 }));
 vi.mock('../../session/session', () => ({ useSession: () => ({ userId: world.userId, api: {} }) }));
 vi.mock('./sandbox-api', async (original) => {
@@ -26,7 +38,9 @@ vi.mock('./sandbox-api', async (original) => {
     readSandbox: () => world.get(),
     createSandbox: (_api: unknown, _user: string, _listed: unknown, name: string) => world.create(name),
     createSandboxKey: (_api: unknown, _user: string, _detail: unknown, asked: unknown) => world.createKey(asked),
-    fundSandbox: (_api: unknown, _user: string, sandboxId: string) => world.fund(sandboxId),
+    fundSandbox: (_api: unknown, _user: string, read: unknown) => world.fund(read),
+    resetSandbox: (_api: unknown, _user: string, read: unknown) => world.reset(read),
+    readSandboxBalance: () => world.balance(),
   };
 });
 
@@ -56,6 +70,7 @@ beforeEach(() => {
   world.userId = 'u1';
   world.list = async () => ({ ok: true, data: { sandboxes: [record], cap: { limit: null, held: 1 }, baseUrl: 'http://sandbox.test' } });
   world.get = async () => ({ ok: true, data: { sandbox: record, keys: [], baseUrl: 'http://sandbox.test' } });
+  world.balance = async () => ({ ok: true, data: unsetBalance });
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -83,11 +98,12 @@ async function type(selector: string, value: string) {
 const click = (element: HTMLElement) => act(async () => void element.click());
 
 describe('sandboxRoute', () => {
-  it('reads the list, one sandbox, its key form, and nothing else', () => {
+  it('reads the list, one sandbox, its key form, the test values, and nothing else', () => {
     expect(sandboxRoute('/developers/sandbox/')).toEqual({ kind: 'list' });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX.toUpperCase()}?x=1`)).toEqual({ kind: 'sandbox', id: SANDBOX });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX}/keys/new`)).toEqual({ kind: 'new-key', id: SANDBOX });
-    expect(sandboxRoute('/developers/sandbox/test-values')).toEqual({ kind: 'unknown' });
+    expect(sandboxRoute('/developers/sandbox/test-values')).toEqual({ kind: 'test-values' });
+    expect(sandboxRoute('/developers/sandbox/test-values/x')).toEqual({ kind: 'unknown' });
     expect(sandboxRoute(`/developers/sandbox/${SANDBOX}/keys`)).toEqual({ kind: 'unknown' });
   });
 });
@@ -146,17 +162,54 @@ describe('sandbox rooms', () => {
     expect(document.querySelector('a[href="/developers/sandbox"]')?.textContent).toContain('All sandboxes');
   });
 
-  it('shows the TEST balance as not set, and Fund refuses by name while the owner has not decided', async () => {
+  it('shows the TEST balance with the owner settings not set, and Fund and Reset refuse by name', async () => {
     world.fund = vi.fn(async () => ({ ok: false, code: 'pay.sandbox_funds_unset', message: 'refused' }));
+    world.reset = vi.fn(async () => ({ ok: false, code: 'pay.sandbox_reset_cap_unset', message: 'refused' }));
     await show(`/developers/sandbox/${SANDBOX}`);
-    const balance = document.querySelector('[data-testid="sandbox-balance"]')!;
-    expect(balance.textContent).toBe('Sandbox balance (TEST): not set');
+    const text = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent;
+    expect(text('sandbox-balance')).toBe('0 USDT TEST');
+    expect(text('sandbox-fund-amount')).toBe('not set');
+    expect(text('sandbox-resets')).toBe('not set');
     await click(button('Fund with TEST money'));
-    expect(world.fund).toHaveBeenCalledWith(SANDBOX);
-    const alert = document.querySelector('[role="alert"]')!;
-    expect(alert.getAttribute('data-code')).toBe('pay.sandbox_funds_unset');
-    expect(alert.textContent).toContain('The owner has not set sandbox test funds. Nothing was added.');
-    expect(document.querySelector('[data-testid="sandbox-balance"]')?.textContent).toBe('Sandbox balance (TEST): not set');
+    expect(world.fund).toHaveBeenCalledWith(unsetBalance);
+    const alert = () => document.querySelector('[role="alert"]')!;
+    expect(alert().getAttribute('data-code')).toBe('pay.sandbox_funds_unset');
+    expect(alert().textContent).toContain('The owner has not set sandbox test funds. Nothing was added.');
+    expect(text('sandbox-balance')).toBe('0 USDT TEST');
+    await click(button('Reset balances'));
+    expect(alert().getAttribute('data-code')).toBe('pay.sandbox_reset_cap_unset');
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('adds the TEST amount on Fund, sends the version it read, and says so; a spent reset cap refuses by name', async () => {
+    const set = { ...unsetBalance, fundAmount: '1000', resetsPerDay: 2, resetsToday: 1, version: 3 };
+    world.balance = async () => ({ ok: true, data: set });
+    world.fund = vi.fn(async () => ({ ok: true, data: { ...set, amount: '1000', version: 4, replayed: false } }));
+    world.reset = vi.fn(async () => ({ ok: false, code: 'pay.sandbox_reset_cap_reached', message: 'refused' }));
+    await show(`/developers/sandbox/${SANDBOX}`);
+    const text = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent;
+    expect(text('sandbox-fund-amount')).toBe('1000 USDT TEST');
+    expect(text('sandbox-resets')).toBe('1 of 2');
+    await click(button('Fund with TEST money'));
+    expect(world.fund).toHaveBeenCalledWith(set);
+    expect(text('sandbox-balance')).toBe('1000 USDT TEST');
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Added 1000 USDT (TEST) to this sandbox.');
+    await click(button('Reset balances'));
+    expect(world.reset).toHaveBeenCalledWith({ ...set, amount: '1000', version: 4 });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('daily reset limit');
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('lists the card test values from the contract, with the decline token and its failure code', async () => {
+    await show('/developers/sandbox/test-values');
+    expect(document.querySelector('h1')?.textContent).toBe('Sandbox test values');
+    const table = document.querySelector('[role="region"][aria-label="Test values"] table')!;
+    const row = (id: string) => table.querySelector(`tr[data-test-value="${id}"]`)!;
+    expect(row('decline').querySelector('th')?.textContent).toBe('Decline');
+    expect([...row('decline').querySelectorAll('code')].map((c) => c.textContent)).toEqual(['tok_decline', 'card.declined']);
+    expect(row('acquirer_outage').querySelector('code')?.textContent).toBe('tok_rail_error');
+    expect(row('funds_held').querySelector('code')?.textContent).toBe('tok_funds_held');
+    expect(row('approve').textContent).toContain('Any other token');
   });
 
   it('sends the trade preset as asked and shows the sandbox refusal by code', async () => {

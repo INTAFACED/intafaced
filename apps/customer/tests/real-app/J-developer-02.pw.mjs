@@ -12,10 +12,8 @@ import { blankSigningWindow, signingPolicy } from './developer.mjs';
 // operators approved (pay permissions come only from that grant, with no sandbox temporary grant), signed in with its
 // authenticator code, with a passkey for each fresh step-up (as in J-developer-03) and no keys yet. Sandbox funds are TEST and never reach the live ledger, which the steps
 // check by reading the live balance before and after.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4, #5, #8: no sandbox funds, reset cap or test values (DV-sandbox-02). The stack starts with the funding decision
-//   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
-// - #7: no door refuses a sandbox key at the live host with `env.mismatch`.
+// The stack starts with the owner's sandbox fund amount and resets per day blank (#4 makes sure of it), and
+// `local-test-gates.mjs sandbox-funds set` sets TEST values (#5, #8).
 const J = 'J-developer-02';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
@@ -66,7 +64,9 @@ test.beforeAll(async ({ browser }) => {
   delete who.totp;
   await addPasskey(page);
   // write, not reset: a worker restart after a failure keeps what earlier steps stored (the key from #3).
-  run.write({ who });
+  // A key that #3 made for an account from before a worker restart is not this account's: drop it.
+  const kept = run.read().keyOwner === who.userId ? {} : { key: null, baseUrl: null, keyOwner: null };
+  run.write({ who, merchantId, ...kept });
 });
 
 test.afterAll(async () => {
@@ -248,10 +248,12 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
   expect(keys).toHaveLength(1);
   expect(keys[0]).toMatchObject({ name: 'sandbox-first', mode: 'sandbox', scopes: ['pay:read'], revoked: false });
   expect(key.startsWith(keys[0].prefix)).toBe(true);
-  run.write({ key, baseUrl });
+  run.write({ key, baseUrl, keyOwner: who.userId });
 });
 
 test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal naming the decision, nothing written`, async () => {
+  // A stack an earlier run left with TEST values set starts blank again.
+  tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
@@ -325,11 +327,14 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
 });
 
 test(`${J} #7 sends the first signed call: success in the sandbox, and the same key at the live host is refused with the environment mismatch code`, async () => {
-  const { key, baseUrl } = run.read();
+  const { key, baseUrl, keyOwner, who, merchantId } = run.read();
   expect(key, 'a sandbox key from #3').toBeTruthy();
+  expect(keyOwner, "the key from #3 is this account's").toBe(who.userId);
   // A sandbox key holds the pay scopes only (#3), and the edge serves it only at the pay door, the one door with a
-  // sandbox backing (svc-edge gateway-plane SANDBOX_BACKED_DOORS). The first call is a read of its own TEST payments.
-  const at = (host) => fetch(`${host}/api/pay/v1/payments`, { headers: { authorization: `Bearer ${key}` } }).then(json);
+  // sandbox backing (svc-edge gateway-plane SANDBOX_BACKED_DOORS). The first call is a read of the account's own
+  // business's TEST payments, as the API reference writes it: the business and a page size.
+  const at = (host) =>
+    fetch(`${host}/api/pay/v1/payments?merchantId=${merchantId}&limit=10`, { headers: { authorization: `Bearer ${key}` } }).then(json);
   // The same key at the live host: refused for its environment before anything else, by the typed code.
   const live = await at(EDGE);
   expect(live.status, JSON.stringify(live.body)).toBe(403);
@@ -337,39 +342,78 @@ test(`${J} #7 sends the first signed call: success in the sandbox, and the same 
   // At the sandbox host the door lets it through: never refused for its environment.
   const sandbox = await at(baseUrl);
   expect(JSON.stringify(sandbox.body)).not.toContain('env.mismatch');
-  expect(sandbox.status).not.toBe(403);
-  // Success needs a route that serves a person's own sandbox key: svc-pay's payment reads ask for a merchant
-  // (`pay.validation`, merchantId), and the sandbox's own store waits for the owner's decision (DV-sandbox-02). Soft,
-  // so the environment rule above is still proven; the step still fails, by name.
-  expect
-    .soft(
-      sandbox.status,
-      `BLOCKED (sandbox_route_unbuilt): no route serves a personal sandbox key yet (${sandbox.status} ${JSON.stringify(sandbox.body).slice(0, 200)})`,
-    )
-    .toBe(200);
+  // Success: the sandbox answers with the business's sandbox payments only (a fresh business has none), never a live one.
+  expect(sandbox.status, JSON.stringify(sandbox.body)).toBe(200);
+  expect(sandbox.body).toEqual({ items: expect.any(Array), nextCursor: null });
+  for (const item of sandbox.body.items) expect(item.railAdapter, JSON.stringify(item)).toMatch(/sandbox/);
 });
 
 test(`${J} #8 triggers a simulated decline and resets the balance: the payment ends declined; reset works until the daily cap, then a typed refusal`, async () => {
-  test.setTimeout(180_000);
-  const { key, baseUrl } = run.read();
+  test.setTimeout(240_000);
+  const { who, merchantId } = run.read();
+  // The decline value comes from the sandbox's test values page, which lists the tokens the sandbox card rail steers by.
   await page.goto('/developers/sandbox/test-values');
-  const decline = tableIn(page, 'Test values')
-    .getByRole('row', { name: /Decline/ })
-    .getByRole('code')
-    .first();
-  await expect(decline).toBeVisible(UNBUILT);
-  const payment = await fetch(`${baseUrl}/api/pay/v1/payments`, {
+  const decline = tableIn(page, 'Test values').getByRole('row', { name: /Decline/ });
+  await expect(decline.getByRole('code').first()).toBeVisible(UNBUILT);
+  const token = (await decline.getByRole('code').first().textContent())?.trim();
+  await expect(decline).toContainText('card.declined');
+
+  // Making a payment needs pay:write, and the key from #3 only reads: a second sandbox key with the TEST payments preset.
+  await openSandbox('development');
+  await page.getByRole('link', { name: 'Create a sandbox key' }).click();
+  await page.getByLabel('Key name').fill('sandbox-payments');
+  await page.getByLabel('Test payments', { exact: true }).check();
+  const made = await serverAnswer('createKey', () => page.getByRole('button', { name: 'Create with a passkey', exact: true }).click());
+  expect(made.status, JSON.stringify(made.body)).toBe(200);
+  const { key, baseUrl } = made.body.result.data;
+  expect(key).toMatch(/^ifc_test_/);
+  await page.getByLabel('I have stored this key somewhere safe').check();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  // The payment, made at the sandbox host with the decline token, is a sandbox payment; authorizing it ends it failed,
+  // declined by the issuer, with the code the page named.
+  const call = (pathname, init = {}) =>
+    fetch(`${baseUrl}/api/pay/v1${pathname}`, {
+      ...init,
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...init.headers },
+    }).then(json);
+  const created = await call('/payments', {
     method: 'POST',
-    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': `jd02-${RUN}-8-decline` },
-    body: JSON.stringify({ amount: '10', currency: 'USD', card: (await decline.textContent())?.trim() }),
-  }).then(json);
-  expect(payment.body?.status, JSON.stringify(payment.body)).toBe('declined');
+    headers: { 'idempotency-key': `jd02-${RUN}-8-decline-${who.userId}` },
+    body: JSON.stringify({
+      merchantId,
+      amount: '10',
+      assetId: 'USD',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token },
+    }),
+  });
+  expect(created.status, JSON.stringify(created.body)).toBeLessThan(300);
+  expect(created.body).toMatchObject({ mode: 'sandbox', status: 'created' });
+  const authorized = await call(`/payments/${created.body.id}/authorize`, {
+    method: 'POST',
+    headers: { 'idempotency-key': `jd02-${RUN}-8-authorize-${who.userId}` },
+    body: JSON.stringify({}),
+  });
+  // The authorize call answers the decline as a typed refusal, and the payment it leaves is failed with the issuer's code.
+  expect(authorized.status, JSON.stringify(authorized.body)).toBeGreaterThanOrEqual(400);
+  expect(authorized.body?.error?.code, JSON.stringify(authorized.body)).toBe('pay.rail_declined');
+  const read = await call(`/payments/${created.body.id}?merchantId=${merchantId}`);
+  expect(read.body, JSON.stringify(read.body)).toMatchObject({ status: 'failed', mode: 'sandbox', failure: { code: 'card.declined' } });
 
   await openSandbox('development');
-  const reset = page.getByRole('button', { name: 'Reset balances' });
+  const funds = page.getByRole('region', { name: 'TEST funds' });
+  const reset = funds.getByRole('button', { name: 'Reset balances' });
+  // "reset works": a TEST fund, then a reset brings the sandbox balance back to zero.
+  await funds.getByRole('button', { name: 'Fund with TEST money' }).click();
+  await expect.poll(sandboxBalance).toBeGreaterThan(0n);
+  await reset.click();
+  await expect(funds.getByRole('status')).toContainText('back to zero');
+  await expect.poll(sandboxBalance).toBe(0n);
   for (let i = 0; i < 50; i += 1) {
     await reset.click();
-    const said = page.getByRole('status').or(page.getByRole('alert'));
+    const said = funds.getByRole('status').or(funds.getByRole('alert'));
     await expect(said).toBeVisible();
     if (/daily reset limit/i.test((await said.textContent()) ?? '')) return;
   }

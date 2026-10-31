@@ -68,8 +68,21 @@ test(`${J} #5 creates a spot DCA bot by API and sends a manual buy to a stopped 
 test(`${J} #6 creates a recurring buy rule twice with one key and tops up past the cap: one rule; the cap code`, async () => {
   const body = { basket: [{ asset: 'BTC', weightPct: '100' }], amount: '10', every: 'day', clientId: `${J}-6` };
   const a = await call('POST', '/api/v1/recurring', body);
+  // Each call must make or return a rule: two refusals (no public recurring API yet) would otherwise compare equal.
+  expect(a.status, `UNBUILT: no public recurring buy API; answered ${JSON.stringify(a.body).slice(0, 200)}`).toBe(200);
+  expect(a.body.id, 'the rule has an id').toBeTruthy();
   const b = await call('POST', '/api/v1/recurring', body);
+  expect(b.status, JSON.stringify(b.body).slice(0, 200)).toBe(200);
   expect(b.body.id).toBe(a.body.id);
+  // One rule: the person's rule list, read back, holds this key exactly once.
+  const list = await call('GET', '/api/v1/recurring');
+  expect(list.status, JSON.stringify(list.body).slice(0, 200)).toBe(200);
+  const rules = Array.isArray(list.body) ? list.body : list.body.items;
+  expect(rules.filter((rule) => rule.clientId === body.clientId).map((rule) => rule.id)).toEqual([a.body.id]);
+  // The top-up past the cap is refused by its cap code; a top-up route has to exist for this to pass.
+  const topUp = await call('POST', `/api/v1/recurring/${a.body.id}/top-up`, { amount: '1000000' });
+  expect(topUp.status, JSON.stringify(topUp.body).slice(0, 200)).toBeGreaterThanOrEqual(400);
+  expect(codeOf(topUp.body), 'the cap code').toMatch(/cap/);
 });
 
 test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: one parent; amend refused; trigger kind refused`, async () => {

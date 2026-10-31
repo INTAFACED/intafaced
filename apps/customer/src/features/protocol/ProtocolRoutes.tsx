@@ -39,6 +39,7 @@ export function ProtocolRoutes({ path }: { path: string }) {
       );
     return route.explorer === 'block' ? <BlockPage height={Number(value)} /> : <TxPage hash={value.toLowerCase()} />;
   }
+  if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;

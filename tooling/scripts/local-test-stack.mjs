@@ -66,6 +66,7 @@ import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployme
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
+import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
@@ -126,6 +127,7 @@ const P = {
   procs: path.join(STATE, 'run', 'processes.json'),
   s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
+  tls: path.join(STATE, 'tls'),
   logs: path.join(STATE, 'logs'),
   data: path.join(STATE, 'data'),
   pgdata: path.join(STATE, 'data', 'postgres'),
@@ -189,6 +191,8 @@ const PORTS = {
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
   apex: 3260,
   admin: 3100,
+  // LOCAL TEST HTTPS front for the founder console (local-test-team-tls.mjs): the Customer build's Team link.
+  'team-tls': 3143,
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
@@ -196,6 +200,8 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
+// The Customer build links to the Team console only over HTTPS, so the stack's build points at this TEST front.
+const TEAM_TLS_ORIGIN = `https://${HOST}:${PORTS['team-tls']}`;
 const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
 const APEX_ORIGIN = `http://${HOST}:${PORTS.apex}`;
 const DB_NAME = 'intafaced_local_test';
@@ -958,7 +964,10 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
-  const customerOk = override ? !act.error : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false;
+  // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  const customerOk = override
+    ? !act.error
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
   const edits = worktreeEdits(SOURCE_PATHS);
   const fresh =
     !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
@@ -1049,7 +1058,7 @@ function ensureBuilt(rebuild) {
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
   }
   writePrivate(
     P.buildStamp,
@@ -1064,6 +1073,7 @@ function ensureBuilt(rebuild) {
         backendEdits,
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
+        customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
       },
       null,
       2,
@@ -1346,12 +1356,54 @@ function testChain() {
 }
 
 /**
+ * What services stored from the TEST chain: rows that describe blocks and logs of one node. A new anvil starts at
+ * block 0 with other hashes, so rows kept from an earlier node make the indexer see a chain that is not its own and halt
+ * (`indexer.halted`). Each entry is the service and the schema of the stack's one database it keeps those rows in.
+ */
+export const CHAIN_DERIVED = [{ service: 'indexer', schema: 'indexer' }];
+
+/**
+ * SQL that empties every table in `schema` but its migration journal (`__migrations`), so the tables and the record of
+ * which migrations ran both stay. It waits at most 10 s for a lock, so a session left holding one fails the start by
+ * name instead of hanging it.
+ */
+export function emptySchemaSql(schema) {
+  if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`not a schema name: ${schema}`);
+  return `SET lock_timeout = '10s';
+DO $$ DECLARE t text; BEGIN
+  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ') INTO t FROM pg_tables
+    WHERE schemaname = '${schema}' AND tablename <> '__migrations';
+  IF t IS NOT NULL THEN EXECUTE 'TRUNCATE ' || t || ' RESTART IDENTITY CASCADE'; END IF;
+END $$;`;
+}
+
+/**
+ * A new TEST chain: every service that stored the old one's blocks is stopped and its chain rows emptied, so it starts
+ * again from the new node's block 0. Called only when this script starts a new anvil, never for a running one.
+ */
+async function forgetOldChain(secrets) {
+  const procs = readProcs();
+  const stopped = [];
+  for (const { service, schema } of CHAIN_DERIVED) {
+    if (ownedAlive(procs[service])) {
+      say(`  ${service}: ${await stopProc(service, procs[service])} (a new TEST chain)`);
+      stopped.push(service);
+    }
+    psql(secrets, emptySchemaSql(schema), { db: DB_NAME });
+    say(`  ${service}: rows from the earlier TEST chain emptied (schema ${schema}); it reads the new chain from block 0`);
+  }
+  return stopped;
+}
+
+/**
  * Starts anvil behind its gate and seeds it, when an anvil binary is found. Without one the stack runs as it did
  * before this chain existed, and says so. A failure to seed fails the start: a half-seeded chain would let the DEX
- * journeys fail later for a reason the log no longer shows.
+ * journeys fail later for a reason the log no longer shows. Returns the services it stopped for a new chain
+ * (forgetOldChain), which the start brings back even when `--only` leaves them out.
  */
-async function startTestChain() {
+async function startTestChain(secrets) {
   const bin = anvilBin(process.env);
+  let renewed = false;
   const procs = readProcs();
   if (!bin) {
     if (!ownedAlive(procs.chain)) {
@@ -1363,13 +1415,15 @@ async function startTestChain() {
       }
     }
     say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
-    return;
+    return [];
   }
   if (!ownedAlive(procs.chain)) {
     for (const port of Object.values(CHAIN_PORTS))
       if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
-    // A new anvil starts empty: whatever an earlier record named is gone with the old node.
+    // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
+    // service stored from it.
     fs.rmSync(chainRecordPath(STATE), { force: true });
+    renewed = true;
     startProc(
       'chain',
       [process.execPath, path.join(path.dirname(SCRIPT), 'local-test-chain.mjs'), 'serve'],
@@ -1391,6 +1445,8 @@ async function startTestChain() {
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
+  // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
+  return renewed ? forgetOldChain(secrets) : [];
 }
 
 async function rpcChainId() {
@@ -1674,6 +1730,39 @@ async function startAdmin(secrets) {
   await waitHealthy('admin', url, pid, 60_000);
 }
 
+/** The front answers on HTTPS with the stack's TEST certificate and sends `/login` on to the console's own origin. */
+async function teamTlsAnswers(cert, timeoutMs = 2000) {
+  const r = await httpsGetTrusting(`${TEAM_TLS_ORIGIN}/login`, cert, timeoutMs);
+  return r.status === 308 && r.location === `${ADMIN_ORIGIN}/login`;
+}
+
+/**
+ * The HTTPS address the Customer build's Team link names (local-test-team-tls.mjs), with the stack's own TEST certificate.
+ * A machine whose openssl cannot make the certificate starts without it: the link's address then does not answer, and
+ * the start says why, instead of failing the whole stack over a TEST convenience.
+ */
+async function startTeamTls() {
+  const procs = readProcs();
+  let cert;
+  try {
+    ({ cert } = ensureTestCert(P.tls));
+  } catch (err) {
+    say(`  team-tls: not started: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  if (ownedAlive(procs['team-tls']) && (await teamTlsAnswers(cert))) return;
+  if (ownedAlive(procs['team-tls'])) await stopProc('team-tls', procs['team-tls']);
+  if (await portOpen(PORTS['team-tls'])) fail(`port ${PORTS['team-tls']} (team-tls) is in use by a process this script did not start`);
+  const pid = startProc('team-tls', [process.execPath, SCRIPT, '__serve-team-tls'], baseEnv(), REPO);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20_000) {
+    if (!psCommand(pid)) fail(`team-tls exited during start. Log ${path.join(P.logs, 'team-tls.log')}`);
+    if (await teamTlsAnswers(cert)) return;
+    await sleep(500);
+  }
+  fail(`team-tls did not answer at ${TEAM_TLS_ORIGIN}/login within 20s (see ${path.join(P.logs, 'team-tls.log')})`);
+}
+
 /**
  * The founder console's production build, served in this script's own process so the recorded command line stays
  * what was started (the `next` CLI renames its process, which ownership checks would then refuse to stop).
@@ -1696,6 +1785,20 @@ async function serveAdmin(port = PORTS.admin) {
 /** Every Node service this script runs, in SERVICES order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
+}
+
+/**
+ * Why the indexer halted, or null. It stays up and answers /health when it halts (its projection no longer matches the
+ * chain), so only /ready says so; a /ready that is down for another reason (no chain door yet) is not a halt.
+ */
+async function indexerHalt() {
+  const r = await httpGet(`${urlOf('indexer')}/ready`, 2500);
+  try {
+    const body = JSON.parse(r.text);
+    return body?.haltedAt ? String(body.reason ?? 'no reason given').slice(0, 120) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function healthTable({ gateMarket = false } = {}) {
@@ -1721,7 +1824,9 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   for (const n of serviceNames()) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
-    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
+    const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
+    const state = r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+    rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
   }
   if (procs.chain) {
     const status = await chainStatus();
@@ -1774,6 +1879,9 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
+  const teamCert = path.join(P.tls, 'team-tls.crt');
+  const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
+  rows.push(['team-tls (TEST)', PORTS['team-tls'], procs['team-tls']?.pid ?? '-', teamTlsOk ? 'ok' : 'DOWN']);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -1789,7 +1897,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1839,15 +1947,27 @@ async function cmdStart(flags) {
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
-  // Migrate only what is about to start: a service that is already running was migrated when it started.
-  const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
+  // Migrate only what is about to start: a service that is already running on the current build was migrated when it
+  // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
+  const backendBuild = currentBuild('backendBuild');
+  const procsNow = readProcs();
+  const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
+  // An old build never serves a schema migrated past it: stop it before its migrations run.
+  for (const d of toStart) await stopForNewBuild(d.name, procsNow[d.name], backendBuild, PORTS[d.name]);
   await migrate(
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
   await startNats();
   ensureStreams();
-  if (!only || only.includes('protocol')) await startTestChain();
+  const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
+  // A service stopped for the new chain that this start did not plan for is migrated before it comes back.
+  const extra = renewed.filter((name) => !toStart.some((d) => d.name === name));
+  if (extra.length)
+    await migrate(
+      secrets,
+      SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
+    );
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -1860,7 +1980,10 @@ async function cmdStart(flags) {
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
   if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices(wanted);
+  await startServices([
+    ...wanted,
+    ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
+  ]);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
@@ -1874,6 +1997,7 @@ async function cmdStart(flags) {
   if (!only || only.includes('apex')) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (!only || only.includes('admin')) await startAdmin(secrets);
+  if (!only || only.includes('admin') || only.includes('team-tls')) await startTeamTls();
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -1924,8 +2048,20 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'apex', 'invitation', 'customer', ...serviceNames().reverse(), 'chain', 'video-store', 'rail-statements', 'nats'];
-  const only = names.length ? names : null;
+  const order = [
+    'team-tls',
+    'admin',
+    'apex',
+    'invitation',
+    'customer',
+    ...serviceNames().reverse(),
+    'chain',
+    'video-store',
+    'rail-statements',
+    'nats',
+  ];
+  // The console's HTTPS front starts with it (`--only admin`), so it stops with it too.
+  const only = names.length ? (names.includes('admin') ? [...new Set([...names, 'team-tls'])] : names) : null;
   // A TEST host receipt never outlives the sites it says are served (checkLocalTestHosts writes it again on start).
   if (!only || HOST_SITES.some((name) => only.includes(name))) fs.rmSync(P.hostReceipt, { force: true });
   let bad = false;
@@ -1998,7 +2134,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -3479,6 +3615,8 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-apex') serveCustomer(PORTS.apex, SITES.apex);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-team-tls')
+    await serveTeamTls({ host: HOST, port: PORTS['team-tls'], target: ADMIN_ORIGIN, ...ensureTestCert(P.tls) });
   else if (cmd === '__serve-video-store')
     serveVideoStore({
       host: HOST,

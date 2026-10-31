@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import { API_KEY_NAME_MAX } from '@intafaced/contracts/api-keys';
 import {
+  SANDBOX_CARD_TEST_VALUES,
   SANDBOX_NAME_MAX,
+  type SandboxBalance,
   type SandboxDetail,
   type SandboxKeyCreateOutput,
   type SandboxList,
@@ -18,6 +20,8 @@ import {
   createSandboxKey,
   fundSandbox,
   readSandbox,
+  readSandboxBalance,
+  resetSandbox,
   readSandboxes,
   sandboxRoute,
   type KeyPreset,
@@ -43,17 +47,26 @@ function Refused({ failure, t }: { failure: Refusal; t: T }) {
 }
 
 function BaseUrl({ baseUrl, t }: { baseUrl: string | null; t: T }) {
-  return baseUrl ? (
-    <p>
-      {t('baseUrlLabel')}:{' '}
-      <code lang="und" data-testid="sandbox-base-url">
-        {baseUrl}
-      </code>
-    </p>
-  ) : (
-    <p className="muted" data-testid="sandbox-base-url-unset">
-      {t('baseUrlUnset')}
-    </p>
+  return (
+    <>
+      {baseUrl ? (
+        <p>
+          {t('baseUrlLabel')}:{' '}
+          <code lang="und" data-testid="sandbox-base-url">
+            {baseUrl}
+          </code>
+        </p>
+      ) : (
+        <p className="muted" data-testid="sandbox-base-url-unset">
+          {t('baseUrlUnset')}
+        </p>
+      )}
+      <p>
+        <a className="text-link" href="/developers/sandbox/test-values">
+          {t('testValuesLink')}
+        </a>
+      </p>
+    </>
   );
 }
 
@@ -221,29 +234,83 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
   return resource.data ? children(resource.data, reload) : shell(<Loading label={t('loading')} />);
 }
 
-/** The sandbox's TEST funds: its balance (not set until the owner decides where it is kept) and Fund. */
+/**
+ * The sandbox's TEST funds, from the pay service's sandbox store: the balance, what each Fund adds and the resets used
+ * today (each "not set" while the owner's setting is blank), Fund and Reset. Every figure is TEST and never real money.
+ */
 function Funds({ sandboxId, t }: { sandboxId: string; t: T }) {
   const { api, userId } = useSession();
+  const { resource, reload } = useResource(
+    (signal) => readSandboxBalance(api, sandboxId, signal),
+    `developer-sandbox-balance:${userId ?? 'out'}:${sandboxId}`,
+  );
+  // The balance a press answered, for this sandbox only; a refusal drops it and reads again.
+  const [answered, setAnswered] = useState<SandboxBalance | null>(null);
+  const latest = answered?.sandboxId === sandboxId ? answered : null;
+  // While a refusal's re-read is under way, the figures last shown stay on screen.
+  const [shown, setShown] = useState<SandboxBalance | null>(null);
   const [busy, setBusy] = useState(false);
-  const [refused, setRefused] = useState<Refusal | null>(null);
-  async function fund() {
-    if (busy || !userId) return;
+  const [said, setSaid] = useState<{ kind: 'done'; text: string } | { kind: 'refused'; failure: Refusal } | null>(null);
+  const fresh = latest ?? (resource.status === 'ready' ? resource.data : null);
+  const read = fresh ?? (shown?.sandboxId === sandboxId ? shown : null);
+
+  async function press(action: 'fund' | 'reset') {
+    if (busy || !userId || !read) return;
     setBusy(true);
-    setRefused(null);
-    const result = await fundSandbox(api, userId, sandboxId);
+    setSaid(null);
+    const result = action === 'fund' ? await fundSandbox(api, userId, read) : await resetSandbox(api, userId, read);
     setBusy(false);
-    if (!result.ok) setRefused(result);
+    if (!result.ok) {
+      setSaid({ kind: 'refused', failure: result });
+      setShown(read);
+      setAnswered(null);
+      reload();
+      return;
+    }
+    const { replayed, ...balance } = result.data;
+    setAnswered(balance);
+    let text = t('pressReplayed');
+    if (!replayed) text = action === 'fund' ? t('funded', { amount: balance.fundAmount ?? '', asset: balance.asset }) : t('resetDone');
+    setSaid({ kind: 'done', text });
   }
+
   return (
     <section aria-labelledby="sandbox-funds">
       <h2 id="sandbox-funds">{t('fundsHeading')}</h2>
-      <p data-testid="sandbox-balance" data-balance="unset">
-        {t('balanceLabel')}: <span className="muted">{t('balanceUnset')}</span>
-      </p>
-      <Button variant="secondary" disabled={busy} onClick={() => void fund()}>
-        {t('fund')}
-      </Button>
-      {refused ? <Refused failure={refused} t={t} /> : null}
+      <p className="muted">{t('fundsLead')}</p>
+      {resource.status === 'failed' && !latest ? <Failure result={resource.failure} retry={reload} /> : null}
+      {read ? (
+        <dl className="apps-facts">
+          <dt>{t('balanceLabel')}</dt>
+          <dd data-testid="sandbox-balance" data-balance={read.amount}>
+            {read.amount} {read.asset} {read.label}
+          </dd>
+          <dt>{t('fundAmountLabel')}</dt>
+          <dd data-testid="sandbox-fund-amount">
+            {read.fundAmount === null ? <span className="muted">{t('notSet')}</span> : `${read.fundAmount} ${read.asset} TEST`}
+          </dd>
+          <dt>{t('resetsLabel')}</dt>
+          <dd data-testid="sandbox-resets">
+            {read.resetsPerDay === null ? (
+              <span className="muted">{t('notSet')}</span>
+            ) : (
+              t('resetsOf', { used: String(read.resetsToday), cap: String(read.resetsPerDay) })
+            )}
+          </dd>
+        </dl>
+      ) : resource.status === 'loading' ? (
+        <Loading label={t('balanceLoading')} />
+      ) : null}
+      <div className="apps-actions">
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('fund')}>
+          {t('fund')}
+        </Button>
+        <Button variant="secondary" disabled={busy || !read} onClick={() => void press('reset')}>
+          {t('reset')}
+        </Button>
+      </div>
+      {said?.kind === 'done' ? <p role="status">{said.text}</p> : null}
+      {said?.kind === 'refused' ? <Refused failure={said.failure} t={t} /> : null}
     </section>
   );
 }
@@ -444,10 +511,56 @@ function Unknown() {
   );
 }
 
+const TEST_VALUE_NAME = { decline: 'valueDecline', acquirer_outage: 'valueOutage', funds_held: 'valueFundsHeld' } as const;
+const TEST_VALUE_RESULT = { decline: 'resultDecline', acquirer_outage: 'resultOutage', funds_held: 'resultFundsHeld' } as const;
+
+/**
+ * /developers/sandbox/test-values: the card tokens that steer a sandbox payment (J-developer-02 #8), from the contract
+ * the sandbox card rail answers. Public reference, so it reads the same signed in or out.
+ */
+function TestValues() {
+  const { t } = sandboxCopy.useCopy();
+  return (
+    <Page eyebrow={t('eyebrow')} title={t('testValuesTitle')}>
+      <div className="apps-room">
+        <a className="text-link" href="/developers/sandbox">
+          ← {t('back')}
+        </a>
+        <p>{t('testValuesLead')}</p>
+        <DataTable label={t('testValuesHeading')} headers={[t('colOutcome'), t('colToken'), t('colResult')]}>
+          {SANDBOX_CARD_TEST_VALUES.map((value) => (
+            <tr key={value.id} data-test-value={value.id}>
+              <th scope="row">{t(TEST_VALUE_NAME[value.id])}</th>
+              <td>
+                <code lang="und">{value.token}</code>
+              </td>
+              <td>
+                {t(TEST_VALUE_RESULT[value.id])}
+                {value.failureCode ? (
+                  <>
+                    {' '}
+                    <code lang="und">{value.failureCode}</code>
+                  </>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+          <tr data-test-value="approve">
+            <th scope="row">{t('valueApprove')}</th>
+            <td>{t('anyOtherToken')}</td>
+            <td>{t('resultApprove')}</td>
+          </tr>
+        </DataTable>
+      </div>
+    </Page>
+  );
+}
+
 /** Every room under /developers/sandbox (DV-sandbox-01). Signed in: a sandbox belongs to an account. */
 export function SandboxRoutes({ path }: { path: string }) {
   const route = sandboxRoute(path);
   if (route.kind === 'list') return <SandboxList />;
+  if (route.kind === 'test-values') return <TestValues />;
   if (route.kind === 'sandbox') return <SandboxPage id={route.id} />;
   if (route.kind === 'new-key') return <NewSandboxKey id={route.id} />;
   return <Unknown />;

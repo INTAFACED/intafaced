@@ -416,7 +416,20 @@ test(`${J} #6 opens the entries behind the USDT balance: every ledger entry, new
   expect(await rows.count()).toBe(Number(/All (\d+) entries/.exec(check)?.[1]));
   const times = await rows.locator('time').evaluateAll((list) => list.map((node) => Date.parse(node.getAttribute('datetime'))));
   expect(times.every((t, i) => i === 0 || times[i - 1] >= t)).toBe(true);
-  for (const ref of await rows.locator('code').allInnerTexts()) expect(ref.trim()).toMatch(/\S{8,}/);
+  // Every row carries its reference, and the rows are the bank's entries in the bank's order.
+  const refs = await rows.evaluateAll((list) => list.map((tr) => tr.querySelector('code')?.textContent?.trim() ?? ''));
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/bank/trpc/portfolio.balanceEntries?input=${encodeURIComponent(JSON.stringify({ assetId: 'USDT', limit: 200 }))}`);
+  expect(status).toBe(200);
+  const entries = body.result.data.entries;
+  expect(body.result.data.nextCursor).toBeNull();
+  for (const ref of refs) expect(ref).toMatch(/\S{8,}/);
+  expect(refs).toEqual(entries.map((entry) => entry.txId));
+  // Those entries are all of the ledger's: signed (a debit is money in) and added up, they are the spendable balance the
+  // ledger answers itself.
+  const signed = entries.reduce((total, e) => total + (e.direction === 'debit' ? 1n : -1n) * toUnits(e.amount), 0n);
+  expect(signed).toBe(toUnits(now.free));
   // The oldest line is the TEST funding that started the journey.
   await expect(rows.last()).toContainText('+1,000');
 });

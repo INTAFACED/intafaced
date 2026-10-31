@@ -44,6 +44,28 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The account is no longer at the role revision this request was built on. Nothing was changed.',
     next: 'Read the roles again and decide again.',
   },
+  // Same-person step-ups (a governance role change, J-more-catalogue-10 #6): the owning service refuses a run without
+  // the running person's fresh step-up for exactly that change.
+  'identity.step_up_required': {
+    title: 'Your fresh authenticator code is needed to run this',
+    body: 'This change runs only with a fresh step-up by the person who runs it, for exactly this change. Nothing was changed.',
+    next: 'Type the current code from your authenticator app and try again.',
+  },
+  'identity.step_up_unavailable': {
+    title: 'The step-up could not be checked',
+    body: 'The service could not reach identity to check the step-up, so it refused the change. Nothing was changed.',
+    next: 'Try again shortly with a new code.',
+  },
+  'auth.mfa_invalid': {
+    title: 'That authenticator code was not accepted',
+    body: 'Identity did not accept the code: it was wrong, already used, or from an old window. Nothing was changed.',
+    next: 'Wait for the next code in your authenticator app and try again.',
+  },
+  'auth.too_many_attempts': {
+    title: 'Too many authenticator codes were tried',
+    body: 'Identity paused codes for your account for a while. Nothing was changed.',
+    next: 'Wait a few minutes, then run it again with a fresh code.',
+  },
   // svc-token launch founder doors (J-more-catalogue-14). Every one is refused before the approval is spent.
   'launch.issuer_not_onboarded': {
     title: 'This issuer is not onboarded',
@@ -1342,6 +1364,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That grade file cannot be read',
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
+  },
+  'academy.permission_denied': {
+    title: 'This needs a role you do not hold',
+    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
+    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+  },
+  'academy.bulk_limit_unset': {
+    title: 'The curve file limit is not set',
+    body: 'The owner has not set how large a curve file may be, so no curve file is read.',
+    next: 'Ask the owner to set the curve file limit. Nothing was changed.',
+  },
+  'academy.bulk_file_too_large': {
+    title: 'That file is over the limit',
+    body: 'The file is larger than the owner allows for one curve file, so it was refused before it was read.',
+    next: 'Split the file and upload each part. Nothing was changed.',
   },
   'academy.key_fix_invalid': {
     title: 'That is not a key fix',

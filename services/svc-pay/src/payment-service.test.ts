@@ -95,6 +95,8 @@ const migrations = [
   '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0090_pay_payout_destination_verified.sql',
+  // A payout reads activates_at to refuse a destination still inside its hold (J-merchant-02 #5).
+  '20261030184034_pay_payout_destination_activates_at.sql',
   '0018_pay_founder_controls_admission.sql',
   // Payment and settlement reads select the stored pricing row. The table is empty here.
   '0050_pay_control_tiers.sql',

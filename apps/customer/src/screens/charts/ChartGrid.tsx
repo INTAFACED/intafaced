@@ -93,6 +93,8 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const { t } = chartsCopy.useCopy();
   const { userId } = useSession();
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
+  // The object tree's indicator slot, filled by the main chart's studies bar.
+  const [treeSlot, setTreeSlot] = useState<HTMLElement | null>(null);
   const owner = useChartOwnerValues(market.symbol);
   const limit: LimitRead = ownerValue(owner, 'chartCountLimit');
   const limitKey = limit.ok ? String(limit.value) : limit.why;
@@ -209,8 +211,13 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
         const el = cellEls.current[i];
         if (el) el.dataset[name] = value;
       };
-      const onMove = (param: { time?: number; point?: { x: number; y: number } }) => {
+      const onMove = (param: { time?: number; point?: { x: number; y: number }; paneIndex?: number }) => {
         mark('crosshair', param.time === undefined ? '' : String(param.time));
+        // The price at the pointer's height, as the library reads it, so a check can compare a placed point with it.
+        // Only over the price pane: a height in an indicator pane is not a price.
+        const onPrice = param.paneIndex === undefined || param.paneIndex === host.main.getPane().paneIndex();
+        const atPointer = param.point && onPrice ? host.main.coordinateToPrice(param.point.y) : null;
+        mark('crosshairPrice', atPointer === null ? '' : String(atPointer));
         if (syncing || !grid.sync.crosshair) return;
         syncing = true;
         try {
@@ -443,7 +450,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   markets={markets}
                   addons={(host, bars, view: AddonView) => (
                     <>
-                      {i === 0 ? mainAddons?.(host, bars, view) : null}
+                      {i === 0 ? mainAddons?.(host, bars, { ...view, onTreeSlot: setTreeSlot }) : null}
                       <StudiesBar
                         host={host}
                         market={cellMarket}
@@ -452,6 +459,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                         percent={view.percent}
                         replaying={view.replaying}
                         workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                        treeSlot={i === 0 ? treeSlot : null}
                         group={
                           cell.group
                             ? {

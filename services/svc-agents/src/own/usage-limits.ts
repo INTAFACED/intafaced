@@ -32,6 +32,7 @@ export type OwnUsageLimitsView = {
   readonly alertCrossed: boolean;
   readonly alert: { readonly key: string; readonly spent: string } | null;
   readonly hardLimitReached: boolean;
+  readonly hardLimitRoom: string | null;
 };
 
 /** Blank is not set; anything else must be a decimal amount above zero. */
@@ -97,21 +98,21 @@ export async function ownAgentSpent(
 }
 
 /**
- * Refuses a new run of this own agent once this month's use reached the hard limit the person set. `used` is the
- * month's committed cost plus the worst case of every run still held, read under the reserve's per-user lock, so runs
- * started together cannot all pass a limit that only finished runs would show: past it by at most one run's worst
- * case. Called only where a run is held, never where one commits: a run already held finishes and is charged.
+ * Refuses a new run of this own agent unless its worst case `amount` fits under the hard limit the person set beside
+ * `used`: the month's committed cost plus the worst case of every run still held, read under the reserve's per-user
+ * lock, so runs started together cannot pass the limit between them. A run it admits never takes the month past the
+ * limit. Called only where a run is held, never where one commits: a run held before the limit was lowered finishes.
  */
 export async function assertBelowHardLimit(
   tx: Sql,
-  input: { userId: string; agentId: string; assetId: string; used: Amount; now: Date },
+  input: { userId: string; agentId: string; assetId: string; used: Amount; amount: Amount; now: Date },
 ): Promise<void> {
-  const { userId, agentId, assetId, used, now } = input;
+  const { userId, agentId, assetId, used, amount, now } = input;
   const limits = await readOwnUsageLimits(tx, userId, agentId);
   if (!limits?.hardLimit) return;
-  if (used >= limits.hardLimit) {
+  if (used + amount > limits.hardLimit) {
     throw new AgentError(
-      `Own agent hard limit ${formatAmount(limits.hardLimit)} ${assetId} for ${usageMonth(now)} is reached`,
+      `Own agent run worst case ${formatAmount(amount)} ${assetId} does not fit under the hard limit ${formatAmount(limits.hardLimit)} for ${usageMonth(now)}`,
       'agents.usage.hard_limit_reached',
       'agents.refused.hard_limit_reached',
       { limit: formatAmount(limits.hardLimit), asset: assetId, month: usageMonth(now) },
@@ -299,6 +300,7 @@ export class OwnUsageLimitsStore {
       alertCrossed: alert !== undefined,
       alert: alert ? { key: alert.alert_key, spent: formatAmount(parseAmount(alert.spent)) } : null,
       hardLimitReached: limits?.hardLimit != null && used >= limits.hardLimit,
+      hardLimitRoom: limits?.hardLimit == null ? null : formatAmount(limits.hardLimit > used ? limits.hardLimit - used : 0n),
     };
   }
 }

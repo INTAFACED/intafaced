@@ -1,16 +1,20 @@
 /**
- * The customer app's calls to the identity service's developer sandboxes (`identity.developerSandboxes.*`, tRPC through
- * the edge). The shapes are the contract's, so a reply that does not match is refused, never shown.
+ * The customer app's calls to the identity service's developer sandboxes (`identity.developerSandboxes.*`) and to the
+ * pay service's sandbox store (`pay.sandboxFunds.*`), tRPC through the edge. The shapes are the contract's, so a reply that does not match is refused, never shown.
  */
 import {
   sandboxCreateOutputSchema,
   sandboxCreateRequestId,
+  sandboxBalanceOutputSchema,
   sandboxFundOutputSchema,
   sandboxFundRequestId,
   sandboxGetOutputSchema,
   sandboxKeyCreateOutputSchema,
   sandboxKeyCreateRequestId,
   sandboxListOutputSchema,
+  sandboxResetOutputSchema,
+  sandboxResetRequestId,
+  type SandboxBalance,
   type SandboxDetail,
   type SandboxKeyCreateInput,
   type SandboxList,
@@ -33,13 +37,27 @@ export const createSandbox = (api: ApiClient, userId: string, listed: SandboxLis
     sandboxCreateOutputSchema,
   );
 
-/**
- * One press of Fund. Until the owner decides where sandbox balances are kept, the pay service refuses
- * `pay.sandbox_funds_unset` and nothing is written; there is no balance to read, so the page sends null as the
- * balance it read.
- */
-export const fundSandbox = (api: ApiClient, userId: string, sandboxId: string) =>
-  api.mutate('pay', 'sandboxFunds.fund', { sandboxId, requestId: sandboxFundRequestId(userId, sandboxId, null) }, sandboxFundOutputSchema);
+/** The sandbox's TEST balance, from the pay service's sandbox store (never the ledger). */
+export const readSandboxBalance = (api: ApiClient, sandboxId: string, signal?: AbortSignal) =>
+  api.query('pay', 'sandboxFunds.balance', { sandboxId }, sandboxBalanceOutputSchema, { signal });
+
+/** One press of Fund. The request id carries the balance version this page read, so a double press is one change. */
+export const fundSandbox = (api: ApiClient, userId: string, read: SandboxBalance) =>
+  api.mutate(
+    'pay',
+    'sandboxFunds.fund',
+    { sandboxId: read.sandboxId, requestId: sandboxFundRequestId(userId, read.sandboxId, read.version) },
+    sandboxFundOutputSchema,
+  );
+
+/** One press of Reset, keyed the same way. */
+export const resetSandbox = (api: ApiClient, userId: string, read: SandboxBalance) =>
+  api.mutate(
+    'pay',
+    'sandboxFunds.reset',
+    { sandboxId: read.sandboxId, requestId: sandboxResetRequestId(userId, read.sandboxId, read.version) },
+    sandboxResetOutputSchema,
+  );
 
 /** What a key may do, as the form offers it. Trade is offered so the service can refuse it by name. */
 export const KEY_PRESETS = {
@@ -77,9 +95,10 @@ export async function createSandboxKey(
 /** What the address under /developers/sandbox names. */
 export function sandboxRoute(
   path: string,
-): { kind: 'list' } | { kind: 'sandbox'; id: string } | { kind: 'new-key'; id: string } | { kind: 'unknown' } {
+): { kind: 'list' } | { kind: 'test-values' } | { kind: 'sandbox'; id: string } | { kind: 'new-key'; id: string } | { kind: 'unknown' } {
   const clean = path.split(/[?#]/)[0]!.replace(/\/+$/, '');
   if (clean === '/developers/sandbox') return { kind: 'list' };
+  if (clean === '/developers/sandbox/test-values') return { kind: 'test-values' };
   const match = /^\/developers\/sandbox\/([0-9a-f-]{36})(\/keys\/new)?$/i.exec(clean);
   if (!match) return { kind: 'unknown' };
   return match[2] ? { kind: 'new-key', id: match[1]!.toLowerCase() } : { kind: 'sandbox', id: match[1]!.toLowerCase() };

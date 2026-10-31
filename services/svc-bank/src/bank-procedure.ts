@@ -20,6 +20,7 @@ const STATUS: Partial<Record<BankErrorCode, TRPCError['code']>> = {
   'bank.statement_pdf_one_month': 'PRECONDITION_FAILED',
   'bank.statement_too_large': 'PRECONDITION_FAILED',
   'bank.statement_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.statement_balances_unavailable': 'PRECONDITION_FAILED',
   'bank.activity_filter_name_invalid': 'BAD_REQUEST',
   'bank.activity_filter_empty': 'BAD_REQUEST',
   'bank.activity_filter_conflict': 'CONFLICT',
