@@ -12,7 +12,7 @@ import { approvedSeller, testStrategyListing } from './market-listing.mjs';
 // purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3, its second part: no review state for every kind and no labelled placement (RC-more-catalogue-19, -20).
+// - #3, its second part: no review state for listings of other kinds (RC-more-catalogue-19).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -200,7 +200,7 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   await expect(main.getByRole('link', { name: 'Back to the Market' })).toHaveAttribute('href', '/market');
 });
 
-test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's, and each category shows exactly the listings filed under it (RC-more-catalogue-18)`, async ({
+test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's, and each category shows exactly the listings filed under it, and no listing is ranked or placed above another (RC-more-catalogue-18)`, async ({
   page,
   browser,
 }) => {
@@ -280,14 +280,19 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
   expect(empty).toBeGreaterThan(0);
   await select.selectOption({ label: 'Every category' });
   await expect(cards.filter({ hasText: run.read().title })).toHaveCount(1);
+
+  // No listing is ranked or placed above another (the owner's "no for now" on premium placement): nothing is labelled
+  // promoted or featured, and no sort orders by placement, ranking or returns.
+  await expect(page.getByRole('main').getByText(/promoted|featured|sponsored/i)).toHaveCount(0);
+  const sorts = await page.getByRole('combobox', { name: 'Sort by' }).getByRole('option').allInnerTexts();
+  expect(sorts.join(' ')).not.toMatch(/promot|featur|rank|placement|return|profit|performance/i);
 });
 
-test(`${J} #3 sees the listing lifecycle for every kind and premium placement, labelled (RC-more-catalogue-19, -20, not built)`, async ({
-  page,
-}) => {
+test(`${J} #3 every kind of listing shows its review state (RC-more-catalogue-19, not built)`, async ({ page }) => {
   await openMarket(page);
-  // Not built: a review state for every listing kind (RC-19) and paid, labelled placement (RC-20, a ledger recipe first).
-  await expect(page.getByRole('main').getByText('Promoted placement').first()).toBeVisible(UNBUILT);
+  // Not built: svc-market reviews strategy listings only, so a listing of another kind carries no review state (RC-19).
+  const card = page.getByRole('article').filter({ hasText: 'TEST data listing' }).first();
+  await expect(card.locator('[data-review-state]')).toBeVisible(UNBUILT);
 });
 
 test(`${J} #4 presses Buy on the strategy: the charge into the held account once, the record shows held, and the seller sees nothing yet`, async ({
