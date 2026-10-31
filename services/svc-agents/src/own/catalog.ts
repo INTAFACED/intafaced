@@ -43,15 +43,15 @@ export const OWN_TEMPLATE_IDS = Object.keys(OWN_TEMPLATES) as OwnTemplate[];
 
 /**
  * The templates offered to a person, from `AGENTS_OWN_TEMPLATES` (AG-catalogue-02): a comma-separated list of template
- * ids. Unset offers every built-in template. `blank` is always offered, so "Start blank" is never taken away and a list
+ * ids. Unset or blank offers every built-in template. `blank` is always offered, so "Start blank" is never taken away and a list
  * of just `blank` offers nothing else. An id that is not a template stops the service at boot, never at a call.
  */
 export function parseOwnTemplates(value: string | undefined): readonly OwnTemplate[] {
-  if (value === undefined) return OWN_TEMPLATE_IDS;
-  const ids = value
+  const ids = (value ?? '')
     .split(',')
     .map((id) => id.trim())
     .filter(Boolean);
+  if (ids.length === 0) return OWN_TEMPLATE_IDS;
   for (const id of ids) {
     if (!OWN_TEMPLATE_IDS.includes(id as OwnTemplate)) throw new Error(`AGENTS_OWN_TEMPLATES names an unknown template: ${id}`);
   }

@@ -147,20 +147,23 @@ export function NewAgent() {
     <div className="more-grid">
       <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
         <p className="muted">{t('templatesIntro')}</p>
-        <Read resource={catalogue.resource} retry={catalogue.reload}>
-          {({ templates }) => (
-            <div className="depth-card-actions">
-              {templates.some((template) => template.id === 'service-starter') ? (
-                <Button disabled={busy} onClick={() => void start('service-starter')}>
-                  {t('useServiceStarter')}
-                </Button>
-              ) : null}
-              <Button variant="secondary" disabled={busy} onClick={() => void start('blank')}>
-                {t('startBlank')}
-              </Button>
-            </div>
-          )}
-        </Read>
+        <div className="depth-card-actions">
+          {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
+          {catalogue.resource.status === 'ready' &&
+          catalogue.resource.data.templates.some((template) => template.id === 'service-starter') ? (
+            <Button disabled={busy} onClick={() => void start('service-starter')}>
+              {t('useServiceStarter')}
+            </Button>
+          ) : null}
+          <Button variant="secondary" disabled={busy} onClick={() => void start('blank')}>
+            {t('startBlank')}
+          </Button>
+        </div>
+        {catalogue.resource.status === 'failed' ? (
+          <Read resource={catalogue.resource} retry={catalogue.reload}>
+            {() => null}
+          </Read>
+        ) : null}
         {refused ? <Answer failed={refused} /> : null}
       </Panel>
       <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>

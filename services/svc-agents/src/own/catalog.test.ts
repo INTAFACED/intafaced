@@ -23,11 +23,11 @@ const refusal = (fn: () => unknown) => {
 };
 
 describe('own agent templates offered (AGENTS_OWN_TEMPLATES)', () => {
-  it('unset offers every built-in template; a list offers those and blank; blank alone offers only blank', () => {
+  it('unset or blank offers every built-in template; a list offers those and blank; blank alone offers only blank', () => {
     expect(parseOwnTemplates(undefined)).toEqual(OWN_TEMPLATE_IDS);
-    expect(parseOwnTemplates('service-starter')).toEqual(OWN_TEMPLATE_IDS);
+    expect(parseOwnTemplates(' , ')).toEqual(OWN_TEMPLATE_IDS);
+    expect(parseOwnTemplates('service-starter')).toEqual(['service-starter', 'blank']);
     expect(parseOwnTemplates(' blank ')).toEqual(['blank']);
-    expect(parseOwnTemplates('')).toEqual(['blank']);
   });
 
   it('an unknown template id stops the boot, naming it', () => {
