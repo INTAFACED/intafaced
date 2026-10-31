@@ -59,6 +59,13 @@ import type { OutOfAppPlan } from './preferences/gate.js';
  * with the highest liability the state with the least evidence.
  */
 
+/**
+ * Kinds whose mailed copy is owed, not only offered where an address is confirmed. With no email sender set, such a
+ * message's email row waits `pending` with `vendor.email` instead of being skipped, so the record shows the mail is owed
+ * and nothing claims it went. The rating ask (SP-csat-01) is one.
+ */
+export const MAILED_KINDS: ReadonlySet<string> = new Set(['support.rate_request']);
+
 export interface DispatchOptions {
   /** Attempts per channel before the row is abandoned. Pair with the bus `maxDeliver`. */
   readonly maxAttempts: number;
@@ -105,7 +112,8 @@ export interface RecipientHealthPort {
 
 export interface ChannelOutcome {
   readonly channel: ChannelId;
-  readonly status: 'accepted' | 'refused' | 'failed' | 'abandoned' | 'already_accepted' | 'held';
+  /** `waiting`: owed on this channel with no sender set; the row stays `pending`, never attempted. */
+  readonly status: 'accepted' | 'refused' | 'failed' | 'abandoned' | 'already_accepted' | 'held' | 'waiting';
   readonly code: RefusalCode | null;
   readonly detail: string | null;
   /** True when the bus should redeliver so this channel gets another go. */
@@ -205,6 +213,15 @@ export class NotificationDispatcher {
                 ),
               );
             }
+            continue;
+          }
+
+          if (
+            channel === 'email' &&
+            MAILED_KINDS.has(notification.kind) &&
+            this.channels.get(channel).unavailableReason === 'channel.not_configured'
+          ) {
+            outcomes.push(await this.waitUnsent(notification, channel));
             continue;
           }
 
@@ -315,6 +332,24 @@ export class NotificationDispatcher {
     }
 
     return this.attempt(notification, channel, target.address, target.locale);
+  }
+
+  /**
+   * The mailed copy is owed and no sender is set. A person who muted the channel is not owed it. An existing row (a
+   * claim, a receipt, a refusal) is reported as it stands.
+   */
+  private async waitUnsent(notification: Notification, channel: ChannelId): Promise<ChannelOutcome> {
+    if (this.options.mutePrefsOf && notification.severity !== 'critical') {
+      const prefs = await this.options.mutePrefsOf(notification.userId);
+      if (isChannelMuted(prefs ?? EMPTY_MUTE_PREFS, channel as MuteableChannel, notification.severity)) {
+        return this.refuse(notification, channel, 'channel.muted');
+      }
+    }
+    const row = await this.deliveries.wait(notification.id, channel, 'vendor.email');
+    if (row.status === 'pending' && row.attempts === 0) {
+      return { channel, status: 'waiting', code: row.refusalCode, detail: null, retryable: false };
+    }
+    return fromExistingClaim(channel, row.status === 'accepted' ? 'already_accepted' : 'terminal', row);
   }
 
   /** Record a refusal that the adapter never got a chance to make. */

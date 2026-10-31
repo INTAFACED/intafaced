@@ -255,6 +255,12 @@ export interface DeliveryStore {
    */
   noteReceipt(input: NoteReceiptInput): Promise<void>;
   settle(input: SettleInput): Promise<void>;
+  /**
+   * Record a send this channel owes and has no sender for: a `pending` row named `code`, never claimed (no attempts, no
+   * lease, `attempted_at` NULL), so the stuck-pending reaper leaves it and nothing reads it as sent. When a row for this
+   * notification and channel already exists it is returned as it stands; nothing is overwritten.
+   */
+  wait(notificationId: string, channel: ChannelId, code: RefusalCode): Promise<DeliveryRecord>;
   listForNotification(notificationId: string): Promise<DeliveryRecord[]>;
   /**
    * Operator delivery-outcomes view (D26-P1-O5 residual).
@@ -441,6 +447,31 @@ export class MemoryDeliveryStore implements DeliveryStore {
     return { claimed: true, id: existing.id, attempt: existing.attempts };
   }
 
+  async wait(notificationId: string, channel: ChannelId, code: RefusalCode): Promise<DeliveryRecord> {
+    const key = deliveryKey(notificationId, channel);
+    const existing = this.byKey.get(key);
+    if (existing) return { ...existing };
+    const now = this.now();
+    const record: DeliveryRecord = {
+      id: randomUUID(),
+      notificationId,
+      channel,
+      status: 'pending',
+      attempts: 0,
+      attemptedAt: null,
+      acceptedAt: null,
+      leaseUntil: null,
+      refusalCode: code,
+      detail: null,
+      reference: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.byKey.set(key, record);
+    this.byId.set(record.id, record);
+    return { ...record };
+  }
+
   async noteReceipt(input: NoteReceiptInput): Promise<void> {
     const record = this.byId.get(input.id);
     if (!record) return;
@@ -542,7 +573,8 @@ export class MemoryDeliveryStore implements DeliveryStore {
  */
 /** Why a reaper arm would abandon a row — or null if it must leave it alone. */
 export type ReapDecision =
-  { readonly reaped: true; readonly reason: 'channel.attempts_exhausted' | 'channel.delivery_stuck' } | { readonly reaped: false };
+  | { readonly reaped: true; readonly reason: 'channel.attempts_exhausted' | 'channel.delivery_stuck' }
+  | { readonly reaped: false };
 
 /**
  * Pure decision for both memory and Postgres reapers — one table.
@@ -814,6 +846,20 @@ export class PostgresDeliveryStore implements DeliveryStore {
       }
       return { claimed: false, reason: 'terminal', record };
     });
+  }
+
+  async wait(notificationId: string, channel: ChannelId, code: RefusalCode): Promise<DeliveryRecord> {
+    // DO NOTHING on conflict: a row already there (claimed, sent or refused) is the truer record.
+    await this.sql`
+      INSERT INTO notify.deliveries (notification_id, channel, status, attempts, refusal_code)
+      VALUES (${notificationId}, ${channel}, 'pending', 0, ${code})
+      ON CONFLICT (notification_id, channel) DO NOTHING
+    `;
+    const rows = await this.sql<DeliveryPgRow[]>`
+      SELECT id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at FROM notify.deliveries
+       WHERE notification_id = ${notificationId} AND channel = ${channel}
+    `;
+    return fromDeliveryPg(rows[0]!);
   }
 
   async noteReceipt(input: NoteReceiptInput): Promise<void> {
