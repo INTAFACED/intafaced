@@ -13,6 +13,7 @@ import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import { BuybackRuns } from './BuybackRuns';
 import { buybackRunsCopy } from './buyback-runs-copy';
+import { EmissionSchedule, YieldHistory } from './TokenEconomy';
 import {
   ChoiceBallot,
   ChoiceTallyView,
@@ -401,6 +402,8 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
       ) : (
         <div className="more-columns">
           <EmissionEpoch />
+          <EmissionSchedule />
+          <YieldHistory />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
               <Text k="token.emission.buyback.and.revenue.distribution.windows.are" />

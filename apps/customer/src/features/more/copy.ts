@@ -767,7 +767,7 @@ const messages = {
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Emission, buyback and revenue-distribution runs are carried out by INTAFACED itself. You cannot start them.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'No personal yield history, upcoming distribution quote or buyback record is available, so none is shown.',
+    'No upcoming distribution is quoted: a window’s share is known only when it is paid. Buyback runs are on the Burn tab.',
   'token.governance.closure.depends.on.published.quorum.and':
     'A vote closes under the published quorum and pass threshold. A passed listing or grant is not carried out, because nothing is connected to carry it out.',
   'token.proposal.detail': 'Proposal detail',
@@ -1745,7 +1745,7 @@ const es = {
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Las emisiones, recompras y repartos de ingresos los ejecuta INTAFACED. No puedes iniciarlos tú.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'No hay historial de rendimiento personal, estimación de próximo reparto ni registro de recompras, así que no se muestra ninguno.',
+    'No se cotiza ningún reparto próximo: la parte de una ventana solo se conoce cuando se paga. Las recompras están en la pestaña Quema.',
   'token.governance.closure.depends.on.published.quorum.and':
     'Una votación se cierra con el quórum y el umbral publicados. Un listado o ayuda aprobados no se ejecutan, porque no hay nada conectado que los ejecute.',
   'token.proposal.detail': 'Detalle de la propuesta',
@@ -2731,7 +2731,7 @@ const fr = {
   'token.emission.buyback.and.revenue.distribution.windows.are':
     'Les émissions, rachats et distributions de revenus sont exécutés par INTAFACED lui-même. Tu ne peux pas les lancer.',
   'token.the.customer.api.publishes.no.personal.yield':
-    'Aucun historique de rendement personnel, aucune estimation de prochaine distribution ni aucun relevé de rachat n’est disponible : rien n’est affiché.',
+    'Aucune distribution à venir n’est estimée : la part d’une fenêtre n’est connue qu’une fois versée. Les rachats sont dans l’onglet Destruction.',
   'token.governance.closure.depends.on.published.quorum.and':
     'Un vote se clôture selon le quorum et le seuil publiés. Une inscription ou une subvention adoptée n’est pas exécutée, car rien n’est connecté pour l’exécuter.',
   'token.proposal.detail': 'Détails de la proposition',
