@@ -516,22 +516,25 @@ async function fillsOf(who, orderId) {
   return body.result.data;
 }
 
-/** The ids of every fill of the bot's level orders, read from the trade service. */
-async function botFillIds(who, bot) {
-  const ids = new Set();
-  for (const o of bot.orders) for (const f of await fillsOf(who, o.orderId)) ids.add(f.id);
-  return ids;
+/** The bot's level orders' fills, read from the trade service through `client` (an API session of the bot's owner). */
+async function levelFills(client, bot) {
+  const fills = [];
+  for (const o of bot.orders) {
+    const { status, body } = await client.get(read('/api/trade/trpc/fills.forOrder', { orderId: o.orderId, limit: 50 }));
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    fills.push(...body.result.data);
+  }
+  return fills;
 }
 
-/** What the bot's fills not in `seen` moved in the owner's USDT, in units: a sell adds its proceeds, a buy takes its cost, less any USDT fee. */
-async function usdtOfNewFills(who, bot, seen) {
+/** What the fills not in `seen` moved in the owner's USDT, in units: a sell adds its proceeds, a buy takes its cost, less any USDT fee. */
+function usdtOfNewFills(fills, seen) {
   let moved = 0n;
-  for (const o of bot.orders)
-    for (const f of await fillsOf(who, o.orderId)) {
-      if (seen.has(f.id)) continue;
-      const fee = f.fee.currency === 'USDT' ? toUnits(f.fee.cost) : 0n;
-      moved += (f.side === 'sell' ? toUnits(f.cost) : -toUnits(f.cost)) - fee;
-    }
+  for (const f of fills) {
+    if (seen.has(f.id)) continue;
+    const fee = f.fee.currency === 'USDT' ? toUnits(f.fee.cost) : 0n;
+    moved += (f.side === 'sell' ? toUnits(f.cost) : -toUnits(f.cost)) - fee;
+  }
   return moved;
 }
 
@@ -741,7 +744,7 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   const ledger = async () => (await me.balances()).USDT;
   const before = await bot();
   // The bot keeps trading while this step runs, so a level may fill meanwhile: the fills it had at the start.
-  const fillsBefore = await botFillIds(who, before);
+  const fillsBefore = new Set((await levelFills(me, before)).map((f) => f.id));
   const ledgerBefore = await ledger();
   expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
   // Two closed pairs (#6) raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
@@ -918,6 +921,6 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   // The withdrawals moved no money (only the limit row moved): the ledger's USDT total moved by exactly the USDT of the
   // bot's own level fills in this step, each read from the trade service, and by nothing else.
   const ledgerAfter = await ledger();
-  const traded = await usdtOfNewFills(who, await bot(), fillsBefore);
+  const traded = usdtOfNewFills(await levelFills(me, await bot()), fillsBefore);
   expect(toUnits(ledgerAfter.total) - toUnits(ledgerBefore.total), 'USDT moved by anything but level fills').toBe(traded);
 });
