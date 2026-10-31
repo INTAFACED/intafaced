@@ -52,7 +52,7 @@ export async function signInWithCode(page, who, destination) {
  * what they read back. Asynchronous, so the worker keeps answering Playwright while the founders sign in, which can wait out
  * TOTP steps.
  */
-export async function merchantTier(merchantId, kind = 'priced') {
+export async function merchantTier(merchantId, kind = 'open') {
   const { stdout } = await promisify(execFile)(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), merchantId, '--tier', kind],

@@ -7,8 +7,10 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   JOURNEY_CAPPED_DAILY_PAYOUT,
-  JOURNEY_INTAKE_CAPS,
+  JOURNEY_OPEN_ASSETS,
   JOURNEY_PRICING_RULE,
+  journeyIntakeCaps,
+  journeyPricingRules,
   journeyTier,
   planMove,
   planPricingLayer,
@@ -72,28 +74,35 @@ test('the capped tier is its own, with a TEST daily payout cap of 1 USDT; the ot
   assert.equal(pricingArgs([MERCHANT, '--tier', 'tight']), null);
 });
 
-test('every kind takes payments: each carries TEST intake caps for USDT far above a journey payment', () => {
-  for (const kind of ['priced', 'blank', 'capped']) {
-    const caps = journeyTier(MERCHANT, kind, false).caps;
-    for (const want of JOURNEY_INTAKE_CAPS)
-      assert.deepEqual(
-        caps.find((c) => c.kind === want.kind),
-        want,
-        `${kind} ${want.kind}`,
-      );
-  }
+test('every kind takes payments: each carries TEST intake caps far above a journey payment; open covers every journey asset', () => {
+  const intake = (kind) =>
+    journeyTier(MERCHANT, kind, false)
+      .caps.filter((c) => /intake|per_payment/.test(c.kind))
+      .map((c) => `${c.kind}:${c.assetCode}`);
+  for (const kind of ['priced', 'blank', 'capped'])
+    assert.deepEqual(intake(kind), ['per_payment:USDT', 'daily_intake:USDT', 'monthly_intake:USDT'], kind);
+  assert.deepEqual(JOURNEY_OPEN_ASSETS, ['USDT', 'USDC', 'USD', 'EUR']);
   assert.deepEqual(
-    JOURNEY_INTAKE_CAPS.map((c) => [c.kind, c.assetCode]),
-    [
-      ['per_payment', 'USDT'],
-      ['daily_intake', 'USDT'],
-      ['monthly_intake', 'USDT'],
-    ],
+    intake('open'),
+    JOURNEY_OPEN_ASSETS.flatMap((a) => [`per_payment:${a}`, `daily_intake:${a}`, `monthly_intake:${a}`]),
   );
   assert.ok(
-    JOURNEY_INTAKE_CAPS.every((c) => Number(c.limit) > 100),
+    journeyIntakeCaps('USDT').every((c) => Number(c.limit) > 100),
     'above the largest TEST journey payment',
   );
+  assert.equal(journeyTier(MERCHANT, 'open', false).id, 'j07-open-1b2c3d4e');
+  assert.deepEqual(pricingArgs([MERCHANT, '--tier', 'open']), { merchantId: MERCHANT, tier: 'open', payoutNotCharged: false });
+});
+
+test('fees: open prices every journey asset on the same TEST terms, priced USDT alone, blank and capped none', () => {
+  assert.deepEqual(
+    journeyPricingRules('open').map((r) => r.assetCode),
+    JOURNEY_OPEN_ASSETS,
+  );
+  for (const rule of journeyPricingRules('open')) assert.deepEqual({ ...rule, assetCode: 'USDT' }, JOURNEY_PRICING_RULE);
+  assert.deepEqual(journeyPricingRules('priced'), [JOURNEY_PRICING_RULE]);
+  assert.deepEqual(journeyPricingRules('blank'), []);
+  assert.deepEqual(journeyPricingRules('capped'), []);
 });
 
 test('a tier is written when missing or when any term differs, the payout fee included; an equal tier is left alone', () => {

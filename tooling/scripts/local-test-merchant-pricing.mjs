@@ -6,8 +6,10 @@
  * each kind (#3) and needs today's payout limit exceeded (#6, which puts the business back on its priced tier after). The payout steps after #3 (#6, #7, #8) rely on the priced tier's caps and
  * thresholds, so a change to `journeyTier`'s shared caps changes them too. Local only.
  *
- *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]
+ *   node tooling/scripts/local-test-merchant-pricing.mjs <merchantId> --tier open|priced|blank|capped [--payout-not-charged]
  *
+ *   --tier open           the tier every business a journey opens starts on (merchant.mjs openBusiness): TEST caps and a TEST
+ *                         fee for every asset a journey takes a payment in (JOURNEY_OPEN_ASSETS)
  *   --tier priced         the business's own tier, with a TEST tier-layer USDT fee (JOURNEY_PRICING_RULE)
  *   --tier blank          a second tier of its own with no fee at all, so the calculator has nothing to price
  *   --tier capped         a third tier of its own with no fee and a TEST daily payout cap of 1 USDT
@@ -26,10 +28,10 @@
 import { assertActiveLocalStack } from './local-test-state.mjs';
 import { describeMoneyRefusal, founderChange, populateUuid, trpcData } from './local-test-world.mjs';
 
-export const PRICING_USAGE = 'usage: local-test-merchant-pricing.mjs <merchantId> --tier priced|blank|capped [--payout-not-charged]';
+export const PRICING_USAGE = 'usage: local-test-merchant-pricing.mjs <merchantId> --tier open|priced|blank|capped [--payout-not-charged]';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const TIER_KINDS = ['priced', 'blank', 'capped'];
+const TIER_KINDS = ['open', 'priced', 'blank', 'capped'];
 
 /** The arguments, or null. Everything is refused before the stack is touched. */
 export function pricingArgs(argv) {
@@ -61,15 +63,28 @@ export const JOURNEY_PRICING_RULE = {
 export const JOURNEY_CAPPED_DAILY_PAYOUT = '1';
 
 /**
- * TEST VALUE intake caps on every journey tier: svc-pay refuses a payment with PAY_MERCHANT_CONTROLS=required unless the
- * tier caps one payment, a day and a month for its asset (pay.caps_unconfigured). Far above any journey's TEST payment
- * (10 to 100 USDT), so no journey meets them by chance.
+ * The assets journeys take payments in: USDT (most), USDC (J-merchant-04's links), USD (J-developer-02's sandbox card
+ * payment) and EUR (J-merchant-04's TEST bank transfer). The `open` tier caps and prices each; J-merchant-07's tiers name
+ * USDT alone, so its calculator still opens on USDT.
  */
-export const JOURNEY_INTAKE_CAPS = [
-  { kind: 'per_payment', assetCode: 'USDT', limit: '1000' },
-  { kind: 'daily_intake', assetCode: 'USDT', limit: '10000' },
-  { kind: 'monthly_intake', assetCode: 'USDT', limit: '100000' },
+export const JOURNEY_OPEN_ASSETS = ['USDT', 'USDC', 'USD', 'EUR'];
+
+/**
+ * TEST VALUE intake caps for one asset: svc-pay refuses a payment with PAY_MERCHANT_CONTROLS=required unless the tier caps
+ * one payment, a day and a month in its asset (pay.caps_unconfigured). Far above any journey's TEST payment (at most 100),
+ * so no journey meets them by chance.
+ */
+export const journeyIntakeCaps = (assetCode) => [
+  { kind: 'per_payment', assetCode, limit: '1000' },
+  { kind: 'daily_intake', assetCode, limit: '10000' },
+  { kind: 'monthly_intake', assetCode, limit: '100000' },
 ];
+
+/** The tier-layer fee rules a kind holds: JOURNEY_PRICING_RULE's terms per asset on `open`, USDT on `priced`, none else. */
+export function journeyPricingRules(kind) {
+  if (kind === 'open') return JOURNEY_OPEN_ASSETS.map((assetCode) => ({ ...JOURNEY_PRICING_RULE, assetCode }));
+  return kind === 'priced' ? [JOURNEY_PRICING_RULE] : [];
+}
 
 /**
  * The TEST tier for one business. Its caps and thresholds are the LOCAL TEST tier's (local-test-world.mjs), so the payout
@@ -84,7 +99,7 @@ export function journeyTier(merchantId, kind, payoutNotCharged) {
     caps: [
       { kind: 'daily_payout', assetCode: 'USDT', limit: kind === 'capped' ? JOURNEY_CAPPED_DAILY_PAYOUT : '500' },
       { kind: 'beneficiaries_per_day', limit: 500 },
-      ...JOURNEY_INTAKE_CAPS,
+      ...(kind === 'open' ? JOURNEY_OPEN_ASSETS : ['USDT']).flatMap(journeyIntakeCaps),
     ],
     reserve: null,
     approvalThresholds: [{ assetCode: 'USDT', amount: '10' }],
@@ -227,7 +242,7 @@ async function main() {
     });
   } else steps.push({ what: 'tier', outcome: 'exists' });
 
-  const wanted = args.tier === 'priced' ? [JOURNEY_PRICING_RULE] : [];
+  const wanted = journeyPricingRules(args.tier);
   const live = await read('founderAdmin.control.pricing.rules', { layer: 'tier', scopeId: tier.id });
   const layerPlan = planPricingLayer({ live, wanted });
   if (layerPlan.kind === 'set') {
