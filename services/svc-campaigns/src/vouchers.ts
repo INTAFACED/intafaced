@@ -3,6 +3,7 @@ import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   MY_VOUCHERS_LIMIT,
+  type CampaignLimits,
   type MyVoucher,
   type MyVouchers,
   type ParticipationRules,
@@ -15,7 +16,7 @@ import { CampaignsError } from './codes.js';
 import { ELIGIBILITY_REFUSAL, effectiveState, type CampaignService } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
-import { drawnOf } from './tasks.js';
+import { LIMIT_WORDS, drawnOf, limitRefusalOf } from './tasks.js';
 
 /**
  * A customer's vouchers (J-campaigns-08, CM-vouchers-coupons-01): check a code, claim it for the caller's own account,
@@ -228,9 +229,16 @@ export class VoucherService {
       }
       // The campaign is locked after the voucher, as every redemption takes them, so its budget cannot move under us.
       const [campaign] = await tx<
-        { state: string; starts_at: Date | null; ends_at: Date | null; budget_asset: string | null; budget_limit: string | null }[]
+        {
+          state: string;
+          starts_at: Date | null;
+          ends_at: Date | null;
+          budget_asset: string | null;
+          budget_limit: string | null;
+          limits: CampaignLimits | null;
+        }[]
       >`
-        SELECT state, starts_at, ends_at, budget_asset, budget_limit::text AS budget_limit
+        SELECT state, starts_at, ends_at, budget_asset, budget_limit::text AS budget_limit, limits
         FROM campaigns.campaigns WHERE id = ${v.campaign_id} FOR UPDATE`;
       const live = effectiveState(campaign as Parameters<typeof effectiveState>[0], this.now());
       if (live !== 'active' && live !== 'ended') {
@@ -242,6 +250,9 @@ export class VoucherService {
       if (campaign!.budget_asset !== v.face_asset) {
         throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the voucher are in different assets');
       }
+      // The campaign's limits, as for any reward; a withheld redemption holds nothing, so it is not limited.
+      const over = withheld ? null : await limitRefusalOf(tx, v.campaign_id, input.accountId, campaign!.limits, this.now());
+      if (over) throw new CampaignsError(over, LIMIT_WORDS[over]);
       // The budget, as a task reward reads it: the limit less every intent that holds or spent part of it.
       if (!withheld && (await drawnOf(tx, v.campaign_id)) + units > parseAmount(campaign!.budget_limit)) {
         throw new CampaignsError('campaigns.budget_exhausted', 'This campaign’s budget has no room for this redemption');

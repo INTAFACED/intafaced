@@ -99,6 +99,8 @@ const definition = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefini
   endsAt: new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
   participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '100' },
+  // TEST limits: wide enough that only a test about limits meets them.
+  limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
   tasks: WELCOME,
   ...over,
 });
@@ -270,6 +272,27 @@ if (!db) {
       await signUp(ME, ago(60_000));
       expect((await tasks.welcomeChecklist({ accountId: YOU })).tasks[1]!.state).toBe('done');
       expect((await tasks.welcomeChecklist({ accountId: ME })).tasks[1]!.state).toBe('open');
+    });
+
+    it('a per-customer limit stops the next task’s reward, and a total limit stops everyone at it', async () => {
+      await fundPot('50');
+      await live({ limits: { perCustomer: { count: 2, periodSeconds: 86_400 }, totalRedemptions: 3 } });
+      await signUp(ME);
+      await signUp(YOU);
+      for (const e of ['identity.verified', 'pay.deposit', 'trade.fill'] as const) await happen(ME, e);
+      for (const e of ['identity.verified', 'pay.deposit'] as const) await happen(YOU, e);
+      expect((await tasks.welcomeClaim({ accountId: ME, event: 'identity.verified' })).created).toBe(true);
+      expect((await tasks.welcomeClaim({ accountId: ME, event: 'pay.deposit' })).created).toBe(true);
+      // My third reward in the period passes my limit; nothing is written for it.
+      expect(await code(tasks.welcomeClaim({ accountId: ME, event: 'trade.fill' }))).toBe('campaigns.customer_limit_reached');
+      expect((await tasks.welcomeClaim({ accountId: YOU, event: 'identity.verified' })).created).toBe(true);
+      // Three rewards given in all: the campaign's total.
+      expect(await code(tasks.welcomeClaim({ accountId: YOU, event: 'pay.deposit' }))).toBe('campaigns.redemption_limit_reached');
+      const [{ n }] = (await db.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.reward_intents`) as unknown as [
+        { n: number },
+      ];
+      expect(n).toBe(3);
+      await reconciles(parseAmount('50'));
     });
 
     it('pays one reward per task, each once, under its own key, and it reconciles', async () => {

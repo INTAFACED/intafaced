@@ -66,6 +66,8 @@ const definition = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefini
   endsAt: new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
   participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '100' },
+  // TEST limits: wide enough that only a test about limits meets them.
+  limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
   reward: { asset: 'USDT', amount: '10' },
   vouchers: { claimBy: later(24 * HOUR), useBy: later(48 * HOUR) },
   ...over,
@@ -326,6 +328,35 @@ if (!db) {
       expect(await code(vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 2, accountId: ME }))).toBe('campaigns.voucher_expired');
       // The first redemption, asked again, still returns its answer.
       expect((await vouchers.redeem({ voucherId: v.id, amount: '1', sequence: 1, accountId: ME })).created).toBe(false);
+      await reconciles(parseAmount('50'));
+    });
+
+    it('redemptions count against the per-customer and total limits; a campaign with its limit blank pays nothing', async () => {
+      await fundPot('50');
+      const c = await live({ limits: { perCustomer: { count: 2, periodSeconds: 3600 }, totalRedemptions: 3 } });
+      for (const code of ['TEST-LIM1', 'TEST-LIM2']) await campaigns().issueVoucher({ campaignId: c.id, code, actor: A });
+      const mine = await vouchers.claim({ code: 'TEST-LIM1', accountId: ME, source: ADDRESS });
+      const yours = await vouchers.claim({ code: 'TEST-LIM2', accountId: YOU, source: ADDRESS });
+      await vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 1, accountId: ME });
+      await vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 2, accountId: ME });
+      expect(await code(vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 3, accountId: ME }))).toBe(
+        'campaigns.customer_limit_reached',
+      );
+      await vouchers.redeem({ voucherId: yours.id, amount: '1', sequence: 1, accountId: YOU });
+      expect(await code(vouchers.redeem({ voucherId: yours.id, amount: '1', sequence: 2, accountId: YOU }))).toBe(
+        'campaigns.redemption_limit_reached',
+      );
+      // The period passes: my own limit opens again, the campaign's total does not.
+      clock = new Date(Date.now() + 2 * HOUR);
+      expect(await code(vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 3, accountId: ME }))).toBe(
+        'campaigns.redemption_limit_reached',
+      );
+      // A campaign live from before limits existed, its limit blank: it pays nothing, by name.
+      await db.sql`UPDATE campaigns.campaigns SET limits = NULL WHERE id = ${c.id}`;
+      expect(await code(vouchers.redeem({ voucherId: mine.id, amount: '1', sequence: 3, accountId: ME }))).toBe(
+        'campaigns.per_customer_limit_unset',
+      );
+      expect((await vouchers.mine({ accountId: ME })).vouchers[0]).toMatchObject({ used: '2', remaining: '8' });
       await reconciles(parseAmount('50'));
     });
 

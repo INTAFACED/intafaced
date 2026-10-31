@@ -18,6 +18,7 @@ import {
   EARNING_TRIGGERS,
   type EarningRule,
   type EarningTrigger,
+  type CampaignLimits,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
@@ -154,6 +155,38 @@ export const MY_REWARDS_LIMIT = 200;
 export const LOCK_FILL_GRACE_SECONDS = 60;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
+
+/**
+ * The campaign's limits for one more reward intent of this account (CM-eligibility-rules-03): the code that refuses it,
+ * or null when it fits. Read with the campaign row locked, as the budget is. A blank per-customer limit refuses
+ * `campaigns.per_customer_limit_unset` (never a default); at `count` intents of this account in the last `periodSeconds`,
+ * `campaigns.customer_limit_reached`; at `totalRedemptions` for everyone, `campaigns.redemption_limit_reached`. Only
+ * intents that hold or spent value count, as for the budget.
+ */
+export async function limitRefusalOf(
+  tx: postgres.Sql,
+  campaignId: string,
+  accountId: string,
+  limits: CampaignLimits | null,
+  now: Date,
+): Promise<'campaigns.per_customer_limit_unset' | 'campaigns.customer_limit_reached' | 'campaigns.redemption_limit_reached' | null> {
+  const per = limits?.perCustomer;
+  if (!per?.count || !per.periodSeconds) return 'campaigns.per_customer_limit_unset';
+  const since = new Date(now.getTime() - per.periodSeconds * 1000);
+  const [counts] = await tx<{ mine: number; everyone: number }[]>`
+    SELECT count(*) FILTER (WHERE account_id = ${accountId} AND created_at > ${since})::int AS mine, count(*)::int AS everyone
+    FROM campaigns.reward_intents WHERE campaign_id = ${campaignId} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
+  if (counts!.mine >= per.count) return 'campaigns.customer_limit_reached';
+  if (limits!.totalRedemptions !== null && counts!.everyone >= limits!.totalRedemptions) return 'campaigns.redemption_limit_reached';
+  return null;
+}
+
+/** The words for a limit refusal, as a claim or redemption names it. */
+export const LIMIT_WORDS = {
+  'campaigns.per_customer_limit_unset': 'This campaign has no per-customer limit set, so nothing can be claimed',
+  'campaigns.customer_limit_reached': 'You have taken this campaign’s reward as often as its limit allows for now',
+  'campaigns.redemption_limit_reached': 'This campaign has given its reward as often as its limit allows',
+} as const;
 
 /**
  * What a campaign's reward intents hold or spent of its budget: every one not failed, forfeited or withheld (as the
@@ -428,14 +461,22 @@ export class TaskService {
   private async writeEarning(row: TaskCampaignRow & { account_id: string }, key: string, period: string, amount: bigint): Promise<boolean> {
     return transaction(this.sql, async (tx) => {
       const [locked] = await tx<
-        { budget_limit: string | null; budget_asset: string | null; reward_asset: string | null; reward_amount: string | null }[]
+        {
+          budget_limit: string | null;
+          budget_asset: string | null;
+          reward_asset: string | null;
+          reward_amount: string | null;
+          limits: CampaignLimits | null;
+        }[]
       >`
-        SELECT budget_limit::text AS budget_limit, budget_asset, reward_asset, reward_amount::text AS reward_amount
+        SELECT budget_limit::text AS budget_limit, budget_asset, reward_asset, reward_amount::text AS reward_amount, limits
         FROM campaigns.campaigns WHERE id = ${row.id} FOR UPDATE`;
       if (!locked?.budget_limit || !locked.reward_asset || locked.reward_amount === null) return false;
       if (locked.budget_asset !== locked.reward_asset) return false;
       const [held] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.reward_intents WHERE reward_key = ${key}`;
       if (held!.n > 0) return false;
+      // An event pays nothing past the campaign's limits; there is no one to refuse, so it is skipped.
+      if (await limitRefusalOf(tx, row.id, row.account_id, locked.limits, this.now())) return false;
       const [sums] = await tx<{ campaign: string; mine: string }[]>`
         SELECT COALESCE(sum(amount), 0)::text AS campaign,
           COALESCE(sum(amount) FILTER (WHERE account_id = ${row.account_id}), 0)::text AS mine
@@ -699,8 +740,8 @@ export class TaskService {
     period: string = PERIOD_ONCE,
   ): Promise<{ intent: IntentRow; created: boolean }> {
     return transaction(this.sql, async (tx) => {
-      const [locked] = await tx<{ budget_limit: string | null }[]>`
-        SELECT budget_limit::text AS budget_limit FROM campaigns.campaigns WHERE id = ${row.id} FOR UPDATE`;
+      const [locked] = await tx<{ budget_limit: string | null; limits: CampaignLimits | null }[]>`
+        SELECT budget_limit::text AS budget_limit, limits FROM campaigns.campaigns WHERE id = ${row.id} FOR UPDATE`;
       const [first] = await tx<
         IntentRow[]
       >`SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${key} FOR UPDATE`;
@@ -710,6 +751,8 @@ export class TaskService {
         if (row.budget_asset !== row.reward_asset) {
           throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
         }
+        const over = await limitRefusalOf(tx, row.id, accountId, locked?.limits ?? null, this.now());
+        if (over) throw new CampaignsError(over, LIMIT_WORDS[over]);
         const limit = locked?.budget_limit ? parseAmount(locked.budget_limit) : 0n;
         if ((await drawnOf(tx, row.id)) + parseAmount(row.reward_amount!) > limit) {
           throw new CampaignsError('campaigns.budget_exhausted', 'This campaign’s budget has no room for another reward');
