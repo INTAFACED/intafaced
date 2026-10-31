@@ -1,34 +1,8 @@
+import { NOT_CONNECTED_CODES, ServiceOffNotice as KitServiceOffNotice, type NotConnectedCode } from '@intafaced/ui/lit/templates';
 import { defineCopy } from './i18n';
-import './service-off.css';
 
-/**
- * The codes on platform/foundations/NOT-CONNECTED-ALLOWLIST.md: a missing piece OUTSIDE INTAFACED. Our own missing back end is
- * never one of these; it refuses with its own typed error or shows an empty state, and must be built. A code not in this list
- * does not type-check as a `NotConnectedCode`, so an own gap cannot borrow the notice.
- */
-export const NOT_CONNECTED_CODES = [
-  'rail.bank',
-  'rail.card',
-  'rail.crypto',
-  'vendor.kyc',
-  'vendor.aml',
-  'feed.market',
-  'chain.go',
-  'hardware',
-  'licence',
-  'owner.decision',
-  'audit.external',
-  'vendor.sms',
-  'vendor.email',
-  'vendor.tax',
-  'vendor.travelrule',
-  'vendor.cloud',
-  'vendor.accounting',
-  'feed.news',
-  'idp.social',
-  'vendor.push',
-] as const;
-export type NotConnectedCode = (typeof NOT_CONNECTED_CODES)[number];
+// The allowlist codes and the notice itself live in the kit (`@intafaced/ui/lit/templates`); this file holds its copy and fills the sentence in.
+export { NOT_CONNECTED_CODES, type NotConnectedCode };
 
 // The copy rule on the allowlist: name the outside dependency and state the present fact, never a promise.
 export const serviceOffCopy = defineCopy(
@@ -107,7 +81,7 @@ export const serviceOffCopy = defineCopy(
 );
 
 /**
- * The one service-off notice of the shell (HM-shell-03): "<Action> needs <dependency>. It is switched off in this build.", with
+ * The one service-off notice of the shell (HM-shell-03), drawn by the kit's template state: "<Action> needs <dependency>. It is switched off in this build.", with
  * the allowlist code in the page and in `data-not-connected` for the proof crawler. `action` is the caller's own words for what
  * was pressed, already in the reader's language ("Registering this device", "Stake").
  */
@@ -124,9 +98,5 @@ export function ServiceOffNotice({
   role?: 'note' | 'status';
 }) {
   const { t } = serviceOffCopy.useCopy();
-  return (
-    <p className={className ? `service-off ${className}` : 'service-off'} data-not-connected={code} role={role}>
-      {t('sentence', { action, dependency: t(code) })} <span className="service-off__code">{code}</span>
-    </p>
-  );
+  return <KitServiceOffNotice code={code} sentence={t('sentence', { action, dependency: t(code) })} className={className} role={role} />;
 }

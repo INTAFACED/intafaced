@@ -8,7 +8,7 @@ import {
   type QuantSignalRules,
 } from '@intafaced/contracts';
 import { createQuantRouter } from '../router.js';
-import { compileSignalRules, signalSource } from './modules.js';
+import { compileSignalRules, signalSource, templateSource } from './modules.js';
 import { createMemoryStrategyRepository } from './memory-repository.js';
 
 const SECRET = 'a-quant-signal-rules-test-edge-secret-long-enough';
@@ -84,6 +84,19 @@ describe('signal rules compiler', () => {
     expect(() => compileSignalRules(with_((r) => ({ ...r, exit: { stopLossPercent: '', takeProfitPercent: '1'.repeat(39) } })))).toThrow(
       /quant\.param_out_of_range — exit\.takeProfitPercent is larger than an amount can be/,
     );
+  });
+
+  it('writes a template source with each blank number named, and a filled rule as the builder writes it', () => {
+    const blank = { ...RULES, signal: { ...RULES.signal, fast: '', slow: '' }, sizing: { kind: 'quantity' as const, value: '' } };
+    const source = templateSource(blank);
+    expect(source.split('\n')[0]).toBe('// Starter template source, read only. Simulated: backtest and paper only.');
+    expect(source).toContain('const slow = sma(closes, /* signal.slow: blank, you set it after Use */);');
+    expect(source).toContain('oms.buy("BTC/USDT", size.quantity(/* sizing.value: blank, you set it after Use */));');
+    expect(source).toContain('// Optional, blank in the template: exit.stopLossPercent, exit.takeProfitPercent.');
+    // Filled in, the body is byte for byte the builder's, under its own header.
+    const full = compileSignalRules(with_((r) => ({ ...r, exit: { stopLossPercent: '5', takeProfitPercent: '10' } }))).rules;
+    const body = (text: string) => text.split('\n').slice(1).join('\n');
+    expect(body(templateSource(full))).toBe(body(signalSource(full)));
   });
 
   it('generates the same source for the same rules, with exits only when set', () => {

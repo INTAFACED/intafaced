@@ -1,4 +1,4 @@
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
   name: 'support',
   env: () => ({
     ...c('svc-support', PORTS.support),
@@ -38,5 +38,24 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // unless APP_ENV is exactly dev or test; production stays blank and every attach refuses naming the missing piece.
     SUPPORT_ATTACHMENT_STORE: 'local-test-memory',
     SUPPORT_MALWARE_SCANNER: 'local-test-eicar',
+    // Guest requests (SP-tickets-01): the mail goes through svc-notify's guest verification door on svc-support's own
+    // secret, to notify's LOCAL TEST outbox, with links that open this stack's customer app. `LOCAL_STACK_SUPPORT_GUEST_MAIL=off`
+    // leaves the door unwired, so a guest request waits with vendor.email (J-support-public-03 #3).
+    ...(process.env.LOCAL_STACK_SUPPORT_GUEST_MAIL === 'off'
+      ? {}
+      : { NOTIFY_URL: urlOf('notify'), NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService }),
+    SUPPORT_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
+    SUPPORT_GUEST_ADDRESS_KEY: secrets.supportGuestAddress,
+    // LOCAL TEST only, labelled in the same file: the guest link lifetime, the per-address limit and its window, and how
+    // long a guest's address is kept. Production stays blank and every guest request refuses by name until the owner sets
+    // them. `LOCAL_STACK_SUPPORT_GUEST_RATE=off` leaves the limit blank (J-support-public-03 #5), and
+    // `LOCAL_STACK_SUPPORT_GUEST_LINK_TTL=1` makes links last one minute, so an expired one can be used (#7).
+    SUPPORT_GUEST_LINK_TTL_MINUTES: /^[1-9][0-9]*$/.test(process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL ?? '')
+      ? process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL
+      : '30',
+    ...(process.env.LOCAL_STACK_SUPPORT_GUEST_RATE === 'off'
+      ? {}
+      : { SUPPORT_GUEST_RATE_LIMIT: '3', SUPPORT_GUEST_RATE_WINDOW_SECONDS: '3600' }),
+    SUPPORT_GUEST_RETENTION_DAYS: '30',
   }),
 });

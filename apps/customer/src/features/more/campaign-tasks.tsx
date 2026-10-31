@@ -33,6 +33,9 @@ const CLAIM_CODES = [
   'campaigns.claim_window_unset',
   'campaigns.hold_period_unset',
   'campaigns.reward_unset',
+  'campaigns.per_customer_limit_unset',
+  'campaigns.customer_limit_reached',
+  'campaigns.redemption_limit_reached',
 ] as const;
 type ClaimCode = (typeof CLAIM_CODES)[number];
 const claimCode = (code: string | undefined): ClaimCode | null =>

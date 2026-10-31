@@ -20,7 +20,21 @@ const CLOCK_POLL_MS = 60_000;
 const lifecycleSchema = z
   .object({ state: z.string(), effectiveAt: z.string().nullish(), evidenceRefs: z.array(z.string()).nullish() })
   .passthrough();
-const haltSchema = z.object({ halted: z.boolean(), venueHalted: z.boolean() }).passthrough();
+const haltSchema = z
+  .object({
+    halted: z.boolean(),
+    venueHalted: z.boolean(),
+    // Informational: a time that is missing or not an ISO string reads as unknown, never as an unreadable halt.
+    haltedSince: z.unknown().optional(),
+    venueHaltedSince: z.unknown().optional(),
+  })
+  .passthrough();
+
+/** An ISO time from the route as epoch ms; null when it names none or names one that does not parse. */
+const msOf = (iso: unknown): number | null => {
+  const ms = typeof iso === 'string' && iso !== '' ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+};
 const tapeSchema = z.array(z.object({ timestamp: z.number() }).passthrough());
 
 type Raw<T> = { ok: true; data: T } | { ok: false; reason: string; code?: string; status?: number };
@@ -38,12 +52,11 @@ export function useMarketLifecycle(symbol: string): Loadable<LifecycleView> {
               z.infer<typeof lifecycleSchema>
             >;
             if (!res.ok) return res;
-            const effective = res.data.effectiveAt ? Date.parse(res.data.effectiveAt) : NaN;
             return {
               ok: true,
               data: {
                 state: res.data.state,
-                effectiveAt: Number.isFinite(effective) ? effective : null,
+                effectiveAt: msOf(res.data.effectiveAt),
                 evidenceRefs: res.data.evidenceRefs ?? [],
               },
             };
@@ -68,7 +81,15 @@ export function useBookHalt(symbol: string): Loadable<BookHaltView> {
               z.infer<typeof haltSchema>
             >;
             if (!res.ok) return res;
-            return { ok: true, data: { halted: res.data.halted, venueHalted: res.data.venueHalted } };
+            return {
+              ok: true,
+              data: {
+                halted: res.data.halted,
+                venueHalted: res.data.venueHalted,
+                haltedSinceMs: msOf(res.data.haltedSince),
+                venueHaltedSinceMs: msOf(res.data.venueHaltedSince),
+              },
+            };
           },
           { intervalMs: STATE_POLL_MS },
         ),

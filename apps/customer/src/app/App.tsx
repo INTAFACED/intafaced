@@ -141,6 +141,9 @@ export function App() {
     path !== '/pay/checkout' &&
     !isAcademyPath(path) &&
     !isLaunchCataloguePath(path);
+  // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), in the
+  // public frame, once the boot refresh says there is no session.
+  const guestRequest = path === '/support/new' && !session && !restoring && !restoreFailed;
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
@@ -208,7 +211,7 @@ export function App() {
   // `/` sends a signed-in person to /home, so it waits for the boot refresh instead of flashing the signed-out landing page.
   const content = redirectTo ? null : path === '/' && restoring && !session ? (
     fallback
-  ) : room?.area === 'public' ? (
+  ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
@@ -223,11 +226,14 @@ export function App() {
       <TeamDesk href={teamHref} />
     </Shell>
   ) : room?.area === 'web3' ? (
-    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
+    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target. The
+    // frame, and the wallet connection in it, outlast a move between Web3 rooms; only the room inside remounts.
     <Suspense fallback={fallback}>
       <Web3Shell path={path}>
-        {ribbon}
-        <ProtocolRoutes path={path} />
+        <RoomBoundary key={path}>
+          {ribbon}
+          <ProtocolRoutes path={path} />
+        </RoomBoundary>
       </Web3Shell>
     </Suspense>
   ) : (
@@ -240,7 +246,7 @@ export function App() {
     <div onClick={followLink}>
       <ApplyView />
       <AccountViewSync />
-      <RoomBoundary key={path}>{content}</RoomBoundary>
+      <RoomBoundary key={room?.area === 'web3' ? 'web3' : path}>{content}</RoomBoundary>
     </div>
   );
 }

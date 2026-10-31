@@ -293,6 +293,14 @@ const schema = serviceEnvSchema
       PAY_CHECKOUT_SUCCESS_RATES: z.string().optional().default(''),
 
       /**
+       * The assets a business can settle in, as ledger asset ids (`USDT,EUR`). The Balances room shows a row for each,
+       * read from the ledger, so a new business sees its zero per asset. NO DEFAULT: blank refuses
+       * `pay.settlement_assets_unset` and is never filled with a guessed list. Parsed and checked at boot by
+       * `parseSettlementAssets` (metrics/settlement-assets.ts).
+       */
+      PAY_SETTLEMENT_ASSETS: z.string().optional().default(''),
+
+      /**
        * Seconds a newly verified payout destination (or a change of a verified
        * one) is held before it can receive a payout (J-merchant-02 #5). No
        * default: blank, zero or junk is unset and every verification and change

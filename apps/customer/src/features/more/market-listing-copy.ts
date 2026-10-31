@@ -44,6 +44,19 @@ const en = {
   reviewNotSettled: 'Only a buyer whose purchase of this listing has been paid to the seller can review it.',
   reviewUnseen:
     'None of your latest {count} purchases is a paid purchase of this listing, and older ones cannot be read here. Nothing was sent.',
+  category: 'Category',
+  categoryAll: 'Every category',
+  categoryNone: 'No category',
+  categoryNote: 'Only one-time listings are filed under a category. Strategy subscriptions are not, so a category shows none.',
+  categoryEmpty: 'No listing is filed under this category yet.',
+  cat_bots: 'Bots',
+  cat_defi: 'DeFi',
+  cat_compliance: 'Compliance',
+  cat_payment_extensions: 'Payment extensions',
+  cat_security_custody: 'Security and custody',
+  cat_data: 'Data',
+  cat_advisory: 'Advisory',
+  cat_partner_integrations: 'Partner integrations',
 } as const;
 const es = {
   doorsTitle: 'Más en el Mercado',
@@ -90,6 +103,20 @@ const es = {
   reviewNotSettled: 'Solo puede reseñar un comprador cuya compra de este listado ya se haya pagado al vendedor.',
   reviewUnseen:
     'Ninguna de tus últimas {count} compras es una compra pagada de este listado, y las anteriores no se pueden leer aquí. No se envió nada.',
+  category: 'Categoría',
+  categoryAll: 'Todas las categorías',
+  categoryNone: 'Sin categoría',
+  categoryNote:
+    'Solo los listados de pago único se archivan en una categoría. Las suscripciones a estrategias no, así que una categoría no las muestra.',
+  categoryEmpty: 'Todavía no hay ningún listado en esta categoría.',
+  cat_bots: 'Bots',
+  cat_defi: 'DeFi',
+  cat_compliance: 'Cumplimiento',
+  cat_payment_extensions: 'Extensiones de pago',
+  cat_security_custody: 'Seguridad y custodia',
+  cat_data: 'Datos',
+  cat_advisory: 'Asesoría',
+  cat_partner_integrations: 'Integraciones de socios',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   doorsTitle: 'Plus dans le Marché',
@@ -136,5 +163,19 @@ const fr = {
   reviewNotSettled: 'Seul un acheteur dont l’achat de cette annonce a été payé au vendeur peut donner son avis.',
   reviewUnseen:
     'Aucun de vos {count} derniers achats n’est un achat payé de cette annonce, et les plus anciens ne peuvent pas être lus ici. Rien n’a été envoyé.',
+  category: 'Catégorie',
+  categoryAll: 'Toutes les catégories',
+  categoryNone: 'Aucune catégorie',
+  categoryNote:
+    'Seules les annonces à achat unique sont classées dans une catégorie. Les abonnements à une stratégie ne le sont pas : une catégorie ne les montre pas.',
+  categoryEmpty: 'Aucune annonce n’est encore classée dans cette catégorie.',
+  cat_bots: 'Bots',
+  cat_defi: 'DeFi',
+  cat_compliance: 'Conformité',
+  cat_payment_extensions: 'Extensions de paiement',
+  cat_security_custody: 'Sécurité et conservation',
+  cat_data: 'Données',
+  cat_advisory: 'Conseil',
+  cat_partner_integrations: 'Intégrations partenaires',
 } satisfies Record<keyof typeof en, string>;
 export const marketListingCopy = defineCopy('more.market.listing', en, { es, fr });

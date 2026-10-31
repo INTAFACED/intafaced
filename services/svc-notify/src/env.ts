@@ -83,6 +83,11 @@ const schema = serviceEnvSchema
       HTTP_PORT: z.coerce.number().int().default(4015),
       /** Exact-body authenticated ops ingress; absent leaves it closed. */
       NOTIFY_OPS_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      /**
+       * svc-support's pairwise secret for the guest verification door (ADR 2026-10-22 §3.5). Unset: svc-support is not
+       * named on this service under the shared-secret mode, and every guest verification send is refused.
+       */
+      NOTIFY_SUPPORT_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       /** Per-recipient fixed-window budget, separate from platform verification. */
       NOTIFY_GUEST_ADDRESS_MAX_PER_WINDOW: z.coerce.number().int().min(1).max(100).default(3),
       NOTIFY_GUEST_ADDRESS_WINDOW_MS: z.coerce.number().int().min(1000).max(86400000).default(900000),

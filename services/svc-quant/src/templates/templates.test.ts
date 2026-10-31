@@ -98,6 +98,14 @@ describe('starter templates', () => {
       [2, 'Uses an exponential average.'],
       [1, 'First version.'],
     ]);
+    // Each version reads with its own source (AL-editor-03), every blank number named, never a number filled in.
+    expect(detail.versions[0]!.source).toContain('const fast = ema(closes, /* signal.fast: blank, you set it after Use */);');
+    expect(detail.versions[1]!.source).toContain('const fast = sma(closes, /* signal.fast: blank, you set it after Use */);');
+    for (const row of detail.versions) {
+      expect(row.source).toContain('/* sizing.value: blank, you set it after Use */');
+      expect(row.source).toContain('// Optional, blank in the template: exit.stopLossPercent, exit.takeProfitPercent.');
+      expect(row.source).not.toMatch(/\(closes, \d/);
+    }
   });
 
   it('refuses a template that sets a number, and anyone without the operator scope', async () => {
