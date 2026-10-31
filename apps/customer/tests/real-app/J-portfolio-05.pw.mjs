@@ -53,6 +53,15 @@ function dollars(text) {
   return m[1] === '−' || m[1] === '-' ? -units : units;
 }
 
+/** The market's last BTC/USDT price, the one the bank values holdings at. */
+async function lastPrice() {
+  const res = await fetch(`${EDGE}/api/v1/ticker/BTC%2FUSDT`, { headers: { origin: ORIGIN } });
+  expect(res.status).toBe(200);
+  const { last } = await res.json();
+  expect(last, 'a last BTC/USDT price').toBeTruthy();
+  return String(last);
+}
+
 const CENT = toUnits('0.01');
 const near = (a, b, slack = CENT) => (a > b ? a - b : b - a) <= slack;
 const times = (a, b) => (a * b) / ONE;
@@ -250,9 +259,16 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   // All that arrived is sold, so no bought coin is left for the withdrawal to draw on (the desk's amount step is 0.00001).
   expect(buy.btc % toUnits('0.00001')).toBe(0n);
   await page.waitForTimeout(2_000);
+  const saleFrom = Date.now();
   const sale = await trade(page, who, 'sell', fromUnits(buy.btc));
   expect(sale.btc).toBe(-buy.btc);
-  run.write({ cost: fromUnits(-buy.usdt), proceeds: fromUnits(sale.usdt), buyFee: fromUnits(buyFee), bps: String(bps) });
+  run.write({
+    cost: fromUnits(-buy.usdt),
+    proceeds: fromUnits(sale.usdt),
+    buyFee: fromUnits(buyFee),
+    bps: String(bps),
+    sold: [saleFrom, Date.now()],
+  });
 
   // An outside deposit of TEST 0.003 BTC through the real ledger, and the price the person paid for it.
   expect(fund(who.email, 'BTC', '0.003').tx).toBeTruthy();
@@ -317,8 +333,16 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(realised.view).toBe(realised.realised);
   await expect(page).toHaveURL(/view=realised/);
 
-  // Unrealised: the 0.002 BTC still open from the deposit, worth what Money says now, less 0.002 at the price entered.
+  // Unrealised, by hand: the 0.002 BTC still open from the deposit at the market's last price (read on each side of the
+  // screen read, as it can move), less 0.002 at the price entered. Money's worth is the same figure.
+  const lastBefore = await lastPrice();
   const unrealised = await snapshot(page, 'Unrealised');
+  const lasts = [lastBefore, await lastPrice()];
+  const openAt = (last) => times(toUnits('0.002'), toUnits(last)) - hand.openCost;
+  expect(
+    lasts.some((last) => near(dollars(unrealised.view), openAt(last))),
+    `${unrealised.view} at ${lasts}`,
+  ).toBe(true);
   expect(near(dollars(unrealised.view), dollars(unrealised.worth) - hand.openCost)).toBe(true);
   expect(unrealised.view).toBe(unrealised.unrealised);
 
@@ -334,7 +358,13 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(last.last).toMatch(/^Sale of BTC on /);
 
   // 24 hours: everything open arrived inside the 24 hours, so it counts from its cost: the same as unrealised now.
+  const dayBefore = await lastPrice();
   const day = await snapshot(page, '24 hours');
+  const dayLasts = [dayBefore, await lastPrice()];
+  expect(
+    dayLasts.some((last) => near(dollars(day.view), openAt(last))),
+    `${day.view} at ${dayLasts}`,
+  ).toBe(true);
   expect(day.view).toBe(day.unrealised);
   await expect(page.getByRole('region', { name: 'Your result' })).toContainText(
     'A coin bought inside the 24 hours counts from what it cost',
@@ -513,6 +543,26 @@ test(`${J} #4 draws the cumulative result over a range: from zero before the fir
   const last = day.points.at(-1);
   expect(last.usd).not.toBe('missing');
   expect(hand.realised.some((r) => near(toUnits(last.realized), r, toUnits('0.0001')))).toBe(true);
+  // Every point between the ends, by hand: nothing realised before the sale, the sale's result until the withdrawal left,
+  // and the whole realised result after it (points inside the two moments' own windows can go either way).
+  const { sold, left } = state();
+  let checked = 0;
+  for (const point of day.points) {
+    const at = Date.parse(point.at);
+    if (point.realized === null || point.realized === 'missing') continue;
+    const realised = toUnits(point.realized);
+    if (at < sold[0]) expect(realised, `${point.at} before the sale`).toBe(0n);
+    else if (at > sold[1] && at < left[0])
+      expect(near(realised, hand.saleResult, toUnits('0.0001')), `${point.at} after the sale`).toBe(true);
+    else if (at > left[1])
+      expect(
+        hand.realised.some((r) => near(realised, r, toUnits('0.0001'))),
+        `${point.at} after the withdrawal`,
+      ).toBe(true);
+    else continue;
+    checked += 1;
+  }
+  expect(checked).toBeGreaterThan(280);
   // A point with no figure is a gap named under the line, never a zero.
   expect(day.missing).toBe(day.points.filter((p) => p.usd === 'missing').length);
 

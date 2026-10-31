@@ -180,11 +180,12 @@ function Page({
             setMode={setMode}
             setScheme={setScheme}
             openSocket={openSocket}
-            mainAddons={(host, bars) => (
+            mainAddons={(host, bars, view) => (
               <DrawingsLayer
                 key={id}
                 host={host}
                 bars={bars}
+                onIndicatorsSlot={view.onTreeSlot}
                 workbench={id}
                 symbol={market.symbol}
                 tickSize={market.tickSize}

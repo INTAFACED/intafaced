@@ -290,6 +290,8 @@ test(`${J} #4 sets the display currency to BTC: every value is the USD value ove
         if (!answer?.btc?.total || !answer.btc.priceUsd) return 'no BTC summary read yet';
         const shown = await page.getByTestId('if-money').evaluate((root) => ({
           total: root.querySelector('[data-testid="money-total"] [role="img"]')?.getAttribute('aria-label') ?? null,
+          // The same headline, which must also be the bank's own BTC total.
+          bank: root.querySelector('[data-testid="money-total"] [role="img"]')?.getAttribute('aria-label') ?? null,
           cash: root.querySelector('#cash [data-testid="money-card__total"]')?.textContent?.trim() ?? null,
           crypto: root.querySelector('#crypto [data-testid="money-card__total"]')?.textContent?.trim() ?? null,
           rows: Object.fromEntries(
@@ -301,7 +303,9 @@ test(`${J} #4 sets the display currency to BTC: every value is the USD value ove
         }));
         const price = answer.btc.priceUsd;
         const want = {
-          total: sat8(toUnits(answer.btc.total) / 10n ** 10n),
+          // The headline is counted by hand: the priced rows' USD values added up, over the BTC price, rounded once.
+          total: sat8((sum(answer.priced) * 10n ** 8n * 2n + toUnits(price)) / (toUnits(price) * 2n)),
+          bank: sat8(toUnits(answer.btc.total) / 10n ** 10n),
           cash: btcOf(answer.cashUsd, price),
           crypto: btcOf(answer.cryptoUsd, price),
           rows: Object.fromEntries(answer.priced.map((row) => [row.asset, btcOf(row.valueUsd, price)])),

@@ -106,6 +106,10 @@ test(`${J} #3 the new password follows the rule: a short one is refused with the
   const seen = resetCodes(who.email).length;
   await askReset(page, who.email);
   const code = await nextResetCode(who.email, seen);
+  // The rule is on the page before anything is typed, as the new password field's own description.
+  await expect(page.getByLabel('New password', { exact: true })).toHaveAccessibleDescription(
+    /At least 12 characters, up to 72 bytes\. Ordinary letters and digits count one each; accented letters and emoji count more\./,
+  );
   await submitReset(page, code, 'short');
   await expect(page.getByRole('alert')).toContainText('Use at least 12 characters');
   // A password on the owner's breached list is refused by name (I-signin-sessions-04). Fails fast until it lands.
