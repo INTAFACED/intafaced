@@ -670,6 +670,9 @@ const en = {
   createLink: 'Create payment link',
   payOut: 'Pay out',
   noPayments: 'Your first payment starts here',
+  /** The Payments room's own empty state (J-merchant-05 #1): the room names what is missing, then how the first payment appears. */
+  pay_emptyTitle: 'No payments yet',
+  pay_emptyBody: 'Your first payment starts here. Create a payment link. Payments will appear here once a customer pays.',
   noPaymentsBody: 'Create a payment link. Payments will appear here once a customer pays.',
   week: '7 days',
   hideTable: 'Hide data table',

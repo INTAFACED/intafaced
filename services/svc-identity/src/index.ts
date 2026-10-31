@@ -147,6 +147,7 @@ import { parseKycDocKey } from './kyc/document-crypto.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
+import { approvalPolicySource } from './auth/action-approval-policy.js';
 import { createActionApprovalRouter } from './action-approval-router.js';
 import { createStepUpRouter } from './step-up-router.js';
 import { CustomerStepUpService } from './auth/customer-step-up.js';
@@ -562,6 +563,8 @@ const actionApprovals = new ActionApprovalService(
     // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
     // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
     founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
+    // Governed types (OPS-change-control-01 CR-1): the owner rows, read again on every propose, approve and consume.
+    policies: approvalPolicySource(() => env.IDENTITY_ACTION_APPROVAL_POLICIES),
   },
   () => new Date(),
   (row, at) =>

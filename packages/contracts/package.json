@@ -134,6 +134,10 @@
       "types": "./dist/support-awaiting.d.ts",
       "default": "./dist/support-awaiting.js"
     },
+    "./guest-verification": {
+      "types": "./dist/guest-verification.d.ts",
+      "default": "./dist/guest-verification.js"
+    },
     "./support-trade-summary": {
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"

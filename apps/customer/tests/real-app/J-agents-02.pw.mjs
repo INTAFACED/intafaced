@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { api, fromUnits, toUnits, tool } from './stack.mjs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { api, fromUnits, stackFile, toUnits, tool } from './stack.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
@@ -16,6 +17,31 @@ import { api, fromUnits, toUnits, tool } from './stack.mjs';
 // its input at 1 per million), so one fits the per-call cap and two together pass the per-session cap.
 // #7's blank rate: svc-agents is restarted with the stack's LOCAL TEST rates off (LOCAL_STACK_AGENTS_RATES=off) in a
 // try/finally, so the refusal runs in the app with the rate named.
+/**
+ * The stack's stand-in engine held at its door (its hold file, services/svc-agents/src/providers/mock.ts): every
+ * completion that reaches it while held adds one line to `<hold>.calls`. `withEngineHeld(fn)` runs `fn` with the engine held and
+ * a fresh count, then lets it answer; `fn` gets `engineCalls()`, how many runs reached the engine so far.
+ */
+async function withEngineHeld(fn) {
+  const hold = stackFile('agents-engine.hold');
+  const calls = `${hold}.calls`;
+  rmSync(calls, { force: true });
+  writeFileSync(hold, 'J-agents-02');
+  const engineCalls = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).length : 0);
+  try {
+    return await fn(engineCalls);
+  } finally {
+    rmSync(hold, { force: true });
+    rmSync(calls, { force: true });
+  }
+}
+
+/** Still `expected` after longer than the stand-in engine's answer delay (0.8 s), so a late call would have shown. */
+async function stillCalls(engineCalls, expected) {
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  expect(engineCalls()).toBe(expected);
+}
+
 const J = 'J-agents-02';
 const agents = agentsRun(J);
 
@@ -236,7 +262,18 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
   await expect(runs.getByRole('row').filter({ hasText: 'Refused' })).toHaveCount(refusedBefore.length);
   await expect(runs.getByRole('row').filter({ hasText: 'Admitted' })).toHaveCount(executedBefore.length);
   const before = await ledgerBalances(agents.account());
-  await session(page).getByRole('button', { name: 'Run twice at once' }).click();
+  // With the engine held, the service records the refused run while the admitted one waits at the engine's door, and
+  // exactly one run has reached the engine: the refused one was stopped before it. (The page shows both answers once
+  // both are back.)
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run twice at once' }).click();
+    await expect.poll(engineCalls, { message: 'the admitted run reaches the engine' }).toBe(1);
+    await expect
+      .poll(async () => (await ownRuns('refused')).length, { message: 'the refused run is recorded while the engine is held' })
+      .toBe(refusedBefore.length + 1);
+    await stillCalls(engineCalls, 1);
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.spend.cap_exceeded');
   // One more admitted and one more refused row than before (#2 left one of each), and the refused one is this cap's.
@@ -280,10 +317,14 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
   const before = await ledgerBalances(poor);
-  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  // With the engine held, the refusal comes back and no run has reached the engine.
   const refusal = session(page).getByRole('alert');
-  await expect(refusal).toContainText('Your available balance is below this run’s worst case, so it did not start.');
-  await expect(refusal.locator('code')).toHaveText('agents.funds_insufficient');
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(refusal).toContainText('Your available balance is below this run’s worst case, so it did not start.');
+    await expect(refusal.locator('code')).toHaveText('agents.funds_insufficient');
+    await stillCalls(engineCalls, 0);
+  });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   const runs = tableIn(main(page), 'Runs').getByRole('row');
   await expect(runs).toHaveCount(2);
@@ -296,12 +337,15 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
   // not be read, which is not the same as short. The engine is never called and nothing is billed.
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
-    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
     const unread = session(page).getByRole('alert');
-    await expect(unread).toContainText('Your balance could not be read just now, so this run did not start. Nothing was charged', {
-      timeout: 20_000,
+    await withEngineHeld(async (engineCalls) => {
+      await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+      await expect(unread).toContainText('Your balance could not be read just now, so this run did not start. Nothing was charged', {
+        timeout: 20_000,
+      });
+      await expect(unread.locator('code')).toHaveText('agents.funds_unread');
+      await stillCalls(engineCalls, 0);
     });
-    await expect(unread.locator('code')).toHaveText('agents.funds_unread');
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
     await expect(runs).toHaveCount(3);
     await expect(runs.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
