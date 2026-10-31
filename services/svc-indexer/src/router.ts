@@ -1005,7 +1005,7 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               throw toTrpcError(err);
             }
           }),
-        /** A pool's swaps, newest first, each labelled from token0's side: buy (token0 out), sell (token0 in) or both. */
+        /** A pool's swaps, newest first, each labelled from token0's side by what the pool paid out (`swapSide`): buy (only token0 out, for token1), sell (only token1 out, for token0) or both. */
         swaps: publicJurisdictionProcedure('indexer', 'protocol')
           .input(addressInput.extend({ cursor: poolCursorSchema.optional() }))
           .output(

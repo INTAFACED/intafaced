@@ -179,9 +179,9 @@ describe('D-explorer-05 pool logs', () => {
     expect(swapSide(swap(5n, 0n, 5n, 0n))).toBe('both');
     expect(swapSide(swap(0n, 0n, 0n, 0n))).toBe('both');
     expect(swapSide(swap(5n, 5n, 5n, 5n))).toBe('both');
-    // A transfer made straight to the pool before the swap is counted as that swap's input too: 1000 token0 sat above
-    // the reserves when 1 token1 bought 0.99 token0. The pool paid out token0 alone, so it is still a buy (and the mirror
-    // a sell), as J-dex-protocol-09 #7 met on main at a207de08.
+    // A transfer made straight to the pool before the swap is counted as that swap's input too: 1000 units of token0 sat
+    // above the reserves when 1 unit of token1 bought 99 units of token0. The pool paid out token0 alone, so it is still a
+    // buy (and the mirror a sell), as J-dex-protocol-09 #7 met on main at a207de08.
     expect(swapSide(swap(1000n, 1n, 99n, 0n))).toBe('buy');
     expect(swapSide(swap(1n, 1000n, 0n, 99n))).toBe('sell');
   });
