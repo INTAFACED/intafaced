@@ -23,8 +23,12 @@ function developer() {
 /** Fills Studio with a new signal-rules strategy on 1 minute bars of BTC/USDT and asks to save it. Every figure is TEST. */
 async function askToSaveSignalStrategy(page, name) {
   await page.goto('/quant/studio');
+  // Studio keeps the last form on this device. A draft that was never saved asks once before it is replaced (the second
+  // click), and a blank form stays blank.
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
-  if (await fresh.isVisible()) await fresh.click();
+  await fresh.click();
+  await fresh.click();
+  await expect(page.getByTestId('quant-replace-warning')).toHaveCount(0);
   await page.getByLabel('Strategy name').fill(name);
   await page.getByLabel('Simulated starting cash').fill('1000');
   await page.getByLabel('Block 1 symbol').fill('BTC/USDT');
@@ -328,6 +332,7 @@ test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refu
   // An account of its own, so its stored runs are only the ones this step starts.
   const who = await signUp(page, 'jq');
   await verify(page, who);
+  await signIn(page, who);
   const { userId } = await api(who);
   const usage = page.getByTestId('quant-usage');
   const profile = usage.getByTestId('quant-usage-profile');
