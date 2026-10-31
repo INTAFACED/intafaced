@@ -448,12 +448,7 @@
           "request": {
             "method": "POST",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/algo/:kind",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "algo", ":kind"],
-              "variable": [{ "key": "kind", "value": "" }]
-            }
+            "url": { "raw": "{{baseUrl}}/api/v1/algo", "host": ["{{baseUrl}}"], "path": ["api", "v1", "algo"] }
           }
         },
         {

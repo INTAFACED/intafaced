@@ -857,7 +857,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     path: '/api/v1/algo',
     product: 'spot',
     access: 'private',
-    summary: 'Your algo orders (TWAP, VWAP, POV, chase), newest first',
+    summary: 'Your algo orders (TWAP, VWAP, POV, chase), newest first; limit is required',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {
@@ -872,11 +872,11 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   {
     name: 'createAlgoOrder',
     method: 'POST',
-    path: '/api/v1/algo/:kind',
+    path: '/api/v1/algo',
     product: 'spot',
     access: 'private',
     summary:
-      'Place a twap, vwap, pov or chase order; the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
+      'Place a twap, vwap, pov or chase order (kind in the body); the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
   {

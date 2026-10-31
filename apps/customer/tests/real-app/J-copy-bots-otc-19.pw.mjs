@@ -97,14 +97,15 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
     sliceIntervalMs: 600_000,
     limitPrice: String((toUnits(ask) * 101n) / 100n / ONE + 1n),
     clientAlgoId: `${J}-7-${Date.now().toString(36)}`,
+    kind: 'twap',
   };
-  const a = await call('POST', '/api/v1/algo/twap', body);
+  const a = await call('POST', '/api/v1/algo', body);
   expect(a.status, JSON.stringify(a.body).slice(0, 300)).toBe(200);
   const id = a.body.id;
   try {
     expect(a.body).toMatchObject({ kind: 'twap', side: 'buy', totalQty: body.totalQty, limitPrice: body.limitPrice });
     // One parent: the same client algo id again answers the same parent, and the list holds it once.
-    const b = await call('POST', '/api/v1/algo/twap', body);
+    const b = await call('POST', '/api/v1/algo', body);
     expect(b.status, JSON.stringify(b.body).slice(0, 300)).toBe(200);
     expect(b.body.id).toBe(id);
     const list = await call('GET', '/api/v1/algo?limit=500');
@@ -119,20 +120,23 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
     expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
     expect(read.body).toMatchObject({ id, totalQty: body.totalQty, limitPrice: body.limitPrice });
     // A trigger kind is refused as not built, and a key without trade:write is refused; neither makes a parent.
-    const trigger = await call('POST', '/api/v1/algo/trigger', { ...body, clientAlgoId: `${body.clientAlgoId}-t` });
+    const trigger = await call('POST', '/api/v1/algo', { ...body, kind: 'trigger', clientAlgoId: `${body.clientAlgoId}-t` });
     expect(trigger.status, JSON.stringify(trigger.body).slice(0, 300)).toBe(400);
     expect(trigger.body.intafacedCode).toBe('trade.algo_kind_not_built');
     const readOnly = await withKey(state('readKey'), {
       method: 'POST',
-      path: '/api/v1/algo/twap',
+      path: '/api/v1/algo',
       body: { ...body, clientAlgoId: `${body.clientAlgoId}-r` },
     });
     expect(readOnly.status, JSON.stringify(readOnly.body).slice(0, 300)).toBe(403);
     const after = await call('GET', '/api/v1/algo?limit=500');
     expect(after.body.rows.map((row) => row.id).sort()).toEqual(list.body.rows.map((row) => row.id).sort());
-  } finally {
+    // Cancel reads back as cancelled.
     const cancelled = await call('POST', `/api/v1/algo/${id}/cancel`);
     expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBe(200);
     expect(cancelled.body.status).toBe('cancelled');
+  } finally {
+    // Pass or fail, no schedule is left buying; a second cancel of a cancelled parent changes nothing.
+    await call('POST', `/api/v1/algo/${id}/cancel`).catch(() => {});
   }
 });
