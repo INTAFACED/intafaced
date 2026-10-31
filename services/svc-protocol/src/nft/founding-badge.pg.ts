@@ -46,22 +46,22 @@ export class PostgresBadgeStore implements BadgeStore {
   }
 
   async putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord> {
-    try {
-      await this.sql`
-        INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, to_address, tx_hash)
-        VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${toChecksum(record.to)}, ${record.txHash})
-        ON CONFLICT (key) DO NOTHING`;
-    } catch (err) {
-      // Two accounts racing to one address: the loser hits the unique address index; that is already_claimed, not a 500.
-      const e = err as { code?: string; constraint_name?: string };
-      if (e.code === '23505' && e.constraint_name === 'founding_badge_claims_chain_address_idx') {
-        throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
-      }
-      throw err;
-    }
+    // No conflict target: the insert arbitrates every unique index (key, account, chain + address). A racing insert on any
+    // of them waits for the other to commit and then does nothing, never 23505. `ON CONFLICT (key)` arbitrated the key
+    // alone, so two simultaneous claims from one account could both pass the key check and the loser then raised 23505
+    // on the account or address index: its own claim refused (#6121).
+    await this.sql`
+      INSERT INTO protocol.founding_badge_claims (key, account_id, chain_id, to_address, tx_hash)
+      VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${toChecksum(record.to)}, ${record.txHash})
+      ON CONFLICT DO NOTHING`;
     const stored = await this.findClaim(record.key);
-    if (!stored) throw new Error('protocol.founding_badge_claims insert returned no row');
-    return stored;
+    if (stored) return stored;
+    // Nothing under this account's key: the insert gave way to another account's claim to the address, which is
+    // already_claimed, not a 500. Any other reason is not a refusal to show the person.
+    const onAddress = await this.findClaimByAddress(record.chainId, record.to);
+    if (onAddress && onAddress.accountId !== record.accountId)
+      throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
+    throw new Error('protocol.founding_badge_claims insert stored no row for this claim');
   }
 
   async claimMintSlot(key: string): Promise<boolean> {

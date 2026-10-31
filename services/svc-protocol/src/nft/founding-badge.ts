@@ -90,7 +90,10 @@ export interface BadgeStore {
   findClaim(key: string): Promise<BadgeClaimRecord | null>;
   /** The claim already minted to this address on this chain, by any account. */
   findClaimByAddress(chainId: number, to: Address): Promise<BadgeClaimRecord | null>;
-  /** Insert-if-absent on `key`; returns the stored row either way. */
+  /**
+   * Insert-if-absent on `key`; returns the stored row either way. Refuses `badge.already_claimed` when another account's
+   * claim holds the address (a race the `findClaimByAddress` check before it can lose).
+   */
   putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord>;
   /**
    * Atomically take the mint slot for `key`: true for exactly one caller while the claim has no tx hash and no mint
