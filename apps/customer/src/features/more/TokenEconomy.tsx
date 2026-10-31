@@ -1,4 +1,4 @@
-// hand-declared-ok: svc-token's emissionSchedule, treasury and yieldHistory outputs are declared in its router; packages/contracts has no token schemas yet
+// hand-declared-ok: svc-token's emissionSchedule, treasury, buybackRuns and revenueShareHistory outputs are declared in its router; packages/contracts has no token schemas yet
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
@@ -28,8 +28,11 @@ export const emissionScheduleSchema = z
   })
   .refine((r) => (r.params === null) === (r.reason !== null), 'emission schedule is neither set nor refused');
 
-/** Only `minted` of the treasury read is drawn here: the lifetime sum of closed mints, null when none closed. */
-export const mintedSchema = z.object({ minted: decimalSchema.nullable() });
+/**
+ * The treasury read's supply figures: `minted` is the lifetime sum of closed epoch mints (null when none closed) and
+ * `burned` the burn account's balance.
+ */
+export const mintedSchema = z.object({ minted: decimalSchema.nullable(), burned: decimalSchema });
 
 /** The token service's `revenueShareHistory` read: this account's real-yield payouts, one row per weekly window, each read from its ledger posting. */
 export const yieldHistorySchema = z.object({
@@ -45,6 +48,16 @@ export const yieldHistorySchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/**
+ * The buyback rate of the token service's `buybackRuns` read. Its runs are not drawn here, so their arithmetic, which
+ * the Burn tab checks, does not decide whether the rate can be shown.
+ */
+export const buybackRateSchema = z.object({
+  rate: z.object({ buybackBps: z.number().int().min(0).max(10_000), burnSplitBps: z.number().int().min(0).max(10_000) }).nullable(),
+  reason: paramsReason.nullable(),
+});
+
+export type BuybackRateRead = z.infer<typeof buybackRateSchema>;
 export type EmissionScheduleRead = z.infer<typeof emissionScheduleSchema>;
 export type MintedRead = z.infer<typeof mintedSchema>;
 export type YieldHistoryRead = z.infer<typeof yieldHistorySchema>;
@@ -55,8 +68,11 @@ const EPOCHS = 12;
 const YIELD_PAGE = 50;
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
-/** Emission epochs, halvings and the minter rule (J-more-catalogue-20 #4), read from the token service. */
-export function EmissionSchedule() {
+/**
+ * The economy tab's token panels: the emission schedule (J-more-catalogue-20 #4) and supply and distribution (#5), from
+ * one read each of the schedule, the treasury and the buyback rate, then this account's real yield (#2).
+ */
+export function TokenEconomyPanels() {
   const api = useApi();
   const { userId } = useSession();
   const schedule = useResource(
@@ -64,7 +80,64 @@ export function EmissionSchedule() {
     `token-emission-schedule:${userId}`,
   );
   const minted = useResource((signal) => api.query('token', 'treasury', undefined, mintedSchema, { signal }), `token-minted:${userId}`);
-  return <EmissionScheduleView schedule={schedule} minted={minted} />;
+  const buyback = useResource(
+    (signal) => api.query('token', 'buybackRuns', { limit: 1 }, buybackRateSchema, { signal }),
+    `token-buyback-rate:${userId}`,
+  );
+  return (
+    <>
+      <EmissionScheduleView schedule={schedule} minted={minted} />
+      <SupplyView schedule={schedule} minted={minted} buyback={buyback} />
+      <YieldHistory />
+    </>
+  );
+}
+
+/**
+ * Supply and distribution (J-more-catalogue-20 #5), each figure as the token service reports it. A figure the service
+ * does not report reads "not reported" with no number: no service publishes a distribution schedule, and a blank owner
+ * value is not filled in.
+ */
+export function SupplyView({
+  schedule,
+  minted,
+  buyback,
+}: {
+  schedule: Loaded<EmissionScheduleRead>;
+  minted: Loaded<MintedRead>;
+  buyback: Loaded<BuybackRateRead>;
+}) {
+  const { hideBalances } = usePreferences();
+  const { Copy, t } = tokenEconomyCopy.useCopy();
+  const shown = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
+  const figure = <T,>(read: Loaded<T>, value: (data: T) => string) =>
+    read.resource.status === 'ready' ? value(read.resource.data) : read.resource.status === 'loading' ? '…' : t('unreadable');
+  /** A blank owner value is not reported; one the service cannot read says so. */
+  const absent = (reason: string | null) => (reason === 'token.params_invalid' ? t('unreadable') : t('notReported'));
+  return (
+    <Panel title={t('supplyTitle')} aria-label={t('supplyTitle')}>
+      <p className="muted">
+        <Copy k="supplyBody" />
+      </p>
+      <div data-testid="supply-figures">
+        <Details
+          items={[
+            [t('totalSupply'), figure(schedule, (d) => (d.params ? shown(d.params.maxSupply) : absent(d.reason)))],
+            [t('emitted'), figure(minted, (d) => (d.minted === null ? t('emittedNone') : shown(d.minted)))],
+            [t('burnedTotal'), figure(minted, (d) => shown(d.burned))],
+            [t('buybackShare'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.buybackBps }) : absent(d.reason)))],
+            [t('burnSplit'), figure(buyback, (d) => (d.rate ? t('bps', { bps: d.rate.burnSplitBps }) : absent(d.reason)))],
+            [t('distribution'), t('notReported')],
+          ]}
+        />
+      </div>
+      <p role="status" data-testid="supply-distribution">
+        <Copy k="distributionUnset" />
+      </p>
+      {/* A failed schedule or treasury read already shows its refusal and retry in the emission panel above. */}
+      {buyback.resource.status === 'failed' && <Failure result={buyback.resource.failure} retry={buyback.reload} />}
+    </Panel>
+  );
 }
 
 /** A blank owner value reads "not set" with no figure; an unreadable one is not called blank. */

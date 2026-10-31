@@ -420,6 +420,10 @@ export type BankErrorCode =
   | 'bank.destination_fraud_listed'
   /** The destination fraud list could not be read, so the address was refused rather than assumed safe. Nothing was saved. */
   | 'bank.destination_fraud_list_unreadable'
+  /** The address is on the owner's destination sanctions list (`BANK_DESTINATION_SANCTIONS`). Nothing was saved. */
+  | 'bank.destination_sanctions_listed'
+  /** The owner's destination sanctions list is unset, blank or unreadable, so no address is screened or saved. Nothing was saved. */
+  | 'bank.destination_sanctions_unset'
   /** The owner has not published how long a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`). Nothing was offered. */
   | 'bank.wallet_proof_window_unset'
   /** The owner has not published how long a verified wallet proof holds (`BANK_WALLET_PROOF_VALID_DAYS`). Nothing was recorded. */

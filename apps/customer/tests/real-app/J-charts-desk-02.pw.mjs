@@ -2,13 +2,15 @@ import { test, expect } from './journey.mjs';
 import { EDGE, tool } from './stack.mjs';
 
 // J-charts-desk-02, in the running app (docs/roadmap/journeys.json): a person tells whether the data on a chart is live,
-// delayed, quiet, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from
+// delayed, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from
 // the public routes (owner values, the newest trade, the lifecycle state, the book halt), never read back from the page.
 //
 // Which steps are real and which are intercepted:
 //   #1 real: BTC/USDT on the stack's own data class (real time), the newest trade inside the owner's boundary.
 //   #2 real: ETH/USDT is set to the delayed class through the gates' `chart-class` (two-person approval), and restored
 //      to real time afterwards. The chip's age is checked against the newest ETH trade on the public tape.
+//      Also real: ETH/USDT on the real-time class with no trade past the owner's boundary. The stack's TEST market maker is
+//      restarted on BTC/USDT only, so no ETH trade happens for longer than the boundary, then restarted on every market.
 //   #3 real: BTC/USDT is halted with the gates' `halt` (matching's own book halt) and resumed afterwards. The chart reads
 //      that halt from /api/v1/market-halt. No interception.
 //   #4 INTERCEPTED (intercepted 503): the candle route (/api/v1/ohlcv) answers 503 after the chart has loaded. The stack has
@@ -46,6 +48,15 @@ async function newestTradeMs(symbol = BTC) {
   return rows[0].timestamp;
 }
 
+/** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
+function maker(cmd) {
+  try {
+    return tool('local-test-market.mjs', cmd);
+  } catch (err) {
+    return String(err.stdout ?? '');
+  }
+}
+
 async function openChart(page, path = CHART) {
   await page.goto(path);
   await expect(host(page)).toBeVisible();
@@ -68,6 +79,57 @@ test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the
   await expect(chip(page)).toContainText('Real-time');
   await expect(source(page)).toContainText('executed trades on this venue');
   await expect(feedLine(page)).toContainText('Feed connected');
+});
+
+test.describe(`${J} #2 on a real-time market whose newest trade is past the boundary`, () => {
+  let makerWasRunning = false;
+  test.beforeAll(() => {
+    // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
+    test.setTimeout(300_000);
+    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+    // No ETH trade from here: the TEST market maker quotes and trades BTC/USDT only.
+    tool('local-test-market.mjs', 'stop');
+    tool('local-test-market.mjs', 'start', '--markets', BTC);
+  });
+  test.afterAll(() => {
+    test.setTimeout(300_000);
+    tool('local-test-market.mjs', 'stop');
+    // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
+    if (makerWasRunning) tool('local-test-market.mjs', 'start');
+  });
+
+  test(`${J} #2 opens a real-time market with no trade inside the boundary: the chip reads Delayed with the age of its newest trade`, async ({
+    page,
+  }) => {
+    const owner = await ownerValues(ETH);
+    test.setTimeout((owner.delayedBoundarySeconds + 5) * 1000 + 150_000);
+    expect(owner.dataClass).toBe('real_time');
+    expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
+    // Wait on the public tape until the newest ETH trade is older than the boundary, then judge the chip by that trade.
+    const pastBoundaryMs = (owner.delayedBoundarySeconds + 5) * 1000;
+    await expect
+      .poll(async () => Date.now() - (await newestTradeMs(ETH)) > pastBoundaryMs, {
+        timeout: pastBoundaryMs + 60_000,
+        intervals: [2_000],
+      })
+      .toBe(true);
+    const newest = await newestTradeMs(ETH);
+    await openChart(page, ETH_CHART);
+    await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
+    await expect(chip(page)).toContainText('Delayed');
+    await expect
+      .poll(
+        async () => {
+          const text = (await chip(page).textContent()) ?? '';
+          const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
+          return Math.abs(seconds - (Date.now() - newest) / 1000);
+        },
+        { timeout: 30_000, intervals: [1_000] },
+      )
+      .toBeLessThanOrEqual(15);
+    await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
+    await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
+  });
 });
 
 test.describe(`${J} #2 on a delayed market`, () => {
@@ -98,6 +160,7 @@ test.describe(`${J} #2 on a delayed market`, () => {
       )
       .toBeLessThanOrEqual(60);
     await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
+    await expect(banner(page)).toContainText("This market's data class is delayed");
   });
 });
 
@@ -147,7 +210,7 @@ test(`${J} #4 opens a market whose feed has stopped (intercepted 503): Stale or 
 }) => {
   // INTERCEPTED (see the header): the candle feed answers 503 after the chart has loaded. Nothing else is changed.
   await openChart(page);
-  await expect(chip(page)).toHaveAttribute('data-status', /live|quiet|delayed/, { timeout: 30_000 });
+  await expect(chip(page)).toHaveAttribute('data-status', /live|delayed/, { timeout: 30_000 });
   await page.route('**/api/v1/ohlcv/**', (route) =>
     route.fulfill({ status: 503, json: { code: 'ExchangeNotAvailable', message: 'stopped' } }),
   );

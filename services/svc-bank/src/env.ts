@@ -353,6 +353,14 @@ const schema = serviceEnvSchema
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
 
       /**
+       * Owner-set destination sanctions list (W-withdraw-03, J-wallet-05 #2): comma-separated `<network>:<address>`, `*` for
+       * every network. No default. Blank / unset / unreadable → saving any withdrawal address refuses
+       * `bank.destination_sanctions_unset`; a listed address refuses `bank.destination_sanctions_listed`. Only the local test
+       * stack sets it, with one LOCAL TEST address.
+       */
+      BANK_DESTINATION_SANCTIONS: z.string().optional(),
+
+      /**
        * Owner-set number of deposit addresses one customer may hold open for one asset on one network, the first included
        * (W-deposit-02), a whole number from 1 to 9999.
        *

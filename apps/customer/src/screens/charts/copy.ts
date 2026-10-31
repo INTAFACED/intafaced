@@ -131,7 +131,6 @@ const messages = {
   // The data status: one chip for what the chart's data is, and a banner for the states that stop it reading as live.
   'Status label': 'Data status: {status}',
   'Status live': 'Real-time',
-  'Status quiet': 'Quiet',
   'Status book unavailable': 'Book halt unavailable',
   'Status delayed': 'Delayed',
   'Status end of day': 'End of day',
@@ -159,8 +158,10 @@ const messages = {
   'Banner lifecycle': 'Market state unavailable. Order entry is refused until the market state can be read.',
   'Banner down': 'Data is down. The candles shown are the last ones read and are not live. Last trade {tick}.',
   'Banner stale': 'Data is stale. The candles shown were last read {seconds} s ago and are not live. Last trade {tick}.',
-  'Banner delayed': 'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary. Last trade {tick}.',
-  'Banner quiet': 'Quiet. No trade for {seconds} s, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
+  'Banner delayed':
+    'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
+  'Banner delayed class no age': "Delayed. This market's data class is delayed; the last trade's time is not read.",
+  'Banner delayed class': "Delayed. This market's data class is delayed; the last trade was {seconds} s ago. Last trade {tick}.",
   'Banner book': 'The matching book’s halt state can’t be read. Order entry is refused until it can.',
   'Banner time unknown': 'time unknown',
   'Refused halted': 'Order entry is off: this market is halted.',

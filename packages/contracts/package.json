@@ -150,6 +150,10 @@
       "types": "./dist/guest-verification.d.ts",
       "default": "./dist/guest-verification.js"
     },
+    "./support-record-ownership": {
+      "types": "./dist/support-record-ownership.d.ts",
+      "default": "./dist/support-record-ownership.js"
+    },
     "./support-trade-summary": {
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"
