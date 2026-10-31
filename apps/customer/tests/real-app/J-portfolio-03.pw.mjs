@@ -321,6 +321,10 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await year.selectOption(String(new Date().getUTCFullYear()));
   await expect(list).toHaveCount(all);
   await expect(year.locator('option', { hasText: 'Tax year (not set up)' })).toHaveAttribute('disabled', '');
+  // The bank refuses a tax year by name while its start date is unset, so the screen's disabled option is not the only guard.
+  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: new Date().getUTCFullYear() });
+  expect(taxYear.status).toBe(412);
+  expect(JSON.stringify(taxYear.body)).toContain('portfolio.tax_year_start_unset');
   await year.selectOption('');
 
   // Address: no withdrawal went anywhere, so no line matches an address.
