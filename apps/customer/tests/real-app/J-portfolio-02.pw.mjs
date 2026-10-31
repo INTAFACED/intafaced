@@ -54,7 +54,7 @@ async function settled(who) {
 test(`${J} #1 buys TEST BTC on the desk, then reads the open lot: quantity, average price and cost with the fee inside`, async ({
   page,
 }) => {
-  const who = await fundedTrader(page, 'pf2', '1000');
+  const who = await fundedTrader(page, 'pf2', '2000');
   run.reset({ account: who });
   await signIn(page, who);
   await page.goto(deskPath('BTC/USDT'));
@@ -66,7 +66,7 @@ test(`${J} #1 buys TEST BTC on the desk, then reads the open lot: quantity, aver
   await settled(who);
   const after = await (await api(who)).balances();
   const qty = total(after, 'BTC');
-  const cost = toUnits('1000') - total(after, 'USDT');
+  const cost = toUnits('2000') - total(after, 'USDT');
   expect(qty).toBeGreaterThan(0n);
   expect(cost).toBeGreaterThan(0n);
   run.write({ qty: fromUnits(qty), cost: fromUnits(cost) });
