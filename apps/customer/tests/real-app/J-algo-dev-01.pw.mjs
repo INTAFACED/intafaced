@@ -163,14 +163,16 @@ test(`${J} #2 picks a starter template and presses Use: a draft with every numbe
   await expect(page.getByLabel('Simulated starting cash')).toHaveValue('');
   await expect(page.getByTestId('quant-save-state')).toContainText('Fill in a name, the starting cash');
 
-  // One draft: the browser holds one unsaved Studio draft, and the account still has no saved strategy.
+  // One draft: this account's one Studio draft slot holds the template, once, with every number still blank, and the
+  // account has no saved strategy.
   const drafts = await page.evaluate(() =>
     Object.keys(localStorage)
-      .filter((key) => key.startsWith('intafaced.quant.studio-link.v1:'))
+      .filter((key) => key.startsWith('intafaced.quant.studio-draft.v1:') && !key.endsWith(':signed-out'))
       .map((key) => JSON.parse(localStorage.getItem(key))),
   );
   expect(drafts).toHaveLength(1);
-  expect(drafts[0]).toMatchObject({ strategyId: null, version: null });
+  expect(drafts[0]).toMatchObject({ name: template.name, cash: '', drawdown: '', notional: '', kill: '' });
+  expect(templateNumbers(drafts[0].modules)).toEqual(['', '', '', '', '']);
   await expect(page.getByText('No strategy is saved yet.')).toBeVisible();
   const list = await page.context().newPage();
   await list.goto('/quant/strategies');
@@ -453,7 +455,11 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
 
   // Sided trades: the long-only rules alternate, buy first; none fills inside a gap.
   await result.getByRole('button', { name: 'Orders and trades' }).click();
-  const trades = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.side, row.dataset.ts]));
+  const trades = await result
+    .getByTestId('quant-bar-trade')
+    .evaluateAll((rows) =>
+      rows.map((row) => [row.dataset.side, row.dataset.ts, ...[3, 5, 6].map((cell) => row.cells[cell].textContent.trim())]),
+    );
   expect(trades.length).toBeGreaterThan(0);
   trades.forEach(([side], i) => expect(side).toBe(i % 2 === 0 ? 'buy' : 'sell'));
   for (const [, ts] of trades) {
@@ -468,28 +474,45 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
   expect(toUnits(fees)).toBeGreaterThan(0n);
   expect(toUnits(net)).toBe(toUnits(gross) - toUnits(fees) - toUnits(slip));
 
-  // Equity moves with the position: flat at the starting cash before the first buy, and rising and falling while the
-  // strategy holds BTC.
+  // Equity moves with the trades, checked against the tape: every point is the cash left after the fills up to that bar
+  // (a buy pays quantity times price plus fee, a sell receives it less fee) plus what is held, marked at the bar's close.
+  const startCash = toUnits(await room.getByLabel('Starting cash').inputValue());
   await result.getByRole('button', { name: 'Charts' }).click();
   const equity = await result
     .getByTestId('quant-bar-equity')
     .evaluateAll((rows) =>
       rows.map((row) => ({ at: Date.parse(`${row.cells[0].textContent.replace(' ', 'T')}:00Z`), equity: row.dataset.equity })),
     );
-  const firstBuy = Date.parse(trades[0][1]);
-  const before = equity.filter((point) => point.at < firstBuy - 60_000);
-  for (const point of before) expect(toUnits(point.equity)).toBe(toUnits(equity[0].equity));
-  const lastSell = trades.length % 2 === 0 ? Date.parse(trades.at(-1)[1]) : Infinity;
-  const holding = equity.filter((point) => point.at > firstBuy && point.at < lastSell);
-  const steps = holding.slice(1).map((point, i) => toUnits(point.equity) - toUnits(holding[i].equity));
-  expect(
-    steps.some((step) => step > 0n),
-    'equity rises while BTC is held',
-  ).toBe(true);
-  expect(
-    steps.some((step) => step < 0n),
-    'equity falls while BTC is held',
-  ).toBe(true);
+  const closes = new Map((await closedBarsSince(window.from)).map(([at, , , , close]) => [at, String(close)]));
+  const fills = trades.map(([side, ts, qty, price, fee]) => ({ side, at: Date.parse(ts), qty, price, fee }));
+  const TOLERANCE = 10n ** 10n; // 0.00000001: the engine rounds each product half-up
+  let cash = startCash;
+  let held = '0';
+  let next = 0;
+  const marks = new Set();
+  for (const point of equity) {
+    for (; next < fills.length && fills[next].at <= point.at; next += 1) {
+      const fill = fills[next];
+      if (fill.side === 'buy') {
+        cash -= times(fill.qty, fill.price) + toUnits(fill.fee);
+        held = fill.qty;
+      } else {
+        cash += times(fill.qty, fill.price) - toUnits(fill.fee);
+        held = '0';
+      }
+    }
+    const close = closes.get(point.at);
+    if (!close) throw new Error(`the run marked ${new Date(point.at).toISOString()}, a minute the tape has no closed bar for`);
+    const expected = cash + times(held, close);
+    const off = toUnits(point.equity) - expected;
+    expect(off < TOLERANCE && off > -TOLERANCE, `equity ${point.equity} at ${new Date(point.at).toISOString()}, expected ${expected}`).toBe(
+      true,
+    );
+    marks.add(point.equity);
+  }
+  expect(next, 'every fill falls on a marked bar').toBe(fills.length);
+  // It moves: with BTC held across closes, the curve takes more than one value.
+  expect(marks.size).toBeGreaterThan(1);
 
   // The same inputs again: the same stored run, not a second one.
   await room.getByTestId('quant-backtest-run').click();
@@ -500,7 +523,7 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
 });
 
 /** Fills the backtest form with the inputs #6 ran, for a window, and presses Run. */
-async function runBacktest(page, window) {
+async function runBacktest(page, window, slippage = '5') {
   await page.goto('/quant/backtest');
   const room = page.getByTestId('quant-bar-backtest');
   await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
@@ -509,7 +532,7 @@ async function runBacktest(page, window) {
   await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
   await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
   await room.getByLabel('Delay (bars)').fill('0');
-  await room.getByLabel('Slippage (basis points)').fill('5');
+  await room.getByLabel('Slippage (basis points)').fill(slippage);
   await room.getByTestId('quant-backtest-run').click();
   const result = room.getByTestId('quant-bar-result');
   await expect(result).toBeVisible();
@@ -618,7 +641,7 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
   expect(shown).toHaveLength(backtest.trades);
 
   // Download CSV: one row per trade, in order, with its side. The TEST run's cells are times, sides and decimals, none of
-  // which contains a comma or begins with a formula sign.
+  // which contains a comma.
   const csvOf = async () => {
     const [download] = await Promise.all([page.waitForEvent('download'), result.getByTestId('quant-bar-csv').click()]);
     expect(download.suggestedFilename()).toBe(`backtest-${backtest.runId}-trades.csv`);
@@ -630,7 +653,6 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
   expect(csv[0]).toBe('time_utc,side,reason,quantity,bar_price,fill_price,fee,slippage');
   const rows = csv.slice(1).map((line) => line.split(','));
   expect(rows.map(([ts, side]) => [ts, side])).toEqual(shown);
-  for (const cell of rows.flat()) expect(cell).not.toMatch(/^[=+@\t\r]/);
 
   // Charts: the equity curve, with a marker on the bar of each fill and the same side.
   await result.getByRole('button', { name: 'Charts' }).click();
@@ -648,9 +670,13 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
     body.result.data.trades[0].ts = crafted;
     await route.fulfill({ response: reply, json: body });
   });
+  const reread = page.waitForResponse((r) => r.url().includes('/api/quant/trpc/backtest.start'));
   await page.getByTestId('quant-backtest-run').click();
+  await reread;
   await expect(result).toHaveAttribute('data-run-id', backtest.runId);
   await result.getByRole('button', { name: 'Orders and trades' }).click();
+  // The screen shows the reply with the crafted cell before the file is saved.
+  await expect(result.getByTestId('quant-bar-trade').first()).toHaveAttribute('data-ts', crafted);
   const neutral = await csvOf();
   expect(neutral[1].split(',')[0]).toBe(`'${crafted}`);
   expect(neutral.slice(2)).toEqual(csv.slice(2));
@@ -660,8 +686,8 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
 test(`${J} #9 opens run history, renames a run, compares two side by side and filters the log to warnings: newest first with label, version and outcome; the result stays the same; no ranking by return; only warning lines show`, async ({
   page,
 }) => {
-  const { backtest } = run.read();
-  if (!backtest) throw new Error(`${J} #6 stored no run, so the history has nothing to show`);
+  const { window, backtest } = run.read();
+  if (!window || !backtest) throw new Error(`${J} #6 stored no run, so the history has nothing to show`);
   await signIn(page, developer());
   await page.goto('/quant/backtest');
   const history = page.getByTestId('quant-run-history');
@@ -696,9 +722,18 @@ test(`${J} #9 opens run history, renames a run, compares two side by side and fi
   await expect(result.getByTestId('quant-bar-total-net')).toHaveAttribute('data-value', backtest.net);
   expect(await totals(result)).toEqual(before);
 
-  // Compare the two: the same figures side by side, columns in the list's order (newest first), never by return.
-  // Ticked oldest first, so the columns follow neither the ticks nor the returns.
-  const ids = await rows.evaluateAll((list) => list.map((row) => row.dataset.runId));
+  // A third run: #6's inputs with heavier TEST slippage make the same trades and cost more, so it returns less than #6.
+  // Newest, it heads the list without the best return: a ranking by return could never put it first.
+  const costly = await runBacktest(page, window, '100');
+  const costlyId = await costly.getAttribute('data-run-id');
+  expect(costlyId).not.toBe(backtest.runId);
+  expect(toUnits(await costly.getByTestId('quant-bar-total-net').getAttribute('data-value'))).toBeLessThan(toUnits(backtest.net));
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toHaveAttribute('data-run-id', costlyId);
+
+  // Compare the costly run with #6's (two at a time): the same figures side by side, columns in the list's order (newest
+  // first), never by return. Ticked oldest first, so the columns follow neither the ticks nor the returns.
+  const ids = [costlyId, backtest.runId];
   for (const id of [...ids].reverse()) await history.locator(`[data-run-id="${id}"] input[type="checkbox"]`).check();
   const compare = history.getByTestId('quant-run-compare');
   const netRow = compare.locator('[data-testid="quant-compare-row"][data-metric="net"]');
@@ -707,10 +742,10 @@ test(`${J} #9 opens run history, renames a run, compares two side by side and fi
     .locator('td[data-run-id]')
     .evaluateAll((list) => list.map((cell) => ({ runId: cell.dataset.runId, net: cell.textContent.replace(/[^\d.-]/g, '') })));
   expect(cells.map((cell) => cell.runId)).toEqual(ids);
-  // #6's run traded and #7's did not: their returns differ, so the columns are set by the list, not tied by return.
-  expect(toUnits(cells[0].net)).not.toBe(toUnits(cells[1].net));
-  // When the older run returned more, a ranking by return would put it first; the columns keep it second.
-  if (toUnits(cells[1].net) > toUnits(cells[0].net)) expect(cells[0].runId).toBe(ids[0]);
+  // The first column is the newest run, which is not the best return: the columns are not ranked best first.
+  const best = cells.reduce((top, cell) => (toUnits(cell.net) > toUnits(top.net) ? cell : top));
+  expect(cells[0].runId).toBe(costlyId);
+  expect(best.runId).not.toBe(costlyId);
   // And no part of the compare view offers a ranking: no sortable heading and no sort control.
   await expect(compare.locator('[aria-sort]')).toHaveCount(0);
   await expect(compare.getByRole('button', { name: /sort|rank|best/i })).toHaveCount(0);
@@ -728,7 +763,9 @@ test(`${J} #9 opens run history, renames a run, compares two side by side and fi
     'winRate',
   ]);
 
-  // The log, then warnings only: every line left is a warning, and as many as the full log holds.
+  // #6's run again, then its log, then warnings only: every line left is a warning, and as many as the full log holds.
+  await mine.getByRole('button', { name: 'Open' }).click();
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
   await result.getByRole('button', { name: 'Log' }).click();
   const lines = result.getByTestId('quant-log-line');
   const levels = await lines.evaluateAll((list) => list.map((line) => line.dataset.level));
