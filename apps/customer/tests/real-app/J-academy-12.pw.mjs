@@ -129,7 +129,11 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   await editor(page).getByLabel('Question 1 answer').selectOption({ label: 'A stop order' });
   await saveDraft(page);
   await publish(page, `TEST ${J}: first try`);
-  await expect(editor(page).getByText('The pass mark is not set').first()).toBeVisible();
+  // The refusal is Publish's own answer, by its code, and the quiz stays a draft.
+  const refusal = editor(page).getByTestId('course-desk-outcome');
+  await expect(refusal).toHaveAttribute('data-code', 'academy.pass_mark_unset');
+  await expect(refusal).toContainText('The pass mark is not set');
+  await expect(refusal).toContainText('Nothing was published.');
   await expect(editor(page).getByTestId('quiz-facts')).toContainText('Draft');
 
   // A pass mark and two attempts with no scoring policy: refused naming the policy.
@@ -137,7 +141,10 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   await editor(page).getByLabel('Attempts allowed').fill('2');
   await saveDraft(page);
   await publish(page, `TEST ${J}: second try`);
-  await expect(editor(page).getByText('No scoring policy for more than one attempt')).toBeVisible();
+  await expect(refusal).toHaveAttribute('data-code', 'academy.scoring_policy_unset');
+  await expect(refusal).toContainText('No scoring policy for more than one attempt');
+  await expect(refusal).toContainText('Nothing was published.');
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Draft');
 
   // With a scoring policy nothing blocks it, and it publishes.
   await editor(page).getByLabel('Scoring policy').selectOption('highest');
@@ -198,7 +205,9 @@ test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, part
   await editor(page).getByLabel('Question 3', { exact: true }).fill('TEST Why size a trade before entering it?');
   await q(3, 'points').fill('4');
   await editor(page).getByLabel('Pass mark (points)').fill('5');
-  await editor(page).getByLabel('Attempts allowed').fill('1');
+  // Two attempts, and results only after the last: the first graded attempt is withheld from the learner.
+  await editor(page).getByLabel('Attempts allowed').fill('2');
+  await editor(page).getByLabel('Scoring policy').selectOption('highest');
   await editor(page).getByLabel('Results shown to learners').selectOption('after_last_attempt');
   await saveDraft(page);
   await publish(page, `TEST ${J}: mixed questions`);
@@ -210,34 +219,53 @@ test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, part
   expect(read.body.result.data.questions.map((x) => x.kind)).toEqual(['numeric', 'multi', 'essay']);
   expect(read.body.result.data.resultsVisibility).toBe('after_last_attempt');
   expect(JSON.stringify(read.body)).not.toMatch(/correctChoiceIds|tolerance|"answer"/);
-  const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.mixedId, accessCode: null });
-  expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
-  const attemptId = started.body.result.data.attemptId;
   const [numeric, multi, essay] = read.body.result.data.questions;
-  for (const [questionId, answer] of [
-    [numeric.id, '20.4'],
-    [multi.id, [multi.choices[0].id]],
-    [essay.id, 'TEST The stop and the size fix the loss before the trade starts.'],
-  ]) {
-    const saved = await learnerWrite(run.learner, 'answerCourseQuiz', { attemptId, questionId, answer });
-    expect(saved.status, JSON.stringify(saved.body).slice(0, 300)).toBe(200);
-  }
-  const finished = await learnerWrite(run.learner, 'finishCourseQuiz', { attemptId });
-  expect(finished.status).toBe(200);
-  expect(finished.body.result.data.result).toMatchObject({ state: 'pending_review' });
+  /** One attempt: inside the tolerance, one of two correct choices, an essay; it waits for the essay's score. */
+  const attempt = async (number) => {
+    const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.mixedId, accessCode: null });
+    expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+    expect(started.body.result.data.number).toBe(number);
+    const attemptId = started.body.result.data.attemptId;
+    for (const [questionId, answer] of [
+      [numeric.id, '20.4'],
+      [multi.id, [multi.choices[0].id]],
+      [essay.id, 'TEST The stop and the size fix the loss before the trade starts.'],
+    ]) {
+      const saved = await learnerWrite(run.learner, 'answerCourseQuiz', { attemptId, questionId, answer });
+      expect(saved.status, JSON.stringify(saved.body).slice(0, 300)).toBe(200);
+    }
+    const finished = await learnerWrite(run.learner, 'finishCourseQuiz', { attemptId });
+    expect(finished.status).toBe(200);
+    expect(finished.body.result.data.result).toMatchObject({ state: 'pending_review' });
+  };
+  /** Staff see the attempt waiting under an alias and score its essay 3 of 4. */
+  const scoreEssay = async (number) => {
+    await quizPage(page, run.mixedId);
+    await expect(editor(page).getByTestId('quiz-facts')).toContainText('Waiting for an essay score1');
+    const reviews = editor(page).getByTestId('quiz-reviews');
+    await expect(reviews).toContainText(`Learner 1, attempt ${number}`);
+    await expect(reviews).toContainText('TEST The stop and the size fix the loss before the trade starts.');
+    await reviews.getByLabel('Learner 1 essay 1 points (0 to 4)').fill('3');
+    await reviews.getByRole('button', { name: 'Save scores for learner 1' }).click();
+    await expect(editor(page).getByText('essays scored')).toBeVisible();
+    await expect(reviews).toContainText('No attempt is waiting for an essay score.');
+  };
+  const mine = async () => (await (await api(run.learner)).get(trpc('courseQuizAttempt', { itemId: run.mixedId }))).body.result.data;
 
-  // Staff see it waiting under an alias, score the essay, and the attempt is graded: 2 + 1 (partial credit) + 3.
-  await quizPage(page, run.mixedId);
-  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Waiting for an essay score1');
-  const reviews = editor(page).getByTestId('quiz-reviews');
-  await expect(reviews).toContainText('Learner 1, attempt 1');
-  await expect(reviews).toContainText('TEST The stop and the size fix the loss before the trade starts.');
-  await reviews.getByLabel('Learner 1 essay 1 points (0 to 4)').fill('3');
-  await reviews.getByRole('button', { name: 'Save scores for learner 1' }).click();
-  await expect(editor(page).getByText('essays scored')).toBeVisible();
-  await expect(reviews).toContainText('No attempt is waiting for an essay score.');
-  const graded = await (await api(run.learner)).get(trpc('courseQuizAttempt', { itemId: run.mixedId }));
-  expect(graded.body.result.data.result).toMatchObject({ state: 'graded', score: 6, maxScore: 8, pass: true });
+  // Attempt 1 is graded by staff, but it is not the last attempt, so the learner sees no score yet.
+  await attempt(1);
+  await scoreEssay(1);
+  const withheld = await mine();
+  expect(withheld.number).toBe(1);
+  expect(withheld.result).toMatchObject({ state: 'withheld' });
+  expect(withheld.result).not.toHaveProperty('score');
+
+  // After the last attempt is graded the score shows: 2 + 1 (partial credit) + 3.
+  await attempt(2);
+  await scoreEssay(2);
+  const graded = await mine();
+  expect(graded.number).toBe(2);
+  expect(graded.result).toMatchObject({ state: 'graded', score: 6, maxScore: 8, pass: true });
 
   // An anonymous survey: no pass mark, answered once per device, and the reply keeps no account.
   await quizPage(page, run.surveyId);
@@ -260,7 +288,10 @@ test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, part
   const sent = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
   expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
   expect(sent.body.result.data).toMatchObject({ itemId: run.surveyId, anonymous: true });
-  expect(JSON.stringify(sent.body)).not.toContain(run.learner.userId ?? '\u0000');
+  // The reply carries no account id: the learner's real id, read from identity, is nowhere in it.
+  const userId = (await (await api(run.learner)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  expect(userId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(JSON.stringify(sent.body)).not.toContain(userId);
   const again = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
   expect(again.status).toBe(409);
   expect(again.body?.error?.data?.cause?.code).toBe('academy.survey_duplicate');

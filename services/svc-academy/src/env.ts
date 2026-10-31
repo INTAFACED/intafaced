@@ -190,6 +190,12 @@ const schema = serviceEnvSchema
       ACADEMY_GRADE_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
+       * AC-quizzes-04: the largest quiz curve file, in bytes, that is read. Blank / unset is unpublished: a curve upload
+       * refuses `academy.bulk_limit_unset`; a larger file refuses `academy.bulk_file_too_large` before it is read.
+       */
+      ACADEMY_BULK_FILE_MAX_BYTES: blankAsUnset(z.coerce.number().int().min(1).max(900_000)),
+
+      /**
        * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
        * refuses `academy.topics_list_limit_unset`.
        */

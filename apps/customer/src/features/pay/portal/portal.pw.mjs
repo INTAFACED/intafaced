@@ -459,7 +459,8 @@ test('payments: totals with their period, filters the service applies, load more
 test('payments: an empty account explains how the first payment appears', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/payments');
-  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
+  await expect(page.getByText('Your first payment starts here', { exact: false })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create payment link' }).last()).toHaveAttribute('href', '/pay/links/new');
   await snap(page, '22-payments-empty');
 });

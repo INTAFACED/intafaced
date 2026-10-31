@@ -277,6 +277,11 @@ export function titleOf(
       | 'Moved between your accounts'
       | 'Set aside for an order'
       | 'Returned from an order'
+      | 'Moved to savings'
+      | 'Back from savings'
+      | 'Staked'
+      | 'Unstaked'
+      | 'Reward'
       | 'Other activity',
   ) => string,
   withHandle: (key: 'Received from {handle}' | 'Sent to {handle}', handle: string) => string,
@@ -305,6 +310,12 @@ export function titleOf(
       return t('Set aside for an order');
     case 'order_release':
       return t('Returned from an order');
+    case 'earn':
+      return item.direction === 'out' ? t('Moved to savings') : t('Back from savings');
+    case 'staking':
+      return item.direction === 'out' ? t('Staked') : t('Unstaked');
+    case 'reward':
+      return t('Reward');
     case 'other':
       return t('Other activity');
   }

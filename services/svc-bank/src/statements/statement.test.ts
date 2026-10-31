@@ -137,4 +137,151 @@ describe('bank.statements.export', () => {
       }),
     ).rejects.toMatchObject({ code: 'bank.statement_unavailable' });
   });
+
+  it('a trades file holds only trade lines and order fees, names its report in its proof, and says it is not a tax form', async () => {
+    const at = new Date('2026-10-04T00:00:00.000Z');
+    const rows: LedgerPageEntry[] = [
+      {
+        txId: 'tx-fill',
+        module: 'trade',
+        reason: 'trade.fill',
+        direction: 'debit',
+        amount: '0.003',
+        postedAt: at,
+        assetId: 'BTC',
+        entryId: '3',
+      },
+      {
+        txId: 'tx-fee',
+        module: 'ledger',
+        reason: 'fee.charged',
+        direction: 'credit',
+        amount: '0.10',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: '2',
+        orderId: 'order-1',
+      },
+      {
+        txId: 'tx-withdraw-fee',
+        module: 'ledger',
+        reason: 'fee.charged',
+        direction: 'credit',
+        amount: '1.00',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: '4',
+      },
+      {
+        txId: 'tx-send',
+        module: 'bank',
+        reason: 'bank.transfer.manual',
+        direction: 'credit',
+        amount: '12.50',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: '1',
+      },
+    ];
+    const service = new ActivityService(
+      { allNamedSpaces: async () => [] },
+      {
+        cursorSecret: SECRET,
+        pages: {
+          async page(req: LedgerPageRequest) {
+            if (req.cursor !== undefined || req.ownerType !== 'user') return { entries: [], nextCursor: null };
+            return { entries: rows, nextCursor: null };
+          },
+        },
+      },
+    );
+    const statements = new StatementService(service, SECRET);
+    const range = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T23:59:59.999Z', now: new Date('2026-11-02T00:00:00.000Z') };
+    const trades = await statements.export(ALICE, { ...range, format: 'csv', report: 'trades' });
+    const csv = Buffer.from(trades.bodyBase64, 'base64').toString('utf8');
+    expect(trades.rowCount).toBe(2);
+    expect(csv).toContain('tx-fill');
+    expect(csv).toContain('tx-fee');
+    expect(csv).not.toContain('tx-send');
+    expect(csv).not.toContain('tx-withdraw-fee');
+    expect(trades.proof.report).toBe('trades');
+    expect(trades.filename).toBe('intafaced-trades-2026-11-02.csv');
+    const pdf = await statements.export(ALICE, { ...range, format: 'pdf', report: 'trades' });
+    const drawn = Buffer.from(pdf.bodyBase64, 'base64').toString('utf8');
+    expect(drawn).toContain('INTAFACED account trade history');
+    expect(drawn).toContain('Trade lines and their order fees only');
+    expect(pdf.filename).toBe('intafaced-trades-history-2026-10.pdf');
+    expect(drawn).toContain('This is not a tax form.');
+    // The ledger and the account statement hold every line.
+    for (const report of ['ledger', 'statement'] as const) {
+      const file = await statements.export(ALICE, { ...range, format: 'csv', report });
+      expect(file.rowCount).toBe(4);
+      expect(file.proof.report).toBe(report);
+    }
+    // The same request signs the same file.
+    expect((await statements.export(ALICE, { ...range, format: 'csv', report: 'trades' })).sha256).toBe(trades.sha256);
+  });
+
+  it('refuses a trades file whose read reached the cap, even when dropping fees with no order would bring it under', async () => {
+    const at = new Date('2026-10-04T00:00:00.000Z');
+    // 5,000 fills and one fee with no order: 5,001 lines read, 5,000 after the filter. Older lines may be missing, so it refuses.
+    const rows: LedgerPageEntry[] = [
+      {
+        txId: 'tx-withdraw-fee',
+        module: 'ledger',
+        reason: 'fee.charged',
+        direction: 'credit',
+        amount: '1.00',
+        postedAt: at,
+        assetId: 'USDT',
+        entryId: 'f',
+      },
+      ...Array.from({ length: 5_000 }, (_, i) => ({
+        txId: `tx-fill-${i}`,
+        module: 'trade',
+        reason: 'trade.fill',
+        direction: 'debit' as const,
+        amount: '0.001',
+        postedAt: at,
+        assetId: 'BTC',
+        entryId: String(i),
+      })),
+    ];
+    const service = new ActivityService(
+      { allNamedSpaces: async () => [] },
+      {
+        cursorSecret: SECRET,
+        pages: {
+          async page(req: LedgerPageRequest) {
+            if (req.ownerType !== 'user') return { entries: [], nextCursor: null };
+            // Paged the way svc-ledger pages: up to the limit asked for, with an offset cursor while rows remain.
+            const from = req.cursor === undefined ? 0 : Number(req.cursor);
+            const to = from + req.limit;
+            return { entries: rows.slice(from, to), nextCursor: to < rows.length ? String(to) : null };
+          },
+        },
+      },
+    );
+    const statements = new StatementService(service, SECRET);
+    await expect(
+      statements.export(ALICE, {
+        from: '2026-10-01T00:00:00.000Z',
+        to: '2026-10-31T23:59:59.999Z',
+        now: new Date('2026-11-02T00:00:00.000Z'),
+        format: 'csv',
+        report: 'trades',
+      }),
+    ).rejects.toMatchObject({ code: 'bank.statement_too_large' });
+  });
+
+  it('refuses a balance snapshot, which needs a past-balance read the ledger does not offer', async () => {
+    await expect(
+      new StatementService(activity(), SECRET).export(ALICE, {
+        from: '2026-10-01T00:00:00.000Z',
+        to: '2026-10-01T23:59:59.999Z',
+        format: 'csv',
+        report: 'balances',
+      }),
+    ).rejects.toMatchObject({ code: 'bank.statement_balances_unavailable' });
+  });
 });

@@ -460,6 +460,16 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
+       * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:
+       * `{"<type>": {"requiredApprovals", "approverAudience", "applier", "maxAgeSeconds"}}`. `requiredApprovals` counts
+       * distinct approvers other than the requester (whole number, at least 1); `approverAudience` is founder, operator or
+       * trade_ops; `applier` is the only service that may consume; `maxAgeSeconds` caps the approval lifetime. NO DEFAULT.
+       * A missing, blank, zero, fractional or unreadable row refuses `action_approval.policy_unset` for that type at
+       * propose, approve and consume. Never parsed at start: a bad row refuses its own type and stops nothing else.
+       */
+      IDENTITY_ACTION_APPROVAL_POLICIES: z.string().optional(),
+      /**
        * Owner-published lifetime of a social sign-in flow, in seconds. Blank / unset →
        * unpublished; a start refuses (`identity.social_flow_ttl_unset`). Never git-default.
        */

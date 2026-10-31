@@ -6,6 +6,7 @@ import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import { createCampaignsRouter } from './router.js';
 import type { TaskService } from './tasks.js';
+import type { VoucherService } from './vouchers.js';
 import { parseTgeSchedule, tgeView } from './tge.js';
 
 /**
@@ -102,6 +103,7 @@ function setup(schedule: string | undefined = undefined) {
         drops as unknown as DropService,
         campaigns as unknown as CampaignService,
         tasks as unknown as TaskService,
+        {} as VoucherService,
       ).createCaller(c),
   };
 }

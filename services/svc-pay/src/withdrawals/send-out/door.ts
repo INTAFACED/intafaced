@@ -14,6 +14,8 @@ import { signerFor, type WithdrawSignerPosture } from './signer-posture.js';
  *   1. A SIGNER (`assertSigner`). The send names its network, and that network has a custody signer (`signer-posture.ts`).
  *      No network, another rail, or no signer for the network refuses `pay.wallet_withdraw_unavailable`, the code the
  *      customer app words as "no custody signer is set up". Checked first, so nothing else is asked of a send that cannot go.
+ *   1b. A SETTLE DEPTH (`assertSigner` too, W-withdraw-06). The owner publishes how deep the chain must hold a send before it
+ *      settles (`PAY_WITHDRAW_MIN_CONFIRMATIONS`). Blank refuses `pay.withdraw_confirmations_unset`; no depth is assumed.
  *   2. A QUOTE NAMED (`assertSigner` too). A send with no `quoteRef` refuses `withdrawal_quote.required`: its fee would be a
  *      guess.
  *   3. A SAVED ADDRESS ON THAT NETWORK (`assertDestination`). svc-bank owns the address book, so svc-pay asks it over
@@ -34,6 +36,12 @@ import { signerFor, type WithdrawSignerPosture } from './signer-posture.js';
  */
 export interface SendOutDoorDeps {
   readonly signer: WithdrawSignerPosture;
+  /**
+   * W-withdraw-06: the owner-set depth at which a send out of the platform settles (`PAY_WITHDRAW_MIN_CONFIRMATIONS`).
+   * `null` is blank: every send out refuses `pay.withdraw_confirmations_unset` before anything is claimed or held; no
+   * depth is ever assumed.
+   */
+  readonly settleDepth: number | null;
   /** svc-bank's address book, asked by address. */
   readonly destinations: BankSendDestinationPort;
 }
@@ -73,7 +81,12 @@ const DESTINATION_REFUSALS: Record<Exclude<BankSendDestinationState, 'ready'>, {
 export class SendOutDoor {
   constructor(private readonly deps: SendOutDoorDeps) {}
 
-  /** Checks 1 and 2: a signer for the send's network, and a quote named. Asks nothing outside this process. */
+  /** The owner's settle depth, or `null` when it is blank. */
+  get settleDepth(): number | null {
+    return this.deps.settleDepth;
+  }
+
+  /** Checks 1 and 2: a signer for the send's network, the owner's settle depth, and a quote named. Asks nothing outside this process. */
   assertSigner(ask: SendOutAsk): void {
     if (signerFor(this.deps.signer, ask.rail, ask.networkId) === null) {
       const networkId = ask.networkId ?? null;
@@ -83,6 +96,13 @@ export class SendOutDoor {
           : 'A send out of the platform names its network, and no custody signer is set up for this one; nothing was held',
         'pay.wallet_withdraw_unavailable',
         { networkId, rail: ask.rail },
+      );
+    }
+    if (this.deps.settleDepth === null) {
+      throw new PayError(
+        'No confirmation depth is published for a send out of the platform, so this withdrawal was refused before anything was held',
+        'pay.withdraw_confirmations_unset',
+        { networkId: ask.networkId ?? null },
       );
     }
     if (!ask.quoteRef) {

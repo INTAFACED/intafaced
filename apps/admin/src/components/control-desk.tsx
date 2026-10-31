@@ -105,6 +105,8 @@ export interface ControlDeskProps {
    * alone, so the other founder can still approve and run a request made elsewhere.
    */
   readonly formHold?: string | null;
+  /** Set when running needs the runner's fresh authenticator code (a same-person step-up); says why. */
+  readonly stepUpNote?: string | null;
   readonly onChanged: () => void;
   readonly children?: ReactNode;
 }
@@ -117,6 +119,7 @@ export function ControlDesk({
   consequence,
   blockedButtonLabel,
   formHold = null,
+  stepUpNote = null,
   onChanged,
   children,
 }: ControlDeskProps) {
@@ -211,6 +214,7 @@ export function ControlDesk({
           userId={userId}
           blockedReason={blockedReason}
           onChanged={onChanged}
+          stepUpNote={stepUpNote}
         />
       </div>
     </div>

@@ -155,7 +155,7 @@ export function WorkbenchChart({
         ['data-view-to', range?.to],
       ] as const) {
         if (value === undefined) element.current?.removeAttribute(name);
-        else element.current?.setAttribute(name, value.toFixed(1));
+        else element.current?.setAttribute(name, String(value));
       }
       if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
     };

@@ -5,6 +5,7 @@ import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';
 import { statementFileSchema } from '../../features/money/contracts';
+import { statementCentreCopy } from '../../features/money/statement-centre-copy';
 
 type Outcome = { kind: 'done'; filename: string; rows: number; fingerprint: string } | { kind: 'error'; words: string } | null;
 
@@ -14,6 +15,7 @@ type Outcome = { kind: 'done'; filename: string; rows: number; fingerprint: stri
  */
 export function StatementPanel() {
   const { t } = moneyCopy.useCopy();
+  const centre = statementCentreCopy.useCopy();
   const { api } = useSession();
   const [month, setMonth] = useState(() => lastFullMonth(new Date()));
   const [format, setFormat] = useState<'pdf' | 'csv'>('pdf');
@@ -66,6 +68,12 @@ export function StatementPanel() {
     >
       <h2 className="money-statement__h">{t('Statement')}</h2>
       <p className="money-detail__note">{t('Statement hint')}</p>
+      <p className="money-detail__note">
+        <a className="text-link" href="/bank/statements">
+          {centre.t('activityLink')}
+        </a>{' '}
+        {centre.t('activityLinkHint')}
+      </p>
       <div className="money-statement__row">
         <label className="money-bar__field">
           <span>{t('Statement month')}</span>

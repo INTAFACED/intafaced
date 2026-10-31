@@ -21,6 +21,7 @@ import {
   type CampaignView,
   type CampaignVoucher,
   VOUCHER_LIST_LIMIT,
+  type VoucherWindow,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -95,6 +96,8 @@ type CampaignRow = {
   /** True while the founder has not picked the campaign's time zone; false reads the platform zone. */
   time_zone_blank: boolean;
   earning: EarningRule[];
+  /** A voucher campaign's claim-by and use-by, as ISO times; null for any other campaign. */
+  vouchers: VoucherWindow | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -141,6 +144,8 @@ type VoucherRow = {
   face_amount: string;
   state: CampaignVoucher['state'];
   issued_by: string;
+  claim_by: Date | null;
+  use_by: Date | null;
   created_at: Date;
 };
 
@@ -153,6 +158,8 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
+  claimBy: v.claim_by ? v.claim_by.toISOString() : null,
+  useBy: v.use_by ? v.use_by.toISOString() : null,
 });
 
 type ReviewRow = { review_key: string; campaign_id: string; created_at: Date };
@@ -316,6 +323,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     budget: budgetOf(r),
     reward: r.reward_asset && r.reward_amount !== null ? { asset: r.reward_asset, amount: decimalOf(r.reward_amount) } : null,
     tasks: r.tasks,
+    vouchers: r.vouchers,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -350,6 +358,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     reward: d.rewardAsset && d.rewardAmount ? { asset: d.rewardAsset, amount: d.rewardAmount } : null,
     tasks: d.tasks,
     ...(d.earning.length > 0 ? { earning: d.earning } : {}),
+    ...(d.vouchers ? { vouchers: d.vouchers } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -375,6 +384,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     tasks: d.tasks,
     time_zone_blank: d.timeZoneBlank,
     earning: d.earning,
+    vouchers: d.vouchers,
   };
 }
 
@@ -397,6 +407,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     tasks: r.tasks,
     timeZoneBlank: r.time_zone_blank,
     earning: r.earning,
+    vouchers: r.vouchers,
   });
 }
 
@@ -462,7 +473,7 @@ export function eligibilityOf(rules: ParticipationRules, who: CampaignParticipan
   return 'eligible';
 }
 
-const ELIGIBILITY_REFUSAL = {
+export const ELIGIBILITY_REFUSAL = {
   not_eligible: ['campaigns.not_eligible', 'This campaign’s rules leave out your account'],
   region_blocked: ['campaigns.region_blocked', 'This campaign is not open in your region'],
   unread: ['campaigns.participant_unread', 'Your account could not be checked against this campaign’s rules'],
@@ -501,6 +512,7 @@ type Definition = {
   tasks: CampaignTasks | null;
   timeZoneBlank: boolean;
   earning: EarningRule[];
+  vouchers: VoucherWindow | null;
 };
 
 /**
@@ -564,7 +576,24 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     tasks,
     timeZoneBlank: parseCampaignZone(input.timeZone, platformZone),
     earning: parseEarning(input.earning ?? []),
+    vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
   };
+}
+
+/**
+ * A voucher campaign's claim-by and use-by (J-campaigns-08), stored as ISO times. Either may stay blank for the claim to
+ * name; a voucher is never usable for less time than it is claimable, so a use-by before the claim-by refuses.
+ */
+function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefinitionInput['vouchers']>): VoucherWindow {
+  if (type !== 'voucher') {
+    throw new CampaignsError('campaigns.voucher_window_invalid', 'Only a voucher campaign has a claim-by and use-by');
+  }
+  const claimBy = input.claimBy?.trim() ? parseWindowTime(input.claimBy, 'The voucher claim-by') : null;
+  const useBy = input.useBy?.trim() ? parseWindowTime(input.useBy, 'The voucher use-by') : null;
+  if (claimBy && useBy && useBy < claimBy) {
+    throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
+  }
+  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null };
 }
 
 /**
@@ -710,6 +739,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     amount(r.reward_amount) === amount(d.rewardAmount) &&
     canonical(r.tasks) === canonical(d.tasks) &&
     canonical(r.earning) === canonical(d.earning) &&
+    canonical(r.vouchers) === canonical(d.vouchers) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -765,10 +795,11 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)}, ${input.actor})
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -810,7 +841,7 @@ export class CampaignService {
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
+            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -916,7 +947,7 @@ export class CampaignService {
         participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
+        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
@@ -1077,7 +1108,9 @@ export class CampaignService {
    * Issues (publishes) one voucher of a voucher campaign under its live revision, with that revision's reward as its face
    * value. The campaign row is read under a share lock, so an approval of the next revision waits for the issue and the
    * voucher never mixes two revisions. The code is the business key with the campaign: the same issue again returns the
-   * stored voucher, whoever sends it and whatever revision is live by then. Moves no value.
+   * stored voucher, whoever sends it and whatever revision is live by then. A customer types the code alone, so a code
+   * another campaign already issued refuses `campaigns.voucher_code_taken` (the code is locked while it is checked). The
+   * voucher keeps that revision's claim-by and use-by too. Moves no value.
    */
   async issueVoucher(input: { campaignId: string; code: string; actor: string }): Promise<CampaignVoucher> {
     const code = input.code.trim().toUpperCase();
@@ -1101,6 +1134,10 @@ export class CampaignService {
       if (!row.reward_asset || row.reward_amount === null) {
         throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
       }
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${code}`}))`;
+      const [elsewhere] = await tx<{ id: string }[]>`
+        SELECT id FROM campaigns.vouchers WHERE code = ${code} AND campaign_id <> ${row.id} LIMIT 1`;
+      if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
       // A campaign approved before revisions were recorded has no row for its live revision yet; it is recorded here from the
       // campaign's own approval, as the first approval records it, so the voucher can name it.
       if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
@@ -1111,9 +1148,10 @@ export class CampaignService {
           ON CONFLICT (campaign_id, revision) DO NOTHING`;
       }
       const [made] = await tx<VoucherRow[]>`
-        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by, claim_by,
+          use_by)
         VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
-          ${input.actor})
+          ${input.actor}, ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
@@ -1262,8 +1300,8 @@ export class CampaignService {
     });
   }
 
-  /** The caller's answer under these rules. Identity is read only when the rules need it. */
-  private async eligibility(rules: ParticipationRules, accountId: string): Promise<CampaignEligibility['state']> {
+  /** The caller's answer under these rules. Identity is read only when the rules need it (a voucher claim reads it too). */
+  async eligibility(rules: ParticipationRules, accountId: string): Promise<CampaignEligibility['state']> {
     return eligibilityOf(rules, needsParticipant(rules) ? await this.participants.read(accountId) : null);
   }
 

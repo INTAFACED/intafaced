@@ -124,3 +124,49 @@ describe('strategy heads and the recycle bin (AL-editor-01)', () => {
     await expect(a.studio.listDeleted({})).rejects.toThrow(/quant.studio_list_limit_unset|limit/);
   });
 });
+
+describe('release notes and the version diff (AL-editor-01)', () => {
+  function setup(releaseNoteMax: number | null) {
+    const strategies = createMemoryStrategyRepository();
+    const app = createQuantRouter({ wired: true, venueVaultSet: false, limits, strategies, releaseNoteMax });
+    return { a: app.createCaller(signed(ACCOUNT_A)), b: app.createCaller(signed(ACCOUNT_B)) };
+  }
+
+  it('keeps each version note, diffs two versions line by line, and refuses a version the strategy does not have', async () => {
+    const { a, b } = setup(40);
+    const saved = await a.studio.save({ ...body, clientStrategyId: 'c1', idempotencyKey: 'studio.save:c1', releaseNote: ' First cut ' });
+    expect(saved.versions[0]?.releaseNote).toBe('First cut');
+    const changed = { ...body, blocks: [{ side: 'sell' as const, symbol: 'BTC-USD', qty: '0.02' }] };
+    const revised = await a.studio.update({
+      ...changed,
+      id: saved.id,
+      idempotencyKey: `studio.update:${saved.id}:v2`,
+      releaseNote: 'Sell instead',
+    });
+    expect(revised.versions.map((v) => v.releaseNote)).toEqual(['First cut', 'Sell instead']);
+
+    const diff = await a.studio.diff({ id: saved.id, from: 1, to: 2 });
+    expect(diff.changed).toBe(true);
+    expect(diff.blocks).toEqual([
+      { op: 'removed', text: 'buy BTC-USD 0.01' },
+      { op: 'added', text: 'sell BTC-USD 0.02' },
+    ]);
+    expect(diff.source.some((line) => line.op === 'removed')).toBe(true);
+    expect((await a.studio.diff({ id: saved.id, from: 2, to: 2 })).changed).toBe(false);
+    await expect(a.studio.diff({ id: saved.id, from: 1, to: 3 })).rejects.toThrow(/version — 3 is not a version of this strategy/);
+    await expect(b.studio.diff({ id: saved.id, from: 1, to: 2 })).rejects.toThrow(/strategy not found/);
+  });
+
+  it('refuses a note over the cap, and a note at all while the cap is not set, but saves without one', async () => {
+    const capped = setup(5);
+    await expect(
+      capped.a.studio.save({ ...body, clientStrategyId: 'c2', idempotencyKey: 'studio.save:c2', releaseNote: 'too long' }),
+    ).rejects.toThrow(/releaseNote — longer than 5 characters/);
+    const unset = setup(null);
+    await expect(
+      unset.a.studio.save({ ...body, clientStrategyId: 'c3', idempotencyKey: 'studio.save:c3', releaseNote: 'a note' }),
+    ).rejects.toThrow(/release note is not set/);
+    const plain = await unset.a.studio.save({ ...body, clientStrategyId: 'c4', idempotencyKey: 'studio.save:c4', releaseNote: '  ' });
+    expect(plain.versions[0]?.releaseNote).toBe('');
+  });
+});

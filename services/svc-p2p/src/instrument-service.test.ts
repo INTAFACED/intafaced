@@ -1430,6 +1430,12 @@ describe('svc-p2p payment instruments', () => {
         'offers.shareLinks.create': { linkId: crypto.randomUUID(), offerId: crypto.randomUUID() },
         'offers.shareLinks.list': { offerId: crypto.randomUUID() },
         'offers.shareLinks.revoke': { linkId: crypto.randomUUID() },
+        // P-ads-merchant-08: the caller's own presence and to-do list (their own orders only), and a bulk action on
+        // ads the caller does not own (each answers not_found or not_a_party); none reads an instrument field.
+        'merchants.presence': undefined,
+        'merchants.setPresence': { mode: 'scheduled', timezone: 'UTC', windows: [{ day: 1, start: '09:00', end: '17:00' }] },
+        'merchants.todos': { limit: 50 },
+        'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

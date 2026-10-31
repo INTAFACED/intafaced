@@ -14,6 +14,7 @@ import { UnreadBadge, useUnreadCounts } from './Unread';
 import type { UnreadCount } from './p2p-chat-model';
 import { p2pDepth } from './p2p-depth-copy';
 import { orderHistoryCopy } from './order-history-copy';
+import { MerchantTodos } from './p2p-console';
 import type { OrderFilter } from './p2p-model';
 
 const PAGE = 50;
@@ -32,6 +33,7 @@ export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: str
   const first = useResource((signal) => pay.orderPage({ limit: PAGE, tab }, signal), `pay:order-page:${userId}:${filter}`);
   return (
     <div className="stack">
+      <MerchantTodos pay={pay} userId={userId} />
       <PaySection
         title={payCopy.t('yourOrders')}
         description={payCopy.t('terminalStatusAndLedgerSettlementTimeStay')}
