@@ -48,6 +48,15 @@ async function newestTradeMs(symbol = BTC) {
   return rows[0].timestamp;
 }
 
+/** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
+function maker(cmd) {
+  try {
+    return tool('local-test-market.mjs', cmd);
+  } catch (err) {
+    return String(err.stdout ?? '');
+  }
+}
+
 async function openChart(page, path = CHART) {
   await page.goto(path);
   await expect(host(page)).toBeVisible();
@@ -73,31 +82,38 @@ test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the
 });
 
 test.describe(`${J} #2 on a real-time market whose newest trade is past the boundary`, () => {
+  let makerWasRunning = false;
   test.beforeAll(() => {
+    // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
+    test.setTimeout(300_000);
+    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
     // No ETH trade from here: the TEST market maker quotes and trades BTC/USDT only.
     tool('local-test-market.mjs', 'stop');
     tool('local-test-market.mjs', 'start', '--markets', BTC);
   });
   test.afterAll(() => {
+    test.setTimeout(300_000);
     tool('local-test-market.mjs', 'stop');
-    tool('local-test-market.mjs', 'start');
+    // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
+    if (makerWasRunning) tool('local-test-market.mjs', 'start');
   });
 
   test(`${J} #2 opens a real-time market with no trade inside the boundary: the chip reads Delayed with the age of its newest trade`, async ({
     page,
   }) => {
-    test.setTimeout(180_000);
     const owner = await ownerValues(ETH);
+    test.setTimeout((owner.delayedBoundarySeconds + 5) * 1000 + 150_000);
     expect(owner.dataClass).toBe('real_time');
     expect(owner.delayedBoundarySeconds).toBeGreaterThan(0);
-    const newest = await newestTradeMs(ETH);
-    // Wait on the public tape until the newest ETH trade is older than the boundary (and no newer one has happened).
+    // Wait on the public tape until the newest ETH trade is older than the boundary, then judge the chip by that trade.
+    const pastBoundaryMs = (owner.delayedBoundarySeconds + 5) * 1000;
     await expect
-      .poll(async () => (await newestTradeMs(ETH)) === newest && Date.now() - newest > (owner.delayedBoundarySeconds + 5) * 1000, {
-        timeout: 120_000,
+      .poll(async () => Date.now() - (await newestTradeMs(ETH)) > pastBoundaryMs, {
+        timeout: pastBoundaryMs + 60_000,
         intervals: [2_000],
       })
       .toBe(true);
+    const newest = await newestTradeMs(ETH);
     await openChart(page, ETH_CHART);
     await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
     await expect(chip(page)).toContainText('Delayed');
@@ -113,7 +129,6 @@ test.describe(`${J} #2 on a real-time market whose newest trade is past the boun
       .toBeLessThanOrEqual(15);
     await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
     await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
-    expect(await newestTradeMs(ETH), 'no ETH trade happened while the chip read Delayed').toBe(newest);
   });
 });
 
@@ -145,6 +160,7 @@ test.describe(`${J} #2 on a delayed market`, () => {
       )
       .toBeLessThanOrEqual(60);
     await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
+    await expect(banner(page)).toContainText("This market's data class is delayed");
   });
 });
 

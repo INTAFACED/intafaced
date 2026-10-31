@@ -93,6 +93,10 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
   } else if (status.chip === 'stale') {
     kind = 'stale';
     body = t('Banner stale', { seconds: String(status.feedAgeSeconds ?? 0), tick });
+  } else if (status.chip === 'delayed' && status.delayedBy === 'class' && status.ageSeconds === null) {
+    // The class says delayed whatever the tape: the banner says so even when the newest trade is not read.
+    kind = 'delayed';
+    body = t('Banner delayed class no age');
   } else if (status.chip === 'delayed' && status.ageSeconds !== null) {
     kind = 'delayed';
     body = t(status.delayedBy === 'class' ? 'Banner delayed class' : 'Banner delayed', {

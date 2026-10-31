@@ -160,6 +160,7 @@ const messages = {
   'Banner stale': 'Data is stale. The candles shown were last read {seconds} s ago and are not live. Last trade {tick}.',
   'Banner delayed':
     'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
+  'Banner delayed class no age': "Delayed. This market's data class is delayed; the last trade's time is not read.",
   'Banner delayed class': "Delayed. This market's data class is delayed; the last trade was {seconds} s ago. Last trade {tick}.",
   'Banner book': 'The matching book’s halt state can’t be read. Order entry is refused until it can.',
   'Banner time unknown': 'time unknown',

@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { StatusBanner, StatusChip } from './DataStatus';
 import type { DataStatus } from './data-status';
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 // TEST ages and boundary, not published values.
 const status = (delayedBy: 'class' | 'age'): DataStatus => ({
   chip: 'delayed',
@@ -51,5 +53,11 @@ describe('the Delayed chip and banner', () => {
     const { chip, banner } = render(status('class'));
     expect(chip).toBe('Delayed · Last trade 95 s ago');
     expect(banner?.textContent).toBe("Delayed. This market's data class is delayed; the last trade was 95 s ago. Last trade T.");
+  });
+
+  it('a delayed data class whose newest trade is not read still has its banner, with no age guessed', () => {
+    const { chip, banner } = render({ ...status('class'), ageSeconds: null, lastTradeMs: null });
+    expect(chip).toBe('Delayed · No trade time');
+    expect(banner?.textContent).toBe("Delayed. This market's data class is delayed; the last trade's time is not read.");
   });
 });
