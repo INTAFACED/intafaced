@@ -49,6 +49,53 @@ export function MarketDoors() {
   );
 }
 
+const categoriesSchema = z.object({ categories: z.array(z.string().min(1)) });
+
+/** A category's words: the known slugs are written in every language; an unknown one shows as the service names it. */
+export function useCategoryLabel() {
+  const { t } = marketListingCopy.useCopy();
+  return (slug: string) => {
+    const key = `cat_${slug}`;
+    return key in CATEGORY_KEYS ? t(key as (typeof CATEGORY_KEYS)[keyof typeof CATEGORY_KEYS]) : slug;
+  };
+}
+const CATEGORY_KEYS = {
+  cat_bots: 'cat_bots',
+  cat_defi: 'cat_defi',
+  cat_compliance: 'cat_compliance',
+  cat_payment_extensions: 'cat_payment_extensions',
+  cat_security_custody: 'cat_security_custody',
+  cat_data: 'cat_data',
+  cat_advisory: 'cat_advisory',
+  cat_partner_integrations: 'cat_partner_integrations',
+} as const;
+
+/**
+ * The vendor marketplace's category taxonomy (RC-more-catalogue-18), read from svc-market (`listingCategories`), never
+ * written here. `allLabel` is the choice of no category: every listing in the catalogue, or none filed on a new listing.
+ */
+export function CategorySelect({ value, onChange, allLabel }: { value: string; onChange: (slug: string) => void; allLabel: string }) {
+  const api = useApi();
+  const { t } = marketListingCopy.useCopy();
+  const label = useCategoryLabel();
+  const categories = useResource(
+    (signal) => api.query('market', 'listingCategories', undefined, categoriesSchema, { signal }),
+    'market-categories',
+  );
+  return (
+    <Read resource={categories.resource} retry={categories.reload}>
+      {({ categories: slugs }) => (
+        <Select
+          label={t('category')}
+          value={value}
+          onChange={onChange}
+          options={[{ value: '', label: allLabel }, ...slugs.map((slug) => ({ value: slug, label: label(slug) }))]}
+        />
+      )}
+    </Read>
+  );
+}
+
 export function MarketFilters({
   rows,
   filter,

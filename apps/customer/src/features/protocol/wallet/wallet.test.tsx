@@ -103,6 +103,24 @@ describe('wallet provider', () => {
     expect(await api.sign({ kind: 'message', message: 'x' })).toMatchObject({ status: 'failed', reason: 'not_connected' });
   });
 
+  it('a move to another room keeps the connection and cancels an open sheet without asking the wallet', async () => {
+    const found = wallet();
+    const page = (room: string) => (
+      <WalletProvider scope={room} discovery={false}>
+        <Probe />
+      </WalletProvider>
+    );
+    await act(async () => root.render(page('/dex')));
+    await act(async () => api.connect(found));
+    const result = await openSheet();
+    expect(document.body.textContent).toContain('Check before you sign');
+    await act(async () => root.render(page('/wallet')));
+    expect(result()).toEqual({ status: 'rejected' });
+    expect(document.body.textContent).not.toContain('Check before you sign');
+    expect(calls).not.toContain('personal_sign');
+    expect(api).toMatchObject({ status: 'connected', address: ADDR });
+  });
+
   it('connects, reads the address and chain, and disconnects', async () => {
     await connected();
     expect(api).toMatchObject({ status: 'connected', address: ADDR, chainId: 84532, guard: { ok: true } });

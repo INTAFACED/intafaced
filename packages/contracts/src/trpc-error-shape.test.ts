@@ -122,6 +122,7 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(retryAfterSecondsOf(undefined)).toBeUndefined();
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: 1.2 }))).toBe(2);
     expect(retryAfterSecondsOf(new FakeAuthError('auth.email_confirm_rate_limited', { retryAfterSeconds: 90 }))).toBe(90);
+    expect(retryAfterSecondsOf(new FakeAuthError('identity.resend_too_soon', { retryAfterSeconds: 25 }))).toBe(25);
     expect(retryAfterSecondsOf(new FakeAuthError('auth.invalid_credentials', { retryAfterSeconds: 90 }))).toBeUndefined();
   });
 

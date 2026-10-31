@@ -18,8 +18,17 @@ import {
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const ADDR = '0x00000000000000000000000000000000000000a1';
-const TESTNET = { chainId: 84532, mainnet: false };
-const MAINNET = { chainId: 8453, mainnet: true };
+const GENESIS = `0x${'a'.repeat(64)}` as Hex;
+/** The same TEST chain id after the chain was started again: a new genesis. */
+const RESTARTED = `0x${'b'.repeat(64)}` as Hex;
+/** A network on chain `chainId` whose block 0 is `genesisHash`. */
+const net = (chainId: number, mainnet: boolean, genesisHash: Hex = GENESIS) => ({
+  chainId,
+  mainnet,
+  identity: async () => ({ chainId, genesisHash }),
+});
+const TESTNET = net(84532, false);
+const MAINNET = net(8453, true);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
 const OWNER_KEY = privateKeyToAccount(`0x${'11'.repeat(32)}`);
@@ -29,16 +38,16 @@ async function claim(
   d: BadgeDeps,
   accountId: string,
   addr: string | null | undefined,
-  net: { chainId: number; mainnet: boolean },
+  network: ReturnType<typeof net>,
   signature?: string | null,
 ) {
   const sig =
     signature !== undefined
       ? signature
       : addr && isAddress(addr)
-        ? await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: net.chainId, address: addr as Address }) })
+        ? await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: network.chainId, address: addr as Address }) })
         : null;
-  return claimBadge(d, accountId, addr ? { address: addr, owner: OWNER_KEY.address } : null, net, sig);
+  return claimBadge(d, accountId, addr ? { address: addr, owner: OWNER_KEY.address } : null, network, sig);
 }
 
 import { memMintSlots } from './founding-badge.test-store.js';
@@ -50,9 +59,13 @@ function memStore(listed: string[]): BadgeStore & { rows: Map<string, BadgeClaim
     ...memMintSlots(rows),
     isListed: async (id) => listed.includes(id),
     findClaim: async (k) => rows.get(k) ?? null,
-    findClaimByAddress: async (c, to) => [...rows.values()].find((r) => r.chainId === c && r.to.toLowerCase() === to.toLowerCase()) ?? null,
+    findClaimByAddress: async (c, to) =>
+      [...rows.values()].find(
+        (r) => r.chainId === c.chainId && (r.genesisHash ?? c.genesisHash) === c.genesisHash && r.to.toLowerCase() === to.toLowerCase(),
+      ) ?? null,
     putClaim: async (r) => {
-      if (!rows.has(r.key)) rows.set(r.key, r);
+      const held = rows.get(r.key);
+      if (!held || (held.genesisHash && r.genesisHash && held.genesisHash !== r.genesisHash)) rows.set(r.key, r);
       return rows.get(r.key)!;
     },
     setTxHash: async (k, tx) => {
@@ -108,6 +121,44 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     expect(a.audited).toBe(false);
   });
 
+  it('a TEST chain started again: the old claim reads as none, the account claims and mints again, and an old claim to the address blocks nobody', async () => {
+    const { d, mints, store } = deps({}, [ACCOUNT, OTHER]);
+    const before = await claim(d, ACCOUNT, ADDR, TESTNET);
+    expect(before.genesisHash).toBe(GENESIS);
+    const restarted = net(84532, false, RESTARTED);
+    // The mint on the old chain did not happen on this one.
+    expect(await badgeEligibility(d, ACCOUNT, restarted)).toMatchObject({ claimed: false, txHash: null });
+    const after = await claim(d, ACCOUNT, ADDR, restarted);
+    expect(mints).toHaveLength(2);
+    expect(after).toMatchObject({ genesisHash: RESTARTED, txHash: `0x${'2'.padStart(64, '0')}` });
+    expect(store.rows.size).toBe(1);
+    // Still one badge per address on the new chain.
+    expect(await refusal(claim(d, OTHER, ADDR, restarted))).toBe('badge.already_claimed');
+    // The new claim is this chain's, and eligibility reads it.
+    expect(await badgeEligibility(d, ACCOUNT, restarted)).toMatchObject({ claimed: true, txHash: after.txHash });
+  });
+
+  it('eligibility asks the chain only when a stored claim names a genesis', async () => {
+    const { d } = deps();
+    let asked = 0;
+    const counting = { ...TESTNET, identity: async () => (asked++, { chainId: TESTNET.chainId, genesisHash: GENESIS }) };
+    expect(await badgeEligibility(d, ACCOUNT, counting)).toMatchObject({ claimed: false });
+    expect(asked).toBe(0);
+    await claim(d, ACCOUNT, ADDR, TESTNET);
+    expect(await badgeEligibility(d, ACCOUNT, counting)).toMatchObject({ claimed: true });
+    expect(asked).toBe(1);
+  });
+
+  it('a claim stored before the genesis column keeps its meaning: it is not minted again', async () => {
+    const { d, mints, store } = deps();
+    await claim(d, ACCOUNT, ADDR, TESTNET);
+    const key = badgeClaimKey(ACCOUNT);
+    store.rows.set(key, { ...store.rows.get(key)!, genesisHash: null });
+    const again = await claim(d, ACCOUNT, ADDR, net(84532, false, RESTARTED));
+    expect(mints).toHaveLength(1);
+    expect(again.genesisHash).toBeNull();
+  });
+
   it('mints only to the account own address', async () => {
     const { d, mints } = deps();
     await claim(d, ACCOUNT, ADDR, TESTNET);
@@ -132,7 +183,7 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
 
   it('no signer for the network refuses rail.crypto', async () => {
     const { d, store } = deps();
-    expect(await refusal(claim(d, ACCOUNT, ADDR, { chainId: 1337, mainnet: false }))).toBe('rail.crypto');
+    expect(await refusal(claim(d, ACCOUNT, ADDR, net(1337, false)))).toBe('rail.crypto');
     expect(store.rows.size).toBe(0);
   });
 

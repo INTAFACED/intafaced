@@ -423,6 +423,15 @@ const GRID: Readonly<Record<string, Words>> = {
     body: 'The confirmation service isn’t answering, so nothing was withdrawn. Try again later.',
   },
   'trade.grid_not_found': { title: 'We couldn’t find that grid bot', body: 'Check My bots.' },
+  'trade.grid_request_invalid': { title: 'This grid request is incomplete', body: 'Check each field and try again.' },
+  'trade.grid_direction_not_built': {
+    title: 'Only a neutral grid can run',
+    body: 'Long and short grids aren’t built. Choose a neutral grid.',
+  },
+  'trade.grid_settlement_not_built': {
+    title: 'A stop keeps what the bot bought',
+    body: 'Selling the bought coins when the bot stops isn’t built. Stop it and keep them.',
+  },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',

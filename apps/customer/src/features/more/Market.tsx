@@ -8,7 +8,8 @@ import { usePreferences } from '../../shared/preferences';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Dialog, EmptyState, Field, Panel } from '../../shared/ui';
 import { MarketPurchaseRecords } from './MarketPurchaseRecords';
-import { ListingDetail, MarketDoors, MarketFilters, SellerDirectory } from './MarketExplorer';
+import { CategorySelect, ListingDetail, MarketDoors, MarketFilters, SellerDirectory } from './MarketExplorer';
+import { marketListingCopy } from './market-listing-copy';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import type { ApiResult, RefusalReason } from '../../shared/api';
@@ -168,10 +169,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
     [offer, setOffer] = useState(strategy ? 'subscription' : 'one_time'),
     [period, setPeriod] = useState(''),
     [filter, setFilter] = useState<ListingFilter>(NO_FILTER),
+    // The catalogue's category ('' = every listing), and the category a new one-time listing is filed under ('' = none).
+    [category, setCategory] = useState(''),
+    [newCategory, setNewCategory] = useState(''),
     [detailId, setDetailId] = useState<string | null>(null);
   const listings = useResource(
       async (signal) => {
-        if (!mine && !strategy) return api.query('market', 'listings', { limit }, z.array(listingSchema), { signal });
+        if (!mine && !strategy)
+          return category
+            ? api.query('market', 'listingsByCategory', { category, limit }, z.array(listingSchema), { signal })
+            : api.query('market', 'listings', { limit }, z.array(listingSchema), { signal });
         const owner = await api.query(
           'market',
           'mine',
@@ -197,7 +204,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           { signal },
         );
       },
-      `listings:${mine}:${strategy}:${mine || strategy ? userId : 'public'}:${limit}`,
+      `listings:${mine}:${strategy}:${mine || strategy ? userId : 'public'}:${limit}:${category}`,
     ),
     programme = useResource(
       (signal) => api.query('market', 'commerceProgramme', undefined, programmeSchema, { signal }),
@@ -433,10 +440,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       </Read>
       {mine || strategy ? null : <MarketDoors />}
       <Panel title={mine || strategy ? copyText('market.your.listings') : copyText('market.browse.listings')}>
+        {mine || strategy ? null : (
+          <div className="depth-filters">
+            <CategorySelect value={category} onChange={setCategory} allLabel={marketListingCopy.t('categoryAll')} />
+            <p className="muted">{marketListingCopy.t('categoryNote')}</p>
+          </div>
+        )}
         <Read
           resource={listings.resource}
           retry={listings.reload}
-          empty={mine || strategy ? copyText('market.you.have.no.listings') : copyText('market.no.listings.are.available')}
+          empty={
+            mine || strategy
+              ? copyText('market.you.have.no.listings')
+              : category
+                ? marketListingCopy.t('categoryEmpty')
+                : copyText('market.no.listings.are.available')
+          }
         >
           {(allRows) => {
             const rows = filterListings(allRows, filter);
@@ -754,6 +773,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                   price,
                   ...(offer === 'subscription' || strategy ? { periodSeconds: Number(period) } : {}),
                   ...(!strategy ? { offerType: offer } : {}),
+                  ...(!strategy && offer === 'one_time' && newCategory ? { category: newCategory } : {}),
                 };
                 const reviewedVendorId = vendor.resource.status === 'ready' ? vendor.resource.data?.id : undefined;
                 action.stage({
@@ -804,6 +824,9 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               <TextArea label={copyText('market.listing.description')} value={description} onChange={setDescription} maxLength={4000} />
               {!strategy && (
                 <Select label={copyText('market.offer.type')} value={offer} onChange={setOffer} options={['one_time', 'subscription']} />
+              )}
+              {!strategy && offer === 'one_time' && (
+                <CategorySelect value={newCategory} onChange={setNewCategory} allLabel={marketListingCopy.t('categoryNone')} />
               )}
               <Field label={copyText('market.price.asset.id')} value={asset} onChange={(e) => setAsset(e.target.value)} maxLength={32} />
               <Field label={copyText('market.price')} value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />

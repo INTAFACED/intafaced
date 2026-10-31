@@ -342,7 +342,7 @@ export async function createWorld(): Promise<World> {
     serviceSecret: 's'.repeat(32),
     fetcher: identity.fetcher,
   });
-  const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+  const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails }, { settlementAssets: ['USDT'] });
   const conversion = new ConversionService({
     sql,
     ledger,

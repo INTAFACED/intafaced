@@ -77,6 +77,7 @@ function stubDeps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRou
     chain: {
       config: { chainId: CHAIN_ID, factory: ZERO, implementation: ZERO },
       isDeployed: async () => false,
+      genesisHash: async () => `0x${'e'.repeat(64)}` as const,
     },
     registry: { accountsOf: async () => [] },
     relay: {
