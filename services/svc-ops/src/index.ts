@@ -10,6 +10,7 @@ import { createClientIpResolver } from './outreach/client-ip.js';
 import { SqlConsoleModeStore } from './console-mode/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldLedger } from './staff-holds/ledger.js';
+import { createHoldOwnerArchive } from './staff-holds/owner-archive.js';
 import { SqlStaffHoldStore } from './staff-holds/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
@@ -151,6 +152,12 @@ const staffHolds = new StaffHoldDesk({
   store: crmSql ? new SqlStaffHoldStore(crmSql) : undefined,
   ledger: createStaffHoldLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
   approvals: approvalConsumer,
+  // A confirm on an archived customer record refuses identity.account_archived; no IDENTITY_URL refuses every confirm.
+  ownerArchive: createHoldOwnerArchive({
+    identityUrl: env.IDENTITY_URL,
+    secret: env.INTERNAL_SERVICE_SECRET,
+    ...(s2sKey ? { s2s: s2sKey } : {}),
+  }),
   settings: {
     confirmAccount: env.OPS_STAFF_HOLD_CONFIRM_ACCOUNT ?? null,
     expiryMaxHours: env.OPS_STAFF_HOLD_EXPIRY_MAX_HOURS ?? null,
