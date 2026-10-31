@@ -513,6 +513,7 @@ test.describe('factor notices', () => {
 
     // The same session replaces the app: its "Confirm it is you" with the old app's code starts and finishes the replace.
     await page.goto('/uc/safe');
+    await expect(page).not.toHaveURL(/\/login/);
 
     // The authenticator app replaced: the old app's code, the new app's code and the old app's next code.
     const card = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');

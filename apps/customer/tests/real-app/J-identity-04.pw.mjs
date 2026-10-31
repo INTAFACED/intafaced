@@ -354,6 +354,8 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
 
   // With the right time: codes should work, and Replace is offered.
   await page.goto('/uc/safe');
+  // Still the session that signed in with the password alone: no sign-in was asked for.
+  await expect(page).not.toHaveURL(/\/login/);
   const real = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
   await real.getByRole('button', { name: 'My codes do not work' }).click();
   const ok = real.getByRole('region', { name: 'When codes do not work' });
