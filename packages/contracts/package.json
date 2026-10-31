@@ -366,6 +366,10 @@
       "types": "./dist/merchant-checkout-methods.d.ts",
       "default": "./dist/merchant-checkout-methods.js"
     },
+    "./merchant-metrics": {
+      "types": "./dist/merchant-metrics.d.ts",
+      "default": "./dist/merchant-metrics.js"
+    },
     "./pay-payment-views": {
       "types": "./dist/pay-payment-views.d.ts",
       "default": "./dist/pay-payment-views.js"
