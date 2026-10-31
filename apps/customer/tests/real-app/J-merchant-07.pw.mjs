@@ -416,6 +416,8 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
 
   // The calculator asks the live engine: 100 USDT at no volume yet is the 2.50% band, 2.50 off and 97.50 left.
   const calc = calculator(page);
+  // The calculator offers every asset the tier names (its USDC caps too, for #8); the fee table prices USDT.
+  await calc.getByRole('combobox', { name: 'Asset' }).selectOption('USDT');
   await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
   await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
   await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
@@ -479,6 +481,7 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
     expect(recordBefore).toMatchObject({ tierId: blank.tierId, pricing: null });
     // The service itself publishes no fee and no payout fee for the blank tier; the "Not set" cells are what it sent.
     expect(ladderBefore.tiers.find((tier) => tier.id === blank.tierId)).toMatchObject({ fees: [], payoutFee: null });
+    await calc.getByRole('combobox', { name: 'Asset' }).selectOption('USDT');
     await expect(calc.getByRole('combobox', { name: 'Asset' })).toHaveValue('USDT');
     await calc.getByRole('textbox', { name: /Payment amount/ }).fill('100');
     await calc.getByRole('textbox', { name: /Your volume so far this month/ }).fill('0');
