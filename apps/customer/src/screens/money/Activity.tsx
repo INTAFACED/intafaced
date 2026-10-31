@@ -17,6 +17,7 @@ import {
   Repeat,
   X,
   type LucideIcon,
+  PiggyBank,
 } from 'lucide-react';
 import {
   assetFromSearch,
@@ -90,6 +91,9 @@ const ICON: Record<ActivityKind, LucideIcon> = {
   payment: CreditCard,
   withdrawal: ArrowUpFromLine,
   space_move: ArrowLeftRight,
+  earn: PiggyBank,
+  staking: Lock,
+  reward: Gift,
   order_hold: Lock,
   order_release: LockOpen,
   other: CircleDot,
