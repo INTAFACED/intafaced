@@ -2,6 +2,7 @@ import type { ApiClient } from '../../../shared/api';
 import { coreApi } from './api-core';
 import { PAGE_SIZE, portalTools } from './api-tools';
 import { moneyApi } from './money/api';
+import { settlementAssetsApi } from './money/settlement-assets-api';
 import { paymentsApi } from './payments/api';
 import { settingsApi } from './settings/api';
 import { catalogApi } from './catalog/api';
@@ -26,6 +27,7 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
   return {
     ...coreApi(tools),
     ...moneyApi(tools),
+    ...settlementAssetsApi(tools),
     ...paymentsApi(tools),
     ...settingsApi(tools),
     ...catalogApi(tools),

@@ -22,10 +22,16 @@ export interface MetricsRuntimeDeps {
   now?: () => Date;
 }
 
+/** Owner settings the reads need, apart from the wiring. */
+export interface MetricsRuntimeOptions {
+  /** `PAY_SETTLEMENT_ASSETS`, parsed. Absent or null: the settlement-assets read refuses `pay.settlement_assets_unset`. */
+  settlementAssets?: readonly string[] | null;
+}
+
 export const railHealthRows = (rails: MetricsRuntimeDeps['rails']): RailHealthRow[] =>
   rails.health().map((h) => ({ railId: h.id, ok: h.usable && h.healthy, detail: h.reason ?? null }));
 
-export function createMetricsRuntime(deps: MetricsRuntimeDeps): MetricsRuntime {
+export function createMetricsRuntime(deps: MetricsRuntimeDeps, options: MetricsRuntimeOptions = {}): MetricsRuntime {
   return {
     projector: new MetricsProjector(deps.sql),
     authority: createMerchantMetricsAuthority(deps.pay, deps.trees, (userId, merchantId) =>
@@ -45,6 +51,7 @@ export function createMetricsRuntime(deps: MetricsRuntimeDeps): MetricsRuntime {
           return Number(rows[0]?.n ?? 0);
         }),
       railHealth: () => railHealthRows(deps.rails),
+      settlementAssets: options.settlementAssets ?? null,
       ...(deps.now ? { now: deps.now } : {}),
     }),
   };

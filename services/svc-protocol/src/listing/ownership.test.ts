@@ -56,9 +56,18 @@ function memoryStore() {
 }
 
 const asked: Array<[string, bigint]> = [];
-function chainWith(read: { owner: Address; blockNumber: bigint } | null, contract?: { accepts: Hex }, chainId = 84532): OwnershipChain {
+/** Two genesis hashes for one chain id: the TEST chain before and after it was started again. */
+const GENESIS = `0x${'a'.repeat(64)}` as Hex;
+const RESTARTED = `0x${'b'.repeat(64)}` as Hex;
+function chainWith(
+  read: { owner: Address; blockNumber: bigint } | null,
+  contract?: { accepts: Hex },
+  chainId = 84532,
+  genesisHash: Hex = GENESIS,
+): OwnershipChain {
   return {
     chainId,
+    identity: async () => ({ chainId, genesisHash }),
     owner: async () => read,
     hasCode: async (account, block) => (asked.push(['hasCode', block]), account.toLowerCase() === OWNER_CONTRACT.toLowerCase()),
     isValidSignature: async (_account, _hash, _signature, block) => (asked.push(['isValidSignature', block]), contract?.accepts ?? null),
@@ -137,6 +146,52 @@ describe('contract ownership proof (D-launch-listing-01)', () => {
     await expect(verifyOwnership(store, chain, { nonce: other.nonce, signature: signed }, T0)).rejects.toMatchObject({
       code: LISTING_NONCE_UNKNOWN,
     });
+  });
+
+  it('a challenge issued before the TEST chain was started again reads as unknown; one from before the column still verifies', async () => {
+    const { store, proofs, challenges } = memoryStore();
+    const before = await issueChallenge(store, OWNED, 300, TOKEN, T0);
+    expect(challenges.get(before.nonce)?.genesisHash).toBe(GENESIS);
+    const restarted = chainWith({ owner: owner.address, blockNumber: 1n }, undefined, 84532, RESTARTED);
+    await expect(
+      verifyOwnership(store, restarted, { nonce: before.nonce, signature: await owner.signMessage({ message: before.message }) }, T0),
+    ).rejects.toMatchObject({ code: LISTING_NONCE_UNKNOWN });
+    expect(proofs).toHaveLength(0);
+    // Unspent: the refusal read the challenge as absent and wrote nothing.
+    expect(challenges.get(before.nonce)?.usedAt).toBeNull();
+    // A challenge stored before the genesis column (null) cannot be placed, so it keeps its old meaning.
+    const legacy = await issueChallenge(store, restarted, 300, TOKEN, T0);
+    challenges.set(legacy.nonce, { ...challenges.get(legacy.nonce)!, genesisHash: null });
+    const proof = await verifyOwnership(
+      store,
+      restarted,
+      { nonce: legacy.nonce, signature: await owner.signMessage({ message: legacy.message }) },
+      T0,
+    );
+    // The proof records the chain its owner was read on.
+    expect(proof.genesisHash).toBe(RESTARTED);
+    expect(proofs[0]?.genesisHash).toBe(RESTARTED);
+  });
+
+  it('a TEST chain started again while the owner is read refuses the challenge, stores no proof and spends nothing', async () => {
+    const { store, proofs, challenges } = memoryStore();
+    const challenge = await issueChallenge(store, OWNED, 300, TOKEN, T0);
+    let reads = 0;
+    const restarting: OwnershipChain = {
+      ...OWNED,
+      // Block 0 before the owner read is the issuing chain's; after it, the chain has been started again.
+      identity: async () => ({ chainId: 84532, genesisHash: reads++ === 0 ? GENESIS : RESTARTED }),
+    };
+    await expect(
+      verifyOwnership(
+        store,
+        restarting,
+        { nonce: challenge.nonce, signature: await owner.signMessage({ message: challenge.message }) },
+        T0,
+      ),
+    ).rejects.toMatchObject({ code: LISTING_NONCE_UNKNOWN });
+    expect(proofs).toHaveLength(0);
+    expect(challenges.get(challenge.nonce)?.usedAt).toBeNull();
   });
 
   it('accepts a contract owner only through its ERC-1271 answer', async () => {

@@ -161,10 +161,17 @@ export const quantTemplateListOutputSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
-/** `template.get`: every version of one template, newest first. Read only. */
+/**
+ * One template version with its source (AL-editor-03): the generated source, read only, with each number the template
+ * leaves blank written as a named blank.
+ */
+export const quantTemplateVersionSourceSchema = quantTemplateVersionSchema.extend({ source: z.string() });
+export type QuantTemplateVersionSource = z.infer<typeof quantTemplateVersionSourceSchema>;
+
+/** `template.get`: every version of one template, newest first, each with its source. Read only. */
 export const quantTemplateDetailSchema = z.object({
   id: quantTemplateIdSchema,
-  versions: z.array(quantTemplateVersionSchema).min(1),
+  versions: z.array(quantTemplateVersionSourceSchema).min(1),
 });
 
 /** `ops.template.publish`: an operator publishes the next version, with a reason for the audit row. */

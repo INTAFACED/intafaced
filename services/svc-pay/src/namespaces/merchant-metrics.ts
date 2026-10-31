@@ -4,6 +4,8 @@ import {
   merchantMetricsSnapshotSchema,
   merchantMetricsSeriesInputSchema,
   merchantMetricsSeriesSchema,
+  merchantSettlementAssetsInputSchema,
+  merchantSettlementAssetsSchema,
 } from '@intafaced/contracts';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { toPayfacTrpcError } from './metrics-errors.js';
@@ -50,6 +52,18 @@ export function createMerchantMetricsRouter(metrics?: MetricsRuntime) {
                 return metrics.reader.merchantSeries(input);
               })
             : notBuilt('merchantMetrics.series'),
+        ),
+      /** Each asset the business can settle in, with its ledger figures; refuses `pay.settlement_assets_unset` when no list is set. */
+      settlementAssets: read
+        .input(merchantSettlementAssetsInputSchema)
+        .output(merchantSettlementAssetsSchema)
+        .query(({ ctx, input }) =>
+          metrics
+            ? wrap(async () => {
+                await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
+                return metrics.reader.merchantSettlementAssets(input.merchantId);
+              })
+            : notBuilt('merchantMetrics.settlementAssets'),
         ),
     }),
   });

@@ -35,6 +35,7 @@ export const ownAgentId = (path: string): string | null => OWN_AGENT_PATH.exec(p
 const CODE_WORDS = {
   'agents.spend.per_call_above_session': 'code_spend_per_call_above_session',
   'agents.own.money_tool': 'code_own_money_tool',
+  'agents.tool_shape_missing': 'code_tool_shape_missing',
   'agents.own.tool_unknown': 'code_own_tool_unknown',
   'agents.own.name_too_long': 'code_own_name_too_long',
   'agents.own.instructions_too_long': 'code_own_instructions_too_long',
@@ -128,6 +129,8 @@ export function NewAgent() {
   const { t } = agentBuilderCopy.useCopy();
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
+  // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
+  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
   // Kept on the page only: nothing drafts from it or saves it until the owner chooses the model.
   const [description, setDescription] = useState('');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
@@ -146,13 +149,22 @@ export function NewAgent() {
       <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
         <p className="muted">{t('templatesIntro')}</p>
         <div className="depth-card-actions">
-          <Button disabled={busy} onClick={() => void start('service-starter')}>
-            {t('useServiceStarter')}
-          </Button>
+          {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
+          {catalogue.resource.status === 'ready' &&
+          catalogue.resource.data.templates.some((template) => template.id === 'service-starter') ? (
+            <Button disabled={busy} onClick={() => void start('service-starter')}>
+              {t('useServiceStarter')}
+            </Button>
+          ) : null}
           <Button variant="secondary" disabled={busy} onClick={() => void start('blank')}>
             {t('startBlank')}
           </Button>
         </div>
+        {catalogue.resource.status === 'failed' ? (
+          <Read resource={catalogue.resource} retry={catalogue.reload}>
+            {() => null}
+          </Read>
+        ) : null}
         {refused ? <Answer failed={refused} /> : null}
       </Panel>
       <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>
@@ -273,6 +285,47 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
           ) : (
             <p className="muted">{t('noTools')}</p>
           )}
+          {tools.length ? (
+            // Each attached tool's declared shape and refusals, as the service's registry holds them (AG-tools-01).
+            <section role="group" aria-label={t('toolShapesTitle')}>
+              <h3>{t('toolShapesTitle')}</h3>
+              <Read resource={catalogue.resource} retry={catalogue.reload}>
+                {({ tools: offered }) => (
+                  <>
+                    {tools.map((name) => {
+                      const declared = offered.find((tool) => tool.name === name);
+                      return (
+                        <article key={name} aria-label={name}>
+                          <h4>
+                            <code lang="zxx">{name}</code>
+                          </h4>
+                          {declared?.shape ? (
+                            <dl>
+                              <dt>{t('shapeInput')}</dt>
+                              <dd data-testid="shape-input">{fieldsOf(declared.shape.input)}</dd>
+                              <dt>{t('shapeOutput')}</dt>
+                              <dd data-testid="shape-output">{fieldsOf(declared.shape.output)}</dd>
+                              <dt>{t('shapeRefusals')}</dt>
+                              <dd data-testid="shape-refusals">
+                                {declared.refusals.map((code, at) => (
+                                  <span key={code}>
+                                    {at ? ', ' : null}
+                                    <code lang="zxx">{code}</code>
+                                  </span>
+                                ))}
+                              </dd>
+                            </dl>
+                          ) : (
+                            <p className="muted">{t('shapeNotDeclared')}</p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </>
+                )}
+              </Read>
+            </section>
+          ) : null}
           <Button variant="secondary" onClick={() => setPicking(true)}>
             {t('addTool')}
           </Button>
@@ -303,6 +356,7 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
                       }}
                     >
                       <code lang="zxx">{tool.name}</code> · {tool.movesMoney ? t('movesMoney') : t('readsModule', { module: tool.module })}
+                      {!tool.movesMoney && !tool.shape ? <> · {t('shapeNotDeclaredShort')}</> : null}
                     </li>
                   ))}
                 </ul>
@@ -314,6 +368,13 @@ export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: 
       <ProtectionCheck agent={agent} />
     </>
   );
+}
+
+/** A declared shape's fields as one line: each field name with its type in words. */
+function fieldsOf(fields: Readonly<Record<string, string>>): string {
+  return Object.entries(fields)
+    .map(([field, type]) => `${field}: ${type}`)
+    .join('; ');
 }
 
 /** What blocks publishing this draft, from the service's own check of what was last saved. */

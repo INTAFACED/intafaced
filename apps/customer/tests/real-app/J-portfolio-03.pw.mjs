@@ -321,6 +321,10 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await year.selectOption(String(new Date().getUTCFullYear()));
   await expect(list).toHaveCount(all);
   await expect(year.locator('option', { hasText: 'Tax year (not set up)' })).toHaveAttribute('disabled', '');
+  // The bank refuses a tax year by name while its start date is unset, so the screen's disabled option is not the only guard.
+  const taxYear = await bankRead(who, 'activity.list', { limit: 10, taxYear: new Date().getUTCFullYear() });
+  expect(taxYear.status).toBe(412);
+  expect(JSON.stringify(taxYear.body)).toContain('portfolio.tax_year_start_unset');
   await year.selectOption('');
 
   // Address: no withdrawal went anywhere, so no line matches an address.
@@ -347,20 +351,32 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
   await signIn(page, who);
   // TEST: a sell of 0.002 BTC inside the spread rests as the best ask; the stack's other trader buys it in two parts, so
   // one order has two fills.
-  const { bid, ask } = await bestPrices('BTC/USDT');
-  expect(toUnits(ask) - toUnits(bid)).toBeGreaterThan(toUnits('0.02'));
-  const price = fromUnits(((toUnits(ask) - toUnits('0.01')) / 10n ** 16n) * 10n ** 16n);
-  await page.goto(deskPath('BTC/USDT'));
-  await reviewLimit(page, 'sell', price, '0.002');
-  // The sheet closes before the order call answers, so the order is read back from the desk's own answer, by its id.
-  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
-  await confirm(page, 'sell');
-  const res = await answer;
-  expect(res.status(), await res.text()).toBeLessThan(300);
-  const placed = await res.json();
-  expect(placed).toMatchObject({ side: 'sell', status: 'open', price, amount: '0.002' });
-  const sell = (await openOrders(who)).find((o) => o.id === placed.id);
-  expect(sell).toMatchObject({ id: placed.id, side: 'sell', price, amount: '0.002' });
+  // The stack's TEST taker crosses the book every few seconds and may buy the sale before it is read back resting; that
+  // spends the setup, not the step, so the sale is placed again (at most three times) until one rests untouched.
+  let price;
+  let sell;
+  for (let attempt = 1; attempt <= 3 && !sell; attempt++) {
+    const { bid, ask } = await bestPrices('BTC/USDT');
+    expect(toUnits(ask) - toUnits(bid)).toBeGreaterThan(toUnits('0.02'));
+    price = fromUnits(((toUnits(ask) - toUnits('0.01')) / 10n ** 16n) * 10n ** 16n);
+    await page.goto(deskPath('BTC/USDT'));
+    await reviewLimit(page, 'sell', price, '0.002');
+    // The sheet closes before the order call answers, so the order is read back from the desk's own answer, by its id.
+    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+    await confirm(page, 'sell');
+    const res = await answer;
+    expect(res.status(), await res.text()).toBeLessThan(300);
+    const placed = await res.json();
+    expect(placed).toMatchObject({ side: 'sell', status: 'open', price, amount: '0.002' });
+    const resting = (await openOrders(who)).find((o) => o.id === placed.id);
+    if (resting && toUnits(resting.filled ?? '0') === 0n) sell = resting;
+    else if (resting) {
+      // Partly bought already: cancel it, so it cannot sit under the next attempt's price and take the other trader's buys.
+      const cancel = await (await api(who)).delete(`/api/v1/orders/${resting.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+      expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
+    }
+  }
+  expect(sell, 'a 0.002 BTC sale resting untouched after three tries').toMatchObject({ side: 'sell', price, amount: '0.002' });
   const other = await api(otherTrader());
   const open = async () => (await openOrders(who)).find((o) => o.id === sell.id);
   // Each round buys 0.001 of the sale at its price. The market maker may have quoted asks under it since, and those
@@ -414,6 +430,17 @@ test(`${J} #4 opens an entry: its linked lines as one group with the shared refe
   const bought = lines.find((l) => l.kind === 'trade' && l.direction === 'in' && l.asset === 'BTC');
   const group = lines.filter((l) => l.orderId === bought.orderId);
   expect(group.map((l) => l.kind).sort()).toEqual(['order_hold', 'order_release', 'trade']);
+  // Both legs of the fill: the BTC that came in, and the USDT paid for it. A buy pays from its order's hold, so the USDT
+  // leg is the hold that left the spendable balance less what was released back, and that is exactly what svc-trade's
+  // fills of the order cost (the fee was taken in BTC, the asset received).
+  const hold = group.find((l) => l.kind === 'order_hold');
+  const release = group.find((l) => l.kind === 'order_release');
+  expect([hold.asset, hold.direction, release.asset, release.direction]).toEqual(['USDT', 'out', 'USDT', 'in']);
+  const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body.filter((f) => f.order === bought.orderId);
+  expect(fills.length).toBeGreaterThan(0);
+  const paid = fills.reduce((sum, f) => sum + toUnits(String(f.cost)), 0n);
+  expect(toUnits(hold.amount) - toUnits(release.amount)).toBe(paid);
+  expect(fills.every((f) => f.fee === null || f.fee.currency === 'BTC')).toBe(true);
 
   await openActivity(page);
   await rows(page)

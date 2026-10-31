@@ -44,6 +44,27 @@
   .st-toggle[aria-pressed='true'] {
     background: var(--if-field);
   }
+  /* An indicator pane's controls, beside its legend row. */
+  .st-pane {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--if-space-1);
+    margin-inline-start: var(--if-space-2);
+  }
+  .st-pane-button {
+    padding: 0 var(--if-space-2);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-pill);
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .st-pane-button:disabled {
+    color: var(--if-fg-3);
+    cursor: default;
+  }
   .st-check {
     display: inline-flex;
     align-items: center;

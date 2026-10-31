@@ -6,6 +6,7 @@
  */
 export * from './trpc.js';
 export * from './p2p-delist.js';
+export * from './p2p-cancel.js';
 export * from './p2p-rule-class.js';
 export * from './edge.js';
 export * from './service-auth.js';
@@ -44,6 +45,7 @@ export * from './ops-venue-economics.js';
 export * from './ops-console-mode.js';
 export * from './ops-staff-holds.js';
 export * from './identity-recovery.js';
+export * from './identity-staff.js';
 export * from './ops-console-announcements.js';
 export * from './ops-console-preferences.js';
 export * from './ops-console-services.js';

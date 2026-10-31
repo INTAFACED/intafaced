@@ -286,6 +286,8 @@ const script = resolve(here, 'local-test-stack.mjs');
     const rails = Object.keys(unset).filter((name) => name.startsWith('LEDGER_RECONCILE_RAIL_'));
     assert.deepEqual(rails.sort(), ['LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL', 'LEDGER_RECONCILE_RAIL_PAYOUT_SIM_URL']);
     for (const name of rails) assert.equal(unset[name], 'http://127.0.0.1:14525/statement');
+    // A LOCAL TEST clock skew bound, so a joint-restore watermark can be read as of a cut-off (OPS-ledger-desk-05).
+    assert.equal(unset.LEDGER_CLOCK_SKEW_BOUND_MS, '1000');
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
     const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
     assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
