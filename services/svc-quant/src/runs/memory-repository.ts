@@ -136,6 +136,7 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       const cursor = input.cursor ? decodeListCursor(input.cursor) : null;
       const matched = [...rows.values()]
         .filter((row) => row.userId === input.userId && row.kind === input.kind && row.idempotencyKey.startsWith(input.keyPrefix))
+        .filter((row) => !input.strategyId || row.strategyId === input.strategyId)
         .filter((row) => (cursor ? row.started < cursor.createdAt || (row.started === cursor.createdAt && row.id < cursor.id) : true))
         .sort((a, b) => (a.started === b.started ? (a.id < b.id ? 1 : -1) : a.started < b.started ? 1 : -1));
       const page = matched.slice(0, input.limit);

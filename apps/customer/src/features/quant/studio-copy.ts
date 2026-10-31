@@ -4,6 +4,10 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   save: 'Save to library',
   saving: 'Saving',
+  releaseNote: 'Release note for this version (optional)',
+  releaseNoteHint: 'Say what changed. It is kept with the version and shown in its history.',
+  noteReplayed: 'This save repeated an earlier press, so the version keeps the note stored then: "{note}". Your note above was not saved.',
+  noteReplayedBlank: 'This save repeated an earlier press that had no note, so the version has none. Your note above was not saved.',
   savedAs: 'Saved as version {version}.',
   changedSince: 'Changed since version {version}. Save to keep these rules as the next version.',
   notSaved: 'Unsaved. Saving keeps the rules in your library on this account.',

@@ -583,6 +583,15 @@ export class CryptoNativeAdapter implements RailAdapter {
     }
   }
 
+  /** The send's depth on the chain; the caller compares it with the owner's settle depth. The chain cannot say: `null`. */
+  async payoutDepth(s: SettlementInstruction): Promise<number | null> {
+    try {
+      return await this.chain.sendDepth(this.payoutIdempotencyKey(s));
+    } catch {
+      return null;
+    }
+  }
+
   async payout(s: SettlementInstruction): Promise<RailResult> {
     const blocked = this.blockMoney(s.amount, s.assetId);
     if (blocked) return blocked;

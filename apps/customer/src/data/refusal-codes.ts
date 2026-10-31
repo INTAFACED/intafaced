@@ -309,6 +309,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_space_not_found': 'notFound',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
+  'pay.withdraw_confirmations_unset': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',
   'pay.wallet_cooling': 'walletPaused',
   'pay.wallet_fee_unset': 'walletFee',

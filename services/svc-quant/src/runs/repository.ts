@@ -51,6 +51,8 @@ export interface RunRepository {
     readonly keyPrefix: string;
     readonly limit: number;
     readonly cursor: string | null;
+    /** Only the runs of this one strategy, when given (a strategy's own page). */
+    readonly strategyId?: string | null;
   }): Promise<RunHistoryPage>;
   /**
    * How many distinct finished runs the account has of one strategy on one symbol and bar size, among the runs whose key

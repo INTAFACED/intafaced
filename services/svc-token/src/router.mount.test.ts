@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { StepUpCheckError, createEdgeContext, encodePrincipal, signPrincipalHeader, type StepUpCheck } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { ACCESS_TIERS, STAKE_TIERS } from './economics/staking.js';
 import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
@@ -1179,6 +1179,10 @@ describe('svc-token mount — owner reads', () => {
 });
 
 describe('governance settings and roles — the founders doors (MC-token-02)', () => {
+  /** Identity's step-up check, answering as if the founder confirmed. */
+  const okStepUp = (): StepUpCheck => ({
+    require: vi.fn(async () => ({ stepUpEventId: 'step-up-event', consumedAt: null, replayed: false })),
+  });
   const writer = () => signed(principal({ scopes: ['admin:write'] }));
   const governed = () =>
     stubToken({
@@ -1260,7 +1264,7 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
 
   it('a role change is the same two-founder door and never names the founder who asks', async () => {
     const token = governed();
-    const caller = createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(writer());
+    const caller = createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM), stepUp: okStepUp() }).createCaller(writer());
     expect(await caller.governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL })).toEqual({
       userId: OTHER,
       role: 'moderator',
@@ -1272,7 +1276,7 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
       cause: { code: 'token.role_invalid' },
     });
     await expect(
-      createTokenRouter(token, { approvals: stubApprovalConsumer(USER) })
+      createTokenRouter(token, { approvals: stubApprovalConsumer(USER), stepUp: okStepUp() })
         .createCaller(writer())
         .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
@@ -1283,7 +1287,7 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
       },
     };
     await expect(
-      createTokenRouter(token, { approvals: asked })
+      createTokenRouter(token, { approvals: asked, stepUp: okStepUp() })
         .createCaller(writer())
         .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST', cause: { code: 'token.role_invalid' } });
@@ -1298,11 +1302,51 @@ describe('governance settings and roles — the founders doors (MC-token-02)', (
     const stale = governed();
     vi.mocked(stale.precheckGovernanceRole).mockRejectedValue(new TokenError('stale', 'token.role_stale'));
     await expect(
-      createTokenRouter(stale, { approvals: counting })
+      createTokenRouter(stale, { approvals: counting, stepUp: okStepUp() })
         .createCaller(writer())
         .governance.setRole({ userId: OTHER, role: 'moderator', expectedRevision: 0, ...APPROVAL }),
     ).rejects.toMatchObject({ code: 'CONFLICT', cause: { code: 'token.role_stale' } });
     expect(consumed).toBe(0);
+  });
+
+  it("a role change needs the running founder's fresh step-up for exactly that move, before the approval is spent", async () => {
+    const token = governed();
+    let consumed = 0;
+    const counting: ActionApprovalConsumer = {
+      async consume(i) {
+        consumed += 1;
+        return stubApprovalConsumer(CONFIRM).consume(i);
+      },
+    };
+    const input = { userId: OTHER, role: 'moderator' as const, expectedRevision: 2, ...APPROVAL };
+    // Identity not wired: refused as unavailable, nothing spent.
+    await expect(createTokenRouter(token, { approvals: counting }).createCaller(writer()).governance.setRole(input)).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      cause: { code: 'identity.step_up_unavailable' },
+    });
+    // No confirmation: refused until the step-up is done.
+    const refusing = okStepUp();
+    vi.mocked(refusing.require).mockRejectedValue(new StepUpCheckError('confirm first', 'identity.step_up_required'));
+    await expect(
+      createTokenRouter(token, { approvals: counting, stepUp: refusing }).createCaller(writer()).governance.setRole(input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'identity.step_up_required' } });
+    expect(consumed).toBe(0);
+    expect(token.setGovernanceRole).not.toHaveBeenCalled();
+    // With it: the check names this founder, this session and exactly the move, and the role is written once.
+    const confirming = okStepUp();
+    await createTokenRouter(token, { approvals: counting, stepUp: confirming })
+      .createCaller(writer())
+      .governance.setRole({ ...input, stepUpApprovalId: 'step-1' });
+    expect(confirming.require).toHaveBeenCalledWith({
+      scope: 'token.step_up.governance.setRole',
+      userId: USER,
+      sessionId: expect.any(String),
+      approvalId: 'step-1',
+      fields: { userId: OTHER, role: 'moderator', expectedRevision: '2' },
+      requestId: expect.stringMatching(/^gov\.role:2:[0-9a-f]{32}$/),
+    });
+    expect(consumed).toBe(1);
+    expect(token.setGovernanceRole).toHaveBeenCalledTimes(1);
   });
 
   it('a cancel refused for the role is FORBIDDEN, and needs a signed principal', async () => {

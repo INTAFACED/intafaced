@@ -399,6 +399,11 @@ describe('titleOf', () => {
     expect(titleOf(item({ kind: 'payment', direction: 'in' }), t, withHandle)).toBe('Payment received');
     expect(titleOf(item({ kind: 'payment', direction: 'out' }), t, withHandle)).toBe('Payment sent');
     expect(titleOf(item({ kind: 'space_move' }), t, withHandle)).toBe('Moved between your accounts');
+    expect(titleOf(item({ kind: 'earn', direction: 'out' }), t, withHandle)).toBe('Moved to savings');
+    expect(titleOf(item({ kind: 'earn', direction: 'in' }), t, withHandle)).toBe('Back from savings');
+    expect(titleOf(item({ kind: 'staking', direction: 'out' }), t, withHandle)).toBe('Staked');
+    expect(titleOf(item({ kind: 'staking', direction: 'in' }), t, withHandle)).toBe('Unstaked');
+    expect(titleOf(item({ kind: 'reward', direction: 'in' }), t, withHandle)).toBe('Reward');
     expect(titleOf(item({ kind: 'other' }), t, withHandle)).toBe('Other activity');
   });
 });

@@ -102,6 +102,7 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForPage('/more-ops/campaigns/waves')).toBe('more-ops');
     expect(moduleForApi('/api/more-ops/waves')).toBe('more-ops');
     expect(moduleForPage('/identity-ops/oauth')).toBe('identity-ops');
+    expect(moduleForPage('/changes/policy')).toBe('identity-ops');
     expect(moduleForApi('/api/identity-ops/oauth')).toBe('identity-ops');
     expect(isModuleEnabled('identity-ops', { ADMIN_MODULES: 'crm' })).toBe(false);
   });

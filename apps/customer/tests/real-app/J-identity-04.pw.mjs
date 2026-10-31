@@ -201,6 +201,18 @@ test(`${J} #5 the first authenticator code turns it on; recovery codes show once
   for (const code of codes) expect(stored).not.toContain(code);
   expect(stored).not.toContain(secret);
   await expect(page.getByTestId('security__authenticator')).toContainText('Start authenticator setup');
+
+  // After a reload the authenticator is still on, and the codes are never shown again: only how many are left.
+  await page.reload();
+  const checklist = page.getByTestId('security__checklist');
+  await expect(
+    checklist.getByTestId('security__row').filter({ has: page.getByText('An authenticator app', { exact: true }) }),
+  ).toContainText('Done');
+  await expect(checklist.getByTestId('security__row').filter({ hasText: 'Recovery codes saved' })).toContainText(`${codes.length} left`);
+  await expect(page.getByTestId('security__recovery')).toHaveCount(0);
+  const again = await page.content();
+  for (const code of codes) expect(again).not.toContain(code);
+  expect(again).not.toContain(secret);
 });
 
 test(`${J}, part of #5: when the confirmation's answer is lost, the recovery codes still show, labelled as such`, async ({ page }) => {
