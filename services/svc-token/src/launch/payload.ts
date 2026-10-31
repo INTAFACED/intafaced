@@ -31,5 +31,9 @@ export function launchEventPayload(input: CreateEventInput): string {
     price: amt(e.price),
     paymentAsset: e.paymentAsset,
     rateSource: e.rateSource,
+    vesting:
+      e.vesting === null
+        ? null
+        : [e.vesting.startAt.toISOString(), e.vesting.cliffAt?.toISOString() ?? null, e.vesting.endAt.toISOString()],
   });
 }

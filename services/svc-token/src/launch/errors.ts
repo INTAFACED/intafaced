@@ -20,6 +20,11 @@ export const LAUNCH_REFUSAL_COPY = {
   'launch.min_kyc_tier_unset': 'Who may take part is not set: the least identity verification is blank.',
   'launch.restricted_regions_unset': 'Who may take part is not set: the barred regions are blank.',
   'launch.eligibility_unavailable': 'We could not read your account to check who may take part. Try again later.',
+  'launch.schedule_unset': 'The distribution schedule for this launch is not set.',
+  'launch.claim_unavailable':
+    'Claiming is not available: no allocation has been awarded for this launch and no claim is connected to the ledger.',
+  'launch.chain_claim_unavailable':
+    'An on-chain claim is not available: the project token is not issued on a chain and no vesting contract holds it for this launch.',
 } as const;
 
 export type LaunchErrorCode = keyof typeof LAUNCH_REFUSAL_COPY;

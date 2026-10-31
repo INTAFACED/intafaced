@@ -103,7 +103,8 @@ function sameEvent(stored: LaunchEvent, e: ReturnType<typeof canonicalEvent>): b
       JSON.stringify(e.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) &&
     sameAmount(stored.terms.price, e.price) &&
     stored.terms.paymentAsset === e.paymentAsset &&
-    stored.terms.rateSource === e.rateSource
+    stored.terms.rateSource === e.rateSource &&
+    sameVesting(stored.vesting, e.vesting)
   );
 }
 
@@ -185,8 +186,16 @@ export interface LaunchEvent {
   state: LaunchState | null;
   allocation: { method: AllocationMethod | null; perUserCap: Amount | null; ticketSize: Amount | null; tierWeights: TierWeight[] | null };
   terms: { price: Amount | null; paymentAsset: string | null; rateSource: string | null };
+  /** The issuer's distribution schedule (MC-launch-05): linear from start to end, nothing before the cliff. Null is not set. */
+  vesting: VestingSchedule | null;
   snapshot: { count: number; total: Amount; hash: string; takenAt: Date } | null;
   revision: number;
+}
+
+export interface VestingSchedule {
+  startAt: Date;
+  cliffAt: Date | null;
+  endAt: Date;
 }
 
 export interface LaunchIssuer {
@@ -221,6 +230,8 @@ export interface CreateEventInput {
     tierWeights: Array<{ minBasis: string; weight: number }> | null;
   };
   terms: { price: string | null; paymentAsset: string | null; rateSource: string | null };
+  /** Omitted or null: the schedule is not set, and the launch's distribution panel says so. */
+  vesting?: VestingSchedule | null;
 }
 
 export interface Basis {
@@ -334,6 +345,17 @@ export function canonicalEvent(input: CreateEventInput) {
     throw new LaunchError('Rate source must be 1 to 120 characters', 'launch.event_invalid');
   }
   if (rateSource !== null && price === null) throw new LaunchError('A rate source needs a price', 'launch.event_invalid');
+  const vesting = input.vesting ?? null;
+  if (vesting !== null) {
+    for (const [name, at] of Object.entries(vesting)) {
+      if (at !== null && (!(at instanceof Date) || Number.isNaN(at.getTime())))
+        throw new LaunchError(`Vesting ${name} is not a time`, 'launch.event_invalid');
+    }
+    if (!(vesting.startAt < vesting.endAt)) throw new LaunchError('Vesting must end after it starts', 'launch.event_invalid');
+    if (vesting.cliffAt !== null && !(vesting.startAt <= vesting.cliffAt && vesting.cliffAt <= vesting.endAt)) {
+      throw new LaunchError('The vesting cliff must fall between its start and its end', 'launch.event_invalid');
+    }
+  }
   return {
     id: input.id,
     issuerId: input.issuerId,
@@ -348,6 +370,7 @@ export function canonicalEvent(input: CreateEventInput) {
     price,
     paymentAsset: t.paymentAsset,
     rateSource,
+    vesting,
   };
 }
 
@@ -372,6 +395,9 @@ interface EventRow {
   price: string | null;
   payment_asset: string | null;
   rate_source: string | null;
+  vesting_start_at: Date | null;
+  vesting_cliff_at: Date | null;
+  vesting_end_at: Date | null;
   snapshot_count: number | null;
   snapshot_total: string | null;
   snapshot_hash: string | null;
@@ -405,6 +431,10 @@ function eventFromRow(row: EventRow): LaunchEvent {
         row.tier_weights === null ? null : row.tier_weights.map((t) => ({ minBasis: parseAmount(t.minBasis), weight: t.weight })),
     },
     terms: { price: amountOrNull(row.price), paymentAsset: row.payment_asset, rateSource: row.rate_source },
+    vesting:
+      row.vesting_start_at === null || row.vesting_end_at === null
+        ? null
+        : { startAt: row.vesting_start_at, cliffAt: row.vesting_cliff_at, endAt: row.vesting_end_at },
     snapshot:
       row.snapshot_count === null || row.snapshot_total === null || row.snapshot_hash === null || row.snapshot_taken_at === null
         ? null
@@ -414,6 +444,12 @@ function eventFromRow(row: EventRow): LaunchEvent {
 }
 
 const sameTime = (a: Date, b: Date) => a.getTime() === b.getTime();
+const sameVesting = (a: VestingSchedule | null, b: VestingSchedule | null) =>
+  a === null || b === null
+    ? a === b
+    : sameTime(a.startAt, b.startAt) &&
+      sameTime(a.endAt, b.endAt) &&
+      (a.cliffAt === null || b.cliffAt === null ? a.cliffAt === b.cliffAt : sameTime(a.cliffAt, b.cliffAt));
 const sameAmount = (a: Amount | null, b: Amount | null) => a === b;
 
 export class LaunchService {
@@ -428,6 +464,7 @@ export class LaunchService {
              e.announce_at, e.snapshot_at, e.open_at, e.close_at, e.distribution_at, e.status,
              e.allocation_method, e.per_user_cap::text AS per_user_cap, e.ticket_size::text AS ticket_size, e.tier_weights,
              e.price::text AS price, e.payment_asset, e.rate_source,
+             e.vesting_start_at, e.vesting_cliff_at, e.vesting_end_at,
              e.snapshot_count, e.snapshot_total::text AS snapshot_total, e.snapshot_hash, e.snapshot_taken_at, e.revision
         FROM token.launch_events e
         JOIN token.launch_issuers i ON i.id = e.issuer_id
@@ -642,12 +679,14 @@ export class LaunchService {
       await tx`
         INSERT INTO token.launch_events (
           id, issuer_id, type, project_name, symbol, announce_at, snapshot_at, open_at, close_at, distribution_at,
-          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source, created_by, approved_by
+          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source,
+          vesting_start_at, vesting_cliff_at, vesting_end_at, created_by, approved_by
         ) VALUES (
           ${e.id}, ${e.issuerId}, ${e.type}, ${e.projectName}, ${e.symbol},
           ${e.periods.announceAt}, ${e.periods.snapshotAt}, ${e.periods.openAt}, ${e.periods.closeAt}, ${e.periods.distributionAt},
           ${e.method}, ${fmt(e.perUserCap)}::numeric, ${fmt(e.ticketSize)}::numeric, ${weights},
-          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource}, ${by.actorId}, ${by.approverId}
+          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource},
+          ${e.vesting?.startAt ?? null}, ${e.vesting?.cliffAt ?? null}, ${e.vesting?.endAt ?? null}, ${by.actorId}, ${by.approverId}
         )
       `;
       return { id: e.id, status: 'draft' as const, revision: 0 };

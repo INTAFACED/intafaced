@@ -5,6 +5,7 @@ import { ActionApprovalConsumeError, consumeTokenApproval, type ActionApprovalCo
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { userCopy } from '../user-copy.js';
 import { checkEligibility, type ParticipantSource } from './eligibility.js';
+import { vestedShare } from './vesting.js';
 import { LaunchError, launchCopy } from './errors.js';
 import { LAUNCH_EVENT_CREATE_ACTION, LAUNCH_EVENT_MOVE_ACTION, LAUNCH_ISSUER_SET_ACTION, launchEventPayload } from './payload.js';
 import {
@@ -44,6 +45,7 @@ const eventOutput = z.object({
     tierWeights: z.array(z.object({ minBasis: amountString, weight: z.number().int() })).nullable(),
   }),
   terms: z.object({ price: amountString.nullable(), paymentAsset: z.string().nullable(), rateSource: z.string().nullable() }),
+  vesting: z.object({ startAt: z.string(), cliffAt: z.string().nullable(), endAt: z.string() }).nullable(),
   snapshot: z.object({ count: z.number().int(), total: amountString, takenAt: z.string() }).nullable(),
   revision: z.number().int(),
 });
@@ -72,6 +74,13 @@ function eventToWire(e: LaunchEvent): z.infer<typeof eventOutput> {
       tierWeights: e.allocation.tierWeights?.map((t) => ({ minBasis: formatAmount(t.minBasis), weight: t.weight })) ?? null,
     },
     terms: { price: amt(e.terms.price), paymentAsset: e.terms.paymentAsset, rateSource: e.terms.rateSource },
+    vesting: e.vesting
+      ? {
+          startAt: e.vesting.startAt.toISOString(),
+          cliffAt: e.vesting.cliffAt?.toISOString() ?? null,
+          endAt: e.vesting.endAt.toISOString(),
+        }
+      : null,
     snapshot: e.snapshot
       ? { count: e.snapshot.count, total: formatAmount(e.snapshot.total), takenAt: e.snapshot.takenAt.toISOString() }
       : null,
@@ -100,6 +109,22 @@ const createInput = z.object({
   terms: z
     .object({ price: amountString.nullable(), paymentAsset: z.string().max(12).nullable(), rateSource: z.string().max(120).nullable() })
     .strict(),
+  /** The distribution schedule; omitted or null is not set. */
+  vesting: z.object({ startAt: iso, cliffAt: iso.nullable(), endAt: iso }).strict().nullish(),
+});
+
+/** One launch's distribution schedule as read at the service clock (MC-launch-05). No account's allocation is awarded yet. */
+const scheduleOutput = z.object({
+  eventId: z.string(),
+  readAt: z.string(),
+  vesting: z.object({ startAt: z.string(), cliffAt: z.string().nullable(), endAt: z.string() }).nullable(),
+  reason: z.literal('launch.schedule_unset').nullable(),
+  phase: z.enum(['before_start', 'before_cliff', 'vesting', 'vested']).nullable(),
+  /** The vested part of any allocation, a decimal fraction from 0 to 1, floored. Null while the schedule is not set. */
+  vestedShare: amountString.nullable(),
+  /** Allocation rows are not built: no account has an awarded amount, so none is vested or claimable. */
+  awarded: z.null(),
+  awardedReason: z.literal('launch.allocation_unwired'),
 });
 
 const approvalFields = { approvalId: z.string().max(128).nullish(), operationId: z.string().max(128).nullish() };
@@ -108,6 +133,13 @@ function toCreateInput(input: z.infer<typeof createInput>): CreateEventInput {
   const p = input.periods;
   return {
     ...input,
+    vesting: input.vesting
+      ? {
+          startAt: new Date(input.vesting.startAt),
+          cliffAt: input.vesting.cliffAt ? new Date(input.vesting.cliffAt) : null,
+          endAt: new Date(input.vesting.endAt),
+        }
+      : null,
     periods: {
       announceAt: new Date(p.announceAt),
       snapshotAt: new Date(p.snapshotAt),
@@ -193,6 +225,44 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
         .input(z.object({ id: launchId }))
         .output(eventOutput)
         .query(({ input }) => guard(async () => eventToWire(await launch.getEvent(input.id)))),
+
+      /** The distribution schedule and the share vested now, signed in or out. A draft reads as not found. */
+      schedule: publicProcedure
+        .input(z.object({ id: launchId }))
+        .output(scheduleOutput)
+        .query(({ input }) =>
+          guard(async () => {
+            const event = await launch.getEvent(input.id);
+            const readAt = now();
+            const vested = event.vesting ? vestedShare(event.vesting, readAt) : null;
+            return {
+              eventId: event.id,
+              readAt: readAt.toISOString(),
+              vesting: eventToWire(event).vesting,
+              reason: event.vesting ? null : ('launch.schedule_unset' as const),
+              phase: vested?.phase ?? null,
+              vestedShare: vested ? formatAmount(vested.share) : null,
+              awarded: null,
+              awardedReason: 'launch.allocation_unwired' as const,
+            };
+          }),
+        ),
+
+      /**
+       * The claim control. It moves nothing in this build: an on-chain claim refuses `launch.chain_claim_unavailable`
+       * and a custodial one `launch.claim_unavailable`, after the launch is found. No recipe or grant exists for either.
+       */
+      claim: scopedProcedure('token:stake')
+        .input(z.object({ id: launchId, onChain: z.boolean() }).strict())
+        .output(z.never())
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            signed(ctx.principal.userId);
+            await launch.getEvent(input.id);
+            if (input.onChain) throw new LaunchError('No vesting contract holds this launch on a chain', 'launch.chain_claim_unavailable');
+            throw new LaunchError('No allocation is awarded and no claim recipe is wired', 'launch.claim_unavailable');
+          }),
+        ),
 
       create: scopedProcedure('admin:write')
         .input(createInput.extend(approvalFields))

@@ -33,6 +33,7 @@ function eventPayload(e) {
     price: e.terms.price,
     paymentAsset: e.terms.paymentAsset,
     rateSource: e.terms.rateSource,
+    vesting: e.vesting ? [e.vesting.startAt, e.vesting.cliffAt, e.vesting.endAt] : null,
   });
 }
 

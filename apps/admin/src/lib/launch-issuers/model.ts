@@ -56,9 +56,12 @@ export interface LaunchEventPayload {
   price: string | null;
   paymentAsset: string | null;
   rateSource: string | null;
+  /** The distribution schedule: start, cliff (or null) and end; null is not set. */
+  vesting: [string, string | null, string] | null;
 }
 
-const PAYLOAD_KEYS = 'id,issuerId,type,projectName,symbol,periods,method,perUserCap,ticketSize,tierWeights,price,paymentAsset,rateSource';
+const PAYLOAD_KEYS =
+  'id,issuerId,type,projectName,symbol,periods,method,perUserCap,ticketSize,tierWeights,price,paymentAsset,rateSource,vesting';
 
 const amountOrNull = (v: unknown): v is string | null => v === null || (typeof v === 'string' && CANONICAL_AMOUNT.test(v));
 
@@ -88,6 +91,19 @@ export function readLaunchEventPayload(text: string): LaunchEventPayload | null 
     !(typeof r.rateSource === 'string' && r.rateSource === r.rateSource.trim() && r.rateSource.length >= 1 && r.rateSource.length <= 120)
   )
     return null;
+  if (
+    r.vesting !== null &&
+    !(
+      Array.isArray(r.vesting) &&
+      r.vesting.length === 3 &&
+      typeof r.vesting[0] === 'string' &&
+      ISO.test(r.vesting[0]) &&
+      (r.vesting[1] === null || (typeof r.vesting[1] === 'string' && ISO.test(r.vesting[1]))) &&
+      typeof r.vesting[2] === 'string' &&
+      ISO.test(r.vesting[2])
+    )
+  )
+    return null;
   if (!draftRulesHold(r as unknown as LaunchEventPayload)) return null;
   if (JSON.stringify(r) !== text) return null;
   return r as unknown as LaunchEventPayload;
@@ -104,6 +120,15 @@ function draftRuleBroken(p: LaunchEventPayload): string | null {
     return 'A cap, ticket size or price is more than zero, or left blank.';
   if ((p.price === null) !== (p.paymentAsset === null)) return 'A price needs the currency it is paid in, and a currency needs a price.';
   if (p.rateSource !== null && p.price === null) return 'A rate source needs a price.';
+  if (p.vesting !== null) {
+    const [start, cliff, end] = [
+      Date.parse(p.vesting[0]),
+      p.vesting[1] === null ? null : Date.parse(p.vesting[1]),
+      Date.parse(p.vesting[2]),
+    ];
+    if (!(start < end)) return 'Vesting must end after it starts.';
+    if (cliff !== null && !(start <= cliff && cliff <= end)) return 'The vesting cliff must fall between its start and its end.';
+  }
   return null;
 }
 
@@ -125,7 +150,11 @@ export interface LaunchDraftForm {
   price: string;
   paymentAsset: string;
   rateSource: string;
+  /** Vesting start, cliff and end; all blank is "schedule not set", and the cliff may stay blank. */
+  vesting: [string, string, string];
 }
+
+export const VESTING_NAMES = ['Vesting start', 'Vesting cliff', 'Vesting end'] as const;
 
 export const PERIOD_NAMES = ['Announce', 'Snapshot', 'Open', 'Close', 'Distribution'] as const;
 
@@ -139,11 +168,27 @@ export function draftPayload(form: LaunchDraftForm): { ok: true; event: string }
   if (projectName.length < 1 || projectName.length > 120) return { ok: false, message: 'Project name: 1 to 120 characters.' };
   const symbol = form.symbol.trim().toUpperCase();
   if (!SYMBOL.test(symbol)) return { ok: false, message: 'Symbol: 2 to 12 capital letters or digits.' };
+  const utc = (value: string) => {
+    const when = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value.trim()) ? new Date(`${value.trim()}:00.000Z`) : null;
+    return when && !Number.isNaN(when.getTime()) ? when.toISOString() : null;
+  };
   const periods: string[] = [];
   for (const [i, value] of form.periods.entries()) {
-    const when = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value.trim()) ? new Date(`${value.trim()}:00.000Z`) : null;
-    if (!when || Number.isNaN(when.getTime())) return { ok: false, message: `${PERIOD_NAMES[i]}: choose a date and time (UTC).` };
-    periods.push(when.toISOString());
+    const when = utc(value);
+    if (!when) return { ok: false, message: `${PERIOD_NAMES[i]}: choose a date and time (UTC).` };
+    periods.push(when);
+  }
+  let vesting: LaunchEventPayload['vesting'] = null;
+  if (form.vesting.some((v) => v.trim() !== '')) {
+    const [start, cliff, end] = form.vesting;
+    const startAt = utc(start);
+    const endAt = utc(end);
+    const cliffAt = cliff.trim() === '' ? null : utc(cliff);
+    if (!startAt) return { ok: false, message: `${VESTING_NAMES[0]}: choose a date and time (UTC), or leave the whole schedule blank.` };
+    if (!endAt) return { ok: false, message: `${VESTING_NAMES[2]}: choose a date and time (UTC), or leave the whole schedule blank.` };
+    if (cliff.trim() !== '' && !cliffAt)
+      return { ok: false, message: `${VESTING_NAMES[1]}: choose a date and time (UTC), or leave it blank.` };
+    vesting = [startAt, cliffAt, endAt];
   }
   const method = blank(form.method);
   if (method !== null && !(ALLOCATION_METHODS as readonly string[]).includes(method))
@@ -175,6 +220,7 @@ export function draftPayload(form: LaunchDraftForm): { ok: true; event: string }
     price: blank(form.price),
     paymentAsset,
     rateSource,
+    vesting,
   };
   const broken = draftRuleBroken(payload);
   if (broken) return { ok: false, message: broken };
@@ -193,6 +239,7 @@ export function createInputFor(payload: LaunchEventPayload) {
     periods: { announceAt, snapshotAt, openAt, closeAt, distributionAt },
     allocation: { method: payload.method, perUserCap: payload.perUserCap, ticketSize: payload.ticketSize, tierWeights: null },
     terms: { price: payload.price, paymentAsset: payload.paymentAsset, rateSource: payload.rateSource },
+    vesting: payload.vesting ? { startAt: payload.vesting[0], cliffAt: payload.vesting[1], endAt: payload.vesting[2] } : null,
   };
 }
 

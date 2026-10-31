@@ -14,6 +14,7 @@ const FORM: LaunchDraftForm = {
   price: '0.5',
   paymentAsset: 'USDT',
   rateSource: '',
+  vesting: ['', '', ''],
 };
 
 const refused = (patch: Partial<LaunchDraftForm>) => {
@@ -45,6 +46,20 @@ describe('the new-launch form refuses what svc-token would refuse, before two fo
     expect(refused({ price: '', paymentAsset: '', rateSource: 'TEST feed' })).toMatch(/rate source needs a price/);
     expect(refused({ price: '0.50' })).toMatch(/no extra zeros/);
     expect(refused({ id: 'X' })).toMatch(/Launch id/);
+  });
+
+  it('the distribution schedule: all blank is not set; a start needs an end; a cliff stays inside; svc-token’s order', () => {
+    const none = draftPayload(FORM);
+    if (!none.ok) throw new Error(none.message);
+    expect(readLaunchEventPayload(none.event)?.vesting).toBeNull();
+    const set = draftPayload({ ...FORM, vesting: ['2026-12-01T00:00', '', '2026-12-31T00:00'] });
+    if (!set.ok) throw new Error(set.message);
+    expect(readLaunchEventPayload(set.event)?.vesting).toEqual(['2026-12-01T00:00:00.000Z', null, '2026-12-31T00:00:00.000Z']);
+    expect(refused({ vesting: ['2026-12-01T00:00', '', ''] })).toMatch(/Vesting end/);
+    expect(refused({ vesting: ['', '2026-12-05T00:00', ''] })).toMatch(/Vesting start/);
+    expect(refused({ vesting: ['2026-12-31T00:00', '', '2026-12-01T00:00'] })).toMatch(/end after it starts/);
+    expect(refused({ vesting: ['2026-12-01T00:00', '2027-01-05T00:00', '2026-12-31T00:00'] })).toMatch(/cliff must fall between/);
+    expect(readLaunchEventPayload(set.event.replace('"vesting":[', '"vesting":[null,'))).toBeNull();
   });
 
   it('a payload svc-token would hash differently is not read: untrimmed rate source, reordered keys', () => {

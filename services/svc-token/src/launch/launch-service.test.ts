@@ -159,6 +159,30 @@ describe('J-more-catalogue-11 launch service', () => {
     expect(n).toBe(1);
   });
 
+  it('stores the distribution schedule with the draft; a replay matches it and another schedule conflicts (MC-launch-05)', async () => {
+    await onboardedIssuer();
+    const vesting = { startAt: at(12), cliffAt: at(24), endAt: at(48) };
+    await launch.createEvent(event({ vesting }), BY);
+    expect((await launch.getAnyEvent('test-open-launch')).vesting).toEqual(vesting);
+    expect(await launch.createEvent(event({ vesting }), BY)).toMatchObject({ id: 'test-open-launch', revision: 0 });
+    expect(await refusal(launch.createEvent(event({ vesting: { ...vesting, cliffAt: null } }), BY))).toBe('launch.event_conflict');
+    expect(await refusal(launch.createEvent(event(), BY))).toBe('launch.event_conflict');
+    await launch.createEvent(event({ id: 'test-unscheduled' }), BY);
+    expect((await launch.getAnyEvent('test-unscheduled')).vesting).toBeNull();
+  });
+
+  it('refuses a schedule that ends before it starts or a cliff outside it, and the table refuses one too', async () => {
+    await onboardedIssuer();
+    expect(await refusal(launch.createEvent(event({ vesting: { startAt: at(48), cliffAt: null, endAt: at(12) } }), BY))).toBe(
+      'launch.event_invalid',
+    );
+    expect(await refusal(launch.createEvent(event({ vesting: { startAt: at(12), cliffAt: at(60), endAt: at(48) } }), BY))).toBe(
+      'launch.event_invalid',
+    );
+    await launch.createEvent(event(), BY);
+    await expect(sql`UPDATE token.launch_events SET vesting_start_at = ${at(12)}`).rejects.toThrow(/launch_events_vesting_ck/);
+  });
+
   it('records who created a draft and who approved it, and refuses one person as both', async () => {
     await onboardedIssuer();
     await launch.createEvent(event(), BY);

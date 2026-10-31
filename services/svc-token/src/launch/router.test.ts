@@ -69,6 +69,7 @@ const OPEN: LaunchEvent = {
   state: 'open',
   allocation: { method: 'pro_rata', perUserCap: amt('250'), ticketSize: null, tierWeights: null },
   terms: { price: amt('0.5'), paymentAsset: 'USDT', rateSource: null },
+  vesting: null,
   snapshot: { count: 1, total: amt('120.5'), hash: 'h', takenAt: new Date('2026-11-01T01:30:00Z') },
   revision: 3,
 };
@@ -105,12 +106,18 @@ function fakeService(overrides: Partial<Record<keyof LaunchService, unknown>> = 
 function caller(
   ctx: ReturnType<typeof signed>,
   service = fakeService(),
-  opts: { approvals?: ActionApprovalConsumer; participants?: ParticipantSource; env?: typeof RULE_ENV | Record<string, string> } = {},
+  opts: {
+    approvals?: ActionApprovalConsumer;
+    participants?: ParticipantSource;
+    env?: typeof RULE_ENV | Record<string, string>;
+    now?: () => Date;
+  } = {},
 ) {
   return createLaunchRouter(service, {
     approvals: opts.approvals ?? stubApprovalConsumer(APPROVER),
     participants: opts.participants ?? { read: async () => VERIFIED },
     eligibilityEnv: () => opts.env ?? RULE_ENV,
+    ...(opts.now ? { now: opts.now } : {}),
   }).createCaller(ctx);
 }
 
@@ -482,5 +489,88 @@ describe('operator lens reads (J-more-catalogue-14)', () => {
         },
       ],
     });
+  });
+});
+
+describe('distribution schedule and claim (MC-launch-05)', () => {
+  const VESTING = {
+    startAt: new Date('2026-12-01T00:00:00Z'),
+    cliffAt: new Date('2026-12-11T00:00:00Z'),
+    endAt: new Date('2026-12-31T00:00:00Z'),
+  };
+  const at = (iso: string) => () => new Date(iso);
+
+  it('a launch with no schedule reads "schedule not set" with no date and no share, signed in or out', async () => {
+    const read = await caller(anonymous()).events.schedule({ id: OPEN.id });
+    expect(read).toMatchObject({
+      eventId: OPEN.id,
+      vesting: null,
+      reason: 'launch.schedule_unset',
+      phase: null,
+      vestedShare: null,
+      awarded: null,
+      awardedReason: 'launch.allocation_unwired',
+    });
+  });
+
+  it.each([
+    ['2026-11-30T00:00:00Z', 'before_start', '0'],
+    ['2026-12-05T00:00:00Z', 'before_cliff', '0'],
+    ['2026-12-16T00:00:00Z', 'vesting', '0.5'],
+    ['2026-12-31T00:00:00Z', 'vested', '1'],
+  ])('at %s the schedule reads %s with %s vested, at the service clock', async (now, phase, share) => {
+    const service = fakeService({ getEvent: vi.fn(async () => ({ ...OPEN, vesting: VESTING })) });
+    const read = await caller(anonymous(), service, { now: at(now) }).events.schedule({ id: OPEN.id });
+    expect(read).toMatchObject({
+      readAt: new Date(now).toISOString(),
+      vesting: { startAt: '2026-12-01T00:00:00.000Z', cliffAt: '2026-12-11T00:00:00.000Z', endAt: '2026-12-31T00:00:00.000Z' },
+      reason: null,
+      phase,
+      vestedShare: share,
+    });
+  });
+
+  it('a draft or unknown launch reads as not found', async () => {
+    const service = fakeService({ getEvent: vi.fn(async () => Promise.reject(new LaunchError('x', 'launch.event_not_found'))) });
+    await expect(caller(anonymous(), service).events.schedule({ id: 'test-missing' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('the claim needs a signed account and refuses by rail, moving nothing', async () => {
+    const stake = principal({ scopes: ['token:read', 'token:stake'] });
+    await expect(caller(anonymous()).events.claim({ id: OPEN.id, onChain: true })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(signed()).events.claim({ id: OPEN.id, onChain: true })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(signed(stake)).events.claim({ id: OPEN.id, onChain: true })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('the project token is not issued on a chain'),
+    });
+    await expect(caller(signed(stake)).events.claim({ id: OPEN.id, onChain: false })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('no allocation has been awarded'),
+    });
+    const missing = fakeService({ getEvent: vi.fn(async () => Promise.reject(new LaunchError('x', 'launch.event_not_found'))) });
+    await expect(caller(signed(stake), missing).events.claim({ id: 'test-missing', onChain: true })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('the founders approve the schedule with the draft: it is in the bound payload, and a changed one is another payload', async () => {
+    const base = {
+      id: OPEN.id,
+      issuerId: OPEN.issuer.id,
+      type: OPEN.type,
+      projectName: OPEN.projectName,
+      symbol: OPEN.symbol,
+      periods: OPEN.periods,
+      allocation: { method: 'pro_rata' as const, perUserCap: '250', ticketSize: null, tierWeights: null },
+      terms: { price: '0.5', paymentAsset: 'USDT', rateSource: null },
+    };
+    const none = JSON.parse(launchEventPayload(base));
+    expect(none.vesting).toBeNull();
+    expect(JSON.parse(launchEventPayload({ ...base, vesting: null })).vesting).toBeNull();
+    const set = JSON.parse(launchEventPayload({ ...base, vesting: VESTING }));
+    expect(set.vesting).toEqual(['2026-12-01T00:00:00.000Z', '2026-12-11T00:00:00.000Z', '2026-12-31T00:00:00.000Z']);
+    expect(launchEventPayload({ ...base, vesting: { ...VESTING, cliffAt: null } })).not.toBe(
+      launchEventPayload({ ...base, vesting: VESTING }),
+    );
   });
 });

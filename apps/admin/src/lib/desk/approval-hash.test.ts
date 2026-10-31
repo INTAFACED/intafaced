@@ -495,6 +495,7 @@ describe('token launch issuer lens (J-more-catalogue-14)', () => {
     price: '0.5',
     paymentAsset: 'usdt',
     rateSource: '',
+    vesting: ['2026-12-01T00:00', '2026-12-11T00:00', '2026-12-31T00:00'],
   });
   if (!draft.ok) throw new Error(draft.message);
   const create = { kind: 'token.launch.event.create' as const, event: draft.event };
@@ -520,6 +521,11 @@ describe('token launch issuer lens (J-more-catalogue-14)', () => {
     const canonical = launchEventPayload({
       ...input,
       periods: Object.fromEntries(Object.entries(input.periods).map(([k, v]) => [k, new Date(v)])) as never,
+      vesting: input.vesting && {
+        startAt: new Date(input.vesting.startAt),
+        cliffAt: input.vesting.cliffAt === null ? null : new Date(input.vesting.cliffAt),
+        endAt: new Date(input.vesting.endAt),
+      },
     });
     expect(canonical).toBe(draft.event);
     expect(payloadHashFor(create)).toBe(tokenActionPayloadHash(LAUNCH_EVENT_CREATE_ACTION, { event: canonical }));

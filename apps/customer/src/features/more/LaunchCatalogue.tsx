@@ -9,6 +9,7 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, EmptyState, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select } from './common';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
+import { LaunchDistribution } from './LaunchDistribution';
 import './launch-catalogue.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -233,6 +234,7 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
           </div>
           <EligibilityCheck event={e} />
           <YourBasis event={e} />
+          <LaunchDistribution eventId={e.id} />
         </div>
       )}
     </Read>

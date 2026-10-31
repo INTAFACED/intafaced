@@ -8,6 +8,7 @@ import {
   ALLOCATION_METHODS,
   LAUNCH_TYPES,
   PERIOD_NAMES,
+  VESTING_NAMES,
   draftPayload,
   type LaunchDraftForm,
   type LaunchEventRow,
@@ -34,6 +35,7 @@ const EMPTY: LaunchDraftForm = {
   price: '',
   paymentAsset: '',
   rateSource: '',
+  vesting: ['', '', ''],
 };
 
 export function LaunchDraftDesk({
@@ -54,6 +56,8 @@ export function LaunchDraftDesk({
   const set = (key: keyof LaunchDraftForm) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
   const setPeriod = (i: number) => (value: string) =>
     setForm((f) => ({ ...f, periods: f.periods.map((p, j) => (j === i ? value : p)) as LaunchDraftForm['periods'] }));
+  const setVesting = (i: number) => (value: string) =>
+    setForm((f) => ({ ...f, vesting: f.vesting.map((v, j) => (j === i ? value : v)) as LaunchDraftForm['vesting'] }));
   const built = draftPayload(form);
   const action: ControlAction = {
     heading: 'Save this launch as a draft',
@@ -118,6 +122,14 @@ export function LaunchDraftDesk({
             <label key={name}>
               {name} (UTC)
               <input type="datetime-local" value={form.periods[i]} onChange={(e) => setPeriod(i)(e.target.value)} />
+            </label>
+          ))}
+        </div>
+        <div className="dk-row">
+          {VESTING_NAMES.map((name, i) => (
+            <label key={name}>
+              {name} (UTC{i === 1 ? ', blank: no cliff' : ', blank: schedule not set'})
+              <input type="datetime-local" value={form.vesting[i]} onChange={(e) => setVesting(i)(e.target.value)} />
             </label>
           ))}
         </div>
