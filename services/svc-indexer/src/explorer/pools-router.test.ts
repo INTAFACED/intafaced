@@ -167,11 +167,23 @@ describe('D-explorer-05 pool logs', () => {
     expect(syncOf({ logIndex: 0, address: POOL, topics: [POOL_SYNC_TOPIC, `0x${word(5n)}`], data: `0x${word(5n)}${word(6n)}` })).toBeNull();
   });
 
-  it('labels a swap from token0’s side and never picks one for a swap that moved token0 both ways', () => {
-    expect(swapSide({ amount0In: 0n, amount0Out: 5n })).toBe('buy');
-    expect(swapSide({ amount0In: 5n, amount0Out: 0n })).toBe('sell');
-    expect(swapSide({ amount0In: 5n, amount0Out: 5n })).toBe('both');
-    expect(swapSide({ amount0In: 0n, amount0Out: 0n })).toBe('both');
+  it('labels a swap from token0’s side by what the pool paid out, and never picks one for a swap that paid out both or neither', () => {
+    const swap = (amount0In: bigint, amount1In: bigint, amount0Out: bigint, amount1Out: bigint) => ({
+      amount0In,
+      amount1In,
+      amount0Out,
+      amount1Out,
+    });
+    expect(swapSide(swap(0n, 7n, 5n, 0n))).toBe('buy');
+    expect(swapSide(swap(5n, 0n, 0n, 7n))).toBe('sell');
+    expect(swapSide(swap(5n, 0n, 5n, 0n))).toBe('both');
+    expect(swapSide(swap(0n, 0n, 0n, 0n))).toBe('both');
+    expect(swapSide(swap(5n, 5n, 5n, 5n))).toBe('both');
+    // A transfer made straight to the pool before the swap is counted as that swap's input too: 1000 token0 sat above
+    // the reserves when 1 token1 bought 0.99 token0. The pool paid out token0 alone, so it is still a buy (and the mirror
+    // a sell), as J-dex-protocol-09 #7 met on main at a207de08.
+    expect(swapSide(swap(1000n, 1n, 99n, 0n))).toBe('buy');
+    expect(swapSide(swap(1n, 1000n, 0n, 99n))).toBe('sell');
   });
 
   it('scales a raw ratio by the decimals both tokens stated, and has no scale when one is unknown', () => {

@@ -108,12 +108,15 @@ export function syncOf(log: ChainTxLog): SyncLogFact | null {
 }
 
 /**
- * Which way a swap went, from token0's side: token0 left the pool (a buy of token0) or went into it (a sell). A swap
- * that moved token0 both ways at once is neither, and says so rather than picking one.
+ * Which way a swap went, from token0's side, read from what the pool paid out: only token0 left the pool for token1
+ * (a buy of token0), or only token1 left it for token0 (a sell). The pool counts every token it holds above its reserves
+ * as input, so a transfer made straight to the pool before a swap shows as that swap's input on the other side too; it
+ * does not change what the swap paid out, so it does not change the side. A swap that paid out both tokens, or neither,
+ * or paid out a token for that same token alone, is neither, and says so rather than picking one.
  */
-export function swapSide(swap: { amount0In: bigint; amount0Out: bigint }): 'buy' | 'sell' | 'both' {
-  if (swap.amount0Out > 0n && swap.amount0In === 0n) return 'buy';
-  if (swap.amount0In > 0n && swap.amount0Out === 0n) return 'sell';
+export function swapSide(swap: { amount0In: bigint; amount1In: bigint; amount0Out: bigint; amount1Out: bigint }): 'buy' | 'sell' | 'both' {
+  if (swap.amount0Out > 0n && swap.amount1Out === 0n && swap.amount1In > 0n) return 'buy';
+  if (swap.amount1Out > 0n && swap.amount0Out === 0n && swap.amount0In > 0n) return 'sell';
   return 'both';
 }
 
