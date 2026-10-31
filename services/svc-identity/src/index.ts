@@ -16,6 +16,7 @@ import { serviceOfRequest } from './s2s-door.js';
 import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { SignInChallengeService, parseSignInChallengePolicy } from './auth/signin-challenge.js';
 import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
@@ -481,6 +482,8 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
+/** The owner's sign-in challenge settings (I-signin-sessions-30); blank ones stay blank and refuse or require. */
+const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePolicy(env));
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
@@ -666,6 +669,7 @@ export const appRouter = mergeRouters(
     registrationOpen: env.REGISTRATION_OPEN,
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
+    signInChallenge,
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // Parsed at start: a malformed published list or review time stops the service rather than showing a wrong one.
@@ -881,6 +885,8 @@ app.get('/ready', async () => ({
   }),
   argon2: await argon2Available(),
   founderControls: founderControls.readiness(),
+  // Not ready while any sign-in challenge setting is blank: sign-in then needs a challenge that cannot be issued.
+  signInChallenge: { ready: signInChallenge.unset().length === 0, unset: signInChallenge.unset() },
   operationAdmission: configuredIdentityOperationOwners({
     privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
     edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,

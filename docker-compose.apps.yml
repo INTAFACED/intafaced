@@ -388,6 +388,13 @@ services:
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
       # Blank stays refuse-closed (auth.reset_unwired).
       IDENTITY_FLOW_SUBJECT_KEY: ${IDENTITY_FLOW_SUBJECT_KEY:-}
+      # Sign-in challenge (I-signin-sessions-30). Pass-through only: no compose default, no invented number or key. Blank
+      # failure count asks every sign-in for a challenge; blank difficulty, lifetime or key refuses identity.challenge_unconfigured.
+      # The local founder seed writes TEST values (tooling/scripts/local-founder-seed.mjs).
+      IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES: ${IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:-}
+      IDENTITY_SIGNIN_CHALLENGE_BITS: ${IDENTITY_SIGNIN_CHALLENGE_BITS:-}
+      IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: ${IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS:-}
+      IDENTITY_SIGNIN_CHALLENGE_KEY: ${IDENTITY_SIGNIN_CHALLENGE_KEY:-}
       # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
       # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
       API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
