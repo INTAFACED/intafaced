@@ -1,0 +1,239 @@
+import { randomUUID } from 'node:crypto';
+import { test, expect } from '@playwright/test';
+import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { METHOD, p2p, readyTaker, refusalCode, restorePasskey, testInstrument } from './p2p.mjs';
+
+// J-p2p-06, in the running app (docs/roadmap/journeys.json): an order goes wrong. One test per step, titled
+// "J-p2p-06 #<n>", run in order on one verified TEST seller and one buyer, on the shared TEST bank transfer
+// (`local-test-gates.mjs p2p`). The stack's TEST deadlines (tooling/scripts/local-stack-services/p2p.mjs): payment 180 s,
+// release 1800 s, swept every 30 s; the TEST cancel limit is 3 within 24 hours and the reminder wait 5 s
+// (tooling/profiles/test-owner-values/p2p.json). A step whose door is not built yet fails at once, naming its slice.
+const J = 'J-p2p-06';
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const AD = { price: '0.92', min: '10', max: '30', total: '200' };
+const PAYMENT_SECONDS = 180;
+const SWEEP_SECONDS = 30;
+const UNBUILT = { timeout: 5_000 };
+
+test.describe.configure({ mode: 'default' });
+
+test.beforeAll(() => {
+  tool('local-test-gates.mjs', 'p2p');
+});
+
+function journey() {
+  const state = run.read();
+  if (!state.offerId) throw new Error(`${J} #1 made no ad, so this step has nothing to act on`);
+  return state;
+}
+
+const sellerClient = async (state) => p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
+
+/** The buyer's client; keeps how far the passkey's counter went after each use, so the next is not read as a replay. */
+async function buyerClient(state) {
+  const passkey = await restorePasskey(state.buyerPasskey);
+  const b = await readyTaker(await api(state.buyer), state.buyer, passkey);
+  return {
+    b,
+    save: () => {
+      state.buyerPasskey = passkey.saved();
+      run.write({ buyerPasskey: state.buyerPasskey });
+    },
+  };
+}
+
+const free = async (who) => (await (await api(who)).balances()).USDT?.free ?? '0';
+
+test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to the seller, and the cancel counts', async ({ page }) => {
+  test.setTimeout(240_000);
+  const seller = await signUp(page, 'p2p06s');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '300').tx).toBeTruthy();
+  const first = p2p(await api(seller));
+  await testInstrument(first, seller);
+  const s = p2p(await api(seller), first.passkey());
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: AD.total,
+    methods: [METHOD],
+    terms: `TEST terms: ${J}`,
+    idempotencyKey: `${J}:ad:${seller.handle}`,
+  });
+  const buyer = await signUp(page, 'p2p06b');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  run.reset({ seller, sellerPasskey: s.passkey().saved(), buyer, buyerPasskey: b.passkey().saved(), offerId: offer.id });
+  const state = run.read();
+
+  // Orders the later steps need, taken before #2 pauses this buyer: one left unpaid to run out (#4, #8) and one the
+  // buyer marks paid (#3, #6, #7).
+  const sellerFreeBeforeExpiry = await free(seller);
+  const expiring = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  const paid = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  await b.mutate('trades.markFiatSent', { tradeId: paid.id });
+  run.write({ buyerPasskey: b.passkey().saved(), expiringTradeId: expiring.id, paidTradeId: paid.id, sellerFreeBeforeExpiry });
+
+  const before = await free(seller);
+  const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  run.write({ buyerPasskey: b.passkey().saved() });
+  expect(trade.status).toBe('escrowed');
+  // Held in escrow: the seller's free balance is down by the order.
+  expect(await free(seller)).toBe(fromUnits(toUnits(before) - toUnits('10')));
+
+  // In the app, the buyer cancels with a reason.
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${trade.id}`);
+  const cancel = page.getByTestId('order-cancel');
+  await expect(cancel, 'the order page has no cancel with a reason (P-trade-orders-19)').toBeVisible(UNBUILT);
+  await cancel.getByLabel('Why are you cancelling?').selectOption({ label: 'I changed my mind' });
+  await cancel.getByRole('button', { name: 'Cancel the order' }).click();
+  await expect(page.getByTestId('p2p-order-identity')).toContainText('Cancelled');
+
+  const cancelled = await b.query('trades.get', { tradeId: trade.id });
+  expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded' });
+  expect(cancelled.resolutionReason).toContain('changed my mind');
+  // One refund: the seller's free balance is back where it was, and a second cancel moves nothing.
+  await expect.poll(() => free(seller), { timeout: 30_000 }).toBe(before);
+  const again = await b.raw.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST again' });
+  expect(again.status === 200 ? again.body.result.data.resolvedAt : refusalCode(again)).toBeTruthy();
+  expect(await free(seller)).toBe(before);
+  // The cancel counts toward the buyer's daily threshold: one of three used.
+  const limits = await b.raw.query('access.limits');
+  expect(limits.status, 'svc-p2p does not show the buyer how many cancels count (P-trade-orders-05)').toBe(200);
+  expect(limits.body.result.data.cancels).toMatchObject({ used: 1, cap: 3 });
+});
+
+test('J-p2p-06 #2 too many cancels restrict buying with the end time, and the count starts again at the day boundary', async () => {
+  test.setTimeout(240_000);
+  const state = journey();
+  const { b, save } = await buyerClient(state);
+  // Two more cancels make three today.
+  for (let i = 0; i < 2; i++) {
+    const trade = await b.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+    await b.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' });
+  }
+  save();
+  const refused = await b.raw.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(refusalCode(refused)).toBe('p2p.buying_restricted');
+  const pause = refused.body.error.data.p2pLimit;
+  expect(pause.until).toEqual(expect.any(String));
+  expect(Date.parse(pause.until)).toBeGreaterThan(Date.now());
+  // The spec counts cancels per day: the count starts again at the next UTC midnight, which the refusal names.
+  const midnight = new Date();
+  midnight.setUTCHours(24, 0, 0, 0);
+  expect(pause, 'cancels are counted over a rolling window, not per day (P-trade-orders-05)').toMatchObject({
+    until: midnight.toISOString(),
+  });
+});
+
+test('J-p2p-06 #3 the buyer cannot cancel after paying; the seller cancels only through a request the buyer answers', async () => {
+  test.setTimeout(240_000);
+  const state = journey();
+  const s = await sellerClient(state);
+  const { b } = await buyerClient(state);
+  const tradeId = state.paidTradeId;
+  expect(tradeId, '#3 needs the order the buyer marked paid in #1').toBeTruthy();
+  const refused = await b.raw.mutate('trades.cancel', { tradeId });
+  expect(refusalCode(refused)).toBe('p2p.cancel_after_paid');
+  const request = await s.raw.mutate('trades.requestCancel', { tradeId, reason: 'TEST payment never arrived' });
+  expect(request.status, 'svc-p2p has no seller cancellation request (P-trade-orders-19)').toBe(200);
+});
+
+test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller, and the order reads cancelled by timeout', async ({
+  page,
+}) => {
+  test.setTimeout((PAYMENT_SECONDS + 4 * SWEEP_SECONDS + 60) * 1_000);
+  const state = journey();
+  const s = await sellerClient(state);
+  const tradeId = state.expiringTradeId;
+  expect(tradeId, '#4 needs an order left unpaid, taken in #1').toBeTruthy();
+  const before = state.sellerFreeBeforeExpiry;
+  await expect
+    .poll(async () => (await s.query('trades.get', { tradeId })).status, {
+      timeout: (PAYMENT_SECONDS + 3 * SWEEP_SECONDS) * 1_000,
+      intervals: [10_000],
+    })
+    .toBe('cancelled');
+  const expired = await s.query('trades.get', { tradeId });
+  expect(expired).toMatchObject({ resolution: 'refunded', displayStatus: 'cancelled_by_timeout' });
+  expect(await free(state.seller)).toBe(before);
+  await signIn(page, state.buyer);
+  await page.goto('/uc/order');
+  await expect(page.locator(`[data-trade-id="${tradeId}"]`)).toContainText('Cancelled: payment time ran out');
+});
+
+test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async () => {
+  const state = journey();
+  const s = await sellerClient(state);
+  // At the stack's 1800 s release window this cannot be waited out; it needs a per-ad release window.
+  const ads = await s.raw.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '30',
+    methods: [METHOD],
+    terms: `TEST terms: ${J} short release`,
+    releaseWindowSeconds: 60,
+    idempotencyKey: `${J}:short-release:${state.seller.handle}`,
+  });
+  expect(ads.body?.result?.data?.releaseWindowSeconds, 'an ad has no release window of its own (P-trade-orders-15)').toBe(60);
+});
+
+test('J-p2p-06 #6 a reminder before the wait is refused with the time left; after it, the seller gets one notice', async ({ page }) => {
+  const state = journey();
+  const tradeId = state.paidTradeId;
+  expect(tradeId, '#6 needs an order the buyer marked paid, taken in #1').toBeTruthy();
+  const { b } = await buyerClient(state);
+  const early = await b.raw.mutate('trades.remind', { tradeId });
+  if (early.status !== 200) {
+    expect(refusalCode(early)).toBe('p2p.remind_too_early');
+    expect(Date.parse(early.body.error.data.p2pLimit.until)).toBeGreaterThan(Date.now() - 1_000);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(early.body.error.data.p2pLimit.until) - Date.now()) + 500));
+  }
+  const reminded = await b.mutate('trades.remind', { tradeId });
+  expect(reminded).toBeTruthy();
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  await expect(page.getByTestId('order-reminder')).toContainText('The buyer reminded you to release');
+});
+
+test('J-p2p-06 #7 the seller reports an underpayment: the order stays paid, and a dispute is offered', async ({ page }) => {
+  const state = journey();
+  const tradeId = state.paidTradeId;
+  expect(tradeId, '#7 needs an order the buyer marked paid, taken in #1').toBeTruthy();
+  const s = await sellerClient(state);
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  const report = page.getByTestId('order-mismatch');
+  await report.getByText('The amount in my bank is different').click();
+  await report.getByLabel('Less than the order').check();
+  await report.getByLabel('Amount received (EUR)').fill('4');
+  await report.getByRole('button', { name: 'Report the amount' }).click();
+  await expect(page.getByTestId('order-mismatch-result')).toContainText('You do not have to release.');
+  expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
+  await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
+});
+
+test('J-p2p-06 #8 after an expired order, the order shows its end and the refund that matches it', async ({ page }) => {
+  const state = journey();
+  const tradeId = state.expiringTradeId;
+  expect(tradeId, '#8 needs the order that ran out in #4').toBeTruthy();
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  await expect(page.getByTestId('p2p-order-identity')).toContainText('Cancelled');
+  const refund = page.getByTestId('order-refund');
+  await expect(refund, 'the order shows no refund proof (P-trade-orders-19)').toBeVisible(UNBUILT);
+  await expect(refund).toContainText('Returned to the seller');
+  await expect(refund).toContainText('10 USDT');
+});
