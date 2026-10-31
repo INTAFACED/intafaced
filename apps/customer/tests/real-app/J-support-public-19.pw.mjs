@@ -631,15 +631,27 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   // Starts three whole minutes from now, so two reminders (2 and 1 minute before) come due while it is scheduled.
   const start = Math.ceil(Date.now() / 60_000) * 60_000 + 3 * 60_000;
 
-  // With no offsets, none: a draft written without them lists no reminder.
+  // With no offsets, none: a window written without them lists no reminder, and, published to start at the same moment
+  // as the one below, sends none while the other's reminders go out.
   const QUIET = `TEST journey ${J}: no reminders (run ${RUN})`;
   await schedule.getByLabel('Title').fill(QUIET);
   await schedule.getByLabel('What happens').fill('TEST A window with no reminders.');
-  await schedule.getByLabel('Starts').fill(localUtc(start + 60 * 60_000));
-  await schedule.getByLabel('Planned end').fill(localUtc(start + 90 * 60_000));
+  await schedule.getByLabel('Starts').fill(localUtc(start));
+  await schedule.getByLabel('Planned end').fill(localUtc(start + 30 * 60_000));
   await schedule.getByRole('button', { name: 'Save draft' }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: drafted');
-  await expect(maintenanceWindow(a, QUIET).getByTestId('maintenance-reminders')).toHaveText('No reminders.');
+  const quiet = maintenanceWindow(a, QUIET);
+  await expect(quiet.getByTestId('maintenance-reminders')).toHaveText('No reminders.');
+  await quiet.getByRole('button', { name: 'Ask for approval' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: requested');
+  await b.getByRole('button', { name: 'Read again' }).click();
+  await maintenanceWindow(b, QUIET).getByRole('button', { name: 'Approve' }).click();
+  await expect(maintenanceOutcome(b)).toContainText('Done: approved');
+  await a.getByRole('button', { name: 'Read again' }).click();
+  await quiet.getByRole('button', { name: 'Publish' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: published');
+  await expect(quiet).toHaveAttribute('data-state', 'scheduled');
+  const quietMail = () => statusMail(READER).filter((m) => m.subject === `Scheduled maintenance: ${QUIET}`);
 
   await schedule.getByLabel('Title').fill(TITLE);
   await schedule.getByLabel('What happens').fill('TEST We upgrade the card payment service.');
@@ -688,6 +700,9 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
     .toBe(2);
   expect(reminders()).toHaveLength(2);
   expect(reminders().every((m) => m.text.includes(new Date(start).toISOString()))).toBe(true);
+  // The window with no offsets, due at the same start, sent nothing and lists no reminder.
+  expect(quietMail()).toHaveLength(0);
+  await expect(quiet.getByTestId('maintenance-reminders')).toHaveText('No reminders.');
 
   // In progress from its start, and the component it touches shows maintenance on /status.
   await expect
@@ -720,6 +735,14 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   expect(page.components.find((c) => c.id === 'payments').state).not.toBe('maintenance');
   expect((await openNotices()).maintenance.some((m) => m.id === id)).toBe(false);
   expect(reminders()).toHaveLength(2);
+  // The quiet window, in progress from the same start, sent no reminder at any point; it is completed too.
+  expect(quietMail()).toHaveLength(0);
+  await quiet.getByLabel('Reason for a move').fill('TEST quiet window checked');
+  await quiet.getByRole('button', { name: 'Mark verifying' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: moved to verifying');
+  await quiet.getByLabel('Reason for a move').fill('TEST quiet window done');
+  await quiet.getByRole('button', { name: 'Mark completed' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: moved to completed');
 
   // The reader leaves by the link in a reminder.
   await visitor.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(reminders()[0].text)[1]);

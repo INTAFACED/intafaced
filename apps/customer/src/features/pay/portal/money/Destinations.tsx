@@ -14,7 +14,7 @@ import { PortalReview } from '../ui/PortalReview';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, TestBanner } from './common';
 import { mc } from './copy';
-import { describeDestination, railWords } from './destination';
+import { describeDestination, railWords, sameMasked } from './destination';
 import { defaultDestination, destinationKindOfRail } from './model';
 import { isDefaultDestination, type DestinationItem } from './schemas';
 import { useReadAt } from '../hooks';
@@ -89,6 +89,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         rowKey={(d) => d.id}
         columns={[
           { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
+          { header: t('dstStatus'), cell: (d) => <DestinationState item={d} /> },
           {
             header: t('dstDefault'),
             cell: (d) =>
@@ -104,10 +105,11 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         card={(d) => ({
           title: describeDestination(t, d.kind, d.destinationMasked, d.railId),
           time: <DateTime value={d.createdAt} />,
-          status: isDefaultDestination(d) ? (
-            <strong>{t('dstDefaultYes')}</strong>
-          ) : (
-            <span className="muted">{d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : t('mnNever')}</span>
+          status: (
+            <span>
+              <DestinationState item={d} />
+              {isDefaultDestination(d) && <strong> · {t('dstDefaultYes')}</strong>}
+            </span>
           ),
         })}
       />
@@ -127,6 +129,93 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         onAdded={list.reload}
       />
     </div>
+  );
+}
+
+/**
+ * Where a destination stands (J-merchant-02 #5), in the service's words: Unverified until it is verified, then waiting
+ * until the time svc-pay gives, then Active. Never inferred from anything else.
+ */
+export function DestinationState({ item }: { item: Pick<DestinationItem, 'state' | 'activatesAt'> }) {
+  const { t } = mc.useCopy();
+  if (item.state === 'active') return <span>{t('dstStateActive')}</span>;
+  if (item.state === 'held' && item.activatesAt)
+    return (
+      <span>
+        {t('dstStateHeld')} <DateTime value={item.activatesAt} />
+      </span>
+    );
+  if (item.state === 'held') return <span>{t('dstStateHeld')}</span>;
+  return <strong>{t('dstStateUnverified')}</strong>;
+}
+
+/** Verify a saved, unverified destination: the full address typed again, then a fresh confirmation. */
+function VerifyDestination({
+  portal,
+  merchantId,
+  item,
+  owner,
+  onVerified,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  item: DestinationItem;
+  owner: boolean;
+  onVerified: () => void;
+}) {
+  const { t } = mc.useCopy();
+  const kind = item.kind === 'bank' ? 'bank' : 'crypto';
+  const [ref, setRef] = useState('');
+  const [proof, setProof] = useState<DestinationProof>({ code: '' });
+  const sentRef = normaliseReference(ref);
+  const problem = referenceProblem(kind, ref);
+  const mismatch = !problem && !sameMasked(kind, sentRef, item.destinationMasked);
+  return (
+    <PortalReview
+      title={t('dstVerify')}
+      variant="primary"
+      description={t('dstVerifyBody')}
+      disabled={!owner}
+      disabledReason={t('dstManageOwnerOnly')}
+      review={
+        <>
+          <Field
+            label={`${kind === 'bank' ? t('dstRefBankLabel') : t('dstRefCryptoLabel')} *`}
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+            hint={describeDestination(t, item.kind, item.destinationMasked, item.railId)}
+            error={
+              ref.trim() === ''
+                ? undefined
+                : problem
+                  ? t(problem === 'empty' ? 'dstRefEmpty' : problem === 'crypto' ? 'dstRefCrypto' : 'dstRefBank')
+                  : mismatch
+                    ? t('dstVerifyMismatch')
+                    : undefined
+            }
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <DestinationConfirm proof={proof} onChange={setProof} />
+        </>
+      }
+      perform={async () => {
+        if (problem || mismatch)
+          return {
+            ok: false as const,
+            reason: 'error' as const,
+            code: 'portal.local',
+            message: problem ? t('dstRefEmpty') : t('dstVerifyMismatch'),
+          };
+        // A code is good once: the next try asks for a new one, whatever this one's answer.
+        if ('code' in proof) setProof({ code: '' });
+        return portal.setPayoutDestination(merchantId, item.railId, kind, sentRef, proof);
+      }}
+      onConfirmed={() => {
+        setRef('');
+        onVerified();
+      }}
+    />
   );
 }
 
@@ -171,9 +260,21 @@ function ManageDestinations({
           return (
             <li key={d.id} className="pp-actions" style={{ justifyContent: 'space-between', gap: 12, padding: '8px 0' }}>
               <span>
-                {name} {isDefault && <strong>· {t('dstDefaultYes')}</strong>}
+                {name} · <DestinationState item={d} /> {isDefault && <strong>· {t('dstDefaultYes')}</strong>}
               </span>
               <span className="pp-actions">
+                {d.state === 'unverified' && (
+                  <VerifyDestination
+                    portal={portal}
+                    merchantId={merchantId}
+                    item={d}
+                    owner={owner}
+                    onVerified={() => {
+                      setSaid(t('dstVerified'));
+                      onChanged();
+                    }}
+                  />
+                )}
                 {!isDefault && (
                   <PortalReview
                     title={t('dstMakeDefault')}
@@ -303,7 +404,10 @@ function AddDestination({
   const kind = rail ? destinationKindOfRail(rail.id) : null;
   const problem = kind ? referenceProblem(kind, ref) : null;
   const sentRef = normaliseReference(ref);
-  const replaces = rail ? (existing.find((d) => d.railId === rail.id) ?? null) : null;
+  const onRail = rail ? (existing.find((d) => d.railId === rail.id) ?? null) : null;
+  // J-merchant-02 #5: a new destination (or one replacing an unverified one) is saved unverified, with no code. Only a
+  // verified one is changed through the fresh confirmation and the hold.
+  const replaces = onRail && onRail.state !== 'unverified' ? onRail : null;
   const block = saveBlock({ owner, listState, hasRail: rail !== null, problem });
   const why = block ? t(block) : null;
   return (
@@ -342,18 +446,19 @@ function AddDestination({
           <PortalReview
             title={replaces ? t('dstReplace') : t('dstSave')}
             variant="primary"
-            description={replaces ? t('dstReplaceReviewBody') : t('dstReviewBody')}
+            description={replaces ? t('dstReplaceReviewBody') : t('dstSaveReviewBody')}
             disabled={why !== null}
             disabledReason={why ?? undefined}
             review={
               rail && kind ? (
                 <>
                   <SaveReview railId={rail.id} kind={kind} sentRef={sentRef} replaces={replaces} />
-                  <DestinationConfirm proof={proof} onChange={setProof} />
+                  {replaces && <DestinationConfirm proof={proof} onChange={setProof} />}
                 </>
               ) : undefined
             }
             perform={() => {
+              if (!replaces) return portal.destinationAdd({ merchantId, railId: rail!.id, kind: kind!, ref: sentRef });
               // A code is good once: the next try asks for a new one, whatever this one's answer.
               if ('code' in proof) setProof({ code: '' });
               return portal.setPayoutDestination(merchantId, rail!.id, kind!, sentRef, proof);
@@ -366,7 +471,7 @@ function AddDestination({
           />
           {saved && (
             <p className="pp-callout" role="status">
-              {saved === 'replaced' ? t('dstReplaced') : t('dstSaved')}
+              {saved === 'replaced' ? t('dstReplaced') : t('dstSavedUnverified')}
             </p>
           )}
         </form>

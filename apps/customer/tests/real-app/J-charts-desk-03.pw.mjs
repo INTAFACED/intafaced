@@ -203,16 +203,43 @@ test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on t
 }) => {
   await openChart(page);
   await addStudy(page, 'sma', 'Simple moving average');
+  // An EMA shown on every interval: once it is drawn, the chart has drawn this interval's studies.
+  await addStudy(page, 'ema', 'Exponential moving average');
   await page.getByRole('button', { name: 'Settings for Simple moving average' }).click();
   await page.getByRole('checkbox', { name: 'Shown on 1h' }).uncheck();
   await page.getByRole('button', { name: 'Apply' }).click();
-  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1h' }).click();
-  await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
-  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '15m' }).click();
-  await expect(row(page, 'sma-1')).not.toContainText('Hidden on this interval');
+  await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
+  // Hidden on 1h: the row says so and the chart draws no SMA series. Shown on 15m: the series is drawn and its value is
+  // the formula's. The same holds after a reload, on both intervals.
+  const interval = (name) => page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name }).click();
+  const drawn = async () => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').map((x) => x.key);
+  const drawnSma = async () => JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').find((x) => x.key === 'sma-1');
+  const hiddenHere = async () => {
+    await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
+    const emaWithoutSma = async () => {
+      const keys = await drawn();
+      return keys.includes('ema-1') && !keys.includes('sma-1');
+    };
+    await expect.poll(emaWithoutSma).toBe(true);
+    // Still no SMA a moment later: it is not drawn late.
+    await page.waitForTimeout(500);
+    expect(await emaWithoutSma()).toBe(true);
+  };
+  const shownHere = async () => {
+    await expect(row(page, 'sma-1')).not.toContainText('Hidden on this interval');
+    await expect.poll(drawnSma).toMatchObject({ key: 'sma-1', type: 'Line', pane: 0 });
+    await expectWorked(page, 'sma-1', (closes) => sma(closes, 20));
+  };
+  await interval('1h');
+  await hiddenHere();
+  await interval('15m');
+  await shownHere();
   await page.reload();
-  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1h' }).click();
-  await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
+  await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
+  await interval('15m');
+  await shownHere();
+  await interval('1h');
+  await hiddenHere();
 });
 
 test('J-charts-desk-03 #5 sets the legend to always show: the values of the last bar show without hovering', async ({ page }) => {
@@ -301,6 +328,9 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   for (const tab of ['Symbol', 'Status line', 'Scales', 'Canvas', 'Trading', 'Alerts']) {
     await expect(dialog.getByRole('tab', { name: tab, exact: true })).toBeVisible();
   }
+  // Symbol: the market and its tick size, and the market name taken out of the chart title.
+  await expect(dialog.getByRole('tabpanel')).toContainText('Market BTC/USDT, tick size 0.01.');
+  await dialog.getByRole('checkbox', { name: 'Show the market name in the chart title' }).uncheck();
   // Status line: the time in the legend is switched off and the choice is kept on this device.
   await dialog.getByRole('tab', { name: 'Status line', exact: true }).click();
   await dialog.getByRole('checkbox', { name: 'Show the time in the legend' }).uncheck();
@@ -319,14 +349,27 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   await expect(page.getByTestId('chart-legend').first()).not.toContainText(/\d{1,2} [A-Za-z]{3} \d{4}/);
   // The legend's time element is gone, not just empty.
   await expect(page.getByTestId('wc-time')).toHaveCount(0);
+  await expect(page.getByTestId('chart-title').first()).toHaveText('15m');
   await expect(host(page)).toHaveAttribute('data-log', 'on');
   await expect(host(page)).toHaveAttribute('data-grid', 'off');
-  // Saved for this device, read back after a reload.
+  // Saved for this device, read back after a reload: every changed option, on the chart and in the dialog.
   await page.reload();
+  await expect(page.getByTestId('chart-title').first()).toHaveText('15m');
+  await expect(page.getByTestId('wc-time')).toHaveCount(0);
   await expect(host(page)).toHaveAttribute('data-log', 'on');
   await expect(host(page)).toHaveAttribute('data-grid', 'off');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('charts-chart-settings:guest') ?? 'null'));
-  expect(saved).toMatchObject({ showTime: false, logScale: true, gridLines: false });
+  expect(saved).toMatchObject({ showName: false, showTime: false, logScale: true, gridLines: false });
+  await page.getByRole('button', { name: 'Chart settings', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Show the market name in the chart title' })).not.toBeChecked();
+  await dialog.getByRole('tab', { name: 'Status line', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Show the time in the legend' })).not.toBeChecked();
+  await dialog.getByRole('tab', { name: 'Scales', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Logarithmic price scale' })).toBeChecked();
+  await dialog.getByRole('tab', { name: 'Canvas', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Show grid lines' })).not.toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
 });
 
 test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that exact price, a refused off-tick price adds nothing', async ({

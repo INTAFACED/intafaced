@@ -26,6 +26,26 @@
       "value": "1",
       "note": "TEST confirmations before a swap reads filled, on the local TEST chain. Blank in production refuses protocol.swap_settings_unset."
     },
+    "PROTOCOL_WALLET_SESSION_TTL_SECONDS": {
+      "service": "protocol",
+      "value": "3600",
+      "note": "TEST lifetime of a wallet session that opens the address book. Blank in production refuses protocol.wallet_session_unset. The session secret is not in this file: the local stack derives a TEST-labelled one from its own secrets.json."
+    },
+    "PROTOCOL_WALLET_SESSION_ORIGINS": {
+      "service": "protocol",
+      "value": "http://127.0.0.1:3210,http://localhost:3210",
+      "note": "TEST: the local stack's customer origins that wallet sign-in messages are written for. Blank in production refuses protocol.wallet_session_unset."
+    },
+    "PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS": {
+      "service": "protocol",
+      "value": "50",
+      "note": "TEST maximum contacts in one wallet's address book. Blank in production refuses protocol.address_book_max_contacts_unset."
+    },
+    "PROTOCOL_WALLET_GROUPS_MAX": {
+      "service": "protocol",
+      "value": "10",
+      "note": "TEST maximum wallet groups per wallet. Blank in production refuses protocol.wallet_groups_max_unset."
+    },
     "PROTOCOL_GAS_PERCENTILES": {
       "service": "protocol",
       "value": "10,50,90",

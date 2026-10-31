@@ -48,6 +48,10 @@ export const payDestinationScreeningSchema = z.literal('not_recorded');
 /** `unset` until an owner marks one row. `default` is that mark, never an inferred one. */
 export const payDestinationDefaultSchema = z.enum(['unset', 'default']);
 
+/** Saved but not verified; verified and waiting out the hold; payable. */
+export const payDestinationStateSchema = z.enum(['unverified', 'held', 'active']);
+export type PayDestinationState = z.infer<typeof payDestinationStateSchema>;
+
 export const payPayoutDestinationItemSchema = z
   .object({
     id: z.string().guid(),
@@ -59,6 +63,10 @@ export const payPayoutDestinationItemSchema = z
     defaultFlag: payDestinationDefaultSchema,
     createdAt: payTimestampSchema,
     lastUsedAt: payTimestampSchema.nullable(),
+    /** J-merchant-02 #5: `unverified` (saved, cannot receive a payout), `held` until `activatesAt`, then `active`. */
+    state: payDestinationStateSchema,
+    /** When a held destination becomes active. Null unless `state` is `held`. */
+    activatesAt: payTimestampSchema.nullable(),
   })
   .strict();
 export type PayPayoutDestinationItem = z.infer<typeof payPayoutDestinationItemSchema>;

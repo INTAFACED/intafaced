@@ -84,6 +84,7 @@ export const appRouter = createQuantRouter({
   runs: runs.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
+  releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
     rate: env.QUANT_SHARE_RATE === undefined ? null : Number(env.QUANT_SHARE_RATE),

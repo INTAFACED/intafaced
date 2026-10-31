@@ -447,7 +447,11 @@ test(`${J} #8 /academy/progress shows percent complete with check marks, the gra
     const done = new Set((await completions(who)).map((row) => row.itemSlug));
     const completed = items.filter((slug) => done.has(slug)).length;
     const card = page.locator(`[data-course-progress="${course}"]`);
-    await expect(card.getByText(new RegExp(`% complete: ${completed} of ${items.length} items$`))).toBeVisible();
+    // The percent is completed items over the items I can see, to one decimal place, rounded half up.
+    const tenths = Math.floor((completed * 2000 + items.length) / (2 * items.length));
+    const percent = `${Math.floor(tenths / 10)}.${tenths % 10}`;
+    await expect(card).toHaveAttribute('data-percent', percent);
+    await expect(card.getByText(`${percent}% complete: ${completed} of ${items.length} items`, { exact: true })).toBeVisible();
     await expect(card.locator(`[data-progress-item="${items[0]}"]`)).toHaveAttribute('data-completed', 'true');
     await expect(card.locator(`[data-progress-item="${items[3]}"]`)).toHaveAttribute('data-completed', 'false');
 

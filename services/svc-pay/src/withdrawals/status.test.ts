@@ -121,7 +121,16 @@ describe('the stored values', () => {
     expect(shownFilterFor('dispatching')).toEqual({ stored: ['held'], journal: ['requested'] });
     expect(shownFilterFor('broadcast')).toEqual({ stored: ['held'], journal: ['accepted'] });
     expect(shownFilterFor('settled')).toEqual({ stored: ['sent'], journal: null });
-    expect(shownFilterFor('confirming')).toEqual({ stored: [], journal: null });
+    // W-withdraw-06: an accepted send the chain holds below the minimum depth reads its own journal value.
+    expect(shownFilterFor('confirming')).toEqual({ stored: ['held'], journal: ['confirming'] });
+    expect(shownFilterFor('needs_review')).toEqual({ stored: [], journal: null });
+  });
+
+  it('shows an accepted send seen below the minimum depth as confirming, and depth zero as broadcast', () => {
+    expect(shownStatus('held', null, 'confirming')).toBe('confirming');
+    expect(shownStatus('held', null, 'accepted')).toBe('broadcast');
+    expect(shownStatus('sent', null, 'confirming')).toBe('settled');
+    expect(isCancellable('held', null, 'confirming', true)).toBe(false);
   });
 
   it('allows exactly the four moves the code writes today', () => {

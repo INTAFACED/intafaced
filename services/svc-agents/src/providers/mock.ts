@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ProviderError } from '../errors.js';
 import type {
@@ -52,8 +52,11 @@ export interface MockProviderOptions {
   readonly answerDelayMs?: number;
   /**
    * TEST stand-in control: while this file exists, a completion parks at the engine's door, before it answers, and
-   * writes `<holdFile>.held` so a test can see it is parked. Removing the file lets it answer. A test stack sets it so a
-   * journey can read the service's own record of a run while the engine has not answered yet.
+   * writes `<holdFile>.held` so a test can see it is parked. Each completion that reaches this engine while the file
+   * exists adds one line to `<holdFile>.calls` on arrival, before its answer delay or any injected failure, so a test
+   * can count the completions that reached it (a retry is a second completion). Removing the file lets it
+   * answer. A test stack sets it so a journey can read the service's own record of a run while the engine has not
+   * answered yet, and see that a refused run never reached it.
    */
   readonly holdFile?: string;
   /** How long a parked completion waits before it answers anyway. */
@@ -227,6 +230,8 @@ export class MockModelProvider implements ModelProvider {
 
   async complete(request: CompletionRequest): Promise<CompletionResult> {
     this.calls++;
+    // Counted the moment a completion reaches the engine, before its answer delay or any injected failure.
+    if (this.holdFile && existsSync(this.holdFile)) appendFileSync(`${this.holdFile}.calls`, `${new Date().toISOString()}\n`);
     if (this.answerDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.answerDelayMs));
     // Freshness is recorded before the failure branch: a provider that answered
     // with an error still answered. That is what separates a transient blip

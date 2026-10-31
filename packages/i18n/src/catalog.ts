@@ -199,6 +199,9 @@ export const en = {
   'notify.agents.action.rejected.body': 'A guardrail blocked {tool} ({refusalCode}).',
   'notify.agents.action.completed.title': 'Agent action finished',
   'notify.agents.action.completed.body': 'Your agent finished ({kind}).',
+  'notify.agents.usage_alert.crossed.title': 'Agent spend passed your alert',
+  'notify.agents.usage_alert.crossed.body':
+    'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
   'notify.pay.request_created.title': 'Payment request',
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
