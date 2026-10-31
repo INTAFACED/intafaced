@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
+import { api, journeyState, toUnits, fromUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-03, in the running app (docs/roadmap/journeys.json): protect a position with a take profit and a stop
@@ -378,8 +378,18 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
 test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const me = await api(account());
+  // Two trade workers run the conditional job against the same stack for this whole step; the trigger must fire once.
+  tool('local-test-stack.mjs', 'second-worker', 'trade', 'start');
+  try {
+    await firesOnceWithTwoWorkers(page, me);
+  } finally {
+    tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
+  }
+});
+
+async function firesOnceWithTwoWorkers(page, me) {
   const { positionId } = run.read();
   // The size as it stands: #4 added to it.
   const size = (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId).contracts;
@@ -409,6 +419,17 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
   const pair = (await legs(me, positionId)).filter((o) => o.status === 'armed');
   expect(pair).toHaveLength(2);
+  // Every status each leg is seen in from now on, read through the service as often as it answers.
+  const seen = Object.fromEntries(pair.map((o) => [o.id, ['armed']]));
+  let watching = true;
+  const watcher = (async () => {
+    while (watching) {
+      for (const o of await legs(me, positionId).catch(() => [])) {
+        const list = seen[o.id];
+        if (list && list.at(-1) !== o.status) list.push(o.status);
+      }
+    }
+  })();
 
   // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
   await expect(dialog.getByRole('button', { name: 'Close dialog' }).first()).toBeInViewport();
@@ -437,6 +458,11 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   const other = live.find((o) => o.id !== fired.id);
   expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
   expect(fired).toMatchObject({ firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
+  watching = false;
+  await watcher;
+  // The fired leg went armed, then triggered (closing through the book), then filled; the other armed, then cancelled.
+  expect(seen[fired.id], JSON.stringify(seen)).toEqual(['armed', 'triggered', 'filled']);
+  expect(seen[other.id].at(-1)).toBe('cancelled');
   expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === positionId)).toEqual([]);
 
   // It closed through the book: one reduce-only sell for the whole size, on the fired leg's own client id, filled.
@@ -449,7 +475,7 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
     [fired.closeOrderId, 'sell', true, 'filled', size],
   ]);
   expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
-});
+}
 
 test(`${J} #7 a fired stop fails: the reason in words and what happened to the position`, async ({ page }) => {
   test.setTimeout(240_000);

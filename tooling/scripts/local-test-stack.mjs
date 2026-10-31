@@ -32,6 +32,8 @@
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
+ *   node tooling/scripts/local-test-stack.mjs second-worker <service> start|stop   a second process of one running service,
+ *                                         same settings, its own port (a journey that two workers do a thing once)
  *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
@@ -1498,6 +1500,32 @@ async function startNodeService(def) {
   await waitHealthy(def.name, url, pid);
 }
 
+/**
+ * A second worker of one running service: the same settings and the same database, NATS and peers, on the next free
+ * port above its own, recorded as `<service>-2` so `stop` stops it too. For a journey that proves two workers do a thing
+ * once (J-derivatives-03 #6). Nothing routes to it; it only runs the service's own jobs and consumers.
+ */
+async function cmdSecondWorker([name, action]) {
+  if (!serviceNames().includes(name) || !['start', 'stop'].includes(action))
+    fail(`second-worker needs a service from: ${serviceNames().join(', ')} and start or stop`, 2);
+  const worker = `${name}-2`;
+  if (action === 'stop') {
+    const rec = readProcs()[worker];
+    say(`  ${worker}: ${rec ? await stopProc(worker, rec) : 'not running'}`);
+    return;
+  }
+  const def = serviceDefs(readJson(P.secrets)).find((d) => d.name === name);
+  const env = def.env();
+  if ((await httpGet(`http://${HOST}:${env.HTTP_PORT}/health`, 2000)).status !== 200) fail(`${name} is not running; start it first`);
+  if (ownedAlive(readProcs()[worker])) return say(`  ${worker}: already running`);
+  let port = Number(env.HTTP_PORT) + 1;
+  while (await portOpen(port)) port += 1;
+  const entry = path.join(REPO, 'services', `svc-${name}`, 'dist', def.entry ?? 'index.js');
+  const pid = startProc(worker, [process.execPath, entry], { ...env, HTTP_PORT: String(port) }, path.join(REPO, 'services', `svc-${name}`));
+  await waitHealthy(worker, `http://${HOST}:${port}/health`, pid);
+  say(`  ${worker}: running on port ${port} (pid ${pid})`);
+}
+
 async function restartIdentity() {
   say('  identity: restarting so the local test founder pair is the configured pair');
   await stopProc('identity', readProcs().identity);
@@ -1977,6 +2005,7 @@ async function cmdStop(names = []) {
     'apex',
     'invitation',
     'customer',
+    ...serviceNames().map((name) => `${name}-2`),
     ...serviceNames().reverse(),
     'chain',
     'video-store',
@@ -3555,6 +3584,7 @@ async function runCli() {
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
+  else if (cmd === 'second-worker') await cmdSecondWorker(rest);
   else if (cmd === 'fund') await cmdFund(rest);
   else if (cmd === 'mining-share') await cmdMiningShare(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
