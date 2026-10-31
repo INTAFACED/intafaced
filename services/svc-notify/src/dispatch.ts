@@ -216,16 +216,25 @@ export class NotificationDispatcher {
             continue;
           }
 
-          if (
+          // The mailed copy is owed and no sender is set: it waits instead of being skipped or refused. See MAILED_KINDS.
+          const owed =
             channel === 'email' &&
             MAILED_KINDS.has(notification.kind) &&
-            this.channels.get(channel).unavailableReason === 'channel.not_configured'
-          ) {
-            outcomes.push(await this.waitUnsent(notification, channel));
-            continue;
-          }
+            this.channels.get(channel).unavailableReason === 'channel.not_configured';
 
           if (!target) {
+            if (owed) {
+              // No sender is the binding cause: no address would be mailed either. `detail` keeps the second fact.
+              const unconfirmed = (await this.targets.unverifiedChannels(notification.userId)).includes(channel);
+              outcomes.push(
+                await this.waitUnsent(
+                  notification,
+                  channel,
+                  unconfirmed ? 'address registered but never confirmed' : 'no confirmed address on this channel',
+                ),
+              );
+              continue;
+            }
             // Nothing was promised on a channel the user never gave us — except
             // when the message is critical, where silence is the thing worth
             // recording. See the header.
@@ -282,6 +291,11 @@ export class NotificationDispatcher {
             }
           }
 
+          if (owed) {
+            outcomes.push(await this.waitUnsent(notification, channel, null));
+            continue;
+          }
+
           outcomes.push(await this.attempt(notification, channel, target.address, target.locale));
         }
 
@@ -335,21 +349,24 @@ export class NotificationDispatcher {
   }
 
   /**
-   * The mailed copy is owed and no sender is set. A person who muted the channel is not owed it. An existing row (a
-   * claim, a receipt, a refusal) is reported as it stands.
+   * The mailed copy is owed and no sender is set. With no address on file the channel mute is checked here, since the
+   * address gates never ran; topic mute and quiet hours are not, because asking them holds the notice for a summary. An
+   * existing row is reported as it stands: a claim in progress asks for a redelivery, as `in_flight` does.
    */
-  private async waitUnsent(notification: Notification, channel: ChannelId): Promise<ChannelOutcome> {
-    if (this.options.mutePrefsOf && notification.severity !== 'critical') {
+  private async waitUnsent(notification: Notification, channel: ChannelId, detail: string | null): Promise<ChannelOutcome> {
+    if (detail !== null && this.options.mutePrefsOf && notification.severity !== 'critical') {
       const prefs = await this.options.mutePrefsOf(notification.userId);
       if (isChannelMuted(prefs ?? EMPTY_MUTE_PREFS, channel as MuteableChannel, notification.severity)) {
         return this.refuse(notification, channel, 'channel.muted');
       }
     }
-    const row = await this.deliveries.wait(notification.id, channel, 'vendor.email');
+    const row = await this.deliveries.wait(notification.id, channel, 'vendor.email', detail);
     if (row.status === 'pending' && row.attempts === 0) {
-      return { channel, status: 'waiting', code: row.refusalCode, detail: null, retryable: false };
+      return { channel, status: 'waiting', code: row.refusalCode, detail: row.detail, retryable: false };
     }
-    return fromExistingClaim(channel, row.status === 'accepted' ? 'already_accepted' : 'terminal', row);
+    if (row.status === 'accepted') return fromExistingClaim(channel, 'already_accepted', row);
+    if (row.status === 'pending') return fromExistingClaim(channel, 'in_flight', row);
+    return fromExistingClaim(channel, 'terminal', row);
   }
 
   /** Record a refusal that the adapter never got a chance to make. */

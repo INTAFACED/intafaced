@@ -453,6 +453,16 @@ describe.skipIf(!available)('PostgresDeliveryStore.wait — a mailed copy owed w
     expect(row).toMatchObject({ status: 'pending', attempts: 0, refusalCode: 'vendor.email' });
   });
 
+  it('keeps the detail it was given, and a later claim clears the vendor.email code', async () => {
+    const s = store();
+    expect(await s.wait(NOTIFICATION, 'email', 'vendor.email', 'no confirmed address on this channel')).toMatchObject({
+      detail: 'no confirmed address on this channel',
+    });
+    expect(await s.claim(NOTIFICATION, 'email', 3)).toMatchObject({ claimed: true, attempt: 1 });
+    const [row] = await s.listForNotification(NOTIFICATION);
+    expect(row).toMatchObject({ status: 'pending', attempts: 1, refusalCode: null });
+  });
+
   it('leaves a row a claim already made as it stands', async () => {
     const s = store();
     expect((await s.claim(NOTIFICATION, 'email', 3)).claimed).toBe(true);

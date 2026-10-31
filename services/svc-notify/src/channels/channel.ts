@@ -148,6 +148,7 @@ export function allRefusalCodes(): readonly RefusalCode[] {
     'channel.verify_rate_limited',
     'channel.unprobed',
     'channel.recipient_quarantined',
+    'vendor.email',
   ];
 }
 

@@ -75,7 +75,7 @@ describe('a mailed ask with no email sender waits vendor.email', () => {
       channel: 'email',
       status: 'waiting',
       code: 'vendor.email',
-      detail: null,
+      detail: 'no confirmed address on this channel',
       retryable: false,
     });
     expect(report.retry).toBe(false);
@@ -142,5 +142,56 @@ describe('a mailed ask with no email sender waits vendor.email', () => {
     const report = await dispatcher(deliveries, {}, registry(email), targets).dispatch(rateAsk());
     expect(report.outcomes.find((o) => o.channel === 'email')).toMatchObject({ status: 'accepted' });
     expect(email.sent).toHaveLength(1);
+  });
+
+  it('a confirmed address with no sender set waits too, after the address gates, with no second reason', async () => {
+    const deliveries = new MemoryDeliveryStore();
+    const targets = new MemoryTargetStore();
+    await targets.upsert({
+      userId: USER,
+      channel: 'email',
+      address: 'person@example.test',
+      locale: 'en',
+      verifyTokenHash: 'code-hash',
+      verifyExpiresAt: new Date(Date.now() + 60_000),
+    });
+    expect(await targets.markVerified(USER, 'email', 'code-hash', new Date())).toBe(true);
+    const report = await dispatcher(deliveries, {}, registry(), targets).dispatch(rateAsk());
+    expect(report.outcomes.find((o) => o.channel === 'email')).toMatchObject({ status: 'waiting', code: 'vendor.email', detail: null });
+  });
+
+  it('an address never confirmed is named in the detail', async () => {
+    const deliveries = new MemoryDeliveryStore();
+    const targets = new MemoryTargetStore();
+    await targets.upsert({
+      userId: USER,
+      channel: 'email',
+      address: 'person@example.test',
+      locale: 'en',
+      verifyTokenHash: 'code-hash',
+      verifyExpiresAt: new Date(Date.now() + 60_000),
+    });
+    const report = await dispatcher(deliveries, {}, registry(), targets).dispatch(rateAsk());
+    expect(report.outcomes.find((o) => o.channel === 'email')).toMatchObject({
+      status: 'waiting',
+      detail: 'address registered but never confirmed',
+    });
+  });
+
+  it('a claim already on the row is reported in flight and asks for a redelivery, never as failed for good', async () => {
+    const deliveries = new MemoryDeliveryStore({ leaseMs: 60_000 });
+    expect((await deliveries.claim(rateAsk().id, 'email', 3)).claimed).toBe(true);
+    const report = await dispatcher(deliveries).dispatch(rateAsk());
+    expect(report.outcomes.find((o) => o.channel === 'email')).toMatchObject({ status: 'failed', retryable: true });
+    expect(report.retry).toBe(true);
+  });
+
+  it('a later claim of the waiting row no longer reads vendor.email', async () => {
+    const deliveries = new MemoryDeliveryStore();
+    await dispatcher(deliveries).dispatch(rateAsk());
+    const claim = await deliveries.claim(rateAsk().id, 'email', 3);
+    expect(claim).toMatchObject({ claimed: true, attempt: 1 });
+    const email = (await deliveries.listForNotification(rateAsk().id)).find((row) => row.channel === 'email');
+    expect(email).toMatchObject({ status: 'pending', attempts: 1, refusalCode: null });
   });
 });
