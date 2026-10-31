@@ -246,7 +246,13 @@ test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refus
 }) => {
   await signIn(page, developer());
   await page.goto('/quant/strategies');
-  await expect(page.getByTestId('quant-usage'), 'plan quotas and their refusal are not built (AL-limits-01)').toBeVisible(UNBUILT);
+  // The quota on runs in progress is enforced (AL-limits-01), and the Usage panel shows it.
+  const inProgress = page.getByTestId('quant-usage').locator('[data-testid="quant-usage-row"][data-resource="concurrent_runs"]');
+  await expect(inProgress).toHaveCount(1);
+  // Blocked by name (D's ruling, 31 Oct): every svc-quant run is one synchronous request, finished before its reply
+  // (services/svc-quant/src/runs/track.ts), so three runs cannot be held in progress while a fourth starts. AL-live
+  // brings long-lived runs; racing four requests would prove nothing.
+  throw new Error('no long-lived run exists until AL-live, so three runs cannot be held in progress (AL-limits-01 is built)');
 });
 
 test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({ page }) => {
