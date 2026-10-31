@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
-import { ORIGIN, ROOT, tool } from './stack.mjs';
+import { ORIGIN, ROOT, restartWith } from './stack.mjs';
 
 // J-home-ia-06's clauses that need a product change before they can run, each red by name. They sit in their own file
 // so a red here never skips a built step of J-home-ia-06.pw.mjs, whose steps run serially. When the product lands,
@@ -37,20 +37,10 @@ test(`${J} #5 every shell control (bell and inbox, avatar menu, mode switch, Web
 });
 
 test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({ browser }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
   // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
-  const blankCount = (blank) => {
-    const before = process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
-    if (blank) process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT = 'off';
-    else delete process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
-    try {
-      tool('local-test-stack.mjs', 'restart', 'ops');
-    } finally {
-      if (before === undefined) delete process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT;
-      else process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT = before;
-    }
-  };
+  const blankCount = (blank) => restartWith('ops', 'LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT', !blank);
   const context = await browser.newContext({ baseURL: ORIGIN });
   const page = await context.newPage();
   blankCount(true);

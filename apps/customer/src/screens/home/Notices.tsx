@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
+import { noticeCopy } from './notice-copy';
 import { StatusTag } from './deps';
 import { homeNotices, type HomeNotice } from './notice-model';
 import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
@@ -95,9 +96,10 @@ export function HomeNotices() {
 /** The strip while the owner's strip count is blank: it says so, with the typed code, and lists no notice. */
 function StripUnset() {
   const { t } = homeCopy.useCopy();
+  const { t: strip } = noticeCopy.useCopy();
   return (
     <section data-testid="home-notice-strip-unset" className="home-notice" role="status" data-code={NOTICE_STRIP_LIMIT_UNSET}>
-      <p className="home-notice__title">{t('Notice strip unset')}</p>
+      <p className="home-notice__title">{strip('Notice strip unset')}</p>
       <a className="home-notice__link" href="/notice">
         {t('Notice all')}
       </a>
