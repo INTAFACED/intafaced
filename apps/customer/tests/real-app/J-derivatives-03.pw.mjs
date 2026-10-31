@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
+import { api, journeyState, toUnits, fromUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-03, in the running app (docs/roadmap/journeys.json): protect a position with a take profit and a stop
@@ -375,11 +375,21 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   for (const stop of stops) expect((await me.delete(`/api/v1/futures/conditional-orders/${stop.id}`)).status).toBe(200);
 });
 
-test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
+test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once (one fill, one ledger posting); the other leg cancelled`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const me = await api(account());
+  // Two trade workers run the conditional job against the same stack for this whole step; the trigger must fire once.
+  tool('local-test-stack.mjs', 'second-worker', 'trade', 'start');
+  try {
+    await firesOnceWithTwoWorkers(page, me);
+  } finally {
+    tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
+  }
+});
+
+async function firesOnceWithTwoWorkers(page, me) {
   const { positionId } = run.read();
   // The size as it stands: #4 added to it.
   const size = (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId).contracts;
@@ -409,34 +419,66 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
   const pair = (await legs(me, positionId)).filter((o) => o.status === 'armed');
   expect(pair).toHaveLength(2);
+  // The ledger lines already there, so the close's own postings can be told apart.
+  const ledgerIds = async () => new Set((await me.get('/api/v1/ledger?limit=200')).body.entries.map((e) => e.id));
+  const postedBefore = await ledgerIds();
+  // Every status each leg is seen in from now on, read through the service as often as it answers.
+  const seen = Object.fromEntries(pair.map((o) => [o.id, ['armed']]));
+  const refused = [];
+  let watching = true;
+  let fired;
+  let other;
+  const watcher = (async () => {
+    while (watching) {
+      try {
+        for (const o of await legs(me, positionId)) {
+          const list = seen[o.id];
+          if (list && list.at(-1) !== o.status) list.push(o.status);
+        }
+      } catch (err) {
+        refused.push(String(err).split('\n')[0]);
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  })();
+  try {
+    // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
+    await expect(dialog.getByRole('button', { name: 'Close dialog' }).first()).toBeInViewport();
+    await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
+    await page.getByRole('tab', { name: 'Orders' }).click();
+    const triggers = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' });
+    const rows = triggers.getByRole('row');
+    // Both listed; at 3 bps the walk can cross one before the tab is read, so a leg may already be on its way out.
+    await expect(rows.filter({ hasText: 'judged on the mark price' }).first()).toBeVisible();
 
-  // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
-  await expect(dialog.getByRole('button', { name: 'Close dialog' }).first()).toBeInViewport();
-  await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
-  await page.getByRole('tab', { name: 'Orders' }).click();
-  const triggers = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' });
-  const rows = triggers.getByRole('row');
-  // Both listed; at 3 bps the walk can cross one before the tab is read, so a leg may already be on its way out.
-  await expect(rows.filter({ hasText: 'judged on the mark price' }).first()).toBeVisible();
+    // The walk crosses one: it shows filled, with what it closed and through which order, and the other cancelled
+    // because the position closed.
+    const filled = rows.filter({ hasText: 'Filled' });
+    await expect(filled).toHaveCount(1, { timeout: 180_000 });
+    await expect(filled).toContainText(`Fired for ${size}; ${size} closed so far`);
+    await expect(filled).toContainText('Close order ');
+    await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
+    await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Positions' }).click();
+    await expect(page.getByText('No open futures positions')).toBeVisible();
 
-  // The walk crosses one: it shows filled, with what it closed and through which order, and the other cancelled
-  // because the position closed.
-  const filled = rows.filter({ hasText: 'Filled' });
-  await expect(filled).toHaveCount(1, { timeout: 180_000 });
-  await expect(filled).toContainText(`Fired for ${size}; ${size} closed so far`);
-  await expect(filled).toContainText('Close order ');
-  await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
-  await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Positions' }).click();
-  await expect(page.getByText('No open futures positions')).toBeVisible();
-
-  // Through the API: one leg filled, the other cancelled position_closed, the position gone.
-  const done = await legs(me, positionId);
-  const live = done.filter((o) => pair.some((p) => p.id === o.id));
-  const fired = live.find((o) => o.status === 'filled');
-  const other = live.find((o) => o.id !== fired.id);
-  expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
-  expect(fired).toMatchObject({ firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
+    // Through the API: one leg filled, the other cancelled position_closed, the position gone.
+    const done = await legs(me, positionId);
+    const live = done.filter((o) => pair.some((p) => p.id === o.id));
+    fired = live.find((o) => o.status === 'filled');
+    other = live.find((o) => o.id !== fired.id);
+    expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+    expect(fired).toMatchObject({ firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
+  } finally {
+    watching = false;
+    await watcher;
+  }
+  // Every read through the service answered while the legs moved.
+  expect(refused).toEqual([]);
+  // The fired leg went armed to filled, at most through triggered (closing through the book, which a 300 ms read can
+  // miss), never back and never twice; the other armed, then cancelled.
+  expect(['armed,filled', 'armed,triggered,filled'], JSON.stringify(seen)).toContain(seen[fired.id].join(','));
+  expect(seen[other.id].at(-1)).toBe('cancelled');
   expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === positionId)).toEqual([]);
 
   // It closed through the book: one reduce-only sell for the whole size, on the fired leg's own client id, filled.
@@ -449,7 +491,18 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
     [fired.closeOrderId, 'sell', true, 'filled', size],
   ]);
   expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
-});
+  // And one ledger posting for it: the close released the position's margin once, and nothing was posted twice
+  // (a realised profit, when the take profit fired, is its own line, also once).
+  const { body: ledger } = await me.get('/api/v1/ledger?limit=200');
+  const posted = ledger.entries.filter((e) => !postedBefore.has(e.id) && e.module === 'trade');
+  const types = posted.map((e) => e.type);
+  expect(
+    types.filter((t) => t === 'futures.margin.release'),
+    JSON.stringify(posted),
+  ).toHaveLength(1);
+  expect(new Set(types).size, JSON.stringify(posted)).toBe(types.length);
+  expect(new Set(posted.map((e) => e.referenceId)).size, JSON.stringify(posted)).toBe(posted.length);
+}
 
 test(`${J} #7 a fired stop fails: the reason in words and what happened to the position`, async ({ page }) => {
   test.setTimeout(240_000);

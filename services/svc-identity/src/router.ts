@@ -1,4 +1,5 @@
 import { SecurityLockError } from './auth/security-lock.js';
+import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
@@ -39,6 +40,7 @@ import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
+import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
   callFounderControl,
   identityFreezeInputSchema,
@@ -177,6 +179,15 @@ export function toTrpcError(err: unknown): TRPCError {
   // shared package's AuthError, which is a different class from this service's.
   if (err instanceof GuardError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
+  }
+
+  // The self-hosted sign-in challenge (I-signin-sessions-30): asked for, failed, or not configured by the owner.
+  if (err instanceof SignInChallengeError) {
+    return new TRPCError({
+      code: err.code === 'identity.challenge_unconfigured' ? 'PRECONDITION_FAILED' : 'FORBIDDEN',
+      message: userCopy(err.code),
+      cause: err,
+    });
   }
 
   // The owner's security lock refused a password change or reset (W-withdraw-09). 412, never 401: it is not a sign-out.
@@ -849,6 +860,12 @@ export function createIdentityRouter(
      */
     directRegister?: boolean;
     /**
+     * The self-hosted sign-in challenge (I-signin-sessions-30). Always set by index.ts from the owner's settings; absent
+     * only in tests that build a router without it, where `auth.login` asks for no challenge and `auth.challenge`
+     * refuses `identity.challenge_unconfigured`.
+     */
+    signInChallenge?: SignInChallengeService;
+    /**
      * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
      * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
      * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
@@ -1485,6 +1502,20 @@ export function createIdentityRouter(
           }
         }),
 
+      /**
+       * A signed sign-in challenge (I-signin-sessions-30): the browser solves it and sends it as `challenge` on the next
+       * `auth.login` once that answered `auth.challenge_required`. Says nothing about any account. Blank owner settings
+       * refuse `identity.challenge_unconfigured`.
+       */
+      challenge: publicProcedure.output(signInChallengeSchema).mutation(() => {
+        try {
+          if (!options.signInChallenge) throw new SignInChallengeError('identity.challenge_unconfigured');
+          return options.signInChallenge.issue();
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
       login: publicProcedure
         .input(
           z.object({
@@ -1492,15 +1523,30 @@ export function createIdentityRouter(
             password: z.string().min(1),
             totpCode: z.string().optional(),
             deviceKey: z.string().min(16).max(128).optional(),
+            /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
+            challenge: signInChallengeProofSchema.optional(),
           }),
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
+          const address = requestIpAls.getStore();
+          let admission: SignInAdmission | undefined;
+          let wrongPassword = false;
           try {
-            const session = await auth.login({ ...input, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
+            // Before the account is looked up, so the challenge says nothing about whether the identifier exists.
+            admission = await options.signInChallenge?.admit(address, input.challenge);
+            const { challenge: _challenge, ...credentials } = input;
+            const session = await auth.login({ ...credentials, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
             return sessionWire(ctx, session);
           } catch (err) {
+            // A wrong password keeps its count on the address, whether or not the identifier names an account.
+            wrongPassword = err instanceof AuthError && err.code === 'auth.invalid_credentials';
             throw toTrpcError(err);
+          } finally {
+            // The bookkeeping never replaces the sign-in's own answer: a failure here is logged, not thrown.
+            await admission?.settle(wrongPassword).catch((err: unknown) => {
+              console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
+            });
           }
         }),
 

@@ -85,6 +85,19 @@ describe('token views carry a gas cap', () => {
     await expect(chain.tokenBalanceAt(TOKEN, POOL, 7n)).rejects.toMatchObject({ code: 'protocol.contract_not_deployed' });
   });
 
+  it('a malformed answer refuses as viem wraps it, never a value and never a revert', async () => {
+    const { chain } = await node(() => ({ result: '0x01' }));
+    const err = await chain.tokenBalanceAt(TOKEN, POOL, 7n).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    // The node answered, so this is not an absent contract; "no usable answer" is the existing classification.
+    expect(err).toMatchObject({ code: 'protocol.chain_unreachable' });
+    expect(String((err as { cause?: { name?: string } }).cause?.name)).toBe('ContractFunctionExecutionError');
+    // A malformed allowance is unread (rejects), not a revert read as null.
+    await expect(chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).rejects.toMatchObject({ code: 'protocol.chain_unreachable' });
+  });
+
   it('a token that reverts on allowance still reads as a revert (null), not an outage', async () => {
     const { chain } = await node(() => ({ error: { code: 3, message: 'execution reverted', data: '0x' } }));
     expect(await chain.allowanceAt(TOKEN, POOL, ZERO, 7n)).toBeNull();

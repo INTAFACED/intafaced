@@ -371,6 +371,49 @@ describe.skipIf(!available)('PostgresDeliveryStore — the claim guard, executed
       expect(after?.acceptedAt).toBeNull();
     });
   });
+  describe('wait — a mailed copy owed with no sender set (SP-csat-01)', () => {
+    it('writes one pending row named vendor.email that nothing claimed, and a second wait changes nothing', async () => {
+      const s = store();
+      const first = await s.wait(NOTIFICATION, 'email', 'vendor.email');
+      expect(first).toMatchObject({
+        status: 'pending',
+        attempts: 0,
+        refusalCode: 'vendor.email',
+        attemptedAt: null,
+        acceptedAt: null,
+        leaseUntil: null,
+      });
+      const again = await s.wait(NOTIFICATION, 'email', 'vendor.email');
+      expect(again.id).toBe(first.id);
+      expect(await s.listForNotification(NOTIFICATION)).toHaveLength(1);
+    });
+
+    it('is never reaped as stuck or exhausted, however old', async () => {
+      const s = store();
+      await s.wait(NOTIFICATION, 'email', 'vendor.email');
+      await sql!`UPDATE notify.deliveries SET updated_at = now() - interval '1 day' WHERE notification_id = ${NOTIFICATION}`;
+      await s.reapExhausted(1, { stuckGraceMs: 1_000 });
+      const [row] = await s.listForNotification(NOTIFICATION);
+      expect(row).toMatchObject({ status: 'pending', attempts: 0, refusalCode: 'vendor.email' });
+    });
+
+    it('keeps the detail it was given, and a later claim clears the vendor.email code', async () => {
+      const s = store();
+      expect(await s.wait(NOTIFICATION, 'email', 'vendor.email', 'no confirmed address on this channel')).toMatchObject({
+        detail: 'no confirmed address on this channel',
+      });
+      expect(await s.claim(NOTIFICATION, 'email', 3)).toMatchObject({ claimed: true, attempt: 1 });
+      const [row] = await s.listForNotification(NOTIFICATION);
+      expect(row).toMatchObject({ status: 'pending', attempts: 1, refusalCode: null });
+    });
+
+    it('leaves a row a claim already made as it stands', async () => {
+      const s = store();
+      expect((await s.claim(NOTIFICATION, 'email', 3)).claimed).toBe(true);
+      const row = await s.wait(NOTIFICATION, 'email', 'vendor.email');
+      expect(row).toMatchObject({ status: 'pending', attempts: 1, refusalCode: null });
+    });
+  });
 });
 
 describe.skipIf(!available)('PostgresTargetStore — verified and unverified are different questions', () => {

@@ -9,6 +9,7 @@ import {
   validateDraft,
 } from './catalog.js';
 import { FLEET_HARD_MONEY_WRITE_TOOLS } from '../fleet/guardrails.js';
+import { ownGuardrail } from './routes.js';
 
 const draft = (over: Partial<Parameters<typeof validateDraft>[0]> = {}) =>
   validateDraft({ name: 'TEST helper', instructions: '', tools: [], perSessionCap: null, ...over });
@@ -32,6 +33,47 @@ describe('own agent templates offered (AGENTS_OWN_TEMPLATES)', () => {
 
   it('an unknown template id stops the boot, naming it', () => {
     expect(() => parseOwnTemplates('blank,growth-pack')).toThrow('AGENTS_OWN_TEMPLATES names an unknown template: growth-pack');
+  });
+});
+
+describe('declared tool shapes (AG-tools-01)', () => {
+  it('every attachable read tool but pay.metrics.read declares an input, an output and its refusals', () => {
+    for (const tool of OWN_TOOLS.filter((entry) => !entry.movesMoney && entry.name !== 'pay.metrics.read')) {
+      expect(Object.keys(tool.shape?.input ?? {}).length, tool.name).toBeGreaterThan(0);
+      expect(Object.keys(tool.shape?.output ?? {}).length, tool.name).toBeGreaterThan(0);
+      expect(tool.refusals.length, tool.name).toBeGreaterThan(0);
+    }
+    // identity.account.read never answers a balance.
+    expect(JSON.stringify(OWN_TOOLS.find((entry) => entry.name === 'identity.account.read')?.shape)).not.toMatch(/balance/i);
+  });
+
+  it('a tool with no declared shape is refused with agents.tool_shape_missing, naming it', () => {
+    expect(OWN_TOOLS.find((entry) => entry.name === 'pay.metrics.read')?.shape).toBeNull();
+    expect(() => draft({ tools: ['support.kb.search', 'pay.metrics.read'] })).toThrow(
+      expect.objectContaining({ code: 'agents.tool_shape_missing', params: { tool: 'pay.metrics.read' } }),
+    );
+  });
+
+  it('a session never grants a tool with no declared shape, even one a draft saved before shapes were declared', () => {
+    const guardrail = ownGuardrail({
+      id: '11111111-1111-4111-8111-111111111111',
+      template: 'blank',
+      name: 'TEST older draft',
+      instructions: '',
+      tools: ['support.kb.search', 'pay.metrics.read'],
+      perSessionCap: '1',
+      version: 1,
+      state: 'draft',
+      findings: [],
+      createdAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    });
+    expect(guardrail.tools.map((tool) => tool.name)).toEqual(['support.kb.search']);
+    expect(guardrail.limits.allowedModules).toEqual(['support']);
+  });
+
+  it('a money tool is still refused as a money tool first', () => {
+    expect(refusal(() => draft({ tools: ['ledger.transfer'] }))).toBe('agents.own.money_tool');
   });
 });
 

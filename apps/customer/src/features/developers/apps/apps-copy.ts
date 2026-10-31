@@ -11,6 +11,7 @@ const en = {
   signIn: 'Sign in',
   loading: 'Reading your apps',
   readFailed: 'Your apps could not be read.',
+  lifetimesUnread: 'Whether apps can sign people in could not be read.',
   codeLabel: 'Code',
   retry: 'Try again',
   empty: 'You have not registered an app.',

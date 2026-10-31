@@ -19,7 +19,7 @@ import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter, type ProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
-import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
+import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
@@ -142,6 +142,8 @@ const walletSessionSetting = walletSessionFromSetting(
 );
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
+let badgeRestartable: boolean | undefined;
+
 export const appRouter = createProtocolRouter({
   chainIdentity,
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
@@ -180,6 +182,15 @@ export const appRouter = createProtocolRouter({
     minter: noBadgeSigner,
     window: () => badgeWindowFromSetting(env.PROTOCOL_BADGE_WINDOW_OPENS_AT, env.PROTOCOL_BADGE_WINDOW_CLOSES_AT),
     mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworkRegistry()),
+    // Raw APP_ENV: only a `local` chain, or the local test stack's loopback chain, resets a claim when it starts again.
+    // Fixed for the process, so the registry is read once, on the first badge request.
+    restartable: () =>
+      (badgeRestartable ??= badgeChainIsRestartable(
+        env.PROTOCOL_CHAIN_ID,
+        loadNetworkRegistry(),
+        process.env.APP_ENV,
+        env.PROTOCOL_RPC_URL,
+      )),
     approvals: badgeApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
     stuckMintAgeSeconds: () => env.PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS,
   },

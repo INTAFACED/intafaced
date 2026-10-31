@@ -100,8 +100,15 @@ const READS_A_REQUEST = [
   'attachmentDownload',
   'myTicketProperties',
 ] as const;
-/** These read no request and no comment: help centre, knowledge base, forms and desk settings. */
+/**
+ * A guest's link reads and replies on one request (SP-tickets-01). Its answer is the owner's own `getTicket` and
+ * `listComments`, and `guest-requests.pg.test.ts` proves a staff note is not in it.
+ */
+const READS_BY_GUEST_LINK = ['guestThread', 'guestReply'] as const;
+/** These read no request and no comment: help centre, knowledge base, forms, desk settings and a guest's submission. */
 const READS_NO_REQUEST = [
+  'guestCreate',
+  'guestVerify',
   'contactChannels',
   'attachmentLimits',
   'helpCentre',
@@ -136,7 +143,7 @@ describe('internal notes', () => {
       );
       if (refused !== 'FORBIDDEN') reachable.push(path);
     }
-    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_NO_REQUEST].sort());
+    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_BY_GUEST_LINK, ...READS_NO_REQUEST].sort());
   });
 
   it('a note is in no answer a customer procedure gives, and moves nothing the customer reads', async () => {

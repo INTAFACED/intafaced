@@ -104,7 +104,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_FUTURES_TEST_SEED: 'true',
     TRADE_FUTURES_JOBS_ENABLED: 'true',
     TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
-    TRADE_FUTURES_LADDER_POLICY: JSON.stringify(TEST_FUTURES_LADDER_POLICY),
+    // `LOCAL_STACK_TRADE_FUTURES_LADDER=off` on a restart leaves the ladder blank, so J-derivatives-02 #2 sees "tiers
+    // not published" and an open refused on the ladder code.
+    TRADE_FUTURES_LADDER_POLICY: process.env.LOCAL_STACK_TRADE_FUTURES_LADDER === 'off' ? '' : JSON.stringify(TEST_FUTURES_LADDER_POLICY),
     // The code's own ceiling (DIRECTION §1); the TEST listing caps itself lower. Markets show orderable only with it.
     TRADE_FUTURES_MAX_LEVERAGE: '10',
     // Futures orders through the one book (futures ADR 2026-10-20): no open at mark. The TEST perpetual is marked
