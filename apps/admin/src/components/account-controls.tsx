@@ -86,6 +86,26 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
     const events = (await read(`/api/accounts?${params}&history=true&limit=50`)) as AccountControlResult[];
     setHistory(events);
   }
+  const unfreezeDesk = state ? (
+    <ControlDesk
+      key={`${id}:${state.version}`}
+      endpoint="/api/accounts/restore"
+      userId={founderId}
+      blockedReason={readOnly}
+      action={{
+        heading: 'Lift this account’s freeze',
+        submitLabel: 'Ask a second founder to approve lifting the freeze',
+        needsReason: true,
+        reasonLabel: 'Why (kept in the account’s control history, 12 to 500 characters)',
+        build: (why) => ({ kind: 'identity.account.unfreeze', userId: id.toLowerCase(), reason: why, version: state.version }),
+      }}
+      consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity spends the approval once and refuses anyone approving their own request; it also accepts another operator as the approver, so check who approved before you run it."
+      blockedButtonLabel="Restore unavailable"
+      onChanged={() => {
+        void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
+      }}
+    />
+  ) : null;
   return (
     <section className="adm-workspace">
       <p className="adm-eyebrow">Account administration</p>
@@ -168,32 +188,17 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </p>
           ) : null}
           {area === 'identity' && state.restricted && closed !== false ? (
-            <p className="adm-subtle" data-testid="account-closed-note">
-              {closed
-                ? 'This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.'
-                : 'Identity has not said yet whether this account is closed, so lifting the freeze waits until it does (see Close or reopen below).'}
-            </p>
+            <>
+              <p className="adm-subtle" data-testid="account-closed-note">
+                {closed
+                  ? 'This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.'
+                  : 'Identity has not said yet whether this account is closed, so lifting the freeze waits until it does (see Close or reopen below).'}
+              </p>
+              {/* An archived record still shows the unfreeze desk, disabled, with identity's reason (never hidden). */}
+              {readOnly ? <div data-testid="account-unfreeze">{unfreezeDesk}</div> : null}
+            </>
           ) : area === 'identity' && state.restricted ? (
-            <div data-testid="account-unfreeze">
-              <ControlDesk
-                key={`${id}:${state.version}`}
-                endpoint="/api/accounts/restore"
-                userId={founderId}
-                blockedReason={readOnly}
-                action={{
-                  heading: 'Lift this account’s freeze',
-                  submitLabel: 'Ask a second founder to approve lifting the freeze',
-                  needsReason: true,
-                  reasonLabel: 'Why (kept in the account’s control history, 12 to 500 characters)',
-                  build: (why) => ({ kind: 'identity.account.unfreeze', userId: id.toLowerCase(), reason: why, version: state.version }),
-                }}
-                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity spends the approval once and refuses anyone approving their own request; it also accepts another operator as the approver, so check who approved before you run it."
-                blockedButtonLabel="Restore unavailable"
-                onChanged={() => {
-                  void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
-                }}
-              />
-            </div>
+            <div data-testid="account-unfreeze">{unfreezeDesk}</div>
           ) : (
             <form
               className="adm-form"
