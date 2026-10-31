@@ -70,6 +70,26 @@
       "service": "support",
       "value": "priority,type",
       "note": "What a customer reads of the desk's priority and type on their own request, so J-support-public-02 #6 can see both. Not an owner decision."
+    },
+    "SUPPORT_GUEST_LINK_TTL_MINUTES": {
+      "service": "support",
+      "value": "30",
+      "note": "How long a guest's verification link works, so J-support-public-03 can open a request by link. Not an owner decision."
+    },
+    "SUPPORT_GUEST_RATE_LIMIT": {
+      "service": "support",
+      "value": "3",
+      "note": "Guest requests one address may send per window, so J-support-public-03 #5 can reach the limit. Not an owner decision."
+    },
+    "SUPPORT_GUEST_RATE_WINDOW_SECONDS": {
+      "service": "support",
+      "value": "3600",
+      "note": "The window for the guest request limit above. Not an owner decision."
+    },
+    "SUPPORT_GUEST_RETENTION_DAYS": {
+      "service": "support",
+      "value": "30",
+      "note": "How long a guest's address and access link are kept, so the guest path can store one. Not an owner decision."
     }
   }
 }

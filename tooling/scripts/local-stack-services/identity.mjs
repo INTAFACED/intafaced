@@ -221,6 +221,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS') }),
     IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
+    // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
+    // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the
+    // failure count, so a journey can see the challenge; a plain restart puts the TEST value back.
+    IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:
+      process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER || testValue('IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES'),
+    IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
+    IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
+    IDENTITY_SIGNIN_CHALLENGE_KEY: secrets.identitySigninChallenge,
     // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
     IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),

@@ -1,13 +1,4 @@
-import {
-  ContractFunctionZeroDataError,
-  createPublicClient,
-  decodeFunctionResult,
-  defineChain,
-  encodeFunctionData,
-  getAddress,
-  getContractError,
-  http,
-} from 'viem';
+import { createPublicClient, decodeFunctionResult, defineChain, encodeFunctionData, getAddress, getContractError, http } from 'viem';
 import type { Abi, BaseError } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
@@ -194,19 +185,19 @@ export class ProtocolChain {
    */
   async #tokenView<T>(token: Address, abi: Abi, functionName: string, args: readonly unknown[] = [], blockNumber?: bigint): Promise<T> {
     const request = { abi, functionName, args } as Parameters<typeof encodeFunctionData>[0];
-    let data: `0x${string}` | undefined;
+    // The decode sits in the try too, as in `readContract`: an empty answer becomes `ContractFunctionZeroDataError` and a
+    // malformed one keeps viem's wrapped contract error.
     try {
-      ({ data } = await this.client.call({
+      const { data } = await this.client.call({
         to: token,
         data: encodeFunctionData(request),
         gas: TOKEN_READ_GAS,
         ...(blockNumber === undefined ? {} : { blockNumber }),
-      }));
+      });
+      return decodeFunctionResult({ abi, functionName, args, data: data ?? '0x' } as Parameters<typeof decodeFunctionResult>[0]) as T;
     } catch (err) {
       throw getContractError(err as BaseError, { abi, address: token, args: [...args], functionName });
     }
-    if (!data || data === '0x') throw new ContractFunctionZeroDataError({ functionName });
-    return decodeFunctionResult({ abi, functionName, data } as Parameters<typeof decodeFunctionResult>[0]) as T;
   }
 
   /** Whether an account address has code yet. A predicted address has none. */
@@ -612,12 +603,6 @@ export class ProtocolChain {
       }
     }
     return { pendingTag, bundlerReachable, paymasterFunded: null };
-  }
-
-  async tokenBalanceOf(token: Address, holder: Address): Promise<bigint> {
-    return this.#read('tokenBalanceOf', 'chain.tokenBalanceOf', async () =>
-      this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder] }),
-    );
   }
 
   /**

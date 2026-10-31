@@ -618,21 +618,22 @@ Codes, not sentences — clients render copy from `@intafaced/i18n`. Every code 
 row can carry is listed in `allRefusalCodes()` (`channels/channel.ts`); a pin
 test fails if production writes a string missing from that list.
 
-| Code                            | Means                                                                                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `channel.not_configured`        | No gateway credentials for this channel                                                                                         |
-| `channel.no_target`             | User has no address on this channel                                                                                             |
-| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                                                        |
-| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                                           |
-| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                                                          |
-| `channel.muted`                 | User muted non-critical traffic on this channel                                                                                 |
-| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                                             |
-| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                                                          |
-| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                                                        |
-| `channel.register_rate_limited` | Too many address registrations in the window                                                                                    |
-| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                                                     |
-| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row                            |
-| `channel.recipient_quarantined` | Address failed terminally `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` times in a row; non-critical sends wait for an operator release |
+| Code                            | Means                                                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `channel.not_configured`        | No gateway credentials for this channel                                                                                                  |
+| `channel.no_target`             | User has no address on this channel                                                                                                      |
+| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                                                                 |
+| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                                                    |
+| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                                                                   |
+| `channel.muted`                 | User muted non-critical traffic on this channel                                                                                          |
+| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                                                      |
+| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                                                                   |
+| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                                                                 |
+| `channel.register_rate_limited` | Too many address registrations in the window                                                                                             |
+| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                                                              |
+| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row                                     |
+| `channel.recipient_quarantined` | Address failed terminally `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` times in a row; non-critical sends wait for an operator release          |
+| `vendor.email`                  | No email sender set and the kind's mail is owed (`MAILED_KINDS`, the rating ask): the row waits `pending`, never attempted, never reaped |
 
 The table is the tip wire vocabulary — a pin test fails if it drifts from
 `allRefusalCodes()`.
