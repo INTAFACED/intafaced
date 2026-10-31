@@ -92,6 +92,8 @@ export const supportGuestReplyInputSchema = z
   })
   .strict();
 export type SupportGuestReplyInput = z.infer<typeof supportGuestReplyInputSchema>;
+/** A guest's reply as stored: the same comment the owner's own reply makes. */
+export const supportGuestReplyResultSchema = supportCommentSchema;
 
 /** The customer-app paths the links open. */
 export const SUPPORT_GUEST_VERIFY_PATH = '/support/guest/verify';

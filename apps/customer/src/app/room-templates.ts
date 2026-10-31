@@ -38,6 +38,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/status': { template: 'reading' },
   '/status/confirm': { template: 'flow' },
   '/status/manage': { template: 'settings' },
+  '/support/guest/verify': { template: 'flow' },
+  '/support/guest/request': { template: 'reading' },
   '/status/unsubscribe': { template: 'flow' },
   '/notice': { template: 'reading' },
   '/notice/:id': { template: 'reading' },

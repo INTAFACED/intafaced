@@ -628,6 +628,8 @@ export const features: readonly Feature[] = [
       '/support/new',
       '/support/tickets',
       '/support/tickets/:ticketId',
+      '/support/guest/verify',
+      '/support/guest/request',
     ],
     status: 'live',
     reason: 'svc-support answers on the local stack',
