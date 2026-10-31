@@ -21,6 +21,11 @@ const REFUSALS: Record<string, string> = {
   // Sign-in and the emailed device code both answer this, so it names neither.
   'auth.too_many_attempts': 'Too many wrong attempts. Wait, then start over to sign in again.',
   'auth.code_expired': 'That code has expired. Start over to get a new one.',
+  // The self-hosted sign-in check (I-signin-sessions-30).
+  'auth.challenge_invalid': 'That sign-in check did not work. Sign in again to get a new one.',
+  'auth.challenge_expired': 'That sign-in check ran out of time. Sign in again to get a new one.',
+  'auth.challenge_used': 'That sign-in check was already used. Sign in again to get a new one.',
+  'identity.challenge_unconfigured': 'Sign-in needs a check whose settings are not set yet, so signing in is closed for now.',
   'auth.device_authorisation_pending':
     'This browser is still waiting for approval. Enter the emailed code, or approve it from a founder session on a trusted device.',
   'auth.device_authorisation_used': 'That approval was already used. Start over to sign in again.',

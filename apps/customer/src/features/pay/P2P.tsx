@@ -1,3 +1,4 @@
+import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -17,6 +18,7 @@ import {
   MutationResult,
 } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
+import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
@@ -385,7 +387,6 @@ export function OrderActions({
   locked: boolean;
   onOutcome: (result: ApiResult<Trade>) => void;
 }) {
-  const [reason, setReason] = useState('');
   // J-p2p-01 #7: the buyer confirms three facts about the outside payment before the order says it was paid.
   const [paidReady, setPaidReady] = useState(false);
   const { Copy, t } = orderCopy.useCopy();
@@ -394,9 +395,14 @@ export function OrderActions({
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
   ];
-  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean, stepUpApprovalId?: string) => {
-    const reasonText = action === 'cancel' ? reason : undefined;
-    const result = await pay.manageTrade(trade.id, action, reasonText, { expected: trade, current }, stepUpApprovalId);
+  const perform = async (
+    action: 'markFiatSent' | 'confirmReceived' | 'cancel',
+    current: () => boolean,
+    stepUpApprovalId?: string,
+    cancelReason?: P2pCancelReason,
+  ) => {
+    const reason = action === 'cancel' && cancelReason ? { code: cancelReason } : undefined;
+    const result = await pay.manageTrade(trade.id, action, reason, { expected: trade, current }, stepUpApprovalId);
     onOutcome(result);
     return result;
   };
@@ -442,38 +448,18 @@ export function OrderActions({
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ValidatePayment trade={trade} pay={pay} onChecked={reload} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
+        {trade.sellerId === userId && trade.status === 'fiat_sent' && <RequestCancel />}
       </div>
       {['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">
           <summary>
             <Copy k="other" />
           </summary>
-          <Field
-            label={payCopy.t('cancellationReason')}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            maxLength={200}
-          />
-          <ReviewedAction
-            title={payCopy.t('cancelOrder')}
-            description={t('cancelBody')}
-            review={
-              <div className="p2p-order-review">
-                <PayDetails
-                  values={[
-                    ...reviewValues,
-                    [t('refundTo'), <span lang="zxx">{trade.sellerId}</span>],
-                    [payCopy.t('assetQuantity'), <PayAmount value={trade.amount} unit={trade.asset} label={payCopy.t('assetQuantity')} />],
-                    [
-                      payCopy.t('externalPayment'),
-                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('externalPayment')} />,
-                    ],
-                    [payCopy.t('cancellationReason'), <span lang="und">{reason || payCopy.t('notSupplied')}</span>],
-                  ]}
-                />
-              </div>
-            }
-            perform={(current) => perform('cancel', current)}
+          <CancelOrder
+            trade={trade}
+            seller={trade.sellerId === userId}
+            reviewValues={reviewValues}
+            perform={(code, current) => perform('cancel', current, undefined, code)}
             onConfirmed={reload}
             disabled={locked}
           />
