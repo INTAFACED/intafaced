@@ -121,6 +121,11 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
     const malformed = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, totalQty: 2 } });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json()).toMatchObject({ intafacedCode: 'trade.validation_failed' });
+    for (const kind of [1, null]) {
+      const odd = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, kind } });
+      expect(odd.statusCode, String(kind)).toBe(400);
+      expect(odd.json()).toMatchObject({ intafacedCode: 'trade.validation_failed' });
+    }
     // A field the order does not take is refused, never dropped.
     const extra = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: { ...TWAP, stopPrice: '1' } });
     expect(extra.statusCode).toBe(400);

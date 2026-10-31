@@ -96,6 +96,11 @@ export function attachAlgoRestRoutes(app: FastifyInstance, algo: AlgoRestPort | 
     const principal = admit(req, reply, 'trade:write');
     if (!principal) return;
     const raw = (req.body ?? {}) as { kind?: unknown };
+    // Left out means twap, as in the web; any other non-string kind is malformed, never quietly a twap.
+    if (raw.kind !== undefined && typeof raw.kind !== 'string') {
+      const res = invalidOrder('The algo request is malformed: kind: a string, one of the algo kinds');
+      return reply.code(res.status).send(res.body);
+    }
     const kind = typeof raw.kind === 'string' ? raw.kind.trim().toLowerCase() : 'twap';
     if ((ALGO_API_KINDS_NOT_BUILT as readonly string[]).includes(kind)) {
       return refuse(
