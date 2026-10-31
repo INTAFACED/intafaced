@@ -222,10 +222,11 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await settled((v) => v.to - v.from > (zoomed.to - zoomed.from) * 1.1);
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
-  await settled((v) => Math.round(v0.to - v.to) >= 19 && v.to < v.bars - 1);
-  // Home shows the newest bars: the last bar is in view again, also once any older history it loads has landed.
+  const panned = await settled((v) => Math.round(v0.to - v.to) === 20);
+  // Home shows the newest bars again: the chart fits its bars, so the view reaches back past the panned one and the last
+  // bar is in it.
   await page.keyboard.press('Home');
-  await settled((v) => v.to >= v.bars - 1);
+  await settled((v) => v.to >= v.bars - 1 && v.from < panned.from);
   // Replay opens and closes on its key.
   await page.keyboard.press('Alt+R');
   await expect(cell(page, 2).getByRole('group', { name: 'Bar replay' })).toBeVisible();

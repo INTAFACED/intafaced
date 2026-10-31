@@ -5,6 +5,7 @@ import {
   type FounderMerchantList,
   type MerchantMetricsSeries,
   type MerchantMetricsSnapshot,
+  type MerchantSettlementAssets,
   type MetricsFreshness,
   type PayAssetAmount,
   type PayMetricWindow,
@@ -31,6 +32,11 @@ export interface MetricsReaderDeps {
   /** Open fraud-review count, optionally for one merchant. The queue is a port; see runtime.ts. */
   openFraudReviews: (merchantId?: string) => number | Promise<number>;
   railHealth: () => RailHealthRow[];
+  /**
+   * The assets a business can settle in (`PAY_SETTLEMENT_ASSETS`, parsed by `parseSettlementAssets`). `null` or absent
+   * is unset: `merchantSettlementAssets` refuses `pay.settlement_assets_unset` and never guesses a list.
+   */
+  settlementAssets?: readonly string[] | null;
   now?: () => Date;
 }
 
@@ -163,6 +169,32 @@ export class MetricsReader {
       // Conversion (W6) has not landed; null, never zero.
       conversionVolume: null,
     };
+  }
+
+  /**
+   * Every asset the business can settle in, each with its clearing and available figures read from the ledger now. A
+   * zero here is the ledger's own answer for an account nothing has posted to, not a filled-in figure. The caller has
+   * already been authorised for `merchantId`.
+   */
+  async merchantSettlementAssets(merchantId: string): Promise<MerchantSettlementAssets> {
+    const enabled = this.deps.settlementAssets ?? null;
+    if (!enabled || enabled.length === 0) throw new MetricsError('pay.settlement_assets_unset');
+    await this.snapshot((tx) => this.assertMerchantExists(tx, merchantId));
+    const asOf = iso(this.now());
+    const assets: MerchantSettlementAssets['assets'] = [];
+    for (const assetCode of enabled) {
+      try {
+        assets.push({
+          assetCode,
+          clearing: formatAmount(await this.deps.balances.clearingBalance(merchantId, assetCode)),
+          available: formatAmount(await this.deps.balances.merchantBalance(merchantId, assetCode)),
+        });
+      } catch {
+        // Never a zero for a balance that could not be read: the whole read refuses, no row is left half-filled.
+        throw new MetricsError('pay.metrics_balance_unavailable');
+      }
+    }
+    return { merchantId, asOf, assets };
   }
 
   /** Daily buckets of captured volume and fee revenue. */

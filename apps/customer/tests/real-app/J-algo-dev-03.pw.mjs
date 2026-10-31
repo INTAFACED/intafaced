@@ -190,15 +190,89 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
+/** A TEST starter template through the operator's publish door, as the founder console calls it. */
+async function publishTemplate(input) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
+  const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await founders.a.tradeOpsToken());
+  if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
+const SOURCE_TEMPLATE = {
+  id: 'test-source-view',
+  name: 'TEST source view cross',
+  description: 'Buys when a fast average crosses above a slow one and sells when it crosses back below.',
+  rules: {
+    symbol: 'BTC/USDT',
+    barSize: '1h',
+    signal: { kind: 'ma_cross', average: 'sma', fast: '', slow: '' },
+    sizing: { kind: 'quantity', value: '' },
+    exit: { stopLossPercent: '', takeProfitPercent: '' },
+  },
+  reason: 'LOCAL TEST journey template',
+};
+
 test(`${J} #4 opens a built-in template version and its source: readable and not editable; with no template published the list says none is published`, async ({
   page,
 }) => {
+  // Two TEST versions, one key each, so a second run replays them instead of stacking more.
+  const first = await publishTemplate({
+    ...SOURCE_TEMPLATE,
+    releaseNote: 'LOCAL TEST first version.',
+    idempotencyKey: 'journey:J-algo-dev-03:test-source-view:v1',
+  });
+  const second = await publishTemplate({
+    ...SOURCE_TEMPLATE,
+    rules: { ...SOURCE_TEMPLATE.rules, signal: { ...SOURCE_TEMPLATE.rules.signal, average: 'ema' } },
+    releaseNote: 'LOCAL TEST uses an exponential average.',
+    idempotencyKey: 'journey:J-algo-dev-03:test-source-view:v2',
+  });
+  expect(second.version).toBeGreaterThan(first.version);
+
   await signIn(page, developer());
   await page.goto('/quant/studio');
-  await expect(
-    page.getByTestId('quant-template-source'),
-    'the read-only source view of a template version is not built (AL-editor-03)',
-  ).toBeVisible(UNBUILT);
+  const templates = page.getByTestId('quant-templates');
+  const formName = await page.getByLabel('Strategy name').inputValue();
+  await templates.getByRole('button', { name: `View the source of ${SOURCE_TEMPLATE.name}` }).click();
+  const view = templates.getByTestId('quant-template-view');
+  const source = view.getByTestId('quant-template-source');
+
+  // The newest version opens first, readable: the generated source with every number a named blank, never a value.
+  await expect(source).toHaveAttribute('data-version', String(second.version));
+  await expect(view.getByTestId('quant-template-source-note')).toHaveText('LOCAL TEST uses an exponential average.');
+  await expect(source).toContainText('const fast = ema(closes, /* signal.fast: blank, you set it after Use */);');
+  await expect(source).toContainText('const slow = ema(closes, /* signal.slow: blank, you set it after Use */);');
+  await expect(source).toContainText('oms.buy("BTC/USDT", size.quantity(/* sizing.value: blank, you set it after Use */));');
+  await expect(source).toContainText('// Optional, blank in the template: exit.stopLossPercent, exit.takeProfitPercent.');
+  expect(await source.innerText()).not.toMatch(/\(closes, \d/);
+
+  // An older version reads with its own source.
+  await view.getByLabel('Version to read').selectOption(String(first.version));
+  await expect(source).toHaveAttribute('data-version', String(first.version));
+  await expect(view.getByTestId('quant-template-source-note')).toHaveText('LOCAL TEST first version.');
+  await expect(source).toContainText('const fast = sma(closes, /* signal.fast: blank, you set it after Use */);');
+
+  // Not editable: no field in the view but the version picker, and typing into the source changes nothing.
+  await expect(view.locator('input, textarea, [contenteditable]:not([contenteditable="false"])')).toHaveCount(0);
+  expect(await source.evaluate((node) => [node.tagName, node.isContentEditable])).toEqual(['PRE', false]);
+  const before = await source.innerText();
+  await source.click();
+  await page.keyboard.type('oms.buy("BTC/USDT", 1)');
+  await expect(source).toHaveText(before);
+  // Reading the source put nothing in the form.
+  await expect(page.getByLabel('Strategy name')).toHaveValue(formName);
+  await expect(page.getByTestId('quant-template-used')).toHaveCount(0);
+
+  // With no template published, the list says so. The stack always holds this journey's TEST template, so the list's
+  // reply is read again with no template in it, exactly as the service answers when nothing is published.
+  await page.route('**/api/quant/trpc/template.list*', (route) =>
+    route.fulfill({ json: { result: { data: { templates: [], nextCursor: null } } } }),
+  );
+  await page.reload();
+  await expect(templates).toContainText('No template is published.');
 });
 
 test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves out with its versions and returns with the same versions`, async ({

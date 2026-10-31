@@ -458,7 +458,7 @@ describe('G: founder-only procedures', () => {
         'createKybPspRouter(',
         'createSubMerchantRouter(subMerchants, pay, sql)',
         'new MerchantAccountControls(sql, founderAuthority',
-        'createMetricsRuntime({ sql, pay, trees: subMerchants, rails })',
+        'createMetricsRuntime({ sql, pay, trees: subMerchants, rails }, { settlementAssets })',
         'registerPublicPayRest(app',
       ]) {
         expect(src, piece).toContain(piece);

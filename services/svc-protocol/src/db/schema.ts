@@ -39,6 +39,8 @@ export const smartAccounts = protocol.table(
     /** False for a predicted address that has not been deployed yet. */
     deployed: boolean('deployed').notNull().default(false),
     deployedAt: tstz('deployed_at'),
+    /** The genesis of the chain `deployed` was seen on (20261031001740); null for a row from before the column. */
+    deployedGenesisHash: text('deployed_genesis_hash'),
     /**
      * The user proved control of `owner` by signing this service's binding
      * message. Without it the row is a claim, not a fact.

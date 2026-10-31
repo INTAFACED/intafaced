@@ -514,6 +514,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.bots_verification_insufficient': { ccxt: 'PermissionDenied', status: 403 },
   'trade.algo_balance_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.algo_kind_not_built': { ccxt: 'NotSupported', status: 400 },
+  'trade.algo_params_immutable': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * Child cancel failed and the parent was left non-cancelled. Caller must
    * retry cancel — not treat the algo as dead (a cancel that does not cancel

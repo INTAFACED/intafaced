@@ -817,11 +817,25 @@ async function setPostingFreeze(browser, frozen) {
   expect((await readFreeze(a)).state.frozen).toBe(frozen);
 }
 
+/** Set from just before #7 asks for the posting freeze until it is lifted, so the teardown below can lift it after a timeout. */
+let freezeOn = false;
+
+// A posting freeze left on refuses every later journey's posts on this stack (main run 41151424814: J-ops-console-22 and
+// J-pay-03 went red with ledger.frozen). A timeout closes the test's own pages before its finally can run, so the
+// freeze is lifted here on fresh founder pages, as J-ops-console-04's holds journey does.
+test.afterEach(async ({ browser }) => {
+  if (!freezeOn) return;
+  founders.a = null;
+  founders.b = null;
+  await setPostingFreeze(browser, false);
+  freezeOn = false;
+});
+
 /** Wording that would make the platform's posting freeze read as this account's own restriction. */
 const ACCOUNT_HOLD_WORDS = /restricted|on hold|suspended|your account is (limited|blocked|frozen)/i;
 
 test(`${J} #7: a platform posting freeze never reads as "your account is restricted"`, async ({ page, browser }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   // A verified person with TEST USDT, so the order reaches the ledger: the freeze, not a missing level or balance, is
   // what refuses it. The deposit is only the precondition; nothing here counts it as a step.
   const who = await fundedTrader(page, 'kvfz', '100');
@@ -830,6 +844,7 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
   const before = await client.balances();
   const restingBefore = (await openOrders(who)).map((o) => o.id);
   try {
+    freezeOn = true;
     await setPostingFreeze(browser, true);
     // On another screen, the trade desk: the order is refused as paused for everyone, never as this account's hold.
     const sent = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
@@ -881,5 +896,6 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     ).toHaveCount(0);
   } finally {
     await setPostingFreeze(browser, false);
+    freezeOn = false;
   }
 });

@@ -1,7 +1,7 @@
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { ORIGIN, api } from './stack.mjs';
-import { signUp } from './desk.mjs';
+import { signIn, signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
 // J-academy-12, in the running app (docs/roadmap/journeys.json): a founder adds a quiz and an assignment to a draft course,
@@ -430,6 +430,18 @@ test(`${J} #4 an assignment with a due date is duplicated and both exist; deleti
   const kept = await assignmentOf(learner, copy.id);
   expect(kept.status, JSON.stringify(kept.body).slice(0, 300)).toBe(200);
   expect(JSON.stringify(kept.body.result.data)).toContain('TEST I risk ten on a thousand with the stop one percent away.');
+  // On the learner's own page: the assignment says it was withdrawn, offers no hand-in, and the hand-in is still there.
+  const mine = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  await signIn(mine, learner);
+  await mine.goto(`/academy/learning/course/${SLUG_B}/assignment/${copy.id}`);
+  const box = mine.locator(`[data-academy-assignment="${copy.id}"]`);
+  await expect(box.getByText('Staff withdrew this assignment, so nothing more is handed in. What you handed in stays here.')).toBeVisible();
+  await expect(box.getByRole('button', { name: 'Hand in', exact: true })).toHaveCount(0);
+  const handedIn = box.getByTestId('assignment-submissions').locator('li');
+  await expect(handedIn).toHaveCount(1);
+  await expect(handedIn.first()).toContainText('Version 1');
+  await expect(handedIn.first()).toContainText('TEST I risk ten on a thousand with the stop one percent away.');
+  await mine.context().close();
   // The original is untouched and still takes hand-ins.
   expect((await staff('query', 'admin.assignment', { itemId })).withdrawnAt).toBeNull();
   run.courseB = courseId;

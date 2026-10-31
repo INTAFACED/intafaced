@@ -44,14 +44,31 @@ async function learnerPage(browser) {
   return (await browser.newContext({ baseURL: ORIGIN })).newPage();
 }
 
-/** A local date and time a day from now, as a datetime-local field takes it. */
-function tomorrow() {
-  const at = new Date(Date.now() + 24 * 3600_000);
+/** A local date and time a day from now (or `days` from now), as a datetime-local field takes it. */
+function tomorrow(days = 1) {
+  const at = new Date(Date.now() + days * 24 * 3600_000);
   const pad = (n) => String(n).padStart(2, '0');
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
 const trpc = (procedure) => `/api/academy/trpc/${procedure}`;
+
+/** Founder A moves the assignment's due date on the console, saving the brief as the next revision. */
+async function setDue(browser, local) {
+  const desk = await console_(browser);
+  await desk.goto(run.workUrl);
+  const editor = desk.getByTestId('assignment-editor');
+  // The editor holds the brief in page state: wait until the page has settled, or a fill before it is live is lost.
+  await desk.waitForLoadState('networkidle');
+  const due = editor.getByLabel('Due', { exact: true });
+  await due.fill(local);
+  await expect(due).toHaveValue(local);
+  await editor.getByRole('button', { name: 'Save assignment' }).click();
+  await expect(desk.getByTestId('course-desk-outcome')).toContainText('Done: assignment saved');
+  await desk.context().close();
+  // The learner's own read carries the new due date (the datetime-local value is the console's local time).
+  await expect.poll(async () => (await assignmentOf(run.me)).body.result.data.dueAt).toBe(new Date(local).toISOString());
+}
 
 /** The caller's own view of the assignment, read through the customer's API. */
 async function assignmentOf(who) {
@@ -174,7 +191,7 @@ test(`${J} #2 text without the required file is refused as incomplete and nothin
 });
 
 test(`${J} #3 text and a file handed in with the reply lost show one submission; the page reads it back`, async ({ browser }) => {
-  needs('learnerUrl', 'me');
+  needs('learnerUrl', 'me', 'workUrl', 'workItem');
   const page = await learnerPage(browser);
   await signIn(page, run.me);
   await page.goto(run.learnerUrl);
@@ -209,6 +226,23 @@ test(`${J} #3 text and a file handed in with the reply lost show one submission;
   expect(stored.submissions[0].file).toMatchObject({ fileName: 'TEST-sizing.pdf', contentType: 'application/pdf' });
   await page.reload();
   await expect(rows).toHaveCount(1);
+
+  // Late is read against the due date: with the due date moved before the hand-in, the same version reads Late, and
+  // moved back it does not. Nothing new is recorded either way.
+  await setDue(browser, tomorrow(-1));
+  try {
+    await page.reload();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Late');
+    expect((await assignmentOf(run.me)).body.result.data.submissions).toMatchObject([{ version: 1, late: true }]);
+  } finally {
+    // Put the due date back for the steps after this one, whatever happened above.
+    await setDue(browser, tomorrow());
+  }
+  await page.reload();
+  await expect(rows.first()).toContainText('On time');
+  await expect(rows.first()).not.toContainText('Late');
+  expect((await assignmentOf(run.me)).body.result.data.submissions).toMatchObject([{ version: 1, late: false }]);
   await page.context().close();
 });
 

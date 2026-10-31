@@ -1,3 +1,4 @@
+import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
@@ -152,6 +153,11 @@ export const tradeSchema = z.object({
   mismatch: z.lazy(() => tradeMismatchSchema.nullable()).optional(),
   /** svc-p2p `trades.get` `paymentValidation`: what stops the bank rail checking this order, or null. */
   paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }).optional(),
+  /** svc-p2p `trades.get` `cancelReason` (P-trade-orders-19): on a cancelled order, who cancelled it and the code they chose. */
+  cancelReason: z
+    .object({ by: z.enum(P2P_CANCELLED_BY), code: z.enum(P2P_CANCEL_REASONS).nullable().catch(null) })
+    .nullable()
+    .optional(),
 });
 /** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
 export const tradeRemindersSchema = z.object({

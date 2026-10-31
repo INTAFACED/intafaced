@@ -139,6 +139,18 @@ test('J-ops-console-04 #7 close with a second approver, reopen a customer-closed
       .filter({ hasText: closeWhy }),
   ).toContainText('still open: 1 × card not closed');
 
+  // Closed with its cards closed: the closed account's record on the console lists its card as closed. The console's cards
+  // tab has no operator read of one customer's cards (svc-bank cards.list answers only the signed-in owner), so this clause
+  // fails by name; the rest of the step still runs.
+  await a.goto(`${ADMIN}/accounts/${userId}?tab=cards`, { waitUntil: 'load' });
+  await expect(a.getByTestId('customer-panel-cards')).toBeVisible({ timeout: 60_000 });
+  await expect
+    .soft(
+      a.getByTestId('read-cards.list').locator('tbody tr').filter({ hasText: cardId }).filter({ hasText: 'closed' }),
+      "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
+    )
+    .toBeVisible({ timeout: 5_000 });
+
   // Reopen: B asks this time, A approves, B runs it. The customer can sign in again.
   const deskB = await openAccount(b, userId);
   const reopenPhrase = `REOPEN ACCOUNT ${userId.slice(0, 8)}`;

@@ -41,6 +41,11 @@
       "value": "5",
       "note": "Burst auto-stop count: the sixth trigger inside the window stops the alert."
     },
+    "NOTIFY_MARKETS_LIST_LIMIT": {
+      "service": "notify",
+      "value": "500",
+      "note": "Page of the trade market list the alert marks read (trade's cap), so price alerts can fire (J-charts-desk-09)."
+    },
     "NOTIFY_INBOX_PAGE_SIZE": {
       "service": "notify",
       "value": "20",
