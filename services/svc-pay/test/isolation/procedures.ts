@@ -485,6 +485,15 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
   },
   {
+    // J-merchant-02 #5 cancel: owner only, an `ifc_` key is refused by design.
+    path: 'merchant.payoutDestinations.cancelHold',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
     path: 'merchant.payoutDestinations.remove',
     scope: 'pay:write',
     own: 'service',

@@ -562,6 +562,11 @@ const en = {
     'Type the full address again and confirm with your authenticator. It becomes active after a waiting period; until then nothing is paid to it.',
   dstVerifyMismatch: 'That isn’t the destination saved here. Type it exactly as you saved it.',
   dstVerified: 'Destination verified. It becomes active at the time shown in the list.',
+  dstCancelHold: 'Cancel verification',
+  dstCancelHoldBody:
+    'It goes back to Unverified and can’t receive a payout. To use it, verify it again with your authenticator; the waiting period then starts over.',
+  dstCancelHoldDone: 'Verification cancelled. The destination is unverified again.',
+  dstCancelHoldOwnerOnly: 'Only the account owner can cancel a verification.',
   pnDestUnverified: 'Unverified',
   pnDestHeld: 'Not active yet',
 
@@ -822,6 +827,7 @@ const en = {
     'This destination has just been verified, so it can only be replaced with your authenticator. Refresh the list and choose Replace.',
   rDestVerifyMismatch:
     'That isn’t the destination saved for this network, so it wasn’t verified. Type the saved one exactly, or save the new one first and then verify it.',
+  rDestNotHeld: 'This destination is already active, so there is no waiting period to cancel.',
   rDestHeld: 'This destination was verified recently and is still in its waiting period. Try again once it reads Active.',
   rDestInFlight: 'A payout to this destination is waiting for approval or still on its way, so it can’t be removed until it has finished.',
   rDestNotFound: 'That destination is already gone. Refresh the list.',

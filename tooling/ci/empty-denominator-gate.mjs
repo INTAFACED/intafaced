@@ -166,6 +166,11 @@ export const ENFORCED = {
     must: /REACHABILITY - \d+ protected module\(s\) were deleted/,
     note: 'the protected keep-list is what makes emptiness loud: no subject means every protected module reads as deleted.',
   },
+  'tooling-tests': {
+    kind: 'guard',
+    must: /TOOLING TESTS FAILED — no tooling\/scripts\/\*\.test\.mjs under .*NOTHING WAS RUN\./,
+    note: 'roots at the working folder, so an empty tree has no test files and it refuses by name instead of passing zero tests.',
+  },
   brand: {
     kind: 'guard',
     must: /BRAND SCAN FAILED — 0 files were read\. NOTHING WAS SCANNED\./,
@@ -275,19 +280,6 @@ export const ENFORCED = {
 // number with a reason beside it, not an append nobody reviews.
 // ───────────────────────────────────────────────────────────────────────────
 export const EXEMPT = {
-  'gate-tools-tests': {
-    // Spec reporter (Node 21+ default, this laptop): "ℹ pass N".
-    // TAP reporter (Node 20 default, CI): "# pass N". Same count, earlier than the
-    // "# skipped" / "# duration_ms" tail. Capture group 1 is that count.
-    proof: /(?:ℹ|#) pass (\d+)/,
-    denom: 1,
-    reason:
-      'node:test over in-memory fixtures (fixture JSON and log excerpts under tooling/scripts/fixtures, a fake gh and a fake ' +
-      'git): the repo is not its subject. The count of passing tests is printed on every run and asserted non-zero here. ' +
-      'CI Node 20 prints that count as TAP "# pass N"; Node 21+ prints spec "ℹ pass N". Both are the pass count. ' +
-      'HONEST EXCEPTION: one test compares the dependabot prefix with the title rule; it reads the repo, and skips itself (reported as ' +
-      'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout it runs.',
-  },
   'secret-scan-mutation': {
     proof: /(\d+)\/(\d+) planted defects caught/,
     denom: 2,
@@ -298,7 +290,8 @@ export const EXEMPT = {
 };
 // Raised 5 → 6 (2026-10-13) for gate-tools-tests, whose subject is its own fixtures; every earlier raise had the same reason.
 // Lowered 6 → 2 (2026-10-19) with the retirement of the four tooling self-test gates (#5088).
-export const EXEMPT_MAX = 2;
+// Lowered 2 → 1 (2026-10-31): gate-tools-tests became tooling-tests, which refuses an empty tree (ENFORCED).
+export const EXEMPT_MAX = 1;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. BLIND — measured, printing clean over nothing, frozen as debt.

@@ -93,6 +93,30 @@ async function insertOnce(merchantId: string, railId: string, insert: () => Prom
   }
 }
 
+export const PAY_PAYOUT_DESTINATION_NOT_FOUND = 'pay.payout_destination_not_found' as const;
+export const PAY_PAYOUT_DESTINATION_NOT_HELD = 'pay.payout_destination_not_held' as const;
+
+/** No destination with this id for this merchant. The same answer as a foreign id. */
+export class PayoutDestinationNotFoundError extends Error {
+  readonly code = PAY_PAYOUT_DESTINATION_NOT_FOUND;
+  constructor() {
+    super('payout destination not found');
+    this.name = 'PayoutDestinationNotFoundError';
+  }
+}
+
+/** Cancel is for a hold only: an active destination (with or without a pending change) has none to cancel. */
+export class PayoutDestinationNotHeldError extends Error {
+  readonly code = PAY_PAYOUT_DESTINATION_NOT_HELD;
+  constructor(merchantId: string, railId: string) {
+    super(`Merchant ${merchantId}'s payout destination for rail ${railId} is active; there is no hold to cancel`);
+    this.name = 'PayoutDestinationNotHeldError';
+  }
+}
+
+/** What cancelling a hold did: `changed` is false when the destination was already unverified. */
+export type DestinationHoldCancel = { readonly changed: boolean; readonly railId: string; readonly kind: string; readonly ref: string };
+
 export type PayoutDestination = { kind: string; ref: string };
 
 export type DestinationLifecycle = 'unverified' | 'held' | 'active';
@@ -171,6 +195,13 @@ export type MerchantPayoutDestinations = {
     railId: string,
     fn: (row: DestinationState | null, write: DestinationWriter) => Promise<void>,
   ): Promise<void>;
+  /**
+   * Move a held destination back to unverified (`activates_at` and `verified_at` cleared) under its row lock. An
+   * unverified one is left as it is (`changed: false`). An active one, including one whose hold has just passed or
+   * one with a pending change, refuses `PayoutDestinationNotHeldError`. A missing or foreign id refuses
+   * `PayoutDestinationNotFoundError`. Memory ids are `<merchantId>:<railId>`.
+   */
+  cancelHold(input: { merchantId: string; destinationId: string }): Promise<DestinationHoldCancel>;
 };
 
 /** Assert kind+shape. Does not register or enable any rail. */
@@ -200,6 +231,9 @@ function emptyBook(): MerchantPayoutDestinations {
     },
     async transaction() {
       throw new PayoutDestinationMissingError('none', 'none');
+    },
+    async cancelHold() {
+      throw new PayoutDestinationNotFoundError();
     },
   };
 }
@@ -276,6 +310,17 @@ export function memoryPayoutDestinations(clock: () => Date = () => new Date()): 
       };
       await fn(current, write);
       if (next) rows.set(id, next);
+    },
+    async cancelHold(input) {
+      const row = rows.get(input.destinationId);
+      const railId = input.destinationId.slice(input.merchantId.length + 1);
+      if (!row || !input.destinationId.startsWith(`${input.merchantId}:`)) throw new PayoutDestinationNotFoundError();
+      const life = destinationLifecycle(promote(row), clock());
+      const out = { railId, kind: row.kind, ref: row.ref };
+      if (life.state === 'unverified') return { ...out, changed: false };
+      if (life.state === 'active') throw new PayoutDestinationNotHeldError(input.merchantId, railId);
+      rows.set(input.destinationId, { ...row, verified: false, activatesAt: null, pending: null });
+      return { ...out, changed: true };
     },
   };
 }
@@ -476,6 +521,38 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
         },
       };
       await fn(row, write);
+    });
+  }
+
+  async cancelHold(input: { merchantId: string; destinationId: string }): Promise<DestinationHoldCancel> {
+    return transaction(this.sql, async (tx) => {
+      const [row] = await tx<Array<{ rail_id: string; kind: string; ref: string; verified: boolean; activates_at: Date | null }>>`
+        SELECT rail_id, kind, ref, verified, activates_at
+          FROM pay.merchant_payout_destinations
+         WHERE id = ${input.destinationId} AND merchant_id = ${input.merchantId}
+         FOR UPDATE
+      `;
+      if (!row) throw new PayoutDestinationNotFoundError();
+      // A verified row is active whatever its activates_at says (a replica with a clock ahead may have promoted it).
+      if (row.verified) throw new PayoutDestinationNotHeldError(input.merchantId, row.rail_id);
+      const out = { railId: row.rail_id, kind: row.kind, ref: row.ref };
+      const life = lifecycleOfColumns(row, this.clock());
+      if (life.state === 'unverified') return { ...out, changed: false };
+      // Active (or a hold that has just passed, which the next read promotes): nothing to cancel; nothing written.
+      if (life.state === 'active') throw new PayoutDestinationNotHeldError(input.merchantId, row.rail_id);
+      const updated = await tx`
+        UPDATE pay.merchant_payout_destinations
+           SET activates_at = NULL,
+               verified_at = NULL,
+               updated_at = now()
+         WHERE id = ${input.destinationId}
+           AND merchant_id = ${input.merchantId}
+           AND verified = false
+           AND activates_at IS NOT NULL
+      `;
+      // Under the row lock nothing else can change it; a miss means it is no longer held.
+      if (updated.count !== 1) throw new PayoutDestinationNotHeldError(input.merchantId, row.rail_id);
+      return { ...out, changed: true };
     });
   }
 

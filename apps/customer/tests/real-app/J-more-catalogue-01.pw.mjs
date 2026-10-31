@@ -55,6 +55,22 @@ test(`${J} #1 /more lists the six rooms, none hidden, each opening its own room`
     await expect(tile, room.tile).toBeVisible();
     await expect(tile, room.tile).toHaveAttribute('href', room.tileHref ?? room.path);
   }
+  // Every section is a region named by its own heading: its id is made from its key, so aria-labelledby finds it.
+  for (const name of ['Learn and build', 'Markets and assets', 'Money and pay', 'Rewards', 'Web3', 'Help', 'Account', 'All services']) {
+    await expect(page.getByRole('region', { name, exact: true }).filter({ has: page.getByTestId('more-h2') }), name).toBeVisible();
+  }
+  const labels = await page
+    .locator('section[aria-labelledby]')
+    .evaluateAll((nodes) =>
+      nodes.map((n) => [n.getAttribute('aria-labelledby'), Boolean(document.getElementById(n.getAttribute('aria-labelledby')))]),
+    );
+  for (const [id, found] of labels) {
+    expect(id, 'a section id has no spaces').toMatch(/^\S+$/);
+    expect(found, `${id} names an element on the page`).toBe(true);
+  }
+  // No registry status but hidden drops a tile (none is hidden today): all 23 are drawn, Help and Notifications among them.
+  await expect(page.locator('a[data-tile]')).toHaveCount(23);
+  for (const tile of ['help', 'notifications']) await expect(page.locator(`a[data-tile="${tile}"]`), tile).toBeVisible();
 });
 
 test(`${J} #2 each room's start address mounts that room under its own title`, async ({ page }) => {

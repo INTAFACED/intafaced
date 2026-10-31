@@ -67,6 +67,9 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
    */
   destinationAdd: (input: { merchantId: string; railId: string; kind: string; ref: string }) =>
     mutate('merchant.payoutDestinations.add', input, m.destinationSavedSchema),
+  /** Owner only. A held destination goes back to unverified; nothing is paid to it until it is verified again. */
+  destinationCancelHold: (input: { merchantId: string; destinationId: string }) =>
+    mutate('merchant.payoutDestinations.cancelHold', input, m.destinationHoldCancelledSchema),
   /** Owner only. Marks one saved destination as the default; the previous mark is cleared by the service. */
   destinationSetDefault: (input: { merchantId: string; destinationId: string }) =>
     mutate('merchant.payoutDestinations.setDefault', input, m.destinationItemSchema),
