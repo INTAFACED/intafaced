@@ -320,6 +320,14 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
   await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
   await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('7');
+  // The same edit sets the voucher window in the campaign's zone: a use-by before the claim-by is refused by name.
+  const [claimBy, useBy] = ['2027-03-01T12:00', '2027-06-01T12:00'];
+  await builder(page).getByLabel('Vouchers claimable until').fill(useBy);
+  await builder(page).getByLabel('Claimed vouchers usable until').fill(claimBy);
+  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.voucher_window_invalid');
+  await builder(page).getByLabel('Vouchers claimable until').fill(claimBy);
+  await builder(page).getByLabel('Claimed vouchers usable until').fill(useBy);
   await builder(page).getByRole('button', { name: 'Next' }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText('Revision 2, a draft');
   await page.getByRole('button', { name: 'Ask to activate' }).click();
@@ -345,6 +353,10 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${second} under revision ${asked}: 7 USDT.`);
   await expect(row(second)).toHaveText([second, `Revision ${asked}`, '7 USDT', 'published', /.+/, /UTC/]);
   await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
+  // The live revision keeps the window as typed, read back in the same zone.
+  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
+  await expect(builder(page).getByLabel('Vouchers claimable until')).toHaveValue(claimBy);
+  await expect(builder(page).getByLabel('Claimed vouchers usable until')).toHaveValue(useBy);
 
   // Archiving the active campaign is refused, and it stays active.
   await page.getByRole('button', { name: 'Archive' }).click();

@@ -26,6 +26,7 @@ const URL = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
 const migration = join(here, '..', '..', 'drizzle', '0001_protocol_founding_badges.sql');
 const clearsMigration = join(here, '..', '..', 'drizzle', '0002_protocol_founding_badge_mint_clears.sql');
+const identityMigration = join(here, '..', '..', 'drizzle', '20261031001739_protocol_badge_chain_identity.sql');
 const available = URL ? await postgresAvailable(URL) : false;
 const sql: Sql | null = URL && available ? postgres(URL, { max: 6, onnotice: () => undefined }) : null;
 
@@ -34,16 +35,20 @@ const ALPHA = 'bad9e000-5555-4555-8555-555555555555';
 const BETA = 'bad9e000-6666-4666-8666-666666666666';
 const STUCK = 'bad9e000-8888-4888-8888-888888888888';
 const CRASH = 'bad9e000-9999-4999-8999-999999999999';
+const REBORN = 'bad9e000-7777-4777-8777-777777777777';
 const HELD = 'bad9e000-3333-4333-8333-333333333333';
 const LATE = 'bad9e000-2222-4222-8222-222222222222';
-const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, HELD, LATE];
+const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, REBORN, HELD, LATE];
+const REBORN_ADDR = '0x00000000000000000000000000000000000000C5' as Address;
 const HELD_ADDR = '0x00000000000000000000000000000000000000C6' as Address;
 const CRASH_ADDR = '0x00000000000000000000000000000000000000C4' as Address;
 const STUCK_ADDR = '0x00000000000000000000000000000000000000C3' as Address;
 const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
 const SHARED_ADDR = '0x00000000000000000000000000000000000000C2' as Address;
 const CHAIN_ID = 31337;
-const NET = { chainId: CHAIN_ID, mainnet: false };
+const GENESIS = `0x${'a'.repeat(64)}` as const;
+const network = (genesisHash: Hex) => ({ chainId: CHAIN_ID, mainnet: false, identity: async () => ({ chainId: CHAIN_ID, genesisHash }) });
+const NET = network(GENESIS);
 const OWNER_KEY = privateKeyToAccount(`0x${'44'.repeat(32)}`);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
@@ -63,10 +68,13 @@ function harness(mintDelayMs = 25, fail?: Error) {
   return { deps, mints };
 }
 
-async function claimAs(deps: BadgeDeps, accountId: string, address: Address) {
+async function claimAs(deps: BadgeDeps, accountId: string, address: Address, net = NET) {
   const signature = await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: CHAIN_ID, address }) });
-  return claimBadge(deps, accountId, { address, owner: OWNER_KEY.address }, NET, signature);
+  return claimBadge(deps, accountId, { address, owner: OWNER_KEY.address }, net, signature);
 }
+/** The same TEST chain id after the chain was started again. */
+const RESTARTED_GENESIS = `0x${'b'.repeat(64)}` as Hex;
+const RESTARTED = network(RESTARTED_GENESIS);
 
 async function cleanup() {
   await sql!`DELETE FROM protocol.founding_badge_mint_clears WHERE key IN ${sql!(IDS.map(badgeClaimKey))}`;
@@ -80,8 +88,9 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
     await sql!.unsafe(readFileSync(migration, 'utf8'));
     await sql!.unsafe(readFileSync(clearsMigration, 'utf8'));
+    await sql!.unsafe(readFileSync(identityMigration, 'utf8'));
     await cleanup();
-    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK}), (${CRASH})`;
+    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK}), (${CRASH}), (${REBORN})`;
   });
   afterAll(async () => {
     await cleanup();
@@ -102,6 +111,25 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     const again = await claimAs(deps, RACER, RACER_ADDR);
     expect(again.txHash).toBe(rows[0]!.tx_hash);
     expect(mints).toHaveLength(1);
+  });
+
+  it('a TEST chain started again: the old claim is replaced in place and minted once on the new chain, even by two racing claims', async () => {
+    const first = harness();
+    const before = await claimAs(first.deps, REBORN, REBORN_ADDR);
+    expect(before.genesisHash).toBe(GENESIS);
+    const next = harness();
+    const results = await Promise.all([
+      claimAs(next.deps, REBORN, REBORN_ADDR, RESTARTED),
+      claimAs(next.deps, REBORN, REBORN_ADDR, RESTARTED),
+    ]);
+    expect(next.mints.map((m) => [m.to.toLowerCase(), m.key])).toEqual([[REBORN_ADDR.toLowerCase(), badgeClaimKey(REBORN)]]);
+    const rows = await sql!`SELECT genesis_hash, tx_hash FROM protocol.founding_badge_claims WHERE key = ${badgeClaimKey(REBORN)}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.genesis_hash).toBe(RESTARTED_GENESIS);
+    expect(rows[0]!.tx_hash).not.toBeNull();
+    for (const r of results) expect([null, rows[0]!.tx_hash]).toContain(r.txHash);
+    // A later claim on the new chain returns the stored tx and mints nothing more.
+    expect((await claimAs(harness().deps, REBORN, REBORN_ADDR, RESTARTED)).txHash).toBe(rows[0]!.tx_hash);
   });
 
   /**

@@ -24,6 +24,7 @@ function toRecord(row: SmartAccountRow): AccountRecord {
     owner: toChecksum(row.owner),
     userSalt: row.userSalt as Hex,
     deployed: row.deployed,
+    deployedGenesisHash: (row.deployedGenesisHash as Hex | null) ?? null,
     verifiedAt: row.verifiedAt ?? null,
   };
 }
@@ -41,6 +42,7 @@ export class PostgresAccountStore implements AccountStore {
         owner: record.owner,
         userSalt: record.userSalt,
         deployed: record.deployed,
+        deployedGenesisHash: record.deployed ? (record.deployedGenesisHash ?? null) : null,
         verifiedAt: record.verifiedAt,
       })
       .onConflictDoUpdate({
@@ -48,6 +50,7 @@ export class PostgresAccountStore implements AccountStore {
         set: {
           userId: record.userId,
           deployed: record.deployed,
+          deployedGenesisHash: record.deployed ? (record.deployedGenesisHash ?? null) : null,
           verifiedAt: record.verifiedAt,
           updatedAt: new Date(),
         },
@@ -77,10 +80,10 @@ export class PostgresAccountStore implements AccountStore {
     return row ? toRecord(row) : null;
   }
 
-  async markDeployed(chainId: number, address: Address, at: Date): Promise<void> {
+  async markDeployed(chainId: number, address: Address, at: Date, genesisHash: Hex | null): Promise<void> {
     await this.db
       .update(smartAccounts)
-      .set({ deployed: true, deployedAt: at, updatedAt: new Date() })
+      .set({ deployed: true, deployedAt: at, deployedGenesisHash: genesisHash, updatedAt: new Date() })
       .where(and(eq(smartAccounts.chainId, chainId), eq(smartAccounts.address, toChecksum(address))));
   }
 }

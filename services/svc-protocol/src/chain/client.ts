@@ -315,6 +315,18 @@ export class ProtocolChain {
     });
   }
 
+  /**
+   * The hash of block 0. Together with the chain id it names one chain: a TEST chain started again under the same id
+   * has a new genesis, so a row read from the old one can be told apart (`chain/identity.ts`).
+   */
+  async genesisHash(): Promise<Hex> {
+    return this.#read('genesisHash', 'chain.getBlock', async () => {
+      const block = await this.client.getBlock({ blockNumber: 0n });
+      if (!block.hash) throw new Error('block 0 has no hash');
+      return block.hash.toLowerCase() as Hex;
+    });
+  }
+
   /** The block the node is at now. */
   async headBlock(): Promise<bigint> {
     return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
