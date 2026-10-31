@@ -1405,6 +1405,8 @@ services:
       NOTIFY_OUT_OF_APP_ENABLED: ${NOTIFY_OUT_OF_APP_ENABLED:-true}
       NOTIFY_EMAIL_GATEWAY_URL: ${NOTIFY_EMAIL_GATEWAY_URL:-}
       NOTIFY_EMAIL_GATEWAY_TOKEN: ${NOTIFY_EMAIL_GATEWAY_TOKEN:-}
+      # svc-support's own secret for the guest verification door; blank keeps that door closed.
+      NOTIFY_SUPPORT_SERVICE_SECRET: ${NOTIFY_SUPPORT_SERVICE_SECRET:-}
       NOTIFY_PUSH_GATEWAY_URL: ${NOTIFY_PUSH_GATEWAY_URL:-}
       NOTIFY_PUSH_GATEWAY_TOKEN: ${NOTIFY_PUSH_GATEWAY_TOKEN:-}
       NOTIFY_SMS_GATEWAY_URL: ${NOTIFY_SMS_GATEWAY_URL:-}
@@ -1457,6 +1459,13 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
       # Class X: owner sets true only after observing ticket create + KB loop in live compose.
       TICKET_KB_LOOP_OBSERVED_IN_LIVE_COMPOSE:
+      # Guest requests (J-support-public-03): the key that seals a guest's address, svc-notify's address and
+      # svc-support's own secret for its guest verification door, and the customer origin the links open. Any one
+      # blank keeps every guest request pending with vendor.email. The owner sets the limits (SUPPORT_GUEST_*).
+      SUPPORT_GUEST_ADDRESS_KEY: ${SUPPORT_GUEST_ADDRESS_KEY:-}
+      NOTIFY_URL: http://svc-notify:4015
+      NOTIFY_SUPPORT_SERVICE_SECRET: ${NOTIFY_SUPPORT_SERVICE_SECRET:-}
+      SUPPORT_PUBLIC_ORIGIN: ${SUPPORT_PUBLIC_ORIGIN:-}
     expose: ['4017']
     healthcheck: *healthcheck
     depends_on:
