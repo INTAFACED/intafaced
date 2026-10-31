@@ -20,6 +20,8 @@ export type StatusMail = {
   readonly text: string;
   /** Business key: `<event>:<subscriber>:email`. A transport that honours it sends once. */
   readonly key: string;
+  /** What the mail is for, as the LOCAL TEST outbox labels it. Status mail when absent; `guest-verify` for the guest door. */
+  readonly purpose?: 'status' | 'guest-verify';
 };
 
 export type MailOutcome =
@@ -51,7 +53,14 @@ export class LocalOutboxMailer implements StatusMailer {
   constructor(private readonly file: string) {}
   async send(mail: StatusMail): Promise<MailOutcome> {
     await mkdir(path.dirname(this.file), { recursive: true });
-    const line = { purpose: 'status', key: mail.key, to: mail.to, subject: mail.subject, text: mail.text, at: new Date().toISOString() };
+    const line = {
+      purpose: mail.purpose ?? 'status',
+      key: mail.key,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      at: new Date().toISOString(),
+    };
     await appendFile(this.file, `LOCAL-TEST ${JSON.stringify(line)}\n`, { mode: 0o600 });
     return { status: 'accepted' };
   }

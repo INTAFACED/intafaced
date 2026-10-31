@@ -41,6 +41,7 @@ import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLi
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
+import { chainIdentityReader, type ChainIdentityReader } from './chain/identity.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
 import { RelayRefusedError, SessionRelay } from './session/relay.js';
 import {
@@ -406,6 +407,8 @@ function toTrpcError(err: unknown): TRPCError {
 
 export interface ProtocolRouterDeps {
   chain: ProtocolChain;
+  /** The process's one chain identity reader (`chain/identity.ts`); built from `chain` when absent. */
+  chainIdentity?: ChainIdentityReader;
   registry: AccountRegistry;
   relay: SessionRelay;
   /** Mirrors the `protocol.smartAccounts` kill-switch (§14). */
@@ -497,8 +500,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const readPairs = pairsReader(chain);
   // The ownership proof's chain reads, built once: the challenge's chain id and the verify reads come from this one object.
   let ownership: OwnershipChain | null = null;
-  const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain));
+  // Which chain the rows read from it belong to (chain id and genesis), so a row from a TEST chain started again reads as
+  // absent. One reader for the process (`index.ts`), shared with the registry.
+  const chainIdentity: ChainIdentityReader = deps.chainIdentity ?? chainIdentityReader(chain);
+  const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain, chainIdentity));
   const routeBalances = blockBalances(chain);
+
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
   const timeOfBlock = (block: string): Promise<Date> => {
@@ -1188,7 +1195,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return await badgeEligibility(
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
-              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet() },
             );
           } catch (err) {
             throw toTrpcError(err);
@@ -1208,7 +1215,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
               own ? { address: own.address, owner: own.owner } : null,
-              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              { chainId: chain.config.chainId, identity: chainIdentity, mainnet: b.mainnet() },
               input?.signature ?? null,
             );
             return {
@@ -1256,6 +1263,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
                 approvals: b.approvals ?? null,
                 staleAfterSeconds: b.stuckMintAgeSeconds?.(),
                 now: b.now ?? (() => new Date()),
+                identity: () => chainIdentity({ fresh: true }),
               },
               {
                 accountId: input.accountId,

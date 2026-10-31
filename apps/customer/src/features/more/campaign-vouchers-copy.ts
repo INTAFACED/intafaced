@@ -64,6 +64,9 @@ const en = {
   'campaigns.not_eligible': 'This voucher’s campaign leaves out your account, or your account is not active.',
   'campaigns.region_blocked': 'This voucher’s campaign is not open in your region.',
   'campaigns.timezone_unset': 'Campaigns are closed: the platform time zone is not set.',
+  'campaigns.per_customer_limit_unset': 'This campaign has no per-customer limit set, so nothing can be claimed.',
+  'campaigns.customer_limit_reached': 'You have had as many rewards from this campaign as its limit allows in its period.',
+  'campaigns.redemption_limit_reached': 'This campaign has given as many rewards as its limit allows.',
 } as const;
 
 export const campaignVouchersCopy = defineCopy('more.campaigns.vouchers', en);

@@ -22,6 +22,7 @@ import {
   type CampaignVoucher,
   VOUCHER_LIST_LIMIT,
   type VoucherWindow,
+  type CampaignLimits,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -98,6 +99,8 @@ type CampaignRow = {
   earning: EarningRule[];
   /** A voucher campaign's claim-by and use-by, as ISO times; null for any other campaign. */
   vouchers: VoucherWindow | null;
+  /** The campaign's limits (CM-eligibility-rules-03); null while blank. */
+  limits: CampaignLimits | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -254,6 +257,9 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
   if (!timeZone || row.time_zone_blank) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
+  if (!row.limits?.perCustomer?.count || !row.limits.perCustomer.periodSeconds) {
+    missing.push({ code: 'campaigns.per_customer_limit_unset', field: 'perCustomerLimit' });
+  }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
   if (!welcome && (!row.reward_asset || row.reward_amount === null)) {
@@ -324,6 +330,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     reward: r.reward_asset && r.reward_amount !== null ? { asset: r.reward_asset, amount: decimalOf(r.reward_amount) } : null,
     tasks: r.tasks,
     vouchers: r.vouchers,
+    limits: r.limits,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -359,6 +366,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     tasks: d.tasks,
     ...(d.earning.length > 0 ? { earning: d.earning } : {}),
     ...(d.vouchers ? { vouchers: d.vouchers } : {}),
+    ...(d.limits ? { limits: d.limits } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -385,6 +393,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     time_zone_blank: d.timeZoneBlank,
     earning: d.earning,
     vouchers: d.vouchers,
+    limits: d.limits,
   };
 }
 
@@ -408,6 +417,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     timeZoneBlank: r.time_zone_blank,
     earning: r.earning,
     vouchers: r.vouchers,
+    limits: r.limits,
   });
 }
 
@@ -513,6 +523,7 @@ type Definition = {
   timeZoneBlank: boolean;
   earning: EarningRule[];
   vouchers: VoucherWindow | null;
+  limits: CampaignLimits | null;
 };
 
 /**
@@ -577,6 +588,16 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     timeZoneBlank: parseCampaignZone(input.timeZone, platformZone),
     earning: parseEarning(input.earning ?? []),
     vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
+    limits: input.limits ? limitsOf(input.limits) : null,
+  };
+}
+
+/** Limits stored the same way every time: blank fields stay blank for the gate to name. */
+function limitsOf(input: CampaignLimits): CampaignLimits {
+  const per = input.perCustomer;
+  return {
+    perCustomer: per && (per.count !== null || per.periodSeconds !== null) ? { count: per.count, periodSeconds: per.periodSeconds } : null,
+    totalRedemptions: input.totalRedemptions,
   };
 }
 
@@ -740,6 +761,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.tasks) === canonical(d.tasks) &&
     canonical(r.earning) === canonical(d.earning) &&
     canonical(r.vouchers) === canonical(d.vouchers) &&
+    canonical(r.limits) === canonical(d.limits) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -795,11 +817,11 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${input.actor})
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -842,6 +864,7 @@ export class CampaignService {
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -948,6 +971,7 @@ export class CampaignService {
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;

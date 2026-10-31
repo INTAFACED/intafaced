@@ -239,6 +239,10 @@ export const en = {
     'Your standing order of {amount} {assetId} could not run, and nothing was taken. Transfers shows why. Reference: {reasonCode}.',
   'notify.support.rate_request.title': 'How did we do?',
   'notify.support.rate_request.body': 'Your support request was resolved. Tell us how it went.',
+  // The guest verification email (SP-tickets-01): the link opens the guest's request; it is rendered at send time, never stored.
+  'notify.support.guest_verify.title': 'Confirm your support request',
+  'notify.support.guest_verify.body':
+    'Open this link to confirm your email address and open your support request:\n\n{link}\n\nThe link works until {expiresAt}. If you did not ask for help, you can ignore this email.',
   'notify.merchant.email_provider_unset.title': 'email not set up yet',
   'notify.merchant.email_provider_unset.body': 'This notice stayed in the portal. Email is not set up yet.',
   'notify.merchant.payment_refunded.title': 'Refund outcome',

@@ -128,6 +128,8 @@ export function NewAgent() {
   const { t } = agentBuilderCopy.useCopy();
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
+  // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
+  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
   // Kept on the page only: nothing drafts from it or saves it until the owner chooses the model.
   const [description, setDescription] = useState('');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
@@ -146,13 +148,22 @@ export function NewAgent() {
       <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
         <p className="muted">{t('templatesIntro')}</p>
         <div className="depth-card-actions">
-          <Button disabled={busy} onClick={() => void start('service-starter')}>
-            {t('useServiceStarter')}
-          </Button>
+          {/* The starter shows once the service says it offers it; "Start blank" is always offered and needs no read. */}
+          {catalogue.resource.status === 'ready' &&
+          catalogue.resource.data.templates.some((template) => template.id === 'service-starter') ? (
+            <Button disabled={busy} onClick={() => void start('service-starter')}>
+              {t('useServiceStarter')}
+            </Button>
+          ) : null}
           <Button variant="secondary" disabled={busy} onClick={() => void start('blank')}>
             {t('startBlank')}
           </Button>
         </div>
+        {catalogue.resource.status === 'failed' ? (
+          <Read resource={catalogue.resource} retry={catalogue.reload}>
+            {() => null}
+          </Read>
+        ) : null}
         {refused ? <Answer failed={refused} /> : null}
       </Panel>
       <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>
