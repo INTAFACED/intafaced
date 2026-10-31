@@ -238,7 +238,8 @@ async function selfTest() {
   const cfg = { reviewers: ['nino', 'phantom'], requireDistinctFromAuthor: false };
   const pr = { state: 'open', head: { sha: head }, user: { login: 'nino' } };
   const none = new Set();
-  const body = `Independent review: PASS ${head}`;
+  const bare = `Independent review: PASS ${head}`;
+  const body = `${bare}\nReviewer session: session_R9`;
   assert(
     judgeComment({ commenter: 'Nino', body, pr, authorSessions: none }, cfg).ok,
     'a listed reviewer, current head, passes (case-insensitive)',
@@ -267,7 +268,10 @@ async function selfTest() {
   );
   assert(judgeComment({ commenter: 'phantom', body, pr, authorSessions: none }, strict).ok, 'another listed reviewer may');
   const own = new Set(['session_A1']);
-  const named = (s) => `${body}\nReviewer session: https://example.test/code/${s}`;
+  // OWNER 138 (1)(a), 31 Oct: a PASS that names no reviewing session on its own line never counts.
+  const unnamed = judgeComment({ commenter: 'nino', body: bare, pr, authorSessions: none }, cfg);
+  assert(!unnamed.ok && /names no reviewing session/.test(unnamed.reason), 'a PASS with no Reviewer session line does not count');
+  const named = (s) => `${bare}\nReviewer session: https://example.test/code/${s}`;
   assert(judgeComment({ commenter: 'nino', body: named('session_R1'), pr, authorSessions: own }, cfg).ok, 'another session may sign off');
   assert(
     !judgeComment({ commenter: 'nino', body: named('session_A1'), pr, authorSessions: own }, cfg).ok,

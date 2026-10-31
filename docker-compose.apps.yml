@@ -388,6 +388,13 @@ services:
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
       # Blank stays refuse-closed (auth.reset_unwired).
       IDENTITY_FLOW_SUBJECT_KEY: ${IDENTITY_FLOW_SUBJECT_KEY:-}
+      # Sign-in challenge (I-signin-sessions-30). Pass-through only: no compose default, no invented number or key. Blank
+      # failure count asks every sign-in for a challenge; blank difficulty, lifetime or key refuses identity.challenge_unconfigured.
+      # The local founder seed writes TEST values (tooling/scripts/local-founder-seed.mjs).
+      IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES: ${IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:-}
+      IDENTITY_SIGNIN_CHALLENGE_BITS: ${IDENTITY_SIGNIN_CHALLENGE_BITS:-}
+      IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: ${IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS:-}
+      IDENTITY_SIGNIN_CHALLENGE_KEY: ${IDENTITY_SIGNIN_CHALLENGE_KEY:-}
       # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
       # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
       API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
@@ -958,6 +965,7 @@ services:
       # instead of publishing an invented floor.
       PAY_CHECKOUT_MAX_OPEN_SESSIONS: ${PAY_CHECKOUT_MAX_OPEN_SESSIONS:?missing — copy .env.example to .env}
       PAY_CHECKOUT_RISK_BAND: ${PAY_CHECKOUT_RISK_BAND:-}
+      PAY_SETTLEMENT_ASSETS: ${PAY_SETTLEMENT_ASSETS:-}
       # Owner-declared success fraction per checkout rail (railId:fraction). Blank
       # declares none and the hosted checkout refuses; never an invented rate.
       PAY_CHECKOUT_SUCCESS_RATES: ${PAY_CHECKOUT_SUCCESS_RATES:-}
@@ -1350,6 +1358,8 @@ services:
       # The scanner, navigator and support doors' tier law (pass-through). Unset
       # refuses each door with tier_law_blank.
       AGENTS_TIER_LAWS:
+      # The own-agent templates the builder offers (pass-through). Unset offers every built-in template.
+      AGENTS_OWN_TEMPLATES:
       # The operator agent log's owner values (pass-through form, as above: an
       # empty string would be a present value). Unset refuses every log read,
       # and keeps no transcript.

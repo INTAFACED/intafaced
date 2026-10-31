@@ -84,3 +84,26 @@ export const merchantMetricsSeriesSchema = z
   })
   .strict();
 export type MerchantMetricsSeries = z.infer<typeof merchantMetricsSeriesSchema>;
+
+/**
+ * `merchantMetrics.settlementAssets`: every asset a business can settle in, each with its two ledger figures read now.
+ *
+ * The list is svc-pay's own (`PAY_SETTLEMENT_ASSETS`), never the assets a business happens to hold: a new business sees
+ * a row per asset, each reading the ledger's own answer (zero when nothing has posted). Blank refuses
+ * `pay.settlement_assets_unset`; it is never filled with a guessed list. A ledger that cannot be read refuses
+ * `pay.metrics_balance_unavailable`, so an unreadable balance never reads as zero.
+ */
+export const merchantSettlementAssetsInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+export type MerchantSettlementAssetsInput = z.infer<typeof merchantSettlementAssetsInputSchema>;
+
+export const merchantSettlementAssetsSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    /** When the ledger was read. */
+    asOf: payTimestampSchema,
+    assets: z
+      .array(z.object({ assetCode: payAssetCodeSchema, clearing: payAmountStringSchema, available: payAmountStringSchema }).strict())
+      .min(1),
+  })
+  .strict();
+export type MerchantSettlementAssets = z.infer<typeof merchantSettlementAssetsSchema>;

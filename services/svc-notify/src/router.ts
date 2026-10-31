@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { guestNotificationsRouter } from './guests/router.js';
+import { guestVerificationRouter } from './guests/verification-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import { navMetricsRouter } from './nav-metrics/router.js';
 import type { NavMetricStore } from './nav-metrics/counts.js';
 import type { GuestNotificationService } from './guests/service.js';
+import type { GuestVerificationService } from './guests/verification.js';
 import {
   router,
   publicProcedure,
@@ -585,9 +587,11 @@ export function createNotifyRouter(
   inbox: InboxSettings = BLANK_INBOX_SETTINGS,
   statusPage?: StatusPageDeps,
   navMetrics?: NavMetricStore,
+  verifications?: GuestVerificationService,
 ) {
   return router({
     guestNotifications: guestNotificationsRouter(guests),
+    guestVerification: guestVerificationRouter(verifications),
     navMetrics: navMetricsRouter(navMetrics),
     statusPage: statusPageRouter(statusPage),
     health: publicProcedure

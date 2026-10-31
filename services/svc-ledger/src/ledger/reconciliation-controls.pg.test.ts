@@ -29,6 +29,7 @@ import { registerOperatorHttp } from '../operator-http.js';
 import { ledgerActionPayloadHash, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
+import { readDatabaseNow } from './clock-skew.js';
 import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
@@ -748,16 +749,18 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     };
     const netting = await open(NETTING, 'appr-snap-1');
     const replay = await open(REPLAY, 'appr-snap-2');
-    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
+    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side. The
+    // instant is read once: clock_timestamp() in the UPDATE itself is taken per row, so the two runs could land a
+    // millisecond apart and the netting run be judged against the replay run's instant (#6796).
     await tick();
-    const [stamp] = await db.sql<Array<{ read_at: Date }>>`
+    const readAt = await readDatabaseNow(db.sql);
+    const stamped = await db.sql<Array<{ read_at: Date }>>`
       UPDATE reconciliation_control_runs
-         SET status = 'started', phase = '', error_code = '', finished_at = NULL,
-             read_at = date_trunc('milliseconds', clock_timestamp())
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL, read_at = ${readAt}
        WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
       RETURNING read_at
     `;
-    const readAt = stamp!.read_at;
+    expect(stamped.map((row) => row.read_at.toISOString())).toEqual([readAt.toISOString(), readAt.toISOString()]);
     await tick();
     await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
     const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`

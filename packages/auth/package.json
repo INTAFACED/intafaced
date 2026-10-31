@@ -13,6 +13,10 @@
     "./scopes": {
       "types": "./dist/scopes.d.ts",
       "default": "./dist/scopes.js"
+    },
+    "./staff-permissions": {
+      "types": "./dist/staff-permissions.d.ts",
+      "default": "./dist/staff-permissions.js"
     }
   },
   "scripts": {

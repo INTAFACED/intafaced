@@ -322,6 +322,7 @@ const SECRET_NAMES = [
   'payBankTransferWebhook', // pay's TEST bank webhook key (J-merchant-04 step 6); the `bank-transfer` command signs with it
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
+  'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)

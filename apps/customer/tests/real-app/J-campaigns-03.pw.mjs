@@ -62,6 +62,8 @@ async function liveCampaign(name, { holdSeconds, asset = 'USDT', amount = REWARD
     endsAt: new Date(Date.now() + 14 * DAY).toISOString(),
     participation: { exclusions: [], regionScope: 'platform' },
     budget: { asset, limit: budget },
+    // TEST limits (CM-eligibility-rules-03), wide enough that only a step about limits meets them.
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
     reward: { asset, amount },
     tasks: {
       steps: [{ title: 'TEST buy BTC', event: 'trade.fill', market: SYMBOL, side: 'buy', count: 1 }],

@@ -332,6 +332,17 @@ export function createCoreMock(ctx) {
           return ok(route, snapshot(input.window?.preset ?? 'today'));
         case 'merchantMetrics.series':
           return ok(route, series(input));
+        case 'merchantMetrics.settlementAssets':
+          // TEST: the stand-in settles in the world's assets. Each row is the stand-in ledger's own figure, zero before any
+          // payment, as svc-pay reads its ledger.
+          return ok(route, {
+            merchantId: MERCHANT_ID,
+            asOf: iso(Date.now()),
+            assets: world.assets.map((assetCode) => {
+              const held = activity ? world.balance(assetCode) : null;
+              return { assetCode, clearing: held ? fromU(held.clearing) : '0', available: held ? fromU(held.proceeds) : '0' };
+            }),
+          });
         case 'merchantOps.team.me':
           return scenario === 'new'
             ? refuse(route, 403, 'pay.merchant_ops_not_merchant')

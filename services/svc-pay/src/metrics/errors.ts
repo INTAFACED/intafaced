@@ -15,7 +15,9 @@ export type MetricsErrorCode =
   /** `tierId` filter: tiers belong to the control room (W1), which has not landed. */
   | 'pay.metrics_filter_unsupported'
   /** The ledger could not be read, so balances cannot be stated. Never zero-filled. */
-  | 'pay.metrics_balance_unavailable';
+  | 'pay.metrics_balance_unavailable'
+  /** No list of assets a business can settle in is set (`PAY_SETTLEMENT_ASSETS` blank). Never a guessed list. */
+  | 'pay.settlement_assets_unset';
 
 export class MetricsError extends Error {
   constructor(
@@ -38,7 +40,9 @@ export function metricsToTrpcError(err: unknown): unknown {
         ? 'NOT_FOUND'
         : err.code === 'pay.metrics_balance_unavailable'
           ? 'SERVICE_UNAVAILABLE'
-          : 'BAD_REQUEST';
+          : err.code === 'pay.settlement_assets_unset'
+            ? 'PRECONDITION_FAILED'
+            : 'BAD_REQUEST';
     return new TRPCError({ code, message: err.message, cause: err });
   }
   return err;

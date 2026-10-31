@@ -2,6 +2,7 @@ import { decodeFunctionResult, encodeFunctionData, type Address, type Hex } from
 import { classifyChainError, ChainUnavailableError } from '../chain/availability.js';
 import type { ProtocolChain } from '../chain/client.js';
 import { isExecutionRevert } from '../chain/revert.js';
+import { chainIdentityReader, type ChainIdentityReader } from '../chain/identity.js';
 import type { OwnershipChain } from './ownership.js';
 
 const ownableAbi = [{ type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as const;
@@ -44,10 +45,12 @@ function decoded<T>(decode: () => T): T | null {
  * The ownership reads over the service's own public client. An unreachable chain refuses with the chain's own code (never
  * read as "no owner"); a contract that has no `owner()` answers null, which the proof refuses as `owner_unknown`.
  */
-export function ownershipChain(chain: ProtocolChain): OwnershipChain {
+export function ownershipChain(chain: ProtocolChain, identity: ChainIdentityReader = chainIdentityReader(chain)): OwnershipChain {
   const rpc = chain.config.rpcUrl;
   return {
     chainId: chain.config.chainId,
+    // Issuing and verifying both write a row labelled with this genesis, so it is read afresh each time.
+    identity: () => identity({ fresh: true }),
     async owner(token: Address) {
       if (!(await chain.isDeployed(token)))
         throw new ChainUnavailableError(

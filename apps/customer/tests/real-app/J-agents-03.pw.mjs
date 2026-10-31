@@ -9,9 +9,6 @@ import { api, tool } from './stack.mjs';
 // (owner.decision) while the rest of the builder works. The draft each step leaves is read back from svc-agents
 // (own.* through Edge), not only from the page.
 // A clause the product cannot run yet stays red in a test of its own, named by that clause:
-// - #1 "with no templates only the blank option shows": the template set is fixed in svc-agents, so nothing can leave
-//   it empty (AG-catalogue-02);
-// - #4 "tool shapes": a tool is a name only, with no declared inputs or outputs to set (AG-tools-01);
 // - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
 // The identity page, publishing to a surface and sharing are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
 // at their first missing part, quickly (UNBUILT).
@@ -108,8 +105,8 @@ test(`${J} #1 opens the template picker and chooses the service starter: a draft
 });
 
 test(`${J} #1 with no templates only the blank option shows`, async ({ page }) => {
-  // svc-agents restarted with its template set blank. The set is fixed in the service today (AG-catalogue-02), so the
-  // switch changes nothing yet and the starter still shows: this clause stays red, by name, until it can be blank.
+  // svc-agents restarted offering no template but "Start blank" (AGENTS_OWN_TEMPLATES=blank, AG-catalogue-02): the
+  // picker and the service's catalogue both show the blank option alone, and the starter comes back after.
   test.setTimeout(240_000);
   process.env.LOCAL_STACK_AGENTS_TEMPLATES = 'off';
   try {
@@ -221,20 +218,59 @@ test(`${J} #4 sets the cap and tool shapes: the finding clears; publish otherwis
   expect(capped).toMatchObject({ perSessionCap: '1', findings: [] });
 });
 
-test(`${J} #4 sets the tool shapes`, async ({ page }) => {
-  // A tool is a name only today, with no declared inputs or outputs to set (AG-tools-01): red, by name, until it is.
+test(`${J} #4 sets the cap and attaches tools: each attached tool shows its stored shapes and refusals; one with no declared shape is refused`, async ({
+  page,
+}) => {
+  // AG-tools-01: each tool's input and output shape and its refusals are the service's stored registry, shown in the
+  // builder and read back from own.catalogue; attaching a tool with no declared shape refuses agents.tool_shape_missing.
   await openOwnAgent(page, agents, 'Build');
   const draft = await ownAgent();
+  const { tools: registry } = await ownRead('catalogue');
+  const alertWith = (code) =>
+    builder(page)
+      .getByRole('alert')
+      .filter({ has: page.locator('code', { hasText: code }) });
   const shapes = builder(page).getByRole('group', { name: 'Tool shapes' });
-  await expect(shapes).toBeVisible(UNBUILT);
+  await expect(shapes).toBeVisible();
   expect(draft.tools.length).toBeGreaterThan(0);
-  for (const name of draft.tools) await shapes.getByRole('textbox', { name: `${name} input` }).fill('{ "query": "string" }');
+  const fields = (record) =>
+    Object.entries(record)
+      .map(([field, type]) => `${field}: ${type}`)
+      .join('; ');
+  for (const name of draft.tools) {
+    const declared = registry.find((tool) => tool.name === name);
+    expect(declared?.shape, `${name} has a declared shape`).toBeTruthy();
+    const card = shapes.getByRole('article', { name, exact: true });
+    await expect(card.getByTestId('shape-input')).toHaveText(fields(declared.shape.input));
+    await expect(card.getByTestId('shape-output')).toHaveText(fields(declared.shape.output));
+    await expect(card.getByTestId('shape-refusals')).toHaveText(declared.refusals.join(', '));
+  }
+  // A tool the registry declares no shape for: the builder says so, and the save is refused with its code and keeps
+  // nothing; svc-agents refuses it the same way on its own.
+  const shapeless = registry.find((tool) => !tool.movesMoney && tool.shape === null);
+  expect(shapeless, 'the registry has a read tool with no declared shape').toBeTruthy();
+  await builder(page).getByRole('button', { name: 'Add a tool' }).click();
+  await page
+    .getByRole('dialog', { name: 'Add a tool' })
+    .getByRole('option', { name: new RegExp(shapeless.name.replace(/\./g, '\\.')) })
+    .click();
+  await expect(shapes.getByRole('article', { name: shapeless.name, exact: true })).toContainText(
+    'Shape not declared: this tool cannot be attached.',
+  );
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
-  // Every tool's shape, each exactly once, is the one set, read back from svc-agents.
-  const { toolShapes } = await ownRead('get', { id: draft.id });
-  expect(Object.keys(toolShapes ?? {}).sort()).toEqual([...draft.tools].sort());
-  for (const name of draft.tools) expect(toolShapes[name]).toMatchObject({ input: { query: 'string' } });
+  const refused = alertWith('agents.tool_shape_missing');
+  await expect(refused).toContainText('This tool has no declared shape, so it cannot be attached. Nothing was saved.');
+  await expect(refused.locator('code')).toHaveText('agents.tool_shape_missing');
+  expect(await ownRead('get', { id: draft.id })).toEqual(draft);
+  const direct = await (
+    await api(agents.account())
+  ).post('/api/agents/trpc/own.save', {
+    ...pick(draft),
+    tools: [...draft.tools, shapeless.name],
+  });
+  expect(direct.status).toBe(400);
+  expect(direct.body.error.message).toBe('agents.tool_shape_missing');
+  expect(await ownRead('get', { id: draft.id })).toEqual(draft);
 });
 
 test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too`, async ({

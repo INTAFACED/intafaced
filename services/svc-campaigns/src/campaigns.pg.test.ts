@@ -75,6 +75,8 @@ const full = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefinitionIn
   endsAt: '2026-11-24T11:00:00Z',
   participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '1000' },
+  // TEST limits: wide enough that only a test about limits meets them.
+  limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
   reward: { asset: 'USDT', amount: '10' },
   ...over,
 });
@@ -118,6 +120,9 @@ if (!db) {
         [{ participation: null }, 'campaigns.rules_unset'],
         [{ startsAt: null }, 'campaigns.time_frame_unset'],
         [{ endsAt: '' }, 'campaigns.time_frame_unset'],
+        [{ limits: null }, 'campaigns.per_customer_limit_unset'],
+        [{ limits: { perCustomer: { count: 1, periodSeconds: null }, totalRedemptions: 5 } }, 'campaigns.per_customer_limit_unset'],
+        [{ limits: { perCustomer: { count: null, periodSeconds: 3600 }, totalRedemptions: null } }, 'campaigns.per_customer_limit_unset'],
         [{ reward: null }, 'campaigns.reward_unset'],
         [{ type: 'gift_card' }, 'owner.decision'],
         [{ type: 'points' }, 'owner.decision'],
@@ -141,6 +146,7 @@ if (!db) {
         'campaigns.rules_unset',
         'campaigns.time_frame_unset',
         'campaigns.timezone_unset',
+        'campaigns.per_customer_limit_unset',
         'campaigns.reward_unset',
       ]);
     });

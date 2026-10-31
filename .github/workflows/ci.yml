@@ -262,6 +262,18 @@ jobs:
         run: |
           if [ -f apps/customer/dist/index.html ]; then pnpm --filter @intafaced/customer test:deployment
           else echo "the Customer app was not built: nothing to test"; fi
+      # The tooling tests that read a build (NEEDS_BUILD in tooling/scripts/tooling-tests.mjs; the Doctrine gates job runs
+      # the rest unbuilt). They run whenever this job built packages/contracts, as every tooling/ change does.
+      - name: Tooling tests that need the build
+        run: |
+          if [ -f packages/contracts/dist/index.js ]; then
+            # An empty or unreadable list must fail: `node --test` with no files would discover tests across the whole repo.
+            list=$(node -e "import('./tooling/scripts/tooling-tests.mjs').then((m) => console.log(m.NEEDS_BUILD.join('\n')))")
+            [ -n "$list" ] || { echo "::error::NEEDS_BUILD is empty or unreadable"; exit 1; }
+            mapfile -t files <<< "$list"
+            for f in "${files[@]}"; do [ -f "$f" ] || { echo "::error::NEEDS_BUILD names $f, which does not exist"; exit 1; }; done
+            node --test "${files[@]}"
+          else echo "packages/contracts was not built: nothing to test"; fi
       # turbo prefixes every line with its task, so setup-node's tsc matcher never fires and a red job said only
       # "pnpm run typecheck exited (1)". This turns the first ten type errors (GitHub keeps ten per step) into annotations, so tooling/ci/why-red.mjs
       # names them without the job log. Output only: it changes no result.
