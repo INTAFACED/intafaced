@@ -35,6 +35,13 @@ async function completions(who) {
   return res.body.result.data.items;
 }
 
+/** The learner's own outline beside an item, as the reader reads it: each item's state, rule and whether it is met. */
+async function outlineRows(who, itemSlug) {
+  const res = await (await api(who)).get(`/api/academy/trpc/courseOutline?input=${encodeURIComponent(JSON.stringify({ itemSlug }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.items;
+}
+
 /** Staff act through Academy's admin door with the stack's TEST founder session, the same door the ops desk uses. */
 let staffDoor;
 async function staff(procedure, input) {
@@ -120,7 +127,13 @@ test(`${J} #1 Complete and continue records the completion once, pressed twice, 
   await page.goto(`/academy/${items[0]}`);
   const control = completion(page, items[0]);
   await expect(control).toHaveAttribute('data-item-state', /unlocked|started/);
-  await control.getByRole('button', { name: 'Complete and continue', exact: true }).dblclick();
+  // The course rule for this item is "view": opening it meets the rule, so Complete and continue is on, with no reason.
+  const before = (await outlineRows(who, items[0])).find((row) => row.slug === items[0]);
+  expect(before).toMatchObject({ rule: 'view', ruleMet: true, completedAt: null });
+  const press = control.getByRole('button', { name: 'Complete and continue', exact: true });
+  await expect(press).toBeEnabled();
+  await expect(press).not.toHaveAttribute('aria-describedby', /.+/);
+  await press.dblclick();
   await expect(page).toHaveURL(`/academy/${items[1]}`);
   await expect(outline(page, course.slug).locator(`[data-outline-item="${items[0]}"]`)).toHaveAttribute('data-outline-state', 'completed');
   await expect(outline(page, course.slug).locator(`[data-outline-item="${items[1]}"] a`)).toHaveAttribute('aria-current', 'page');
