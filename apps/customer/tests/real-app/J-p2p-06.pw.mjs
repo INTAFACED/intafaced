@@ -14,6 +14,9 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const AD = { price: '0.92', min: '10', max: '30', total: '200' };
 const PAYMENT_SECONDS = 180;
 const SWEEP_SECONDS = 30;
+/** The TEST cash-in-person method's own release window (`local-test-gates.mjs`). */
+const CASH_METHOD = 'test-cash-in-person';
+const CASH_RELEASE_SECONDS = 600;
 const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
@@ -217,11 +220,21 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   await expect(page.getByRole('row').filter({ hasText: tradeId.slice(0, 8) })).toContainText('Cancelled: payment time ran out');
 });
 
-test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async () => {
+test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async ({ page }) => {
+  // The stack's transfer release window is 1800 s; its TEST cash-in-person method carries its own 600 s release window,
+  // which an order copies at take (`local-test-gates.mjs`). That window, and the sweep after it, are waited out here.
+  test.setTimeout((CASH_RELEASE_SECONDS + 4 * SWEEP_SECONDS + 240) * 1_000);
   const state = journey();
   const s = await sellerClient(state);
-  // At the stack's 1800 s release window this cannot be waited out; it needs a per-ad release window.
-  const ads = await s.raw.mutate('offers.create', {
+  await s.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: CASH_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST meeting point',
+    details: { meeting_area: 'TEST Berlin Mitte' },
+  });
+  const offer = await s.mutate('offers.create', {
     side: 'sell',
     asset: 'USDT',
     fiatCurrency: 'EUR',
@@ -230,12 +243,43 @@ test('J-p2p-06 #5 the release window passes after payment: a dispute opens once,
     minAmount: AD.min,
     maxAmount: AD.max,
     totalAmount: '30',
-    methods: [METHOD],
-    terms: `TEST terms: ${J} short release`,
-    releaseWindowSeconds: 60,
-    idempotencyKey: `${J}:short-release:${state.seller.handle}`,
+    methods: [CASH_METHOD],
+    terms: `TEST terms: ${J} cash release window`,
+    idempotencyKey: `${J}:cash-release:${state.seller.handle}`,
   });
-  expect(ads.body?.result?.data?.releaseWindowSeconds, 'an ad has no release window of its own (P-trade-orders-15)').toBe(60);
+  run.write({ sellerPasskey: s.passkey().saved() });
+  // #2 paused the first buyer, so a second buyer takes this order.
+  const buyer = await signUp(page, 'p2p06c');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: CASH_METHOD });
+  await b.mutate('trades.markFiatSent', { tradeId: trade.id });
+  const paid = await s.query('trades.get', { tradeId: trade.id });
+  expect(paid).toMatchObject({ status: 'fiat_sent', escrowHeld: '10' });
+  // The release deadline is the method's 600 s window from the moment the buyer marked it paid, not the 1800 s default.
+  const left = (Date.parse(paid.deadlineAt) - Date.now()) / 1_000;
+  expect(left).toBeGreaterThan(CASH_RELEASE_SECONDS - 60);
+  expect(left).toBeLessThanOrEqual(CASH_RELEASE_SECONDS + 5);
+  const buyerFree = await free(buyer);
+  const sellerFree = await free(state.seller);
+
+  await expect
+    .poll(async () => (await s.query('trades.get', { tradeId: trade.id })).status, {
+      timeout: (CASH_RELEASE_SECONDS + 4 * SWEEP_SECONDS) * 1_000,
+      intervals: [15_000],
+    })
+    .toBe('disputed');
+  const disputesOf = async () => (await s.query('disputes.mine', { limit: 200 })).disputes.filter((d) => d.tradeId === trade.id);
+  expect(await disputesOf()).toHaveLength(1);
+  // The escrow does not move: still held for the order, nothing released to the buyer or returned to the seller.
+  const disputed = await s.query('trades.get', { tradeId: trade.id });
+  expect(disputed).toMatchObject({ status: 'disputed', resolution: null, escrowHeld: '10' });
+  expect(await free(state.seller)).toBe(sellerFree);
+  expect(await free(buyer)).toBe(buyerFree);
+  // Another sweep opens no second dispute.
+  await new Promise((resolve) => setTimeout(resolve, 2 * SWEEP_SECONDS * 1_000));
+  expect(await disputesOf()).toHaveLength(1);
+  expect((await s.query('trades.get', { tradeId: trade.id })).escrowHeld).toBe('10');
 });
 
 test('J-p2p-06 #6 a reminder before the wait is refused with the time left; after it, the seller gets one notice', async ({ page }) => {
