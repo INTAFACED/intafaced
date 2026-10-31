@@ -50,6 +50,9 @@ export interface LifecycleView {
 export interface BookHaltView {
   halted: boolean;
   venueHalted: boolean;
+  /** When matching halted this book / the venue (epoch ms); null or absent when not in force or the route names no time. */
+  haltedSinceMs?: number | null;
+  venueHaltedSinceMs?: number | null;
 }
 
 export interface OwnerValuesView {
@@ -158,6 +161,13 @@ export function dataStatus(input: StatusInputs): DataStatus {
     if (refusal.code === 'lifecycle_unavailable') return result('lifecycle_unavailable', 'refused');
     if (refusal.code === 'book_unavailable') return result('book_unavailable', 'refused');
     if (refusal.code === 'not_open') return result('not_open', 'refused');
+    if (refusal.code === 'book_halted' && bookHalt.status === 'ready') {
+      // The lifecycle reads OPEN here, so its time is when it opened: the halt's own time is the book's (the venue's when
+      // only the venue is halted), or unknown when matching names none.
+      const book = bookHalt.data;
+      const since = (book.halted ? book.haltedSinceMs : book.venueHaltedSinceMs) ?? null;
+      return { ...result('halted', 'refused'), stateSinceMs: since };
+    }
     return result('halted', 'refused');
   }
 

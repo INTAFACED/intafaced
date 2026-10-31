@@ -83,6 +83,17 @@ describe('dataStatus: the chip names the real state of the data', () => {
     expect(s).toMatchObject({ chip: 'halted', state: 'OPEN', orderEntry: 'refused' });
   });
 
+  it('a book halt gives the halt time matching names, not the lifecycle opening time; none named reads unknown', () => {
+    const at = NOW - 90_000;
+    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: at }) })).stateSinceMs).toBe(at);
+    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false, haltedSinceMs: null }) })).stateSinceMs).toBeNull();
+    expect(dataStatus(inputs({ bookHalt: ready({ halted: true, venueHalted: false }) })).stateSinceMs).toBeNull();
+    expect(
+      dataStatus(inputs({ bookHalt: ready({ halted: false, venueHalted: true, haltedSinceMs: null, venueHaltedSinceMs: at }) }))
+        .stateSinceMs,
+    ).toBe(at);
+  });
+
   it('a venue-wide halt on matching halts every market', () => {
     expect(dataStatus(inputs({ bookHalt: ready({ halted: false, venueHalted: true }) })).chip).toBe('halted');
   });

@@ -20,7 +20,20 @@ const CLOCK_POLL_MS = 60_000;
 const lifecycleSchema = z
   .object({ state: z.string(), effectiveAt: z.string().nullish(), evidenceRefs: z.array(z.string()).nullish() })
   .passthrough();
-const haltSchema = z.object({ halted: z.boolean(), venueHalted: z.boolean() }).passthrough();
+const haltSchema = z
+  .object({
+    halted: z.boolean(),
+    venueHalted: z.boolean(),
+    haltedSince: z.string().nullable().optional(),
+    venueHaltedSince: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/** An ISO time from the route as epoch ms; null when it names none or names one that does not parse. */
+const msOf = (iso: string | null | undefined): number | null => {
+  const ms = typeof iso === 'string' ? Date.parse(iso) : NaN;
+  return Number.isNaN(ms) ? null : ms;
+};
 const tapeSchema = z.array(z.object({ timestamp: z.number() }).passthrough());
 
 type Raw<T> = { ok: true; data: T } | { ok: false; reason: string; code?: string; status?: number };
@@ -68,7 +81,15 @@ export function useBookHalt(symbol: string): Loadable<BookHaltView> {
               z.infer<typeof haltSchema>
             >;
             if (!res.ok) return res;
-            return { ok: true, data: { halted: res.data.halted, venueHalted: res.data.venueHalted } };
+            return {
+              ok: true,
+              data: {
+                halted: res.data.halted,
+                venueHalted: res.data.venueHalted,
+                haltedSinceMs: msOf(res.data.haltedSince),
+                venueHaltedSinceMs: msOf(res.data.venueHaltedSince),
+              },
+            };
           },
           { intervalMs: STATE_POLL_MS },
         ),

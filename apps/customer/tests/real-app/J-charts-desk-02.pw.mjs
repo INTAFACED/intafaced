@@ -116,8 +116,25 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
     await openChart(page);
     await expect(chip(page)).toHaveAttribute('data-status', 'halted', { timeout: 30_000 });
     await expect(banner(page)).toHaveAttribute('data-kind', 'halted');
-    // The book halt carries no time, so the banner says so rather than guessing one.
-    await expect(banner(page)).toContainText(/Halted as of (time unknown|\d{1,2} [A-Za-z]{3} \d{4}, \d{2}:\d{2})/);
+    // The time matching halted the book, as svc-trade's market-halt route names it, in the viewer's clock.
+    const res = await fetch(`${EDGE}/api/v1/market-halt/${encodeURIComponent(BTC)}`);
+    expect(res.status).toBe(200);
+    const halt = await res.json();
+    expect(halt.halted).toBe(true);
+    expect(halt.haltedSince, 'matching names when the halt began').toMatch(/^\d{4}-\d\d-\d\dT/);
+    const asOf = await page.evaluate(
+      (iso) =>
+        new Intl.DateTimeFormat('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        }).format(Date.parse(iso)),
+      halt.haltedSince,
+    );
+    await expect(banner(page)).toContainText(`Halted as of ${asOf}.`);
     const trade = tradeButton(page);
     await expect(trade).toBeDisabled();
     await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
