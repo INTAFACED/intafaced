@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { RUN_RESERVE, RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createPostgresRunRepository } from '../runs/postgres-repository.js';
 import type { StrategyDraft } from '../studio/repository.js';
 import { createPostgresStrategyRepository } from '../studio/postgres-repository.js';
@@ -46,10 +47,10 @@ function testDatabaseUrl(): string {
 describe('quotas by plan on Postgres (AL-limits-01)', () => {
   const sql = postgres(testDatabaseUrl(), { max: 8, onnotice: () => undefined });
   // Accounts without an assignment fall under TEST, the default profile these tests publish.
-  const hold = postgresQuotaHold(SCHEMA, 'TEST');
-  const store = createPostgresQuotaStore(sql, SCHEMA, 'TEST');
+  const hold = postgresQuotaHold(SCHEMA, 'TEST', RUN_RESERVE);
+  const store = createPostgresQuotaStore(sql, SCHEMA, 'TEST', RUN_RESERVE);
   const strategies = createPostgresStrategyRepository(sql, SCHEMA, hold);
-  const runs = createPostgresRunRepository(sql, SCHEMA, 262_144, hold);
+  const runs = createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES, hold);
   let n = 0;
   const set = (profile: string, resource: Parameters<typeof store.setLimit>[0]['resource'], limit: string | null) =>
     store.setLimit({
@@ -85,7 +86,7 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
       'log_lines',
       'storage_bytes',
     ] as const) {
-      await set('TEST', resource, '1000');
+      await set('TEST', resource, '1000000000');
     }
   });
 
@@ -96,7 +97,7 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
 
   it('refuses at the limit with the resource and counts, and counts nothing twice on a replay', async () => {
     await set('THREE', 'stored_runs', '3');
-    for (const resource of ['concurrent_runs', 'log_lines', 'storage_bytes'] as const) await set('THREE', resource, '1000');
+    for (const resource of ['concurrent_runs', 'log_lines', 'storage_bytes'] as const) await set('THREE', resource, '100000000');
     await store.assign({
       accountId: ACCOUNT_A,
       profile: 'THREE',
@@ -114,7 +115,13 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
     expect(usage.profile).toBe('THREE');
     expect(usage.rows.find((row) => row.resource === 'stored_runs')).toEqual({ resource: 'stored_runs', limit: '3', used: '3' });
     // Three runs never finished: they are still in progress.
-    expect(usage.rows.find((row) => row.resource === 'concurrent_runs')).toEqual({ resource: 'concurrent_runs', limit: '1000', used: '3' });
+    expect(usage.rows.find((row) => row.resource === 'concurrent_runs')).toEqual({
+      resource: 'concurrent_runs',
+      limit: '100000000',
+      used: '3',
+    });
+    // Each of them holds room for the largest result it may store until it finishes.
+    expect(usage.rows.find((row) => row.resource === 'storage_bytes')!.used).toBe(String(3 * RUN_RESULT_MAX_BYTES));
     expect(usage.rows.find((row) => row.resource === 'strategies')).toEqual({ resource: 'strategies', limit: null, used: '0' });
   });
 
@@ -129,7 +136,7 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
       /quant\.quota_unset — concurrent_runs — the limit for runs in progress in profile ZERO is not set/,
     );
 
-    const unassigned = createPostgresStrategyRepository(sql, SCHEMA, postgresQuotaHold(SCHEMA, null));
+    const unassigned = createPostgresStrategyRepository(sql, SCHEMA, postgresQuotaHold(SCHEMA, null, RUN_RESERVE));
     await expect(
       unassigned.create({ accountId: ACCOUNT_C, clientStrategyId: 'c1', idempotencyKey: 'k1', draft: draft('one') }),
     ).rejects.toThrow(/quant\.quota_profile_unset/);
@@ -145,7 +152,7 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
   it('lets exactly one of two writes racing at the limit through', async () => {
     const racer = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     await set('ONE', 'stored_runs', '1');
-    for (const resource of ['concurrent_runs', 'log_lines', 'storage_bytes'] as const) await set('ONE', resource, '1000');
+    for (const resource of ['concurrent_runs', 'log_lines', 'storage_bytes'] as const) await set('ONE', resource, '100000000');
     await store.assign({ accountId: racer, profile: 'ONE', reason: 'LOCAL TEST', assignedBy: OPERATOR, idempotencyKey: 'assign:race:1' });
     const outcomes = await Promise.allSettled([begin(racer, 'race-a'), begin(racer, 'race-b'), begin(racer, 'race-c')]);
     expect(outcomes.filter((row) => row.status === 'fulfilled')).toHaveLength(1);
@@ -213,5 +220,63 @@ describe('quotas by plan on Postgres (AL-limits-01)', () => {
       used: '2',
     });
     expect(Number(usage.rows.find((row) => row.resource === 'storage_bytes')!.used)).toBeGreaterThan(0);
+  });
+
+  it('frees a slot when a strategy goes to the recycle bin, and refuses its restore at the limit', async () => {
+    const owner = '11111111-1111-4111-8111-111111111111';
+    await set('BIN', 'strategies', '1');
+    await set('BIN', 'storage_bytes', '100000');
+    await store.assign({ accountId: owner, profile: 'BIN', reason: 'LOCAL TEST', assignedBy: OPERATOR, idempotencyKey: 'assign:bin:1' });
+    const first = await strategies.create({ accountId: owner, clientStrategyId: 'b1', idempotencyKey: 'bk1', draft: draft('one') });
+    await strategies.softDelete({ accountId: owner, id: first.id, idempotencyKey: 'bk2' });
+    expect((await store.usage(owner)).rows.find((row) => row.resource === 'strategies')!.used).toBe('0');
+    await strategies.create({ accountId: owner, clientStrategyId: 'b2', idempotencyKey: 'bk3', draft: draft('two') });
+    await expect(strategies.restore({ accountId: owner, id: first.id, idempotencyKey: 'bk4' })).rejects.toThrow(
+      /quant\.quota_exceeded — strategies — saved strategies: 1 used of 1 allowed by profile BIN$/,
+    );
+    // Still in the bin, with its version: nothing changed.
+    expect(await strategies.get({ accountId: owner, id: first.id })).toBeNull();
+  });
+
+  it('answers a same-key retry that waited at the limit with its replay, never a refusal', async () => {
+    const owner = '22222222-2222-4222-8222-222222222222';
+    for (const resource of ['concurrent_runs', 'log_lines', 'storage_bytes'] as const) await set('SAME', resource, '100000000');
+    await set('SAME', 'stored_runs', '1');
+    await set('SAME', 'strategies', '1');
+    await store.assign({ accountId: owner, profile: 'SAME', reason: 'LOCAL TEST', assignedBy: OPERATOR, idempotencyKey: 'assign:same:1' });
+    const runsBack = await Promise.all([begin(owner, 'same-key'), begin(owner, 'same-key'), begin(owner, 'same-key')]);
+    expect(new Set(runsBack.map((row) => row.id)).size).toBe(1);
+    const saved = await Promise.all(
+      [1, 2, 3].map(() =>
+        strategies.create({ accountId: owner, clientStrategyId: 'same', idempotencyKey: 'same-save', draft: draft('same') }),
+      ),
+    );
+    expect(new Set(saved.map((row) => row.id)).size).toBe(1);
+  });
+
+  it('holds room for the largest result while a run is in progress, and refuses a run with no account', async () => {
+    const owner = '33333333-3333-4333-8333-333333333333';
+    for (const resource of ['concurrent_runs', 'stored_runs', 'log_lines'] as const) await set('ROOM', resource, '100000000');
+    // Room for two runs in progress and a little more, not three.
+    await set('ROOM', 'storage_bytes', String(2 * RUN_RESULT_MAX_BYTES + 1000));
+    await store.assign({ accountId: owner, profile: 'ROOM', reason: 'LOCAL TEST', assignedBy: OPERATOR, idempotencyKey: 'assign:room:1' });
+    const one = await begin(owner, 'room-1');
+    await begin(owner, 'room-2');
+    await expect(begin(owner, 'room-3')).rejects.toThrow(
+      new RegExp(
+        `quant\\.quota_exceeded — storage_bytes — stored source and results \\(bytes\\): ${2 * RUN_RESULT_MAX_BYTES} used of ${2 * RUN_RESULT_MAX_BYTES + 1000} allowed by profile ROOM — this needs ${RUN_RESULT_MAX_BYTES} more`,
+      ),
+    );
+    // Finished, a run counts what it stored: a small result frees the rest of its room.
+    await runs.finish({ id: one.id, userId: owner, outcome: 'ok', stored: { detail: null, response: { logs: ['a', 'b'] } } });
+    const usage = await store.usage(owner);
+    const stored = Number(usage.rows.find((row) => row.resource === 'storage_bytes')!.used);
+    expect(stored).toBeLessThan(RUN_RESULT_MAX_BYTES + 100);
+    expect(usage.rows.find((row) => row.resource === 'log_lines')!.used).toBe(String(2 + Number(RUN_RESERVE.logLines)));
+    await begin(owner, 'room-3');
+
+    await expect(
+      runs.begin({ userId: null, idempotencyKey: 'anon-1', kind: 'sandbox', strategyId: null, strategyVersion: null }),
+    ).rejects.toThrow(/quant\.quota_profile_unset — quota profile — a run with no account/);
   });
 });

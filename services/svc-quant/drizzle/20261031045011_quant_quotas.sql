@@ -47,6 +47,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "quota_assignments_key_idx" ON "quant"."quota_
 -- Concurrent runs are counted from the runs still in flight.
 CREATE INDEX IF NOT EXISTS "runs_in_flight_idx" ON "quant"."runs" ("user_id") WHERE "finished_at" IS NULL;
 
+-- What a run stored, written once with its result when it finishes, so the plan counts stored bytes and log lines
+-- without reading every result back. A run finished before this migration has NULL here and is measured from its row.
+ALTER TABLE "quant"."runs" ADD COLUMN IF NOT EXISTS "result_bytes" integer NULL;
+ALTER TABLE "quant"."runs" ADD COLUMN IF NOT EXISTS "log_lines" integer NULL;
+
 CREATE OR REPLACE FUNCTION "quant"."reject_quota_rewrite"()
 RETURNS trigger
 LANGUAGE plpgsql

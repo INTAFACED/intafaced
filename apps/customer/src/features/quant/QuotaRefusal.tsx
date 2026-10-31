@@ -6,21 +6,26 @@ import { quotaCopy } from './quota-copy';
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export type QuotaRefusalWords =
-  | { kind: 'exceeded'; resource: QuantQuotaResource; used: string; limit: string; profile: string }
+  | { kind: 'exceeded'; resource: QuantQuotaResource; used: string; limit: string; profile: string; needs: string | null }
   | { kind: 'limitUnset'; resource: QuantQuotaResource; profile: string }
   | { kind: 'profileUnset' };
 
 const isResource = (value: string): value is QuantQuotaResource => (QUANT_QUOTA_RESOURCES as readonly string[]).includes(value);
 
 /**
- * svc-quant's quota refusals: `quant.quota_exceeded — <resource> — <words>: N used of L allowed by profile P`,
+ * svc-quant's quota refusals: `quant.quota_exceeded — <resource> — <words>: N used of L allowed by profile P` (and
+ * ` — this needs K more` when the create adds more than one),
  * `quant.quota_unset — <resource> — the limit for <words> in profile P is not set…` and `quant.quota_profile_unset`.
  * Anything else is not a quota refusal.
  */
 export function quotaRefusal(message: string): QuotaRefusalWords | null {
-  const exceeded = /^quant\.quota_exceeded — ([a-z_]+) — .*: (\d+) used of (\d+) allowed by profile (.+)$/.exec(message.trim());
+  const exceeded =
+    /^quant\.quota_exceeded — ([a-z_]+) — .*: (\d+) used of (\d+) allowed by profile (.+?)(?: — this needs (\d+) more)?$/.exec(
+      message.trim(),
+    );
   if (exceeded && isResource(exceeded[1]!)) {
-    return { kind: 'exceeded', resource: exceeded[1], used: exceeded[2]!, limit: exceeded[3]!, profile: exceeded[4]! };
+    const [, resource, used, limit, profile, needs] = exceeded;
+    return { kind: 'exceeded', resource, used: used!, limit: limit!, profile: profile!, needs: needs ?? null };
   }
   const unset = /^quant\.quota_unset — ([a-z_]+) — .* in profile (.+) is not set/.exec(message.trim());
   if (unset && isResource(unset[1]!)) return { kind: 'limitUnset', resource: unset[1], profile: unset[2]! };
@@ -42,7 +47,15 @@ export function QuotaRefusalOr({ failure, retry }: { failure: Failed; retry?: ()
       data-resource={quota.kind === 'profileUnset' ? '' : quota.resource}
     >
       {quota.kind === 'exceeded'
-        ? t('exceeded', { resource: t(quota.resource), used: quota.used, limit: quota.limit, profile: quota.profile })
+        ? quota.needs
+          ? t('exceededNeeds', {
+              resource: t(quota.resource),
+              used: quota.used,
+              limit: quota.limit,
+              profile: quota.profile,
+              needs: quota.needs,
+            })
+          : t('exceeded', { resource: t(quota.resource), used: quota.used, limit: quota.limit, profile: quota.profile })
         : quota.kind === 'limitUnset'
           ? t('limitUnset', { resource: t(quota.resource), profile: quota.profile })
           : t('profileUnset')}

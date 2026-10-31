@@ -393,7 +393,7 @@ const THREE_RUNS = {
     concurrent_runs: '10',
     paper_runs: '10',
     stored_runs: '3',
-    log_lines: '100000',
+    log_lines: '10000000',
     storage_bytes: '100000000',
   },
 };

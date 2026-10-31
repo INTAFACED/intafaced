@@ -1,8 +1,8 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { QUANT_RUN_IMMUTABLE, QUANT_RUN_NOT_FOUND, QuantError } from '../errors.js';
+import { QUANT_QUOTA_PROFILE_UNSET, QUANT_RUN_IMMUTABLE, QUANT_RUN_NOT_FOUND, QuantError } from '../errors.js';
 import { decodeListCursor, encodeListCursor, idempotencyConflict } from '../studio/keys.js';
 import { assertResultFits, assertRunResultCap } from './limit.js';
-import type { QuotaClaim } from '../quota/quota.js';
+import { isQuotaRefusal, type QuotaClaim } from '../quota/quota.js';
 import type { QuotaHold } from '../quota/postgres-store.js';
 import type { BeginRun, ClaimInput, FinishRun, RunRepository } from './repository.js';
 import type { ClaimRow, CostBreakdown, RunCounts, RunKind, RunResultBody, StoredRun, StoredRunResult } from './types.js';
@@ -179,15 +179,25 @@ function claimOf(row: ClaimSql): ClaimRow {
 
 /**
  * What a new run counts against the plan (AL-limits-01): one more run in progress and stored, a paper run for the
- * sandbox kind, and at least one more log line and stored byte, so a run refuses once either has reached its limit.
+ * sandbox kind, and room for the largest result it may store (`cap` bytes, and at most `cap / 2` log lines, as each
+ * line is a JSON string of at least two bytes). Until it finishes it holds that room; then only what it stored counts.
  */
-function runClaim(kind: RunKind): QuotaClaim {
+function runClaim(kind: RunKind, cap: number): QuotaClaim {
   return {
     concurrent_runs: 1n,
     stored_runs: 1n,
     ...(kind === 'sandbox' ? { paper_runs: 1n } : {}),
-    log_lines: 1n,
-    storage_bytes: 1n,
+    log_lines: BigInt(Math.floor(cap / 2)),
+    storage_bytes: BigInt(cap),
+  };
+}
+
+/** What a finished run stored, measured as its result cap measures it, and its log lines. */
+function storedSize(stored: FinishRun['stored']): { bytes: number; logLines: number } {
+  const response = stored.response as { logs?: unknown } | null | undefined;
+  return {
+    bytes: Buffer.byteLength(JSON.stringify(stored), 'utf8'),
+    logLines: Array.isArray(response?.logs) ? response.logs.length : 0,
   };
 }
 
@@ -252,14 +262,26 @@ export function createPostgresRunRepository(
       };
       const userId = input.userId;
       try {
-        // A run with no account (a service call) has no plan to count against.
-        if (!quota || !userId) return await insert(sql);
+        if (!quota) return await insert(sql);
+        // A run with no account has no plan to count against, so it is refused rather than left uncounted.
+        if (!userId) {
+          throw new QuantError(QUANT_QUOTA_PROFILE_UNSET, 'quota profile — a run with no account has no quota profile; nothing is assumed');
+        }
         return await sql.begin(async (tx) => {
           // A replay of a run that started meanwhile returns it and is never counted again; a replay that lands after
           // this read meets the unique key below and is read back the same way.
           const raced = await loadByKey(tx, userId, input.idempotencyKey);
           if (raced) return raced;
-          await quota(tx, userId, runClaim(input.kind), null);
+          try {
+            await quota(tx, userId, runClaim(input.kind, resultCap), null);
+          } catch (err) {
+            // The same key may have committed while this write waited on the plan's lock and now counts against it:
+            // that is a replay, not a refusal.
+            if (!isQuotaRefusal(err)) throw err;
+            const replayed = await loadByKey(tx, userId, input.idempotencyKey);
+            if (replayed) return replayed;
+            throw err;
+          }
           return insert(tx);
         });
       } catch (err) {
@@ -273,14 +295,15 @@ export function createPostgresRunRepository(
     async finish(input: FinishRun) {
       assertResultFits(input.stored, resultCap);
       const payload: StoredRunResult = { detail: input.stored.detail, response: input.stored.response ?? null };
+      const size = storedSize(input.stored);
       try {
         const rows = await query<RunSql>(
           sql,
           `UPDATE ${runs}
-             SET finished_at = $3, outcome_code = $4, result = $5::jsonb
+             SET finished_at = $3, outcome_code = $4, result = $5::jsonb, result_bytes = $6, log_lines = $7
            WHERE id = $1 AND scope_key = $2 AND finished_at IS NULL
            RETURNING *`,
-          [input.id, scopeKey(input.userId), new Date().toISOString(), input.outcome, payload],
+          [input.id, scopeKey(input.userId), new Date().toISOString(), input.outcome, payload, size.bytes, size.logLines],
         );
         const row = rows[0];
         if (row) return runOf(row);

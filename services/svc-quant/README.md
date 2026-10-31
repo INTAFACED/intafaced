@@ -169,11 +169,17 @@ a reason, keyed `quant.quota:<profile>:<resource>:<seq>`). An account is put on 
 account with none falls under `QUANT_DEFAULT_QUOTA_PROFILE`. Each row is its own audit record and is never rewritten;
 the latest one is in force.
 
-- A new strategy, a new version and a new run are counted in the transaction that writes them, behind a lock per account
-  and resource, so two writes racing at a limit cannot both pass.
-- At the limit the write refuses `quant.quota_exceeded`, naming the resource, the limit and the count. A blank limit
-  refuses `quant.quota_unset` by name, `0` refuses every create, and an account with no profile and no default refuses
-  `quant.quota_profile_unset`.
+- A new strategy, a new version, a new run and a restore from the recycle bin are counted in the transaction that
+  writes them, behind a lock per account and resource, so two writes racing at a limit cannot both pass. A retry under
+  the same key that waited at the limit gets its replay, never a refusal.
+- At the limit the write refuses `quant.quota_exceeded`, naming the resource, the limit, the count and, when the write
+  adds more than one, how much it needs. A blank limit refuses `quant.quota_unset` by name, `0` refuses every create, and
+  an account with no profile and no default refuses `quant.quota_profile_unset`. A run with no account (a call without a
+  session) has no plan, so it refuses `quant.quota_profile_unset` too.
+- Saved strategies and versions count those outside the recycle bin. Stored bytes count every version kept, the bin's
+  too, and every stored run result.
+- A run in progress holds room for the largest result it may store (the 262,144-byte result cap, and at most 131,072 log
+  lines) until it finishes; then only what it stored counts. Stored bytes and log lines are therefore hard limits.
 - `quota.get` shows the caller their profile and, per resource, what is used and the limit, or null ("not set").
 - A run counts as in progress until it finishes. A run cut off by a crash stays in progress, because no restart sweep
   exists yet (AL-limits-02).

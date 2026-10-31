@@ -10,6 +10,12 @@ import {
 /** Published byte cap for one run result. Not read from the environment. */
 export const RUN_RESULT_MAX_BYTES = 262_144;
 
+/**
+ * What one run in progress holds against the plan until it finishes (AL-limits-01): the largest result it may store,
+ * and the most log lines that result can hold (each line is a JSON string of at least two bytes, its quotes).
+ */
+export const RUN_RESERVE = { bytes: BigInt(RUN_RESULT_MAX_BYTES), logLines: BigInt(Math.floor(RUN_RESULT_MAX_BYTES / 2)) } as const;
+
 export const OPS_RUNS_LIMIT_CAP = 50;
 
 /** Blank is refused. 262144 is not assumed when the caller omits the cap. */

@@ -22,7 +22,13 @@ describe('quota refusals', () => {
       used: '3',
       limit: '3',
       profile: 'TEST three runs',
+      needs: null,
     });
+    expect(
+      quotaRefusal(
+        'quant.quota_exceeded — storage_bytes — stored source and results (bytes): 900 used of 1000 allowed by profile TEST — this needs 200 more',
+      ),
+    ).toEqual({ kind: 'exceeded', resource: 'storage_bytes', used: '900', limit: '1000', profile: 'TEST', needs: '200' });
     expect(
       quotaRefusal('quant.quota_unset — concurrent_runs — the limit for runs in progress in profile ZERO is not set; nothing is assumed'),
     ).toEqual({ kind: 'limitUnset', resource: 'concurrent_runs', profile: 'ZERO' });
@@ -40,6 +46,15 @@ describe('quota refusals', () => {
     );
     expect(out).toContain('data-testid="quant-quota-refusal"');
     expect(out).toContain('Stored runs: 3 used of 3 allowed by quota profile TEST. Nothing was created.');
+    expect(
+      html(
+        <QuotaRefusalOr
+          failure={failed(
+            'quant.quota_exceeded — storage_bytes — stored source and results (bytes): 900 used of 1000 allowed by profile TEST — this needs 200 more',
+          )}
+        />,
+      ),
+    ).toContain('Stored source and results (bytes): 900 used of 1000 allowed by quota profile TEST, and this needs 200 more.');
     expect(html(<QuotaRefusalOr failure={failed('quant.quota_profile_unset — quota profile — none')} />)).toContain(
       'This account has no quota profile and none is set by default',
     );

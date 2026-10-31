@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { QUANT_DATABASE_POOL_MAX_UNSET, QUANT_DATABASE_URL_UNSET, QuantError } from '../errors.js';
+import { RUN_RESERVE } from '../runs/limit.js';
 import { createPostgresQuotaStore, type QuotaStore } from './postgres-store.js';
 
 function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_POOL_MAX_UNSET, detail: string): QuotaStore {
@@ -25,5 +26,5 @@ export function openQuotaStore(
     };
   }
   const sql = postgres(url, { max: pool, onnotice: () => undefined });
-  return { store: createPostgresQuotaStore(sql, 'quant', defaultProfile), close: () => sql.end({ timeout: 5 }) };
+  return { store: createPostgresQuotaStore(sql, 'quant', defaultProfile, RUN_RESERVE), close: () => sql.end({ timeout: 5 }) };
 }

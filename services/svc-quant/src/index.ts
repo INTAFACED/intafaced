@@ -9,6 +9,7 @@ import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
 import { openQuotaStore } from './quota/open.js';
 import { postgresQuotaHold } from './quota/postgres-store.js';
+import { RUN_RESERVE } from './runs/limit.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
@@ -43,7 +44,7 @@ const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 // Quotas by plan (AL-limits-01): every new strategy, version and run is counted against the account's profile in the
 // transaction that writes it. The default profile is the owner's; blank refuses every create of an unassigned account.
 const defaultQuotaProfile = env.QUANT_DEFAULT_QUOTA_PROFILE ?? null;
-const quotaHold = postgresQuotaHold('quant', defaultQuotaProfile);
+const quotaHold = postgresQuotaHold('quant', defaultQuotaProfile, RUN_RESERVE);
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quotaHold);
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quotaHold);
 const quota = openQuotaStore({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, defaultQuotaProfile);

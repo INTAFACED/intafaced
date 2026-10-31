@@ -14,6 +14,7 @@ import type {
 } from './repository.js';
 import type { StrategyMetadata, StudioBlock, StudioRiskBlock } from './store.js';
 import type { QuotaHold } from '../quota/postgres-store.js';
+import { isQuotaRefusal } from '../quota/quota.js';
 
 const sourceBytes = (source: string) => BigInt(Buffer.byteLength(source, 'utf8'));
 
@@ -337,7 +338,16 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant', quo
           const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'create', detail);
           return stored.response as StrategyDetail;
         }
-        await quota?.(tx, input.accountId, { strategies: 1n, storage_bytes: sourceBytes(input.draft.source) }, null);
+        try {
+          await quota?.(tx, input.accountId, { strategies: 1n, storage_bytes: sourceBytes(input.draft.source) }, null);
+        } catch (err) {
+          // The same save may have committed while this one waited on the plan's lock and now counts against it: that
+          // is a replay, not a refusal.
+          if (!isQuotaRefusal(err)) throw err;
+          const replayed = await readReceipt(tx, input.accountId, input.idempotencyKey);
+          if (replayed?.operation === 'create') return replayed.response;
+          throw err;
+        }
         const now = new Date().toISOString();
         const id = `studio_${crypto.randomUUID()}`;
         await query(tx, 'SAVEPOINT quant_client_insert', []);
@@ -457,16 +467,20 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant', quo
           if (existing.operation !== 'restore') idempotencyConflict(existing.operation);
           return existing.response;
         }
-        const locked = await query<{ id: string }>(tx, `SELECT id FROM ${strategies} WHERE id = $1 AND account_id = $2 FOR UPDATE`, [
-          input.id,
-          input.accountId,
-        ]);
+        const locked = await query<{ id: string; deleted_at: Date | string | null }>(
+          tx,
+          `SELECT id, deleted_at FROM ${strategies} WHERE id = $1 AND account_id = $2 FOR UPDATE`,
+          [input.id, input.accountId],
+        );
         if (!locked[0]) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
         const raced = await readReceipt(tx, input.accountId, input.idempotencyKey);
         if (raced) {
           if (raced.operation !== 'restore') idempotencyConflict(raced.operation);
           return raced.response;
         }
+        // Back from the recycle bin it is a saved strategy again, so it takes a slot of the plan; its versions and
+        // their bytes were never released.
+        if (locked[0].deleted_at) await quota?.(tx, input.accountId, { strategies: 1n }, null);
         await query(
           tx,
           `UPDATE ${strategies} SET deleted_at = NULL, restores = restores + 1

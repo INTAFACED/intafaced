@@ -101,6 +101,7 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
       'drizzle/0005_quant_run_labels.sql',
       'drizzle/20261030134631_quant_strategy_heads.sql',
       'drizzle/20261030142944_quant_release_notes.sql',
+      'drizzle/20261031045011_quant_quotas.sql',
     ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);

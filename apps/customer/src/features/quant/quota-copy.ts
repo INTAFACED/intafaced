@@ -20,6 +20,7 @@ const en = {
   collaborators_per_strategy: 'Collaborators on one strategy',
   notifications_per_day: 'Notifications today',
   exceeded: '{resource}: {used} used of {limit} allowed by quota profile {profile}. Nothing was created.',
+  exceededNeeds: '{resource}: {used} used of {limit} allowed by quota profile {profile}, and this needs {needs} more. Nothing was created.',
   limitUnset: '{resource}: the limit in quota profile {profile} is not set, so nothing was created.',
   profileUnset: 'This account has no quota profile and none is set by default, so nothing was created.',
 } as const;

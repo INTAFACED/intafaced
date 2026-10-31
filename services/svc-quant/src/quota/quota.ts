@@ -64,7 +64,8 @@ export function profileOf(assigned: string | null, defaultProfile: string | null
 
 /**
  * Refuses a create that the profile does not allow: a blank limit by name, or a count that would pass the limit with
- * the resource, its limit and the count now. Checked in the order the claim lists them.
+ * the resource, its limit, the count now and, when the create adds more than one, how much it needs. Checked in the
+ * order the claim lists them.
  */
 export function checkClaim(profile: string, limits: ReadonlyMap<QuotaResource, bigint | null>, counts: QuotaCounts, claim: QuotaClaim) {
   for (const resource of QUOTA_RESOURCES) {
@@ -81,7 +82,8 @@ export function checkClaim(profile: string, limits: ReadonlyMap<QuotaResource, b
     if (used + adds > limit) {
       throw new QuantError(
         QUANT_QUOTA_EXCEEDED,
-        `${resource} — ${RESOURCE_WORDS[resource]}: ${used} used of ${limit} allowed by profile ${profile}`,
+        `${resource} — ${RESOURCE_WORDS[resource]}: ${used} used of ${limit} allowed by profile ${profile}` +
+          (adds > 1n ? ` — this needs ${adds} more` : ''),
       );
     }
   }
@@ -97,5 +99,10 @@ export function usageOf(profile: string | null, limits: ReadonlyMap<QuotaResourc
     }),
   };
 }
+
+/** Whether an error is a quota refusal, so a write refused at the limit can first look for its own replay. */
+export const isQuotaRefusal = (err: unknown): boolean =>
+  err instanceof QuantError &&
+  (err.code === QUANT_QUOTA_EXCEEDED || err.code === QUANT_QUOTA_UNSET || err.code === QUANT_QUOTA_PROFILE_UNSET);
 
 export const zeroCounts = (): QuotaCounts => Object.fromEntries(QUOTA_RESOURCES.map((resource) => [resource, 0n])) as QuotaCounts;
