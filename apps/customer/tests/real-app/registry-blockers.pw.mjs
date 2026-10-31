@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp, verify } from './desk.mjs';
+import { matchPath } from '../../src/app/path-match.ts';
 import { features } from '../../src/app/feature-registry.ts';
 import { journeyState } from './stack.mjs';
 
@@ -9,7 +10,7 @@ import { journeyState } from './stack.mjs';
 // entry here fails, so a new blocked room cannot go silent. One test per row, titled "registry blocker: <row id>".
 //
 // Each entry is one of:
-// - { at, shows }: the room at `at` shows `shows`, the sentence that names the row's blocker.
+// - { at, shows }: the room at `at`, one of the row's own routes, shows `shows`, the sentence that names its blocker.
 // - { proof }: the reason is proof state only (no journey proves the room yet); the room renders and needs no blocker line.
 // - { silent }: the room names no blocker where the person sees it. The test fails by name until the room says it.
 // - { noRoute }: the row has no route of its own (a switch or a section).
@@ -22,7 +23,9 @@ const SWEEP = {
   'bank-direct-debits': { at: '/bank/direct-debits', shows: 'not a scheme, not a creditor anyone knows' },
   'bank-rules': { at: '/bank/rules', shows: 'Not connected in this build, so nothing is sent here.' },
   'bank-loan-apply': { silent: 'the room says no loan is offered but not that the fee table and rate tiers are unset' },
-  'bank-loan-detail': { at: '/bank/loans', shows: 'Borrowing requires a configured open product' },
+  'bank-loan-detail': {
+    proof: 'a loan detail names its unset payoff fee only for an open loan, and none can be opened (bank-loan-apply, bank-loans)',
+  },
   'bank-statements': { silent: 'the past-balance refusal shows only after Download is pressed' },
   'bank-calendar': { at: '/bank/calendar', shows: 'no bill payment partner is connected' },
   'bank-earn': { at: '/bank/earn', shows: 'No earn rates are configured' },
@@ -67,6 +70,8 @@ test.describe.configure({ mode: 'default' });
 
 test('registry blocker sweep starts: a verified TEST account', async ({ page }) => {
   test.setTimeout(180_000);
+  // Nothing from an earlier run is read as this run's, even when this start fails.
+  run.reset({});
   const who = await signUp(page, 'rbs');
   await verify(page, who);
   run.reset({ who });
@@ -74,11 +79,15 @@ test('registry blocker sweep starts: a verified TEST account', async ({ page }) 
 
 test('every blocked registry row has a sweep entry, and every entry is a blocked row', () => {
   expect(blocked.map((feature) => feature.id).sort()).toEqual(Object.keys(SWEEP).sort());
+  for (const feature of blocked) {
+    const at = SWEEP[feature.id]?.at;
+    if (at) expect(routes(feature), `${feature.id} checks its blocker at its own route`).toContain(at);
+  }
 });
 
 for (const feature of blocked) {
   test(`registry blocker: ${feature.id}`, async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(30_000 + 8_000 * routes(feature).length);
     const entry = SWEEP[feature.id];
     if (!entry) throw new Error(`${feature.id} is blocked and has no sweep entry: add what its room shows to registry-blockers.pw.mjs`);
     if (entry.noRoute) {
@@ -87,18 +96,21 @@ for (const feature of blocked) {
     }
     const { who } = run.read();
     if (!who) throw new Error('the sweep start left no account, so no room can be opened');
+    // Each row signs in on its own: identity rotates the refresh token, so one saved session cannot serve every room.
     await signIn(page, who);
-    // Blocked is reachable: every route of the row opens its own room.
+    // Blocked is reachable: every route of the row opens a room of the row (an old address may land on its new one).
+    const ownsPath = (pathname) => feature.paths.some((pattern) => pattern === pathname || matchPath(pattern, pathname) !== undefined);
     for (const path of routes(feature)) {
       await page.goto(path);
       await expect(page.locator('main h1, h1').first(), path).toBeVisible();
-      await expect(page.locator('main h1, h1').first(), path).not.toHaveText('Page not found');
+      expect(ownsPath(new URL(page.url()).pathname), `${path} landed on ${page.url()}`).toBe(true);
+      await expect(page.locator('main h1, h1').first(), path).not.toHaveText(/page not found/i);
       await expect(page.getByText('This destination has no customer route'), path).toHaveCount(0);
     }
     if (entry.silent)
       throw new Error(`${feature.id}: its room names no blocker where the person sees it: ${entry.silent} (reason: ${feature.reason})`);
     if (entry.proof) return;
-    await page.goto(entry.at);
+    if (new URL(page.url()).pathname !== entry.at) await page.goto(entry.at);
     await expect(page.getByText(entry.shows, { exact: false }).first(), `${feature.id} at ${entry.at}`).toBeVisible();
   });
 }
