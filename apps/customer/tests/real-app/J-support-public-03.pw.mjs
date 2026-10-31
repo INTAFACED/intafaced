@@ -157,7 +157,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   const form = await sendRequest(page, { email, subject: `TEST ${J} ${RUN} busy 4` });
   const refused = form.getByTestId('support-guest-refusal');
   await expect(refused).toHaveAttribute('data-code', 'support.guest_rate_limited');
-  await expect(refused).toContainText('Too many requests from this address for now.');
+  await expect(refused).toContainText('This address has sent too many requests.');
   await mailedLink(email, 3);
   expect(guestMail(email)).toHaveLength(3);
   // With the owner's limit blank, every guest request refuses and names the setting.

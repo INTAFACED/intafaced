@@ -13,7 +13,7 @@ export const guestCopy = defineCopy('support-guest', {
   checkAgain: 'Send another request',
   verifyAction: 'A verification email',
   pendingBody: 'Your request is kept and waits; nothing is opened until a link can be sent and used.',
-  rateLimited: 'Too many requests from this address for now. Try again later.',
+  rateLimited: 'This address has sent too many requests. Try again later.',
   unset: 'Requests without an account are closed: {setting} is not set.',
   deliveryUnknown: 'We could not tell whether the email went out, so we do not send it again. Check your inbox before asking again.',
   categoryUnknown: 'That topic is not offered.',
