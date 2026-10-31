@@ -83,12 +83,24 @@ export function passSessions(body) {
   return new Set(named.length > 0 ? named : lines.flatMap((l) => l.match(SESSION_ID) ?? []));
 }
 
+/** The sessions a PASS names on its `Reviewer session:` lines, and only those. */
+export function reviewerLineSessions(body) {
+  return String(body ?? '')
+    .split('\n')
+    .map((l) => REVIEWER_LINE.exec(l.trim())?.[1])
+    .filter(Boolean);
+}
+
 /**
- * Why a PASS does not count for the session it names, or null when it does. A PASS that names the PR's own session
- * does not count (owner decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit
- * lines. `authorSessions` is that Set, or null when the commits could not be read whole; then no PASS counts.
+ * Why a PASS does not count for the session it names, or null when it does. A PASS must name its reviewing session on
+ * a line of its own, `Reviewer session: session_…` (AGENTS.md item 8; a gate since OWNER 138 (1)(a), 31 Oct): without
+ * one, nothing shows another session reviewed. A PASS that names the PR's own session does not count either (owner
+ * decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit lines. `authorSessions` is
+ * that Set, or null when the commits could not be read whole; then no PASS counts.
  */
 export function sessionRefusal(body, authorSessions) {
+  if (reviewerLineSessions(body).length === 0)
+    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md item 8)';
   if (!(authorSessions instanceof Set)) return "the pull request's commits could not be read whole, so its sessions are unknown";
   for (const id of passSessions(body)) {
     if (authorSessions.has(id)) return `it names the pull request's own session (${id}); another session must review`;
@@ -232,13 +244,17 @@ function selfTest() {
     ...extra,
   });
   const commentCases = [
-    [input([pass('Nino', `Independent review: PASS ${sha}`)]), true],
+    [input([pass('Nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
+    // OWNER 138 (1)(a), 31 Oct: a PASS that names no reviewing session on its own line never counts.
+    [input([pass('Nino', `Independent review: PASS ${sha}`)]), false],
+    [input([pass('Nino', `Independent review: PASS ${sha}\nreviewed in session_R9`)]), false],
     [input([pass('eve', `Independent review: PASS ${sha}`)]), false],
     [input([pass('nino', `Independent review: PASS ${'b'.repeat(40)}`)]), false],
     [input([pass('nino', `Independent review: PASS ${sha} but not really`)]), false],
     [input([]), false],
     [input([pass('nino', `Independent review: PASS ${sha}`)], { requireDistinctFromAuthor: true }), false],
-    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), true],
+    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), false],
+    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
     [
       input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_R1`)], {
         authorSessions: new Set(['session_A1']),
