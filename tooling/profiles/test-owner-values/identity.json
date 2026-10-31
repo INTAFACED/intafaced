@@ -146,6 +146,21 @@
       "value": "600",
       "note": "Ten minutes after sign-up to attach a referrer through a link, so a new invitee attaches and an older account is refused (J-campaigns-05)."
     },
+    "IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES": {
+      "service": "identity",
+      "value": "500",
+      "note": "A TEST count, high so the many deliberate wrong passwords of a journey run never ask the stack's own tools for a challenge; J-identity-02 #2 restarts identity with a count of 1 to see it (LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER)."
+    },
+    "IDENTITY_SIGNIN_CHALLENGE_BITS": {
+      "service": "identity",
+      "value": "12",
+      "note": "A TEST difficulty: twelve leading zero bits, about four thousand hashes, under a second in a browser."
+    },
+    "IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS": {
+      "service": "identity",
+      "value": "120",
+      "note": "A TEST lifetime: a sign-in challenge is good for two minutes."
+    },
     "IDENTITY_REFERRAL_CODE_LENGTH": {
       "service": "identity",
       "value": "8",

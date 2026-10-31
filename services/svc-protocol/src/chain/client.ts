@@ -1,4 +1,5 @@
-import { createPublicClient, defineChain, getAddress, http } from 'viem';
+import { createPublicClient, decodeFunctionResult, defineChain, encodeFunctionData, getAddress, getContractError, http } from 'viem';
+import type { Abi, BaseError } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { factoryAbi, poolAbi } from '../amm/abi.js';
@@ -130,6 +131,14 @@ export interface ChainStatus {
   readonly actualChainId: number | null;
 }
 
+/**
+ * The most gas one view on a token contract may burn on the node (`balanceOf`, `allowance`, `name`, `decimals` …). A
+ * token is a contract anyone can write and these reads serve public requests, so an unbounded call could spend the
+ * node's whole call gas cap each time. An ERC-20 view needs a few thousand gas; this leaves ample room for a token with
+ * hooks. The listing reads cap theirs the same way (`listing/ownership-chain.ts`).
+ */
+export const TOKEN_READ_GAS = 100_000n;
+
 export class ProtocolChain {
   readonly client: PublicClient;
 
@@ -166,6 +175,28 @@ export class ProtocolChain {
       return await withSpan(span, fn);
     } catch (err) {
       throw classifyChainError(err, what, this.config.rpcUrl);
+    }
+  }
+
+  /**
+   * One view on a token contract, as `readContract` makes it but with `TOKEN_READ_GAS` as its gas cap (`readContract`
+   * takes none). Its errors keep viem's types, so `classifyChainError` and `isExecutionRevert` read them as before: an
+   * empty answer is an absent contract, a revert is a revert.
+   */
+  async #tokenView<T>(token: Address, abi: Abi, functionName: string, args: readonly unknown[] = [], blockNumber?: bigint): Promise<T> {
+    const request = { abi, functionName, args } as Parameters<typeof encodeFunctionData>[0];
+    // The decode sits in the try too, as in `readContract`: an empty answer becomes `ContractFunctionZeroDataError` and a
+    // malformed one keeps viem's wrapped contract error.
+    try {
+      const { data } = await this.client.call({
+        to: token,
+        data: encodeFunctionData(request),
+        gas: TOKEN_READ_GAS,
+        ...(blockNumber === undefined ? {} : { blockNumber }),
+      });
+      return decodeFunctionResult({ abi, functionName, args, data: data ?? '0x' } as Parameters<typeof decodeFunctionResult>[0]) as T;
+    } catch (err) {
+      throw getContractError(err as BaseError, { abi, address: token, args: [...args], functionName });
     }
   }
 
@@ -361,9 +392,9 @@ export class ProtocolChain {
   async tokenBasics(token: Address): Promise<{ name: string; symbol: string; decimals: number }> {
     return this.#read('tokenBasics', 'chain.tokenBasics', async () => {
       const [name, symbol, decimals] = await Promise.all([
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'name' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'symbol' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'decimals' }),
+        this.#tokenView<string>(token, erc20ReadAbi, 'name'),
+        this.#tokenView<string>(token, erc20ReadAbi, 'symbol'),
+        this.#tokenView<number>(token, erc20ReadAbi, 'decimals'),
       ]);
       return { name, symbol, decimals: Number(decimals) };
     });
@@ -430,11 +461,11 @@ export class ProtocolChain {
   async tokenMetadata(token: Address): Promise<TokenMetadata> {
     return this.#read('tokenMetadata', 'chain.tokenMetadata', async () => {
       const [name, symbol, decimals, totalSupply, initialHolder] = await Promise.all([
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'name' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'symbol' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'decimals' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'totalSupply' }),
-        this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'initialHolder' }),
+        this.#tokenView<string>(token, erc20ReadAbi, 'name'),
+        this.#tokenView<string>(token, erc20ReadAbi, 'symbol'),
+        this.#tokenView<number>(token, erc20ReadAbi, 'decimals'),
+        this.#tokenView<bigint>(token, erc20ReadAbi, 'totalSupply'),
+        this.#tokenView<Address>(token, erc20ReadAbi, 'initialHolder'),
       ]);
       return { name, symbol, decimals: Number(decimals), totalSupply, initialHolder };
     });
@@ -447,13 +478,7 @@ export class ProtocolChain {
   async tokenAllowance(token: Address, owner: Address, spender: Address): Promise<{ value: bigint; blockNumber: bigint }> {
     return this.#read('tokenAllowance', 'chain.tokenAllowance', async () => {
       const blockNumber = await this.client.getBlockNumber();
-      const value = await this.client.readContract({
-        address: token,
-        abi: erc20ApprovalAbi,
-        functionName: 'allowance',
-        args: [owner, spender],
-        blockNumber,
-      });
+      const value = await this.#tokenView<bigint>(token, erc20ApprovalAbi, 'allowance', [owner, spender], blockNumber);
       return { value, blockNumber };
     });
   }
@@ -493,7 +518,7 @@ export class ProtocolChain {
   /** `holder`'s balance of `token` at `blockNumber`, so a pool's holdings compare with its reserves at the same block. */
   async tokenBalanceAt(token: Address, holder: Address, blockNumber: bigint): Promise<bigint> {
     return this.#read('tokenBalanceAt', 'chain.tokenBalanceAt', async () =>
-      this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder], blockNumber }),
+      this.#tokenView<bigint>(token, erc20ReadAbi, 'balanceOf', [holder], blockNumber),
     );
   }
 
@@ -501,13 +526,7 @@ export class ProtocolChain {
   async allowanceAt(token: Address, owner: Address, spender: Address, blockNumber: bigint): Promise<bigint | null> {
     return this.#read('allowanceAt', 'chain.allowanceAt', async () => {
       try {
-        return await this.client.readContract({
-          address: token,
-          abi: erc20ApprovalAbi,
-          functionName: 'allowance',
-          args: [owner, spender],
-          blockNumber,
-        });
+        return await this.#tokenView<bigint>(token, erc20ApprovalAbi, 'allowance', [owner, spender], blockNumber);
       } catch (err) {
         if (isExecutionRevert(err)) return null;
         throw err;
@@ -584,12 +603,6 @@ export class ProtocolChain {
       }
     }
     return { pendingTag, bundlerReachable, paymasterFunded: null };
-  }
-
-  async tokenBalanceOf(token: Address, holder: Address): Promise<bigint> {
-    return this.#read('tokenBalanceOf', 'chain.tokenBalanceOf', async () =>
-      this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder] }),
-    );
   }
 
   /**

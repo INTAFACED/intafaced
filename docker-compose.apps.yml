@@ -388,6 +388,13 @@ services:
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
       # Blank stays refuse-closed (auth.reset_unwired).
       IDENTITY_FLOW_SUBJECT_KEY: ${IDENTITY_FLOW_SUBJECT_KEY:-}
+      # Sign-in challenge (I-signin-sessions-30). Pass-through only: no compose default, no invented number or key. Blank
+      # failure count asks every sign-in for a challenge; blank difficulty, lifetime or key refuses identity.challenge_unconfigured.
+      # The local founder seed writes TEST values (tooling/scripts/local-founder-seed.mjs).
+      IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES: ${IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:-}
+      IDENTITY_SIGNIN_CHALLENGE_BITS: ${IDENTITY_SIGNIN_CHALLENGE_BITS:-}
+      IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: ${IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS:-}
+      IDENTITY_SIGNIN_CHALLENGE_KEY: ${IDENTITY_SIGNIN_CHALLENGE_KEY:-}
       # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
       # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
       API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
@@ -1398,6 +1405,8 @@ services:
       NOTIFY_OUT_OF_APP_ENABLED: ${NOTIFY_OUT_OF_APP_ENABLED:-true}
       NOTIFY_EMAIL_GATEWAY_URL: ${NOTIFY_EMAIL_GATEWAY_URL:-}
       NOTIFY_EMAIL_GATEWAY_TOKEN: ${NOTIFY_EMAIL_GATEWAY_TOKEN:-}
+      # svc-support's own secret for the guest verification door; blank keeps that door closed.
+      NOTIFY_SUPPORT_SERVICE_SECRET: ${NOTIFY_SUPPORT_SERVICE_SECRET:-}
       NOTIFY_PUSH_GATEWAY_URL: ${NOTIFY_PUSH_GATEWAY_URL:-}
       NOTIFY_PUSH_GATEWAY_TOKEN: ${NOTIFY_PUSH_GATEWAY_TOKEN:-}
       NOTIFY_SMS_GATEWAY_URL: ${NOTIFY_SMS_GATEWAY_URL:-}
@@ -1450,6 +1459,13 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
       # Class X: owner sets true only after observing ticket create + KB loop in live compose.
       TICKET_KB_LOOP_OBSERVED_IN_LIVE_COMPOSE:
+      # Guest requests (J-support-public-03): the key that seals a guest's address, svc-notify's address and
+      # svc-support's own secret for its guest verification door, and the customer origin the links open. Any one
+      # blank keeps every guest request pending with vendor.email. The owner sets the limits (SUPPORT_GUEST_*).
+      SUPPORT_GUEST_ADDRESS_KEY: ${SUPPORT_GUEST_ADDRESS_KEY:-}
+      NOTIFY_URL: http://svc-notify:4015
+      NOTIFY_SUPPORT_SERVICE_SECRET: ${NOTIFY_SUPPORT_SERVICE_SECRET:-}
+      SUPPORT_PUBLIC_ORIGIN: ${SUPPORT_PUBLIC_ORIGIN:-}
     expose: ['4017']
     healthcheck: *healthcheck
     depends_on:

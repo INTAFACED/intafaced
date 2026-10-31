@@ -38,7 +38,9 @@ const CRASH = 'bad9e000-9999-4999-8999-999999999999';
 const REBORN = 'bad9e000-7777-4777-8777-777777777777';
 const HELD = 'bad9e000-3333-4333-8333-333333333333';
 const LATE = 'bad9e000-2222-4222-8222-222222222222';
-const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, REBORN, HELD, LATE];
+const KEPT = 'bad9e000-1111-4111-8111-111111111111';
+const IDS = [RACER, ALPHA, BETA, STUCK, CRASH, REBORN, HELD, LATE, KEPT];
+const KEPT_ADDR = '0x00000000000000000000000000000000000000C7' as Address;
 const REBORN_ADDR = '0x00000000000000000000000000000000000000C5' as Address;
 const HELD_ADDR = '0x00000000000000000000000000000000000000C6' as Address;
 const CRASH_ADDR = '0x00000000000000000000000000000000000000C4' as Address;
@@ -47,7 +49,13 @@ const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
 const SHARED_ADDR = '0x00000000000000000000000000000000000000C2' as Address;
 const CHAIN_ID = 31337;
 const GENESIS = `0x${'a'.repeat(64)}` as const;
-const network = (genesisHash: Hex) => ({ chainId: CHAIN_ID, mainnet: false, identity: async () => ({ chainId: CHAIN_ID, genesisHash }) });
+// Chain 31337 is a local chain: it is started again from a new genesis (`badgeChainIsRestartable`).
+const network = (genesisHash: Hex, restartable = true) => ({
+  chainId: CHAIN_ID,
+  mainnet: false,
+  restartable,
+  identity: async () => ({ chainId: CHAIN_ID, genesisHash }),
+});
 const NET = network(GENESIS);
 const OWNER_KEY = privateKeyToAccount(`0x${'44'.repeat(32)}`);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
@@ -90,7 +98,7 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     await sql!.unsafe(readFileSync(clearsMigration, 'utf8'));
     await sql!.unsafe(readFileSync(identityMigration, 'utf8'));
     await cleanup();
-    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK}), (${CRASH}), (${REBORN})`;
+    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK}), (${CRASH}), (${REBORN}), (${KEPT})`;
   });
   afterAll(async () => {
     await cleanup();
@@ -130,6 +138,26 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     for (const r of results) expect([null, rows[0]!.tx_hash]).toContain(r.txHash);
     // A later claim on the new chain returns the stored tx and mints nothing more.
     expect((await claimAs(harness().deps, REBORN, REBORN_ADDR, RESTARTED)).txHash).toBe(rows[0]!.tx_hash);
+  });
+
+  it('a chain that is not started again answering with another genesis: the stored claim is kept, nothing mints, badge.chain_changed', async () => {
+    const first = harness();
+    const before = await claimAs(first.deps, KEPT, KEPT_ADDR, network(GENESIS, false));
+    expect(before.txHash).not.toBeNull();
+    const next = harness();
+    const flipped = network(RESTARTED_GENESIS, false);
+    const settled = await Promise.allSettled([claimAs(next.deps, KEPT, KEPT_ADDR, flipped), claimAs(next.deps, KEPT, KEPT_ADDR, flipped)]);
+    for (const s of settled) expect(s.status === 'rejected' && String(s.reason)).toMatch(/badge\.chain_changed/);
+    expect(next.mints).toEqual([]);
+    expect(await sql!`SELECT genesis_hash, tx_hash FROM protocol.founding_badge_claims WHERE key = ${badgeClaimKey(KEPT)}`).toEqual([
+      { genesis_hash: GENESIS, tx_hash: before.txHash },
+    ]);
+    // The store itself does not replace another genesis's claim unless asked to.
+    const kept = await new PostgresBadgeStore(sql!).putClaim(
+      { key: badgeClaimKey(KEPT), accountId: KEPT, chainId: CHAIN_ID, genesisHash: RESTARTED_GENESIS, to: KEPT_ADDR, txHash: null },
+      { replaceOtherGenesis: false },
+    );
+    expect(kept).toMatchObject({ genesisHash: GENESIS, txHash: before.txHash });
   });
 
   /**
@@ -187,7 +215,7 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
           to: getAddress(`0x${'e'.repeat(28)}${String(i).padStart(12, '0')}`),
           txHash: null,
         };
-        const settled = await Promise.allSettled([1, 2, 3, 4].map(() => store.putClaim(record)));
+        const settled = await Promise.allSettled([1, 2, 3, 4].map(() => store.putClaim(record, { replaceOtherGenesis: true })));
         for (const s of settled) {
           if (s.status === 'rejected') refused.push(s.reason);
           // Every caller gets the one stored claim.
@@ -209,7 +237,10 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     await sql!`DELETE FROM protocol.founding_badge_claims WHERE account_id IN ${sql!([HELD, LATE])}`;
     await expect(
       whileHeld({ accountId: HELD, to: HELD_ADDR }, () =>
-        store.putClaim({ key: badgeClaimKey(LATE), accountId: LATE, chainId: CHAIN_ID, to: HELD_ADDR, txHash: null }),
+        store.putClaim(
+          { key: badgeClaimKey(LATE), accountId: LATE, chainId: CHAIN_ID, to: HELD_ADDR, txHash: null },
+          { replaceOtherGenesis: true },
+        ),
       ),
     ).rejects.toThrow(/badge\.already_claimed/);
     expect(await sql!`SELECT account_id FROM protocol.founding_badge_claims WHERE to_address = ${getAddress(HELD_ADDR)}`).toEqual([

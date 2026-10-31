@@ -216,6 +216,11 @@ export const priceAlertSchema = z.object({
   frequency: z.enum(['once', 'every_crossing']).optional(),
   fireCount: z.number().int().min(0).optional(),
   lastFiredAt: date.nullable().optional(),
+  // When the alert last changed (an edit, a stop, a resume, or how it ended). A service that does not send it shows no
+  // modified time.
+  updatedAt: date.optional(),
+  // Why the platform stopped it: `burst` (it triggered too often). Null or absent for a pause by the person.
+  stopReason: z.enum(['burst']).nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
@@ -441,7 +446,16 @@ export const listAlertTriggers = (
 
 // ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
 
-const alertQuotaSchema = z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() });
+const alertQuotaSchema = z.object({
+  kind: z.literal('price'),
+  used: z.number().int().min(0),
+  max: z.number().int().min(1).nullable(),
+  // The burst auto-stop rule, or null while the owner has not set it. A service that does not send it reads as unknown.
+  burst: z
+    .object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) })
+    .nullable()
+    .optional(),
+});
 export type AlertQuota = z.infer<typeof alertQuotaSchema>;
 
 /** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */

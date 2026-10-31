@@ -1883,8 +1883,8 @@ export class FounderControls {
             | 'auth.sub_account_denied',
         ) => currentAuthorityResultSchema.parse({ ...common, status: 'denied', code });
         const [user] = await tx<
-          Array<{ id: string; status: string; identity_control_version: string }>
-        >`SELECT id, status, identity_control_version::text FROM users WHERE id = ${input.userId}`;
+          Array<{ id: string; status: string; identity_control_version: string; archived: boolean }>
+        >`SELECT id, status, identity_control_version::text, archived_at IS NOT NULL AS archived FROM users WHERE id = ${input.userId}`;
         if (!user || user.status !== 'active') return denied('auth.account_frozen');
         const ref = input.credential;
         const rows =
@@ -1913,7 +1913,7 @@ export class FounderControls {
         return currentAuthorityResultSchema.parse({
           ...common,
           status: 'eligible',
-          account: { userId: input.userId, status: 'active', kycTier: kyc?.tier ?? 'none' },
+          account: { userId: input.userId, status: 'active', kycTier: kyc?.tier ?? 'none', archived: user.archived },
           credential: { kind: ref.kind, ownership: { id: credential.id, userId: credential.user_id, revoked: false } },
           subAccount,
           version: user.identity_control_version,

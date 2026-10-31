@@ -178,7 +178,8 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     event: 'supportTicketResolved',
     durable: 'notify-support-ticket-resolved',
     subject: 'intafaced.support.ticket.resolved',
-    effect: 'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed',
+    effect:
+      'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed, and with no email sender set its email row waits pending vendor.email',
   },
   {
     event: 'agentActionRejected',

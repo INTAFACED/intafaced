@@ -59,6 +59,7 @@ const ADMISSION_SECRET = randomBytes(36).toString('base64url');
 // It is held here, not inline, because identity boots twice (see enrolFoundersAndRestartIdentity) and the
 // second boot must open the secrets the first boot sealed. SMOKE RIG ONLY — generated fresh each run
 const TOTP_SECRET_KEY = randomBytes(32).toString('hex');
+const SIGNIN_CHALLENGE_KEY = randomBytes(32).toString('hex');
 
 // Founder invites for the two smoke operators. Opening a market (`matching.open`) is a founder-only action
 // at identity: proposer and approver must both be live founders (action-approval-audience.ts). The only
@@ -218,6 +219,12 @@ function startIdentity(founderPair = null) {
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
     REGISTRATION_OPEN: 'true',
+    // Sign-in challenge (I-signin-sessions-30). SMOKE RIG ONLY — not owner decisions: a high failure count so the smoke's
+    // own sign-ins never need one, a light difficulty, a two-minute token and a key fresh each run.
+    IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES: '500',
+    IDENTITY_SIGNIN_CHALLENGE_BITS: '12',
+    IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: '120',
+    IDENTITY_SIGNIN_CHALLENGE_KEY: SIGNIN_CHALLENGE_KEY,
     WEBAUTHN_ENABLED: 'false',
     WEBAUTHN_RP_ID: 'localhost',
     WEBAUTHN_RP_NAME: 'cx8',

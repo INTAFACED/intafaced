@@ -18,6 +18,18 @@ const messages = {
   'Shown on': 'Shown on',
   'Shown on {interval}': 'Shown on {interval}',
   'Hidden on this interval': 'Hidden on this interval',
+  // An indicator pane's own controls
+  '{name} pane': '{name} pane',
+  'Move {name} pane up': 'Move {name} pane up',
+  'Move {name} pane down': 'Move {name} pane down',
+  'Collapse {name} pane': 'Collapse {name} pane',
+  'Expand {name} pane': 'Expand {name} pane',
+  'Make {name} pane taller': 'Make {name} pane taller',
+  'Make {name} pane shorter': 'Make {name} pane shorter',
+  'Maximise {name} pane': 'Maximise {name} pane',
+  'Restore the panes': 'Restore the panes',
+  'Move {name} to the main pane': 'Move {name} to the main pane',
+  'Move {name} to its own pane': 'Move {name} to its own pane',
   // The object tree's indicator list
   'Indicators on this chart': 'Indicators on this chart',
   'No indicators on this chart': 'No indicators on this chart.',

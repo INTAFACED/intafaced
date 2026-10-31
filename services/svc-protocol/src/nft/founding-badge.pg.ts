@@ -56,7 +56,7 @@ export class PostgresBadgeStore implements BadgeStore {
     return rows[0] ? toRecord(rows[0]) : null;
   }
 
-  async putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord> {
+  async putClaim(record: BadgeClaimRecord, opts: { replaceOtherGenesis: boolean }): Promise<BadgeClaimRecord> {
     // No conflict target: the insert arbitrates every unique index (key, account, chain + genesis + address). A racing
     // insert on any of them waits for the other to commit and then does nothing, never 23505. `ON CONFLICT (key)`
     // arbitrated the key alone, so two simultaneous claims from one account could both pass the key check and the loser
@@ -66,10 +66,11 @@ export class PostgresBadgeStore implements BadgeStore {
       VALUES (${record.key}, ${record.accountId}, ${record.chainId}, ${record.genesisHash ?? null}, ${toChecksum(record.to)},
               ${record.txHash})
       ON CONFLICT DO NOTHING`;
-    // A stored claim from another genesis is replaced in place: its mint did not happen on this chain. This chain's claim,
-    // and one stored before the column, are kept as they are. One row per key, so a racing second claim finds the genesis
-    // already current and changes nothing.
-    if (record.genesisHash) {
+    // On a restartable chain only, a stored claim from another genesis is replaced in place: its mint did not happen on
+    // this chain. This chain's claim, and one stored before the column, are kept as they are. One row per key, so a racing
+    // second claim finds the genesis already current and changes nothing. Elsewhere the row is returned as it is and the
+    // caller refuses `badge.chain_changed`.
+    if (record.genesisHash && opts.replaceOtherGenesis) {
       try {
         await this.sql`
           UPDATE protocol.founding_badge_claims

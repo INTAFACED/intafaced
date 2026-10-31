@@ -348,20 +348,14 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   const who = person('ck');
   await signUpInBrowser(page, who);
   let { secret, step } = await addAuthenticator(page, totp);
-  let signInCode;
 
-  // A returning person: signed in again with the authenticator, as replacing it needs a session that passed it.
-  await forgetSession(page);
-  await page.goto('/login');
-  ({ code: signInCode, step } = await nextCode(totp, secret, step));
-  await page.fill('input[name=totp]', signInCode);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
+  // The same session that turned the authenticator on (it signed in with the password alone) replaces it below: its
+  // "Confirm it is you" with the code is enough to start and to finish the replace.
 
   // With the right time: codes should work, and Replace is offered.
   await page.goto('/uc/safe');
+  // Still the session that signed in with the password alone: no sign-in was asked for.
+  await expect(page).not.toHaveURL(/\/login/);
   const real = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
   await real.getByRole('button', { name: 'My codes do not work' }).click();
   const ok = real.getByRole('region', { name: 'When codes do not work' });

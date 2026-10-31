@@ -22,7 +22,12 @@ import { memBadgeStore } from './founding-badge.test-store.js';
 /** RC-more-catalogue-04 review: single-flight mint, typed "not sent" release, operator clear with chain evidence. */
 const ACCOUNT = 'bad9e000-7777-4777-8777-777777777777';
 const ADDR = '0x00000000000000000000000000000000000000d1' as Address;
-const NET = { chainId: 84532, mainnet: false, identity: async () => ({ chainId: 84532, genesisHash: `0x${'a'.repeat(64)}` as const }) };
+const NET = {
+  chainId: 84532,
+  mainnet: false,
+  restartable: false,
+  identity: async () => ({ chainId: 84532, genesisHash: `0x${'a'.repeat(64)}` as const }),
+};
 const OWNER_KEY = privateKeyToAccount(`0x${'55'.repeat(32)}`);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 const TX = `0x${'ef'.repeat(32)}` as Hex;
