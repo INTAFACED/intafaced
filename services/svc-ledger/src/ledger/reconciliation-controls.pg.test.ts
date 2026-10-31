@@ -728,6 +728,21 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     }
   });
 
+  it('#6796: clock_timestamp() in one UPDATE is taken per row, so two runs stamped together can differ; one instant read first does not', async () => {
+    // The flake's cause, made certain: a 2 ms pause per row puts the rows on different milliseconds every time.
+    const perRow = await db.sql<Array<{ at: Date }>>`
+      SELECT date_trunc('milliseconds', clock_timestamp()) + (CASE WHEN pg_sleep(0.002) IS NULL THEN interval '0' ELSE interval '0' END) AS at
+        FROM generate_series(1, 2)
+    `;
+    expect(perRow[0]!.at.getTime()).not.toBe(perRow[1]!.at.getTime());
+    const [instant] = await db.sql<Array<{ at: Date }>>`SELECT date_trunc('milliseconds', clock_timestamp()) AS at`;
+    const once = await db.sql<Array<{ at: Date }>>`
+      SELECT ${instant!.at}::timestamptz + (CASE WHEN pg_sleep(0.002) IS NULL THEN interval '0' ELSE interval '0' END) AS at
+        FROM generate_series(1, 2)
+    `;
+    expect(once.map((row) => row.at.getTime())).toEqual([instant!.at.getTime(), instant!.at.getTime()]);
+  });
+
   it('leaves an account created and funded after read_at out of every side, and its counter-leg at read_at: the total stays 0', async () => {
     const REPLAY = '11111111-1111-4111-8111-111111111111';
     const NETTING = '33333333-3333-4333-8333-333333333333';
@@ -748,16 +763,19 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     };
     const netting = await open(NETTING, 'appr-snap-1');
     const replay = await open(REPLAY, 'appr-snap-2');
-    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side.
+    // Hold both runs at one read_at, on a millisecond as the driver reads it, with the deposits strictly either side. The
+    // instant is read once: clock_timestamp() in the UPDATE itself is taken per row, so the two runs could land a
+    // millisecond apart and the netting run be judged against the replay run's instant (#6796).
     await tick();
-    const [stamp] = await db.sql<Array<{ read_at: Date }>>`
+    const [instant] = await db.sql<Array<{ at: Date }>>`SELECT date_trunc('milliseconds', clock_timestamp()) AS at`;
+    const readAt = instant!.at;
+    const stamped = await db.sql<Array<{ read_at: Date }>>`
       UPDATE reconciliation_control_runs
-         SET status = 'started', phase = '', error_code = '', finished_at = NULL,
-             read_at = date_trunc('milliseconds', clock_timestamp())
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL, read_at = ${readAt}
        WHERE id IN ${db.sql([netting.run.id, replay.run.id])}
       RETURNING read_at
     `;
-    const readAt = stamp!.read_at;
+    expect(stamped.map((row) => row.read_at.toISOString())).toEqual([readAt.toISOString(), readAt.toISOString()]);
     await tick();
     await fund('abcdeaaa-4444-4444-8444-000000000002', 'recon-snap-2');
     const legs = await db.sql<Array<{ id: string; created_at: Date; owner_id: string }>>`
