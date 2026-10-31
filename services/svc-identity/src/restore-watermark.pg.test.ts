@@ -3,7 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, afterAll } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { randomBytes } from 'node:crypto';
 import { restoreWatermarkReadSchema } from '@intafaced/contracts';
+import { MemoryEventBus } from '@intafaced/events';
+import { AuthService } from './auth/auth-service.js';
+import { totp } from './auth/totp.js';
+import { RankService } from './rank/rank-service.js';
 import { createTestDb } from './fixture-truncate.testkit.js';
 import { OPERATOR_TRAFFIC_TABLES, WATERMARK_KIND, digestCounts, readIdentityWatermark } from './restore-watermark.js';
 
@@ -113,6 +118,54 @@ if (!available) {
       const frozen = await readIdentityWatermark(db.sql, new Date(), db.schema);
       expect(frozen.position).toBe(before.position);
       expect(Date.parse(frozen.lastWriteAt!)).toBeGreaterThan(Date.parse(before.lastWriteAt!));
+    });
+
+    it("a sign-in's second step moves nothing: the authenticator step leaves updated_at alone", async () => {
+      const tokenConfig = {
+        secret: 'an-identity-restore-watermark-test-secret-long-enough',
+        issuer: 'intafaced',
+        audience: 'intafaced.api',
+        accessTtlSeconds: 900,
+        refreshTtlSeconds: 2_592_000,
+      };
+      const webauthnConfig = { rpID: 'localhost', rpName: 'INTAFACED', origin: 'http://localhost:3000' };
+      const bus = new MemoryEventBus('svc-identity');
+      const auth = new AuthService(
+        db.sql,
+        bus,
+        new RankService(db.sql, bus),
+        tokenConfig,
+        webauthnConfig,
+        randomBytes(32).toString('base64'),
+      );
+      const password = { mfa: false, privileged: false } as const;
+      const session = await auth.register({
+        handle: 'wm_totp',
+        email: 'wmtotp@example.com',
+        password: 'correct horse battery staple',
+        region: 'DE',
+      });
+      const started = await auth.startTotpEnrolment(session.userId, password);
+      // Enrolled one step back, so the code below is a fresh step.
+      await auth.confirmTotpEnrolment(
+        session.userId,
+        password,
+        started.secret,
+        totp(started.secret, { at: new Date(Date.now() - 30_000) }),
+      );
+      await db.sql`UPDATE users SET updated_at = now() - interval '1 hour' WHERE id = ${session.userId}`;
+      const [was] = await db.sql<Array<{ updated_at: Date; totp_last_step: string }>>`
+        SELECT updated_at, totp_last_step FROM users WHERE id = ${session.userId}`;
+      await auth.proveFreshFactor({
+        userId: session.userId,
+        sessionId: session.sessionId,
+        totpCode: totp(started.secret),
+        purpose: 'signin',
+      });
+      const [now] = await db.sql<Array<{ updated_at: Date; totp_last_step: string }>>`
+        SELECT updated_at, totp_last_step FROM users WHERE id = ${session.userId}`;
+      expect(BigInt(now!.totp_last_step)).toBeGreaterThan(BigInt(was!.totp_last_step));
+      expect(now!.updated_at.toISOString()).toBe(was!.updated_at.toISOString());
     });
 
     it("leaves out the restore's own approval requests, and counts every other approval", async () => {
