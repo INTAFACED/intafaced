@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 import { EDGE, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
-// J-charts-desk-17, in the running app (docs/roadmap/journeys.json): compare markets on one chart, then snapshot, link,
+// J-charts-desk-17, in the running app (docs/roadmap/journeys.json): compare markets on one chart, arrange its indicator
+// panes, then snapshot, link,
 // print and export it. One test per step, titled "J-charts-desk-17 #<n>". The compare cap is the owner's value served by
 // svc-trade; the local stack sets a labelled TEST value of 3 (local-test-gates.mjs charts). Bars are TEST trades.
 const J = 'J-charts-desk-17';
@@ -216,32 +217,82 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   }
 });
 
-test(`${J} #3 adds an indicator pane to a chart with compared markets: the pane sits under the main pane and the compare lines stay`, async ({
+test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and moves one to the main pane; each pane acts and persists`, async ({
   page,
 }) => {
-  // 1m: RSI 14 needs 15 bars at the chart's interval; the stack's 15m history is still short.
+  // 1m: RSI 14 needs 15 bars at the chart's interval, and the stack's 1m history is the longest of the TEST intervals.
   await openChart(page, '/charts/BTC-USDT?interval=1m');
-  const [symbol] = await others(page);
-  await tools(page)
-    .getByRole('combobox', { name: /Compare with/ })
-    .selectOption(symbol);
-  await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
-  const list = tools(page).getByRole('list', { name: 'Compared markets' });
-  await expect(list.getByRole('listitem')).toHaveCount(1);
-  await expect(list.getByRole('listitem').first()).toHaveAttribute('data-state', /ready|empty/);
   await page.getByRole('button', { name: 'Indicators' }).first().click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill('rsi');
   await page.getByRole('button', { name: 'Add Relative Strength Index', exact: true }).click();
-  await expect(page.locator('[data-study="rsi-1"]')).toHaveAttribute('data-pane', 'sub');
-  // The indicator pane is the second pane of the chart, so it sits under the main pane: its canvas is lower.
+  await page.keyboard.press('Escape');
   const host = canvas(page);
-  // Volume is the default sub-pane, so RSI makes two indicator panes.
-  await expect(host).toHaveAttribute('data-study-panes', '2');
-  const main = await host.locator('canvas').first().boundingBox();
-  const sub = await host.locator('canvas').last().boundingBox();
-  expect(sub.y).toBeGreaterThan(main.y + main.height / 2);
-  // The compare line is still there, with its state, after the pane was added.
-  await expect(list.getByRole('listitem')).toHaveCount(1);
-  await expect(list.getByRole('listitem').first()).toHaveAttribute('data-state', /ready|empty/);
-  await expect(list.getByRole('button', { name: /^Remove / })).toBeVisible();
+  // What the chart lays out, read from the library: the panes' order and settings, each pane's height in pixels, and
+  // the pane each study's series is drawn in.
+  const layout = async () => JSON.parse((await host.getAttribute('data-study-pane-layout')) ?? '[]');
+  const order = async () => (await layout()).map((p) => p.study);
+  const heights = () => host.evaluate((el) => el.readPaneHeights());
+  const paneOf = async (study) =>
+    JSON.parse((await host.getAttribute('data-study-series')) ?? '[]').find((x) => x.key.split(':')[0] === study)?.pane;
+  const pane = (name) => page.getByRole('group', { name: new RegExp(`^${name}.* pane$`) });
+  const press = (name, action) =>
+    pane(name)
+      .getByRole('button', { name: new RegExp(`^${action}`) })
+      .click();
+  const RSI = 'Relative Strength Index';
+  const VOL = 'Volume';
+  // Volume is the default indicator pane, so RSI is the second one under the price.
+  await expect.poll(order).toEqual(['volume-1', 'rsi-1']);
+  // Reorder: RSI moves above Volume, in the layout and in the panes the library draws the series in.
+  await press(RSI, 'Move .* pane up');
+  await expect.poll(order).toEqual(['rsi-1', 'volume-1']);
+  await expect.poll(() => paneOf('rsi-1')).toBe(1);
+  await expect.poll(() => paneOf('volume-1')).toBe(2);
+  // Collapse: Volume keeps a strip only; expanding it gives it back its height.
+  const open = await heights();
+  await press(VOL, 'Collapse');
+  await expect.poll(async () => (await heights())[2]).toBeLessThan(open[2] * 0.4);
+  await expect(pane(VOL)).toHaveAttribute('data-pane-state', 'collapsed');
+  await press(VOL, 'Expand');
+  await expect.poll(async () => Math.abs((await heights())[2] - open[2])).toBeLessThanOrEqual(2);
+  // Resize: RSI made taller twice is about 2.25 times Volume's height.
+  await press(RSI, 'Make .* pane taller');
+  await press(RSI, 'Make .* pane taller');
+  await expect.poll(async () => (await layout()).find((p) => p.study === 'rsi-1').size).toBe(2.25);
+  await expect
+    .poll(async () => {
+      const h = await heights();
+      return h[1] / h[2];
+    })
+    .toBeGreaterThan(2);
+  const resized = await heights();
+  // Maximise: RSI takes nearly the whole chart; restoring gives every pane its height back.
+  await press(RSI, 'Maximise');
+  await expect
+    .poll(async () => {
+      const h = await heights();
+      return h[1] / h.reduce((a, b) => a + b, 0);
+    })
+    .toBeGreaterThan(0.75);
+  await expect(pane(RSI)).toHaveAttribute('data-pane-state', 'maximised');
+  await press(RSI, 'Restore the panes');
+  await expect.poll(async () => (await heights()).every((h, n) => Math.abs(h - resized[n]) <= 2)).toBe(true);
+  // Move to the main pane: Volume draws over the price, and one indicator pane is left.
+  await press(VOL, 'Move .* to the main pane');
+  await expect.poll(() => paneOf('volume-1')).toBe(0);
+  await expect(host).toHaveAttribute('data-study-panes', '1');
+  await expect.poll(order).toEqual(['rsi-1']);
+  await expect(pane(VOL)).toHaveAttribute('data-pane-state', 'main');
+  // Persists: after a reload the panes come back as they were left.
+  const kept = await layout();
+  const keptHeights = await heights();
+  await page.reload();
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-bars'))).toBeGreaterThan(0);
+  await expect.poll(layout).toEqual(kept);
+  await expect.poll(() => paneOf('volume-1')).toBe(0);
+  await expect.poll(() => paneOf('rsi-1')).toBe(1);
+  await expect.poll(async () => (await heights()).every((h, n) => Math.abs(h - keptHeights[n]) <= 2)).toBe(true);
+  // And back to its own pane, under RSI.
+  await press(VOL, 'Move .* to its own pane');
+  await expect.poll(order).toEqual(['rsi-1', 'volume-1']);
 });

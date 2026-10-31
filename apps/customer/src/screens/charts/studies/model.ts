@@ -27,6 +27,67 @@ export interface StudyStore {
   remembered: Partial<Record<StudyKind, Remembered>>;
   /** The legend shows the values of the last bar without a pointer over the chart. */
   legendAlways: boolean;
+  /** How the indicator panes are laid out. Absent in a store saved before panes could be arranged: the defaults stand. */
+  panes?: PaneLayout;
+}
+
+/**
+ * The indicator panes' arrangement, by study id. Their order is the studies' own order. A study on the main pane draws
+ * over the price on a scale of its own; a collapsed pane keeps a thin strip; a pane's size is its height against the
+ * others (1 is the default); one pane may be maximised, which shrinks every other pane until it is restored.
+ */
+export interface PaneLayout {
+  onMain: string[];
+  collapsed: string[];
+  sizes: Record<string, number>;
+  maximised: string | null;
+}
+
+export const NO_PANES: PaneLayout = { onMain: [], collapsed: [], sizes: {}, maximised: null };
+export const panesOf = (store: StudyStore): PaneLayout => store.panes ?? NO_PANES;
+
+/** The smallest and largest size a pane may be given, against the default 1. */
+export const PANE_SIZE_MIN = 0.25;
+export const PANE_SIZE_MAX = 4;
+const clampSize = (size: number): number => Math.min(PANE_SIZE_MAX, Math.max(PANE_SIZE_MIN, size));
+
+export function setPanes(store: StudyStore, patch: Partial<PaneLayout>): StudyStore {
+  return { ...store, panes: { ...panesOf(store), ...patch } };
+}
+
+const toggled = (list: readonly string[], id: string): string[] => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+export const toggleOnMain = (store: StudyStore, id: string): StudyStore => {
+  const layout = panesOf(store);
+  return setPanes(store, { onMain: toggled(layout.onMain, id), maximised: layout.maximised === id ? null : layout.maximised });
+};
+export const toggleCollapsed = (store: StudyStore, id: string): StudyStore =>
+  setPanes(store, { collapsed: toggled(panesOf(store).collapsed, id) });
+export const toggleMaximised = (store: StudyStore, id: string): StudyStore =>
+  setPanes(store, { maximised: panesOf(store).maximised === id ? null : id });
+/** Scales a pane's size by a factor, within the bounds. */
+export const resizePane = (store: StudyStore, id: string, by: number): StudyStore => {
+  const layout = panesOf(store);
+  return setPanes(store, { sizes: { ...layout.sizes, [id]: clampSize((layout.sizes[id] ?? 1) * by) } });
+};
+/** Sizes read back from the chart after the person dragged a pane border. */
+export const setPaneSizes = (store: StudyStore, sizes: Record<string, number>): StudyStore =>
+  setPanes(store, {
+    sizes: { ...panesOf(store).sizes, ...Object.fromEntries(Object.entries(sizes).map(([id, size]) => [id, clampSize(size)])) },
+  });
+
+/**
+ * Moves a pane one place up or down among the panes drawn (`order`, the ids that have a pane of their own, top to
+ * bottom), by swapping the two studies in the list. Nothing moves past the first or last pane.
+ */
+export function movePane(store: StudyStore, id: string, by: -1 | 1, order: readonly string[]): StudyStore {
+  const at = order.indexOf(id);
+  const other = order[at + by];
+  if (at < 0 || other === undefined) return store;
+  const studies = [...store.studies];
+  const [i, j] = [studies.findIndex((s) => s.id === id), studies.findIndex((s) => s.id === other)];
+  if (i < 0 || j < 0) return store;
+  [studies[i], studies[j]] = [studies[j]!, studies[i]!];
+  return { ...store, studies };
 }
 
 export const EMPTY_STORE: StudyStore = { studies: [], remembered: {}, legendAlways: false };
@@ -71,6 +132,16 @@ export function removeStudy(store: StudyStore, id: string): StudyStore {
   return {
     ...store,
     studies: store.studies.filter((s) => s.id !== id),
+    ...(store.panes
+      ? {
+          panes: {
+            onMain: store.panes.onMain.filter((x) => x !== id),
+            collapsed: store.panes.collapsed.filter((x) => x !== id),
+            sizes: Object.fromEntries(Object.entries(store.panes.sizes).filter(([x]) => x !== id)),
+            maximised: store.panes.maximised === id ? null : store.panes.maximised,
+          },
+        }
+      : {}),
     remembered: { ...store.remembered, [gone.kind]: { inputs: { ...gone.inputs }, color: gone.color } },
   };
 }
@@ -99,6 +170,15 @@ const isStudy = (value: unknown): value is StudyInstance =>
   Array.isArray(value.hiddenOn) &&
   value.hiddenOn.every(isChartInterval);
 
+const isIds = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
+const isPaneLayout = (value: unknown): value is PaneLayout =>
+  isRecord(value) &&
+  isIds(value.onMain) &&
+  isIds(value.collapsed) &&
+  isRecord(value.sizes) &&
+  Object.values(value.sizes).every((v) => typeof v === 'number' && Number.isFinite(v)) &&
+  (value.maximised === null || typeof value.maximised === 'string');
+
 /** A stored store that does not match the shape is ignored (the empty store stands), with no error. */
 export const isStudyStore = (value: unknown): value is StudyStore =>
   isRecord(value) &&
@@ -106,6 +186,7 @@ export const isStudyStore = (value: unknown): value is StudyStore =>
   value.studies.every(isStudy) &&
   isRecord(value.remembered) &&
   Object.entries(value.remembered).every(([kind, r]) => kinds.has(kind) && isRecord(r) && isInputs(r.inputs) && isColor(r.color)) &&
-  typeof value.legendAlways === 'boolean';
+  typeof value.legendAlways === 'boolean' &&
+  (value.panes === undefined || isPaneLayout(value.panes));
 
 export const storeKey = (userId: string | null, workbench: string): string => `charts-studies:${userId ?? 'guest'}:${workbench}`;
