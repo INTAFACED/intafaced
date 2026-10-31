@@ -3,6 +3,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
+import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
@@ -191,6 +192,8 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
+  /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
+  algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
@@ -787,7 +790,10 @@ export function presentAccountFees(
 export const ADMIN_FEE_SOURCE = 'TRADE_FEE_SCHEDULE' as const;
 
 export type AdminFeeRefusal =
-  'trade.fee_product_unpublished' | 'trade.fee_schedule_blank' | 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
+  | 'trade.fee_product_unpublished'
+  | 'trade.fee_schedule_blank'
+  | 'trade.rebate_recipe_unavailable'
+  | 'trade.min_fee_recipe_unavailable';
 
 export interface AdminMarketFee {
   readonly symbol: string;
@@ -1300,6 +1306,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
+  attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
 

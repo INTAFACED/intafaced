@@ -35,6 +35,9 @@ const CODES = [
   'campaigns.not_eligible',
   'campaigns.region_blocked',
   'campaigns.timezone_unset',
+  'campaigns.per_customer_limit_unset',
+  'campaigns.customer_limit_reached',
+  'campaigns.redemption_limit_reached',
 ] as const;
 type Code = (typeof CODES)[number];
 const codeOf = (code: string | undefined): Code | null => (CODES as readonly string[]).find((c) => c === code) as Code | null;

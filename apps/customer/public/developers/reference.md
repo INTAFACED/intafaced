@@ -53,6 +53,11 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `POST /api/v1/bots/grid`                            | `createGridBot`         | trade:write                   |
 | `POST /api/v1/bots/grid/:id/stop`                   | `stopGridBot`           | trade:write                   |
 | `POST /api/v1/bots/grid/:id/withdraw`               | `withdrawGridProfit`    | trade:write                   |
+| `GET /api/v1/algo`                                  | `fetchAlgoOrders`       | trade:read                    |
+| `GET /api/v1/algo/:id`                              | `fetchAlgoOrder`        | trade:read                    |
+| `POST /api/v1/algo`                                 | `createAlgoOrder`       | trade:write                   |
+| `PATCH /api/v1/algo/:id`                            | `editAlgoOrder`         | trade:write                   |
+| `POST /api/v1/algo/:id/cancel`                      | `cancelAlgoOrder`       | trade:write                   |
 
 | WebSocket stream | Door                                                   | Permission                |
 | ---------------- | ------------------------------------------------------ | ------------------------- |
