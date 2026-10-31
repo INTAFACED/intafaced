@@ -253,6 +253,39 @@ describe('restore desk', () => {
     expect((await finalize(d)).restored).toBe(true);
   });
 
+  it('does not offer finalize while the freeze is off', async () => {
+    let halt: PlatformHalt = { halted: true };
+    const { desk: d } = await desk({ halt: { read: async () => halt } });
+    await start(d);
+    for (const s of ['restore_clean', 'validate', 'preview'] as const) await step(d, s);
+    expect((await d.get('R-1')).finalizeOffered).toBe(true);
+    halt = NOT_HALTED;
+    expect((await d.get('R-1')).finalizeOffered).toBe(false);
+  });
+
+  it('writes no finalize row when the freeze is lifted while the approval is spent', async () => {
+    // Every read answers halted until `afterApproval` is set, which the approval stand-in does as it is spent.
+    let afterApproval = false;
+    const {
+      desk: d,
+      approver,
+      store,
+    } = await desk({
+      halt: { read: async () => (afterApproval ? NOT_HALTED : { halted: true }) },
+    });
+    const consume = approver.consume.bind(approver);
+    approver.consume = async (input) => {
+      afterApproval = true;
+      return consume(input);
+    };
+    await start(d);
+    for (const s of ['restore_clean', 'validate', 'preview'] as const) await step(d, s);
+    await expect(finalize(d)).rejects.toMatchObject({ code: OPS_RESTORE_PLATFORM_NOT_HALTED });
+    expect(approver.calls()).toBe(1);
+    expect((await store.steps('R-1')).map((s) => s.step)).toEqual(['restore_clean', 'validate', 'preview']);
+    expect(store.outbox().some((e) => e.event === 'coreOpsRestoreCompleted')).toBe(false);
+  });
+
   it('refuses finalize without a second founder, and records nothing', async () => {
     const { desk: d, store } = await desk({ founders: false });
     await start(d);

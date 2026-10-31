@@ -20,6 +20,7 @@ import {
   OPS_RESTORE_TARGET_UNSET,
   OPS_RESTORE_WATERMARKS_DISAGREE,
   OpsError,
+  type OpsRefuseCode,
 } from '../codes.js';
 import type { RestoreStampStore } from '../restore-store.js';
 import { runFingerprint, type RestoreOutboxEntry, type RestoreRun, type RestoreRunStore, type RestoreStepRow } from './run-store.js';
@@ -91,30 +92,52 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
    * counts, which equal their positions at the stamp only while nothing writes. A write that slips past the freeze moves a
    * count, so the check then disagrees; it never agrees on a halt it did not read.
    */
+  async function refuse(run: RestoreRun, step: RestoreStep, actor: string, code: OpsRefuseCode, message: string): Promise<never> {
+    await store.recordFailure(
+      // One failure row per run, step and code: a later refusal for another reason is its own row, not a dropped duplicate.
+      event('coreOpsRestoreFailed', `ops:restore:failed:${run.restoreNo}:${step}:${code}`, {
+        restoreNo: run.restoreNo,
+        actor,
+        step,
+        code,
+        failedAt: deps.now(),
+      }),
+    );
+    throw new OpsError(code, message);
+  }
+
+  /** Refuses unless the posting freeze is on now. Read first, so nothing else is asked while it is off. */
+  async function requireHalted(run: RestoreRun, step: RestoreStep, actor: string): Promise<void> {
+    const halt = await deps.halt.read();
+    if (!halt.halted) {
+      await refuse(run, step, actor, halt.code, `The stamps were not checked against the services because ${halt.message}`);
+    }
+  }
+
+  /**
+   * The joint check, refused unless the platform is halted (lead ruling 2026-10-31): bank, pay and identity answer live
+   * counts, which equal their positions at the stamp only while nothing writes. A write that gets past the freeze moves a
+   * count, so the check then disagrees; it never agrees on a halt it did not read. The caller checks the halt again just
+   * before it writes its row.
+   */
   async function haltedJoint(run: RestoreRun, step: RestoreStep, actor: string): Promise<JointView> {
+    await requireHalted(run, step, actor);
     const live = await jointFor(run);
-    const failure = !live.halt.halted
-      ? { code: live.halt.code, message: `Nothing was compared: ${live.halt.message}` }
-      : !live.joint.agree
-        ? {
-            code: OPS_RESTORE_WATERMARKS_DISAGREE,
-            message: `${step === 'finalize' ? 'Nothing was restored: ' : 'The stamps and the services do not agree ('}${live.joint.services
-              .filter((s) => !s.ok)
-              .map((s) => `${s.service}: ${s.reason}`)
-              .join(', ')}${step === 'finalize' ? '.' : ').'}`,
-          }
-        : null;
-    if (failure) {
-      await store.recordFailure(
-        event('coreOpsRestoreFailed', `ops:restore:failed:${run.restoreNo}:${step}`, {
-          restoreNo: run.restoreNo,
-          actor,
-          step,
-          code: failure.code,
-          failedAt: deps.now(),
-        }),
+    if (!live.halt.halted) {
+      await refuse(run, step, actor, live.halt.code, `The stamps were not checked against the services because ${live.halt.message}`);
+    }
+    if (!live.joint.agree) {
+      const reasons = live.joint.services
+        .filter((s) => !s.ok)
+        .map((s) => `${s.service}: ${s.reason}`)
+        .join(', ');
+      await refuse(
+        run,
+        step,
+        actor,
+        OPS_RESTORE_WATERMARKS_DISAGREE,
+        step === 'finalize' ? `Nothing was restored: ${reasons}.` : `The stamps and the services do not agree (${reasons}).`,
       );
-      throw new OpsError(failure.code, failure.message);
     }
     return live;
   }
@@ -190,7 +213,9 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
 
     async get(restoreNo: string): Promise<RunView & { live: JointView }> {
       const run = await requireRun(restoreNo);
-      return { ...(await view(run)), live: await jointFor(run) };
+      const [base, live] = await Promise.all([view(run), jointFor(run)]);
+      // Finalize is offered only while the platform is halted, since it refuses otherwise.
+      return { ...base, finalizeOffered: base.finalizeOffered && live.halt.halted, live };
     },
 
     /**
@@ -227,6 +252,7 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
       if (!existing && input.step !== 'restore_clean') {
         const live = await haltedJoint(run, input.step, input.actor);
         detail = { attested: true, joint: live.joint };
+        await requireHalted(run, input.step, input.actor);
       }
       await store.appendStep(
         key,
@@ -279,6 +305,8 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
         requesterId: input.actor,
         requestId: key.slice(0, 128),
       });
+      // The freeze may have been lifted while the approval was spent; the row is written only while it still holds.
+      await requireHalted(run, 'finalize', input.actor);
       const at = deps.now();
       await store.appendStep(
         key,

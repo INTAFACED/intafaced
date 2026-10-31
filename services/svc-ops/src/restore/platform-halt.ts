@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { OPS_RESTORE_HALT_UNREADABLE, OPS_RESTORE_PLATFORM_NOT_HALTED } from '../codes.js';
+import { baseOf } from './watermark-reader.js';
 
 /**
  * Whether the platform is halted for the joint restore's check (J-ops-console-08 #7, lead ruling 2026-10-31). Bank, pay
@@ -26,16 +27,8 @@ export function createLedgerFreezeReader(options: { ledgerUrl: string | undefine
   const unreadable = (message: string): PlatformHalt => ({ halted: false, code: OPS_RESTORE_HALT_UNREADABLE, message });
   return {
     async read() {
-      let base: string;
-      try {
-        const url = new URL(options.ledgerUrl ?? '');
-        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-          return unreadable('svc-ledger is not wired here, so whether posting is frozen was not read.');
-        }
-        base = url.href.replace(/\/$/, '');
-      } catch {
-        return unreadable('svc-ledger is not wired here, so whether posting is frozen was not read.');
-      }
+      const base = baseOf(options.ledgerUrl);
+      if (!base) return unreadable('svc-ledger is not wired here, so whether posting is frozen was not read.');
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
@@ -49,7 +42,7 @@ export function createLedgerFreezeReader(options: { ledgerUrl: string | undefine
           ? {
               halted: false,
               code: OPS_RESTORE_PLATFORM_NOT_HALTED,
-              message: 'The posting freeze is off, so the services can still write and their counts are not compared.',
+              message: 'the posting freeze is off, so the services can still write and a comparison of their counts proves nothing.',
             }
           : { halted: true };
       } catch {
