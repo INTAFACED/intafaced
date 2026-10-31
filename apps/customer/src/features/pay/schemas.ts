@@ -113,6 +113,17 @@ export const methodSettlementSchema = z.union([
   z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
 ]);
 export type MethodSettlement = z.infer<typeof methodSettlementSchema>;
+const CANCEL_REASON_CODES = [
+  'changed_mind',
+  'cannot_pay_with_method',
+  'seller_payment_details_wrong',
+  'seller_unresponsive',
+  'seller_extra_terms',
+  'buyer_unresponsive',
+  'buyer_name_mismatch',
+  'buyer_extra_terms',
+  'price_mistake',
+] as const;
 export const tradeSchema = z.object({
   id,
   offerId: id,
@@ -152,7 +163,31 @@ export const tradeSchema = z.object({
   mismatch: z.lazy(() => tradeMismatchSchema.nullable()).optional(),
   /** svc-p2p `trades.get` `paymentValidation`: what stops the bank rail checking this order, or null. */
   paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }).optional(),
+  /** svc-p2p `trades.get` `cancelReason` (P-trade-orders-19): on a cancelled order, who cancelled it and the code they chose. */
+  cancelReason: z
+    .object({ by: z.enum(['buyer', 'seller', 'timeout', 'moderator']), code: z.enum(CANCEL_REASON_CODES).nullable() })
+    .nullable()
+    .optional(),
 });
+/**
+ * P-trade-orders-19: the reasons each side may give for cancelling, the same lists as svc-p2p `cancel-reasons.ts`. A code
+ * from the other side's list refuses `p2p.cancel_reason_invalid` there.
+ */
+export const BUYER_CANCEL_REASONS = [
+  'changed_mind',
+  'cannot_pay_with_method',
+  'seller_payment_details_wrong',
+  'seller_unresponsive',
+  'seller_extra_terms',
+] as const;
+export const SELLER_CANCEL_REASONS = [
+  'buyer_unresponsive',
+  'buyer_name_mismatch',
+  'buyer_extra_terms',
+  'price_mistake',
+  'changed_mind',
+] as const;
+export type CancelReasonCode = (typeof BUYER_CANCEL_REASONS)[number] | (typeof SELLER_CANCEL_REASONS)[number];
 /** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
 export const tradeRemindersSchema = z.object({
   count: z.number().int().nonnegative(),

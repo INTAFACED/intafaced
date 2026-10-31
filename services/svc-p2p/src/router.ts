@@ -69,6 +69,7 @@ import type { ReviewRecord } from './reviews.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
 import { AdvertiserTermsError } from './advertiser-terms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
+import { CANCEL_REASON_CODES, cancelReasonOf } from './cancel-reasons.js';
 
 export type P2pRouterOptions = {
   /** Natural-person ids from `P2P_MODERATOR_USER_IDS`. Empty = unconfigured. */
@@ -359,6 +360,10 @@ const tradeDetailOutput = tradeOutput.extend({
    * it can be checked.
    */
   paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }),
+  /** P-trade-orders-19: on a cancelled order, who cancelled it and the reason code they chose; null otherwise. */
+  cancelReason: z
+    .object({ by: z.enum(['buyer', 'seller', 'timeout', 'moderator']), code: z.enum(CANCEL_REASON_CODES).nullable() })
+    .nullable(),
 });
 
 const blockQuoteOutput = z.object({
@@ -703,6 +708,8 @@ export function toTrpcError(err: unknown): TRPCError {
       // No bank rail is wired, or it does not validate this method: nothing was checked and nothing moved.
       case 'rail.bank':
       case 'p2p.method_not_rail_validated':
+      // P-trade-orders-19: the seller's cancellation request waits for the founders' decision.
+      case 'p2p.owner_decision_pending':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
       // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
@@ -721,6 +728,8 @@ export function toTrpcError(err: unknown): TRPCError {
       // P-ads-merchant-08: a presence schedule that is not a valid week; a bulk action naming no ads or too many.
       case 'p2p.schedule_invalid':
       case 'p2p.bulk_scope_invalid':
+      // P-trade-orders-19: a cancel reason from the other side's list.
+      case 'p2p.cancel_reason_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
@@ -1933,11 +1942,29 @@ export function createP2pRouter(
 
       /** Cancel → `escrowRefund`, in full, to the seller. */
       cancel: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            reason: z.string().max(200).optional(),
+            /** P-trade-orders-19: a code from the caller's side's list; it wins over free text. */
+            reasonCode: z.enum(CANCEL_REASON_CODES).optional(),
+          }),
+        )
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () => toTradeOut(await p2p.cancelTrade(input.tradeId, ctx.principal.userId, input.reason ?? 'cancelled'))),
+          guard(async () =>
+            toTradeOut(await p2p.cancelTrade(input.tradeId, ctx.principal.userId, input.reason ?? 'cancelled', input.reasonCode)),
+          ),
         ),
+
+      /**
+       * P-trade-orders-19 (2): the seller's cancellation request on a paid order. Parked until the founders choose how a
+       * paid order may be cancelled: always `p2p.owner_decision_pending` for a party, and nothing is written.
+       */
+      requestCancel: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
+        .output(tradeOutput)
+        .mutation(async ({ ctx, input }) => guard(async () => p2p.requestCancel(input.tradeId, ctx.principal.userId))),
 
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ tradeId: z.string().guid() }))
@@ -1963,6 +1990,7 @@ export function createP2pRouter(
                 mismatch: mismatch ? toMismatchOut(mismatch) : null,
               }))),
               paymentValidation: { blocker: p2p.paymentValidationBlocker(trade) },
+              cancelReason: cancelReasonOf(trade),
             };
           }),
         ),

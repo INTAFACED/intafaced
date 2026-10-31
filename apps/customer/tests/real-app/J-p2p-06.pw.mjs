@@ -89,15 +89,22 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
   // In the app, the buyer cancels with a reason.
   await signIn(page, state.buyer);
   await page.goto(`/uc/order?tradeId=${trade.id}`);
+  await page.getByText('Other actions').click();
   const cancel = page.getByTestId('order-cancel');
   await expect(cancel, 'the order page has no cancel with a reason (P-trade-orders-19)').toBeVisible(UNBUILT);
+  // The buyer is warned not to cancel an order they already paid, and cannot cancel without a reason.
+  await expect(cancel).toContainText('Do not cancel an order you have already paid');
+  await expect(cancel.getByRole('button', { name: 'Cancel order' })).toBeDisabled();
   await cancel.getByLabel('Why are you cancelling?').selectOption({ label: 'I changed my mind' });
-  await cancel.getByRole('button', { name: 'Cancel the order' }).click();
+  await cancel.getByRole('button', { name: 'Cancel order' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review).toContainText('I changed my mind');
+  await review.getByRole('button', { name: 'Cancel order' }).click();
   await expect(page.getByTestId('p2p-order-identity')).toContainText('Cancelled');
+  await expect(page.getByTestId('order-refund')).toContainText('I changed my mind');
 
   const cancelled = await b.query('trades.get', { tradeId: trade.id });
-  expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded' });
-  expect(cancelled.resolutionReason).toContain('changed my mind');
+  expect(cancelled).toMatchObject({ status: 'cancelled', resolution: 'refunded', cancelReason: { by: 'buyer', code: 'changed_mind' } });
   // One refund: the seller's free balance is back where it was, and a second cancel moves nothing.
   await expect.poll(() => free(seller), { timeout: 30_000 }).toBe(before);
   const again = await b.raw.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST again' });
@@ -115,12 +122,17 @@ test('J-p2p-06 #2 too many cancels restrict buying with the end time, and the co
   const { b, save } = await buyerClient(state);
   // Cancel until buying pauses: three cancels within the TEST window, counting #1's if it went through.
   let refused = null;
+  const cancelledIds = [];
   for (let i = 0; i < 4 && !refused; i++) {
     const res = await b.raw.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
     if (res.status !== 200) refused = res;
-    else await b.mutate('trades.cancel', { tradeId: res.body.result.data.id, reason: 'TEST changed my mind' });
+    else {
+      await b.mutate('trades.cancel', { tradeId: res.body.result.data.id, reasonCode: 'changed_mind' });
+      cancelledIds.push(res.body.result.data.id);
+    }
   }
   save();
+  run.write({ cancelledIds });
   expect(refused, 'three cancels did not pause buying').not.toBeNull();
   expect(refusalCode(refused)).toBe('p2p.buying_restricted');
   const pause = refused.body.error.data.p2pLimit;
@@ -134,7 +146,9 @@ test('J-p2p-06 #2 too many cancels restrict buying with the end time, and the co
   });
 });
 
-test('J-p2p-06 #3 the buyer cannot cancel after paying; the seller cancels only through a request the buyer answers', async () => {
+test('J-p2p-06 #3 after paying, neither side cancels; the seller’s cancellation request is visible and waits for the founders’ decision', async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const state = journey();
   const s = await sellerClient(state);
@@ -142,12 +156,27 @@ test('J-p2p-06 #3 the buyer cannot cancel after paying; the seller cancels only 
   const tradeId = state.paidTradeId;
   expect(tradeId, '#3 needs the order the buyer marked paid in #1').toBeTruthy();
   // Paid: the buyer's cancel is refused (open a dispute instead), and so is the seller's straight cancel.
-  const refused = await b.raw.mutate('trades.cancel', { tradeId });
-  expect(refusalCode(refused)).toBe('p2p.not_the_seller');
-  expect(refusalCode(await s.raw.mutate('trades.cancel', { tradeId }))).toBe('p2p.cancel_after_paid');
-  expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
+  expect(refusalCode(await b.raw.mutate('trades.cancel', { tradeId, reasonCode: 'changed_mind' }))).toBe('p2p.not_the_seller');
+  expect(refusalCode(await s.raw.mutate('trades.cancel', { tradeId, reasonCode: 'buyer_unresponsive' }))).toBe('p2p.cancel_after_paid');
+  const before = await s.query('trades.get', { tradeId });
+  expect(before.status).toBe('fiat_sent');
+  // How a paid order may be cancelled is the founders' decision (P-trade-orders-19): the request refuses for both sides,
+  // with that reason, and writes nothing.
   const request = await s.raw.mutate('trades.requestCancel', { tradeId, reason: 'TEST payment never arrived' });
-  expect(request.status, 'svc-p2p has no seller cancellation request (P-trade-orders-19)').toBe(200);
+  expect(request.status, 'svc-p2p has no seller cancellation request (P-trade-orders-19)').not.toBe(404);
+  expect(refusalCode(request)).toBe('p2p.owner_decision_pending');
+  expect(refusalCode(await b.raw.mutate('trades.requestCancel', { tradeId }))).toBe('p2p.owner_decision_pending');
+  const after = await s.query('trades.get', { tradeId });
+  expect(after).toMatchObject({ status: 'fiat_sent', resolution: null, resolvedAt: null });
+  expect(after.escrowHeld).toBe(before.escrowHeld);
+  // In the app: the seller sees the request, with the reason it is off; the buyer has no cancel on a paid order.
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+  const parked = page.getByTestId('order-request-cancel');
+  await expect(parked).toBeVisible();
+  await expect(parked.getByRole('button', { name: 'Request cancellation' })).toBeDisabled();
+  await expect(parked).toContainText('Cancelling after the buyer has paid needs a founder decision. It is switched off in this build.');
+  await expect(page.getByTestId('order-cancel')).toHaveCount(0);
 });
 
 test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller, and the order reads cancelled by timeout', async ({
@@ -164,6 +193,11 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   // #1's order, if its cancel did not go through, runs out in the same sweeps and is refunded too.
   const alsoRunning = state.cancelTradeId && (await s.query('trades.get', { tradeId: state.cancelTradeId })).status === 'escrowed';
   const refunds = alsoRunning ? '20' : '10';
+  // The refunds of the orders cancelled in #1 and #2 post on their own time: wait for each before reading the balance.
+  const settled = [...(alsoRunning ? [] : [state.cancelTradeId]), ...(state.cancelledIds ?? [])].filter(Boolean);
+  for (const id of settled) {
+    await expect.poll(async () => (await s.query('trades.get', { tradeId: id })).settledAt, { timeout: 30_000 }).toBeTruthy();
+  }
   const before = await free(state.seller);
   await expect
     .poll(async () => (await s.query('trades.get', { tradeId })).status, {

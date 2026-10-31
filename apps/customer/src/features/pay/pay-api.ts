@@ -760,7 +760,8 @@ export function createPersonalPayApi(
     async manageTrade(
       tradeId: string,
       action: 'markFiatSent' | 'confirmReceived' | 'cancel',
-      reason?: string,
+      /** `cancel` only: free text, or (P-trade-orders-19) a code from the caller's side's list. */
+      reason?: string | { code: s.CancelReasonCode },
       review?: { expected: s.Trade; current: () => boolean },
       /** `confirmReceived` only: identity's single-use confirmation of this release (P-trade-orders-07). */
       stepUpApprovalId?: string,
@@ -789,7 +790,7 @@ export function createPersonalPayApi(
             `trades.${action}`,
             {
               tradeId,
-              ...(action === 'cancel' && reason ? { reason } : {}),
+              ...(action === 'cancel' && reason ? (typeof reason === 'string' ? { reason } : { reasonCode: reason.code }) : {}),
               ...(action === 'confirmReceived' && stepUpApprovalId ? { stepUpApprovalId } : {}),
             },
             s.tradeSchema.refine(
