@@ -158,6 +158,7 @@ test(`${J} #5 scans a code on a phone: an address opens Send pre-filled, a token
   };
   await scanCode(`ethereum:${FRIEND}`);
   await expect(send(page).getByRole('textbox', { name: /^To/ })).toHaveValue(FRIEND);
+  expect(await send(page).getByRole('button', { name: 'Send' }).count()).toBe(0);
   // Unsubmitted: no review is open, and the wallet was asked for nothing.
   await expect(page.getByRole('dialog', { name: 'Review the send' })).toHaveCount(0);
   expect({ requests: wallet.requests.length, sends: wallet.sends.length }).toEqual(asked);
