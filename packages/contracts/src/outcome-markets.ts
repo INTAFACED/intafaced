@@ -52,6 +52,8 @@ export const OUTCOME_MARKET_REFUSALS = [
   /** The market moved since the operator read it: the expected ordinal is stale, or that ordinal holds a different move. */
   'trade.outcome_move_stale',
   'trade.outcome_list_cursor_invalid',
+  /** Publishing waits for the owner's decision on who determines a result (ENGINE E-1): the publish door's answer today. */
+  'owner.decision',
 ] as const;
 export type OutcomeMarketRefusal = (typeof OUTCOME_MARKET_REFUSALS)[number];
 
