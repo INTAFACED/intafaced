@@ -573,8 +573,7 @@ export class MemoryDeliveryStore implements DeliveryStore {
  */
 /** Why a reaper arm would abandon a row — or null if it must leave it alone. */
 export type ReapDecision =
-  | { readonly reaped: true; readonly reason: 'channel.attempts_exhausted' | 'channel.delivery_stuck' }
-  | { readonly reaped: false };
+  { readonly reaped: true; readonly reason: 'channel.attempts_exhausted' | 'channel.delivery_stuck' } | { readonly reaped: false };
 
 /**
  * Pure decision for both memory and Postgres reapers — one table.
