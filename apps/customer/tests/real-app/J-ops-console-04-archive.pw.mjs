@@ -6,7 +6,8 @@ import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
 // J-ops-console-04 step #10: archive a customer record. While the account is open the console holds the form and names
 // identity's refusal, and an approved archive run anyway is refused (identity.archive_blocked_open_account). Once closed,
 // founder A asks with a reason code, founder B approves on their own console, and A runs it: the record is archived and
-// every edit control on the account page is disabled with the reason. A reopen two founders approve is then refused by
+// every edit control on the account page is disabled with the reason, except releasing an existing hold (lead's ruling
+// 2026-10-31: no money is stranded). A reopen two founders approve is then refused by
 // identity (identity.account_archived). The stack leaves the owner's dormancy period blank, so identity proposes no
 // dormant customer, the console lists none and sends nothing, and it says the period is not set.
 
@@ -42,7 +43,7 @@ const archiveProposals = (page) =>
     return { status: res.status, body: await res.json() };
   });
 
-/** Every POST this page sends to the archive route while `run` runs: a proposal would be one of them. */
+/** Every POST this page sends to the archive route while `run` runs and until the page is idle: a proposal would be one. */
 async function archivePostsDuring(page, run) {
   const sent = [];
   const seen = (req) => {
@@ -50,10 +51,44 @@ async function archivePostsDuring(page, run) {
   };
   page.on('request', seen);
   try {
-    return { result: await run(), sent };
+    const result = await run();
+    // Requests the page's effects send after it rendered count too: listen until the network is idle, then a short settle.
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1_500);
+    return { result, sent };
   } finally {
     page.off('request', seen);
   }
+}
+
+const HOLD = { coin: 'USDT', amount: '1', reason: 'LOCAL TEST hold check' };
+
+/**
+ * Fills each edit desk the way a founder would before asking, without sending anything: a detail with its new value and
+ * reason, a reopen reason and phrase, a tier with its reason and phrase, and a hold's coin, amount and reason. Returns the
+ * page's desks for the caller to read.
+ */
+async function fillDesks(page, userId, tag) {
+  const details = page.getByTestId('account-details-edit');
+  await details.getByLabel('Detail to change').selectOption({ label: 'Phone' });
+  await details.getByLabel('New value').fill('LOCAL TEST 000');
+  await details.getByLabel(/^Why \(kept in the details history/).fill(`LOCAL TEST details check ${tag}`);
+  const closure = page.getByTestId('account-closure');
+  await closure.getByLabel(/^Why \(kept in the account’s closure history/).fill(`LOCAL TEST reopen check ${tag}`);
+  await closure.getByLabel(/to confirm$/).fill(`REOPEN ACCOUNT ${userId.slice(0, 8)}`);
+  const tier = page.getByTestId('account-tier');
+  await tier.getByLabel('Move to tier').selectOption('test-standard');
+  await tier.getByLabel(/^Why \(kept in the account’s tier history/).fill(`LOCAL TEST tier check ${tag}`);
+  await tier.getByLabel(/to confirm$/).fill(`MOVE TIER ${userId.slice(0, 8)}`);
+  await fillHold(page);
+  return { details, closure, tier, place: page.getByTestId('hold-place') };
+}
+
+async function fillHold(page) {
+  const place = page.getByTestId('hold-place');
+  await place.getByLabel('Coin').fill(HOLD.coin);
+  await place.getByLabel('Amount to hold').fill(HOLD.amount);
+  await place.getByLabel(/^Reason \(kept with the hold/).fill(HOLD.reason);
 }
 
 const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
@@ -169,6 +204,17 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   // The archive panel reads the closed record again on its own.
   await expect(archive.getByTestId('account-archive-status')).toContainText('Closed, not archived', { timeout: 60_000 });
 
+  // Before the archive, on the same closed record read fresh, each edit desk filled in as a founder would is live: the
+  // details save, the reopen request, the tier move request and the hold. Nothing is sent. The same fills after the
+  // archive are refused below, so it is the archive that switches them off.
+  await openAccount(a, userId);
+  const live = await fillDesks(a, userId, tag);
+  await expect(live.details.getByRole('button', { name: 'Save the change' })).toBeEnabled();
+  await expect(live.closure.getByRole('button', { name: 'Ask a second founder to approve reopening the account' })).toBeEnabled();
+  await expect(live.tier.getByRole('button', { name: 'Ask the other founder to approve the tier move' })).toBeEnabled();
+  await expect(live.place.getByRole('button', { name: 'Place the hold' })).toBeEnabled();
+  ({ closure, archive } = await openAccount(a, userId));
+
   // Archive: A asks with a reason code, B approves on their own console, A runs it.
   const archiveWhy = `LOCAL TEST dormant closed record ${tag}`;
   const archivePacket = await ask(archive, {
@@ -198,46 +244,64 @@ test('J-ops-console-04 #10 archive only a closed customer, then every edit contr
   const tier = a.getByTestId('account-tier');
   await expect(tier).toContainText('identity.account_archived');
   await expect(tier.getByRole('button', { name: 'Tier move unavailable' })).toBeDisabled();
-  // No new hold on an archived record.
-  await expect(a.getByTestId('hold-place-why')).toContainText('identity.account_archived');
-  await expect(a.getByRole('button', { name: 'Place the hold' })).toBeDisabled();
-  // The customer's details: every field and the save are off, with the reason.
+  // The same desks after the archive, filled in the same way where a field still takes input: every submit stays off and
+  // each desk names identity.account_archived.
   const details = a.getByTestId('account-details-edit');
   await expect(details.getByTestId('account-details-edit-why')).toContainText('identity.account_archived');
-  for (const control of await details.locator('input, select, textarea, button').all()) await expect(control).toBeDisabled();
-  // Limit overrides: no override form is offered, and the panel says why.
+  for (const control of await details.locator('input, select, textarea').all()) await expect(control).toBeDisabled();
+  await expect(details.getByRole('button', { name: 'Save the change' })).toBeDisabled();
+  // Close or reopen, archive and tier: no request form is drawn to type a reason or phrase into, only the switched-off
+  // button with the reason.
+  for (const [desk, button] of [
+    [closure, 'Reopen unavailable'],
+    [archive, 'Archive unavailable'],
+    [tier, 'Tier move unavailable'],
+  ]) {
+    await expect(desk.getByTestId('request-form')).toHaveCount(0);
+    await expect(desk.getByTestId('control-blocked')).toContainText('identity.account_archived');
+    await expect(desk.getByRole('button', { name: button })).toBeDisabled();
+  }
+  await expect(tier.getByLabel('Move to tier')).toBeDisabled();
+  // A new hold: its fields still take input, and with a valid coin, amount and reason it stays off and says why.
+  await fillHold(a);
+  await expect(a.getByTestId('hold-place-why')).toContainText('identity.account_archived');
+  await expect(a.getByTestId('hold-place').getByRole('button', { name: 'Place the hold' })).toBeDisabled();
+  // Limit overrides: no override form is drawn, and the panel says why.
   const limits = a.getByTestId('account-limits');
   await expect(limits).toContainText('identity.account_archived');
-  // Every button on the edit desks is off: details, close or reopen, archive, holds, tier and limits.
-  for (const id of ['account-details', 'account-closure', 'account-archive', 'account-holds', 'account-tier', 'account-limits']) {
-    const enabled = await a
-      .getByTestId(id)
-      .locator('button')
-      .evaluateAll((all) => all.filter((b) => !b.disabled).map((b) => b.textContent.trim()));
-    expect(enabled, `${id}: no button is left on after the archive`).toEqual([]);
-  }
+  await expect(limits.locator('#limit-asset')).toHaveCount(0);
   // Freeze and unfreeze: the record is closed and restricted, so neither the restrict form nor the unfreeze desk is
   // offered as a live control, and the read-only note names both.
   await expect(a.getByTestId('account-readonly-note')).toContainText('cannot be frozen, unfrozen');
   await expect(a.getByTestId('account-closed-note')).toContainText('there is no freeze to lift');
   await expect(a.getByRole('button', { name: /^(Restrict|Restore) access/ })).toHaveCount(0);
 
-  // The row asks for every edit control to be shown disabled with its reason. Two desks are not: the freeze/unfreeze desk
-  // is not drawn at all on an archived record (only a note stands in for it), and the hold release and confirm desks are
-  // left open by design ("a hold already placed could still be released") and never name the archive. Each fails by name.
+  // Releasing an existing hold is the one edit the archive leaves on (lead's ruling 2026-10-31: no money is stranded). The
+  // release and confirm desks are drawn with their request forms, nothing on them is switched off by the archive or names
+  // it, and the hold picker and amount still take input; their request buttons wait only for a hold to be chosen.
+  const releaseArea = a.getByTestId('account-holds');
+  await expect(releaseArea.getByLabel('Hold', { exact: true })).toBeEnabled();
+  await expect(releaseArea.getByLabel('Amount to release')).toBeEnabled();
+  for (const [id, heading] of [
+    ['hold-release', 'Release part or all of the hold'],
+    ['hold-confirm', 'Confirm the hold'],
+  ]) {
+    const desk = a.getByTestId(id);
+    await expect(desk.getByTestId('request-form')).toBeVisible();
+    await expect(desk.getByRole('heading', { name: heading })).toBeVisible();
+    await expect(desk.getByTestId('control-blocked')).toHaveCount(0);
+    await expect(desk).not.toContainText('identity.account_archived');
+    await expect(desk).toContainText('Choose a hold that still holds something.');
+  }
+
+  // The freeze/unfreeze desk is drawn switched off on an archived record, saying identity.account_archived (#6981). It
+  // stays a by-name check until #6981 is on main: a console without it draws only a note there.
   await expect
     .soft(
       a.getByTestId('account-unfreeze').getByRole('button', { name: 'Restore unavailable' }),
-      'the freeze/unfreeze desk is shown, disabled, saying identity.account_archived: on an archived record it is not drawn at all (OPS-accounts-desk-02)',
+      'the freeze/unfreeze desk is shown, disabled, saying identity.account_archived: it needs #6981 (the archived record draws the unfreeze desk disabled)',
     )
     .toBeVisible({ timeout: 5_000 });
-  for (const id of ['hold-release', 'hold-confirm'])
-    await expect
-      .soft(
-        a.getByTestId(id),
-        `the ${id} desk is disabled and says identity.account_archived: it is not switched off by the archive (OPS-accounts-desk-02)`,
-      )
-      .toContainText('identity.account_archived', { timeout: 5_000 });
 
   // Identity refuses a reopen two founders approved, and the person stays out.
   const archived = await archiveState(a, userId);
