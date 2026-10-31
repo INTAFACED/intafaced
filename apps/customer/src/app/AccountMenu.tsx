@@ -11,7 +11,7 @@ import { LanguageMenu } from '../shared/LanguageMenu';
 import { savePreferences, useResolvedTheme, usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { accountMenuCopy } from './account-menu-copy';
-import { isFeatureLive } from './feature-registry';
+import { featureBlocker, isFeatureShown } from './feature-registry';
 import { navigate } from './location';
 import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
@@ -130,23 +130,32 @@ function Profiles({ close }: { close: () => void }) {
 }
 
 /** Simple · Pro, where the control exists below 1000 px (the bar shows it above that). */
+/** The Simple | Pro row. While its registry row is blocked it is drawn disabled with its reason (proof state is never visibility). */
 function ModeRow() {
   const { t: tp } = proCopy.useCopy();
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
+  const blocker = featureBlocker('pro-mode-switch');
   return (
     <li className="tb-account-mode min-[1000px]:hidden">
       <span className="tb-account-mode__label">{tp('Switch name')}</span>
-      <SegmentedControl
-        size={28}
-        aria-label={tp('Switch name')}
-        value={layoutMode}
-        onValueChange={(value) => savePreferences({ layoutMode: value === 'pro' ? 'pro' : 'simple' })}
-        items={[
-          { value: 'simple', label: t('Simple') },
-          { value: 'pro', label: t('Pro') },
-        ]}
-      />
+      <fieldset disabled={blocker !== null} className="m-0 min-w-0 border-0 p-0">
+        <SegmentedControl
+          size={28}
+          aria-label={tp('Switch name')}
+          value={layoutMode}
+          onValueChange={(value) => savePreferences({ layoutMode: value === 'pro' ? 'pro' : 'simple' })}
+          items={[
+            { value: 'simple', label: t('Simple') },
+            { value: 'pro', label: t('Pro') },
+          ]}
+        />
+      </fieldset>
+      {blocker && (
+        <span className="text-sm text-fg-2" data-testid="tb-account-mode-blocked">
+          {blocker}
+        </span>
+      )}
     </li>
   );
 }
@@ -175,7 +184,7 @@ export function AccountMenuBody({ close, onSignOut }: { close: () => void; onSig
       <li className="tb-account-divider" role="separator" />
       <Profiles close={close} />
       <li className="tb-account-divider" role="separator" />
-      {isFeatureLive('pro-mode-switch') && <ModeRow />}
+      {isFeatureShown('pro-mode-switch') && <ModeRow />}
       {/* The bar has no room for the Exchange | Web3 switch below 1280 px, so the menu carries it there. */}
       <li className="tb-account-mode min-[1280px]:hidden">
         <ShellSwitch current="exchange" here={typeof location === 'undefined' ? '/' : location.pathname + location.search} />

@@ -686,6 +686,18 @@ export function featureById(id: string): Feature | undefined {
 export function isFeatureLive(id: string): boolean {
   return featureById(id)?.status === 'live';
 }
+/**
+ * Why a control stays off: the row's reason while it is blocked, or null when it is live or hidden. Proof state is never
+ * visibility (AGENTS.md): a blocked control is drawn, disabled, with this reason; only a hidden row leaves the screen.
+ */
+export function featureBlocker(id: string): string | null {
+  const feature = featureById(id);
+  return feature?.status === 'blocked' ? feature.reason : null;
+}
+/** Whether a control is drawn at all: every row but a hidden one (an unknown id is drawn too). */
+export function isFeatureShown(id: string): boolean {
+  return featureById(id)?.status !== 'hidden';
+}
 
 function patternMatches(pattern: string, path: string): boolean {
   return pattern === path || (hasPattern(pattern) && matchPath(pattern, path) !== undefined);

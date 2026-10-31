@@ -4,10 +4,10 @@ import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, BrandBar } f
 import { useSession } from '../features/session/session';
 import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
-import { BellPopover } from '../screens/notifications/BellPopover';
+import { BellPopover, BlockedBell } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
-import { isFeatureLive } from './feature-registry';
+import { featureBlocker, isFeatureShown } from './feature-registry';
 import { ShellIcon } from './icons';
 import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -224,15 +224,29 @@ function ModeControl() {
   );
 }
 
-function ModeSwitch() {
+/**
+ * The Simple | Pro switch. While its registry row is blocked it is drawn in place and disabled (its buttons sit in a
+ * disabled fieldset), and its tip names why: proof state is never visibility.
+ */
+function ModeSwitch({ blocker }: { blocker: string | null }) {
   const { t: tp } = proCopy.useCopy();
+  const why = useId();
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="tb-mode max-[1000px]:hidden" />}>
-        <ModeControl />
+        {blocker ? (
+          <fieldset disabled aria-describedby={why} data-testid="tb-mode-blocked" className="m-0 min-w-0 border-0 p-0">
+            <ModeControl />
+            <span id={why} className="sr-only">
+              {blocker}
+            </span>
+          </fieldset>
+        ) : (
+          <ModeControl />
+        )}
       </TooltipTrigger>
       <TooltipContent side="bottom" align="end">
-        {tp('Switch tip')}
+        {blocker ?? tp('Switch tip')}
       </TooltipContent>
     </Tooltip>
   );
@@ -253,7 +267,8 @@ export function TopBar({
   const { language, layoutMode } = usePreferences();
   const { session, restoring } = useSession();
   useBannerOffset();
-  const notificationsLive = isFeatureLive('notifications');
+  const notificationsBlocker = featureBlocker('notifications');
+  const modeBlocker = featureBlocker('pro-mode-switch');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
@@ -282,8 +297,9 @@ export function TopBar({
           <TopSearch />
           {session ? (
             <>
-              {isFeatureLive('pro-mode-switch') && <ModeSwitch />}
-              {notificationsLive && <BellPopover path={path} />}
+              {isFeatureShown('pro-mode-switch') && <ModeSwitch blocker={modeBlocker} />}
+              {isFeatureShown('notifications') &&
+                (notificationsBlocker ? <BlockedBell reason={notificationsBlocker} /> : <BellPopover path={path} />)}
               <ProfileChip />
               <AccountButton onSignOut={onSignOut} />
             </>

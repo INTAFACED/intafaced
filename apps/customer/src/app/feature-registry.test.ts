@@ -257,4 +257,12 @@ describe('top-bar menus link rooms that open', () => {
         door,
       ).toBe(true);
   });
+  it('gives a blocked row its reason and keeps it shown; a live row has no blocker', () => {
+    const blocked = features.find((f) => f.status === 'blocked')!;
+    expect(featureBlocker(blocked.id)).toBe(blocked.reason);
+    expect(isFeatureShown(blocked.id)).toBe(true);
+    const live = features.find((f) => f.status === 'live')!;
+    expect(featureBlocker(live.id)).toBeNull();
+    expect(featureBlocker('no-such-row')).toBeNull();
+  });
 });
