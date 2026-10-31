@@ -1,6 +1,10 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
+/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2). */
+export const LOCAL_TEST_SANCTIONED_ADDRESS = '0x5a7c7100000000000000000000000000000ba5ed';
+const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -97,6 +101,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     BANK_CARD_ISSUER: 'card-sim',
     BANK_ADDRESS_BOOK_CAP: '10',
     BANK_OFFRAMP_COOLING_HOURS: '24',
+    // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
+    // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
+    // address save refuses bank.destination_sanctions_unset.
+    BANK_DESTINATION_SANCTIONS: LOCAL_TEST_SANCTIONED_DESTINATION,
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',

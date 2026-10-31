@@ -78,6 +78,19 @@ function registration(open) {
   }
 }
 
+/** Identity restarted with no mail transport, as a build without a mail provider runs, or back on the stack's outbox. */
+function mail(on) {
+  const before = process.env.LOCAL_STACK_IDENTITY_MAIL;
+  if (on) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
+  else process.env.LOCAL_STACK_IDENTITY_MAIL = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
+    else process.env.LOCAL_STACK_IDENTITY_MAIL = before;
+  }
+}
+
 /** Nothing was made for `who`: the password does not sign in. */
 async function noAccount(who) {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -195,6 +208,21 @@ test(`${J} #4 "check your email" reads the same for a known address, and an earl
 
   await expect(page.getByRole('button', { name: 'Send a new code' })).toBeDisabled();
   await expect(page.getByText(/You can ask for a new code in \d+ s\./)).toBeVisible();
+
+  // With email switched off, the notice names it and no code is mailed; nothing switches to another channel by itself.
+  const offline = person();
+  mail(false);
+  try {
+    await details(page, offline);
+    await expect(notice(page)).toContainText('Email delivery is switched off in this build, so a sign-up code cannot be sent.', {
+      timeout: 15_000,
+    });
+    await expect(page.getByLabel('Code from the email')).toHaveCount(0);
+    expect(mailedCodes(offline.email)).toHaveLength(0);
+    await noAccount(offline);
+  } finally {
+    mail(true);
+  }
 });
 
 test(`${J} #5 enters the code and is signed in on Home; wrong codes lock with a time; a used code is refused`, async ({ page }) => {

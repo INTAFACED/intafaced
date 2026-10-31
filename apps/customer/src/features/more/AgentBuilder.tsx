@@ -27,9 +27,17 @@ import { ServiceOffNotice } from '../../shared/service-off';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
-const OWN_AGENT_PATH = /^\/agents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
-/** The id of the person's own agent an address names, or null. */
-export const ownAgentId = (path: string): string | null => OWN_AGENT_PATH.exec(path)?.[1] ?? null;
+const OWN_AGENT_PATH = /^\/agents\/([^/]{1,64})$/;
+/** The agent pages of their own under /agents/, which never name an agent. */
+const AGENT_ROOMS = new Set(['new', 'team']);
+/**
+ * The id an address names under /agents/, or null. Any id opens the agent's page, so one that is not the person's,
+ * or not an id at all, shows the service's own "not one of yours" refusal there, never a missing route.
+ */
+export const ownAgentId = (path: string): string | null => {
+  const id = OWN_AGENT_PATH.exec(path)?.[1];
+  return id && !AGENT_ROOMS.has(id) ? id : null;
+};
 
 /** Each refusal and finding code the service sends, with the words for it (the reserved name takes the name). */
 const CODE_WORDS = {
@@ -433,6 +441,16 @@ export function OwnAgentPage({ id }: { id: string }) {
   const countRun = useCallback(() => setUsageRuns((n) => n + 1), []);
   const loaded = useResource((signal) => api.query('agents', 'own.get', { id }, ownAgentSchema, { signal }), `own-agent:${id}`);
   const [latest, setLatest] = useState<OwnAgent | null>(null);
+  // An agent that is not the person's, or an address that names none, is the service's refusal, not a retry.
+  if (loaded.resource.status === 'failed' && refusalCode(loaded.resource.failure) === 'agents.own.not_found')
+    return (
+      <Panel title={t('ownAgent')}>
+        <Refusal code="agents.own.not_found" />
+        <a className="text-link" href="/agents">
+          {t('backToAgents')}
+        </a>
+      </Panel>
+    );
   return (
     <Read resource={loaded.resource} retry={loaded.reload}>
       {(fetched) => {

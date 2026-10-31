@@ -1,5 +1,6 @@
 import type { Resource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
+import { ServiceOffNotice } from '../../shared/service-off';
 import { Read } from './common';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import type { PublishedOutcome } from './prediction-catalogue';
@@ -19,6 +20,13 @@ export function PredictionCatalogue({
       <h2>
         <Copy k="questions" />
       </h2>
+      {/* Why the list is empty and stays so: publishing waits for the owner's determination decision (ENGINE E-1). */}
+      <div className="prediction-catalogue-blocker" data-testid="prediction-blocker">
+        <ServiceOffNotice code="owner.decision" action={t('publishAction')} role="note" />
+        <p className="muted">
+          <Copy k="publishWhy" />
+        </p>
+      </div>
       <Read resource={resource} retry={refresh}>
         {(rows) =>
           rows.length === 0 ? (

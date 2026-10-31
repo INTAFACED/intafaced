@@ -327,6 +327,15 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: the mining pool can start with nothing published');
 }
 
+// The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { LOCAL_TEST_SANCTIONED_ADDRESS } = await import('./local-stack-services/bank.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  assert.equal(bank.env.BANK_DESTINATION_SANCTIONS, `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`);
+  console.log('local-test-stack: bank carries the LOCAL TEST destination sanctions list');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
@@ -807,10 +816,11 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
-  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS.
+  // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
+  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
+    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
