@@ -287,6 +287,8 @@ test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin
   await expect(rule('marginCallPercent')).toHaveAttribute('data-value', '100');
   await expect(rule('stopOutPercent')).toHaveAttribute('data-value', '90');
   await expect(account).toContainText('One position, netted');
+  // Read only: nothing in the published rules can be typed into or chosen.
+  await expect(account.getByTestId('quant-account-rules').locator('input, select, textarea, [contenteditable="true"]')).toHaveCount(0);
 
   // A blank leverage refuses by name and nothing runs.
   const started = [];
