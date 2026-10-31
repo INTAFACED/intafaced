@@ -178,6 +178,23 @@ test('destinations: a new one is saved Unverified, then verified with a code and
   await go(page, '/pay/payouts/new');
   await expect(page.getByLabel('Destination').locator('option').filter({ hasText: '••••3000' })).toHaveText(/Not active yet/);
   await snap(page, 'm2b-destinations-held');
+  // The owner cancels the verification: no code, and it reads Unverified again with Verify offered back.
+  await go(page, '/pay/payouts/destinations');
+  await item.getByRole('button', { name: 'Cancel verification' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Review: Cancel verification' }).getByLabel('6-digit code from your authenticator app *'),
+  ).toHaveCount(0);
+  await confirm(page, 'Cancel verification');
+  await expect(page.getByText('Verification cancelled. The destination is unverified again.')).toBeVisible();
+  await expect(row).toContainText('Unverified');
+  await expect(row).not.toContainText('Waiting until');
+  await expect(item.getByRole('button', { name: 'Verify' })).toBeVisible();
+  await expect(item.getByRole('button', { name: 'Cancel verification' })).toHaveCount(0);
+  expect(mock.calls.filter((c) => c.procedure === 'merchant.payoutDestinations.cancelHold')).toHaveLength(1);
+  // An active destination offers no cancel.
+  await expect(
+    manage.getByRole('listitem').filter({ hasText: '0x7a3f…4421' }).getByRole('button', { name: 'Cancel verification' }),
+  ).toHaveCount(0);
 });
 
 test('the owner’s default destination is already chosen on the pay out form', async ({ page }) => {

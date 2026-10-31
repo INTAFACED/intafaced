@@ -535,6 +535,15 @@ export function createMoneyMock(ctx) {
           state.destination = { kind: input.kind, ref: input.ref, railId: input.railId, verified: false, activatesAt: null };
           return ok(route, { kind: input.kind, ref: input.ref, railId: input.railId, status: 'unverified', activatesAt: null });
         }
+        case 'merchant.payoutDestinations.cancelHold': {
+          // Owner only on the service; a held one goes back to unverified, an unverified one is left, an active one refused.
+          const d = destinationRows().find((x) => x.id === input.destinationId);
+          if (!d) return refuse(route, 404, 'pay.payout_destination_not_found');
+          if (d.state === 'active') return refuse(route, 409, 'pay.payout_destination_not_held');
+          const changed = d.state === 'held';
+          if (changed) state.destination = { ...state.destination, verified: false, activatesAt: null };
+          return ok(route, { destinationId: d.id, state: 'unverified', changed });
+        }
         case 'merchant.payoutDestinations.setDefault': {
           const d = destinationRows().find((x) => x.id === input.destinationId);
           if (!d) return refuse(route, 404, 'pay.payout_destination_not_found');

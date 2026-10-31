@@ -228,11 +228,44 @@ export class PayoutDestinationChange {
     return { status: 'unverified', railId: input.railId, kind: dest.kind, ref: dest.ref, activatesAt: null };
   }
 
-  private async assertCaller(caller: DestinationCaller, merchantId: string): Promise<void> {
+  /**
+   * Cancel a hold: a held destination goes back to unverified (the lead's ruling, 2026-10-30 19:19). The owner only,
+   * in an interactive session, never an API key. No step-up: it only lowers risk (nothing can be paid to an unverified
+   * destination). Cancelling an unverified one changes nothing and tells nobody again. An active one is refused
+   * `pay.payout_destination_not_held`; a pending change of an active one is not this door's to cancel.
+   */
+  async cancelHold(input: {
+    readonly caller: DestinationCaller;
+    readonly merchantId: string;
+    readonly destinationId: string;
+  }): Promise<{ readonly destinationId: string; readonly state: 'unverified'; readonly changed: boolean }> {
+    await this.assertCaller(input.caller, input.merchantId, ['owner']);
+    const out = await this.book.cancelHold({ merchantId: input.merchantId, destinationId: input.destinationId });
+    if (out.changed) {
+      await this.notify(
+        input.merchantId,
+        'Payout destination verification cancelled',
+        `The waiting period for the payout destination for ${out.railId} (${maskDestination(out.kind, out.ref)}) was cancelled. It is unverified and cannot receive a payout until it is verified again.`,
+        `payout-destination:${out.railId}:hold-cancelled:${createHash('sha256').update(`${out.kind}:${out.ref}`).digest('hex').slice(0, 16)}:${this.clock().toISOString()}`,
+      );
+    }
+    return { destinationId: input.destinationId, state: 'unverified', changed: out.changed };
+  }
+
+  private async assertCaller(
+    caller: DestinationCaller,
+    merchantId: string,
+    roles: readonly MerchantRole[] = ['owner', 'admin'],
+  ): Promise<void> {
     const role = await this.roleOf(caller.userId, merchantId);
     if (role === null) refuse('pay.merchant_not_found', `Merchant ${merchantId} not found`);
-    if (role !== 'owner' && role !== 'admin') {
-      refuse('pay.destination_role_forbidden', 'Only an owner or admin can change a payout destination');
+    if (!roles.includes(role)) {
+      refuse(
+        'pay.destination_role_forbidden',
+        roles.includes('admin')
+          ? 'Only an owner or admin can change a payout destination'
+          : 'Only the owner can do this to a payout destination',
+      );
     }
     if (caller.viaApiKey) {
       refuse('pay.destination_api_key_refused', 'An API key cannot change a payout destination');
