@@ -31,6 +31,8 @@ import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
 import {
   ALERT_CONDITIONS,
+  ALERT_SOURCES,
+  type AlertSource,
   directionOfCondition,
   isCrossing,
   listAlerts,
@@ -42,6 +44,8 @@ import {
 } from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
+
+const SOURCE_KEY = { mark: 'sourceMark', bid: 'sourceBid', ask: 'sourceAsk', last: 'sourceLast' } as const;
 
 type Notice =
   | { kind: 'saved'; found: boolean }
@@ -144,6 +148,9 @@ export default function AlertsPage() {
   const [message, setMessage] = useState('');
   const [expires, setExpires] = useState('');
   const [repeat, setRepeat] = useState(false);
+  const [source, setSource] = useState<AlertSource>('mark');
+  // What the alert is on. Only a price alert can be saved; an indicator alert is listed and refused until it is built.
+  const [alertKind, setAlertKind] = useState<'price' | 'indicator'>('price');
   const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
   const [price, setPrice] = useState('');
   const [touched, setTouched] = useState(false);
@@ -162,6 +169,11 @@ export default function AlertsPage() {
   const gate = useRef(createGate());
 
   const list = state.status === 'ready' ? state : null;
+  // The most conditions an alert may hold (the main one included), when the owner has set it: the form stops at it.
+  const maxConditions = quota.state.status === 'ready' ? (quota.state.quota.maxConditions ?? null) : null;
+  // A limit the service reports as blank (null) refuses extra conditions up front: the service would refuse them at save.
+  const conditionCapUnset = quota.state.status === 'ready' && quota.state.quota.maxConditions === null;
+  const atConditionCap = conditionCapUnset || (maxConditions !== null && 1 + extras.length >= maxConditions);
   const marketList: AlertMarket[] = markets.status === 'ready' ? markets.markets : [];
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
@@ -215,8 +227,9 @@ export default function AlertsPage() {
   }
 
   function toReview() {
-    setTouched(true);
     setNotice(null);
+    if (alertKind !== 'price') return;
+    setTouched(true);
     if (
       blockedReason ||
       !marketId ||
@@ -237,6 +250,7 @@ export default function AlertsPage() {
       ...(expiresAt ? { expiresAt } : {}),
       ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
       ...(repeat && isCrossing(condition) ? { frequency: 'every_crossing' as const } : {}),
+      ...(source !== 'mark' ? { source } : {}),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -273,6 +287,8 @@ export default function AlertsPage() {
         setExpires('');
         setExtras([]);
         setRepeat(false);
+        setSource('mark');
+        setAlertKind('price');
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -504,6 +520,10 @@ export default function AlertsPage() {
               </div>
             ))}
             <div>
+              <dt>{copy.t('reviewSource')}</dt>
+              <dd>{copy.t(SOURCE_KEY[review.intent.source ?? 'mark'])}</dd>
+            </div>
+            <div>
               <dt>{copy.t('reviewRepeat')}</dt>
               <dd>{copy.t(review.intent.frequency === 'every_crossing' ? 'repeatEvery' : 'repeatOnce')}</dd>
             </div>
@@ -585,6 +605,22 @@ export default function AlertsPage() {
             </select>
           </label>
           <label className="nf-field">
+            <span>{copy.t('kindLabel')}</span>
+            <select
+              value={alertKind}
+              disabled={blockedReason !== null}
+              onChange={(event) => setAlertKind(event.target.value === 'indicator' ? 'indicator' : 'price')}
+            >
+              <option value="price">{copy.t('kindPrice')}</option>
+              <option value="indicator">{copy.t('kindIndicator')}</option>
+            </select>
+          </label>
+          {alertKind === 'indicator' ? (
+            <p className="nf-note" role="status" data-testid="alerts-kind-refused">
+              {copy.t('kindIndicatorRefused')}
+            </p>
+          ) : null}
+          <label className="nf-field">
             <span>{copy.t('conditionLabel')}</span>
             <select
               value={condition}
@@ -594,6 +630,20 @@ export default function AlertsPage() {
               {ALERT_CONDITIONS.map((value) => (
                 <option key={value} value={value}>
                   {conditionWords(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="nf-field">
+            <span>{copy.t('sourceLabel')}</span>
+            <select
+              value={source}
+              disabled={blockedReason !== null}
+              onChange={(event) => setSource(ALERT_SOURCES.find((value) => value === event.target.value) ?? 'mark')}
+            >
+              {ALERT_SOURCES.map((value) => (
+                <option key={value} value={value}>
+                  {copy.t(SOURCE_KEY[value])}
                 </option>
               ))}
             </select>
@@ -672,12 +722,21 @@ export default function AlertsPage() {
             <Button
               variant="secondary"
               size={32}
-              disabled={blockedReason !== null}
+              disabled={blockedReason !== null || atConditionCap}
               onClick={() => setExtras([...extras, { condition: 'less_than', price: '' }])}
             >
               {copy.t('extraAdd')}
             </Button>
           </div>
+          {conditionCapUnset ? (
+            <p className="nf-muted" data-testid="alerts-extra-cap" data-cap="unset">
+              {copy.t('extraCapUnset')}
+            </p>
+          ) : atConditionCap && maxConditions !== null ? (
+            <p className="nf-muted" data-testid="alerts-extra-cap">
+              {copy.t('extraCap', { max: String(maxConditions) })}
+            </p>
+          ) : null}
           <label className="nf-field">
             <span>{copy.t('nameLabel')}</span>
             <input autoComplete="off" value={name} disabled={blockedReason !== null} onChange={(event) => setName(event.target.value)} />
@@ -709,7 +768,7 @@ export default function AlertsPage() {
             </small>
           </label>
           <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={blockedReason !== null}>
+            <Button type="submit" size={32} disabled={blockedReason !== null || alertKind !== 'price'}>
               {copy.t('review')}
             </Button>
           </div>
@@ -817,7 +876,9 @@ export default function AlertsPage() {
                           {copy.t('condition', {
                             side: conditionWords(alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than')),
                             price: alert.targetPrice,
-                          }) + (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
+                          }) +
+                            (alert.kind === 'price' && market ? ` ${market.quote}` : '') +
+                            (alert.source && alert.source !== 'mark' ? ` · ${copy.t(SOURCE_KEY[alert.source])}` : '')}
                         </span>
                         {(alert.extras ?? []).map((extra, index) => (
                           <span data-testid="nf-body" className="nf-body nf-body--wrap" key={index}>

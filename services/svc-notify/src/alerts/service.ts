@@ -20,7 +20,7 @@ import {
   evaluateUnpublishedKind as unpublishedKindOutcome,
   evaluateWhaleAlert,
 } from './evaluate.js';
-import { AlertQuotaReachedError, AlertValidationError, type AlertStore } from './store.js';
+import { AlertQuotaReachedError, AlertValidationError, assertAlertPriceSource, type AlertStore } from './store.js';
 import {
   MemoryAlertTriggerLog,
   NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET,
@@ -33,6 +33,8 @@ import {
   directionOfCondition,
   EXTRA_CONDITIONS,
   isCrossingCondition,
+  NOTIFY_PRICE_SOURCE_UNAVAILABLE,
+  type AlertPriceSource,
   type AlertEdit,
   type AlertEditState,
   type AlertExtra,
@@ -510,6 +512,8 @@ export class AlertService {
     readonly used: number;
     readonly max: number | null;
     readonly burst: { readonly windowMinutes: number; readonly maxTriggers: number } | null;
+    /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). `null` while blank. */
+    readonly maxConditions: number | null;
   }> {
     await this.store.expireDue(now);
     const { burstWindowMinutes, burstMaxTriggers } = this.limits;
@@ -521,6 +525,7 @@ export class AlertService {
         burstWindowMinutes !== null && burstMaxTriggers !== null
           ? { windowMinutes: burstWindowMinutes, maxTriggers: burstMaxTriggers }
           : null,
+      maxConditions: this.limits.maxConditions,
     };
   }
 
@@ -593,6 +598,7 @@ export class AlertService {
       extras: edit.extras === undefined ? row.extras : assertAlertExtras(edit.extras, this.limits),
       // A repeating alert keeps repeating unless the edit says otherwise, and must still be a crossing after the edit.
       frequency: editedFrequency(edit.frequency, row.frequency, condition, this.limits),
+      source: edit.source === undefined ? row.source : assertAlertPriceSource(edit.source, row.kind),
     };
     return this.store.replace(userId, id, next, now);
   }
@@ -738,9 +744,19 @@ export class AlertService {
     const whaleQuote = await this.sourcedWhaleQuote(marketId, at);
     const actives = await this.store.listActiveByMarket(marketId);
     const results: EvaluateMarketReport['results'][number][] = [];
+    // One quote per price source a price alert here chose, within this pass. `mark` is the quote above, shared by every other kind.
+    const bySource = new Map<AlertPriceSource, MarkQuote>([['mark', quote]]);
+    for (const alert of actives) {
+      if (alert.kind !== 'price' || bySource.has(alert.source)) continue;
+      bySource.set(alert.source, await this.sourcedQuote(marketId, at, alert.source));
+    }
 
     for (const alert of actives) {
-      const applied = await this.applyEvaluation(alert, alert.kind === 'whale' ? whaleQuote : quote, at);
+      // Every price alert's source was quoted above; a missing one refuses, never falls back to the mark.
+      const priceQuote = (): MarkQuote =>
+        bySource.get(alert.source) ?? { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
+      const ownQuote = alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' ? priceQuote() : quote;
+      const applied = await this.applyEvaluation(alert, ownQuote, at);
       results.push({
         alertId: alert.id,
         userId: alert.userId,
@@ -772,7 +788,10 @@ export class AlertService {
       };
     }
     const evaluation = alert.kind === 'whale' ? this.whaleEvaluationStatus() : this.evaluationStatus();
-    const quote = alert.kind === 'whale' ? await this.sourcedWhaleQuote(alert.marketId, at) : await this.sourcedQuote(alert.marketId, at);
+    const quote =
+      alert.kind === 'whale'
+        ? await this.sourcedWhaleQuote(alert.marketId, at)
+        : await this.sourcedQuote(alert.marketId, at, alert.kind === 'price' ? alert.source : 'mark');
     const applied = await this.applyEvaluation(alert, quote, at);
     const refreshed = (await this.store.get(userId, alertId)) ?? alert;
     return {
@@ -783,8 +802,9 @@ export class AlertService {
     };
   }
 
-  private async sourcedQuote(marketId: string, at: Date): Promise<MarkQuote> {
-    const raw = await this.marks.quote(marketId, at);
+  private async sourcedQuote(marketId: string, at: Date, source: AlertPriceSource = 'mark'): Promise<MarkQuote> {
+    // `mark` is quoted exactly as before the source existed, so a port that predates it sees the same call.
+    const raw = source === 'mark' ? await this.marks.quote(marketId, at) : await this.marks.quote(marketId, at, source);
     return acceptAlertMark(this.marks, raw, at);
   }
 
