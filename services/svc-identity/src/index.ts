@@ -1048,7 +1048,7 @@ app.get<{ Params: { sessionId: string } }>('/internal/sessions/:sessionId', asyn
 /**
  * Service-to-service account state (svc-support's grounding read).
  *
- * Three fields — status and KYC tier — published as `accountStateSchema`. It is
+ * Four fields — status, KYC tier and whether the record is archived — published as `accountStateSchema`. It is
  * an S2S route and not a `scopedProcedure` for the same reason `/internal/rank`
  * is: the caller is svc-support acting for an operator who is NOT the account
  * holder, and the tRPC surface would need a user principal svc-support does not

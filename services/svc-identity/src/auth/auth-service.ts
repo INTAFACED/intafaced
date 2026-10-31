@@ -2745,11 +2745,11 @@ export class AuthService {
 
   async accountState(userId: string): Promise<AccountState | null> {
     const rows = await this.sql<
-      Array<{ id: string; status: 'active' | 'frozen' | 'closed' }>
-    >`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1`;
+      Array<{ id: string; status: 'active' | 'frozen' | 'closed'; archived: boolean }>
+    >`SELECT id, status, archived_at IS NOT NULL AS archived FROM users WHERE id = ${userId} LIMIT 1`;
     const user = rows[0];
     if (!user) return null;
-    return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+    return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id), archived: user.archived };
   }
 
   /**

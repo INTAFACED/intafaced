@@ -49,6 +49,12 @@ export const accountStateSchema = z.object({
   status: z.enum(['active', 'frozen', 'closed']),
   /** Highest approved, unexpired tier. Derived by identity, not stored twice. */
   kycTier: kycTierSchema,
+  /**
+   * `identity.users.archived_at` is set: the record was archived after its closure (OPS-accounts-desk-02) and takes no
+   * new staff action. Identity always sends it; it is optional only so readers' stored copies from before it parse. A
+   * reader that gates on it treats a missing value as unread and refuses, never as not archived.
+   */
+  archived: z.boolean().optional(),
 });
 export type AccountState = z.infer<typeof accountStateSchema>;
 
