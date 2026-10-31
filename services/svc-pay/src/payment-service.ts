@@ -474,6 +474,8 @@ export type PayErrorCode =
   | 'pay.destination_hold_unset'
   /** The current destination was confirmed again while a change of it is pending. Refused, nothing written. */
   | 'pay.destination_change_pending'
+  /** Cancel names an active destination: only a hold can be cancelled. Refused, nothing written. */
+  | 'pay.payout_destination_not_held'
   /** Verify named another kind or ref than the unverified destination saved for the rail. Refused, nothing written. */
   | 'pay.destination_verify_mismatch'
   /** Two first saves of a destination on one rail raced; the second is refused, nothing written. */

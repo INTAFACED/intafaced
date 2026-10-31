@@ -609,4 +609,100 @@ describe('payout destination lock', () => {
     }
     expect(await sql`SELECT ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`).toEqual([{ ref: A }]);
   });
+
+  it('cancelHold through the router: held back to Unverified under the row lock, idempotent, active refused, foreign id not found', async () => {
+    const previousHold = process.env.PAY_DESTINATION_HOLD_SECONDS;
+    process.env.PAY_DESTINATION_HOLD_SECONDS = '45';
+    try {
+      now = new Date();
+      const clocked = new PayService(
+        sql,
+        ledger,
+        new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]),
+        {
+          payoutDestinations: book,
+          checkoutRiskBand: 'low',
+          linkDefaultTtlDays: 30,
+          linkMaxTtlDays: 365,
+          checkoutSessionTtlSeconds: 900,
+          maxOpenSessionsPerLink: 25,
+          now: () => now,
+        },
+      );
+      const owner = randomUUID();
+      const merchant = await clocked.createMerchant({ userId: owner, pricing: { feeBps: 0 } });
+      const other = await clocked.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      await book.seedVerified({ merchantId: other.id, railId: RAIL, kind: 'crypto', ref: B });
+      const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 })]);
+      const caller = createPayRouter(
+        clocked,
+        rails,
+        new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] }),
+        null,
+        book,
+        acceptingApprovals(),
+        null,
+        undefined,
+        sql,
+      ).createCaller(await ownerContext(owner));
+      const list = async () => (await caller.merchant.payoutDestinations.list({ merchantId: merchant.id, limit: 10 })).items;
+      const stored = async () =>
+        (
+          await sql<Array<{ verified: boolean; verified_at: Date | null; activates_at: Date | null }>>`
+            SELECT verified, verified_at, activates_at FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchant.id}`
+        )[0];
+
+      await caller.merchant.payoutDestinations.add({ merchantId: merchant.id, railId: RAIL, kind: 'crypto', ref: A });
+      const [saved] = await list();
+      const cancel = () => caller.merchant.payoutDestinations.cancelHold({ merchantId: merchant.id, destinationId: saved!.id });
+      // Unverified: nothing to cancel, nothing written.
+      expect(await cancel()).toEqual({ destinationId: saved!.id, state: 'unverified', changed: false });
+      const verified = await caller.merchant.setPayoutDestination({
+        merchantId: merchant.id,
+        railId: RAIL,
+        kind: 'crypto',
+        ref: A,
+        stepUpApprovalId: 'ok',
+      });
+      expect(verified.status).toBe('held');
+      expect((await list())[0]?.state).toBe('held');
+
+      expect(await cancel()).toEqual({ destinationId: saved!.id, state: 'unverified', changed: true });
+      expect(await stored()).toEqual({ verified: false, verified_at: null, activates_at: null });
+      expect(await list()).toEqual([{ ...saved, state: 'unverified', activatesAt: null }]);
+      await expect(book.require({ merchantId: merchant.id, railId: RAIL })).rejects.toMatchObject({
+        code: 'pay.payout_destination_unverified',
+      });
+      // A repeat is a no-op success; past the old hold end it is still unverified.
+      expect(await cancel()).toEqual({ destinationId: saved!.id, state: 'unverified', changed: false });
+      now = new Date(Date.parse(verified.activatesAt!) + 1_000);
+      expect((await list())[0]?.state).toBe('unverified');
+
+      // Verified again and waited out: active, so cancel is refused and nothing changes.
+      const again = await caller.merchant.setPayoutDestination({
+        merchantId: merchant.id,
+        railId: RAIL,
+        kind: 'crypto',
+        ref: A,
+        stepUpApprovalId: 'ok-2',
+      });
+      expect(again.status).toBe('held');
+      now = new Date(again.activatesAt!);
+      expect(await refused(cancel())).toEqual({ trpc: 'CONFLICT', pay: 'pay.payout_destination_not_held' });
+      expect((await list())[0]?.state).toBe('active');
+      expect((await stored())?.verified).toBe(true);
+
+      // Another business's destination looks exactly like a missing one.
+      const [theirs] = await sql<Array<{ id: string }>>`SELECT id FROM pay.merchant_payout_destinations WHERE merchant_id = ${other.id}`;
+      const foreign = await refused(caller.merchant.payoutDestinations.cancelHold({ merchantId: merchant.id, destinationId: theirs!.id }));
+      const missing = await refused(
+        caller.merchant.payoutDestinations.cancelHold({ merchantId: merchant.id, destinationId: randomUUID() }),
+      );
+      expect(foreign).toEqual(missing);
+      expect(missing).toEqual({ trpc: 'NOT_FOUND', pay: 'pay.payout_destination_not_found' });
+    } finally {
+      if (previousHold === undefined) delete process.env.PAY_DESTINATION_HOLD_SECONDS;
+      else process.env.PAY_DESTINATION_HOLD_SECONDS = previousHold;
+    }
+  });
 });

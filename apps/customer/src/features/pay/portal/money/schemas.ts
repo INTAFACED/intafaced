@@ -75,6 +75,12 @@ export const destinationSavedSchema = z.object({
   status: z.literal('unverified'),
   activatesAt: z.null(),
 });
+/** What `merchant.payoutDestinations.cancelHold` answers: unverified again; `changed` false when it already was. */
+export const destinationHoldCancelledSchema = z.object({
+  destinationId: z.string(),
+  state: z.literal('unverified'),
+  changed: z.boolean(),
+});
 /** What `merchant.payoutDestinations.remove` answers. */
 export const destinationRemovedSchema = z.object({ removed: z.literal(true) });
 /** True only for the row the owner marked. A missing flag is "not the default", never a guess. */
