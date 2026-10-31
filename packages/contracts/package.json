@@ -58,6 +58,10 @@
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"
     },
+    "./outcome-markets": {
+      "types": "./dist/outcome-markets.d.ts",
+      "default": "./dist/outcome-markets.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
