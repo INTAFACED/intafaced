@@ -678,7 +678,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(await held(ALICE, 'USDT')).toBe('200');
     });
 
-    it('keeps the hold when the engine says the order is not live, and releases it past the in-flight bound', async () => {
+    it('keeps the hold when the engine says the order is not live, and sends it to reconciliation past the in-flight bound', async () => {
       await fund(ALICE, 'USDT', '1000');
       const order = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-1');
       matching.scriptCancelMiss(order.id);
@@ -688,10 +688,10 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect((await trade.cancelOrder(principalFor(ALICE), order.id)).status).toBe('open');
       expect(await held(ALICE, 'USDT')).toBe('200');
 
-      // Nothing heard past the bound: the hold still has to come back, or it never does.
+      // Nothing heard past the bound: reconciliation, with the hold still where it can be found.
       await sql`UPDATE trade.orders SET engine_absent_since = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1}) WHERE id = ${order.id}`;
-      expect((await trade.cancelOrder(principalFor(ALICE), order.id)).status).toBe('cancelled');
-      expect(await avail(ALICE, 'USDT')).toBe('1000');
+      expect((await trade.cancelOrder(principalFor(ALICE), order.id)).status).toBe('recovery_required');
+      expect(await held(ALICE, 'USDT')).toBe('200');
     });
   });
 

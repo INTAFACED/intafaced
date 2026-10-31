@@ -188,17 +188,19 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       // No live order and no earlier answer (#6874). The engine took it off the book by a fill, a cancel or an expiry,
       // and its event for that is how this service learns which: it may have matched in full with the taker's
       // settlement still on its way, or an earlier cancel's answer may not be written yet (two cancels racing).
-      // Releasing now would hand back what that fill draws. The order keeps its hold; the fill closes it
-      // (`finalizeIfComplete`), or the engine's cancel event does (`releaseOnCancelEvent`). Said on the row, for a
-      // chase to read. A submit whose outcome was unknown may never have reached the engine, and then nothing will
-      // be heard: past the in-flight bound from the first miss, a cancel releases as before.
+      // Releasing now would hand back what that fill draws, so a miss never releases. The order keeps its hold; its
+      // fill closes it (`finalizeIfComplete`), or the engine's cancel event does (`releaseOnCancelEvent`). Said on the
+      // row, for a chase to read. Past the in-flight bound from the first miss with neither heard (a submit whose
+      // outcome was unknown may never have reached the engine), it goes to reconciliation, still with its hold.
+      await svc.finalizeIfComplete(orderId);
       const [absent] = await svc.sql<Array<{ past_bound: boolean }>>`
         UPDATE trade.orders
            SET engine_absent_at_cancel = true, engine_absent_since = COALESCE(engine_absent_since, now())
          WHERE id = ${orderId} AND status IN ('open', 'pending', 'recovery_required')
          RETURNING engine_absent_since <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS}) AS past_bound
       `;
-      if (!absent?.past_bound) return (await svc.findOrder(orderId)) as OrderRecord;
+      if (absent?.past_bound) await svc.markRecoveryRequired(orderId, 'RECONCILIATION_REQUIRED');
+      return (await svc.findOrder(orderId)) as OrderRecord;
     }
 
     // A successful cancel whose fills are all written (or a paper market's
