@@ -141,7 +141,9 @@ test(`${J} #5 scans a code on a phone: an address opens Send pre-filled, a token
       const canvas = document.createElement('canvas');
       canvas.width = 2;
       canvas.height = 2;
-      canvas.getContext('2d').fillRect(0, 0, 2, 2);
+      const paint = canvas.getContext('2d');
+      // A canvas stream carries a frame only when the canvas is painted: keep painting so the video always has one.
+      setInterval(() => paint.fillRect(0, 0, 2, 2), 50);
       return canvas.captureStream();
     };
   });

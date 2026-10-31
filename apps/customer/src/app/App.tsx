@@ -29,8 +29,6 @@ const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3
 const PublicRoutes = lazy(loadPublic);
 const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
-// The wallet connection lives above the per-page boundary (keyed by path), so it outlasts a move between Web3 rooms.
-const Web3Wallet = lazy(() => import('../features/protocol/wallet/WalletProvider').then((m) => ({ default: m.WalletProvider })));
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -225,11 +223,14 @@ export function App() {
       <TeamDesk href={teamHref} />
     </Shell>
   ) : room?.area === 'web3' ? (
-    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
+    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target. The
+    // frame, and the wallet connection in it, outlast a move between Web3 rooms; only the room inside remounts.
     <Suspense fallback={fallback}>
       <Web3Shell path={path}>
-        {ribbon}
-        <ProtocolRoutes path={path} />
+        <RoomBoundary key={path}>
+          {ribbon}
+          <ProtocolRoutes path={path} />
+        </RoomBoundary>
       </Web3Shell>
     </Suspense>
   ) : (
@@ -242,15 +243,7 @@ export function App() {
     <div onClick={followLink}>
       <ApplyView />
       <AccountViewSync />
-      {room?.area === 'web3' ? (
-        <Suspense fallback={fallback}>
-          <Web3Wallet>
-            <RoomBoundary key={path}>{content}</RoomBoundary>
-          </Web3Wallet>
-        </Suspense>
-      ) : (
-        <RoomBoundary key={path}>{content}</RoomBoundary>
-      )}
+      <RoomBoundary key={room?.area === 'web3' ? 'web3' : path}>{content}</RoomBoundary>
     </div>
   );
 }

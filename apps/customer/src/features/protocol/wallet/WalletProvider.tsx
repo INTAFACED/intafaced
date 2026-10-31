@@ -169,16 +169,10 @@ interface Pending {
 }
 
 /**
- * One wallet connection per page. A provider inside another (the Web3 frame inside the app's page-wide one) uses the
- * outer connection, so moving between Web3 rooms never drops it, even where the browser blocks storage and nothing can
- * be remembered across the move.
+ * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
+ * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
  */
-export function WalletProvider(props: { children: ReactNode; discovery?: boolean }) {
-  const outer = useContext(Context);
-  return outer !== empty ? <>{props.children}</> : <WalletScope {...props} />;
-}
-
-function WalletScope({ children, discovery = true }: { children: ReactNode; discovery?: boolean }) {
+export function WalletProvider({ children, discovery = true, scope }: { children: ReactNode; discovery?: boolean; scope?: string }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
@@ -258,6 +252,27 @@ function WalletScope({ children, discovery = true }: { children: ReactNode; disc
       }
     })();
   }, [wallets, status, store, adopt]);
+
+  // A move to another room cancels a sheet that is still open: the room that asked for it is gone.
+  const scopeRef = useRef(scope);
+  useEffect(() => {
+    if (scopeRef.current === scope) return;
+    scopeRef.current = scope;
+    setPending((current) => {
+      if (current) {
+        current.started = true;
+        current.resolve({ status: 'rejected' });
+      }
+      return null;
+    });
+    setSequence((current) => {
+      if (current) {
+        current.started = true;
+        current.resolve({ status: 'rejected', sent: [] });
+      }
+      return null;
+    });
+  }, [scope]);
 
   // Account and chain changes made inside the wallet.
   useEffect(() => {

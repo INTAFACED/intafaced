@@ -85,6 +85,9 @@ export function SwapForm() {
   const [representation, setRepresentation] = useState<{ address: string; status: RepresentationStatus } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
+  // A failed swap belongs to the quote it was sent on: Swap waits for a new read (new input, Refresh, Get a new quote). The
+  // status card stays, so a reverted swap's hash and fee are not lost when the amount changes.
+  const [needsQuote, setNeedsQuote] = useState(false);
   const [feeChoice, setFeeChoice] = useState<FeeChoice>('normal');
   const [customFee, setCustomFee] = useState('');
   const ids = { pay: useId(), receive: useId(), note: useId() };
@@ -99,8 +102,7 @@ export function SwapForm() {
   useEffect(() => {
     setQuote(null);
     setQuoteProblem(null);
-    // A failed swap belongs to the quote it was sent on: any new read (new input, Refresh, Get a new quote) clears it.
-    setTrack((shown) => (shown?.state === 'failed' ? null : shown));
+    setNeedsQuote(false);
     if (!tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return;
     const controller = new AbortController();
     void Promise.all(
@@ -173,7 +175,7 @@ export function SwapForm() {
                   ? quoteProblem
                   : !quote
                     ? t('quoting')
-                    : track?.state === 'failed'
+                    : needsQuote
                       ? t('needsNewQuote')
                       : expired
                         ? t('needsRefresh')
@@ -267,13 +269,11 @@ export function SwapForm() {
     if (result.status === 'rejected') return setProblem(`${result.sent.length > 0 ? t('rejectedAfter') : t('rejected')}${earlier}`);
     if (result.status === 'failed') {
       // The swap step itself failed before it was mined: say why in a sentence when the pool shows it.
-      if (result.step === steps.length - 1)
-        return setTrack({
-          ...base,
-          hash: null,
-          state: 'failed',
-          reason: `${await whyFailed(from.pool.pool, inToken.address, from.amountIn, min, result.message)}${earlier}`,
-        });
+      if (result.step === steps.length - 1) {
+        const reason = `${await whyFailed(from.pool.pool, inToken.address, from.amountIn, min, result.message)}${earlier}`;
+        setNeedsQuote(true);
+        return setTrack({ ...base, hash: null, state: 'failed', reason });
+      }
       return setProblem(`${result.message}${earlier}`);
     }
     setTrack({ ...base, hash: result.hashes[result.hashes.length - 1]!, state: 'submitted' });
@@ -319,7 +319,9 @@ export function SwapForm() {
         if (receipt.status === '0x0') {
           // Mined and reverted: nothing was swapped, but the network fee was paid.
           const reason = await whyFailed(current.pool, current.tokenIn.address, current.amountIn, current.minOut);
-          if (!stopped) setTrack({ ...current, state: 'failed', reason, feeWei });
+          if (stopped) return;
+          setNeedsQuote(true);
+          setTrack({ ...current, state: 'failed', reason, feeWei });
           return;
         }
         const head = (await wallet.read('eth_blockNumber', [])) as string | null;

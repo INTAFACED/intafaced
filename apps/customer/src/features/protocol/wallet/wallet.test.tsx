@@ -103,20 +103,21 @@ describe('wallet provider', () => {
     expect(await api.sign({ kind: 'message', message: 'x' })).toMatchObject({ status: 'failed', reason: 'not_connected' });
   });
 
-  it('a provider inside another keeps the outer connection when the inner one is replaced (a move between rooms)', async () => {
+  it('a move to another room keeps the connection and cancels an open sheet without asking the wallet', async () => {
     const found = wallet();
     const page = (room: string) => (
-      <WalletProvider discovery={false}>
-        <WalletProvider key={room} discovery={false}>
-          <Probe />
-        </WalletProvider>
+      <WalletProvider scope={room} discovery={false}>
+        <Probe />
       </WalletProvider>
     );
-    await act(async () => root.render(page('/wallet')));
-    await act(async () => api.connect(found));
-    expect(api).toMatchObject({ status: 'connected', address: ADDR });
-    // The page boundary is keyed by path: the inner provider and everything under it mount afresh.
     await act(async () => root.render(page('/dex')));
+    await act(async () => api.connect(found));
+    const result = await openSheet();
+    expect(document.body.textContent).toContain('Check before you sign');
+    await act(async () => root.render(page('/wallet')));
+    expect(result()).toEqual({ status: 'rejected' });
+    expect(document.body.textContent).not.toContain('Check before you sign');
+    expect(calls).not.toContain('personal_sign');
     expect(api).toMatchObject({ status: 'connected', address: ADDR });
   });
 
