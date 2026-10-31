@@ -172,11 +172,14 @@ test(`${J} #4 a row click shows that market on the chart at the interval the wor
   page,
 }) => {
   await signIn(page, account());
-  await page.goto('/charts/BTC-USDT?interval=15m');
-  await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 15m');
+  // 1h, not the chart's default 15m, so a symbol change that reset the interval would show.
+  await page.goto('/charts/BTC-USDT?interval=1h');
+  await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 1h');
+  const pressed = page.getByRole('group', { name: 'Chart intervals' }).first().locator('button[aria-pressed="true"]');
   await row(page, 'ETH/USDT').getByRole('link', { name: 'ETH/USDT' }).click();
   await expect(page).toHaveURL(/\/charts\/ETH-USDT/);
-  await expect(page.getByTestId('chart-title').first()).toHaveText('ETH/USDT · 15m');
+  await expect(page.getByTestId('chart-title').first()).toHaveText('ETH/USDT · 1h');
+  await expect(pressed).toHaveText('1h');
   // Drag a row onto the chart, in steps: a single-jump dragTo never starts the browser's native drag here.
   const from = await row(page, 'BTC/USDT').boundingBox();
   const to = await page.getByTestId('cw-split-chart').boundingBox();
@@ -186,7 +189,8 @@ test(`${J} #4 a row click shows that market on the chart at the interval the wor
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 });
   await page.mouse.up();
   await expect(page).toHaveURL(/\/charts\/BTC-USDT/);
-  await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 15m');
+  await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 1h');
+  await expect(pressed).toHaveText('1h');
 });
 
 test(`${J} #5 opens a symbol's details: statistics and market rules, with a stat the service does not serve shown as not served`, async ({
