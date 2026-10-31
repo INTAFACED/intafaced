@@ -102,6 +102,57 @@ export const loanSchema = z.object({
   status: z.string(),
   marginCalledAt: z.string().nullable(),
 });
+/** `bank.loans.quote` (J-bank-09 #2): the smallest pledge `open` accepts for a principal, from the marks `open` uses. */
+export const loanQuoteSchema = z.object({
+  productId: z.string(),
+  debtAssetId: z.string(),
+  collateralAssetId: z.string(),
+  quoteAssetId: z.string(),
+  principal: money,
+  requiredCollateral: money,
+  startingLtvBps: z.number().int(),
+  maxLtvBps: z.number().int(),
+  liquidationLtvBps: z.number().int(),
+  liquidationPrice: money,
+  debtPrice: money,
+  collateralPrice: money,
+  pricedAt: z.string(),
+});
+export type LoanQuote = z.infer<typeof loanQuoteSchema>;
+export const LOAN_ELIGIBILITY_KEYS = ['lending_policy', 'product_open', 'assets_open', 'origination_fee', 'jurisdiction_rules'] as const;
+/** `bank.loans.eligibility` (J-bank-09 #3): each condition met, unmet with the code `open` would refuse, or not set. */
+export const loanEligibilitySchema = z.object({
+  productId: z.string(),
+  eligible: z.boolean(),
+  reasons: z.array(
+    z.object({ key: z.enum(LOAN_ELIGIBILITY_KEYS), state: z.enum(['met', 'unmet', 'not_set']), code: z.string().nullable() }),
+  ),
+});
+export type LoanEligibility = z.infer<typeof loanEligibilitySchema>;
+/** `bank.loans.fees` (J-bank-09 #3): the origination fee, not set (no fee line) or published. */
+export const loanFeesSchema = z.object({
+  productId: z.string(),
+  assetId: z.string(),
+  origination: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('not_set') }),
+    z.object({ status: z.literal('published'), bps: z.number().int(), amount: money.nullable(), collectable: z.boolean() }),
+  ]),
+});
+export type LoanFees = z.infer<typeof loanFeesSchema>;
+/** `bank.loans.terms` (J-bank-09 #5): what was written on the loan at open, never the product's current terms. */
+export const loanTermsSchema = z.object({
+  loanId: z.string(),
+  productId: z.string(),
+  debtAssetId: z.string(),
+  collateralAssetId: z.string(),
+  principal: money,
+  openingCollateral: money.nullable(),
+  aprBps: z.number().int(),
+  marginCallLtvBps: z.number().int().nullable(),
+  liquidationLtvBps: z.number().int().nullable(),
+  openedAt: z.string(),
+});
+export type LoanTerms = z.infer<typeof loanTermsSchema>;
 /** `bank.loans.projection` (BK-loan-06): the accrual rule run forward by the bank. A projection, never a schedule. */
 export const loanProjectionSchema = z.object({
   loanId: z.string(),
@@ -923,6 +974,10 @@ export const bankReads = {
   'loans.payoffQuote': payoffQuoteSchema,
   'loans.interestRows': loanInterestRowsSchema,
   'loans.ledgerCheck': loanLedgerCheckSchema,
+  'loans.quote': loanQuoteSchema,
+  'loans.eligibility': loanEligibilitySchema,
+  'loans.fees': loanFeesSchema,
+  'loans.terms': loanTermsSchema,
   /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
   'loans.releasable': z.object({
     loanId: z.string(),

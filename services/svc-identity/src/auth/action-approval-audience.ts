@@ -119,6 +119,14 @@ function isFounderName(name: string): boolean {
   return [n, head].some((x) => FOUNDER_ACTION_TYPES.includes(x) || FOUNDER_ACTION_PREFIXES.some((p) => x.startsWith(p)));
 }
 
+/**
+ * True when the type or the target id sits in a founder namespace. A governed policy row never lowers such a request
+ * below founders, whatever audience the row names.
+ */
+export function inFounderNamespace(subject: ApprovalSubject): boolean {
+  return isFounderName(subject.actionType) || isFounderName(subject.targetId);
+}
+
 /** Audience of a bare action type string. Same rules as `audienceOfApproval` with no target to look at. */
 export function audienceOf(actionType: string): ActionAudience {
   if (isSamePersonActionType(actionType)) return 'self';

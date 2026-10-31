@@ -254,6 +254,30 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_REPRESENTATION_TEXT: blankIsUnset(z.string().max(4000).optional()),
 
     /**
+     * The wallet session that opens the address book (D-portfolio-wallet-03, src/address-book/session.ts). NO DEFAULT for
+     * any of the three: blank refuses `protocol.wallet_session_unset` and no book opens.
+     * - the secret seals the sign-in challenge and the session token (an HMAC key, at least 32 characters). It is not a
+     *   chain key and signs nothing on any chain; a TEST secret refuses to boot outside dev or test;
+     * - the lifetime of a session, in seconds (60 to 86400);
+     * - the page origins wallet messages are written for, comma-separated (`https://app.example`).
+     */
+    PROTOCOL_WALLET_SESSION_SECRET: blankIsUnset(z.string().optional()),
+    PROTOCOL_WALLET_SESSION_TTL_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(86_400).optional()),
+    PROTOCOL_WALLET_SESSION_ORIGINS: blankIsUnset(z.string().max(2000).optional()),
+    /**
+     * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
+     * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
+     */
+    PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: blankIsUnset(z.coerce.number().int().min(1).max(10_000).optional()),
+    PROTOCOL_WALLET_GROUPS_MAX: blankIsUnset(z.coerce.number().int().min(1).max(1_000).optional()),
+
+    /**
+     * How long a contract ownership challenge stays signable, in seconds (D-launch-listing-01). The owner's setting, no
+     * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
+     */
+    PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
+
+    /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.
      * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
      * TEST fixtures may pass `10,50,90` and a block count; this schema does not.

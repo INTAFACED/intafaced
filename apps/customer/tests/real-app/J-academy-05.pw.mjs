@@ -55,6 +55,8 @@ async function staff(procedure, input) {
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return res;
 }
+/** A date as the app shows it in English: the long UTC day. */
+const day = (iso) => new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(iso));
 const setIssueRule = (mode, delayMinutes = null) =>
   staff('admin.setCertIssueRule', { certId: CERT, mode, delayMinutes, reason: `TEST ${J}: issue rule ${mode}` });
 
@@ -156,6 +158,19 @@ test(`${J} #2 the Certificates tab lists my course and programme certificates, a
   page,
 }) => {
   const { earner } = state('earner');
+  // Staff publish a programme of the one course this learner finished; the learner's programme read issues its certificate.
+  const slug = `test-j05-${Date.now().toString(36)}`;
+  const title = `TEST J-academy-05 programme ${slug.slice('test-j05-'.length)}`;
+  await staff('admin.saveProgramme', {
+    slug,
+    title,
+    summary: 'TEST Foundations only.',
+    courseSlugs: [COURSE],
+    expectedRevision: null,
+    reason: `TEST ${J}: a programme of the course this learner finished`,
+  });
+  const mine = (await read(earner, 'programmes', { limit: 50, mine: true })).find((row) => row.slug === slug);
+  expect(mine?.certificate.state, JSON.stringify(mine)).toBe('earned');
   await signIn(page, earner);
   await page.goto('/academy/certificates');
   const courses = page.locator('[data-certificates="courses"]');
@@ -171,14 +186,16 @@ test(`${J} #2 the Certificates tab lists my course and programme certificates, a
   }
   const programmes = page.locator('[data-certificates="programmes"]');
   await expect(programmes.getByRole('heading', { name: 'Programme certificates' })).toBeVisible();
-  // This learner started no course in a programme, so no card shows; the words say whether any programme is published.
-  const published = (await read(earner, 'programmes', { limit: 1 })).length > 0;
-  await expect(programmes).toContainText(
-    published
-      ? 'You have started no course in a programme, so there is no programme certificate to show. The Programmes tab lists them.'
-      : 'Academy has published no learning programmes, so there is no programme certificate to earn.',
+  // The programme certificate this learner holds is listed with its title, date and serial, and links to its check page.
+  const card = programmes.locator(`[data-certificate="programme:${slug}"]`);
+  await expect(card).toHaveAttribute('data-state', 'earned');
+  await expect(card.getByRole('heading', { level: 4 })).toHaveText(title);
+  await expect(card.getByRole('status')).toHaveText(`Programme certificate earned on ${day(mine.certificate.grantedAt)}.`);
+  await expect(card.getByTestId('programme-certificate-serial')).toHaveText(`Serial number ${mine.certificate.publicId}`);
+  await expect(card.getByRole('link', { name: 'Check this certificate', exact: true })).toHaveAttribute(
+    'href',
+    `/academy/certificates/verify/${mine.certificate.publicId}`,
   );
-  await expect(programmes.locator('[data-certificate]')).toHaveCount(0);
 });
 
 test(`${J} #3 the certificate sheet shows its serial number and offers only Copy link and Print, naming no partner`, async ({
@@ -213,7 +230,7 @@ test(`${J} #3 the certificate sheet shows its serial number and offers only Copy
 test(`${J} #4 the public verify page says valid with the issue date, revoked once revoked, and refuses reads past the rate limit`, async ({
   browser,
 }) => {
-  const { code, waitingCode } = state('code', 'waitingCode');
+  const { code, waitingCode, issuedAt } = state('code', 'waitingCode', 'issuedAt');
   // Signed out, as anyone the link was sent to.
   const context = await browser.newContext({ baseURL: ORIGIN, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
@@ -221,7 +238,8 @@ test(`${J} #4 the public verify page says valid with the issue date, revoked onc
   const answer = page.locator(`[data-certificate-verify="${code}"]`);
   await expect(answer.getByTestId('verify-status')).toHaveText('Valid');
   await expect(answer).toContainText('Foundations');
-  await expect(answer.getByTestId('verify-issued')).toHaveText(/\d{4}/);
+  // The issue date is the day the certificate was stored as issued.
+  await expect(answer.getByTestId('verify-issued')).toHaveText(day(issuedAt));
 
   // Staff revoke the other learner's certificate (two founders); its verify page now says revoked.
   await revoke(waitingCode);
@@ -257,6 +275,9 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
       })
       .toBe(BigInt(policy.xpDelta));
   }
+  const rank = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  // With no XP published for it, the certificate left the rank ladder where it was.
+  if (!policy) expect(rank.xp).toBe(xpBefore);
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
   const xp = page.locator(`[data-certificate-sheet="${CERT}"]`).getByTestId('certificate-xp');
@@ -266,7 +287,10 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
       : 'This certificate carries no XP: no XP value is published for it, so your rank and perks did not change.',
   );
   await xp.getByRole('link', { name: 'See your rank', exact: true }).click();
-  await expect(page).toHaveURL(/\/account/);
+  await expect(page).toHaveURL(/\/uc\/account$/);
+  // The rank page shows the lifetime XP the ladder holds now.
+  const lifetime = page.getByTestId('rank-perks').locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
+  await expect(lifetime).toHaveText(new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(rank.xp)));
   // A certificate never posts to the ledger.
   expect(await session.balances()).toEqual(balancesBefore);
   // Put the issue rule back as it was before this journey.

@@ -12,6 +12,7 @@ import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
 import { TaskService } from './tasks.js';
+import { VoucherService } from './vouchers.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -64,7 +65,17 @@ const tasks = new TaskService({
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks);
+const attemptLimits =
+  env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT && env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS && env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
+    ? {
+        perAccount: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT,
+        perAddress: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS,
+        windowSeconds: env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS,
+      }
+    : null;
+const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 let bus: JetStreamEventBus | null = null;
@@ -81,6 +92,7 @@ app.get('/ready', async (_req, reply) => {
       tgeSchedule: tgeSchedule ? 'set' : 'launch.schedule_unset',
       timeZone: timeZone ?? 'campaigns.timezone_unset',
       ruleLimits: ruleLimits.depth && ruleLimits.size ? 'set' : 'campaigns.rule_limits_unset',
+      voucherAttempts: attemptLimits ? 'set' : 'campaigns.attempt_limit_unset',
       ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
       reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
       bus: bus ? 'attached' : 'unreachable',
@@ -94,7 +106,11 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    // The voucher attempt limit counts per source address: the one svc-edge resolved and forwarded as x-real-ip.
+    createContext: ({ req }) => {
+      const forwarded = req.headers['x-real-ip'];
+      return { ...edgeContext(req), sourceAddress: (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.trim() || null };
+    },
   } satisfies FastifyTRPCPluginOptions<CampaignsRouter>['trpcOptions'],
 });
 
@@ -216,6 +232,16 @@ const reconciler =
     : null;
 reconciler?.unref();
 
+// Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
+// attempts older than the attempt window, which nothing counts any more. It moves no value, so
+// it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
+const VOUCHER_EXPIRY_MS = 15_000;
+const voucherExpiry = setInterval(() => {
+  vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
+  vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
+}, VOUCHER_EXPIRY_MS);
+voucherExpiry.unref();
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
@@ -232,6 +258,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
+      clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
       await app.close();

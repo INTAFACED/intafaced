@@ -42,15 +42,21 @@ test(`${J} #1 opens a 2x2 grid; dragging a border resizes two cells and a double
 
 test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on the same key`, async ({ page }) => {
   await openGrid(page);
+  const sizes = async () => Promise.all([0, 1, 2, 3].map(async (i) => [await width(page, i), await height(page, i)]));
+  const gridSizes = await sizes();
   await canvasOf(page, 1).focus();
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
-  await expect(cell(page, 0)).toBeHidden();
+  for (const i of [0, 2, 3]) await expect(cell(page, i)).toBeHidden();
   await expect(cell(page, 1)).toBeVisible();
   expect(await width(page, 1)).toBeGreaterThan(1000);
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
-  // The others stayed alive: their bars are still drawn.
+  // Every cell is back in view at its grid size, and the others stayed alive: their bars are still drawn.
+  for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
+  await expect
+    .poll(async () => (await sizes()).every(([w, h], i) => Math.abs(w - gridSizes[i][0]) < 2 && Math.abs(h - gridSizes[i][1]) < 2))
+    .toBe(true);
   for (const i of [0, 2, 3]) await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
 });
 
@@ -117,17 +123,25 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByTestId('replay-position')).toHaveText(`Replay: bar ${total - back} of ${total}`);
   await expect(canvas).toHaveAttribute('data-bars', String(total - back));
+  // Every change of the drawn bar count, with its time, recorded in the page as it happens.
+  await canvas.evaluate((el) => {
+    window.__replaySteps = [];
+    // One entry per attribute change, old and new value, so two changes in one batch are two entries.
+    new MutationObserver((records) => {
+      for (const r of records) window.__replaySteps.push([performance.now(), Number(r.oldValue), Number(el.getAttribute('data-bars'))]);
+    }).observe(el, { attributes: true, attributeFilter: ['data-bars'], attributeOldValue: true });
+  });
   await page.getByRole('button', { name: 'Play', exact: true }).click();
-  // At 4x a bar every 250 ms: the position climbs one bar at a time.
-  const seen = new Set();
-  for (let i = 0; i < 12; i += 1) {
-    seen.add(Number(await canvas.getAttribute('data-bars')));
-    await page.waitForTimeout(120);
-  }
-  const steps = [...seen].sort((a, b) => a - b);
-  expect(steps.length).toBeGreaterThan(3);
-  for (let i = 1; i < steps.length; i += 1) expect(steps[i] - steps[i - 1]).toBeLessThanOrEqual(2);
+  await page.waitForTimeout(3_000);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  // At 4x, one bar every 250 ms: each change adds exactly one bar, and the changes come a quarter second apart.
+  const steps = await page.evaluate(() => window.__replaySteps);
+  expect(steps.length, 'bars replayed in 3 s at 4x').toBeGreaterThanOrEqual(8);
+  for (const [i, [, from, to]] of steps.entries()) expect(to - from, `change ${i}: ${from} to ${to}`).toBe(1);
+  const gaps = steps.slice(1).map((step, i) => step[0] - steps[i][0]);
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  expect(mean, `mean ms between bars at 4x (${gaps.map(Math.round).join(', ')})`).toBeGreaterThan(200);
+  expect(mean).toBeLessThan(300);
   const held = await canvas.getAttribute('data-bars');
   await page.waitForTimeout(600);
   await expect(canvas).toHaveAttribute('data-bars', held);
@@ -147,20 +161,92 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await page.keyboard.press('?');
   const list = page.getByTestId('shortcut-list');
   await expect(list).toBeVisible();
-  for (const key of ['Alt+Enter', 'Alt+1 … Alt+6', 'Alt+R', 'Alt+G', 'Alt+T', '?']) await expect(list).toContainText(key);
+  // The help list: each key and what it does, in order.
+  const help = [
+    ['Alt+Enter', 'Maximise the chart in focus, or bring the others back'],
+    ['Alt+1 … Alt+6', 'Chart style: candles, bars, line, area, columns, Heikin Ashi'],
+    ['Alt+R', 'Open or close bar replay'],
+    ['Alt+G', 'Next layout'],
+    ['Alt+T', 'Open the trading desk for this chart’s market (nothing is sent)'],
+    ['← →', 'Move the chart'],
+    ['+ −', 'Zoom in or out'],
+    ['Home', 'Show the newest bars'],
+    ['?', 'Show this list'],
+  ];
+  expect(await list.locator('dt').allTextContents()).toEqual(help.map(([key]) => key));
+  expect(await list.locator('dd').allTextContents()).toEqual(help.map(([, does]) => does));
   await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+  // Each key does what the list says. Styles: Alt+1 to Alt+6 in the listed order, from Alt+2 so Alt+1 changes something.
   await canvasOf(page, 2).focus();
-  await page.keyboard.press('Alt+3');
-  await expect(canvasOf(page, 2)).toHaveAttribute('data-style', 'line');
-  await page.keyboard.press('Alt+6');
-  await expect(canvasOf(page, 2)).toHaveAttribute('data-style', 'heikin-ashi');
+  await page.keyboard.press('Alt+2');
+  await expect(canvasOf(page, 2)).toHaveAttribute('data-style', 'bars');
+  for (const [n, style] of ['candles', 'bars', 'line', 'area', 'columns', 'heikin-ashi'].entries()) {
+    await page.keyboard.press(`Alt+${n + 1}`);
+    await expect(canvasOf(page, 2)).toHaveAttribute('data-style', style);
+  }
+  // Pan, zoom and the newest bars, read from the chart's own visible range once it holds still (the same on two reads
+  // 200 ms apart; NaN until the chart has written one).
+  const view = async () =>
+    canvasOf(page, 2).evaluate((el) => {
+      const read = (name) => (el.hasAttribute(name) ? Number(el.getAttribute(name)) : NaN);
+      return { from: read('data-view-from'), to: read('data-view-to'), bars: read('data-bars') };
+    });
+  const settled = async (check) => {
+    let last = null;
+    let held = null;
+    await expect
+      .poll(
+        async () => {
+          const v = await view();
+          held = last && Number.isFinite(v.from) && v.from === last.from && v.to === last.to && v.bars === last.bars && check(v) ? v : null;
+          last = v;
+          return held !== null;
+        },
+        { intervals: [200] },
+      )
+      .toBe(true);
+    return held;
+  };
+  await canvasOf(page, 2).focus();
+  const fitted = await settled(() => true);
+  await page.keyboard.press('+');
+  const v0 = await settled((v) => v.to - v.from < (fitted.to - fitted.from) * 0.9);
+  await page.keyboard.press('ArrowLeft');
+  await settled((v) => Math.round(v0.from - v.from) === 10 && Math.round(v0.to - v.to) === 10);
+  await page.keyboard.press('ArrowRight');
+  await settled((v) => Math.round(v.from - v0.from) === 0 && Math.round(v.to - v0.to) === 0);
+  await page.keyboard.press('+');
+  const zoomed = await settled((v) => v.to - v.from < (v0.to - v0.from) * 0.9);
+  await page.keyboard.press('-');
+  await settled((v) => v.to - v.from > (zoomed.to - zoomed.from) * 1.1);
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await settled((v) => Math.round(v0.to - v.to) >= 19 && v.to < v.bars - 1);
+  // Home shows the newest bars: the last bar is in view again, also once any older history it loads has landed.
+  await page.keyboard.press('Home');
+  await settled((v) => v.to >= v.bars - 1);
+  // Replay opens and closes on its key.
   await page.keyboard.press('Alt+R');
   await expect(cell(page, 2).getByRole('group', { name: 'Bar replay' })).toBeVisible();
+  await canvasOf(page, 2).focus();
+  await page.keyboard.press('Alt+R');
+  await expect(cell(page, 2).getByRole('group', { name: 'Bar replay' })).toBeHidden();
+  // Maximise and back.
+  await canvasOf(page, 2).focus();
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '2');
   await page.keyboard.press('Alt+Enter');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
+  for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
+  // The next layout.
   await page.keyboard.press('Alt+G');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
+  // ? opens the list again.
+  await canvasOf(page, 0).focus();
+  await page.keyboard.press('?');
+  await expect(list).toBeVisible();
+  await page.keyboard.press('Escape');
   // Keys are off inside a field.
   await page.getByLabel('Go to date').first().focus();
   await page.keyboard.press('Alt+G');
@@ -185,5 +271,8 @@ test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell 
     await expect(cell(page, i).locator('[data-study="rsi-1"]')).toHaveAttribute('data-pane', 'sub');
     // Volume is the default sub-pane, so RSI makes two indicator panes.
     await expect(canvasOf(page, i)).toHaveAttribute('data-study-panes', '2');
+    // Each cell's RSI is the 14-period one: its line is named for its period, and so is its chip.
+    await expect(cell(page, i).locator('[data-study="rsi-1"] .st-row-formula')).toHaveText('RSI 14');
+    await expect(cell(page, i).getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
   }
 });

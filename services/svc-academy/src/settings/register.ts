@@ -45,6 +45,7 @@ export interface SettingsEnv {
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
+  readonly ACADEMY_BULK_FILE_MAX_BYTES?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
@@ -225,6 +226,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.report_limit_unset',
+    },
+    {
+      key: 'bulk_file_max_bytes',
+      state: state(positiveInt(env.ACADEMY_BULK_FILE_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.bulk_limit_unset',
     },
     {
       // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.

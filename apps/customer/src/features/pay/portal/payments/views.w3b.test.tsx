@@ -149,6 +149,7 @@ describe('payments list (P06)', () => {
   });
   it('explains an empty account', () => {
     const out = view({ list: listOf([]) });
+    expect(out).toContain('No payments yet');
     expect(out).toContain('Your first payment starts here');
     expect(out).toContain('href="/pay/links/new"');
   });

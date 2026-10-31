@@ -27,5 +27,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // #4). Production stays blank and every rule try, save and campaign rule refuses campaigns.rule_depth_unset.
     CAMPAIGNS_RULE_DEPTH_LIMIT: '4',
     CAMPAIGNS_RULE_SIZE_LIMIT: '20',
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: voucher code checks and claims per
+    // account and per source address in the window (J-campaigns-08). Every journey call reaches the edge from this
+    // machine's one address, so that limit is wide. Production stays blank and every check and claim refuses
+    // campaigns.attempt_limit_unset until the owner sets them.
+    CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: '20',
+    CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: '500',
+    CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: '3600',
   }),
 });

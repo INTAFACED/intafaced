@@ -17,6 +17,7 @@ export const WALLET_SECTIONS = {
   send: '/wallet/send',
   receive: '/wallet/receive',
   scan: '/wallet/scan',
+  addressBook: '/wallet/address-book',
   approvals: '/wallet/approvals',
   sessionKeys: '/wallet/session-keys',
   accounts: '/wallet/accounts',
@@ -31,6 +32,8 @@ export interface Web3Route {
   tab?: string;
   /** The wallet room, opened on this section. */
   wallet?: WalletSection;
+  /** The wallet room's page for one wallet group (`groupId`), under its address book section. */
+  walletGroup?: true;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
   /** One pool's page by its contract address (D-explorer-05). */
@@ -48,6 +51,9 @@ const txHash = /^0x[0-9a-fA-F]{64}$/;
 /** A 20-byte hex address, the shape every address route and the token page accept. */
 export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+/** A wallet group's id, as svc-protocol issues it. */
+export const WALLET_GROUP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const walletGroupPath = (groupId: string) => `/wallet/groups/${encodeURIComponent(groupId)}`;
 
 /** Specific routes sit before the parameter routes that could swallow them (`/dex/pools/new` before `/dex/pools/:poolId`). */
 export const WEB3_ROUTES: readonly Web3Route[] = [
@@ -65,6 +71,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
+  { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
   { path: '/chain/blocks/:height', room: 'chain', explorer: 'block', param: { name: 'height', shape: digits } },
