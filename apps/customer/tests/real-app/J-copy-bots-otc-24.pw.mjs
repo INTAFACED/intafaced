@@ -8,11 +8,11 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // large trade and settle it. One test per step, titled "J-copy-bots-otc-24 #<n>". The trader is a TEST account on the
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
-// The region-block clause of #1 is a compliance gate deferred to launch prep in the row (owner decision 2026-10-27), so
-// it has no test. The settlement name-match clause of #3 stays in the row (money safety) but has nothing to match yet: OTC settles
-// only to the trader's own ledger account, so there is no outside settlement account (CB-otc-08's bank name-match needs
-// a fiat settlement leg to a linked bank account). The level gate of #3 is built. The name match has its own test, red
-// by name with that blocker until it is built.
+// The region-block clause of #1 has no test: the journey row defers it ("the blocked-region banner and refusal are
+// DEFERRED until launch prep (owner decision 2026-10-27 ...; CB-otc-21's region clause)"). The settlement name-match
+// clause of #3 stays in the row (money safety) but has nothing to match yet: OTC settles only to the trader's own ledger
+// account, so there is no outside settlement account (CB-otc-08's bank name-match needs a fiat settlement leg to a linked
+// bank account). The level gate of #3 is built; the name match has its own test, red by name with that blocker.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
@@ -156,6 +156,27 @@ async function stake(who, client, amount) {
   const staked = await client.post('/api/token/trpc/stake', { amount, tier: 'flex', stakeId });
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
   await expect.poll(() => stakedOf(client)).toBe(amount);
+}
+
+/**
+ * Why #3's name match cannot be proved yet. OTC settles only to the trader's own ledger account (svc-trade
+ * otc/settle.ts), so no settlement account in another name can exist. Once a fiat settlement leg to a linked bank
+ * account is built, the helpers below name and remove such an account and #3 proves the refusal.
+ */
+const NAME_MATCH_BLOCKER =
+  "OTC settles only to the trader's own ledger account; there is no outside settlement account to match (CB-otc-08's bank name-match needs a fiat settlement leg to a linked bank account)";
+
+/**
+ * Names a settlement account for the trader whose holder name differs from its verified name, and returns the service's
+ * own record of it ({ id, holderName, verifiedName }). Not built, so this fails by its blocker: NAME_MATCH_BLOCKER.
+ */
+async function nameOtherSettlementAccount(who) {
+  throw new Error(`no settlement account can be named for ${who.handle}: ${NAME_MATCH_BLOCKER}`);
+}
+
+/** Removes the settlement account named by nameOtherSettlementAccount, so the steps after #3 are not refused by it. */
+async function removeSettlementAccount(who, account) {
+  throw new Error(`settlement account ${account.id} of ${who.handle} cannot be removed: ${NAME_MATCH_BLOCKER}`);
 }
 
 async function openOtc(page) {
@@ -414,18 +435,39 @@ test(`${J} #3 level unpublished: even a verified account is refused trade.otc_le
   expect((await deskStatus(me)).minTier).toBe('full');
 });
 
-// BLOCKED: OTC settles only to the trader's own ledger account (otc/settle.ts), so no settlement account in another
-// name can exist. Once a fiat settlement leg to a linked bank account is built, this step names such an account, asks,
-// and proves the refusal trade.otc_name_mismatch with no quote priced and nothing moved.
-const NAME_MATCH_BLOCKER =
-  "OTC settles only to the trader's own ledger account; there is no outside settlement account to match (CB-otc-08's bank name-match needs a fiat settlement leg to a linked bank account)";
-
-test(`${J} #3 settlement name match (BLOCKED: no outside settlement account exists): a settlement account in another name is refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async () => {
-  const status = await deskStatus(await api(run.read().who));
-  // The service's own statement that a request checks a settlement account's holder against the verified name.
-  expect(status, NAME_MATCH_BLOCKER).toHaveProperty('settlementNameMatch');
+test(`${J} #3 settlement name match (BLOCKED: no outside settlement account exists): a settlement account in another name is refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(run.read().who);
+  const status = await deskStatus(me);
+  // The service's own statement that a request checks the settlement account holder against the verified name.
+  expect(status, `the desk publishes no settlement name check (settlementNameMatch): ${NAME_MATCH_BLOCKER}`).toHaveProperty(
+    'settlementNameMatch',
+  );
   expect(status.settlementNameMatch).toBe(true);
-  throw new Error(NAME_MATCH_BLOCKER);
+
+  // A settlement account in a name other than the trader's verified one, both names as the service records them.
+  const account = await nameOtherSettlementAccount(run.read().who);
+  expect(account.holderName).toBeTruthy();
+  expect(account.verifiedName).toBeTruthy();
+  expect(account.holderName).not.toBe(account.verifiedName);
+  try {
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    // A size and provider the house desk prices for the verified trader in #6, so only the name can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.otc_name_mismatch');
+    await expect(page.getByText('trade.otc_name_mismatch')).toBeVisible();
+    await expect(page.getByText(account.holderName, { exact: false })).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+
+    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    await removeSettlementAccount(run.read().who, account);
+  }
 });
 
 test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {
