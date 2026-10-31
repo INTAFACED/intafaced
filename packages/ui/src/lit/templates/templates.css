@@ -491,6 +491,12 @@
   color: var(--lit-text-3);
 }
 
+/* The service-off notice (service-off.tsx): the sentence, then its allowlist code in a quieter face. */
+.lt-service-off-code {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-micro-size);
+}
+
 /* ---- buttons (stand-ins until the component sheet lands; same roles) ---- */
 
 .lt-button {

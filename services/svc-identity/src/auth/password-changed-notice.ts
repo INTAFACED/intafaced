@@ -10,11 +10,17 @@
  * happened, even if the address changes or the account is frozen before it leaves: that is when its owner most needs
  * it. It carries no secret, so a send that may have failed is tried again, on a doubling wait for about two hours, before
  * it is given up (see the relay).
+ *
+ * The change is also a sign-in factor change for the inbox (J-identity-03 #6): one `security_factor_events` row,
+ * `password_changed`, which the relay publishes for svc-notify. It is queued with `mail: false`, since this notice is the
+ * mail, and it goes even when the account has no proved address, because the inbox needs none.
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 export async function queuePasswordChangedNotice(tx: Sql | TransactionSql, input: { userId: string; now: Date }): Promise<boolean> {
+  await queueFactorChangedNotice(tx, { userId: input.userId, change: 'password_changed', now: input.now, mail: false });
   const [user] = await tx<Array<{ email: string | null; email_verified_at: Date | null }>>`
     SELECT email, email_verified_at FROM users WHERE id = ${input.userId}
   `;

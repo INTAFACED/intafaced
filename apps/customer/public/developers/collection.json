@@ -421,6 +421,61 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/quant/live-deploy", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quant", "live-deploy"] }
           }
+        },
+        {
+          "name": "fetchAlgoOrders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/algo", "host": ["{{baseUrl}}"], "path": ["api", "v1", "algo"] }
+          }
+        },
+        {
+          "name": "fetchAlgoOrder",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/algo/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "algo", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "createAlgoOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/algo", "host": ["{{baseUrl}}"], "path": ["api", "v1", "algo"] }
+          }
+        },
+        {
+          "name": "editAlgoOrder",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/algo/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "algo", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "cancelAlgoOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/algo/:id/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "algo", ":id", "cancel"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
         }
       ]
     },

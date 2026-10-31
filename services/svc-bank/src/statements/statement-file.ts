@@ -16,6 +16,9 @@ export function csvCell(value: string, text: boolean): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
+/** Every PDF says so, and the statement centre shows it beside every export: it works out no gain, loss or tax. */
+export const STATEMENT_NOT_TAX_FORM = 'This is not a tax form. It works out no gain, loss or tax.';
+
 export const STATEMENT_CSV_HEADER = [
   'Date (UTC)',
   'Type',
@@ -127,13 +130,17 @@ export function statementLines(input: {
   to: string;
   generatedAt: string;
   rows: readonly ActivityItem[];
+  /** `trades` heads the file as a trade history; every other report is the account statement. */
+  report?: 'statement' | 'ledger' | 'trades';
   /** One named space: its lines only, and the header names it. */
   space?: { id: string; name: string };
 }): string[] {
   const lines = [
-    input.space ? 'INTAFACED space statement' : 'INTAFACED account statement',
+    `INTAFACED ${input.space ? 'space' : 'account'} ${input.report === 'trades' ? 'trade history' : 'statement'}`,
+    ...(input.report === 'trades' ? ['Trade lines and their order fees only: every other line is left out.'] : []),
     'Proof of account: posted ledger lines for the holder below.',
     'This file lists posted lines. It does not state a balance.',
+    STATEMENT_NOT_TAX_FORM,
     `Holder: ${input.holderUserId}`,
     ...(input.space ? [`Space: ${input.space.name} (${input.space.id})`] : []),
     `Period: ${input.from} to ${input.to}`,

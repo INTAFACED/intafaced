@@ -125,17 +125,18 @@ async function approvedRun(controlId, { instant = '', margin = '' } = {}) {
 
 /**
  * Sends one approval step for a packet straight to the console's own route, as the signed-in founder on `page`, the way the
- * workbench sends it, and returns the console's JSON answer. Used where the workbench itself holds the button.
+ * workbench sends it (an execute carries the packet's operation id), and returns the console's JSON answer. Used where the
+ * workbench itself holds the button.
  */
 async function consoleStep(page, endpoint, packetText, step, confirm) {
   const packet = JSON.parse(Buffer.from(packetText.slice('ifa1.'.length), 'base64url').toString('utf8'));
   return page.evaluate(
-    async ({ endpoint, request, approvalId, step, confirm }) => {
+    async ({ endpoint, request, approvalId, operationId, step, confirm }) => {
       const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
-        body: JSON.stringify({ step, request, confirm, approvalId }),
+        body: JSON.stringify({ step, request, confirm, approvalId, ...(step === 'execute' ? { operationId } : {}) }),
         cache: 'no-store',
       });
       const text = await res.text();
@@ -145,8 +146,45 @@ async function consoleStep(page, endpoint, packetText, step, confirm) {
         return { status: res.status, body: text };
       }
     },
-    { endpoint, request: packet.request, approvalId: packet.approvalId, step, confirm },
+    { endpoint, request: packet.request, approvalId: packet.approvalId, operationId: packet.operationId, step, confirm },
   );
+}
+
+/**
+ * Proposes one request straight to the console's route as the founder on `page`, the way the desk would, and returns the
+ * console's JSON answer (a packet when it was made). Used where the desk itself holds the request button, so consoleStep,
+ * which starts from a packet, can take the approve and run steps.
+ */
+async function consolePropose(page, endpoint, request, confirm) {
+  return page.evaluate(
+    async ({ endpoint, request, confirm }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+        body: JSON.stringify({ step: 'propose', request, confirm }),
+        cache: 'no-store',
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
+    { endpoint, request, confirm },
+  );
+}
+
+/** The console's control list, as { status, body }; a refusal keeps its code in the body. */
+const readControls = (page) =>
+  page.evaluate(async () => {
+    const res = await fetch('/api/ledger-reconciliation', { cache: 'no-store' });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  });
+
+/** The control list, or a failure naming the console's status and code when it refuses. */
+async function controlsOf(page) {
+  const read = await readControls(page);
+  const code = read.body?.upstream ?? read.body?.code ?? null;
+  expect(read.status, `the console's control list refused: ${read.status} ${code}`).toBe(200);
+  expect(Array.isArray(read.body?.controls), `the control list answered no controls array (${code})`).toBe(true);
+  return read.body.controls;
 }
 
 /** A runs an approved request on their run desk and returns the service's answer as the desk shows it. */
@@ -467,13 +505,59 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(active).toContainText('warning');
     await expect(active).toContainText('Every account with asset USDT, matched at each run');
 
-    // The three built-in controls offer no change form, only a run.
+    // The three built-in controls offer no change form and cannot be removed: no pause or retire step is offered, the
+    // lifecycle desk names the ledger's code and its request button stays off; only a run is left.
     const builtins = section.getByTestId('rc-row').filter({ hasText: 'Built-in' });
-    for (const id of await builtins.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-control-id')))) {
+    await expect(builtins).toHaveCount(3);
+    const builtinIds = await builtins.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-control-id')));
+    for (const id of builtinIds) {
       await choose(section, id);
-      await expect(section.getByTestId('rc-builtin')).toBeVisible();
+      await expect(section.getByTestId('rc-builtin')).toContainText('cannot be changed or removed');
       await expect(section.getByTestId('rc-form-update')).toHaveCount(0);
+      const desk = section.getByTestId('rc-lifecycle');
+      await expect(desk.getByTestId('rc-lifecycle-move')).toHaveCount(0);
+      await expect(desk.getByTestId('rc-lifecycle-why')).toHaveText(
+        'A built-in control cannot be paused or retired (ledger.reconcile_builtin_immutable).',
+      );
+      const live = await desk
+        .locator('button')
+        .evaluateAll((all) =>
+          all.filter((b) => !b.disabled && /ask a second founder|retire|pause/i.test(b.textContent)).map((b) => b.textContent.trim()),
+        );
+      expect(live, `built-in ${id}: no retire or pause request can be sent from the desk`).toEqual([]);
     }
+
+    // A retire sent anyway, with two founders, is refused by the ledger with its code, and the control stays as it was.
+    await requireTreasury(section);
+    const { b } = await founders(browser);
+    const target = builtinIds[0];
+    const control = (await controlsOf(a)).find((c) => c.id === target);
+    expect(control, `built-in ${target} is in the console's list`).toMatchObject({ builtin: true });
+    const retire = {
+      kind: 'ledger.reconciliation_control.lifecycle',
+      controlId: target,
+      version: String(control.version),
+      lifecycle: 'retire',
+      reason: `LOCAL TEST J-ops-console-07 retire a built-in ${tag}`,
+    };
+    const endpoint = '/api/ledger-reconciliation/lifecycle';
+    const retirePhrase = `RETIRE CONTROL ${target.slice(0, 8)}`;
+    // Whichever step the guard stops it at, the answer is the ledger's code; nothing moves.
+    let refused = (await consolePropose(a, endpoint, retire, retirePhrase)).body;
+    if (refused?.ok) {
+      const packetText = refused.packet;
+      refused = (await consoleStep(b, endpoint, packetText, 'approve', retirePhrase)).body;
+      if (refused?.ok) refused = (await consoleStep(a, endpoint, packetText, 'execute', retirePhrase)).body;
+    }
+    expect(refused, JSON.stringify(refused).slice(0, 400)).toMatchObject({
+      ok: false,
+      refusal: { code: 'ledger.reconcile_builtin_immutable' },
+    });
+    expect((await controlsOf(a)).find((c) => c.id === target)).toMatchObject({
+      builtin: true,
+      state: control.state,
+      version: control.version,
+    });
   });
 
   test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser }) => {
@@ -505,11 +589,16 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     });
     await expect(row(section, state.outsideId).getByTestId('rc-state')).toHaveText('Active');
     const answer = await twoFounderRun(state.outsideId);
-    expect(answer).toMatch(/Run [0-9a-f-]{36}: (PASS|FAIL|ERROR|UNSET)\./);
-    expect(answer).toMatch(/Sources: ledger as of \d{4}-\d{2}-\d{2}T/);
-    expect(answer).toContain('outside unset');
-    expect(answer).toContain('Outside side: unset');
-    state.outsideRuns.push({ id: runId(answer), status: answer.match(/Run [0-9a-f-]{36}: (\w+)\./)[1] });
+    // The stack's ledger serves no outside snapshot for this control, so the run is UNSET, never a PASS or FAIL against nothing.
+    expect(answer).toMatch(/Run [0-9a-f-]{36}: UNSET\./);
+    const sources = answer.match(
+      /Sources: ledger as of (\d{4}-\d{2}-\d{2}T[0-9:.]+Z); outside unset; parity unset\. Outside side: unset\./,
+    );
+    expect(sources, 'the run names the ledger as-of, and the outside and parity sources as unset').not.toBeNull();
+    state.outsideRuns.push({ id: runId(answer), status: 'UNSET' });
+    // The run stored its row: re-read from a fresh page, it carries the same status and the same sources line.
+    const stored = await storedRun(a, state.outsideId, answer, 'UNSET');
+    expect(stored).toContain(sources[0]);
   });
 
   test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({

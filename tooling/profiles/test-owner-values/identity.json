@@ -256,6 +256,11 @@
       "value": "7776000",
       "note": "LOCAL TEST ONLY, not an owner decision: a 90 day idle period, so the key detail shows a set idle expiry (J-developer-03 #9). No dormant sweep is built, so it ends no key; blank shows `not set` (developer-keys-detail tests)."
     },
+    "IDENTITY_ACTION_APPROVAL_POLICIES": {
+      "service": "identity",
+      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows so both governed ledger correction types need two operators other than the requester and are applied by svc-ops (OPS-change-control-01 CR-1)."
+    },
     "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL": {
       "service": "identity",
       "value": "true",

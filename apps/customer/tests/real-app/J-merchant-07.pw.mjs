@@ -109,10 +109,26 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   // above reads exactly that, not a zero it made up.
   const api = await ownerApi();
   const snapshot = () => api.query('merchantMetrics.snapshot', { merchantId, window: { kind: 'preset', preset: 'rolling_30d' } });
-  // "Zero per asset" for a new business: the service lists no asset at all (it lists only assets the business has
-  // held), so the page shows "No money yet" with no asset row and no figure, never a made-up zero.
+  // The snapshot lists only assets the business has held, and a new business has held none.
   expect((await snapshot()).balances, 'a new business holds no asset yet').toEqual([]);
-  await expect(page.getByRole('region', { name: 'All balances' })).toHaveCount(0);
+  // "Zero per asset": svc-pay's own list of the assets the business settles in, each read from the ledger, reads zero
+  // for a new business. Under "No money yet" the page shows exactly those rows, in that order, each 0 available and 0
+  // clearing: the service's zero, never one the page made up.
+  const enabled = (await api.query('merchantMetrics.settlementAssets', { merchantId })).assets;
+  expect(enabled.length, 'svc-pay names at least one asset a business settles in').toBeGreaterThan(0);
+  for (const row of enabled) {
+    expect(row, row.assetCode).toEqual({
+      assetCode: row.assetCode,
+      clearing: expect.stringMatching(/^0(\.0+)?$/),
+      available: expect.stringMatching(/^0(\.0+)?$/),
+    });
+  }
+  const zeroRows = page.getByRole('region', { name: 'All balances' }).getByRole('rowgroup').last().getByRole('row');
+  await expect(zeroRows).toHaveCount(enabled.length);
+  for (const [i, { assetCode }] of enabled.entries()) {
+    const zero = new RegExp(`^0(\\.0+)?\\s*${assetCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+    await expect(zeroRows.nth(i).getByRole('cell')).toHaveText([assetCode, zero, zero]);
+  }
   const reserveRead = await api.query('merchantControl.reserve', { merchantId });
   expect(reserveRead).toMatchObject({ rule: null, holding: 'recorded_not_withheld', payoutsRefused: false, assets: [] });
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('No reserve rule is set for your account.');
@@ -330,6 +346,15 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   // The Still clearing section now lists nothing: its empty line instead of the held list.
   await expect(page.getByTestId('mn-held-none')).toHaveText('Nothing is waiting to clear.');
   await expect(page.getByRole('region', { name: 'Still clearing' })).toHaveCount(0);
+
+  // The destination saved above with the code is verified and held for the stack's TEST hold (J-merchant-02 #5); the
+  // later steps pay out to it, so this one ends when svc-pay itself reads it Active.
+  await expect
+    .poll(async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 10 })).items.map((d) => d.state), {
+      timeout: 120_000,
+      intervals: [2_000],
+    })
+    .toEqual(['active']);
 });
 
 // #2's spend half stays red until a merchant can spend a balance in the running app. The only spend of a settlement

@@ -50,6 +50,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // LOCAL TEST operator log values (J-agents-15). `LOCAL_STACK_AGENTS_LOG_READ_REASONS=off` or
     // `LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION=off` on a start or restart leaves that value blank, so a journey proves
     // its refusal (agents.log_read_reason_unset, agents.transcript_retention_unset) and its restore.
+    // `LOCAL_STACK_AGENTS_TEMPLATES=off` offers only "Start blank" (J-agents-03 #1); otherwise every built-in template.
+    ...(process.env.LOCAL_STACK_AGENTS_TEMPLATES === 'off' ? { AGENTS_OWN_TEMPLATES: 'blank' } : {}),
     ...(process.env.LOCAL_STACK_AGENTS_LOG_READ_REASONS === 'off' ? {} : { AGENTS_LOG_READ_REASONS: testValue('AGENTS_LOG_READ_REASONS') }),
     AGENTS_OPS_ACTIONS_LIMIT: testValue('AGENTS_OPS_ACTIONS_LIMIT'),
     ...(process.env.LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION === 'off'

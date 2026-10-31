@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
+import { createStepUpCheck, retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { formatAmount } from '@intafaced/ledger-client';
@@ -133,6 +133,10 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
+// Identity's same-person step-up, spent by a governance role change. A blank IDENTITY_URL leaves it unwired: a role
+// change then refuses identity.step_up_unavailable.
+const stepUp = createStepUpCheck({ service: 'svc-token', approvals: env.IDENTITY_URL ? actionApprovals : null });
+
 export const appRouter = createTokenRouter(token, {
   emissionsEnabled: env.EMISSIONS_ENABLED,
   runYieldWindow: (input) => runYieldWindow(yieldJob, input),
@@ -145,6 +149,7 @@ export const appRouter = createTokenRouter(token, {
     placePublished: BUYBACK_PLACE_PUBLISHED,
   }),
   approvals: actionApprovals,
+  stepUp,
   launch: {
     service: new LaunchService(sql),
     participants: env.IDENTITY_URL

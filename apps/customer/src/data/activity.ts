@@ -23,6 +23,10 @@ export const ACTIVITY_KINDS = [
   'payment',
   'withdrawal',
   'space_move',
+  // Savings in and out of Earn, staking, and rewards paid (svc-bank `bank.activity.list`).
+  'earn',
+  'staking',
+  'reward',
   // Order holds (and amends) and releases. An older server files them under `other`.
   'order_hold',
   'order_release',

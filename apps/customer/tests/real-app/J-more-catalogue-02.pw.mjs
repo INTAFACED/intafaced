@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, ORIGIN, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { testStrategyListing } from './market-listing.mjs';
+import { approvedSeller, testStrategyListing } from './market-listing.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
@@ -12,7 +12,7 @@ import { testStrategyListing } from './market-listing.mjs';
 // purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3: no listings of other kinds and no placement label (RC-more-catalogue-18 to -20).
+// - #3, its second part: no review state for listings of other kinds (RC-more-catalogue-19).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -200,15 +200,100 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   await expect(main.getByRole('link', { name: 'Back to the Market' })).toHaveAttribute('href', '/market');
 });
 
-test(`${J} #3 browses vendor listings of other kinds (signals, data, indicators) and sees premium placement: the category taxonomy and lifecycle for every kind, and placement labelled`, async ({
+test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's, and each category shows exactly the listings filed under it, and no listing is ranked or placed above another (RC-more-catalogue-18)`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(300_000);
+  const taxonomy = (await marketRead(null, 'listingCategories', {})).body.result.data.categories;
+  expect(taxonomy).toEqual([
+    'bots',
+    'defi',
+    'compliance',
+    'payment_extensions',
+    'security_custody',
+    'data',
+    'advisory',
+    'partner_integrations',
+  ]);
+
+  // A TEST seller files a one-time listing under Data through the seller form's category picker.
+  const title = `TEST data listing ${Date.now().toString(36)}`;
+  const sellerContext = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const sellerPage = await sellerContext.newPage();
+    const { seller, client } = await approvedSeller(sellerPage);
+    await signIn(sellerPage, seller);
+    await sellerPage.goto('/market/mine');
+    const form = sellerPage.locator('form').filter({ has: sellerPage.getByRole('textbox', { name: 'Listing title' }) });
+    await form.getByRole('textbox', { name: 'Listing title' }).fill(title);
+    await form.getByRole('textbox', { name: 'Listing description' }).fill('TEST data listing on the local test stack. Not real data.');
+    await form.getByRole('combobox', { name: 'Offer type' }).selectOption('one_time');
+    await form.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Data' });
+    await form.getByRole('textbox', { name: 'Price asset ID' }).fill('USDT');
+    await form.getByRole('textbox', { name: 'Price', exact: true }).fill('5');
+    await form.getByRole('button', { name: 'Review listing' }).click();
+    await sellerPage.getByRole('dialog').getByRole('button', { name: 'Publish listing' }).click();
+    await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Listing published' })).toBeVisible();
+    const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
+      .data;
+    expect(filed.filter((row) => row.title === title)).toEqual([
+      expect.objectContaining({ offerType: 'one_time', price: '5', status: 'active' }),
+    ]);
+  } finally {
+    await sellerContext.close();
+  }
+
+  // The buyer browses by category: the choices are the service's taxonomy, in its words, and each category shows exactly
+  // svc-market's own listings for it (strategy subscriptions are never filed); a category with none is honestly empty.
   await openMarket(page);
-  const kinds = page.getByRole('combobox', { name: 'Category' });
-  await expect(kinds).toBeVisible(UNBUILT);
-  for (const kind of ['Signals', 'Data', 'Indicators']) await expect(kinds.getByRole('option', { name: kind })).toBeAttached();
-  const placed = page.getByRole('article').filter({ has: page.getByText('Promoted placement') });
-  for (const card of await placed.all()) await expect(card.getByText('Promoted placement')).toBeVisible();
+  const select = page.getByRole('combobox', { name: 'Category' });
+  const words = {
+    bots: 'Bots',
+    defi: 'DeFi',
+    compliance: 'Compliance',
+    payment_extensions: 'Payment extensions',
+    security_custody: 'Security and custody',
+    data: 'Data',
+    advisory: 'Advisory',
+    partner_integrations: 'Partner integrations',
+  };
+  expect(await select.getByRole('option').allInnerTexts()).toEqual(['Every category', ...taxonomy.map((slug) => words[slug])]);
+  const cards = page
+    .getByRole('main')
+    .getByRole('article')
+    .filter({ has: page.getByRole('button', { name: /^View / }) });
+  let empty = 0;
+  for (const slug of taxonomy) {
+    await select.selectOption({ label: words[slug] });
+    const filedUnder = (await marketRead(null, 'listingsByCategory', { category: slug, limit: 50 })).body.result.data;
+    expect(filedUnder.every((row) => row.category === slug && row.offerType === 'one_time')).toBe(true);
+    await expect(cards).toHaveCount(filedUnder.length);
+    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual(filedUnder.map((row) => row.title).sort());
+    if (filedUnder.length === 0) {
+      empty += 1;
+      await expect(page.getByRole('main').getByText('No listing is filed under this category yet.')).toBeVisible();
+    }
+    if (slug === 'data') expect(filedUnder.map((row) => row.title)).toContain(title);
+  }
+  // On a stack where only this journey files listings, most categories are empty: both branches above ran.
+  expect(empty).toBeGreaterThan(0);
+  await select.selectOption({ label: 'Every category' });
+  await expect(cards.filter({ hasText: run.read().title })).toHaveCount(1);
+
+  // No listing is ranked or placed above another (the owner's "no for now" on premium placement): the Market says so,
+  // no card is labelled promoted, featured or sponsored, and no sort orders by placement, ranking or returns.
+  await expect(page.getByRole('main').getByText('There is no ranking or featured placement.', { exact: false })).toBeVisible();
+  await expect(cards.filter({ hasText: /promoted|featured|sponsored/i })).toHaveCount(0);
+  const sorts = await page.getByRole('combobox', { name: 'Sort by' }).getByRole('option').allInnerTexts();
+  expect(sorts.join(' ')).not.toMatch(/promot|featur|rank|placement|return|profit|performance/i);
+});
+
+test(`${J} #3 every kind of listing shows its review state (RC-more-catalogue-19, not built)`, async ({ page }) => {
+  await openMarket(page);
+  // Not built: svc-market reviews strategy listings only, so a listing of another kind carries no review state (RC-19).
+  const card = page.getByRole('article').filter({ hasText: 'TEST data listing' }).first();
+  await expect(card.locator('[data-review-state]')).toBeVisible(UNBUILT);
 });
 
 test(`${J} #4 presses Buy on the strategy: the charge into the held account once, the record shows held, and the seller sees nothing yet`, async ({
@@ -231,6 +316,13 @@ test(`${J} #4 presses Buy on the strategy: the charge into the held account once
   expect(bought).toMatchObject({ status: 'held', flow: 'hold', outcome: null, outcomeTxId: null, refundRequestedAt: null });
   expect(toUnits(bought.price)).toBe(toUnits(price));
   expect(Date.parse(bought.refundWindowEndsAt)).toBeGreaterThan(Date.now());
+  // The charge is in the held account, once: the ledger booked the price from the buyer's available into an empty
+  // market pot under the purchase's own key. The buyer still owns it until the window ends, so it shows as theirs, set
+  // aside: the total is unchanged and "used" rose by exactly the price.
+  await heldOnce(bought.id, price);
+  const after = await usdt(who);
+  expect(toUnits(after.total)).toBe(toUnits(before.total));
+  expect(toUnits(after.used)).toBe(toUnits(before.used) + toUnits(price));
   expect(await usdt(seller)).toEqual(sellerBefore);
   await page.goto('/market/purchases');
   await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) })).toContainText(
@@ -628,12 +720,21 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
   await expect(table).toBeVisible(UNBUILT);
   for (const column of ['Price', 'Refund window', 'Status']) await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
   const rows = bodyRows(table);
-  await expect(rows).toHaveCount(
-    (await (await api(who)).get(`/api/market/trpc/myPurchases?input=${encodeURIComponent('{"limit":50}')}`)).body.result.data.length,
-  );
+  const stored = (await (await api(who)).get(`/api/market/trpc/myPurchases?input=${encodeURIComponent('{"limit":50}')}`)).body.result.data;
+  await expect(rows).toHaveCount(stored.length);
+  // Each stored purchase has its own row: its exact price and its refund window's moment, read from the service.
+  for (const purchase of stored) {
+    const grouped = (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const [whole, fraction] = purchase.price.split('.');
+    const priceText = fraction ? `${grouped(whole)}.${fraction}` : grouped(whole);
+    expect(purchase.refundWindowEndsAt, `${purchase.id} has a refund window`).toBeTruthy();
+    const row = rows.filter({ has: page.locator(`time[datetime="${purchase.refundWindowEndsAt}"]`) });
+    await expect(row, `the row of ${purchase.id}`).toHaveCount(1);
+    await expect(row.locator('td').nth(1)).toContainText(`${priceText} ${purchase.assetId}`);
+  }
   const heldRow = rows.filter({ hasText: 'Held until the refund window ends' });
   await expect(heldRow).toHaveCount(1);
-  await expect(heldRow).toContainText(/\d/);
+  await expect(heldRow.locator(`time[datetime="${held.refundWindowEndsAt}"]`)).toHaveCount(1);
   await expect(heldRow.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
   // The purchase #6 let its window end was released to the seller: that one is a receipt.
   expect((await purchasesOf(who)).find((row) => row.id === releasedId)?.status).toBe('released');

@@ -39,7 +39,7 @@ export const TRPC = {
   'identity:listSessions': () => sessions(),
   'identity:apiKeys.list': () => apiKeys(),
   // Home's owner values and every owner's work list: an established account owes nothing.
-  'ops:home.config': () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  'ops:home.config': () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: 3, revision: 1 }),
   'workItems.list': () => ({ items: [] }),
   'notify:notify.alerts': () => alertList(),
   // bank

@@ -473,7 +473,7 @@ export class ActivityService {
    */
   async collect(
     userId: string,
-    input: { from: string; to: string; assetId?: string; accountId?: string; limit: number },
+    input: { from: string; to: string; assetId?: string; accountId?: string; kind?: ActivityKind[]; limit: number },
   ): Promise<ActivityItem[]> {
     const items: ActivityItem[] = [];
     let cursor: string | undefined;
@@ -485,6 +485,7 @@ export class ActivityService {
         from: input.from,
         to: input.to,
         ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
       });
       items.push(...page.items);
       if (!page.nextCursor) break;

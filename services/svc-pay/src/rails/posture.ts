@@ -566,7 +566,9 @@ export function defaultChainFor(
   const live = tryLiveChainFromEnv(env, broadcasts, signer, deposits);
   if (live) {
     if (Object.keys(pace).length > 0)
-      throw new Error('PAY_TEST_CHAIN_SEND_DELAY_MS and PAY_TEST_CHAIN_REFUSE_AMOUNT pace only the in-memory chain, not a live one');
+      throw new Error(
+        'PAY_TEST_CHAIN_SEND_DELAY_MS, PAY_TEST_CHAIN_REFUSE_AMOUNT and PAY_TEST_CHAIN_BLOCK_MS pace only the in-memory chain, not a live one',
+      );
     return live;
   }
 
@@ -578,22 +580,27 @@ export function defaultChainFor(
 /** The longest TEST wait a send may be given: long enough to watch, and under svc-edge's 15-second upstream timeout. */
 export const MEMORY_CHAIN_MAX_SEND_DELAY_MS = 12_000;
 
+/** The longest TEST block time: a send still confirms within minutes at any depth an owner sets. */
+export const MEMORY_CHAIN_MAX_BLOCK_MS = 60_000;
+
 /**
  * The in-memory chain's TEST pace (J-wallet-05 #8): `PAY_TEST_CHAIN_SEND_DELAY_MS` (whole milliseconds, at most
- * {@link MEMORY_CHAIN_MAX_SEND_DELAY_MS}) and `PAY_TEST_CHAIN_REFUSE_AMOUNT` (an exact decimal). Unset is no pace. Set
+ * {@link MEMORY_CHAIN_MAX_SEND_DELAY_MS}), `PAY_TEST_CHAIN_REFUSE_AMOUNT` (an exact decimal) and `PAY_TEST_CHAIN_BLOCK_MS`
+ * (one TEST block per that many whole milliseconds, 1 to {@link MEMORY_CHAIN_MAX_BLOCK_MS}). Unset is no pace. Set
  * anywhere but APP_ENV exactly `dev` or `test`, or set to a value that does not parse, refuses to boot: a TEST setting
  * never quietly shapes a real chain, and a mistyped one never quietly does nothing.
  */
 export function memoryChainPaceFromEnv(env: Record<string, string | undefined>): MemoryChainPace {
   const delay = env.PAY_TEST_CHAIN_SEND_DELAY_MS?.trim();
   const refuse = env.PAY_TEST_CHAIN_REFUSE_AMOUNT?.trim();
-  if (!delay && !refuse) return {};
+  const block = env.PAY_TEST_CHAIN_BLOCK_MS?.trim();
+  if (!delay && !refuse && !block) return {};
   if (env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') {
     throw new Error(
-      `PAY_TEST_CHAIN_SEND_DELAY_MS and PAY_TEST_CHAIN_REFUSE_AMOUNT are TEST settings: APP_ENV must be dev or test, not "${env.APP_ENV ?? ''}"`,
+      `PAY_TEST_CHAIN_SEND_DELAY_MS, PAY_TEST_CHAIN_REFUSE_AMOUNT and PAY_TEST_CHAIN_BLOCK_MS are TEST settings: APP_ENV must be dev or test, not "${env.APP_ENV ?? ''}"`,
     );
   }
-  const pace: { sendDelayMs?: number; refuseAmount?: Amount } = {};
+  const pace: { sendDelayMs?: number; refuseAmount?: Amount; blockMs?: number } = {};
   if (delay) {
     if (!/^\d+$/.test(delay) || Number(delay) > MEMORY_CHAIN_MAX_SEND_DELAY_MS) {
       throw new Error(
@@ -611,6 +618,12 @@ export function memoryChainPaceFromEnv(env: Record<string, string | undefined>):
     }
     if (amount <= 0n) throw new Error(`PAY_TEST_CHAIN_REFUSE_AMOUNT must be above zero, not "${refuse}"`);
     pace.refuseAmount = amount;
+  }
+  if (block) {
+    if (!/^\d+$/.test(block) || Number(block) < 1 || Number(block) > MEMORY_CHAIN_MAX_BLOCK_MS) {
+      throw new Error(`PAY_TEST_CHAIN_BLOCK_MS must be whole milliseconds from 1 to ${MEMORY_CHAIN_MAX_BLOCK_MS}, not "${block}"`);
+    }
+    pace.blockMs = Number(block);
   }
   return pace;
 }

@@ -226,11 +226,14 @@ export function App() {
       <TeamDesk href={teamHref} />
     </Shell>
   ) : room?.area === 'web3' ? (
-    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
+    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target. The
+    // frame, and the wallet connection in it, outlast a move between Web3 rooms; only the room inside remounts.
     <Suspense fallback={fallback}>
       <Web3Shell path={path}>
-        {ribbon}
-        <ProtocolRoutes path={path} />
+        <RoomBoundary key={path}>
+          {ribbon}
+          <ProtocolRoutes path={path} />
+        </RoomBoundary>
       </Web3Shell>
     </Suspense>
   ) : (
@@ -243,7 +246,7 @@ export function App() {
     <div onClick={followLink}>
       <ApplyView />
       <AccountViewSync />
-      <RoomBoundary key={path}>{content}</RoomBoundary>
+      <RoomBoundary key={room?.area === 'web3' ? 'web3' : path}>{content}</RoomBoundary>
     </div>
   );
 }

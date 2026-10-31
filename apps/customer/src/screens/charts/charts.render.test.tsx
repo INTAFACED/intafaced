@@ -14,7 +14,11 @@ const world = vi.hoisted(() => ({
   owner: {} as Record<string, unknown>,
   ownerStatus: 'ready' as 'ready' | 'loading' | 'error',
   lifecycle: { status: 'ready', data: { state: 'OPEN', effectiveAt: 0, evidenceRefs: [] }, asOf: 0 } as unknown,
-  bookHalt: { status: 'ready', data: { halted: false, venueHalted: false }, asOf: 0 } as unknown,
+  bookHalt: {
+    status: 'ready',
+    data: { halted: false, venueHalted: false, haltedSinceMs: null, venueHaltedSinceMs: null },
+    asOf: 0,
+  } as unknown,
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
