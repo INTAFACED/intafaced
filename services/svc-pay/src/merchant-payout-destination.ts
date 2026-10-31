@@ -533,6 +533,8 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
          FOR UPDATE
       `;
       if (!row) throw new PayoutDestinationNotFoundError();
+      // A verified row is active whatever its activates_at says (a replica with a clock ahead may have promoted it).
+      if (row.verified) throw new PayoutDestinationNotHeldError(input.merchantId, row.rail_id);
       const out = { railId: row.rail_id, kind: row.kind, ref: row.ref };
       const life = lifecycleOfColumns(row, this.clock());
       if (life.state === 'unverified') return { ...out, changed: false };
@@ -548,7 +550,8 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
            AND verified = false
            AND activates_at IS NOT NULL
       `;
-      if (updated.count !== 1) throw new PayoutDestinationNotFoundError();
+      // Under the row lock nothing else can change it; a miss means it is no longer held.
+      if (updated.count !== 1) throw new PayoutDestinationNotHeldError(input.merchantId, row.rail_id);
       return { ...out, changed: true };
     });
   }
