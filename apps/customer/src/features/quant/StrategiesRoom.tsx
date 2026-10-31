@@ -145,8 +145,14 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
               >
                 {shown.map((row) => (
                   <tr key={row.id} data-testid="quant-strategy-row" data-id={row.id} data-version={row.version} data-folder={row.folder}>
-                    <td lang="und" data-testid="quant-strategy-name">
-                      {row.name}
+                    <td lang="und">
+                      <a
+                        className="text-link"
+                        data-testid="quant-strategy-name"
+                        href={preservePaperHref(`/quant/strategies/${encodeURIComponent(row.id)}`, paper)}
+                      >
+                        {row.name}
+                      </a>
                     </td>
                     <td lang="und">{row.folder || t('folderRoot')}</td>
                     <td>{t('versionOf', { version: row.version })}</td>

@@ -253,7 +253,10 @@ export function createFounderMerchantReads(deps: {
         }
         case 'destinations': {
           const page = await pay!.listPayoutDestinations({ merchantId: input.merchantId, limit, cursor });
-          return { section: 'destinations', items: page.items, nextCursor: page.nextCursor };
+          // The founder section's contract (founder-admin.ts) predates the destination state (J-merchant-02 #5); it is
+          // left out here until that contract carries it, rather than changing a second consumer in this slice.
+          const items = page.items.map(({ state: _state, activatesAt: _activatesAt, ...item }) => item);
+          return { section: 'destinations', items, nextCursor: page.nextCursor };
         }
         case 'customers': {
           const page = await customers.list(caller, {

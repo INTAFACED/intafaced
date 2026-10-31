@@ -47,7 +47,7 @@ const en = {
   reward_pending_funding: 'still open, waiting for the reward pot to be funded',
   reward_pending_retry: 'still open, payments are paused on the platform',
   reward_unknown: 'still open, its payment answer is being checked',
-  reward_withheld: 'withheld',
+  reward_withheld: 'withheld: your account was not active, so nothing was paid and nothing was used. Redeem again to use it',
   reward_failed: 'not paid, the payment was refused',
   reward_forfeited: 'forfeited',
   lost: 'The answer did not arrive. Your vouchers are read again before anything else is sent.',

@@ -312,6 +312,20 @@ export class VoucherService {
   }
 
   /**
+   * Deletes attempt rows older than the owner's window: nothing counts them any more, and they hold no value. With the
+   * limits blank nothing is counted, so nothing is pruned. Returns how many went.
+   */
+  async pruneAttempts(limit = 5000): Promise<number> {
+    const limits = this.attemptLimits();
+    if (!limits) return 0;
+    const before = new Date(this.now().getTime() - limits.windowSeconds * 1000);
+    const gone = await this.sql`
+      DELETE FROM campaigns.voucher_attempts WHERE id IN (
+        SELECT id FROM campaigns.voucher_attempts WHERE at <= ${before} ORDER BY at LIMIT ${limit})`;
+    return gone.count;
+  }
+
+  /**
    * Counts one check or claim against the owner's limits, per account and per source address in the window, under a lock
    * on the account so two at once never both take the last one. No address (a call that did not come through the edge)
    * counts against the account limit only.

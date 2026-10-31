@@ -53,14 +53,15 @@ const CI_DIR = join(ROOT, 'tooling', 'ci');
  */
 export const GATES = [
   {
-    id: 'gate-tools-tests',
-    script: 'tooling/scripts/gate-tools.test.mjs',
-    doctrine: 'merge condition (2026-10-13)',
+    id: 'tooling-tests',
+    script: 'tooling/scripts/tooling-tests.mjs',
+    doctrine: 'merge condition (2026-10-13); every tooling test on every PR (owner decision 2026-10-31)',
     why:
-      'the unit tests of the tools that decide what may merge: gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
-      '(a 403 or 429 stops, every call has a timeout) and, once it lands, main-auto-revert.mjs. Fixture JSON and log ' +
-      'excerpts for gh, no network, about two seconds. Lives in tooling/scripts/, so the manifest check below does not ' +
-      'cover it: this entry is the only thing running the tests, and deleting it has to be a visible act.',
+      'the unit tests of the tools that decide what may merge and of the local test stack: every tooling/scripts/*.test.mjs, ' +
+      'including gate-file-guard (a gate change must say so in the PR title), gate-gh (a 403 or 429 stops) and ' +
+      'local-test-stack. Until 2026-10-31 only two of 28 ran here, so a stack change could land with its own tests red. ' +
+      'Lives in tooling/scripts/, so the manifest check below does not cover it: this entry is the only thing running ' +
+      'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
   },
   {
     id: 'tracker',

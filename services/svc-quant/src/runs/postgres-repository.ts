@@ -309,10 +309,19 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
          WHERE r.user_id = $1::uuid
            AND r.kind = $2
            AND starts_with(r.idempotency_key, $6)
+           AND ($7::text IS NULL OR r.strategy_id = $7::text)
            AND ($3::timestamptz IS NULL OR (r.started_at, r.id) < ($3::timestamptz, $4::text))
          ORDER BY r.started_at DESC, r.id DESC
          LIMIT $5`,
-        [input.userId, input.kind, cursor?.createdAt ?? null, cursor?.id ?? null, input.limit + 1, input.keyPrefix],
+        [
+          input.userId,
+          input.kind,
+          cursor?.createdAt ?? null,
+          cursor?.id ?? null,
+          input.limit + 1,
+          input.keyPrefix,
+          input.strategyId ?? null,
+        ],
       );
       const page = rows.slice(0, input.limit);
       const last = page[page.length - 1];

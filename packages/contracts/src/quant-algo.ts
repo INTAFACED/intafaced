@@ -109,6 +109,34 @@ export const quantStrategyCardPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/** One stored version of a strategy as its page shows it (AL-editor-01): what it held and the note written with it. */
+export const quantStrategyVersionSchema = z.object({
+  version: z.number().int().positive(),
+  name: z.string(),
+  createdAt: z.string(),
+  source: z.string(),
+  blocks: z.array(z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: z.string() })),
+  releaseNote: z.string().default(''),
+});
+export type QuantStrategyVersion = z.infer<typeof quantStrategyVersionSchema>;
+
+/** `studio.get`: the head and every version, oldest first. */
+export const quantStrategyDetailSchema = quantStrategyCardSchema.extend({ versions: z.array(quantStrategyVersionSchema) });
+export type QuantStrategyDetail = z.infer<typeof quantStrategyDetailSchema>;
+
+/** `studio.diff`: two versions compared line by line (source, order blocks and signal rules). Derived; nothing stored. */
+export const QUANT_DIFF_OPS = ['same', 'removed', 'added'] as const;
+const quantDiffLineSchema = z.object({ op: z.enum(QUANT_DIFF_OPS), text: z.string() });
+export const quantVersionDiffSchema = z.object({
+  from: z.number().int().positive(),
+  to: z.number().int().positive(),
+  source: z.array(quantDiffLineSchema),
+  blocks: z.array(quantDiffLineSchema),
+  rules: z.array(quantDiffLineSchema),
+  changed: z.boolean(),
+});
+export type QuantVersionDiff = z.infer<typeof quantVersionDiffSchema>;
+
 /** A template id: lower-case words joined by dashes, so it reads in a URL and never collides with a strategy id. */
 export const quantTemplateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,47}$/);
 

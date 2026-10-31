@@ -61,6 +61,15 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
       p.page(m.destinationItemSchema),
       signal,
     ),
+  /**
+   * Owner or admin. Saves a destination unverified (J-merchant-02 #5): nothing is paid to it until it is verified with a
+   * fresh confirmation (`setPayoutDestination`), and then only after the hold.
+   */
+  destinationAdd: (input: { merchantId: string; railId: string; kind: string; ref: string }) =>
+    mutate('merchant.payoutDestinations.add', input, m.destinationSavedSchema),
+  /** Owner only. A held destination goes back to unverified; nothing is paid to it until it is verified again. */
+  destinationCancelHold: (input: { merchantId: string; destinationId: string }) =>
+    mutate('merchant.payoutDestinations.cancelHold', input, m.destinationHoldCancelledSchema),
   /** Owner only. Marks one saved destination as the default; the previous mark is cleared by the service. */
   destinationSetDefault: (input: { merchantId: string; destinationId: string }) =>
     mutate('merchant.payoutDestinations.setDefault', input, m.destinationItemSchema),
