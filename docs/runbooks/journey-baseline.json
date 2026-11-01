@@ -658,6 +658,7 @@
       "testAheadOfCode": {
         "commit": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
         "pr": 6924,
+        "line": 308,
         "blocker": "BLOCKED: no sub-account sign-in exists",
         "lane": "B2",
         "noPassFrom": 1007,
@@ -1360,6 +1361,7 @@
       "testAheadOfCode": {
         "commit": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
         "pr": 6924,
+        "line": 152,
         "blocker": "UNBUILT: no public recurring buy API (POST /api/v1/recurring answers 404)",
         "lane": "B2",
         "noPassFrom": 1007,
@@ -3756,6 +3758,7 @@
       "strengthenedBy": {
         "commit": "3edf5cf77ef8f6b125e185a8ab203a32e45a904b",
         "pr": 6816,
+        "line": 321,
         "productFiles": ["apps/customer/src/features/more/AgentBuilder.tsx", "apps/customer/src/features/more/agent-builder-copy.ts"]
       }
     },
@@ -3793,6 +3796,7 @@
       "strengthenedBy": {
         "commit": "81a748c468c0e9b70d38f4acca497cc8d74c0dcd",
         "pr": 6666,
+        "line": 308,
         "productFiles": [
           "apps/customer/src/features/protocol/api.ts",
           "apps/customer/src/features/protocol/tokens/QuickTicket.tsx",
@@ -3825,6 +3829,7 @@
       "strengthenedBy": {
         "commit": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
         "pr": 7013,
+        "line": 150,
         "productFiles": ["apps/admin/src/components/account-holds.tsx"]
       }
     },
@@ -3838,6 +3843,7 @@
       "strengthenedBy": {
         "commit": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
         "pr": 7013,
+        "line": 150,
         "productFiles": ["apps/admin/src/components/account-holds.tsx"]
       }
     },
@@ -3851,6 +3857,7 @@
       "strengthenedBy": {
         "commit": "a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067",
         "pr": 6974,
+        "line": 267,
         "productFiles": [
           "apps/customer/src/data/activity.ts",
           "apps/customer/src/screens/home/RecentActivity.tsx",
