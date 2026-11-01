@@ -680,6 +680,10 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   await untilStatus(who, botId, 'running', 60_000);
   const start = await settledBuys(who, botId);
   expect(start.closedPairs).toBe(0);
+  // Buys that filled before this step are not its two. When #5's range pause ends with the walk still above the mid it
+  // returns to, the tick places the held-back buys under that bid, and the walk's way back fills them (run 1119: seven).
+  const filledBefore = new Set(start.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => o.orderId));
+  const newlyFilled = (b) => b.orders.filter((o) => o.side === 'buy' && o.status === 'filled' && !filledBefore.has(o.orderId));
   // Two level pairs close through the TEST book: the price falls through exactly two resting buys, the bot places a
   // sell one level above each, and the price comes back up through both sells.
   const buys = openBuys(start);
@@ -694,8 +698,8 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   try {
     tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
     await untilMid('below', buys[1]);
-    const bought = await untilBot(who, botId, (b) => b.orders.filter((o) => o.side === 'buy' && o.status === 'filled').length >= 2);
-    const filledBuys = bought.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => toUnits(o.price));
+    const bought = await untilBot(who, botId, (b) => newlyFilled(b).length >= 2);
+    const filledBuys = newlyFilled(bought).map((o) => toUnits(o.price));
     expect(filledBuys.sort()).toEqual([buys[1], buys[0]].sort());
     // Each sell sits one level above its buy; the top one one level above buys[0], so the price rises a whole level
     // past it. A move shifts the TEST walk, which keeps wandering: its base now is today's mid with the first shift
