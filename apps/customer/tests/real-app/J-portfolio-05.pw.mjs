@@ -708,25 +708,30 @@ async function liveCloses() {
 }
 
 /**
- * The page's answers for its value line while `act` runs, each with the newest two BTC/USDT 5-minute closes read when
- * `act` began, as the request left and as its answer came back. The service values the live end at the newest candle's
- * close when it answers, between those reads. (Run 1128 read the closes only after the chart had drawn, and a trade in
- * between failed #7.)
+ * The page's answers for its value line while `act` runs, each with the newest two BTC/USDT 5-minute closes read as its
+ * request left and as its answer came back (and, for the first, when `act` began). The service values the live end at
+ * the newest candle's close when it answers, between those reads. (Run 1128 read the closes only after the chart had
+ * drawn, and a trade in between failed #7.) A request the page dropped, such as the old range's when the range changes,
+ * has no answer; a failed read is kept with its answer and thrown only if the screen draws that answer.
  */
 async function valueAnswers(page, act) {
   const atStart = await liveCloses();
   const answers = [];
   const listen = (request) => {
     if (!request.url().includes('/trpc/portfolio.valueOverTime')) return;
+    const opening = answers.length === 0 ? atStart : [];
     const sent = liveCloses();
     answers.push(
       (async () => {
-        const asked = await sent;
-        const response = await request.response();
-        const back = await liveCloses();
-        expect(response, `the page's request ${request.url()} got no answer`).toBeTruthy();
-        const body = await response.json();
-        return { data: body?.result?.data, closes: [...new Set([...atStart, ...asked, ...back])] };
+        try {
+          const asked = await sent;
+          const response = await request.response();
+          if (!response) return { data: null, closes: [] };
+          const [back, body] = await Promise.all([liveCloses(), response.json().catch(() => null)]);
+          return { data: body?.result?.data ?? null, closes: [...new Set([...opening, ...asked, ...back])] };
+        } catch (error) {
+          return { data: null, closes: [], error };
+        }
       })(),
     );
   };
@@ -734,14 +739,12 @@ async function valueAnswers(page, act) {
   let result;
   try {
     result = await act();
-  } catch (error) {
-    // The step's own failure is the one to report; a read still under way is let go.
-    for (const answer of answers) answer.catch(() => {});
-    throw error;
   } finally {
     page.off('request', listen);
   }
-  return { result, answers: await Promise.all(answers) };
+  const read = await Promise.all(answers);
+  const failed = read.find((a) => a.error);
+  return { result, answers: read.filter((a) => !a.error), failed: failed?.error };
 }
 
 /**
@@ -839,7 +842,11 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   const card = page.getByRole('region', { name: 'What your money was worth' });
   // Now's BTC price, read around each of the page's requests for the day's line: the live end is valued at the newest
   // 5-minute candle's close when the service answered.
-  const { result: before, answers } = await valueAnswers(page, async () => {
+  const {
+    result: before,
+    answers,
+    failed,
+  } = await valueAnswers(page, async () => {
     await range.getByRole('button', { name: '1D', exact: true }).click();
     await expect(page).toHaveURL(/range=1D/);
     await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -864,7 +871,11 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   const end = toUnits(before.points.at(-1).usd);
   // The screen draws one of the page's answers for this day, and that answer's live end is the holdings at a close read
   // around it.
-  const shown = answers.filter((a) => a.data?.points?.[0]?.at === before.points[0].at && toUnits(a.data.points.at(-1).valueUsd) === end);
+  const liveEnd = (a) => a.data?.points?.at(-1)?.valueUsd;
+  const shown = answers.filter(
+    (a) => a.data?.points?.[0]?.at === before.points[0].at && typeof liveEnd(a) === 'string' && toUnits(liveEnd(a)) === end,
+  );
+  if (shown.length === 0 && failed) throw failed;
   expect(shown.length, `the screen's live end ${before.points.at(-1).usd} is one of the page's answers`).toBeGreaterThan(0);
   const worth = [...new Set(shown.flatMap((a) => a.closes))].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
