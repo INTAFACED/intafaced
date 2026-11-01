@@ -130,6 +130,21 @@ async function tiersAnswer(me, status) {
   await expect.poll(async () => (await me.get(TIERS).catch(() => ({ status: 0 }))).status, { timeout: 60_000 }).toBe(status);
 }
 
+/**
+ * Polls the perpetual's preview until it carries a mark again. A restarted trade lane answers the tier read before it
+ * has an accepted mark, and with no mark a preview has no band, slippage cap or margin tier (Real-app journeys run 1136,
+ * #5 and #6 right after #2's restart).
+ */
+async function markAnswers(me) {
+  const mark = async () => {
+    const res = await me
+      .post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE })
+      .catch(() => null);
+    return res?.status === 200 ? (res.body?.markPrice ?? null) : null;
+  };
+  await expect.poll(mark, { timeout: 60_000 }).not.toBeNull();
+}
+
 test(`${J} #2 reads the tier table: the published tiers and maintenance rates, and "tiers not published" with opens refused while the ladder is unset`, async ({
   page,
 }) => {
@@ -199,6 +214,7 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
   } finally {
     restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', true);
     await tiersAnswer(me, 200);
+    await markAnswers(me);
   }
 });
 
