@@ -38,3 +38,18 @@ Example, from #7034:
 ```
 Regression state: parked — J-portfolio-03 #1 is BLOCKED convert_kind: svc-bank has no convert activity kind. Lane B8.
 ```
+
+## The journeys baseline
+
+The Real-app journeys run on `main` runs every written step, built or not, so it is never fully green while building is paused. [`journey-baseline.json`](journey-baseline.json) lists the steps that may fail on `main`, from one finished run that it names. Main counts as healthy when CI and Customer Money browser checks are green on `main`, and the newest finished Real-app journeys run has no failing step outside the baseline's `steps`. Any new failure is red. So is any failing money step, unless the baseline lists it as unbuilt (the lead's bar, 1 Nov 2026, project-state #926 change 1).
+
+A step is keyed `J-<module>-NN#<n>`, as Main trust keys it (`stepStates` in `tooling/ci/post-merge-trust.mjs`). Each entry in `steps` has a `state`:
+
+- **unbuilt**: the step has no passing result in any run in `runsRead`, so it has never worked on `main`.
+- **regression**: the step passed on `main` before. It is allowed only for a step that is not money and is named by an open regression issue whose state line is `parked` with a blocker (above). The entry names that issue.
+
+**Money.** A step is money when any of its slices (`steps[].slices` in `docs/roadmap/journeys.json`) has a `touches` entry in `docs/roadmap/slices.json` naming a package that depends on `@intafaced/ledger-client`. The dependency test is `dependsOnLedgerClient` in `tooling/ci/review-marker.mjs`: any of dependencies, devDependencies, peerDependencies or optionalDependencies. A touch maps to a package folder this way: `svc-<x>` is `services/svc-<x>`, `packages/<x>` is itself, `customer: …` is `apps/customer`, and `admin: …` is `apps/admin`. A touch with no `package.json` (four today, such as `packages/stealth`) depends on nothing yet, so it is not money. A step missing from `journeys.json` counts as money. `moneyRuleAt` names the commit the rule was computed on, and `moneyPackages` lists the packages it found. A reader recomputes `money` and refuses an entry where the two disagree. A money step may be in `steps` only as `unbuilt`.
+
+**`notBaselined`** lists the steps that failed in the named run but may not be baselined. These are money steps that passed on `main` before, and steps with no open issue that carries a state. They are listed so a reader can see them, and they count as failing until they pass.
+
+The file is rewritten only from a finished run on `main`, by a PR that names the run. A step that has passed on `main` is never added as `unbuilt`, because that would hide a regression.
