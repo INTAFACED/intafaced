@@ -47,11 +47,15 @@ test.describe('one TEST merchant', () => {
 
   /** On a page founder A is signed in on: the merchant page and its USDT balance row as the console shows it. */
   async function founderMerchant(page) {
-    await page.goto(`${ADMIN}/merchants/${world.merchantId}`, { waitUntil: 'load' });
-    await expect(page.getByRole('heading', { name: 'TEST Oversight Ltd' })).toBeVisible();
     const balances = page.getByRole('table', { name: 'Merchant balances per asset' });
     const usdt = balances.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'USDT', exact: true }) });
-    await expect(usdt).toHaveCount(1);
+    // The balance rows are the assets in svc-pay's metrics projection, which catches up with a payment within seconds
+    // (startMetricsRefresher). The page is a server snapshot, so it is opened again until the projection has the payment.
+    await expect(async () => {
+      await page.goto(`${ADMIN}/merchants/${world.merchantId}`, { waitUntil: 'load' });
+      await expect(page.getByRole('heading', { name: 'TEST Oversight Ltd' })).toBeVisible();
+      await expect(usdt).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
     const [clearing, available] = await usdt.getByRole('cell').allInnerTexts();
     return { clearing: clearing.trim(), available: available.trim() };
   }
