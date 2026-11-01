@@ -719,6 +719,10 @@ describe('market held purchase (MC-market-02)', () => {
       const kept = await held(listingId);
       const refunded = await held(listingId);
       await service(ON).held.refund({ sellerUserId: SELLER, purchaseId: refunded.id });
+      // The database dates a purchase's created_at by the wall clock, which passed this window's end on 2026-11-01
+      // (#7080), and ops sales count a held purchase by created_at. The scenario's purchases are dated by its own clock,
+      // START, as their hold already is, so the window holds them on any date.
+      await sql`UPDATE market.purchases SET created_at = ${START} WHERE id IN (${kept.id}, ${refunded.id})`;
       const window = {
         from: new Date(START.getTime() - 86_400_000).toISOString(),
         to: new Date(START.getTime() + 2 * 86_400_000).toISOString(),
