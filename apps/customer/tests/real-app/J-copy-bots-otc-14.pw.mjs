@@ -55,8 +55,10 @@ function makerStatus() {
   }
 }
 const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
+/** "not started" is the only state a trade restart's `ensure` leaves alone: a maker that is DOWN but remembered, it starts. */
+const makerForgotten = () => /^test market: not started/.test(makerStatus());
 
-/** Set while #7 has stopped a TEST market maker that was running, so the hook below starts it again even after a timeout. */
+/** Set while #7 has stopped a TEST market maker that was running or remembered, so the hook below starts it again even after a timeout. */
 let marketStopped = false;
 
 /**
@@ -64,19 +66,25 @@ let marketStopped = false;
  * resting buy, but once the walk drifts under the grid's top buy, that buy is the best bid and the taker's crossing sell
  * fills it (#7075: in #7 the USDT total ended 9.78 or 19.60 lower, the cost of one or two of the grid's level buys). #7
  * proves its withdrawals move no money, so it stops them for its window: the grid keeps its orders and nothing trades
- * against them. Stopping cancels the maker's resting orders and forgets the maker, so a trade restart's `ensure` leaves
- * it off. A maker that was not running is left off.
+ * against them. #7 restarts trade twice, and each restart runs the maker's `ensure`, which starts any maker the stack
+ * still remembers, a DOWN one included. So the maker must end forgotten ("not started"), not only stopped.
  */
 async function stopMarketMaker() {
-  if (!makerUp()) return;
+  if (makerForgotten()) return;
   marketStopped = true;
   tool('local-test-market.mjs', 'stop');
-  // `stop` returns after 20 s even when the maker is still cancelling; nothing is read until it has gone.
+  // `stop` returns after 20 s even when the maker is still cancelling, and then keeps its record; nothing is read until
+  // it has gone.
   const until = Date.now() + 60_000;
   while (makerUp()) {
     if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
+  // With the maker gone, a second stop forgets it (and a maker that was already DOWN is forgotten the same way).
+  tool('local-test-market.mjs', 'stop');
+  expect(makerStatus(), 'the TEST market maker is forgotten, so no trade restart in #7 starts it again').toMatch(
+    /^test market: not started/,
+  );
 }
 
 test.afterEach(() => {
