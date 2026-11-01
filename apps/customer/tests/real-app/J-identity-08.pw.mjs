@@ -668,6 +668,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
   const order = () => reviewLimit(page, 'buy', '10000.00', '0.001');
   const sends = () => page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
   // One resting order from before the restriction: the restriction must leave it in place and cancellable.
+  restingFor = who;
   await order();
   await confirm(page, 'buy');
   await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
@@ -756,13 +757,12 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     expect((await accepted).status()).toBeLessThan(300);
     await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
 
-    // Nothing is left resting. A buy at 10,000 sits far under the TEST market, so left in the book it is BTC/USDT's
-    // best bid whenever the TEST maker's bids are gone. A later journey on this shard that restarts the maker then gets
-    // a price band centred between it and the asks, which refuses every new maker bid (Real-app journeys run 1136).
+    // Nothing is left resting (see the teardown below for why): the order is cancelled and the book no longer lists it.
     const [resting] = await openOrders(who);
     const done = await client.delete(`/api/v1/orders/${resting.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
     expect(done.status, JSON.stringify(done.body)).toBe(200);
     await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+    restingFor = null;
   } finally {
     // Lift it if the test stopped before its own lift, without hiding the first failure behind a second one.
     if (!lifted) {
@@ -772,16 +772,35 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
         console.warn(`J-identity-08 #7: the lift after a failure failed too: ${error}`);
       }
     }
-    // After a failure, cancel whatever this account still has resting, for the same reason (cancel works while the
-    // restriction holds), again without hiding the first failure.
-    try {
-      for (const order of await openOrders(who)) {
-        await client.delete(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
-      }
-    } catch (error) {
-      console.warn(`J-identity-08 #7: the cancel after a failure failed too: ${error}`);
-    }
   }
+});
+
+/** Set from just before #7's first order until #7 has cancelled its orders, so the teardown below can cancel them. */
+let restingFor = null;
+
+// #7's buys are at 10,000, far under the TEST market. One left resting is BTC/USDT's best bid whenever the TEST maker's
+// bids are gone, so a later journey on the shard that restarts the maker gets a price band centred between it and the
+// asks, which refuses every new maker bid (Real-app journeys run 1136: J-ops-console-08 #7 restarted the maker, then
+// every J-portfolio-04 buy was refused). A timeout skips the test's finally, so the cancel after a failure is here. An
+// order accepted just before the failure can take a moment to be listed, so it looks for 10 s. Cancel works while a
+// trading restriction holds. A refused cancel is printed, not thrown, so the first failure stays the one reported.
+test.afterEach(async () => {
+  if (!restingFor) return;
+  const client = await api(restingFor);
+  restingFor = null;
+  const symbol = encodeURIComponent('BTC/USDT');
+  const end = Date.now() + 10_000;
+  do {
+    const { status, body } = await client.get(`/api/v1/orders/open?symbol=${symbol}&limit=100`);
+    const open = status !== 200 ? [] : Array.isArray(body) ? body : (body.orders ?? body.items ?? []);
+    if (status !== 200) console.warn(`J-identity-08 #7: the open-order read after a failure answered ${status}`);
+    for (const order of open) {
+      const done = await client.delete(`/api/v1/orders/${order.id}?symbol=${symbol}`);
+      if (done.status !== 200)
+        console.warn(`J-identity-08 #7: cancelling ${order.id} after a failure answered ${done.status} ${JSON.stringify(done.body)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  } while (Date.now() < end);
 });
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
