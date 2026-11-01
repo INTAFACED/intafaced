@@ -122,12 +122,16 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await noAccount(who);
 
   // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
-  // no code mailed anywhere.
+  // no code mailed anywhere. The outbox is the whole stack's, and other journeys mail their own codes meanwhile (run
+  // 1130), so only the whole lines it gained are read, and none of them may name this sign-up.
+  const phone = '+491701234567';
   const outbox = () => (existsSync(stackFile('email-outbox.log')) ? readFileSync(stackFile('email-outbox.log'), 'utf8') : '');
-  const before = outbox().length;
+  const first = outbox();
+  // Up to the last whole line: another journey's mail may be half written now.
+  const before = first.lastIndexOf('\n') + 1;
   await page.goto('/register');
   await page.getByRole('radio', { name: 'Phone' }).check();
-  await page.getByLabel('Phone number, international format (+…)').fill('+491701234567');
+  await page.getByLabel('Phone number, international format (+…)').fill(phone);
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption('DE');
@@ -136,7 +140,20 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await expect(notice(page)).toContainText(
     'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
   );
-  expect(outbox().length).toBe(before);
+  // Identity writes a queued mail to the file just after the request's commit; give it time to land, then read until
+  // the file ends on a whole line.
+  await page.waitForTimeout(3_000);
+  let after = '';
+  await expect
+    .poll(() => {
+      after = outbox();
+      return after === '' || after.endsWith('\n');
+    })
+    .toBe(true);
+  // The file only grows: what was there before is still there.
+  expect(after.startsWith(first.slice(0, before)), 'the outbox kept what it held before').toBe(true);
+  const gained = after.slice(before).split('\n').filter(Boolean);
+  expect(gained.filter((line) => line.includes(who.handle) || line.includes(phone.slice(1)))).toEqual([]);
   await noAccount(who);
 
   // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
