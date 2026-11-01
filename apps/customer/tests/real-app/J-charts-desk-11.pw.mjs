@@ -64,6 +64,17 @@ const listedSymbols = (page) =>
     .locator('tbody tr[data-symbol]')
     .evaluateAll((rows) => rows.map((r) => r.dataset.symbol));
 
+/**
+ * The symbols on the list once it has loaded. The panel shows before the person's saved lists arrive, so a read right
+ * after it shows can find no rows (run 1125 read `[]` in #3). #1 put ETH/USDT and BTC/USDT on this list.
+ */
+async function loadedSymbols(page) {
+  await expect
+    .poll(() => listedSymbols(page), { message: "the list's rows never showed" })
+    .toEqual(expect.arrayContaining(['ETH/USDT', 'BTC/USDT']));
+  return listedSymbols(page);
+}
+
 async function addMarket(page, query, symbol) {
   await panel(page).getByRole('searchbox', { name: 'Add a market' }).fill(query);
   await panel(page)
@@ -145,7 +156,7 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
   await openWorkbench(page);
   // Every row on the list: its last price and its 24 h change are the ones Edge serves for that market. The quote may
   // tick between the two reads, so the price is within half a percent and the change within a tenth of a point.
-  const symbols = await listedSymbols(page);
+  const symbols = await loadedSymbols(page);
   expect(symbols).toEqual(expect.arrayContaining(['ETH/USDT', 'BTC/USDT']));
   for (const symbol of symbols) {
     const last = row(page, symbol).locator('td[data-column="last"]');
@@ -222,7 +233,7 @@ test(`${J} #6 exports the list as a CSV file, and an import adds only the listed
   await signIn(page, account());
   await openWorkbench(page);
   // The person exports the list once its quotes show: every row's last price is live.
-  for (const symbol of await listedSymbols(page)) {
+  for (const symbol of await loadedSymbols(page)) {
     await expect(row(page, symbol).locator('td[data-column="last"]')).toHaveAttribute('data-state', 'live');
   }
   const downloading = page.waitForEvent('download');
