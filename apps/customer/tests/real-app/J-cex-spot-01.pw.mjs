@@ -247,30 +247,26 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   // after a sell, read the book again and send another.
   let sells = 0;
   let lastSell = 0;
-  await expect
-    .poll(
-      async () => {
-        const open = await openOrders(who);
-        if (!open.some((o) => o.id === id) || Date.now() - lastSell < 3_000) return open.length;
-        const { body } = await bestPrices();
-        const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-        sells += 1;
-        const sell = await other.post('/api/v1/orders', {
-          symbol: 'BTC/USDT',
-          type: 'limit',
-          side: 'sell',
-          amount: fromUnits(ahead + toUnits(amount)),
-          price,
-          timeInForce: 'IOC',
-          clientOrderId: `${J}-8-${id}-${sells}`,
-        });
-        expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
-        lastSell = Date.now();
-        return open.length;
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(0);
+  const sellWhileOpen = async () => {
+    const open = await openOrders(who);
+    if (!open.some((o) => o.id === id) || Date.now() - lastSell < 3_000) return open.length;
+    const { body } = await bestPrices();
+    const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    sells += 1;
+    const sell = await other.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'sell',
+      amount: fromUnits(ahead + toUnits(amount)),
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: `${J}-8-${id}-${sells}`,
+    });
+    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+    lastSell = Date.now();
+    return open.length;
+  };
+  await expect.poll(sellWhileOpen, { timeout: 30_000 }).toBe(0);
   const after = await (await api(who)).balances();
   const cost = times(price, amount);
   // Funded 1000, nothing else has moved yet: the buyer paid exactly price x amount and holds nothing.
