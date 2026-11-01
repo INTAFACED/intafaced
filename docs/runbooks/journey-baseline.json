@@ -7,10 +7,11 @@
     "url": "https://github.com/INTAFACED/intafaced/actions/runs/41295134966"
   },
   "runsRead": {
-    "from": 262,
+    "from": 58,
     "to": 1119,
-    "count": 117,
-    "note": "every completed, not cancelled Real-app journeys run on main whose report was still stored; 1086 had none"
+    "read": 136,
+    "noReport": [231, 235, 236, 238, 1086],
+    "note": "every completed Real-app journeys run on main from 58 to 1119 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report"
   },
   "moneyRuleAt": "72cec1b33598361c6d871d65672c8293a70b135b",
   "moneyPackages": [
