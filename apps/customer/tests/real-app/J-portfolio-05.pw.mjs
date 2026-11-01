@@ -699,6 +699,7 @@ const inBand = (usdUnits, qty, band) => usdUnits >= times(qty, band.lo) - CENT &
 async function liveCloses() {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${Date.now() - 900_000}&limit=10`, {
     headers: { origin: ORIGIN },
+    signal: AbortSignal.timeout(15_000),
   });
   expect(res.status).toBe(200);
   const candles = await res.json();
@@ -707,37 +708,42 @@ async function liveCloses() {
 }
 
 /**
- * Every close the newest two BTC/USDT 5-minute candles showed while `act` ran, read before it, every half second during
- * it and after it. The page values its live end at the newest candle's close when the service answered the page's request,
- * which falls inside `act`; a trade between that answer and a read after it changes the close (run 1128).
+ * The page's answers for its value line while `act` runs, each with the newest two BTC/USDT 5-minute closes read when
+ * `act` began, as the request left and as its answer came back. The service values the live end at the newest candle's
+ * close when it answers, between those reads. (Run 1128 read the closes only after the chart had drawn, and a trade in
+ * between failed #7.)
  */
-async function closesDuring(act) {
-  const seen = new Set();
-  const sample = async () => {
-    for (const close of await liveCloses()) seen.add(close);
+async function valueAnswers(page, act) {
+  const atStart = await liveCloses();
+  const answers = [];
+  const listen = (request) => {
+    if (!request.url().includes('/trpc/portfolio.valueOverTime')) return;
+    const sent = liveCloses();
+    answers.push(
+      (async () => {
+        const asked = await sent;
+        const response = await request.response();
+        const back = await liveCloses();
+        expect(response, `the page's request ${request.url()} got no answer`).toBeTruthy();
+        const body = await response.json();
+        return { data: body?.result?.data, closes: [...new Set([...atStart, ...asked, ...back])] };
+      })(),
+    );
   };
-  await sample();
-  let done = false;
-  let failed = null;
-  const sampling = (async () => {
-    while (!done) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      if (!done) await sample();
-    }
-  })().catch((error) => {
-    failed = error;
-  });
-  // A failure of `act` is the step's own and is thrown as it is; a failed read of the closes is thrown after it.
-  const result = await act().finally(() => {
-    done = true;
-  });
-  await sampling;
-  if (failed) throw failed;
-  await sample();
-  return { result, closes: [...seen] };
+  page.on('request', listen);
+  let result;
+  try {
+    result = await act();
+  } catch (error) {
+    // The step's own failure is the one to report; a read still under way is let go.
+    for (const answer of answers) answer.catch(() => {});
+    throw error;
+  } finally {
+    page.off('request', listen);
+  }
+  return { result, answers: await Promise.all(answers) };
 }
 
-/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
 /**
  * The service's moments up to the screen's last grid moment (the live end aside on both). The two are read seconds apart:
  * a 5-minute edge passing between them may add one newer moment to the service's line, never more, and nothing earlier.
@@ -750,6 +756,7 @@ function sharedMoments(told, shown) {
   return shared;
 }
 
+/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
 async function drawn(card) {
   return card.locator('svg[data-chart="value-over-time"]').evaluate((svg) => {
     const xs = [...svg.querySelectorAll('[data-run]')].flatMap((run) =>
@@ -830,9 +837,9 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   await valueCards(page, '');
   const range = page.getByRole('group', { name: 'Range' }).first();
   const card = page.getByRole('region', { name: 'What your money was worth' });
-  // Now's BTC price, read from before the page asks for the day's line until after the line is read: the live end is
-  // valued at the newest 5-minute candle's close when the service answered.
-  const { result: before, closes: live } = await closesDuring(async () => {
+  // Now's BTC price, read around each of the page's requests for the day's line: the live end is valued at the newest
+  // 5-minute candle's close when the service answered.
+  const { result: before, answers } = await valueAnswers(page, async () => {
     await range.getByRole('button', { name: '1D', exact: true }).click();
     await expect(page).toHaveURL(/range=1D/);
     await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -854,8 +861,12 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   // By hand: the ledger's USDT plus its BTC at now's price, exactly, nothing else held yet.
   const held = await svc.balances();
   expect(Object.entries(held).filter(([asset, b]) => !['USDT', 'BTC'].includes(asset) && toUnits(b.total) !== 0n)).toEqual([]);
-  const worth = live.map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   const end = toUnits(before.points.at(-1).usd);
+  // The screen draws one of the page's answers for this day, and that answer's live end is the holdings at a close read
+  // around it.
+  const shown = answers.filter((a) => a.data?.points?.[0]?.at === before.points[0].at && toUnits(a.data.points.at(-1).valueUsd) === end);
+  expect(shown.length, `the screen's live end ${before.points.at(-1).usd} is one of the page's answers`).toBeGreaterThan(0);
+  const worth = [...new Set(shown.flatMap((a) => a.closes))].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
   // The account was opened in #1, inside this day: the line starts at zero.
   expect(toUnits(before.points[0].usd)).toBe(0n);
