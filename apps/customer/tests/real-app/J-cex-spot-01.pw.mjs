@@ -375,7 +375,9 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
     .toBeLessThan(toUnits('0.00001'));
   await page.goto('/money/pnl');
   await expect(main.getByTestId('money-label').filter({ hasText: 'Realised' }).first()).toBeVisible();
-  await expect(main.locator('[data-testid=money-total][data-figure=realised]')).toHaveText(/^[+−]\$[\d,]+\.\d{2}$/);
+  // A signed dollar result, written as the app writes dollars (fmtUsd): two decimals, and up to four under $1, so a result
+  // under $1 can read "−$0.8094".
+  await expect(main.locator('[data-testid=money-total][data-figure=realised]')).toHaveText(/^[+−]\$(?:[\d,]+\.\d{2}|0\.\d{2,4})$/);
   await expect(main.locator('[data-testid=money-note][data-indicator=true]')).toContainText('It is not a tax form.');
 });
 
