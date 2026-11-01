@@ -590,8 +590,9 @@ const openBuys = (bot) =>
 
 /**
  * The bot once its tick has caught up with the book: every level under the best bid but the top one holds an open order,
- * and its open buys are the same on two reads a few ticks apart. After a range pause ends, the tick places the buys it
- * held back; a buy placed after the step reads them would fill in a fall aimed at exactly two.
+ * and its orders (each one's status and pair profit) and closed pairs are the same on two reads a few ticks apart. After
+ * a range pause ends, the tick places the buys it held back, and the walk's way back can fill them; a buy placed or
+ * filled after the step reads the bot would change a fall aimed at exactly two, and a pair recorded late its totals.
  */
 async function settledBuys(who, botId, waitMs = 60_000) {
   const until = Date.now() + waitMs;
@@ -600,9 +601,9 @@ async function settledBuys(who, botId, waitMs = 60_000) {
     const bot = await gridBot(who, botId);
     const bid = toUnits((await bestPrices()).bid);
     const covered = bot.levels.filter((l) => l.index < bot.gridCount - 1 && toUnits(l.price) < bid).every((l) => l.openOrder !== null);
-    const now = JSON.stringify(openBuys(bot).map(String));
+    const now = JSON.stringify([bot.closedPairs, bot.orders.map((o) => [o.orderId, o.status, o.pairProfit]).sort()]);
     if (covered && now === last) return bot;
-    if (Date.now() >= until) throw new Error(`grid ${botId} did not settle: ${now}`);
+    if (Date.now() >= until) throw new Error(`grid ${botId} did not settle: ${JSON.stringify(openBuys(bot).map(String))}`);
     last = covered ? now : null;
     await new Promise((resolve) => setTimeout(resolve, 3_000));
   }
@@ -679,9 +680,11 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   const { who, botId } = run.read();
   await untilStatus(who, botId, 'running', 60_000);
   const start = await settledBuys(who, botId);
-  expect(start.closedPairs).toBe(0);
-  // Buys that filled before this step are not its two. When #5's range pause ends with the walk still above the mid it
-  // returns to, the tick places the held-back buys under that bid, and the walk's way back fills them (run 1119: seven).
+  // Buys that filled before this step are not its two, and a pair they closed is not one of its pairs. When #5's range
+  // pause ends with the walk still above the mid it returns to, the tick places the held-back buys under that bid, and
+  // the walk's way back fills them (run 1119: seven). Each leaves a sell one level up, above this step's two.
+  const closed = (b) => b.orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
+  const closedBefore = new Set(closed(start).map((o) => o.orderId));
   const filledBefore = new Set(start.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => o.orderId));
   const newlyFilled = (b) => b.orders.filter((o) => o.side === 'buy' && o.status === 'filled' && !filledBefore.has(o.orderId));
   // A pair is a buy and the sell it opened one level up: the same level index and cycle.
@@ -704,26 +707,30 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
     const bought = await untilBot(who, botId, (b) => newlyFilled(b).length >= 2);
     ours.push(...newlyFilled(bought));
     expect(ours.map((o) => toUnits(o.price)).sort()).toEqual([buys[1], buys[0]].sort());
-    // Each sell sits one level above its buy; the top one one level above buys[0], so the price rises a whole level
-    // past it. A move shifts the TEST walk, which keeps wandering: its base now is today's mid with the first shift
-    // taken back out.
+    // Each sell sits one level above its buy: at buys[0] and at `top`, one level above it. A resting sell fills once the
+    // book's bids reach it, which is 6 bps under the TEST mid, so the mid that fills exactly these two lies between 6 bps
+    // over `top` and 6 bps over the next level up, where a sell left by a buy that filled before this step can rest. Aim
+    // at the middle of that span, as the fall does. A move shifts the TEST walk, which keeps wandering: its base now is
+    // today's mid with the first shift taken back out.
     const top = toUnits(bought.levels.find((l) => l.index === bought.levels.find((x) => toUnits(x.price) === buys[0]).index + 1).price);
+    const rise = (((top + (top + (top - buys[0]))) / 2n) * (10_000n + 6n)) / 10_000n;
     const now = await bestPrices();
     const walk = (((toUnits(now.bid) + toUnits(now.ask)) / 2n) * 10_000n) / (10_000n + percentBps(down));
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, top + (buys[0] - buys[1])));
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, rise));
     await untilMid('above', top);
-    await untilBot(who, botId, (b) => ours.every((buy) => b.orders.some((o) => isSellOf(o, buy) && o.status === 'filled')));
+    await untilBot(who, botId, (b) => ours.every((buy) => closed(b).some((o) => isSellOf(o, buy))));
   } finally {
     tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
-  const bot = await gridBot(who, botId);
-  const pairs = bot.orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
+  // Read the bot once its tick has recorded everything the moves did.
+  const bot = await settledBuys(who, botId);
   const opener = (sell) => bot.orders.find((o) => o.side === 'buy' && isSellOf(sell, o));
-  // This step closes exactly its two pairs. A buy that filled before it left a sell one level up, and the rise can pass
-  // that sell too; such a pair is counted and checked like the step's own, and no other pair may close.
-  const fresh = pairs.filter((sell) => !filledBefore.has(opener(sell)?.orderId));
-  expect(fresh.map((sell) => opener(sell)?.orderId).sort(), 'two closed level pairs').toEqual(ours.map((o) => o.orderId).sort());
-  expect(bot.closedPairs, 'every closed level pair').toBe(pairs.length);
+  // This step closes exactly two pairs: the sells of its own two buys.
+  const pairs = closed(bot).filter((o) => !closedBefore.has(o.orderId));
+  expect(pairs.map((sell) => opener(sell)?.orderId).sort(), "two closed level pairs, opened by this step's buys").toEqual(
+    ours.map((o) => o.orderId).sort(),
+  );
+  expect(bot.closedPairs, 'two closed level pairs').toBe(start.closedPairs + 2);
   // Net of fees, from the trade service's own fills of each pair's buy and sell: the sell's proceeds less its fee, less
   // what the base it sold cost (the buy's cost with its fee, over what the buy delivered net of its base fee).
   const ONE = 10n ** 18n;
@@ -749,12 +756,13 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
     expect(net > 0n, `level ${sell.levelIndex}: one level up is a profit`).toBe(true);
   }
   const sum = pairs.reduce((total, o) => total + toUnits(o.pairProfit), 0n);
-  expect(toUnits(bot.gridProfit)).toBe(sum);
+  // Grid profit grew by exactly the two pairs' sum; it is that sum when no pair closed before this step.
+  expect(toUnits(bot.gridProfit)).toBe(toUnits(start.gridProfit) + sum);
   await signIn(page, who);
   await page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
   await page.getByRole('tab', { name: 'Metrics' }).click();
   const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
-  await expect(metrics).toContainText(`Grid profit${fromUnits(sum)} USDT`);
+  await expect(metrics).toContainText(`Grid profit${fromUnits(toUnits(start.gridProfit) + sum)} USDT`);
   // APR by the lead's ruling (CB-bots-05): none before a whole day has run. Read back from the service, with the bot's
   // own start time, then the words the Metrics tab shows for it.
   const metered = await gridBot(who, botId);
@@ -811,7 +819,7 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   const ledgerBefore = await ledger();
   const linesBefore = new Set((await lines()).map((l) => l.id));
   expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
-  // Two closed pairs (#6) raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
+  // The pairs closed by #6 raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
   const profit = toUnits(before.reserve.amount) - toUnits(before.investment);
   const free = toUnits(ledgerBefore.free);
   expect(toUnits(before.withdrawableProfit)).toBe(profit < free ? profit : free);
