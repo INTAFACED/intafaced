@@ -1,0 +1,168 @@
+# J-dex-protocol-07#3: the step's test as it stood just before 81a748c468c0e9b70d38f4acca497cc8d74c0dcd (the file at d949d171ca9136bb967bd769f10ff2e1a13b8bde), run against main's product code.
+# Command: git show d949d171ca9136bb967bd769f10ff2e1a13b8bde:apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs > apps/customer/tests/real-app/Z-prior-dex07.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-dex07.pw.mjs JOURNEY_RUN_ID=prior-dex07 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# The local stack was built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8 (ab8865061 plus one journey file). From ab8865061 to main 3a25a10a4e60209e13f2db3f39dbb63bb78fb08f,
+# only docs/ and test files changed (GitHub compare), so its product code is main's. Other steps of the file may fail here; this proof is about J-dex-protocol-07#3 only.
+$ JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-dex07.pw.mjs JOURNEY_RUN_ID=prior-dex07 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# started 2026-11-01T11:19:16Z against the local stack built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8
+
+Running 9 tests using 1 worker
+
+  ✓  1 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:31:1 › J-dex-protocol-07 #1 opens Tokens and the Trending tab: rows by growth for the window with the formula link; a saved filter survives reload; blocked storage still works (3.4s)
+  ✘  2 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:63:1 › J-dex-protocol-07 #2 opens New listings and Top traded: Top traded by volume, New by listing time; an address search finds a token with no symbol (16.6s)
+  ✓  3 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:79:1 › J-dex-protocol-07 #3 opens the market brief and the stablecoin screener: a brief or "No brief today"; a blank stablecoin list shows its refusal; the leaderboard equals realised trades (1.6s)
+  ✘  4 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:101:1 › J-dex-protocol-07 #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time (5.7s)
+  ✘  5 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:114:1 › J-dex-protocol-07 #5 reads the trust tier and the organic score: "unknown" with a note with no history, "Not scored" while inputs are blank, suspicious flags, and a lookalike name masked (5.7s)
+  ✘  6 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:143:1 › J-dex-protocol-07 #6 opens the pairs, holders and trades tabs: candles at the swap times, volume equal to the swaps, holders summing to supply less burned (5.6s)
+  ✓  7 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:182:1 › J-dex-protocol-07 #7 creates a watchlist while signed out, then signs in: it persists in the browser and is offered for import on sign-in (4.1s)
+  ✓  8 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:196:1 › J-dex-protocol-07 #8 opens the stocks screener with no asset registered: an empty state with its blocker, not a made-up list (1.3s)
+  ✘  9 apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:207:1 › J-dex-protocol-07 #9 uses the 50 percent shortcut in the quick ticket: the amount is half the balance and Review opens the swap sheet (5.7s)
+
+
+  1) apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:63:1 › J-dex-protocol-07 #2 opens New listings and Top traded: Top traded by volume, New by listing time; an address search finds a token with no symbol 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('region', { name: 'Tokens', exact: true }).getByRole('table').getByRole('row').filter({ has: getByRole('cell') }).first()
+    Expected substring: "0x4200"
+    Received string:    "↗No listed token matches that name, symbol or address."
+    Timeout: 15000ms
+
+    Call log:
+      - Expect "toContainText" getByRole('region', { name: 'Tokens', exact: true }).getByRole('table').getByRole('row').filter({ has: getByRole('cell') }).first() with timeout 15000ms
+      - waiting for getByRole('region', { name: 'Tokens', exact: true }).getByRole('table').getByRole('row').filter({ has: getByRole('cell') }).first()
+        34 × locator resolved to <tr>…</tr>
+           - unexpected value "↗No listed token matches that name, symbol or address."
+
+
+      74 |   expect(listed).toEqual([...listed].sort().reverse());
+      75 |   await page.getByRole('searchbox', { name: 'Search tokens' }).fill(TOKEN);
+    > 76 |   await expect(tokenRows(page).first()).toContainText(TOKEN.slice(0, 6));
+         |                                         ^
+      77 | });
+      78 |
+      79 | test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No brief today"; a blank stablecoin list shows its refusal; the leaderboard equals realised trades`, async ({
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:76:41
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-30663-inds-a-token-with-no-symbol/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-30663-inds-a-token-with-no-symbol/error-context.md
+
+  2) apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:101:1 › J-dex-protocol-07 #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('region', { name: 'Token facts' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('region', { name: 'Token facts' }) with timeout 5000ms
+      - waiting for getByRole('region', { name: 'Token facts' })
+
+
+      104 |   await page.goto(`/dex/tokens/${TOKEN}`);
+      105 |   const facts = page.getByRole('region', { name: 'Token facts' });
+    > 106 |   await expect(facts).toBeVisible(UNBUILT);
+          |                       ^
+      107 |   await expect(facts).toContainText(/\$[\d,.]+/);
+      108 |   await expect(facts).toContainText(/as of \d{1,2}:\d{2}/);
+      109 |   await expect(facts).toContainText(/Liquidity/);
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:106:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-c146d-D-price-with-its-as-of-time/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-c146d-D-price-with-its-as-of-time/error-context.md
+
+  3) apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:114:1 › J-dex-protocol-07 #5 reads the trust tier and the organic score: "unknown" with a note with no history, "Not scored" while inputs are blank, suspicious flags, and a lookalike name masked 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('region', { name: 'Trust' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('region', { name: 'Trust' }) with timeout 5000ms
+      - waiting for getByRole('region', { name: 'Trust' })
+
+
+      117 |   await page.goto(`/dex/tokens/${TOKEN}`);
+      118 |   const trust = page.getByRole('region', { name: 'Trust' });
+    > 119 |   await expect(trust).toBeVisible(UNBUILT);
+          |                       ^
+      120 |   // A token with no history on the TEST chain: its tier is "unknown" and a note says why, never another tier.
+      121 |   await expect(trust.getByTestId('token-trust-tier')).toHaveText(/^unknown$/i);
+      122 |   await expect(trust.getByTestId('token-trust-note')).toContainText(/no history/i);
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:119:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-e7bd6-and-a-lookalike-name-masked/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-e7bd6-and-a-lookalike-name-masked/error-context.md
+
+  4) apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:143:1 › J-dex-protocol-07 #6 opens the pairs, holders and trades tabs: candles at the swap times, volume equal to the swaps, holders summing to supply less burned 
+
+    TimeoutError: locator.click: Timeout 5000ms exceeded.
+    Call log:
+      - waiting for getByRole('tab', { name: 'Pairs' })
+
+
+      146 |   await page.goto(`/dex/tokens/${TOKEN}`);
+      147 |   for (const tab of ['Pairs', 'Holders', 'Trades']) {
+    > 148 |     await page.getByRole('tab', { name: tab }).click(UNBUILT);
+          |                                                ^
+      149 |     await expect(page.getByRole('tabpanel', { name: tab })).toBeVisible();
+      150 |   }
+      151 |   // Blocked tables prove nothing: each tab must list what the chain holds for this token, and the figures must agree.
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:148:48
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-6060e-mming-to-supply-less-burned/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-6060e-mming-to-supply-less-burned/error-context.md
+
+  5) apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:207:1 › J-dex-protocol-07 #9 uses the 50 percent shortcut in the quick ticket: the amount is half the balance and Review opens the swap sheet 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('form', { name: 'Quick trade' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('form', { name: 'Quick trade' }) with timeout 5000ms
+      - waiting for getByRole('form', { name: 'Quick trade' })
+
+
+      211 |   await page.goto(`/dex/tokens/${TOKEN}`);
+      212 |   const ticket = page.getByRole('form', { name: 'Quick trade' });
+    > 213 |   await expect(ticket).toBeVisible(UNBUILT);
+          |                        ^
+      214 |   await ticket.getByRole('button', { name: /^Connect TEST Wallet/ }).click();
+      215 |   const balance = toUnits(((await ticket.getByTestId('quick-balance').textContent()) ?? '').replace(/[^\d.]/g, ''));
+      216 |   await ticket.getByRole('button', { name: '50%' }).click();
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:213:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-ef6d4-Review-opens-the-swap-sheet/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-dex07.pw.mjs-J-dex-ef6d4-Review-opens-the-swap-sheet/error-context.md
+
+  5 failed
+    apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:63:1 › J-dex-protocol-07 #2 opens New listings and Top traded: Top traded by volume, New by listing time; an address search finds a token with no symbol 
+    apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:101:1 › J-dex-protocol-07 #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time 
+    apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:114:1 › J-dex-protocol-07 #5 reads the trust tier and the organic score: "unknown" with a note with no history, "Not scored" while inputs are blank, suspicious flags, and a lookalike name masked 
+    apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:143:1 › J-dex-protocol-07 #6 opens the pairs, holders and trades tabs: candles at the swap times, volume equal to the swaps, holders summing to supply less burned 
+    apps/customer/tests/real-app/Z-prior-dex07.pw.mjs:207:1 › J-dex-protocol-07 #9 uses the 50 percent shortcut in the quick ticket: the amount is half the balance and Review opens the swap sheet 
+  4 passed (57.0s)
+# exit 1 at 2026-11-01T11:20:15Z

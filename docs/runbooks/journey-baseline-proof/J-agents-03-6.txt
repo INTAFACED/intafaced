@@ -1,0 +1,103 @@
+# J-agents-03#6: the step's test as it stood just before 3edf5cf77ef8f6b125e185a8ab203a32e45a904b (the file at b396a3e628071c22a09372c96a184326690f3914), run against main's product code.
+# Command: git show b396a3e628071c22a09372c96a184326690f3914:apps/customer/tests/real-app/J-agents-03.pw.mjs > apps/customer/tests/real-app/Z-prior-agents03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-agents03.pw.mjs JOURNEY_RUN_ID=prior-agents03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# The local stack was built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8 (ab8865061 plus one journey file). From ab8865061 to main 3a25a10a4e60209e13f2db3f39dbb63bb78fb08f,
+# only docs/ and test files changed (GitHub compare), so its product code is main's. Other steps of the file may fail here; this proof is about J-agents-03#6 only.
+$ JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-agents03.pw.mjs JOURNEY_RUN_ID=prior-agents03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# started 2026-11-01T11:15:31Z against the local stack built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8
+
+Running 9 tests using 1 worker
+
+  ✓  1 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:31:1 › J-agents-03 starts: a verified TEST account on /agents/new (9.3s)
+  ✓  2 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:37:1 › J-agents-03 #1 opens the template picker and chooses the service starter: a draft with its tools and no cap; a second copy is the next draft (3.4s)
+  ✓  3 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:58:1 › J-agents-03 #2 edits the name, instructions and tools, adds a tool that moves money: the validator refuses it with its reason; "sessions" is reserved (2.8s)
+  ✓  4 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:77:1 › J-agents-03 #3 reads the protection check: a blocking finding for the missing per-session cap (2.1s)
+  ✓  5 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:82:1 › J-agents-03 #4 sets the cap and tool shapes: the finding clears; publish otherwise refuses with the unset-cap code (2.2s)
+  ✘  6 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:93:1 › J-agents-03 #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too (17.1s)
+  ✓  7 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:103:1 › J-agents-03 #6 asks the assistant to draft an agent: with the model unset the owner-decision notice and the builder still works; nothing saved until accepted (2.4s)
+  ✘  8 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:115:1 › J-agents-03 #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version (1.5m)
+  ✘  9 apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:135:1 › J-agents-03 #8 shares the agent with a co-owner and deletes a spare draft: a group as co-owner is refused; deletion asks for an irreversible confirmation (1.5m)
+
+
+  1) apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:93:1 › J-agents-03 #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('main').getByRole('region', { name: 'Agent identity' }).getByRole('term').filter({ hasText: 'Owner' })
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('main').getByRole('region', { name: 'Agent identity' }).getByRole('term').filter({ hasText: 'Owner' }) with timeout 15000ms
+      - waiting for getByRole('main').getByRole('region', { name: 'Agent identity' }).getByRole('term').filter({ hasText: 'Owner' })
+
+
+       96 |   await openOwnAgent(page, agents, 'Identity');
+       97 |   const identity = main(page).getByRole('region', { name: 'Agent identity' });
+    >  98 |   for (const term of ['Owner', 'Scopes', 'Expires']) await expect(identity.getByRole('term').filter({ hasText: term })).toBeVisible();
+          |                                                                                                                         ^
+       99 |   await identity.getByRole('button', { name: 'Revoke token' }).click();
+      100 |   await expect(identity.getByRole('status')).toContainText('Revoked. The agent’s next call will fail.');
+      101 | });
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:98:121
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--040e8-a-frozen-owner-fails-it-too/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--040e8-a-frozen-owner-fails-it-too/error-context.md
+
+  2) apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:115:1 › J-agents-03 #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version 
+
+    Test timeout of 90000ms exceeded.
+
+    Error: locator.check: Test timeout of 90000ms exceeded.
+    Call log:
+      - waiting for getByRole('dialog', { name: 'Publish' }).getByRole('checkbox', { name: 'My agents' })
+
+
+      119 |   await main(page).getByRole('button', { name: 'Publish' }).click(UNBUILT);
+      120 |   const publish = page.getByRole('dialog', { name: 'Publish' });
+    > 121 |   await publish.getByRole('checkbox', { name: 'My agents' }).check();
+          |                                                              ^
+      122 |   await publish.getByRole('button', { name: 'Publish version 1' }).click();
+      123 |   await expect(main(page).getByTestId('agent-version')).toHaveText('Version 1 · published');
+      124 |   await builder(page)
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:121:62
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--4178c-sessions-keep-their-version/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--4178c-sessions-keep-their-version/error-context.md
+
+  3) apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:135:1 › J-agents-03 #8 shares the agent with a co-owner and deletes a spare draft: a group as co-owner is refused; deletion asks for an irreversible confirmation 
+
+    Test timeout of 90000ms exceeded.
+
+    Error: locator.fill: Test timeout of 90000ms exceeded.
+    Call log:
+      - waiting for getByRole('main').getByRole('form', { name: 'Co-owners' }).getByRole('textbox', { name: /^Add a co-owner/ })
+
+
+      138 |   await openOwnAgent(page, agents, 'Sharing');
+      139 |   const share = main(page).getByRole('form', { name: 'Co-owners' });
+    > 140 |   await share.getByRole('textbox', { name: /^Add a co-owner/ }).fill('group:TEST-team');
+          |                                                                 ^
+      141 |   await share.getByRole('button', { name: 'Add' }).click();
+      142 |   await expect(share.getByRole('alert')).toContainText('A group cannot be a co-owner.');
+      143 |
+        at /home/user/intafaced/apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:140:65
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--68001-n-irreversible-confirmation/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../tmp/intafaced-real-app/results/Z-prior-agents03.pw.mjs-J--68001-n-irreversible-confirmation/error-context.md
+
+  3 failed
+    apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:93:1 › J-agents-03 #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too 
+    apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:115:1 › J-agents-03 #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version 
+    apps/customer/tests/real-app/Z-prior-agents03.pw.mjs:135:1 › J-agents-03 #8 shares the agent with a co-owner and deletes a spare draft: a group as co-owner is refused; deletion asks for an irreversible confirmation 
+  6 passed (3.7m)
+# exit 1 at 2026-11-01T11:19:16Z

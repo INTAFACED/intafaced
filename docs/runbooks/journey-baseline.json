@@ -18,6 +18,7 @@
     "packages/connect-data-lake",
     "packages/execution-arb",
     "packages/execution-mm",
+    "packages/ledger-client",
     "packages/market-data",
     "packages/money-math",
     "packages/portfolio-view",
@@ -42,14 +43,15 @@
     "services/svc-tax",
     "services/svc-token",
     "services/svc-trade",
-    "services/svc-ws"
+    "services/svc-ws",
+    "tooling/pay-sim"
   ],
   "counts": {
     "stepsInRun": 1520,
     "failing": 532,
-    "unbuilt": 517,
+    "unbuilt": 524,
     "regression": 5,
-    "notBaselined": 10
+    "notBaselined": 3
   },
   "steps": [
     {
@@ -58,6 +60,23 @@
       "state": "unbuilt",
       "money": true,
       "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-03#6",
+      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 6841,
+      "why": "expect(locator).toBeEnabled() failed",
+      "lastPassedRun": 845,
+      "strengthenedBy": "3edf5cf77ef8f6b125e185a8ab203a32e45a904b",
+      "blocker": "owner decision: the owner's model choice is unset on purpose, so \"Draft it\" stays disabled",
+      "lane": "B4",
+      "priorTestProof": {
+        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
+        "command": "git show b396a3e628071c22a09372c96a184326690f3914:apps/customer/tests/real-app/J-agents-03.pw.mjs > apps/customer/tests/real-app/Z-prior-agents03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-agents03.pw.mjs JOURNEY_RUN_ID=prior-agents03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
+        "log": "docs/runbooks/journey-baseline-proof/J-agents-03-6.txt"
+      }
     },
     {
       "step": "J-agents-03#7",
@@ -646,6 +665,18 @@
       "state": "unbuilt",
       "money": true,
       "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-copy-bots-otc-01#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7000,
+      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app",
+      "lastPassedRun": 988,
+      "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
+      "blocker": "BLOCKED: no sub-account sign-in exists",
+      "lane": "B2"
     },
     {
       "step": "J-copy-bots-otc-02#1",
@@ -1334,6 +1365,18 @@
       "why": "expect(received).toBe(expected) // Object.is equality"
     },
     {
+      "step": "J-copy-bots-otc-19#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7001,
+      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}",
+      "lastPassedRun": 988,
+      "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
+      "blocker": "UNBUILT: no public recurring buy API (POST /api/v1/recurring answers 404)",
+      "lane": "B2"
+    },
+    {
       "step": "J-copy-bots-otc-20#1",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
       "state": "unbuilt",
@@ -1962,6 +2005,23 @@
       "state": "unbuilt",
       "money": true,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-07#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 6634,
+      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing",
+      "lastPassedRun": 690,
+      "strengthenedBy": "81a748c468c0e9b70d38f4acca497cc8d74c0dcd",
+      "blocker": "BLOCKED market_data: no market data source exists on the platform",
+      "lane": "B1",
+      "priorTestProof": {
+        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
+        "command": "git show d949d171ca9136bb967bd769f10ff2e1a13b8bde:apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs > apps/customer/tests/real-app/Z-prior-dex07.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-dex07.pw.mjs JOURNEY_RUN_ID=prior-dex07 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
+        "log": "docs/runbooks/journey-baseline-proof/J-dex-protocol-07-3.txt"
+      }
     },
     {
       "step": "J-dex-protocol-07#4",
@@ -3564,6 +3624,40 @@
       "why": "no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built"
     },
     {
+      "step": "J-ops-console-02#5",
+      "file": "apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 6975,
+      "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)",
+      "lastPassedRun": 1039,
+      "strengthenedBy": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
+      "blocker": "the console has no KYC case detail to open the document in the shared viewer (OPS-cases-07)",
+      "lane": "B13",
+      "priorTestProof": {
+        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
+        "command": "git show 365468698aa330e565556df63bff2970ba3ed67c:apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs > apps/customer/tests/real-app/Z-prior-ops02.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-ops02.pw.mjs JOURNEY_RUN_ID=prior-ops02 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
+        "log": "docs/runbooks/journey-baseline-proof/J-ops-console-02-5.txt"
+      }
+    },
+    {
+      "step": "J-ops-console-04#7",
+      "file": "apps/customer/tests/real-app/J-ops-console-04-close.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7058,
+      "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
+      "lastPassedRun": 1039,
+      "strengthenedBy": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
+      "blocker": "no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
+      "lane": "B13",
+      "priorTestProof": {
+        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
+        "command": "git show 365468698aa330e565556df63bff2970ba3ed67c:apps/customer/tests/real-app/J-ops-console-04-close.pw.mjs > apps/customer/tests/real-app/Z-prior-ops04.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-ops04.pw.mjs JOURNEY_RUN_ID=prior-ops04 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
+        "log": "docs/runbooks/journey-baseline-proof/J-ops-console-04-7.txt"
+      }
+    },
+    {
       "step": "J-ops-console-07#9",
       "file": "apps/customer/tests/real-app/J-ops-console-07.pw.mjs",
       "state": "unbuilt",
@@ -3676,6 +3770,23 @@
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
+      "step": "J-portfolio-03#1",
+      "file": "apps/customer/tests/real-app/J-portfolio-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7034,
+      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)",
+      "lastPassedRun": 1007,
+      "strengthenedBy": "a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067",
+      "blocker": "BLOCKED convert_kind: svc-bank has no convert activity kind",
+      "lane": "B8",
+      "priorTestProof": {
+        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
+        "command": "git show b9dd94d108804b66e8d0363c81b72afa3a12f927:apps/customer/tests/real-app/J-portfolio-03.pw.mjs > apps/customer/tests/real-app/Z-prior-port03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-port03.pw.mjs JOURNEY_RUN_ID=prior-port03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
+        "log": "docs/runbooks/journey-baseline-proof/J-portfolio-03-1.txt"
+      }
+    },
+    {
       "step": "J-portfolio-11#4",
       "file": "apps/customer/tests/real-app/J-portfolio-11.pw.mjs",
       "state": "unbuilt",
@@ -3714,28 +3825,12 @@
   ],
   "notBaselined": [
     {
-      "step": "J-agents-03#6",
-      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
-      "money": true,
-      "issue": 6841,
-      "lastPassedRun": 845,
-      "why": "expect(locator).toBeEnabled() failed"
-    },
-    {
       "step": "J-copy-bots-otc-01#3",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
       "money": true,
       "issue": 7000,
       "lastPassedRun": 1118,
       "why": "the leader list after Top return"
-    },
-    {
-      "step": "J-copy-bots-otc-01#5",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
-      "money": true,
-      "issue": 7000,
-      "lastPassedRun": 988,
-      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app"
     },
     {
       "step": "J-copy-bots-otc-14#6",
@@ -3752,46 +3847,6 @@
       "issue": null,
       "lastPassedRun": 1118,
       "why": "the bot still holds its reserve"
-    },
-    {
-      "step": "J-copy-bots-otc-19#6",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
-      "money": true,
-      "issue": 7001,
-      "lastPassedRun": 988,
-      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}"
-    },
-    {
-      "step": "J-dex-protocol-07#3",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
-      "money": true,
-      "issue": 6634,
-      "lastPassedRun": 690,
-      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing"
-    },
-    {
-      "step": "J-ops-console-02#5",
-      "file": "apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs",
-      "money": true,
-      "issue": 6975,
-      "lastPassedRun": 1039,
-      "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)"
-    },
-    {
-      "step": "J-ops-console-04#7",
-      "file": "apps/customer/tests/real-app/J-ops-console-04-close.pw.mjs",
-      "money": true,
-      "issue": 7058,
-      "lastPassedRun": 1039,
-      "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)"
-    },
-    {
-      "step": "J-portfolio-03#1",
-      "file": "apps/customer/tests/real-app/J-portfolio-03.pw.mjs",
-      "money": true,
-      "issue": 7034,
-      "lastPassedRun": 1007,
-      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)"
     }
   ]
 }
