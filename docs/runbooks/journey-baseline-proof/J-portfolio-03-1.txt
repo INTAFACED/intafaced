@@ -1,0 +1,20 @@
+# J-portfolio-03#1: the step's test as it stood just before a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067 (the file at b9dd94d108804b66e8d0363c81b72afa3a12f927), run against main's product code.
+# Command: git show b9dd94d108804b66e8d0363c81b72afa3a12f927:apps/customer/tests/real-app/J-portfolio-03.pw.mjs > apps/customer/tests/real-app/Z-prior-port03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-port03.pw.mjs JOURNEY_RUN_ID=prior-port03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# The local stack was built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8 (ab8865061 plus one journey file). From ab8865061 to main 3a25a10a4e60209e13f2db3f39dbb63bb78fb08f,
+# only docs/ and test files changed (GitHub compare), so its product code is main's. Other steps of the file may fail here; this proof is about J-portfolio-03#1 only.
+$ JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-port03.pw.mjs JOURNEY_RUN_ID=prior-port03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# started 2026-11-01T11:22:16Z against the local stack built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8
+
+Running 8 tests using 1 worker
+
+  ✓  1 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:138:1 › J-portfolio-03 #1 opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time (29.4s)
+  ✓  2 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:216:1 › J-portfolio-03 #2 filters by date, asset, type, account, address and year, and sorts: the list narrows (6.2s)
+  ✓  3 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:282:1 › J-portfolio-03 #3 reads a traded order: its lines share one row, a cancelled order is one row, a resting order is set aside (7.5s)
+  ✓  4 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:348:1 › J-portfolio-03 #4 opens an entry: its linked lines as one group with the shared reference, and from a purchase a link to the coin (3.4s)
+  ✓  5 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:374:1 › J-portfolio-03 #5 opens Trades: one row per trade with price, total and fee, and partial fills grouped under their order and its type (2.5s)
+  ✓  6 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:414:1 › J-portfolio-03 #6 adds a note to an entry and presses save twice: one note, shown on reload and in the notes filter (4.0s)
+  ✓  7 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:448:1 › J-portfolio-03 #7 groups activity by tax effect: refused in words while the owner has not set what each type means (2.5s)
+  ✓  8 apps/customer/tests/real-app/Z-prior-port03.pw.mjs:464:1 › J-portfolio-03 #8 opens activity when it is empty, fails or is refused: a way forward, Try again, or words with a reference (13.3s)
+
+  8 passed (1.2m)
+# exit 0 at 2026-11-01T11:23:29Z

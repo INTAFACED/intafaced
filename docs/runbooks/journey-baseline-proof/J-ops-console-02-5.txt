@@ -1,0 +1,13 @@
+# J-ops-console-02#5: the step's test as it stood just before 545887ece402aa471f6e2b1eae18f4c7b3ff200d (the file at 365468698aa330e565556df63bff2970ba3ed67c), run against main's product code.
+# Command: git show 365468698aa330e565556df63bff2970ba3ed67c:apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs > apps/customer/tests/real-app/Z-prior-ops02.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-ops02.pw.mjs JOURNEY_RUN_ID=prior-ops02 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# The local stack was built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8 (ab8865061 plus one journey file). From ab8865061 to main 3a25a10a4e60209e13f2db3f39dbb63bb78fb08f,
+# only docs/ and test files changed (GitHub compare), so its product code is main's. Other steps of the file may fail here; this proof is about J-ops-console-02#5 only.
+$ JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-ops02.pw.mjs JOURNEY_RUN_ID=prior-ops02 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+# started 2026-11-01T11:21:14Z against the local stack built from 199a89e84a712d0c08d420d85c575d0d9d54e1f8
+
+Running 1 test using 1 worker
+
+  ✓  1 apps/customer/tests/real-app/Z-prior-ops02.pw.mjs:49:1 › J-ops-console-02 #5 the documents list shows each document with its status, and the viewer opens with a second founder (23.8s)
+
+  1 passed (25.5s)
+# exit 0 at 2026-11-01T11:21:41Z
