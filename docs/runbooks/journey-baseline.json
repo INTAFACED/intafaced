@@ -43,7 +43,8 @@
     "services/svc-tax",
     "services/svc-token",
     "services/svc-trade",
-    "services/svc-ws"
+    "services/svc-ws",
+    "tooling/pay-sim"
   ],
   "counts": {
     "stepsInRun": 1520,
@@ -67,6 +68,7 @@
       "money": true,
       "issue": 6841,
       "why": "expect(locator).toBeEnabled() failed",
+      "lastPassedRun": 845,
       "strengthenedBy": "3edf5cf77ef8f6b125e185a8ab203a32e45a904b",
       "blocker": "owner decision: the owner's model choice is unset on purpose, so \"Draft it\" stays disabled",
       "lane": "B4",
@@ -671,6 +673,7 @@
       "money": true,
       "issue": 7000,
       "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app",
+      "lastPassedRun": 988,
       "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
       "blocker": "BLOCKED: no sub-account sign-in exists",
       "lane": "B2"
@@ -1368,6 +1371,7 @@
       "money": true,
       "issue": 7001,
       "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}",
+      "lastPassedRun": 988,
       "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
       "blocker": "UNBUILT: no public recurring buy API (POST /api/v1/recurring answers 404)",
       "lane": "B2"
@@ -2009,6 +2013,7 @@
       "money": true,
       "issue": 6634,
       "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing",
+      "lastPassedRun": 690,
       "strengthenedBy": "81a748c468c0e9b70d38f4acca497cc8d74c0dcd",
       "blocker": "BLOCKED market_data: no market data source exists on the platform",
       "lane": "B1",
@@ -3625,6 +3630,7 @@
       "money": true,
       "issue": 6975,
       "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)",
+      "lastPassedRun": 1039,
       "strengthenedBy": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
       "blocker": "the console has no KYC case detail to open the document in the shared viewer (OPS-cases-07)",
       "lane": "B13",
@@ -3641,6 +3647,7 @@
       "money": true,
       "issue": 7058,
       "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
+      "lastPassedRun": 1039,
       "strengthenedBy": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
       "blocker": "no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
       "lane": "B13",
@@ -3769,6 +3776,7 @@
       "money": true,
       "issue": 7034,
       "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)",
+      "lastPassedRun": 1007,
       "strengthenedBy": "a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067",
       "blocker": "BLOCKED convert_kind: svc-bank has no convert activity kind",
       "lane": "B8",
