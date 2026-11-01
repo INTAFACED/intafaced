@@ -99,7 +99,12 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
   const rankings = page.getByRole('group', { name: 'Ranked lists' });
   const leaders = page.getByRole('table', { name: 'Leaders' });
   await expect(leaders).toBeVisible();
-  const order = async () => (await leaders.locator('tbody tr').allInnerTexts()).map((row) => row.trim());
+  // The list as read once it has loaded: while it loads, the table is busy and its rows are the "Loading" placeholder
+  // (#7000: #3 once read that placeholder as the order before the clicks).
+  const order = async () => {
+    await expect(leaders).not.toHaveAttribute('aria-busy', 'true');
+    return (await leaders.locator('tbody tr').allInnerTexts()).map((row) => row.trim());
+  };
   const before = await order();
   for (const name of ['Top return', 'Trending']) {
     const answer = page.waitForResponse(
