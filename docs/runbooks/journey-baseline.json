@@ -48,9 +48,9 @@
   "counts": {
     "stepsInRun": 1520,
     "failing": 532,
-    "unbuilt": 517,
+    "unbuilt": 519,
     "regression": 5,
-    "notBaselined": 10
+    "notBaselined": 8
   },
   "steps": [
     {
@@ -647,6 +647,22 @@
       "state": "unbuilt",
       "money": true,
       "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-copy-bots-otc-01#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7000,
+      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app",
+      "testAheadOfCode": {
+        "commit": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
+        "pr": 6924,
+        "blocker": "BLOCKED: no sub-account sign-in exists",
+        "lane": "B2",
+        "noPassFrom": 1007,
+        "noPassTo": 1119
+      }
     },
     {
       "step": "J-copy-bots-otc-02#1",
@@ -1333,6 +1349,22 @@
       "state": "unbuilt",
       "money": true,
       "why": "expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "step": "J-copy-bots-otc-19#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "issue": 7001,
+      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}",
+      "testAheadOfCode": {
+        "commit": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
+        "pr": 6924,
+        "blocker": "UNBUILT: no public recurring buy API (POST /api/v1/recurring answers 404)",
+        "lane": "B2",
+        "noPassFrom": 1007,
+        "noPassTo": 1119
+      }
     },
     {
       "step": "J-copy-bots-otc-20#1",
@@ -3720,7 +3752,12 @@
       "money": true,
       "issue": 6841,
       "lastPassedRun": 845,
-      "why": "expect(locator).toBeEnabled() failed"
+      "why": "expect(locator).toBeEnabled() failed",
+      "strengthenedBy": {
+        "commit": "3edf5cf77ef8f6b125e185a8ab203a32e45a904b",
+        "pr": 6816,
+        "productFiles": ["apps/customer/src/features/more/AgentBuilder.tsx", "apps/customer/src/features/more/agent-builder-copy.ts"]
+      }
     },
     {
       "step": "J-copy-bots-otc-01#3",
@@ -3729,14 +3766,6 @@
       "issue": 7000,
       "lastPassedRun": 1118,
       "why": "the leader list after Top return"
-    },
-    {
-      "step": "J-copy-bots-otc-01#5",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
-      "money": true,
-      "issue": 7000,
-      "lastPassedRun": 988,
-      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app"
     },
     {
       "step": "J-copy-bots-otc-14#6",
@@ -3755,20 +3784,36 @@
       "why": "the bot still holds its reserve"
     },
     {
-      "step": "J-copy-bots-otc-19#6",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
-      "money": true,
-      "issue": 7001,
-      "lastPassedRun": 988,
-      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}"
-    },
-    {
       "step": "J-dex-protocol-07#3",
       "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
       "money": true,
       "issue": 6634,
       "lastPassedRun": 690,
-      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing"
+      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing",
+      "strengthenedBy": {
+        "commit": "81a748c468c0e9b70d38f4acca497cc8d74c0dcd",
+        "pr": 6666,
+        "productFiles": [
+          "apps/customer/src/features/protocol/api.ts",
+          "apps/customer/src/features/protocol/tokens/QuickTicket.tsx",
+          "apps/customer/src/features/protocol/tokens/TokenPage.tsx",
+          "apps/customer/src/features/protocol/tokens/TokensRoom.tsx",
+          "apps/customer/src/features/protocol/tokens/copy.ts",
+          "apps/customer/src/features/protocol/tokens/format.ts",
+          "apps/customer/src/features/protocol/tokens/quick-ticket.ts",
+          "apps/customer/src/features/protocol/tokens/tokens.css",
+          "packages/contracts/package.json",
+          "packages/contracts/src/index.ts",
+          "packages/contracts/src/protocol-tokens.ts",
+          "services/svc-protocol/scripts/seed-token-pages.ts",
+          "services/svc-protocol/src/amm/token-reader.ts",
+          "services/svc-protocol/src/amm/tokens-router.ts",
+          "services/svc-protocol/src/amm/tokens.ts",
+          "services/svc-protocol/src/env.ts",
+          "services/svc-protocol/src/index.ts",
+          "services/svc-protocol/src/router.ts"
+        ]
+      }
     },
     {
       "step": "J-ops-console-02#5",
@@ -3776,7 +3821,12 @@
       "money": true,
       "issue": 6975,
       "lastPassedRun": 1039,
-      "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)"
+      "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)",
+      "strengthenedBy": {
+        "commit": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
+        "pr": 7013,
+        "productFiles": ["apps/admin/src/components/account-holds.tsx"]
+      }
     },
     {
       "step": "J-ops-console-04#7",
@@ -3784,7 +3834,12 @@
       "money": true,
       "issue": 7058,
       "lastPassedRun": 1039,
-      "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)"
+      "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)",
+      "strengthenedBy": {
+        "commit": "545887ece402aa471f6e2b1eae18f4c7b3ff200d",
+        "pr": 7013,
+        "productFiles": ["apps/admin/src/components/account-holds.tsx"]
+      }
     },
     {
       "step": "J-portfolio-03#1",
@@ -3792,7 +3847,19 @@
       "money": true,
       "issue": 7034,
       "lastPassedRun": 1007,
-      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)"
+      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)",
+      "strengthenedBy": {
+        "commit": "a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067",
+        "pr": 6974,
+        "productFiles": [
+          "apps/customer/src/data/activity.ts",
+          "apps/customer/src/screens/home/RecentActivity.tsx",
+          "apps/customer/src/screens/home/copy.ts",
+          "apps/customer/src/screens/money/Activity.tsx",
+          "apps/customer/src/screens/money/activity-view.ts",
+          "apps/customer/src/screens/money/copy.ts"
+        ]
+      }
     }
   ]
 }
