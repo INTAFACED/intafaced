@@ -535,30 +535,36 @@ async function orderOf(who, id) {
   return body;
 }
 
-/** Size resting at exactly `price` on the BTC/USDT bid side, in units (0 when no level is there). */
 /**
- * BTC/USDT's book as the public depth route reports it, either side possibly empty: with the TEST market maker stopped
- * (#6) it may hold no ask, and `bestPrices` waits for both sides.
+ * A book as the public depth route reports it, `[price, size]` levels a side, either side possibly empty. With the TEST
+ * market maker stopped (#6) BTC/USDT may hold no ask, and `bestPrices` waits for both sides.
  */
-async function btcBook() {
-  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=200`, {
+async function depth(symbol, limit) {
+  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(symbol)}?limit=${limit}`, {
     headers: { origin: ORIGIN },
   }).then(json);
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body;
 }
+const btcBook = () => depth('BTC/USDT', 200);
 
+/** Size resting at exactly `price` on the BTC/USDT bid side, in units (0 when no level is there). */
 async function bidAt(price) {
   const level = (await btcBook()).bids.find(([p]) => toUnits(p) === toUnits(price));
   return level ? toUnits(level[1]) : 0n;
 }
 
-/** The TEST market maker's status line; `status` exits non-zero when it is down, which is an answer here, not an error. */
+/**
+ * The TEST market maker's status line. `status` exits non-zero when the maker is down, which is an answer here; any other
+ * failure of the read (a timeout, a refusal) is thrown, never read as "down".
+ */
 function makerStatus() {
   try {
     return tool('local-test-market.mjs', 'status');
   } catch (err) {
-    return String(err.stdout ?? '');
+    const out = String(err.stdout ?? '');
+    if (/^test market: /.test(out)) return out;
+    throw err;
   }
 }
 const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
@@ -582,14 +588,28 @@ async function stopMarketMaker() {
     if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
+  // A stop that timed out kept the maker's record, and a stack start would start a remembered maker again; with the maker
+  // gone, this stop forgets it.
+  tool('local-test-market.mjs', 'stop');
 }
 
-test.afterEach(() => {
+/** The BTC/USDT levels that would meet or stand in front of a buy resting at `price`: asks at or below it, bids above it. */
+async function inFrontOf(price) {
+  const book = await btcBook();
+  return {
+    asks: book.asks.filter(([p]) => toUnits(p) <= toUnits(price)),
+    bids: book.bids.filter(([p]) => toUnits(p) > toUnits(price)),
+  };
+}
+
+test.afterEach(async () => {
   if (!marketStopped) return;
   // Its own time: a start funds the maker and may take up to the tool's 120 s, after a test that may have used all of its.
-  test.info().setTimeout(test.info().timeout + 180_000);
+  test.info().setTimeout(test.info().timeout + 240_000);
   tool('local-test-market.mjs');
   marketStopped = false;
+  // What runs next reads a quoted BTC/USDT book: wait for the maker's first ladder.
+  await bestPrices('BTC/USDT', 50, 90_000);
 });
 
 test(`${J} #6 places an iceberg with the display quantity equal to the total: refused; a valid iceberg rests with the displayed quantity and refills; a second iceberg on the symbol is refused; the live door shows the venue-submit notice`, async ({
@@ -608,6 +628,11 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   expect(toUnits(price)).toBeLessThan(toUnits(ask));
   // From here to the refill nothing but this step trades on BTC/USDT: the maker's quotes come down (stopMarketMaker).
   await stopMarketMaker();
+  // The maker's exit cancels its quotes; a cancel that failed would leave them in front of the iceberg.
+  expect(await inFrontOf(price), 'the stopped TEST maker left orders at or in front of the iceberg price').toEqual({
+    asks: [],
+    bids: [],
+  });
   const iceberg = (clientOrderId, displayQty) =>
     me.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
@@ -697,13 +722,7 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
 });
 
 /** IFC/USDC's book as the public depth route reports it: `[price, size]` levels a side. */
-async function ifcBook() {
-  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(UNQUOTED)}?limit=50`, {
-    headers: { origin: ORIGIN },
-  }).then(json);
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body;
-}
+const ifcBook = () => depth(UNQUOTED, 50);
 
 /** Cancels every open order `who` has on IFC/USDC, so the book holds only what this step rests. */
 async function clearIfc(who) {
