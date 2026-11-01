@@ -20,9 +20,16 @@ function account() {
   return who;
 }
 
+/**
+ * The chart workbench with the person's lists read. The panel shows before their saved lists arrive, so a step that reads
+ * the rows as soon as it shows can find none (run 1125 read `[]` in #3). The panel says when the read has ended
+ * (`data-status`, WatchlistPanel.tsx); a read that failed is named here, not as rows that never came.
+ */
 async function openWorkbench(page) {
   await page.goto(CHART);
   await expect(panel(page)).toBeVisible();
+  await expect(panel(page)).toHaveAttribute('data-status', /^(ready|error)$/);
+  expect(await panel(page).getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
 }
 
 /** The public ticker Edge serves for a symbol: the value the page must agree with. */
