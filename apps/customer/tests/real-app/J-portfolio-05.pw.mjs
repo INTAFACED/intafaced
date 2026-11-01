@@ -699,6 +699,7 @@ const inBand = (usdUnits, qty, band) => usdUnits >= times(qty, band.lo) - CENT &
 async function liveCloses() {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${Date.now() - 900_000}&limit=10`, {
     headers: { origin: ORIGIN },
+    signal: AbortSignal.timeout(15_000),
   });
   expect(res.status).toBe(200);
   const candles = await res.json();
@@ -706,7 +707,46 @@ async function liveCloses() {
   return candles.slice(-2).map((c) => toUnits(c[4]));
 }
 
-/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
+/**
+ * The page's answers for its value line while `act` runs, each with the newest two BTC/USDT 5-minute closes read as its
+ * request left and as its answer came back (and, for the first, when `act` began). The service values the live end at
+ * the newest candle's close when it answers, between those reads. (Run 1128 read the closes only after the chart had
+ * drawn, and a trade in between failed #7.) A request the page dropped, such as the old range's when the range changes,
+ * has no answer; a failed read is kept with its answer and thrown only if the screen draws that answer.
+ */
+async function valueAnswers(page, act) {
+  const atStart = await liveCloses();
+  const answers = [];
+  const listen = (request) => {
+    if (!request.url().includes('/trpc/portfolio.valueOverTime')) return;
+    const opening = answers.length === 0 ? atStart : [];
+    const sent = liveCloses();
+    answers.push(
+      (async () => {
+        try {
+          const asked = await sent;
+          const response = await request.response();
+          if (!response) return { data: null, closes: [] };
+          const [back, body] = await Promise.all([liveCloses(), response.json().catch(() => null)]);
+          return { data: body?.result?.data ?? null, closes: [...new Set([...opening, ...asked, ...back])] };
+        } catch (error) {
+          return { data: null, closes: [], error };
+        }
+      })(),
+    );
+  };
+  page.on('request', listen);
+  let result;
+  try {
+    result = await act();
+  } finally {
+    page.off('request', listen);
+  }
+  const read = await Promise.all(answers);
+  const failed = read.find((a) => a.error);
+  return { result, answers: read.filter((a) => !a.error), failed: failed?.error };
+}
+
 /**
  * The service's moments up to the screen's last grid moment (the live end aside on both). The two are read seconds apart:
  * a 5-minute edge passing between them may add one newer moment to the service's line, never more, and nothing earlier.
@@ -719,6 +759,7 @@ function sharedMoments(told, shown) {
   return shared;
 }
 
+/** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
 async function drawn(card) {
   return card.locator('svg[data-chart="value-over-time"]').evaluate((svg) => {
     const xs = [...svg.querySelectorAll('[data-run]')].flatMap((run) =>
@@ -798,16 +839,21 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   // The day is picked with the range control, as a person picks it, not typed into the link.
   await valueCards(page, '');
   const range = page.getByRole('group', { name: 'Range' }).first();
-  await range.getByRole('button', { name: '1D', exact: true }).click();
-  await expect(page).toHaveURL(/range=1D/);
-  await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const card = page.getByRole('region', { name: 'What your money was worth' });
-  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
-  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
-  // Now's BTC price, read just before and just after the line is read: the live end is valued at the newest 5-minute candle's close.
-  const liveBefore = await liveCloses();
-  const before = await readValue(page);
-  const liveAfter = await liveCloses();
+  // Now's BTC price, read around each of the page's requests for the day's line: the live end is valued at the newest
+  // 5-minute candle's close when the service answered.
+  const {
+    result: before,
+    answers,
+    failed,
+  } = await valueAnswers(page, async () => {
+    await range.getByRole('button', { name: '1D', exact: true }).click();
+    await expect(page).toHaveURL(/range=1D/);
+    await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+    await expect(card.locator('[data-value-interval]')).toHaveCount(1);
+    return readValue(page);
+  });
   const told = await svc.query('portfolio.valueOverTime', { from: before.points[0].at });
   // A day at one point every 5 minutes, ordered, on candle edges, every one known: BTC and USDT both have prices.
   expect(before.interval).toBe('5m');
@@ -822,8 +868,16 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   // By hand: the ledger's USDT plus its BTC at now's price, exactly, nothing else held yet.
   const held = await svc.balances();
   expect(Object.entries(held).filter(([asset, b]) => !['USDT', 'BTC'].includes(asset) && toUnits(b.total) !== 0n)).toEqual([]);
-  const worth = [...new Set([...liveBefore, ...liveAfter])].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   const end = toUnits(before.points.at(-1).usd);
+  // The screen draws one of the page's answers for this day, and that answer's live end is the holdings at a close read
+  // around it.
+  const liveEnd = (a) => a.data?.points?.at(-1)?.valueUsd;
+  const shown = answers.filter(
+    (a) => a.data?.points?.[0]?.at === before.points[0].at && typeof liveEnd(a) === 'string' && toUnits(liveEnd(a)) === end,
+  );
+  if (shown.length === 0 && failed) throw failed;
+  expect(shown.length, `the screen's live end ${before.points.at(-1).usd} is one of the page's answers`).toBeGreaterThan(0);
+  const worth = [...new Set(shown.flatMap((a) => a.closes))].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
   // The account was opened in #1, inside this day: the line starts at zero.
   expect(toUnits(before.points[0].usd)).toBe(0n);
