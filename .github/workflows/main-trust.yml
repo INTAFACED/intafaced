@@ -16,6 +16,10 @@ name: Main trust
 # opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
 # passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
 # tooling/ci/post-merge-trust.mjs.
+#
+# Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
+# stops only when they do, and they never end on their own. A stop disables it until the lift
+# (project-state handover/STOP.md).
 on:
   workflow_run:
     workflows: [CI, Order-path CX-8, Customer Money browser checks, Real-app journeys, PR checks]

@@ -26,6 +26,8 @@ on:
   # is never more than about a day old (#6416). It starts about three hours before the 00:00 UTC daily line, so it has
   # usually finished by then even when it waits behind a push run. On the same commit as the run before it, a step
   # that flips is a flake, which Main trust's issue then says.
+  # Ends: never on its own: the daily journey run on main. A stop disables it until the lift
+  # (project-state handover/STOP.md); it is removed only by a PR when the owner retires the journeys.
   schedule:
     - cron: '43 20 * * *'
   push:
