@@ -80,7 +80,8 @@ async function stopMarketMaker() {
     if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  // With the maker gone, a second stop forgets it (and a maker that was already DOWN is forgotten the same way).
+  // A stop that timed out kept the record; with the maker gone, this stop forgets it. (For a maker that was already DOWN,
+  // the first stop forgot it, and this one changes nothing.)
   tool('local-test-market.mjs', 'stop');
   expect(makerStatus(), 'the TEST market maker is forgotten, so no trade restart in #7 starts it again').toMatch(
     /^test market: not started/,
