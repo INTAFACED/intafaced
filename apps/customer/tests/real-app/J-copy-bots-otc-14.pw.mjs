@@ -15,7 +15,8 @@ const ONE = toUnits('1');
 // LOCAL_STACK_TRADE_BOTS_LEVEL=blank, and a price out of range from the TEST market's `move`, each undone in a finally.
 // Steps that are written but not built yet fail at their first missing part, quickly, by name (UNBUILT); none is left.
 // #7 confirms each withdrawal with an authenticator the step adds from Security, and the owner's daily cap comes blank
-// from restarting trade with LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank, undone in a finally.
+// from restarting trade with LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank, undone in a finally. #7 runs with the TEST market
+// maker stopped (marketMaker below), so the grid's own trading cannot move the balances it proves unmoved.
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -43,6 +44,29 @@ test.afterAll(async () => {
     if (Date.now() >= until) throw new Error(`grid ${botId} still has open orders after its stop`);
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
+});
+
+/** Set while #7 has the stack's TEST market maker stopped, so the hook below starts it again even after a timeout. */
+let marketStopped = false;
+
+/**
+ * The TEST market maker and its taker are the only other traders on the stack. While they run, the walk can drift down to
+ * the grid's top resting buys and fill them (#7075: in #7 the USDT total ended 9.78 or 19.60 lower, the cost of one or two
+ * of the grid's level buys). #7 proves its withdrawals move no money, so it stops them for its window: the grid keeps its
+ * orders and nothing trades against them. Stopping cancels the maker's resting orders.
+ */
+function marketMaker(running) {
+  if (running) {
+    tool('local-test-market.mjs');
+    marketStopped = false;
+  } else {
+    marketStopped = true;
+    tool('local-test-market.mjs', 'stop');
+  }
+}
+
+test.afterEach(() => {
+  if (marketStopped) marketMaker(true);
 });
 
 const wizard = (page) => page.getByRole('form', { name: 'Spot grid' });
@@ -709,8 +733,10 @@ const CAP = toUnits('0.50');
 test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({
   page,
 }) => {
-  test.setTimeout(420_000);
+  // Stopping and starting the TEST market maker each take up to the tool's 120 s.
+  test.setTimeout(660_000);
   const { who, botId } = run.read();
+  marketMaker(false);
   // An API session of this person's own, signed in again after each trade restart (a restart closes Edge's socket).
   let me = await api(who);
   const bot = async () => {
@@ -720,8 +746,30 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
   };
   const held = (b) => ({ reserve: b.reserve, withdrawable: b.withdrawableProfit, gridProfit: b.gridProfit });
   const ledger = async () => (await me.balances()).USDT;
+  /** The account's newest ledger lines, every asset; one page holds every line this step could add. */
+  const lines = async () => {
+    const { status, body } = await me.get('/api/v1/ledger?limit=200');
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.entries;
+  };
+  // What traded before the maker stopped settles first: the grid places a sell for a filled buy, and a fill's row is
+  // written before its ledger post. The bot's orders and the ledger lines, read 3 s apart until two reads agree.
+  {
+    const still = async () =>
+      JSON.stringify([(await bot()).orders.map((o) => [o.clientOrderId, o.status]), (await lines()).map((l) => l.id)]);
+    const until = Date.now() + 60_000;
+    let last = await still();
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      const now = await still();
+      if (now === last) break;
+      if (Date.now() >= until) throw new Error('the grid or the ledger still moves 60 s after the TEST market maker stopped');
+      last = now;
+    }
+  }
   const before = await bot();
   const ledgerBefore = await ledger();
+  const linesBefore = new Set((await lines()).map((l) => l.id));
   expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
   // Two closed pairs (#6) raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
   const profit = toUnits(before.reserve.amount) - toUnits(before.investment);
@@ -894,6 +942,8 @@ test(`${J} #7 withdraws over the cap, then within it without a step-up: both ref
       await expect(shown, label).toContainText(`${label}${value}`);
     await close();
   }
-  // The withdrawals moved no money: the ledger's USDT total is what it was before them (only the limit row moved).
+  // The withdrawals moved no money: no ledger line was posted for the account while they ran (svc-trade lowers its
+  // reserve row and writes the receipt, nothing else), and the ledger's USDT total is what it was before them.
+  expect((await lines()).filter((l) => !linesBefore.has(l.id))).toEqual([]);
   expect((await ledger()).total).toBe(ledgerBefore.total);
 });
