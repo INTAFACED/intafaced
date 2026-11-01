@@ -262,13 +262,20 @@ test(`${J} #4 a video plays with our controls, captions by language with a trans
 
     // Play two seconds: the transcript follows; pausing stores the place, below the course threshold.
     await player(page).getByRole('button', { name: 'Play', exact: true }).click();
-    await expect.poll(() => mediaTime(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(2.2);
+    // Read often, so the pause lands just past 2.2 s and well under the 4 s threshold.
+    await expect.poll(() => mediaTime(page), { timeout: 10_000, intervals: [100] }).toBeGreaterThanOrEqual(2.2);
     await player(page).getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(player(page).locator('[data-transcript="es"] li[aria-current="true"]')).toContainText('TEST: dos');
-    await expect(player(page).locator('[data-video-status="saved"]')).toBeVisible();
+    // The TEST profile also saves every 2 s while playing, so a save of an earlier second can already read "saved" while
+    // the pause's own save is still on its way. The pause's save names the paused second (m:ss); wait for that one.
+    await expect.poll(() => media(page).evaluate((video) => video.paused), { message: 'the video paused' }).toBe(true);
+    const paused = Math.floor(await mediaTime(page));
+    const at = `${Math.floor(paused / 60)}:${String(paused % 60).padStart(2, '0')}`;
+    await expect(player(page).locator('[data-video-status="saved"]')).toContainText(at);
     const stored = await storedPosition(who);
     expect(stored).toBeGreaterThanOrEqual(2);
     expect(stored).toBeLessThan(4);
+    expect(stored, 'the store holds the paused second').toBe(paused);
 
     // Leave and return: playback resumes at the stored place.
     await page.goto('/academy/learning');
