@@ -101,11 +101,13 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
   await expect(leaders).toBeVisible();
   // The list as read once it has loaded: while it loads, the table is busy and its rows are the "Loading" placeholder
   // (#7000: #3 once read that placeholder as the order before the clicks).
-  const order = async () => {
-    await expect(leaders).not.toHaveAttribute('aria-busy', 'true');
+  const order = async (when) => {
+    await expect(leaders, `the leader list ${when} is still loading`).not.toHaveAttribute('aria-busy', 'true');
     return (await leaders.locator('tbody tr').allInnerTexts()).map((row) => row.trim());
   };
-  const before = await order();
+  // The order compared is real leader rows (#2 listed two), not an error or empty row compared with itself.
+  await expect(leaders.getByRole('button', { name: /^Follow / }).first()).toBeVisible();
+  const before = await order('before the clicks');
   for (const name of ['Top return', 'Trending']) {
     const answer = page.waitForResponse(
       (res) => res.url().includes('copy.listLeaders') && res.url().includes(name === 'Trending' ? 'trending' : 'category'),
@@ -116,7 +118,7 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
     await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
     // No returns-ranked board: the only table is still the plain leader list, in the same order, with no rank column.
     await expect(page.getByRole('table')).toHaveCount(1);
-    expect(await order(), `the leader list after ${name}`).toEqual(before);
+    expect(await order(`after ${name}`), `the leader list after ${name}`).toEqual(before);
     await expect(leaders.getByRole('columnheader', { name: /rank/i })).toHaveCount(0);
   }
 });
