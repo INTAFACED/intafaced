@@ -727,6 +727,7 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   const opener = (sell) => bot.orders.find((o) => o.side === 'buy' && isSellOf(sell, o));
   // This step closes exactly two pairs: the sells of its own two buys.
   const pairs = closed(bot).filter((o) => !closedBefore.has(o.orderId));
+  expect(pairs, 'pairs closed since the step began').toHaveLength(2);
   expect(pairs.map((sell) => opener(sell)?.orderId).sort(), "two closed level pairs, opened by this step's buys").toEqual(
     ours.map((o) => o.orderId).sort(),
   );
