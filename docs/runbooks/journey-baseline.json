@@ -18,6 +18,7 @@
     "packages/connect-data-lake",
     "packages/execution-arb",
     "packages/execution-mm",
+    "packages/ledger-client",
     "packages/market-data",
     "packages/money-math",
     "packages/portfolio-view",
