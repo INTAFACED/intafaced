@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { refusalCode } from './p2p.mjs';
 import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
@@ -124,6 +124,33 @@ async function copiedPositions(who, followId) {
 const isOpen = (p) => toUnits(p.open) > 0n;
 
 /**
+ * A copy is a limit at the lead's fill price (svc-trade `copy/auto-mirror-place.ts`), placed by the copy driver's next
+ * sweep, up to 2 s after the lead's fill. If the TEST market maker requotes in between and moves its price away, the copy
+ * rests at that price, as a person's limit order would, until the market comes back. In run 1124 #2's copied sell rested
+ * as a 0.0003 BTC ask and never settled, and #5 then found it at the best ask. Here a TEST trader takes each copy of the
+ * follow that rests, at the copy's own price, as a buyer or seller in the market would, so it fills and the step reads
+ * its fills. A copy that filled has nothing resting, and this does nothing.
+ */
+async function takeRestingCopies(follower, followId) {
+  const copies = new Set((await trpcQuery(follower, 'copy.followPositions', { followId })).positions.map((o) => o.orderId));
+  const open = await (await api(follower)).get(`/api/v1/orders/open?symbol=${SYMBOL}&limit=100`);
+  expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
+  const market = await api(state('market'));
+  for (const o of open.body.filter((order) => copies.has(order.id))) {
+    const res = await market.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: o.side === 'buy' ? 'sell' : 'buy',
+      amount: o.remaining,
+      price: o.price,
+      timeInForce: 'IOC',
+      clientOrderId: `jc3-take-${o.id}`.slice(0, 64),
+    });
+    expect(res.status, `taking the resting copy ${o.id}: ${JSON.stringify(res.body).slice(0, 300)}`).toBeLessThan(300);
+  }
+}
+
+/**
  * Everything a pause, stop or leave must not touch: the follow's copied orders, its copied positions (ids and open
  * quantities), the person's order ids and both ledger totals. A resting sell leaves the BTC total unchanged, so the
  * total alone proves nothing.
@@ -183,6 +210,10 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   // is made first: on the stack (27 Oct) a follow made before another one of the same person's copied nothing after it.
   const other = await fundedTrader(page, 'jcl3b', '100');
   const otherRef = await listLeader(other, `Journey Exits B ${tag}`);
+  // The TEST trader who takes a copy that rests (takeRestingCopies).
+  const market = await fundedTrader(page, 'jcm3', '100');
+  expect(fund(market.email, 'BTC', '0.01').tx).toBeTruthy();
+  run.write({ market });
   await signIn(page, follower);
   run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
@@ -199,6 +230,7 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
     openFillIds.push(...(await leaderFillsOf(leader, order)));
     await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(openFillIds.length);
   }
+  await takeRestingCopies(follower, followId);
   run.write({ openFillIds });
   await expect
     .poll(
@@ -297,6 +329,7 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   for (const p of positionsBefore)
     expect(toUnits(p.open), `position ${p.positionId} before the lead close`).toBe((toUnits(p.bought) / lot) * lot);
   await leadFill(state('leader'), 'sell', '0.001', `${J}-2-close-${state('tag')}`);
+  await takeRestingCopies(follower, followId);
   // The copied sell settles in full before what it sold is read: no copied order of the follow is still live.
   await expect
     .poll(
