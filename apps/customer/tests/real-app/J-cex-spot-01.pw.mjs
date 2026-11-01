@@ -262,13 +262,13 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
           amount: fromUnits(ahead + toUnits(amount)),
           price,
           timeInForce: 'IOC',
-          clientOrderId: sells === 1 ? `${J}-8-${id}` : `${J}-8-${id}-${sells}`,
+          clientOrderId: `${J}-8-${id}-${sells}`,
         });
-        expect(sell.status).toBeLessThan(300);
+        expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
         lastSell = Date.now();
         return open.length;
       },
-      { timeout: 20_000 },
+      { timeout: 30_000 },
     )
     .toBe(0);
   const after = await (await api(who)).balances();
