@@ -265,7 +265,10 @@ test(`${J} #4 a video plays with our controls, captions by language with a trans
     await expect.poll(() => mediaTime(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(2.2);
     await player(page).getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(player(page).locator('[data-transcript="es"] li[aria-current="true"]')).toContainText('TEST: dos');
-    await expect(player(page).locator('[data-video-status="saved"]')).toBeVisible();
+    // The TEST profile also saves every 2 s while playing, so a save of an earlier second can already read "saved" while
+    // the pause's own save is still on its way. The pause's save names the paused second (m:ss); wait for that one.
+    const paused = Math.floor(await mediaTime(page));
+    await expect(player(page).locator('[data-video-status="saved"]')).toContainText(`0:${String(paused).padStart(2, '0')}`);
     const stored = await storedPosition(who);
     expect(stored).toBeGreaterThanOrEqual(2);
     expect(stored).toBeLessThan(4);
