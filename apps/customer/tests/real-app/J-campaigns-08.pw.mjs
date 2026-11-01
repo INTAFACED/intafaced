@@ -1,6 +1,6 @@
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
+import { EDGE, api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
 
 // J-campaigns-08, in the running app (docs/roadmap/journeys.json): claim a voucher and use it. One test per step, titled
 // "J-campaigns-08 #<n>", run in order. The voucher campaign is this run's TEST campaign, made by the stack's two LOCAL TEST
@@ -75,55 +75,34 @@ async function issue(campaignId, code) {
   return data(await ctx.edge.mutate('campaigns', 'ops.campaigns.vouchers.issue', { campaignId, code }, a), 'vouchers.issue');
 }
 
-/** A TEST fee schedule through svc-trade's two-person door, waiting until the public read serves it. */
-async function feeSchedule(schedule, reason) {
-  const { ctx, pair: sessions } = await operators();
-  const row = await gates.setFeeSchedule(ctx, schedule, { reason: `LOCAL TEST ${J}: ${reason}`, sessions });
-  await expect
-    .poll(async () => (await (await fetch('http://127.0.0.1:14500/api/v1/fees/published')).json()).version, { timeout: 30_000 })
-    .toBe(`v${row.version}`);
-}
-
 /**
- * Trade fees the platform really earned, for the pot: a TEST schedule charges 0.10% on a taker, a TEST trader sells TEST
- * BTC into the market maker's book on BTC/USDT (the fee is in USDT), and the stack's own boot rates are written back, so
- * every later journey on the stack trades at the rates it always does: maker 0.08% and taker 0.10% on spot, 0.02% and
- * 0.05% on the perpetual (TRADE_FEE_SCHEDULE in tooling/scripts/local-stack-services/trade.mjs).
+ * Trade fees the platform really earned, for the pot: a TEST trader sells TEST BTC into the market maker's book on
+ * BTC/USDT, and the fee is in USDT. The stack's own schedule charges a taker 0.10% (TRADE_FEE_SCHEDULE in
+ * tooling/scripts/local-stack-services/trade.mjs), so the step leaves the fee schedule as it is, and every journey after it
+ * on the stack trades at the rates it always does.
  */
 async function earnTradeFees(page) {
-  const schedule = (makerBps, takerBps, perpetual) => ({
-    defaultPairGroup: 'all-others',
-    pairGroups: {},
-    rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps, takerBps, minFee: null }],
-    perpetual,
+  const { fees } = await (await fetch(`${EDGE}/api/v1/fees/published`)).json();
+  expect(Number(fees?.['BTC/USDT']?.takerBps), 'BTC/USDT charges a taker fee, which the pot is funded from').toBeGreaterThan(0);
+  const trader = await signUp(page, 'jc08fee');
+  await page.goto('/verification');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  tool('local-test-gates.mjs', 'verify');
+  expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
+  const res = await (
+    await api(trader)
+  ).post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'market',
+    side: 'sell',
+    amount: '0.001',
+    clientOrderId: `${J}-fee-${tag}`,
   });
-  await feeSchedule(
-    schedule('0', '10', { makerBps: '0', takerBps: '0' }),
-    'taker 0.10% so a TEST trade earns the fees the reward pot is funded from',
-  );
-  try {
-    const trader = await signUp(page, 'jc08fee');
-    await page.goto('/verification');
-    await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-    await page.getByLabel('Country code').fill('DE');
-    await page.getByRole('button', { name: 'Review request' }).click();
-    await page.getByRole('button', { name: 'Submit this request' }).click();
-    await expect(page.getByText('Your reviewed request')).toBeVisible();
-    tool('local-test-gates.mjs', 'verify');
-    expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
-    const res = await (
-      await api(trader)
-    ).post('/api/v1/orders', {
-      symbol: 'BTC/USDT',
-      type: 'market',
-      side: 'sell',
-      amount: '0.001',
-      clientOrderId: `${J}-fee-${tag}`,
-    });
-    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
-  } finally {
-    await feeSchedule(schedule('8', '10', { makerBps: '2', takerBps: '5' }), "back to the stack's own boot rates");
-  }
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
 }
 
 /** Founder A asks to sweep earned trade fees into the reward pot; founder B approves, which posts it. */
