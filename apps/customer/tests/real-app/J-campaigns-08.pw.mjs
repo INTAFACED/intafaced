@@ -85,18 +85,22 @@ async function feeSchedule(schedule, reason) {
 }
 
 /**
- * Trade fees the platform really earned, for the pot: the stack boots with a zero fee schedule, so a TEST schedule charges
- * 0.10% on a taker, a TEST trader sells TEST BTC into the market maker's book on BTC/USDT (the fee is in USDT), and a zero
- * schedule is written back so later journeys trade as the stack boots.
+ * Trade fees the platform really earned, for the pot: a TEST schedule charges 0.10% on a taker, a TEST trader sells TEST
+ * BTC into the market maker's book on BTC/USDT (the fee is in USDT), and the stack's own boot rates are written back, so
+ * every later journey on the stack trades at the rates it always does: maker 0.08% and taker 0.10% on spot, 0.02% and
+ * 0.05% on the perpetual (TRADE_FEE_SCHEDULE in tooling/scripts/local-stack-services/trade.mjs).
  */
 async function earnTradeFees(page) {
-  const rows = (zeroFee) => [
-    zeroFee
-      ? { pairGroup: 'all-others', tierId: 'regular', zeroFee: true, minFee: null }
-      : { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '0', takerBps: '10', minFee: null },
-  ];
-  const base = { defaultPairGroup: 'all-others', pairGroups: {}, perpetual: { makerBps: '0', takerBps: '0' } };
-  await feeSchedule({ ...base, rows: rows(false) }, 'taker 0.10% so a TEST trade earns the fees the reward pot is funded from');
+  const schedule = (makerBps, takerBps, perpetual) => ({
+    defaultPairGroup: 'all-others',
+    pairGroups: {},
+    rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps, takerBps, minFee: null }],
+    perpetual,
+  });
+  await feeSchedule(
+    schedule('0', '10', { makerBps: '0', takerBps: '0' }),
+    'taker 0.10% so a TEST trade earns the fees the reward pot is funded from',
+  );
   try {
     const trader = await signUp(page, 'jc08fee');
     await page.goto('/verification');
@@ -118,7 +122,7 @@ async function earnTradeFees(page) {
     });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
   } finally {
-    await feeSchedule({ ...base, rows: rows(true) }, 'back to no fee, as the stack boots');
+    await feeSchedule(schedule('8', '10', { makerBps: '2', takerBps: '5' }), "back to the stack's own boot rates");
   }
 }
 
