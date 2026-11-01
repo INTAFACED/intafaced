@@ -488,8 +488,13 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
 }) => {
   test.setTimeout(180_000);
   await page.goto('/dex/pools');
-  // A TEST Token A / TEST Token B pool: the funding below hands out those two tokens.
-  const listed = tableIn(page, 'Pools').getByRole('link', { name: 'TESTA / TESTB', exact: true }).first();
+  // The deep 0.30% TEST Token A / TEST Token B pool: the funding below hands out those two tokens. Not the newest A/B
+  // pool: that one is seeded unsynced on purpose (services/svc-protocol/scripts/seed-test-chain.ts, for J-dex-protocol-02
+  // #4), so a swap there also sweeps its unsynced tokens in, reads "Both ways", and syncs the pool #4 needs stale (#7033).
+  const listed = tableIn(page, 'Pools')
+    .getByRole('row')
+    .filter({ hasText: '0.30%' })
+    .getByRole('link', { name: 'TESTA / TESTB', exact: true });
   await expect(listed).toBeVisible(UNBUILT);
   const poolAddress = getAddress((await listed.getAttribute('href')).split('/').pop());
 
