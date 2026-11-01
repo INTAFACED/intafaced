@@ -755,6 +755,14 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     await confirm(page, 'buy');
     expect((await accepted).status()).toBeLessThan(300);
     await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
+
+    // Nothing is left resting. A buy at 10,000 sits far under the TEST market, so left in the book it is BTC/USDT's
+    // best bid whenever the TEST maker's bids are gone. A later journey on this shard that restarts the maker then gets
+    // a price band centred between it and the asks, which refuses every new maker bid (Real-app journeys run 1136).
+    const [resting] = await openOrders(who);
+    const done = await client.delete(`/api/v1/orders/${resting.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
   } finally {
     // Lift it if the test stopped before its own lift, without hiding the first failure behind a second one.
     if (!lifted) {
@@ -763,6 +771,15 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
       } catch (error) {
         console.warn(`J-identity-08 #7: the lift after a failure failed too: ${error}`);
       }
+    }
+    // After a failure, cancel whatever this account still has resting, for the same reason (cancel works while the
+    // restriction holds), again without hiding the first failure.
+    try {
+      for (const order of await openOrders(who)) {
+        await client.delete(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+      }
+    } catch (error) {
+      console.warn(`J-identity-08 #7: the cancel after a failure failed too: ${error}`);
     }
   }
 });
