@@ -684,6 +684,9 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   // returns to, the tick places the held-back buys under that bid, and the walk's way back fills them (run 1119: seven).
   const filledBefore = new Set(start.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => o.orderId));
   const newlyFilled = (b) => b.orders.filter((o) => o.side === 'buy' && o.status === 'filled' && !filledBefore.has(o.orderId));
+  // A pair is a buy and the sell it opened one level up: the same level index and cycle.
+  const isSellOf = (sell, buy) => sell.side === 'sell' && sell.levelIndex === buy.levelIndex && sell.cycle === buy.cycle;
+  const ours = [];
   // Two level pairs close through the TEST book: the price falls through exactly two resting buys, the bot places a
   // sell one level above each, and the price comes back up through both sells.
   const buys = openBuys(start);
@@ -699,8 +702,8 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
     tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
     await untilMid('below', buys[1]);
     const bought = await untilBot(who, botId, (b) => newlyFilled(b).length >= 2);
-    const filledBuys = newlyFilled(bought).map((o) => toUnits(o.price));
-    expect(filledBuys.sort()).toEqual([buys[1], buys[0]].sort());
+    ours.push(...newlyFilled(bought));
+    expect(ours.map((o) => toUnits(o.price)).sort()).toEqual([buys[1], buys[0]].sort());
     // Each sell sits one level above its buy; the top one one level above buys[0], so the price rises a whole level
     // past it. A move shifts the TEST walk, which keeps wandering: its base now is today's mid with the first shift
     // taken back out.
@@ -709,20 +712,24 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
     const walk = (((toUnits(now.bid) + toUnits(now.ask)) / 2n) * 10_000n) / (10_000n + percentBps(down));
     tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, top + (buys[0] - buys[1])));
     await untilMid('above', top);
-    await untilBot(who, botId, (b) => b.closedPairs >= 2);
+    await untilBot(who, botId, (b) => ours.every((buy) => b.orders.some((o) => isSellOf(o, buy) && o.status === 'filled')));
   } finally {
     tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
   const bot = await gridBot(who, botId);
-  expect(bot.closedPairs, 'two closed level pairs').toBe(2);
   const pairs = bot.orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
-  expect(pairs).toHaveLength(2);
+  const opener = (sell) => bot.orders.find((o) => o.side === 'buy' && isSellOf(sell, o));
+  // This step closes exactly its two pairs. A buy that filled before it left a sell one level up, and the rise can pass
+  // that sell too; such a pair is counted and checked like the step's own, and no other pair may close.
+  const fresh = pairs.filter((sell) => !filledBefore.has(opener(sell)?.orderId));
+  expect(fresh.map((sell) => opener(sell)?.orderId).sort(), 'two closed level pairs').toEqual(ours.map((o) => o.orderId).sort());
+  expect(bot.closedPairs, 'every closed level pair').toBe(pairs.length);
   // Net of fees, from the trade service's own fills of each pair's buy and sell: the sell's proceeds less its fee, less
   // what the base it sold cost (the buy's cost with its fee, over what the buy delivered net of its base fee).
   const ONE = 10n ** 18n;
   const ceilDiv = (a, b) => (a + b - 1n) / b;
   for (const sell of pairs) {
-    const buy = bot.orders.find((o) => o.side === 'buy' && o.levelIndex === sell.levelIndex && o.cycle === sell.cycle);
+    const buy = opener(sell);
     expect(buy?.status, `the buy that opened level ${sell.levelIndex}`).toBe('filled');
     expect(toUnits(sell.price), `the sell one level above level ${sell.levelIndex}'s buy`).toBe(
       toUnits(bot.levels.find((l) => l.index === sell.levelIndex + 1).price),
