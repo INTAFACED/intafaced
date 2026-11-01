@@ -5,7 +5,8 @@ import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, encodeFunctionData, formatUnits, getAddress, http, parseAbi } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { TOKEN_A, acceptRepresentation, fundOnTestChain, testChain } from './dex.mjs';
+import { TOKEN_A, TOKEN_B, acceptRepresentation, fundOnTestChain, testChain } from './dex.mjs';
+import { chainRecordPath } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,
@@ -487,19 +488,6 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
   page,
 }) => {
   test.setTimeout(180_000);
-  await page.goto('/dex/pools');
-  // The deep 0.30% TEST Token A / TEST Token B pool: the funding below hands out those two tokens. Not the newest A/B
-  // pool: that one is seeded unsynced on purpose (services/svc-protocol/scripts/seed-test-chain.ts, for J-dex-protocol-02
-  // #4), so a swap there also sweeps its unsynced tokens in, reads "Both ways", and syncs the pool #4 needs stale (#7033).
-  const listed = tableIn(page, 'Pools')
-    .getByRole('row')
-    .filter({ hasText: '0.30%' })
-    .getByRole('link', { name: 'TESTA / TESTB', exact: true });
-  await expect(listed).toBeVisible(UNBUILT);
-  const poolAddress = getAddress((await listed.getAttribute('href')).split('/').pop());
-
-  // A buy and a sell of the pool's first token, mined here from a fresh funded TEST key, so the rows the page must show
-  // are this step's own and not whatever another journey left on the chain.
   const chain = testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no swap can be mined').toBe('running');
   const viemChain = {
@@ -509,6 +497,29 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
     rpcUrls: { default: { http: [chain.gateUrl] } },
   };
   const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+
+  // The 1.00% TEST Token A / TEST Token B pool, by its address from the factory: the funding below hands out those two
+  // tokens. Not the newest A/B pool, which the Pools tab lists first: that one is seeded unsynced on purpose
+  // (services/svc-protocol/scripts/seed-test-chain.ts, for J-dex-protocol-02 #4), so a swap there also sweeps its
+  // unsynced tokens in, reads "Both ways", and syncs the pool #4 needs stale (#7033). The 1.00% pool is the one #7
+  // took before that pool was seeded.
+  const { factory } = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  const poolAddress = getAddress(
+    await reader.readContract({
+      address: factory,
+      abi: parseAbi(['function getPool(address, address, uint16) view returns (address)']),
+      functionName: 'getPool',
+      args: [TOKEN_A.address, TOKEN_B.address, 100],
+    }),
+  );
+  await page.goto('/dex/pools');
+  const listed = tableIn(page, 'Pools')
+    .getByRole('link', { name: 'TESTA / TESTB', exact: true })
+    .and(page.locator(`[href$="/${poolAddress}" i]`));
+  await expect(listed).toBeVisible(UNBUILT);
+
+  // A buy and a sell of the pool's first token, mined here from a fresh funded TEST key, so the rows the page must show
+  // are this step's own and not whatever another journey left on the chain.
   const poolAbi = parseAbi([
     'function token0() view returns (address)',
     'function token1() view returns (address)',
