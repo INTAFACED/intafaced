@@ -122,12 +122,15 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await noAccount(who);
 
   // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
-  // no code mailed anywhere.
+  // no code mailed anywhere. The outbox is the whole stack's, and other journeys mail their own codes meanwhile (run
+  // 1130), so only what it gained is read: none of it names this sign-up, and each is a mail to an email address.
+  const phone = '+491701234567';
   const outbox = () => (existsSync(stackFile('email-outbox.log')) ? readFileSync(stackFile('email-outbox.log'), 'utf8') : '');
-  const before = outbox().length;
+  // Read in whole lines: another journey's mail may be half written at either read.
+  const before = outbox().lastIndexOf('\n') + 1;
   await page.goto('/register');
   await page.getByRole('radio', { name: 'Phone' }).check();
-  await page.getByLabel('Phone number, international format (+…)').fill('+491701234567');
+  await page.getByLabel('Phone number, international format (+…)').fill(phone);
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption('DE');
@@ -136,7 +139,9 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await expect(notice(page)).toContainText(
     'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
   );
-  expect(outbox().length).toBe(before);
+  const gained = outbox().slice(before).split('\n').slice(0, -1);
+  expect(gained.filter((line) => line.includes(who.handle) || line.includes(phone.slice(1)))).toEqual([]);
+  expect(gained.filter((line) => !/^LOCAL-TEST purpose=\S+ email=[^\s@]+@\S+ /.test(line))).toEqual([]);
   await noAccount(who);
 
   // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
