@@ -131,16 +131,20 @@ const isOpen = (p) => toUnits(p.open) > 0n;
  * settled, and #5 then found it at the best ask. The book's liquidity is a TEST fixture here, as the maker is: once every
  * copy of the follow is placed, the TEST trader `market` takes each one that rests, at the copy's own price, together
  * with whatever stands in front of it at that price or better, and the copy must then fill. A copy that filled leaves
- * nothing to take, and this does nothing.
+ * nothing to take, and this does nothing. It first waits until the follow lists `count` copies on `side` and none is still
+ * being placed, so a copy the driver's sweep places late is taken too.
  */
-async function takeRestingCopies(follower, followId) {
+async function takeRestingCopies(follower, followId, side, count) {
   const copies = async () => (await trpcQuery(follower, 'copy.followPositions', { followId })).positions;
   await expect
-    .poll(async () => (await copies()).filter((o) => o.status === 'pending').length, {
-      timeout: 30_000,
-      message: 'a copy of the follow was never placed',
-    })
-    .toBe(0);
+    .poll(
+      async () => {
+        const all = await copies();
+        return all.filter((o) => o.side === side).length >= count && !all.some((o) => o.status === 'pending');
+      },
+      { timeout: 30_000, message: `the follow never listed ${count} placed ${side} copies` },
+    )
+    .toBe(true);
   const ids = new Set((await copies()).map((o) => o.orderId));
   const market = await api(state('market'));
   const follow = await api(follower);
@@ -169,7 +173,13 @@ async function takeRestingCopies(follower, followId) {
         if (left.status !== 'open' || Date.now() > until) break;
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      if (left.status !== 'open') break;
+      if (left.status !== 'open') {
+        // Ended means filled: a copy that was cancelled or expired instead is not what the steps go on to read.
+        expect(toUnits(left.filled ?? '0'), `the resting copy ${copy.id} ended unfilled: ${JSON.stringify(left).slice(0, 300)}`).toBe(
+          toUnits(left.amount),
+        );
+        break;
+      }
       // The maker requoted in front of the copy between the read and the take: read the book again.
       expect(attempt, `the resting copy ${copy.id} at ${copy.price} was not taken: ${JSON.stringify(left).slice(0, 300)}`).toBeLessThan(2);
     }
@@ -237,9 +247,10 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   const other = await fundedTrader(page, 'jcl3b', '100');
   const otherRef = await listLeader(other, `Journey Exits B ${tag}`);
   // The TEST trader who takes a copy that rests (takeRestingCopies).
-  // It holds enough of each side to take a copy with the maker's best levels in front of it.
-  const market = await fundedTrader(page, 'jcm3', '30000');
-  expect(fund(market.email, 'BTC', '0.5').tx).toBeTruthy();
+  // It holds enough of each side to take every resting copy, with retries, through the maker's whole ladder in front of
+  // it (three levels a side, about 0.28 BTC or 18000 USDT at 65000).
+  const market = await fundedTrader(page, 'jcm3', '150000');
+  expect(fund(market.email, 'BTC', '2.5').tx).toBeTruthy();
   run.write({ market });
   await signIn(page, follower);
   run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
@@ -257,7 +268,7 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
     openFillIds.push(...(await leaderFillsOf(leader, order)));
     await expect.poll(() => copiedNow(page), { timeout: 60_000 }).toBe(openFillIds.length);
   }
-  await takeRestingCopies(follower, followId);
+  await takeRestingCopies(follower, followId, 'buy', openFillIds.length);
   run.write({ openFillIds });
   await expect
     .poll(
@@ -309,7 +320,8 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
 });
 
 test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead close still closes the position`, async ({ page }) => {
-  test.setTimeout(180_000);
+  // 300 s, not 180 s: taking a resting copy can add up to about 105 s (takeRestingCopies).
+  test.setTimeout(300_000);
   const follower = state('follower');
   await signIn(page, follower);
   const followId = state('followId');
@@ -356,7 +368,7 @@ test(`${J} #2 stops with close-only: a new lead fill isn't mirrored, and a lead 
   for (const p of positionsBefore)
     expect(toUnits(p.open), `position ${p.positionId} before the lead close`).toBe((toUnits(p.bought) / lot) * lot);
   await leadFill(state('leader'), 'sell', '0.001', `${J}-2-close-${state('tag')}`);
-  await takeRestingCopies(follower, followId);
+  await takeRestingCopies(follower, followId, 'sell', 1);
   // The copied sell settles in full before what it sold is read: no copied order of the follow is still live.
   await expect
     .poll(
