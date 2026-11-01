@@ -706,6 +706,37 @@ async function liveCloses() {
   return candles.slice(-2).map((c) => toUnits(c[4]));
 }
 
+/**
+ * Every close the newest two BTC/USDT 5-minute candles showed while `act` ran, read before it, every half second during
+ * it and after it. The page values its live end at the newest candle's close when the service answered the page's request,
+ * which falls inside `act`; a trade between that answer and a read after it changes the close (run 1128).
+ */
+async function closesDuring(act) {
+  const seen = new Set();
+  const sample = async () => {
+    for (const close of await liveCloses()) seen.add(close);
+  };
+  await sample();
+  let done = false;
+  let failed = null;
+  const sampling = (async () => {
+    while (!done) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (!done) await sample();
+    }
+  })().catch((error) => {
+    failed = error;
+  });
+  // A failure of `act` is the step's own and is thrown as it is; a failed read of the closes is thrown after it.
+  const result = await act().finally(() => {
+    done = true;
+  });
+  await sampling;
+  if (failed) throw failed;
+  await sample();
+  return { result, closes: [...seen] };
+}
+
 /** What the value chart draws: how many vertices its runs have, and the x of the rightmost one (the plot is 1000 wide). */
 /**
  * The service's moments up to the screen's last grid moment (the live end aside on both). The two are read seconds apart:
@@ -798,16 +829,17 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   // The day is picked with the range control, as a person picks it, not typed into the link.
   await valueCards(page, '');
   const range = page.getByRole('group', { name: 'Range' }).first();
-  await range.getByRole('button', { name: '1D', exact: true }).click();
-  await expect(page).toHaveURL(/range=1D/);
-  await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const card = page.getByRole('region', { name: 'What your money was worth' });
-  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
-  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
-  // Now's BTC price, read just before and just after the line is read: the live end is valued at the newest 5-minute candle's close.
-  const liveBefore = await liveCloses();
-  const before = await readValue(page);
-  const liveAfter = await liveCloses();
+  // Now's BTC price, read from before the page asks for the day's line until after the line is read: the live end is
+  // valued at the newest 5-minute candle's close when the service answered.
+  const { result: before, closes: live } = await closesDuring(async () => {
+    await range.getByRole('button', { name: '1D', exact: true }).click();
+    await expect(page).toHaveURL(/range=1D/);
+    await expect(range.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+    await expect(card.locator('[data-value-interval]')).toHaveCount(1);
+    return readValue(page);
+  });
   const told = await svc.query('portfolio.valueOverTime', { from: before.points[0].at });
   // A day at one point every 5 minutes, ordered, on candle edges, every one known: BTC and USDT both have prices.
   expect(before.interval).toBe('5m');
@@ -822,7 +854,7 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   // By hand: the ledger's USDT plus its BTC at now's price, exactly, nothing else held yet.
   const held = await svc.balances();
   expect(Object.entries(held).filter(([asset, b]) => !['USDT', 'BTC'].includes(asset) && toUnits(b.total) !== 0n)).toEqual([]);
-  const worth = [...new Set([...liveBefore, ...liveAfter])].map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
+  const worth = live.map((close) => total(held, 'USDT') + (total(held, 'BTC') * close) / ONE);
   const end = toUnits(before.points.at(-1).usd);
   expect(worth.includes(end), `last point ${before.points.at(-1).usd} vs by hand ${worth.map(fromUnits).join(' or ')}`).toBe(true);
   // The account was opened in #1, inside this day: the line starts at zero.
