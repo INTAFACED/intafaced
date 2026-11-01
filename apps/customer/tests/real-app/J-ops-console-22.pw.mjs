@@ -47,10 +47,21 @@ test.describe('one TEST merchant', () => {
 
   /** On a page founder A is signed in on: the merchant page and its USDT balance row as the console shows it. */
   async function founderMerchant(page) {
-    await page.goto(`${ADMIN}/merchants/${world.merchantId}`, { waitUntil: 'load' });
-    await expect(page.getByRole('heading', { name: 'TEST Oversight Ltd' })).toBeVisible();
     const balances = page.getByRole('table', { name: 'Merchant balances per asset' });
     const usdt = balances.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'USDT', exact: true }) });
+    const none = page.getByText('No balances yet', { exact: true });
+    // The balance rows are the assets in svc-pay's metrics projection, which its refresher brings up to date every 5 s
+    // (startMetricsRefresher); the page says how fresh its figures are ("Figures as of"). The page is a server snapshot,
+    // so while it still shows no balance it is opened again, for up to 60 s. Any other state fails at once.
+    const until = Date.now() + 60_000;
+    for (;;) {
+      await page.goto(`${ADMIN}/merchants/${world.merchantId}`, { waitUntil: 'load' });
+      await expect(page.getByRole('heading', { name: 'TEST Oversight Ltd' })).toBeVisible();
+      await expect(failedPart(page)).toHaveCount(0);
+      await expect(usdt.or(none)).toBeVisible();
+      if ((await usdt.count()) > 0 || Date.now() > until) break;
+      await page.waitForTimeout(2_000);
+    }
     await expect(usdt).toHaveCount(1);
     const [clearing, available] = await usdt.getByRole('cell').allInnerTexts();
     return { clearing: clearing.trim(), available: available.trim() };
