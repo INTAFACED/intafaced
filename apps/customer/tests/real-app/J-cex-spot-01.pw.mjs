@@ -21,6 +21,11 @@ import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLi
 const J = 'J-cex-spot-01';
 const DESK = '/trade/spot/BTC-USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+/**
+ * A dollar figure as the app writes one (fmtUsd in apps/customer/src/data/format.ts): two decimals; under $1 up to four,
+ * so a figure under $1 can read "$0.8094"; and "<$0.0001" for a non-zero figure below that.
+ */
+const DOLLARS = String.raw`(?:\$[\d,]+\.\d{2}|\$0\.\d{3,4}|<\$0\.0001)`;
 
 test.describe.configure({ mode: 'default' });
 
@@ -355,7 +360,7 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   let left = 0n;
   for (const lot of await lots.all()) {
     left += shownUnits(await lot.locator('td[data-col=left]').innerText());
-    await expect(lot.locator('td[data-col=cost]')).toHaveText(/^\$[\d,]+\.\d{2}$/);
+    await expect(lot.locator('td[data-col=cost]')).toHaveText(new RegExp(`^${DOLLARS}$`));
   }
   expect(left).toBe(btc);
   await page.goto(DESK);
@@ -375,7 +380,8 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
     .toBeLessThan(toUnits('0.00001'));
   await page.goto('/money/pnl');
   await expect(main.getByTestId('money-label').filter({ hasText: 'Realised' }).first()).toBeVisible();
-  await expect(main.locator('[data-testid=money-total][data-figure=realised]')).toHaveText(/^[+−]\$[\d,]+\.\d{2}$/);
+  // A signed dollar result: the sale and its fees leave a non-zero result, which can be under $1 ("−$0.8094" in run 1123).
+  await expect(main.locator('[data-testid=money-total][data-figure=realised]')).toHaveText(new RegExp(`^[+−]${DOLLARS}$`));
   await expect(main.locator('[data-testid=money-note][data-indicator=true]')).toContainText('It is not a tax form.');
 });
 
