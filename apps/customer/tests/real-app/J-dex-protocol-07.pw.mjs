@@ -7,7 +7,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { acceptRepresentation, CHAIN_ID, fundOnTestChain, testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
-import { api, EDGE, fromUnits, ORIGIN, ROOT, toUnits } from './stack.mjs';
+import { api, fromUnits, ORIGIN, ROOT, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { tableIn } from './tables.mjs';
 
@@ -73,7 +73,7 @@ async function service(request, procedure, input) {
 
 /** The fixtures the run added, read once per worker. */
 let fixtures = null;
-test.beforeAll(async () => {
+test.beforeAll(async ({ playwright }) => {
   const status = testChain();
   expect(status.chain, 'this step reads the stack TEST chain; with no anvil the stack runs none').toBe('running');
   const tsx = path.join(ROOT, 'services/svc-protocol/node_modules/.bin/tsx');
@@ -88,16 +88,17 @@ test.beforeAll(async () => {
   // The service may answer from a head block read a moment before the fixtures mined (its chain client keeps the block
   // number for a few seconds), so the steps start once it reads at or past the block they ended on.
   const seeded = await chain.getBlockNumber({ cacheTime: 0 });
-  const input = encodeURIComponent(JSON.stringify({ window: '1h' }));
-  await expect
-    .poll(
-      async () => {
-        const res = await fetch(`${EDGE}/api/protocol/trpc/tokens.list?input=${input}`, { headers: { origin: ORIGIN } });
-        return res.ok ? BigInt((await res.json()).result.data.blockNumber) : -1n;
-      },
-      { message: `svc-protocol reads the TEST chain at or past block ${seeded}, where the fixtures ended`, timeout: 30_000 },
-    )
-    .toBeGreaterThanOrEqual(seeded);
+  const request = await playwright.request.newContext({ baseURL: ORIGIN });
+  try {
+    await expect
+      .poll(async () => BigInt((await service(request, 'tokens.list', { window: '1h' })).blockNumber), {
+        message: `svc-protocol reads the TEST chain at or past block ${seeded}, where the fixtures ended`,
+        timeout: 30_000,
+      })
+      .toBeGreaterThanOrEqual(seeded);
+  } finally {
+    await request.dispose();
+  }
 });
 
 /** Every factory pool that trades `token`, with its tokens and fee, from the chain. */
