@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -258,11 +258,21 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
     expect(empty.openingInterest).toBe(empty.closingInterest);
     expect(empty.openingPrincipal).toBe('0');
     expect(empty.provisional).toBe(false);
-    const month = await caller(bank).loans.statement({
-      loanId: opened.loan.id,
-      from: '2026-06-01T00:00:00.000Z',
-      to: '2026-11-01T00:00:00.000Z',
-    });
+    // This read used the wall clock twice, and broke when the clock passed 2026-11-01 (#7080): the router dates the
+    // statement by it, and the database dated the pledge by it (the draw is dated by `open`'s NOW). Both now take the
+    // test's NOW, as the direct reads above do, so the month is in progress and holds the pledge on any date.
+    await sql`UPDATE bank.loan_collateral_events SET settled_at = ${NOW} WHERE loan_id = ${opened.loan.id} AND direction = 'lock'`;
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
+    let month: Awaited<ReturnType<ReturnType<typeof caller>['loans']['statement']>>;
+    try {
+      month = await caller(bank).loans.statement({
+        loanId: opened.loan.id,
+        from: '2026-06-01T00:00:00.000Z',
+        to: '2026-11-01T00:00:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(month.provisional).toBe(true);
     expect(month.closingPrincipal).toBe('100');
     expect(month.openingPrincipal).toBe('0');
