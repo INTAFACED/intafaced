@@ -1,0 +1,3797 @@
+{
+  "about": "The Real-app journeys baseline on main. docs/runbooks/regression-issue-state.md says how it is read.",
+  "run": {
+    "number": 1119,
+    "id": 41295134966,
+    "sha": "347e2d8a1550220544ecce48f5e708cbd50fb4c8",
+    "url": "https://github.com/INTAFACED/intafaced/actions/runs/41295134966"
+  },
+  "runsRead": {
+    "from": 58,
+    "to": 1119,
+    "read": 136,
+    "noReport": [231, 235, 236, 238, 1086],
+    "note": "every completed Real-app journeys run on main from 58 to 1119 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report"
+  },
+  "moneyRuleAt": "72cec1b33598361c6d871d65672c8293a70b135b",
+  "moneyPackages": [
+    "packages/connect-data-lake",
+    "packages/execution-arb",
+    "packages/execution-mm",
+    "packages/market-data",
+    "packages/money-math",
+    "packages/portfolio-view",
+    "packages/venue-adapter",
+    "packages/venue-contracts",
+    "services/svc-academy",
+    "services/svc-agents",
+    "services/svc-bank",
+    "services/svc-campaigns",
+    "services/svc-dex",
+    "services/svc-execution",
+    "services/svc-identity",
+    "services/svc-indexer",
+    "services/svc-ledger",
+    "services/svc-market",
+    "services/svc-matching",
+    "services/svc-mining-pool",
+    "services/svc-ops",
+    "services/svc-p2p",
+    "services/svc-pay",
+    "services/svc-quant",
+    "services/svc-tax",
+    "services/svc-token",
+    "services/svc-trade",
+    "services/svc-ws"
+  ],
+  "counts": {
+    "stepsInRun": 1520,
+    "failing": 532,
+    "unbuilt": 517,
+    "regression": 5,
+    "notBaselined": 10
+  },
+  "steps": [
+    {
+      "step": "J-agents-03#5",
+      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-03#7",
+      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-03#8",
+      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-04#1",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-04#2",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-04#3",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-04#4",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-04#5",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveText(expected) failed"
+    },
+    {
+      "step": "J-agents-04#6",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-04#7",
+      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-05#1",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-05#2",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-05#3",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-agents-05#4",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-05#5",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-05#6",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-05#7",
+      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-06#1",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-06#2",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-06#3",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-06#4",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-06 started no \"longRun\" background run, so this step has no run to open"
+    },
+    {
+      "step": "J-agents-06#5",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-06 started no \"longRun\" background run, so this step has no run to open"
+    },
+    {
+      "step": "J-agents-06#6",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-06 started no \"longRun\" background run, so this step has no run to open"
+    },
+    {
+      "step": "J-agents-06#7",
+      "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-06 #1 started no background run, so there is no run of this person's to try"
+    },
+    {
+      "step": "J-agents-07#1",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-07#2",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-07#3",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-07#4",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-07#5",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-07#6",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-agents-07#7",
+      "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-08#1",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Test timeout of 90000ms exceeded."
+    },
+    {
+      "step": "J-agents-08#2",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-08#3",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "locator.click: Error: strict mode violation: getByRole('main').getByRole('button', { name: 'Run' }) resolved to 3 elements:"
+    },
+    {
+      "step": "J-agents-08#4",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-08#5",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "locator.click: Error: strict mode violation: getByRole('main').getByRole('button', { name: 'Run' }) resolved to 3 elements:"
+    },
+    {
+      "step": "J-agents-08#6",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-08#7",
+      "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-09#1",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-agents-09#2",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-09#3",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.setChecked: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-09#4",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.setChecked: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-09#5",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-09#6",
+      "file": "apps/customer/tests/real-app/J-agents-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-10#1",
+      "file": "apps/customer/tests/real-app/J-agents-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-10#2",
+      "file": "apps/customer/tests/real-app/J-agents-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-10#3",
+      "file": "apps/customer/tests/real-app/J-agents-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-10#4",
+      "file": "apps/customer/tests/real-app/J-agents-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-12#2",
+      "file": "apps/customer/tests/real-app/J-agents-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-12 #2 BLOCKED (owner decision 2026-10-29: runs start only from the person's own session): starting a run from an API key is overtaken"
+    },
+    {
+      "step": "J-agents-12#5",
+      "file": "apps/customer/tests/real-app/J-agents-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-12 #5 BLOCKED (developer-webhooks-001): the developer module's webhook delivery is not on main, so no endpoint can be registered"
+    },
+    {
+      "step": "J-agents-13#1",
+      "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-13#2",
+      "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-13#3",
+      "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-13#4",
+      "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-13#5",
+      "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-14#1",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-14#2",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-14#3",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-14#4",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-14#5",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-14#6",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-14#7",
+      "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-16#1",
+      "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-16#2",
+      "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-16#3",
+      "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-16#4",
+      "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-16#5",
+      "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-18#1",
+      "file": "apps/customer/tests/real-app/J-agents-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-18 #1 BLOCKED (services/svc-agents/README.md:313: v2 agents are \"Doctrine names only — no factory until product law\"; RC-agents-03): the Portfolio planner's portfolio source is not connected,"
+    },
+    {
+      "step": "J-agents-18#2",
+      "file": "apps/customer/tests/real-app/J-agents-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-18 #2 BLOCKED (services/svc-agents/README.md:313: v2 agents are \"Doctrine names only — no factory until product law\"; RC-agents-03): with no proposal there is nothing to approve or reject"
+    },
+    {
+      "step": "J-agents-18#3",
+      "file": "apps/customer/tests/real-app/J-agents-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-18#5",
+      "file": "apps/customer/tests/real-app/J-agents-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-agents-18 #5 BLOCKED (services/svc-agents/README.md:313: v2 agents are \"Doctrine names only — no factory until product law\"; RC-agents-04): the Launch check and Growth drafts agents keep no run hist"
+    },
+    {
+      "step": "J-agents-19#1",
+      "file": "apps/customer/tests/real-app/J-agents-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-19#2",
+      "file": "apps/customer/tests/real-app/J-agents-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-19#3",
+      "file": "apps/customer/tests/real-app/J-agents-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-19#4",
+      "file": "apps/customer/tests/real-app/J-agents-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-19#5",
+      "file": "apps/customer/tests/real-app/J-agents-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-20#1",
+      "file": "apps/customer/tests/real-app/J-agents-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-agents-20#2",
+      "file": "apps/customer/tests/real-app/J-agents-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-20#3",
+      "file": "apps/customer/tests/real-app/J-agents-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-agents-20#4",
+      "file": "apps/customer/tests/real-app/J-agents-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-algo-dev-03#6",
+      "file": "apps/customer/tests/real-app/J-algo-dev-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "plan quotas and their refusal are not built (AL-limits-01)"
+    },
+    {
+      "step": "J-algo-dev-03#7",
+      "file": "apps/customer/tests/real-app/J-algo-dev-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the Usage panel is not built (AL-limits-01)"
+    },
+    {
+      "step": "J-algo-dev-03#8",
+      "file": "apps/customer/tests/real-app/J-algo-dev-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "compute tiers are not built (RC-algo-dev-05)"
+    },
+    {
+      "step": "J-bank-09#1",
+      "file": "apps/customer/tests/real-app/J-bank-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Red by name (BK-loan-02 tier pricing): the bank has no rate-tier table to read, so no band APR can be shown or snapshotted. The owner has published none; the page shows \"not set\" and the one APR (asse"
+    },
+    {
+      "step": "J-bank-09#5",
+      "file": "apps/customer/tests/real-app/J-bank-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-copy-bots-otc-02#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-02#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-02#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "step": "J-copy-bots-otc-02#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-02#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-02#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-02#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-gates.mjs hold jcf2mvxnzpzq@local-test.invalid USDT all"
+    },
+    {
+      "step": "J-copy-bots-otc-04#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-04#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-04#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-04#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-04: an earlier step made no applicationId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-04#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the applicant has a lead account"
+    },
+    {
+      "step": "J-copy-bots-otc-04#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-04#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-04#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-05#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-05#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-06#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-06#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-copy-bots-otc-06#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-06#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-06#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-copy-bots-otc-06#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-07#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-07#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-07#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "{\"message\":\"Route POST:/api/v1/copy/lead/orders not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"09bfd86a-8a0c-478c-ac08-63d86820b3d5\"}"
+    },
+    {
+      "step": "J-copy-bots-otc-07#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-07: an earlier step made no leadKey, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-07#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-07#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-07: an earlier step made no leadKey, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-07#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-07: an earlier step made no leadKey, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-07#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-07: an earlier step made no leadKey, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-08#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-08#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-08#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-08#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-08#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-08#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "step": "J-copy-bots-otc-08#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toMatch(expected)"
+    },
+    {
+      "step": "J-copy-bots-otc-08#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-copy-bots-otc-09#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-09#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-09.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-10#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered trade.copy_lead_reapply_wait_unset"
+    },
+    {
+      "step": "J-copy-bots-otc-10#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service"
+    },
+    {
+      "step": "J-copy-bots-otc-10#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "UNBUILT: CB-copy-pro-share-09 (takeovers) and CB-copy-pro-share-03 (levels): takeovers per pool and day and the level ratios are read from no service"
+    },
+    {
+      "step": "J-copy-bots-otc-11#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-11#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-11#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-11#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-11#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-12#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-13#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-13 #2 as a support operator is blocked: the founder console has no non-founder staff login, so no support operator can sign in to look a customer up. #2 above runs as founder a."
+    },
+    {
+      "step": "J-copy-bots-otc-15#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "{\"error\":{\"message\":\"No procedure found on path \\\"bots.createGrid\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"bots.createGrid\\\"\\n    a"
+    },
+    {
+      "step": "J-copy-bots-otc-15#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-15: an earlier step made no botId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-15#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-15: an earlier step made no botId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-15#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "{\"error\":{\"message\":\"No procedure found on path \\\"bots.createGrid\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"bots.createGrid\\\"\\n    a"
+    },
+    {
+      "step": "J-copy-bots-otc-15#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-15: an earlier step made no botId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-15#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "locator.selectOption: options[0].label: expected string, got object"
+    },
+    {
+      "step": "J-copy-bots-otc-15#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "{\"error\":{\"message\":\"No procedure found on path \\\"bots.createGrid\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"bots.createGrid\\\"\\n    a"
+    },
+    {
+      "step": "J-copy-bots-otc-15#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-16#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-16#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-16#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-16#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-16#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-16: an earlier step made no ruleId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-16#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-16: an earlier step made no ruleId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-16#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-16#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-16.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-16: an earlier step made no ruleId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-17#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-17#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-17#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-copy-bots-otc-17#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-17#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-17#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-17#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-18#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-18#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-18#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-market.mjs delist ETH/USDT"
+    },
+    {
+      "step": "J-copy-bots-otc-18#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-18#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-18#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-19#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "step": "J-copy-bots-otc-19#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "step": "J-copy-bots-otc-19#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "step": "J-copy-bots-otc-20#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-20#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-20: an earlier step made no url, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-20#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-20: an earlier step made no token, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-20#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-20: an earlier step made no url, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-20#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-20: an earlier step made no url, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-20#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-20#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.innerText: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-20#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-21#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-21#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-21#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-copy-bots-otc-21#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-21: an earlier step made no listingId, so this step has nothing to act on"
+    },
+    {
+      "step": "J-copy-bots-otc-21#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-22#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-22#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-22#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-22#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-22#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-22#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-22.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-24#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-24.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the desk publishes no settlement name check (settlementNameMatch): OTC settles only to the trader's own ledger account; there is no outside settlement account to match (CB-otc-08's bank name-match nee"
+    },
+    {
+      "step": "J-copy-bots-otc-25#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-25#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeDisabled() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-25#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-25#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-25#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-25#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-25#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-25.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-26#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-27#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-27#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-27#8",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-28#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-28#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-28#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-28#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-28#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-28#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-28.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-29#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-29#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-29#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-29#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-29#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-29#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-30#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "{\"error\":{\"message\":\"BTC/USDT: limit is outside the slice price band against reference 65217.94\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"TRPCError: BTC/USDT: limit is outs"
+    },
+    {
+      "step": "J-copy-bots-otc-30#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-30#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-30#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-30#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-02#11",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-02.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-03#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-03#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-03#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-04#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-04#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-04#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-05#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-05#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-05#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveValue(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-05#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-05#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-05#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-05#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-05#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-05#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-05#10",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-05.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-06#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-06#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-06#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-06#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-06#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-06#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-06#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeChecked() failed"
+    },
+    {
+      "step": "J-dex-protocol-06#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-07#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "BLOCKED (price_feed): no dollar price source is set on the stack, so the page shows no USD price with its as-of time"
+    },
+    {
+      "step": "J-dex-protocol-08#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-08#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-08#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).not.toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-08#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-08#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-08#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-08#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).not.toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-08#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-08#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-09#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-09.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toHaveText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-10#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-10#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-10.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-11#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-12#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-12.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-13#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-13.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-14#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-14#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-15#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-15#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-16#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-16#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-16#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-16#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-16#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "/chain"
+    },
+    {
+      "step": "J-dex-protocol-16#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-16.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-17#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toHaveCount(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-17#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-17#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-17#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-17.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "BLOCKED (buyback_job_unset): the buyback job cannot place its buy (the trade place is unpublished), so no run is stored to add up per row and no empty-book reading exists"
+    },
+    {
+      "step": "J-dex-protocol-18#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-18#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-18#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-18#10",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-18.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-19#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-19#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-19#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-19#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-19#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-19#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-19#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-19#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-19#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-19.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-20#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-20#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-21#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-21#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-21#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-21#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-21#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-21#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-21.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-22#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "{\"message\":\"Route GET:/api/v1/dex/quote?chainId=84532&sellToken=0x00000000000000000000000000000000000a11ce&buyToken=0x00000000000000000000000000000000000b0b00&sellAmount=1000000&integratorFees=%5B%7B%"
+    },
+    {
+      "step": "J-dex-protocol-23#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-23#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-23#10",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-23.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-24#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-24#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-24#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-24#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-24.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-25#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-25#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-25#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-25#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-25#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-25#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-25#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-25#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-25.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-26#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-26.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-dex-protocol-27#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-27#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-27.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-28#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-28.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-29#10",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-29.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-30#12",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-30.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-31#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-dex-protocol-31#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-31#10",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-31.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#1",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#2",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#4",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#5",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#6",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#7",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#8",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-dex-protocol-32#9",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-32.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-home-ia-11#1",
+      "file": "apps/customer/tests/real-app/J-home-ia-11.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 6853,
+      "why": "BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:"
+    },
+    {
+      "step": "J-home-ia-11#5",
+      "file": "apps/customer/tests/real-app/J-home-ia-11.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "BLOCKED deployed_hosts: until a deployment names the hosts and serves them, the deployment check refuses:"
+    },
+    {
+      "step": "J-identity-14#1",
+      "file": "apps/customer/tests/real-app/J-identity-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "step #1 is not built yet: identity has no suspended state and no staff close with a grace date (I-account-lifecycle-13)"
+    },
+    {
+      "step": "J-identity-14#2",
+      "file": "apps/customer/tests/real-app/J-identity-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "step #2 is not built yet: the desk's trade.account_restricted refusal does not carry the restriction's stored reason words (I-kyc-compliance-17)"
+    },
+    {
+      "step": "J-identity-14#3",
+      "file": "apps/customer/tests/real-app/J-identity-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "unbuilt: a final closure refusing with identity.appeal_not_allowed: a closed account cannot sign in, and identity has no signed-out appeal path yet (I-account-lifecycle-12)"
+    },
+    {
+      "step": "J-merchant-07#2",
+      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "blocked: conversion is off on the TEST stack (PAY_CONVERSION_MODE unset, no venue, quotes refused pay.conversion_slippage_unconfigured) and converts USD settlements only; no other merchant spend is wi"
+    },
+    {
+      "step": "J-merchant-07#4",
+      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toContainText(expected) failed"
+    },
+    {
+      "step": "J-merchant-07#5",
+      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "with a rail: a pending row with the deposit address and reference (unbuilt: no top-up rail; owner.decision top-up rail, M-money-out-02): /api/pay/trpc/merchantControl.topUp.request refused: 404 {\"erro"
+    },
+    {
+      "step": "J-merchant-07#7",
+      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the approval used by the payout admission (needs PAY_MERCHANT_CONTROLS=required on the stack)"
+    },
+    {
+      "step": "J-merchant-07#8",
+      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-world.mjs merchant-settlement 25065f76-cc71-4f78-a090-c9abfd308764 --net"
+    },
+    {
+      "step": "J-more-catalogue-02#3",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-02.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-more-catalogue-14#4",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "MC-launch-03 is not built"
+    },
+    {
+      "step": "J-more-catalogue-14#5",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "RC-more-catalogue-22 is not built"
+    },
+    {
+      "step": "J-more-catalogue-14#6",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-14.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "RC-more-catalogue-23 is not built"
+    },
+    {
+      "step": "J-more-catalogue-14#7",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "RC-more-catalogue-24 is not built"
+    },
+    {
+      "step": "J-more-catalogue-15#2",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "MC-predict-01 is not built: the catalogue has no category, trending order or outcome-close rule"
+    },
+    {
+      "step": "J-more-catalogue-15#3",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "MC-predict-01 is not built: a market has no stored rules, timeline or clarifications"
+    },
+    {
+      "step": "J-more-catalogue-15#4",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "MC-predict-02 is not built: no price-as-probability view or paired Yes and No book"
+    },
+    {
+      "step": "J-more-catalogue-15#5",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "MC-predict-03 is not built: the ticket has no Review step through svc-trade"
+    },
+    {
+      "step": "J-more-catalogue-15#6",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "MC-predict-03 is not built: no Predict order path holds full collateral through the ledger"
+    },
+    {
+      "step": "J-more-catalogue-15#7",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "RC-more-catalogue-02 and RC-more-catalogue-03 is not built: no share card, Scanner or Academy hook, and only Yes or No markets"
+    },
+    {
+      "step": "J-more-catalogue-20#1",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "NO-SLICE is not built: the token room does not stake or unstake, because the staking asset is not published to the app"
+    },
+    {
+      "step": "J-more-catalogue-20#6",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "RC-more-catalogue-04 is not built: svc-protocol has no badge eligibility read or claim door, and there is no /protocol/badges room"
+    },
+    {
+      "step": "J-more-catalogue-20#7",
+      "file": "apps/customer/tests/real-app/J-more-catalogue-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "RC-more-catalogue-08 is not built: no internal action charges IFC gas, and svc-token holds no feeCharge grant"
+    },
+    {
+      "step": "J-ops-console-01#4",
+      "file": "apps/customer/tests/real-app/J-ops-console-01-service-page.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 6750,
+      "why": "service page panel shows its content: who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source t"
+    },
+    {
+      "step": "J-ops-console-01#6",
+      "file": "apps/customer/tests/real-app/J-ops-console-01.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 6750,
+      "why": "no operator without ledger scope exists: the console has no per-operator scope yet"
+    },
+    {
+      "step": "J-ops-console-02#3",
+      "file": "apps/customer/tests/real-app/J-ops-console-02-customer-record.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 6975,
+      "why": "no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built"
+    },
+    {
+      "step": "J-ops-console-07#9",
+      "file": "apps/customer/tests/real-app/J-ops-console-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Blocked: no reversal can be booked on this stack. J-ops-console-05 (OPS-ledger-desk-02) is not built, so #9 resolved with a TEST deposit, not a reversal."
+    },
+    {
+      "step": "J-ops-console-07#10",
+      "file": "apps/customer/tests/real-app/J-ops-console-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "Blocked: no consumer of intafaced.core-ops.reconciliation_alert.* exists on this stack, so no receiver can be shown applying a transition event once."
+    },
+    {
+      "step": "J-ops-console-08#1",
+      "file": "apps/customer/tests/real-app/J-ops-console-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the console has no ledger integrity check yet (OPS-ledger-desk-04)"
+    },
+    {
+      "step": "J-ops-console-08#2",
+      "file": "apps/customer/tests/real-app/J-ops-console-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the console has no posting freeze history yet (OPS-ledger-desk-04)"
+    },
+    {
+      "step": "J-ops-console-08#3",
+      "file": "apps/customer/tests/real-app/J-ops-console-08.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the console has no ledger write-block panel yet (OPS-ledger-desk-04)"
+    },
+    {
+      "step": "J-ops-console-22#3",
+      "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "the founder-wide verification queue is not connected: svc-pay has no founder-wide KYB list"
+    },
+    {
+      "step": "J-ops-console-22#5",
+      "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "the jurisdiction board has no setting history read yet"
+    },
+    {
+      "step": "J-p2p-05#1",
+      "file": "apps/customer/tests/real-app/J-p2p-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "offers.saveDraft (P-ads-merchant-06 part 2) is not built"
+    },
+    {
+      "step": "J-p2p-05#5",
+      "file": "apps/customer/tests/real-app/J-p2p-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "an automatic hide reason on the ad (P-ads-merchant-09) is not built"
+    },
+    {
+      "step": "J-p2p-05#6",
+      "file": "apps/customer/tests/real-app/J-p2p-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "offers.rankingPolicy (P-ads-merchant-10) is not built"
+    },
+    {
+      "step": "J-p2p-05#7",
+      "file": "apps/customer/tests/real-app/J-p2p-05.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the inactivity delist reason (P-ads-merchant-05) is not built"
+    },
+    {
+      "step": "J-p2p-06#1",
+      "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "svc-p2p does not show the buyer how many cancels count (P-trade-orders-05)"
+    },
+    {
+      "step": "J-p2p-06#2",
+      "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "cancels are counted over a rolling window, not per day (P-trade-orders-05)"
+    },
+    {
+      "step": "J-p2p-06#5",
+      "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "an ad has no release window of its own (P-trade-orders-15)"
+    },
+    {
+      "step": "J-pay-03#5",
+      "file": "apps/customer/tests/real-app/J-pay-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-pay-03#6",
+      "file": "apps/customer/tests/real-app/J-pay-03.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-portfolio-11#4",
+      "file": "apps/customer/tests/real-app/J-portfolio-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "bank.statements.jobs.create: {\"error\":{\"message\":\"No procedure found on path \\\"statements.jobs.create\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure foun"
+    },
+    {
+      "step": "J-support-public-01#3",
+      "file": "apps/customer/tests/real-app/J-support-public-01.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 7003,
+      "why": "the empty-library clause needs an empty-catalogue stack profile"
+    },
+    {
+      "step": "J-support-public-20#1",
+      "file": "apps/customer/tests/real-app/J-support-public-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "linkRecord: {\"error\":{\"message\":\"No procedure found on path \\\"linkRecord\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"linkRecord\\\"\\n   "
+    },
+    {
+      "step": "J-support-public-20#2",
+      "file": "apps/customer/tests/real-app/J-support-public-20.pw.mjs",
+      "state": "unbuilt",
+      "money": false,
+      "why": "customerBalance: {\"error\":{\"message\":\"No procedure found on path \\\"customerBalance\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"custome"
+    },
+    {
+      "step": "J-support-public-20#7",
+      "file": "apps/customer/tests/real-app/J-support-public-20.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "requestWithdrawalFreeze: {\"error\":{\"message\":\"No procedure found on path \\\"requestWithdrawalFreeze\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found o"
+    }
+  ],
+  "notBaselined": [
+    {
+      "step": "J-agents-03#6",
+      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
+      "money": true,
+      "issue": 6841,
+      "lastPassedRun": 845,
+      "why": "expect(locator).toBeEnabled() failed"
+    },
+    {
+      "step": "J-copy-bots-otc-01#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
+      "money": true,
+      "issue": 7000,
+      "lastPassedRun": 1118,
+      "why": "the leader list after Top return"
+    },
+    {
+      "step": "J-copy-bots-otc-01#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
+      "money": true,
+      "issue": 7000,
+      "lastPassedRun": 988,
+      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app"
+    },
+    {
+      "step": "J-copy-bots-otc-14#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-14.pw.mjs",
+      "money": true,
+      "issue": null,
+      "lastPassedRun": 1118,
+      "why": "expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "step": "J-copy-bots-otc-14#7",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-14.pw.mjs",
+      "money": true,
+      "issue": null,
+      "lastPassedRun": 1118,
+      "why": "the bot still holds its reserve"
+    },
+    {
+      "step": "J-copy-bots-otc-19#6",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-19.pw.mjs",
+      "money": true,
+      "issue": 7001,
+      "lastPassedRun": 988,
+      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}"
+    },
+    {
+      "step": "J-dex-protocol-07#3",
+      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
+      "money": true,
+      "issue": 6634,
+      "lastPassedRun": 690,
+      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing"
+    },
+    {
+      "step": "J-ops-console-02#5",
+      "file": "apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs",
+      "money": true,
+      "issue": 6975,
+      "lastPassedRun": 1039,
+      "why": "the KYC case detail opens its attached document in the same viewer (kyc-document-viewer) as the documents tab: the console has no KYC case detail (OPS-cases-07)"
+    },
+    {
+      "step": "J-ops-console-04#7",
+      "file": "apps/customer/tests/real-app/J-ops-console-04-close.pw.mjs",
+      "money": true,
+      "issue": 7058,
+      "lastPassedRun": 1039,
+      "why": "the closed account's card shows as closed on the console: the cards tab has no operator read of one customer's cards (svc-bank cards.list answers only the owner)"
+    },
+    {
+      "step": "J-portfolio-03#1",
+      "file": "apps/customer/tests/real-app/J-portfolio-03.pw.mjs",
+      "money": true,
+      "issue": 7034,
+      "lastPassedRun": 1007,
+      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)"
+    }
+  ]
+}
