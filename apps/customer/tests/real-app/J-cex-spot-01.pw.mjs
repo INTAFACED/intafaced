@@ -241,23 +241,36 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   expect(id).toBeTruthy();
   const other = await api(otherTrader());
   // The house market maker may cross it first when it requotes; either way the order fills as maker.
-  if ((await openOrders(who)).some((o) => o.id === id)) {
-    // An IOC sell takes the best bids first: if the market maker has bid above this order since, sell through those
-    // too, so the sell reaches this order at its price.
-    const { body } = await bestPrices();
-    const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-    const sell = await other.post('/api/v1/orders', {
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'sell',
-      amount: fromUnits(ahead + toUnits(amount)),
-      price,
-      timeInForce: 'IOC',
-      clientOrderId: `${J}-8-${id}`,
-    });
-    expect(sell.status).toBeLessThan(300);
-  }
-  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+  // An IOC sell takes the best bids first: if the market maker has bid above this order since, sell through those
+  // too, so the sell reaches this order at its price. The maker requotes every few seconds, so bids it adds between the
+  // book read and the sell can use the sell up first (run 1132, #7108): while the order is still open a few seconds
+  // after a sell, read the book again and send another.
+  let sells = 0;
+  let lastSell = 0;
+  await expect
+    .poll(
+      async () => {
+        const open = await openOrders(who);
+        if (!open.some((o) => o.id === id) || Date.now() - lastSell < 3_000) return open.length;
+        const { body } = await bestPrices();
+        const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+        sells += 1;
+        const sell = await other.post('/api/v1/orders', {
+          symbol: 'BTC/USDT',
+          type: 'limit',
+          side: 'sell',
+          amount: fromUnits(ahead + toUnits(amount)),
+          price,
+          timeInForce: 'IOC',
+          clientOrderId: sells === 1 ? `${J}-8-${id}` : `${J}-8-${id}-${sells}`,
+        });
+        expect(sell.status).toBeLessThan(300);
+        lastSell = Date.now();
+        return open.length;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(0);
   const after = await (await api(who)).balances();
   const cost = times(price, amount);
   // Funded 1000, nothing else has moved yet: the buyer paid exactly price x amount and holds nothing.
