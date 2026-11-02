@@ -59,6 +59,8 @@ import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
 import { MemoryFormsStore, RequestFormError, RequestForms } from './request-forms.js';
 import { DeskMacros, MemoryMacroBook } from './desk-macros.js';
 import { macroProcedures } from './desk-macros-router.js';
+import { MemoryCheckBook, VerificationChecks } from './verification-checks.js';
+import { verificationCheckProcedures } from './verification-checks-router.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -239,6 +241,8 @@ export function createSupportRouter(
   guests?: GuestRequests,
   /** The owner's `SUPPORT_KB_SEGMENT_CAP`; null (blank) refuses `support.kb_segment_cap_unset`. Never defaulted. */
   kbSegmentCap: number | null = null,
+  /** The balance disclosure gate (J-support-public-20 #2). Left out, no record owner is wired and no check can be recorded. */
+  checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -253,6 +257,7 @@ export function createSupportRouter(
     ...kbReviewProcedures(kbAuthoring, kbLibrary),
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
+    ...verificationCheckProcedures(checks),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
