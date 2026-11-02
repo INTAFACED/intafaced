@@ -13,6 +13,7 @@ import type { Candle } from '../../data/types';
 import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
 import { axisTime, tickMark } from '../trade/chart/PriceChart';
 import type { ChartApi, ChartHost, ChartLib, ChartSeries } from './chart-host';
+import { viewKeys } from './chart-keys';
 import { DEFAULT_CHART_SETTINGS, type ChartSettings } from './chart-settings';
 import type { PriceLine } from './price-lines';
 import {
@@ -101,7 +102,6 @@ export interface WorkbenchChartProps {
   priceLines?: readonly PriceLine[];
 }
 
-const PAN_BARS = 10;
 const NO_LINES: readonly PriceLine[] = [];
 
 export function WorkbenchChart({
@@ -134,6 +134,8 @@ export function WorkbenchChart({
   count.current = candles.length;
   // Older bars are asked for only once the person moves the chart, never by the chart's own fit on open.
   const moved = useRef(false);
+  // The view keys, which start a key pressed before the chart has drawn the last one from the range that one asked for.
+  const [viewKey] = useState(() => viewKeys((run) => void requestAnimationFrame(run)));
   const [host, setHost] = useState<ChartHost | null>(null);
   const [mounted, setMounted] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
@@ -315,26 +317,11 @@ export function WorkbenchChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
-  /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again. */
+  /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again (chart-keys.ts). */
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     moved.current = true;
     const scale = chart.current?.timeScale();
-    const range = scale?.getVisibleLogicalRange();
-    if (!scale || !range) return;
-    const width = range.to - range.from;
-    let next: { from: number; to: number } | null = null;
-    if (event.key === 'ArrowLeft') next = { from: range.from - PAN_BARS, to: range.to - PAN_BARS };
-    else if (event.key === 'ArrowRight') next = { from: range.from + PAN_BARS, to: range.to + PAN_BARS };
-    else if (event.key === '+' || event.key === '=') next = { from: range.to - Math.max(10, width * 0.8), to: range.to };
-    else if (event.key === '-' || event.key === '_') next = { from: range.to - width * 1.25, to: range.to };
-    else if (event.key === 'Home') {
-      scale.fitContent();
-      event.preventDefault();
-      return;
-    }
-    if (!next) return;
-    event.preventDefault();
-    scale.setVisibleLogicalRange(next);
+    if (scale && viewKey(scale, event.key)) event.preventDefault();
   };
 
   const formatTime = useMemo(
