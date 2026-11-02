@@ -17,6 +17,7 @@ import { TicketExtras } from './support-ticket-extras';
 import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
 import { TicketMerge } from './support-ticket-merge';
+import { TicketVerification } from './support-verification-gate';
 import { TicketProperties } from './support-ticket-properties';
 import { QueueFilters } from './support-queue-filters';
 import { EMPTY_QUERY } from '@/lib/support/queue-query';
@@ -241,6 +242,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
       <TicketFiles key={`files:${t.id}`} ticketId={t.id} />
       <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
+      <TicketVerification key={`verification:${t.id}`} ticket={t} />
       <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketActions
