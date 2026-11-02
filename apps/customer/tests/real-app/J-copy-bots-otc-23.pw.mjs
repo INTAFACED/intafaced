@@ -639,8 +639,9 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   // (J-cex-spot-02 rests buys at 87 to 90% of it) then sets that reference, and a buy at the maker's old price is refused
   // as above the band (Real-app journeys run 1144, issue 7122). So the iceberg rests at the middle of the book that is
   // left, the maker's old bid standing in for an empty bid side, or one whole USDT above the best bid when no ask is left.
-  // That is the best bid, so a sell reaches it, and it sits at or below the band's reference, so the buy is inside the
-  // band; the refill sell's band is then centred between it and the best ask.
+  // That is the best bid, so a sell reaches it. The buy is inside the band: at the band's reference when both sides rest,
+  // below the ask that is the reference when no bid does, and one whole USDT above the lone bid that is the reference
+  // when no ask does. The refill sell's band is then centred between the iceberg and the best ask.
   const floor = book.bids[0] ? toUnits(book.bids[0][0]) : toUnits(bid);
   const ceiling = book.asks[0] ? toUnits(book.asks[0][0]) : null;
   const price = fromUnits(ceiling == null ? whole(floor) + one : whole((floor + ceiling) / 2n));
