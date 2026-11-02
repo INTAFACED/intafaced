@@ -29,6 +29,10 @@
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
+ *   node tooling/scripts/local-test-stack.mjs build [--rebuild] [--no-admin]   the builds `start` runs (services,
+ *                                         Customer, console unless --no-admin, invitation site) and their stamp, and
+ *                                         nothing started: the Real-app journeys workflow builds once and its shards
+ *                                         start on that build
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
@@ -1027,7 +1031,8 @@ function ensureInvitationBuilt(rebuild) {
   );
 }
 
-function ensureBuilt(rebuild) {
+/** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
+function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
@@ -1035,7 +1040,7 @@ function ensureBuilt(rebuild) {
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
     if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
-    ensureAdminBuilt(rebuild);
+    if (admin) ensureAdminBuilt(rebuild);
     return;
   }
   if (backend === 'missing') {
@@ -1048,7 +1053,7 @@ function ensureBuilt(rebuild) {
       P.buildStamp,
       JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
     );
-    ensureAdminBuilt(rebuild);
+    if (admin) ensureAdminBuilt(rebuild);
     return;
   }
   // The services restart onto this build only when their own source moved (not for a Customer-only change).
@@ -1085,7 +1090,7 @@ function ensureBuilt(rebuild) {
       2,
     ),
   );
-  ensureAdminBuilt(rebuild);
+  if (admin) ensureAdminBuilt(rebuild);
 }
 
 // Each schema migrates as its own role inside its own schema and reads no build output, so they run side by side,
@@ -1931,6 +1936,28 @@ function onlyFlag(flags) {
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   return names;
+}
+
+/**
+ * The builds `start` runs, and nothing else: no secrets, database or process. The stamp it writes is what `start` reads,
+ * so a checkout of the same commit with no edits that receives these outputs and the stamp starts without building, and
+ * any difference (another commit, an edit, a missing output) rebuilds exactly as a cold start would.
+ */
+function cmdBuild(flags) {
+  say('INTAFACED local test stack: build only');
+  say(`  repo ${REPO}`);
+  say(`  state ${STATE}`);
+  // Building under a running stack would change files its processes serve; `start` moves them onto a new build itself.
+  const running = Object.entries(readProcs())
+    .filter(([, rec]) => ownedAlive(rec))
+    .map(([name]) => name);
+  if (running.length) fail(`the stack is running (${running.join(', ')}): use \`start\`, which builds and restarts what moved`, 2);
+  // The builds run with TMPDIR in the state folder (baseEnv), as under `start`.
+  for (const d of [P.logs, path.join(STATE, 'tmp')]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+  adoptEnvCustomerDist();
+  ensureBuilt(flags.includes('--rebuild'), { admin: !flags.includes('--no-admin') });
+  ensureInvitationBuilt(flags.includes('--rebuild'));
+  say(`  build: stamp ${P.buildStamp}`);
 }
 
 async function cmdStart(flags) {
@@ -3658,6 +3685,7 @@ async function runCli() {
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
+  else if (cmd === 'build') cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
@@ -3686,7 +3714,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // The founder console's protocol desks (/protocol-ops, /trade-ops) for the operator journeys J-dex-protocol-29 to -32.

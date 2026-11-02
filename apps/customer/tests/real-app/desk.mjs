@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own

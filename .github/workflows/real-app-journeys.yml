@@ -44,13 +44,21 @@ on:
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
+      - 'tooling/scripts/journey-fail-fast.mjs'
+      - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
 
-# A run that started finishes; newer pushes wait as one queued run, and each newer push replaces the one waiting, so the
-# next run tests the newest main. (Failure it prevents: with cancel-in-progress, main merged every few minutes and every
-# run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the journeys, so the scoreboard never moved.)
+# On main, runs overlap: each push, scheduled run and manual run on main is its own group, so a new run neither cancels
+# nor waits on one already running (owner request 2026-11-01, OWNER 154 point 8: with the merge queue, main moves in
+# batches and every batch's journeys report). Nothing needs one run at a time: every shard starts its own stack on its own
+# runner, artifacts are per run, the planner reads finished runs only, and Main trust compares finished runs by when they
+# were created (tooling/ci/post-merge-trust.mjs earlierRuns), so a run that ends before an older one is still compared in
+# order. Measured 1 Nov: run 1137's 22 shards and CI's 12 jobs started within the same two seconds, so overlapping runs do
+# not queue behind each other for runners. (Failure the old rule prevented, and this keeps prevented: with
+# cancel-in-progress, every run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the journeys. Nothing
+# here cancels.) Elsewhere (a manual run on a branch) a run that started finishes and newer ones wait, as before.
 concurrency:
-  group: real-app-journeys-${{ github.ref }}
+  group: real-app-journeys-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -83,6 +91,7 @@ jobs:
       shards: ${{ steps.plan.outputs.shards }}
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
+      fast_plan: ${{ steps.fast.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,6 +113,14 @@ jobs:
             got=$((got + 1))
             [ "$got" -ge 3 ] && break
           done
+          # The two newest finished scheduled runs too: they keep the ordinary limits, so a test built since the baseline
+          # passes there (the fail-fast plan below leaves it out). Kept apart, so the shard plan reads the last runs as before.
+          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/scheduled/$id" 2>/dev/null || continue
+            echo "fail-fast reads the scheduled run $id"
+            sched=$((${sched:-0} + 1))
+            [ "$sched" -ge 2 ] && break
+          done
       - name: Plan
         id: plan
         continue-on-error: true
@@ -119,6 +136,16 @@ jobs:
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
             echo "count=$(jq length <<<"$shards")"
           } >> "$GITHUB_OUTPUT"
+      # The fail-fast plan (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps, less each of their tests
+      # that passed in a run read above. Best effort: without it nothing fails fast.
+      - name: Fail-fast plan
+        id: fast
+        continue-on-error: true
+        run: |
+          node --test tooling/scripts/journey-fail-fast.test.mjs
+          reports=()
+          for f in "$RUNNER_TEMP"/last/*/report.json "$RUNNER_TEMP"/scheduled/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
+          echo "plan=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
       - name: Targeted run has its plan
         if: env.JOURNEYS_TARGET != '' && steps.plan.outputs.shards == ''
         run: |
@@ -128,9 +155,67 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.journeys != ''
         run: echo "::warning::a run on main always runs the full suite; the journeys input applies only on another branch"
 
+  # The stack's builds, once per run, beside the planner and the shards' own setup; every shard then starts on them
+  # instead of building again (measured on run 1138: 1m37s of each of 21 shards' setup was these same builds). The outputs travel with the stack's
+  # build stamp, which `start` checks against its own checkout (same commit, no edits), so a shard that receives anything
+  # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
+  build:
+    name: Build the stack once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20 # healthy run: about 3 minutes
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+      # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build what the stack starts
+        run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build --no-admin
+      # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (the dist folders), and the
+      # stamp. Not the founder console's .next: Next.js writes its preview signing key and server-actions encryption key
+      # into it, and this repository's artifacts are public, so this job does not build it (--no-admin) and each shard
+      # builds the console itself (about 37 s), which its own stamp fields, absent here, tell `start` to do.
+      - name: Pack the build
+        run: |
+          git ls-files --others --ignored --exclude-standard --directory | grep -Ev '(^|/)(node_modules|\.turbo)/' | grep -v '^apps/admin/\.next' > "$RUNNER_TEMP/outputs.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/outputs.txt") build outputs"
+          # Fails closed: per output, a match (grep exit 0) or an unreadable one (2) stops the pack; only no match (1) goes on.
+          while IFS= read -r out; do
+            code=0
+            grep -rlE 'previewModeSigningKey|"encryptionKey"' -- "$out" || code=$?
+            if [ "$code" -ne 1 ]; then
+              echo "::error::$out holds a signing or encryption key, or could not be read (grep exit $code), and the build artifact is public"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/outputs.txt"
+          mkdir -p "$RUNNER_TEMP/stack-build"
+          tar -cf "$RUNNER_TEMP/stack-build/outputs.tar" -T "$RUNNER_TEMP/outputs.txt"
+          jq 'with_entries(select(.key | startswith("admin") | not))' "$RUNNER_TEMP/stack-state/build-stamp.json" > "$RUNNER_TEMP/stack-build/build-stamp.json"
+          du -sh "$RUNNER_TEMP/stack-build"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-build
+          path: ${{ runner.temp }}/stack-build
+          retention-days: 1
+          if-no-files-found: error
+
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    needs: plan
+    # Not on the build job: a shard's own setup runs beside it, and only the step that takes its build waits for it.
+    needs: [plan]
+    permissions:
+      contents: read
+      actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
     if: ${{ !cancelled() && !(needs.plan.result == 'failure' && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys != '') }}
     runs-on: ubuntu-24.04
@@ -187,11 +272,20 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses.
-      - name: Free disk space
+      # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses. Removing them
+      # took 2m20s of every shard (run 1138) on runners that already had far more free than the stack needs (101 GB after,
+      # 44 GB used of 145), so they go only when the disk is short.
+      - name: Free disk space (only when short)
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
           df -h /
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          if [ "$avail" -lt 30 ]; then
+            echo "only ${avail} GB free: removing the toolchains this job never uses"
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+            df -h /
+          else
+            echo "${avail} GB free: nothing to remove"
+          fi
 
       # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
       - name: Put pnpm next to node
@@ -222,6 +316,38 @@ jobs:
 
       - name: Install the browser
         run: pnpm exec playwright install --with-deps chromium
+
+      # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
+      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 20 s (about 3 asks per
+      # shard on a healthy run); an answer that fails is asked again, and a run with no such job (in any attempt) stops at
+      # once. Best effort: without the build (the job failed or is late), or when the stamp does not vouch for this
+      # checkout, `start` builds as before.
+      - name: Take the run's build
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          state=""
+          for _ in $(seq 1 30); do
+            if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
+              # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
+              state=$(jq -r '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$jobs")
+              case "$state" in completed\ * | none) break ;; esac
+            fi
+            sleep 20
+          done
+          echo "build job: ${state:-not read}"
+          if [ "$state" != "completed success" ]; then
+            echo "::warning::no build from this run (${state:-not read}); this shard builds the stack itself"
+            exit 0
+          fi
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-build --dir "$RUNNER_TEMP/stack-build"
+          tar -xf "$RUNNER_TEMP/stack-build/outputs.tar"
+          mkdir -p "$LOCAL_STACK_STATE"
+          chmod 700 "$LOCAL_STACK_STATE"
+          cp "$RUNNER_TEMP/stack-build/build-stamp.json" "$LOCAL_STACK_STATE/"
+          rm -f "$RUNNER_TEMP/stack-build/outputs.tar"
 
       - name: Start the local test stack (TEST funds only)
         run: |
@@ -270,6 +396,12 @@ jobs:
       # The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
         env:
+          # A full run on a push or by hand fails fast on the plan: the baseline's unbuilt steps, less each of their
+          # tests that passed in a finished run read (tooling/scripts/journey-fail-fast.mjs). The daily scheduled run
+          # keeps the ordinary limits, so a test built since the baseline was written passes on main under them; a
+          # targeted run, where a builder proves a step, keeps them too.
+          JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && '1' || '0' }}
+          JOURNEY_FAIL_FAST_PLAN: ${{ needs.plan.outputs.fast_plan }}
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}

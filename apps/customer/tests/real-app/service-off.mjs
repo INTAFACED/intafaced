@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 
 /**
  * The shell's one service-off notice (HM-shell-03): "<Action> needs <dependency>. It is switched off in this build." followed

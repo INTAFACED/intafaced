@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, forgetSession, nextCode } from './identity-factors.mjs';

@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { journeyState, tool, toUnits } from './stack.mjs';

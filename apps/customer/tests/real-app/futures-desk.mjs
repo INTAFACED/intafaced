@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { UNBUILT } from './dex.mjs';
 
 // The futures desk (/trade/futures) as the Web3 futures journeys (J-dex-protocol-18, -19) drive it: the ticket, the

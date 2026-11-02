@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 
 // The TEST tape the algo journeys backtest on: closed 1m bars of BTC/USDT from the local TEST market maker.
