@@ -35,6 +35,12 @@ on:
       - '.agents/**'
       - '.cursor/rules/**'
   workflow_dispatch:
+  # The merge queue (owner request 2026-11-01, OWNER 154 point 8): a required check must report on the queue's own commit,
+  # or the queue waits for it until its timeout. A queue commit is the next main holding one or more pull requests, so it
+  # runs everything (tooling/ci/ci-affected.mjs runsEverything), and the seal re-checks each queued pull request's review
+  # on its own head (tooling/ci/review-marker.mjs sealMergeGroup). Its ref (gh-readonly-queue/main/pr-<n>-<sha>) is new
+  # each time, so the concurrency group below never cancels one queue run for another.
+  merge_group:
 
 # CONCURRENCY — main vs PR (law 2026-08-09, Denon+Nitro greenlit)
 #
@@ -481,13 +487,18 @@ jobs:
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
         run: node tooling/ci/ci-affected.mjs --seal
+      # On a pull request: its head. On a merge queue's commit (merge_group): every pull request in the group, each on its
+      # own head, without waiting, since the queue only took pull requests whose seal had passed.
       - name: Require the independent review sign-off
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           REPO: ${{ github.repository }}
           BASE: ${{ github.event.repository.default_branch }}
         # The default branch's copy decides which changes need the review. Editing this step is a .github/ change, which needs it.
