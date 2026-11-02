@@ -20,7 +20,7 @@
     "@intafaced/quant-honesty": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
-    "@trpc/server": "^11.19.0",
+    "@trpc/server": "^11.22.1",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.7",
     "postgres": "^3.4.5",
