@@ -621,18 +621,25 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   const me = await api(trader);
   const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
   const { bid, ask } = await bestPrices();
-  // A whole-USDT buy a quarter of the way into the spread: the best bid, so a sell reaches it, far from the ask.
+  // A whole-USDT price a quarter of the way into the maker's spread, far from its ask.
   const one = toUnits('1');
-  const price = fromUnits(((toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n) / one) * one);
-  expect(toUnits(price)).toBeGreaterThan(toUnits(bid));
-  expect(toUnits(price)).toBeLessThan(toUnits(ask));
+  const quoted = fromUnits(((toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n) / one) * one);
+  expect(toUnits(quoted)).toBeGreaterThan(toUnits(bid));
+  expect(toUnits(quoted)).toBeLessThan(toUnits(ask));
   // From here to the refill nothing but this step trades on BTC/USDT: the maker's quotes come down (stopMarketMaker).
   await stopMarketMaker();
-  // The maker's exit cancels its quotes; a cancel that failed would leave them in front of the iceberg.
-  expect(await inFrontOf(price), 'the stopped TEST maker left orders at or in front of the iceberg price').toEqual({
+  // The maker's exit cancels its quotes; a cancel that failed would leave them in front of that price.
+  expect(await inFrontOf(quoted), 'the stopped TEST maker left orders at or in front of the iceberg price').toEqual({
     asks: [],
     bids: [],
   });
+  // With the maker gone, the price band is a collar around what still rests on BTC/USDT. A buy an earlier journey left
+  // well below the bid on this stack (J-cex-spot-02 rests buys at 87 to 90% of it) is then the band's reference, and a
+  // buy at `quoted` is refused as above the band (Real-app journeys run 1144, issue 7122). So the iceberg rests one whole
+  // USDT above the best bid still resting: the best bid, so a sell reaches it, and inside the band whatever rests.
+  const below = (await btcBook()).bids[0]?.[0];
+  const price = below == null ? quoted : fromUnits((toUnits(below) / one) * one + one);
+  expect(await inFrontOf(price), 'an order rests at or in front of the iceberg price').toEqual({ asks: [], bids: [] });
   const iceberg = (clientOrderId, displayQty) =>
     me.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
