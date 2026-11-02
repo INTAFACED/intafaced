@@ -101,15 +101,16 @@ export function AuthForm({ register }: { register: boolean }) {
   const form = useRef<HTMLFormElement | null>(null);
   const [, invalidateNavigation] = useState(0);
   const url = location.href;
-  const current = useRef({ api, owner: userId, context, register, url, generation: 0 });
+  const current = useRef({ api, owner: userId, context, register, url, restoring, generation: 0 });
   if (
     current.current.api !== api ||
     current.current.owner !== userId ||
     current.current.context !== context ||
     current.current.register !== register ||
-    current.current.url !== url
+    current.current.url !== url ||
+    current.current.restoring !== restoring
   )
-    current.current = { api, owner: userId, context, register, url, generation: current.current.generation + 1 };
+    current.current = { api, owner: userId, context, register, url, restoring, generation: current.current.generation + 1 };
   const renderedContext = current.current;
   function sameRender() {
     return mounted.current && current.current === renderedContext && location.href === renderedContext.url && api.canWrite();
@@ -187,8 +188,22 @@ export function AuthForm({ register }: { register: boolean }) {
       clearInputs();
     };
   }, []);
+  const discardedFor = useRef(renderedContext);
   useLayoutEffect(() => {
-    discardPrivate();
+    const previous = discardedFor.current;
+    discardedFor.current = renderedContext;
+    // The boot refresh answering (its session, and so `api`, land in the same update) is not a change of person: nothing
+    // could run while it was out (run() waits for it), and what was typed meanwhile is the person's own. Wiping it left
+    // Sign in to submit an empty form (J-more-catalogue-09 #7, Real-app journeys run 1138, #7113). Any other change still
+    // drops everything private.
+    const restoreAnswered =
+      previous !== renderedContext &&
+      previous.restoring &&
+      !renderedContext.restoring &&
+      previous.context === renderedContext.context &&
+      previous.register === renderedContext.register &&
+      previous.url === renderedContext.url;
+    if (!restoreAnswered) discardPrivate();
   }, [renderedContext]);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
