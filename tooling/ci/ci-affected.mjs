@@ -15,7 +15,7 @@
  *   node tooling/ci/ci-affected.mjs --filters
  *   node tooling/ci/ci-affected.mjs --seal
  *
- * `push:main` always classifies as full (the trunk seal).
+ * `push:main` and a merge queue's commit (`merge_group`, what main becomes) always classify as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -136,6 +136,14 @@ export function buildFilters(files, edges = readEdges(), base = 'origin/main') {
     for (const dir of reads) out.add(`./${dir}`);
   }
   return [...out];
+}
+
+/**
+ * A run that tests everything whatever changed: a push to main, and a merge queue's commit (`merge_group`), which is the
+ * next main itself, holding several pull requests at once, so the affected selection of any one of them says too little.
+ */
+export function runsEverything(env) {
+  return (env.GITHUB_REF === 'refs/heads/main' && env.GITHUB_EVENT_NAME === 'push') || env.GITHUB_EVENT_NAME === 'merge_group';
 }
 
 export const SHARD_COUNT = 8;
@@ -274,6 +282,13 @@ function selfTest() {
   const sha = 'a'.repeat(40);
   assert(diffBase(() => `${sha}\n`, 'origin/main') === sha, 'turbo compares against the merge-base, not the moving branch tip');
   assert(diffBase(() => 'not a sha', 'origin/main') === 'origin/main', 'an odd answer falls back to the branch tip');
+  assert(runsEverything({ GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'push' }), 'a push to main runs everything');
+  assert(
+    runsEverything({ GITHUB_REF: 'refs/heads/gh-readonly-queue/main/pr-1-' + 'a'.repeat(40), GITHUB_EVENT_NAME: 'merge_group' }),
+    'a merge queue commit runs everything',
+  );
+  assert(!runsEverything({ GITHUB_REF: 'refs/pull/1/merge', GITHUB_EVENT_NAME: 'pull_request' }), 'a pull request runs what it changed');
+  assert(!runsEverything({ GITHUB_REF: 'refs/heads/x', GITHUB_EVENT_NAME: 'push' }), 'a push elsewhere is not main');
   assert(
     diffBase(() => {
       throw new Error('no merge base');
@@ -305,7 +320,7 @@ function selfTest() {
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
   assert(same(shardMatrix({ full: true }), ['1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8']), 'a full run is split eight ways');
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
-  console.log('✓ ci-affected --self-test OK (' + (cases.length + 14) + ' fixtures)');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 18) + ' fixtures)');
 }
 
 function githubOutput(flags) {
@@ -355,7 +370,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   const filesIdx = args.indexOf('--files');
   let files;
-  let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
+  let forceFull = runsEverything(process.env);
   if (filesIdx >= 0) files = args.slice(filesIdx + 1);
   else files = gitChangedFiles();
   if (args.includes('--filters')) {

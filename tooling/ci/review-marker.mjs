@@ -22,6 +22,8 @@
  * Only money, security, gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
  * 2026-10-26: a builder never approves its own picture; test-diff-guard.mjs also wants the room named). Every other pull request is sealed
  * on its checks alone; the automated code review AGENTS.md asks for before a pull request opens is not checked here.
+ * On a merge queue's commit (`merge_group`) the same rule is applied to every pull request in the group, each against its
+ * own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
  */
@@ -200,7 +202,107 @@ export function reviewReason(files, manifests) {
   return null;
 }
 
-function selfTest() {
+/** The pull request GitHub's squash merge appends to a commit's first line, `<title> (#123)`, or null. */
+export function squashPrNumber(message) {
+  const m = /\(#(\d+)\)\s*$/.exec(String(message ?? '').split('\n')[0]);
+  return m ? Number(m[1]) : null;
+}
+
+/** The pull request a merge queue branch names (`refs/heads/gh-readonly-queue/main/pr-123-<base sha>`), or null. */
+export function queueRefPr(ref) {
+  const m = /(?:^|\/)gh-readonly-queue\/.+\/pr-(\d+)-[0-9a-f]{40}$/.exec(String(ref ?? ''));
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * The pull requests in a merge group, oldest first: the queue squashes each one into one commit between the group's base
+ * and its head (the repository allows squash merges only). Null when the group cannot be read whole: a commit names no
+ * pull request (another merge method), a number repeats, the list is empty or at GitHub's compare cap of 250, or the
+ * queue's own branch does not name the last one (the group's head). The seal then fails closed and the queue drops the group.
+ */
+export function groupPulls(commits, headRef) {
+  const list = commits ?? [];
+  if (list.length === 0 || list.length >= 250) return null;
+  const numbers = list.map((c) => squashPrNumber(c?.commit?.message));
+  if (numbers.some((n) => n === null) || new Set(numbers).size !== numbers.length) return null;
+  const named = queueRefPr(headRef);
+  if (named === null || numbers.at(-1) !== named) return null;
+  return numbers;
+}
+
+/**
+ * One look for the sign-off of a pull request's head, the same for its own seal and for the merge queue's: the
+ * `Independent review` status, then a listed reviewer's PASS comment for this head that passes the session rule. `who`
+ * is { sha, author, reviewers, requireDistinctFromAuthor }; `sessions.value` keeps the author sessions once read whole,
+ * so a waiting seal reads them once. Returns { ok, via, refused }.
+ */
+export async function lookForSignoff({ number, who, io, sessions = {} }) {
+  if (hasSignoff(await io.statuses(who.sha))) return { ok: true, via: 'status', refused: [] };
+  if (!number) return { ok: false, via: null, refused: [] };
+  const comments = (await io.comments(number)).filter((c) => markerFits(c, who));
+  // Read only when a PASS comment fits; an unreadable list (null) is read again on the next look.
+  if (comments.length > 0 && !(sessions.value instanceof Set)) sessions.value = await io.authorSessions(number, who.sha);
+  const verdict = commentSignoff({ comments, authorSessions: sessions.value ?? null, ...who });
+  return { ok: verdict.ok, via: 'comment', refused: verdict.refused };
+}
+
+/**
+ * The seal on a merge queue's commit (`merge_group`). The commit is new, so no review status sits on it; what was
+ * reviewed is each queued pull request's own head. Every pull request in the group is held to the rule its own seal
+ * applied (reviewReason): one that needs the independent review must carry it for its current head, as a status or a
+ * listed reviewer's PASS comment, or the group fails. Nothing waits: the queue only takes a pull request whose required
+ * checks passed (the seal included), so a missing review here means something changed, and waiting would stall the
+ * queue. `io` reads GitHub (injected so the self-test runs offline); `dryRun` also reads pull requests already closed.
+ * Returns { ok, lines }.
+ */
+export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
+  const lines = [];
+  const numbers = groupPulls(commits, headRef);
+  if (!numbers) {
+    const firsts = (commits ?? []).map((c) => String(c?.commit?.message ?? '').split('\n')[0]);
+    return {
+      ok: false,
+      lines: [
+        `the merge group could not be read whole (queue branch ${headRef}; commits: ${JSON.stringify(firsts).slice(0, 600)}); every commit must be one squashed pull request "<title> (#N)"`,
+      ],
+    };
+  }
+  let ok = true;
+  for (const n of numbers) {
+    const pull = await io.pull(n);
+    const sha = String(pull?.head?.sha ?? '');
+    if (!/^[0-9a-f]{40}$/.test(sha)) {
+      ok = false;
+      lines.push(`#${n}: its head could not be read`);
+      continue;
+    }
+    if (pull.state !== 'open' && !dryRun) {
+      ok = false;
+      lines.push(`#${n}: is ${pull.state}, not a queued pull request`);
+      continue;
+    }
+    const files = await io.files(n, sha);
+    // The manifests on main, on the pull request's head and on the group's head: a package another pull request in the
+    // group makes depend on ledger-client is money code for this one too.
+    const reason = reviewReason(files, await io.manifests(files, sha));
+    if (reason === null) {
+      lines.push(`#${n} (${sha}): independent review not required`);
+      continue;
+    }
+    const who = { sha, author: pull?.user?.login, ...(await io.config()) };
+    const verdict = await lookForSignoff({ number: n, who, io });
+    if (verdict.ok) {
+      lines.push(`#${n} (${sha}): ${reason}; review sign-off ${verdict.via} found`);
+      continue;
+    }
+    ok = false;
+    const why = verdict.refused.at(-1)?.reason;
+    lines.push(`#${n} (${sha}): ${reason}; no independent review for this head${why ? ` (a PASS did not count: ${why})` : ''}`);
+  }
+  return { ok, lines };
+}
+
+async function selfTest() {
   const ok = { context: STATUS_CONTEXT, state: 'success' };
   const cases = [
     [[ok], true],
@@ -392,11 +494,91 @@ function selfTest() {
       process.exit(1);
     }
   }
+  await mergeGroupSelfTest(reviewers, manifests);
   console.log('review-marker self-test ok');
 }
 
+/** The merge queue seal, offline: a fake GitHub per case. */
+async function mergeGroupSelfTest(reviewers, manifests) {
+  const fail = (what) => {
+    console.error('review-marker merge-group self-test failed:', what);
+    process.exit(1);
+  };
+  const base = 'b'.repeat(40);
+  const ref = (n) => `refs/heads/gh-readonly-queue/main/pr-${n}-${base}`;
+  const sq = (title, n) => ({ commit: { message: `${title} (#${n})\n\nbody (#9)` } });
+  if (squashPrNumber('test(customer): J-cex-spot-01 #8 (#7108) (#7109)') !== 7109) fail('the last (#N) is the squash');
+  if (squashPrNumber('Merge pull request #5 from x/y') !== null) fail('a merge commit names no squash');
+  if (queueRefPr(ref(12)) !== 12 || queueRefPr('refs/heads/main') !== null) fail('queue ref');
+  if (queueRefPr(`refs/heads/gh-readonly-queue/release/2.0/pr-7-${base}`) !== 7) fail('a base branch with a slash');
+  if (JSON.stringify(groupPulls([sq('a', 1), sq('b', 2)], ref(2))) !== '[1,2]') fail('a group of two');
+  if (groupPulls([sq('a', 1), { commit: { message: 'no number' } }], ref(1)) !== null) fail('an unnamed commit');
+  if (groupPulls([sq('a', 1), sq('b', 1)], ref(1)) !== null) fail('a repeated number');
+  if (groupPulls([sq('a', 1)], ref(3)) !== null) fail('the queue ref names a pull request the commits do not');
+  if (groupPulls([sq('a', 1), sq('b', 2)], ref(1)) !== null) fail('the queue ref names the group head, the last commit');
+  if (groupPulls([], ref(1)) !== null) fail('an empty group');
+
+  const shaOf = (n) => String(n).padStart(40, 'c');
+  const passFor = (n, session = 'session_R1') => ({
+    user: { login: reviewers[0] },
+    body: `Independent review: PASS ${shaOf(n)}\nReviewer session: ${session}`,
+  });
+  // 1: docs only. 2: money (svc-pay), PASS comment by another session. 3: security (.github), sign-off status.
+  // 4: money with no review. 5: money whose only PASS names the author's own session. 6: closed.
+  const world = {
+    1: { files: ['docs/x.md'] },
+    2: { files: ['services/svc-pay/src/a.ts'], comments: [passFor(2)] },
+    3: { files: ['.github/workflows/ci.yml'], statuses: [{ context: STATUS_CONTEXT, state: 'success' }] },
+    4: { files: ['services/svc-pay/src/a.ts'] },
+    5: { files: ['services/svc-pay/src/a.ts'], comments: [passFor(5, 'session_A1')], sessions: new Set(['session_A1']) },
+    6: { files: ['docs/x.md'], state: 'closed' },
+  };
+  const io = {
+    pull: async (n) => ({ state: world[n].state ?? 'open', head: { sha: shaOf(n) }, user: { login: 'author' } }),
+    files: async (n) => world[n].files,
+    manifests: async () => manifests,
+    statuses: async (sha) => world[Number(sha.replace(/^c+/, ''))].statuses ?? [],
+    config: async () => ({ reviewers, requireDistinctFromAuthor: false }),
+    comments: async (n) => world[n].comments ?? [],
+    authorSessions: async (n) => world[n].sessions ?? new Set(),
+  };
+  const group = async (numbers, opts = {}) =>
+    sealMergeGroup({ commits: numbers.map((n) => sq(`t${n}`, n)), headRef: ref(numbers.at(-1)), io, ...opts });
+  const cases = [
+    [[1, 2, 3], true, 'docs, a reviewed money PR and a signed-off security PR'],
+    [[1, 4], false, 'a money PR with no review never merges through the queue'],
+    [[4, 1], false, 'nor when it is not the last in the group'],
+    [[2, 5], false, "a PASS naming the author's own session does not count in the queue either"],
+    [[6], false, 'a closed pull request is no queue entry'],
+  ];
+  for (const [numbers, want, what] of cases) {
+    const got = await group(numbers);
+    if (got.ok !== want) fail(`${what}: ${got.lines.join(' | ')}`);
+  }
+  if (!(await group([6], { dryRun: true })).ok) fail('a dry run reads a closed pull request');
+  const bad = await sealMergeGroup({ commits: [{ commit: { message: 'Merge pull request #4' } }], headRef: ref(4), io });
+  if (bad.ok || !bad.lines[0].includes('could not be read whole')) fail('an unreadable group fails closed');
+}
+
+/**
+ * A GitHub GET. In CI it is fetch with the job's token. `--via-gh` (the dry run on a person's machine) reads through the
+ * logged-in `gh` CLI instead, so no token is handled here; the answer has the same { ok, status, json() } shape.
+ */
+async function get(url, init) {
+  if (!process.argv.includes('--via-gh')) return fetch(url, init);
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('gh', ['api', '-i', url.replace('https://api.github.com/', '')], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  if (r.error) throw new Error(`--via-gh: could not run gh (${r.error.message})`);
+  const status = Number(/^HTTP\/[\d.]+ (\d+)/.exec(r.stdout ?? '')?.[1] ?? 0);
+  const body = String(r.stdout ?? '')
+    .split(/\r?\n\r?\n/)
+    .slice(1)
+    .join('\n\n');
+  return { ok: status >= 200 && status < 300, status, json: async () => JSON.parse(body) };
+}
+
 async function readStatuses(repo, sha, token) {
-  const res = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}/statuses?per_page=100`, {
+  const res = await get(`https://api.github.com/repos/${repo}/commits/${sha}/statuses?per_page=100`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
   if (!res.ok) {
@@ -408,7 +590,7 @@ async function readStatuses(repo, sha, token) {
 
 /** GET a GitHub API path; any failure ends the seal (fail closed), except a 404 when `missingOk` (then null). */
 async function api(path, token, { missingOk = false } = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await get(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
   if (missingOk && res.status === 404) return null;
@@ -479,7 +661,7 @@ async function readComments(repo, number, token) {
 async function readAuthorSessions(repo, number, sha, token) {
   const commits = [];
   for (let page = 1; page <= 3; page++) {
-    const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}/commits?per_page=100&page=${page}`, {
+    const res = await get(`https://api.github.com/repos/${repo}/pulls/${number}/commits?per_page=100&page=${page}`, {
       headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     });
     if (!res.ok) return null;
@@ -490,8 +672,68 @@ async function readAuthorSessions(repo, number, sha, token) {
   return sessionsForHead(commits, sha);
 }
 
+/** The commits between a merge group's base and head, oldest first (at most 250: groupPulls refuses the cap). */
+async function readGroupCommits(repo, base, head, token) {
+  const out = [];
+  for (let page = 1; page <= 3; page++) {
+    const cmp = await api(`/repos/${repo}/compare/${base}...${head}?per_page=100&page=${page}`, token);
+    out.push(...(cmp.commits ?? []));
+    if ((cmp.commits ?? []).length < 100) break;
+  }
+  return out;
+}
+
+/**
+ * `merge_group`: MERGE_GROUP_BASE_SHA, MERGE_GROUP_HEAD_SHA and MERGE_GROUP_HEAD_REF from the event. The dry run reads the
+ * same way for any two commits of main and a queue branch name, and reads closed pull requests too:
+ *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> --via-gh
+ */
+async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
+  const { default_branch: branch } = await api(`/repos/${repo}`, token);
+  let config;
+  const io = {
+    pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    files: (n, sha) => readChangedFiles(repo, n, sha, token),
+    manifests: (files, sha) => readManifests(repo, files, [branch, sha, head], token),
+    statuses: (sha) => readStatuses(repo, sha, token),
+    config: async () => (config ??= await readReviewConfig(repo, token)),
+    comments: (n) => readComments(repo, n, token),
+    authorSessions: (n, sha) => readAuthorSessions(repo, n, sha, token),
+  };
+  const commits = await readGroupCommits(repo, base, head, token);
+  const { ok, lines } = await sealMergeGroup({ commits, headRef, io, dryRun });
+  console.log(`merge group ${base.slice(0, 10)}..${head.slice(0, 10)} (${headRef})${dryRun ? ', dry run' : ''}:`);
+  for (const l of lines) console.log(`  ${l}`);
+  if (!ok) {
+    console.error(
+      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry it for its own head (AGENTS.md item 8).`,
+    );
+    process.exit(1);
+  }
+  console.log('every pull request in the merge group carries the review its own seal requires');
+}
+
 async function main() {
   if (process.argv.includes('--self-test')) return selfTest();
+  const dry = process.argv.indexOf('--merge-group-dry-run');
+  if (dry > 0) {
+    const [base, head, pr] = process.argv.slice(dry + 1).filter((a) => !a.startsWith('--'));
+    const { GH_TOKEN = 'via-gh', REPO } = process.env;
+    if (!REPO || !base || !head || !pr || (!process.env.GH_TOKEN && !process.argv.includes('--via-gh'))) {
+      console.error('usage: REPO=owner/name review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> [--via-gh]');
+      process.exit(1);
+    }
+    const headRef = `refs/heads/gh-readonly-queue/main/pr-${pr}-${base}`;
+    return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: true });
+  }
+  if (process.env.MERGE_GROUP_HEAD_SHA) {
+    const { GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
+    if (!GH_TOKEN || !REPO || !base || !headRef) {
+      console.error('::error::review-marker on a merge group needs GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA and MERGE_GROUP_HEAD_REF');
+      process.exit(1);
+    }
+    return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: false });
+  }
   const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER, PR_AUTHOR } = process.env;
   if (!GH_TOKEN || !HEAD_SHA || !REPO) {
     console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
@@ -510,30 +752,25 @@ async function main() {
   }
   const config = PR_NUMBER ? await readReviewConfig(REPO, GH_TOKEN) : null;
   const refusals = [];
-  let authorSessions = null; // the PR's sessions once read whole (see the poll below)
+  const sessions = {}; // the PR's sessions once read whole (see lookForSignoff)
   const told = new Set();
+  const io = {
+    statuses: (sha) => readStatuses(REPO, sha, GH_TOKEN),
+    comments: (n) => readComments(REPO, n, GH_TOKEN),
+    authorSessions: (n, sha) => readAuthorSessions(REPO, n, sha, GH_TOKEN),
+  };
+  const who = { sha: HEAD_SHA, author: PR_AUTHOR, ...config };
   const deadline = Date.now() + REVIEW_WAIT_MS;
   for (let attempt = 1; ; attempt++) {
-    if (hasSignoff(await readStatuses(REPO, HEAD_SHA, GH_TOKEN))) {
-      console.log(`review sign-off found for ${HEAD_SHA}`);
+    const verdict = await lookForSignoff({ number: PR_NUMBER, who, io, sessions });
+    if (verdict.ok) {
+      console.log(`review sign-off ${verdict.via} found for ${HEAD_SHA}`);
       return;
     }
-    if (PR_NUMBER) {
-      const who = { sha: HEAD_SHA, author: PR_AUTHOR, ...config };
-      const comments = (await readComments(REPO, PR_NUMBER, GH_TOKEN)).filter((c) => markerFits(c, who));
-      // Read only when a PASS comment fits; an unreadable list (null) is read again on the next poll.
-      if (comments.length > 0 && !(authorSessions instanceof Set))
-        authorSessions = await readAuthorSessions(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
-      const verdict = commentSignoff({ comments, authorSessions, ...who });
-      if (verdict.ok) {
-        console.log(`review sign-off comment found for ${HEAD_SHA}`);
-        return;
-      }
-      for (const r of verdict.refused.filter((x) => !told.has(x.id))) {
-        told.add(r.id);
-        refusals.push(r.reason);
-        console.log(`a PASS for ${HEAD_SHA} does not count: ${r.reason}`);
-      }
+    for (const r of verdict.refused.filter((x) => !told.has(x.id))) {
+      told.add(r.id);
+      refusals.push(r.reason);
+      console.log(`a PASS for ${HEAD_SHA} does not count: ${r.reason}`);
     }
     if (Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
