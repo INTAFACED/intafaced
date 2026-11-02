@@ -4,7 +4,7 @@
  * The chart library applies a new visible range on its next animation frame and reports the old one until then. So a key
  * pressed in the same frame as the one before it starts from the range that key asked for, never from the stale one:
  * otherwise two quick presses of ← pan ten bars, not twenty (J-charts-desk-08 #6, Real-app journeys runs 1120, 1131 and
- * 1138, #7090).
+ * 1138, issue 7090).
  */
 export interface LogicalRange {
   from: number;
