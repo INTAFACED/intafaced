@@ -7,7 +7,8 @@ import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts
 import { LEDGER, ROOT } from './stack.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
-// (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does). Everything else is Playwright's own.
+// (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
+// step that fails fast waits the same everywhere. Everything else is Playwright's own.
 export * from '@playwright/test';
 
 /** svc-ledger's posting switch: true (open), false (frozen) or null when the ledger does not answer. */
@@ -63,20 +64,20 @@ export const test = base.extend({
     // Its own time, apart from the test's: a test that timed out inside its freeze is exactly the one to lift.
     { auto: true, timeout: 150_000 },
   ],
-  // A step that fails fast ends after FAIL_FAST.testMs, unless it sets its own limit (test.setTimeout), which wins.
+  // A step that fails fast ends after FAIL_FAST.testMs, unless the step names its own limit: a limit set before this runs
+  // (describe.configure, test.use) is kept, and one set inside the test (test.setTimeout) is set after it, so it wins.
   failFastStep: [
     async ({}, use, testInfo) => {
-      if (failsFast(FAST_STEPS, testInfo.title)) testInfo.setTimeout(Math.min(testInfo.timeout, FAIL_FAST.testMs));
+      const ordinary = testInfo.timeout === testInfo.project.timeout && testInfo.timeout > 0;
+      if (ordinary && failsFast(FAST_STEPS, testInfo.title)) testInfo.setTimeout(FAIL_FAST.testMs);
       await use();
     },
     { auto: true },
   ],
-  // ...and its page's actions wait FAIL_FAST.waitMs unless they name their own timeout; navigation keeps its own limit.
-  page: async ({ page }, use, testInfo) => {
-    if (failsFast(FAST_STEPS, testInfo.title)) {
-      page.setDefaultTimeout(FAIL_FAST.waitMs);
-      page.setDefaultNavigationTimeout(FAIL_FAST.navigationMs);
-    }
-    await use(page);
-  },
+  // ...and every page it opens, through the `page` fixture or its own browser.newContext(), waits FAIL_FAST.waitMs for an
+  // action and FAIL_FAST.testMs for a navigation, unless the call names its own timeout (Playwright applies these two
+  // options to each context the test creates).
+  actionTimeout: async ({ actionTimeout }, use, testInfo) => use(failsFast(FAST_STEPS, testInfo.title) ? FAIL_FAST.waitMs : actionTimeout),
+  navigationTimeout: async ({ navigationTimeout }, use, testInfo) =>
+    use(failsFast(FAST_STEPS, testInfo.title) ? FAIL_FAST.testMs : navigationTimeout),
 });

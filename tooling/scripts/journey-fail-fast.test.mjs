@@ -28,9 +28,8 @@ test('only a run that asks fails fast, and an unreadable baseline fails fast on 
   assert.equal(failFastSteps({ JOURNEY_FAIL_FAST: '1' }, () => 'not json').size, 0);
 });
 
-test("the waits are the journeys' own UNBUILT bar, and navigation is never the shorter one", () => {
+test("the waits are the journeys' own UNBUILT bar, and a step outlasts its waits", () => {
   assert.equal(FAIL_FAST.waitMs, 5_000);
-  assert.ok(FAIL_FAST.navigationMs >= FAIL_FAST.testMs);
   assert.ok(FAIL_FAST.testMs > FAIL_FAST.waitMs);
 });
 

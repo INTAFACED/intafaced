@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 
 // What the charts-desk study journeys share: the bars the workbench chart holds, worked from the public candle route the

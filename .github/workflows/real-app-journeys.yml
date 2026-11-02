@@ -44,6 +44,8 @@ on:
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
+      - 'tooling/scripts/journey-fail-fast.mjs'
+      - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
 
 # On main, runs overlap: each push, scheduled run and manual run on main is its own group, so a new run neither cancels
@@ -134,8 +136,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.journeys != ''
         run: echo "::warning::a run on main always runs the full suite; the journeys input applies only on another branch"
 
-  # The stack's builds, once per run, beside the planner; every shard then starts on them instead of building again
-  # (measured on run 1138: 1m37s of each of 21 shards' setup was these same builds). The outputs travel with the stack's
+  # The stack's builds, once per run, beside the planner and the shards' own setup; every shard then starts on them
+  # instead of building again (measured on run 1138: 1m37s of each of 21 shards' setup was these same builds). The outputs travel with the stack's
   # build stamp, which `start` checks against its own checkout (same commit, no edits), so a shard that receives anything
   # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
   build:
@@ -160,15 +162,21 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build what the stack starts
         run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build
-      # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (dist folders, the console's
-      # .next without its cache), and the stamp.
+      # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (the dist folders), and the
+      # stamp. Not the founder console's .next: Next.js writes its preview signing key and server-actions encryption key
+      # into it, and this repository's artifacts are public, so each shard builds the console itself (about 37 s), which
+      # its own stamp fields, left out here, tell `start` to do.
       - name: Pack the build
         run: |
-          git ls-files --others --ignored --exclude-standard --directory | grep -Ev '(^|/)(node_modules|\.turbo)/' > "$RUNNER_TEMP/outputs.txt"
+          git ls-files --others --ignored --exclude-standard --directory | grep -Ev '(^|/)(node_modules|\.turbo)/' | grep -v '^apps/admin/\.next' > "$RUNNER_TEMP/outputs.txt"
           echo "$(wc -l < "$RUNNER_TEMP/outputs.txt") build outputs"
+          if grep -rlsE 'previewModeSigningKey|"encryptionKey"' $(cat "$RUNNER_TEMP/outputs.txt"); then
+            echo "::error::a build output above holds a signing or encryption key, and the build artifact is public"
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/stack-build"
-          tar -cf "$RUNNER_TEMP/stack-build/outputs.tar" --exclude='apps/admin/.next/cache' -T "$RUNNER_TEMP/outputs.txt"
-          cp "$RUNNER_TEMP/stack-state/build-stamp.json" "$RUNNER_TEMP/stack-build/"
+          tar -cf "$RUNNER_TEMP/stack-build/outputs.tar" -T "$RUNNER_TEMP/outputs.txt"
+          jq 'with_entries(select(.key | startswith("admin") | not))' "$RUNNER_TEMP/stack-state/build-stamp.json" > "$RUNNER_TEMP/stack-build/build-stamp.json"
           du -sh "$RUNNER_TEMP/stack-build"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -179,10 +187,11 @@ jobs:
 
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    needs: [plan, build]
+    # Not on the build job: a shard's own setup runs beside it, and only the step that takes its build waits for it.
+    needs: [plan]
     permissions:
       contents: read
-      actions: read # to download this run's build
+      actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
     if: ${{ !cancelled() && !(needs.plan.result == 'failure' && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys != '') }}
     runs-on: ubuntu-24.04
@@ -261,21 +270,6 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # The run's one build (the build job), with its stamp in this shard's stack state. Best effort: without it, or when
-      # the stamp does not vouch for this checkout, `start` builds as before.
-      - name: Take the run's build
-        if: needs.build.result == 'success'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-build --dir "$RUNNER_TEMP/stack-build"
-          tar -xf "$RUNNER_TEMP/stack-build/outputs.tar"
-          mkdir -p "$LOCAL_STACK_STATE"
-          chmod 700 "$LOCAL_STACK_STATE"
-          cp "$RUNNER_TEMP/stack-build/build-stamp.json" "$LOCAL_STACK_STATE/"
-          rm -f "$RUNNER_TEMP/stack-build/outputs.tar"
-
       - name: Get a nats-server binary
         run: |
           docker create --name nats-src nats:2.10.24-alpine
@@ -298,6 +292,33 @@ jobs:
 
       - name: Install the browser
         run: pnpm exec playwright install --with-deps chromium
+
+      # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
+      # setup above runs beside the build. It waits for that job at most 10 minutes. Best effort: without the build (the
+      # job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
+      - name: Take the run's build
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          state=""
+          for _ in $(seq 1 60); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[] | select(.name == "Build the stack once") | "\(.status) \(.conclusion)"' | head -1)
+            case "$state" in completed\ *) break ;; esac
+            sleep 10
+          done
+          echo "build job: ${state:-not found}"
+          if [ "$state" != "completed success" ]; then
+            echo "::warning::no build from this run (${state:-not found}); this shard builds the stack itself"
+            exit 0
+          fi
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-build --dir "$RUNNER_TEMP/stack-build"
+          tar -xf "$RUNNER_TEMP/stack-build/outputs.tar"
+          mkdir -p "$LOCAL_STACK_STATE"
+          chmod 700 "$LOCAL_STACK_STATE"
+          cp "$RUNNER_TEMP/stack-build/build-stamp.json" "$LOCAL_STACK_STATE/"
+          rm -f "$RUNNER_TEMP/stack-build/outputs.tar"
 
       - name: Start the local test stack (TEST funds only)
         run: |
@@ -346,9 +367,11 @@ jobs:
       # The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
         env:
-          # A full run fails fast on the steps the baseline lists as unbuilt (tooling/scripts/journey-fail-fast.mjs); a
-          # targeted run, where a builder proves a step, keeps the ordinary limits.
-          JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && '1' || '0' }}
+          # A full run on a push or by hand fails fast on the steps the baseline lists as unbuilt
+          # (tooling/scripts/journey-fail-fast.mjs). The daily scheduled run keeps the ordinary limits, so a step built
+          # since the baseline was written passes on main under them and leaves the baseline at its next rewrite; a
+          # targeted run, where a builder proves a step, keeps them too.
+          JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && '1' || '0' }}
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}

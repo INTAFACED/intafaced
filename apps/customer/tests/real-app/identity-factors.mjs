@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { nextTotpStep } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { signOutBrowser } from './stack.mjs';
 

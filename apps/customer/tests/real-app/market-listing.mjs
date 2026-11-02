@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect } from '@playwright/test';
+import { expect } from './journey.mjs';
 import { api, fund } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 

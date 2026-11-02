@@ -1945,7 +1945,13 @@ function cmdBuild(flags) {
   say('INTAFACED local test stack: build only');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
-  fs.mkdirSync(P.logs, { recursive: true, mode: 0o700 });
+  // Building under a running stack would change files its processes serve; `start` moves them onto a new build itself.
+  const running = Object.entries(readProcs())
+    .filter(([, rec]) => ownedAlive(rec))
+    .map(([name]) => name);
+  if (running.length) fail(`the stack is running (${running.join(', ')}): use \`start\`, which builds and restarts what moved`, 2);
+  // The builds run with TMPDIR in the state folder (baseEnv), as under `start`.
+  for (const d of [P.logs, path.join(STATE, 'tmp')]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
   adoptEnvCustomerDist();
   ensureBuilt(flags.includes('--rebuild'));
   ensureInvitationBuilt(flags.includes('--rebuild'));
