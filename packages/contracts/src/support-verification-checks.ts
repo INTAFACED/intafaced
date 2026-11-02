@@ -70,7 +70,7 @@ export const supportVerificationCheckSchema = z
     recordKind: z.enum(SUPPORT_CHECK_RECORD_KINDS),
     recordId: z.string().guid(),
     /** The operator who recorded it. */
-    recordedBy: z.string().min(1),
+    recordedBy: z.string().min(1).max(128),
     recordedAt: z.string().datetime(),
   })
   .strict();

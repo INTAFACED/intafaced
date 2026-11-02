@@ -2,7 +2,8 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { explainVerificationFailure, isUuid, readVerificationRequest, RECORD_KIND_WORDS } from '@/lib/support/verification';
+import { isTicketId } from '@/lib/support/model';
+import { explainVerificationFailure, readVerificationRequest, RECORD_KIND_WORDS } from '@/lib/support/verification';
 import { loadVerification, runVerification } from '@/lib/support/verification-server';
 
 /**
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   const id = new URL(request.url).searchParams.get('id');
-  if (!isUuid(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+  if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
   return Response.json(await loadVerification(session, id.trim().toLowerCase()), { headers: NO_STORE });
 }
 

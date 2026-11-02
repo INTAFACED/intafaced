@@ -6,7 +6,7 @@ import {
   CHECK_RECORD_KINDS,
   CHECK_RECORD_OWNER,
   RECORD_KIND_WORDS,
-  isUuid,
+  isRecordId,
   type Disclosure,
   type SupportVerificationView,
   type VerificationReply,
@@ -42,7 +42,7 @@ export interface VerificationGateViewProps {
 export function VerificationGateView(p: VerificationGateViewProps) {
   const part = p.view?.checks;
   const current = part?.kind === 'ok' ? part.data : null;
-  const idOk = isUuid(p.recordId);
+  const idOk = isRecordId(p.recordId);
   return (
     <section className="dk-stack" aria-label="Balance and withdrawal destination" data-testid="ticket-verification">
       <h4>Balance and withdrawal destination</h4>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SupportTicket } from '@intafaced/contracts';
-import { MemoryCheckBook, VerificationChecks, type RecordOwnershipAnswer } from './verification-checks.js';
+import { MemoryCheckBook, tradeOrderOwnership, VerificationChecks, type RecordOwnershipAnswer } from './verification-checks.js';
+import type { TicketOrderReadResult, TicketOrderSource } from './ticket-order.js';
 import { SupportError } from './support-service.js';
 
 /**
@@ -36,19 +37,20 @@ function svcPay(answer?: boolean | null): RecordOwnershipAnswer & { asked: unkno
 
 function desk(owners: ConstructorParameters<typeof VerificationChecks>[2] = {}) {
   const reads: unknown[] = [];
+  const ticket = { status: 'open' as SupportTicket['status'] };
   const checks = new VerificationChecks(
     new MemoryCheckBook(),
     {
       getTicket: async (input) => {
         reads.push(input);
         if (input.ticketId !== TICKET) throw new SupportError('ticket not found', 'support.not_found');
-        return { id: TICKET, userId: CUSTOMER } as SupportTicket;
+        return { id: TICKET, userId: CUSTOMER, status: ticket.status } as SupportTicket;
       },
     },
     owners,
     () => AT,
   );
-  return { checks, reads };
+  return { checks, reads, ticket };
 }
 
 const owned = (recordKind: 'withdrawal' | 'deposit' | 'order', recordId: string, ticketId = TICKET) =>
@@ -144,5 +146,59 @@ describe('the balance disclosure gate', () => {
       await expect(call()).rejects.toMatchObject({ code: 'support.not_found' });
     expect(pay.asked).toEqual([]);
     expect(reads.every((r) => JSON.stringify(r) === JSON.stringify({ userId: OPERATOR, ticketId: HIDDEN, asOperator: true }))).toBe(true);
+  });
+
+  it('a closed request takes no check and opens no read, even with two checks recorded before it closed', async () => {
+    const pay = svcPay();
+    const { checks, ticket } = desk({ 'svc-pay': pay });
+    await checks.record(OPERATOR, owned('withdrawal', W1));
+    await checks.record(OPERATOR, owned('deposit', D1));
+    ticket.status = 'closed';
+    await expect(checks.record(OPERATOR, owned('withdrawal', MISSING))).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    await expect(checks.customerBalance(OPERATOR, TICKET)).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    await expect(checks.customerWithdrawalDestination(OPERATOR, TICKET)).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    expect(pay.asked).toHaveLength(2);
+  });
+});
+
+describe("svc-trade's answer for an order", () => {
+  const ORDER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const snapshot = (orderId: string, userId: string): TicketOrderReadResult => ({
+    kind: 'order',
+    order: { orderId, userId, status: 'filled', symbol: 'BTC/USDT', side: 'buy', filledQuantity: '1', feeAsset: 'USDT', feeAmount: '0' },
+  });
+  const trade = (read: (id: string) => TicketOrderReadResult): TicketOrderSource & { asked: string[] } => {
+    const asked: string[] = [];
+    return { asked, read: async (id) => (asked.push(id), read(id)) };
+  };
+
+  it("records an order the read says is the ticket customer's, and refuses another customer's with nothing written", async () => {
+    const orders = trade((id) => snapshot(id, id === ORDER ? CUSTOMER.toUpperCase() : OTHER));
+    const { checks } = desk({ 'svc-trade': tradeOrderOwnership(orders) });
+    expect(await checks.record(OPERATOR, owned('order', ORDER))).toMatchObject({ recordKind: 'order', recordId: ORDER });
+    await expect(checks.record(OPERATOR, owned('order', THEIRS))).rejects.toMatchObject({ code: 'support.verification_check_not_owned' });
+    expect((await checks.list(OPERATOR, TICKET)).checks).toHaveLength(1);
+    expect(orders.asked).toEqual([ORDER, THEIRS]);
+  });
+
+  it('no order read (route unserved, trade silent, matcher down) or a snapshot of another order is no answer, never a yes', async () => {
+    for (const read of [
+      (): TicketOrderReadResult => ({ kind: 'unknown', reason: 'trade_silent' }),
+      (): TicketOrderReadResult => ({ kind: 'unknown', reason: 'matcher_down' }),
+      (): TicketOrderReadResult => snapshot(THEIRS, CUSTOMER),
+    ]) {
+      const { checks } = desk({ 'svc-trade': tradeOrderOwnership(trade(read)) });
+      await expect(checks.record(OPERATOR, owned('order', ORDER))).rejects.toMatchObject({
+        code: 'support.verification_check_owner_unreachable',
+        missingKey: 'svc-trade',
+      });
+      expect((await checks.list(OPERATOR, TICKET)).checks).toEqual([]);
+    }
+  });
+
+  it('answers for orders alone', async () => {
+    const orders = trade((id) => snapshot(id, CUSTOMER));
+    expect(await tradeOrderOwnership(orders).owns({ recordKind: 'withdrawal', recordId: W1, userId: CUSTOMER })).toBeNull();
+    expect(orders.asked).toEqual([]);
   });
 });

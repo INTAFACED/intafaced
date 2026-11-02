@@ -70,7 +70,7 @@ export function verificationCheckProcedures(checks: VerificationChecks) {
 }
 
 const HTTP: Record<SupportVerificationErrorCode, TRPCError['code']> = {
-  'support.verification_checks_required': 'FORBIDDEN',
+  'support.verification_checks_required': 'PRECONDITION_FAILED',
   'support.verification_check_not_owned': 'BAD_REQUEST',
   'support.verification_check_owner_unwired': 'PRECONDITION_FAILED',
   'support.verification_check_owner_unreachable': 'PRECONDITION_FAILED',

@@ -1,5 +1,6 @@
 /** Browser hop for the balance disclosure gate. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
+import { readClaimReply } from './browser';
 import type { SupportVerificationView, VerificationReply, VerificationRequest } from './verification';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -31,22 +32,10 @@ export async function fetchVerification(ticketId: string, signal?: AbortSignal):
 }
 
 export function readVerificationReply(raw: unknown): VerificationReply {
-  if (!isRecord(raw)) return UNKNOWN;
-  if (raw.ok === true && typeof raw.summary === 'string') return { ok: true, summary: raw.summary };
-  const r = raw.refusal;
-  if (raw.ok === false && isRecord(r) && typeof r.title === 'string' && typeof r.body === 'string' && typeof r.next === 'string') {
-    return {
-      ok: false,
-      refusal: {
-        title: r.title,
-        body: r.body,
-        next: r.next,
-        code: typeof r.code === 'string' ? r.code : null,
-        changed: r.changed === 'no' ? 'no' : 'unknown',
-      },
-    };
-  }
-  return UNKNOWN;
+  if (isRecord(raw) && raw.ok === true && typeof raw.summary === 'string') return { ok: true, summary: raw.summary };
+  // A refusal is read by the desk's one strict reader; anything it does not know is "outcome not known".
+  const read = readClaimReply(raw);
+  return read.ok ? UNKNOWN : read;
 }
 
 /** Record a check or ask for a read behind the gate. Never throws: every outcome is a reply the panel can show. */

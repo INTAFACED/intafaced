@@ -8,6 +8,7 @@ import type { FounderCallFailure } from '@/lib/desk/founder-call';
 import type { Part } from '@/lib/desk/part';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { explainSupportFailure, supportCodeOf } from './refusal';
+import { isTicketId } from './model';
 
 /**
  * Balance disclosure gate on the desk (RC-support-public-01, J-support-public-20 #2): what the panel sends and how it reads
@@ -41,15 +42,15 @@ export type VerificationRequest =
   | { readonly action: 'check'; readonly ticketId: string; readonly recordKind: SupportCheckRecordKind; readonly recordId: string }
   | { readonly action: 'disclosure'; readonly ticketId: string; readonly what: Disclosure };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value.trim());
+/** A record id as the customer quoted it: a uuid, whitespace around it forgiven (a ticket id is not: `isTicketId`). */
+export const isRecordId = (value: unknown): value is string => typeof value === 'string' && isTicketId(value.trim());
 
 /** What the browser may ask the route for. Anything else is refused before anything is sent. */
 export function readVerificationRequest(raw: Record<string, unknown>): VerificationRequest | null {
-  if (!isUuid(raw.ticketId)) return null;
-  const ticketId = raw.ticketId.trim().toLowerCase();
+  if (!isTicketId(raw.ticketId)) return null;
+  const ticketId = raw.ticketId.toLowerCase();
   if (raw.action === 'check') {
-    if (!(CHECK_RECORD_KINDS as readonly unknown[]).includes(raw.recordKind) || !isUuid(raw.recordId)) return null;
+    if (!(CHECK_RECORD_KINDS as readonly unknown[]).includes(raw.recordKind) || !isRecordId(raw.recordId)) return null;
     return { action: 'check', ticketId, recordKind: raw.recordKind as SupportCheckRecordKind, recordId: raw.recordId.trim().toLowerCase() };
   }
   if (raw.action === 'disclosure') {

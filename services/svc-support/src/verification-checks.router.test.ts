@@ -48,9 +48,11 @@ const refusal = (p: Promise<unknown>) =>
 describe('the balance disclosure gate through the router', () => {
   it('as on main: the balance and the destination refuse for want of checks, and recording one names its owner', async () => {
     const { agent, ticketId } = await desk();
-    expect(await refusal(agent.customerBalance({ ticketId }))).toBe('FORBIDDEN support.verification_checks_required 0 of 2 recorded');
+    expect(await refusal(agent.customerBalance({ ticketId }))).toBe(
+      'PRECONDITION_FAILED support.verification_checks_required 0 of 2 recorded',
+    );
     expect(await refusal(agent.customerWithdrawalDestination({ ticketId }))).toBe(
-      'FORBIDDEN support.verification_checks_required 0 of 2 recorded',
+      'PRECONDITION_FAILED support.verification_checks_required 0 of 2 recorded',
     );
     expect(await refusal(agent.recordVerificationCheck({ ticketId, kind: 'owned_record', recordKind: 'withdrawal', recordId: W1 }))).toBe(
       'PRECONDITION_FAILED support.verification_check_owner_unwired svc-pay',

@@ -224,8 +224,12 @@ until two checks the customer can confirm are recorded on the request. A check i
 never by the operator: `recordVerificationCheck` takes an `owned_record` (an order, withdrawal or deposit id the customer
 quotes) and counts it only when its owner says it is the ticket customer's, the customer taken off the ticket. svc-pay
 answers for a withdrawal or deposit through its signed ownership door (`packages/contracts/src/support-record-ownership.ts`),
-which it does not serve yet, so no owner is wired: every check refuses `support.verification_check_owner_unwired` naming
-svc-pay (or svc-trade, which has no ownership answer for an order), and no check is written. A wired owner that answers no
+which it does not serve yet, so it is not wired: a withdrawal or deposit check refuses `support.verification_check_owner_unwired`
+naming svc-pay, and no check is written. svc-trade answers for an order through the desk's existing order read (`ticket-order.ts`,
+GET `/internal/orders/:id`, the order's userId against the ticket customer's); svc-trade does not serve that read yet, so with
+TRADE_URL set an order check refuses `support.verification_check_owner_unreachable` naming svc-trade, and with it unset
+`support.verification_check_owner_unwired`. A closed request takes no check and opens no read (`support.ticket_closed`);
+checks stay on the request they were recorded on (a merge does not carry them). A wired owner that answers no
 refuses `support.verification_check_not_owned` (a missing record the same way), one that gives no verified answer
 `support.verification_check_owner_unreachable`. Two checks are two different records. With them recorded the gate opens and
 the read still refuses (`support.balance_read_unwired`, `support.withdrawal_destination_read_unwired`): the desk has no read
