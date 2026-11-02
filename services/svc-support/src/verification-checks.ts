@@ -43,8 +43,11 @@ import { SupportError } from './support-service.js';
  * moves, posts or reads money.
  *
  * Attempts per request are capped by an owner value (`SUPPORT_VERIFICATION_ATTEMPTS`). Blank, every check refuses
- * `support.verification_attempts_unset`; it is never defaulted. Every check attempt and every read is an audit row with the
- * operator. A closed request takes no check and opens no read. Checks stay on the request they were recorded on.
+ * `support.verification_attempts_unset`; it is never defaulted. An attempt is a check an owner answered (a stored row):
+ * an owner with no door, or one that gave no answer, tells a guesser nothing and takes none. The cap is held when the
+ * answer is stored, under a lock per request, so a race cannot pass it; an answer refused at the cap is neither stored
+ * nor shown. Every check and every read on a request is an audit row with the operator. A closed request takes no check
+ * and opens no read. Checks stay on the request they were recorded on.
  */
 
 /** Whether a value is the customer's, from the service that owns the fact. */
@@ -60,9 +63,9 @@ export type StoredCheck = SupportVerificationCheck & { valueDigest: string };
 
 export type VerificationAuditRow = {
   ticketId: string;
-  action: 'record_attempt' | 'record' | 'disclosure';
+  action: 'record' | 'disclosure';
   kind: SupportVerificationCheckKind | SupportDisclosureKind;
-  /** `matched`, `already_recorded`, a refusal code, or `attempted` for the reserved attempt. */
+  /** `matched`, `already_recorded`, or the refusal code. */
   outcome: string;
   operator: string;
   at: string;
@@ -72,11 +75,13 @@ export type VerificationAuditRow = {
 export interface CheckBook {
   list(ticketId: string): Promise<SupportVerificationCheck[]>;
   find(ticketId: string, kind: SupportVerificationCheckKind, valueDigest: string): Promise<SupportVerificationCheck | null>;
-  /** Writes a check once per (ticket, kind, digest); the same again returns the first. */
-  put(check: StoredCheck): Promise<SupportVerificationCheck>;
+  /**
+   * Writes a check once per (ticket, kind, digest) while the request holds fewer than `cap` checks, atomically. The same
+   * check again returns the first and takes no attempt; at the cap it writes nothing and answers null.
+   */
+  put(check: StoredCheck, cap: number): Promise<SupportVerificationCheck | null>;
+  /** The checks stored on the request: each is one attempt. */
   attemptsUsed(ticketId: string): Promise<number>;
-  /** Takes one attempt if fewer than `cap` are used, atomically, writing its `record_attempt` audit row. */
-  reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean>;
   audit(row: VerificationAuditRow): Promise<void>;
 }
 
@@ -108,21 +113,16 @@ export class MemoryCheckBook implements CheckBook {
     return row ? publicCheck(row) : null;
   }
 
-  async put(check: StoredCheck): Promise<SupportVerificationCheck> {
+  async put(check: StoredCheck, cap: number): Promise<SupportVerificationCheck | null> {
     const existing = await this.find(check.ticketId, check.kind, check.valueDigest);
     if (existing) return existing;
+    if ((await this.attemptsUsed(check.ticketId)) >= cap) return null;
     this.rows.push({ ...check });
     return publicCheck(check);
   }
 
   async attemptsUsed(ticketId: string): Promise<number> {
-    return this.trail.filter((row) => row.ticketId === ticketId && row.action === 'record_attempt').length;
-  }
-
-  async reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean> {
-    if ((await this.attemptsUsed(row.ticketId)) >= cap) return false;
-    this.trail.push({ ...row });
-    return true;
+    return this.rows.filter((row) => row.ticketId === ticketId).length;
   }
 
   async audit(row: VerificationAuditRow): Promise<void> {
@@ -167,13 +167,27 @@ export class SqlCheckBook implements CheckBook {
     return rows[0] ? fromRow(rows[0]) : null;
   }
 
-  async put(check: StoredCheck): Promise<SupportVerificationCheck> {
-    // The (ticket, kind, digest) key decides a race: the loser inserts nothing and reads the winner's row.
-    await this.sql`
-      INSERT INTO support.ticket_verification_checks (ticket_id, kind, value_digest, matched, checked_by, checked_at)
-      VALUES (${check.ticketId}, ${check.kind}, ${check.valueDigest}, ${check.matched}, ${check.checkedBy}, ${check.checkedAt})
-      ON CONFLICT (ticket_id, kind, value_digest) DO NOTHING
-    `;
+  async put(check: StoredCheck, cap: number): Promise<SupportVerificationCheck | null> {
+    // One request's checks are counted and written under one lock, so two operators at once cannot pass the cap together;
+    // the (ticket, kind, digest) key makes the same check again the first one, taking no attempt.
+    const written = await this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.verification_checks:${check.ticketId}`}, 0))`;
+      const [same] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.ticket_verification_checks
+        WHERE ticket_id = ${check.ticketId} AND kind = ${check.kind} AND value_digest = ${check.valueDigest}
+      `;
+      if ((same?.n ?? 0) > 0) return true;
+      const [used] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.ticket_verification_checks WHERE ticket_id = ${check.ticketId}
+      `;
+      if ((used?.n ?? 0) >= cap) return false;
+      await tx`
+        INSERT INTO support.ticket_verification_checks (ticket_id, kind, value_digest, matched, checked_by, checked_at)
+        VALUES (${check.ticketId}, ${check.kind}, ${check.valueDigest}, ${check.matched}, ${check.checkedBy}, ${check.checkedAt})
+      `;
+      return true;
+    });
+    if (!written) return null;
     const found = await this.find(check.ticketId, check.kind, check.valueDigest);
     if (!found) throw new Error('support.ticket_verification_checks: the check was neither written nor found');
     return found;
@@ -181,25 +195,9 @@ export class SqlCheckBook implements CheckBook {
 
   async attemptsUsed(ticketId: string): Promise<number> {
     const [row] = await this.sql<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM support.verification_audit WHERE ticket_id = ${ticketId} AND action = 'record_attempt'
+      SELECT count(*)::int AS n FROM support.ticket_verification_checks WHERE ticket_id = ${ticketId}
     `;
     return row?.n ?? 0;
-  }
-
-  async reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean> {
-    // One request's attempts are counted and taken under one lock, so two operators at once cannot pass the cap together.
-    return this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.verification_attempts:${row.ticketId}`}, 0))`;
-      const [used] = await tx<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM support.verification_audit WHERE ticket_id = ${row.ticketId} AND action = 'record_attempt'
-      `;
-      if ((used?.n ?? 0) >= cap) return false;
-      await tx`
-        INSERT INTO support.verification_audit (ticket_id, action, kind, outcome, operator, at)
-        VALUES (${row.ticketId}, ${row.action}, ${row.kind}, ${row.outcome}, ${row.operator}, ${row.at})
-      `;
-      return true;
-    }) as Promise<boolean>;
   }
 
   async audit(row: VerificationAuditRow): Promise<void> {
@@ -230,15 +228,32 @@ export class VerificationChecks {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  private async openTicket(operatorId: string, ticketId: string, closed: string): Promise<SupportTicket> {
+  /** The ticket for an operator, refused on a closed request with an audit row (a ticket outside their scope has none). */
+  private async openTicket(
+    operatorId: string,
+    ticketId: string,
+    action: VerificationAuditRow['action'],
+    kind: VerificationAuditRow['kind'],
+    closed: string,
+  ): Promise<SupportTicket> {
     const ticket = await this.support.getTicket({ userId: operatorId, ticketId, asOperator: true });
-    if (ticket.status === 'closed') throw refuse('support.ticket_closed', closed);
+    if (ticket.status === 'closed') {
+      await this.book.audit({
+        ticketId: ticket.id,
+        action,
+        kind,
+        outcome: 'support.ticket_closed',
+        operator: operatorId,
+        at: this.now().toISOString(),
+      });
+      throw refuse('support.ticket_closed', closed);
+    }
     return ticket;
   }
 
   /** Record one check, from what the customer says. Matched, it is returned; otherwise a typed refusal. */
   async record(operatorId: string, input: SupportRecordVerificationCheckInput): Promise<SupportVerificationCheck> {
-    const ticket = await this.openTicket(operatorId, input.ticketId, 'a closed request takes no further checks');
+    const ticket = await this.openTicket(operatorId, input.ticketId, 'record', input.kind, 'a closed request takes no further checks');
     const at = this.now().toISOString();
     const trail = (outcome: string) =>
       this.book.audit({ ticketId: ticket.id, action: 'record', kind: input.kind, outcome, operator: operatorId, at });
@@ -247,8 +262,8 @@ export class VerificationChecks {
       throw refuse(code, message, detail);
     };
 
-    if (this.attemptsAllowed === null)
-      return fail('support.verification_attempts_unset', 'the owner has not set how many checks a request may take');
+    const cap = this.attemptsAllowed;
+    if (cap === null) return fail('support.verification_attempts_unset', 'the owner has not set how many checks a request may take');
 
     const valueDigest = checkDigest(ticket.id, input.kind, input.value);
     // The same value again counts once: it asks nothing and takes no attempt.
@@ -260,35 +275,27 @@ export class VerificationChecks {
       }
       return fail('support.verification_mismatch', 'the check does not match');
     }
+    const exhausted = () => fail('support.verification_attempts_exhausted', 'this request has taken every check attempt allowed', `${cap}`);
+    if ((await this.book.attemptsUsed(ticket.id)) >= cap) return exhausted();
 
-    // An owner with no door gives no answer to guess against, so asking it takes no attempt.
     const ownerName = SUPPORT_VERIFICATION_CHECK_OWNER[input.kind];
     const owner = this.owners[ownerName];
     if (!owner) return fail('support.disclosure_unwired', `${ownerName} serves the desk no door for this check yet`, ownerName);
-
-    const taken = await this.book.reserveAttempt(
-      { ticketId: ticket.id, action: 'record_attempt', kind: input.kind, outcome: 'attempted', operator: operatorId, at },
-      this.attemptsAllowed,
-    );
-    if (!taken)
-      return fail(
-        'support.verification_attempts_exhausted',
-        'this request has taken every check attempt allowed',
-        `${this.attemptsAllowed}`,
-      );
-
-    const matched = await owner.matches({ kind: input.kind, value: normalizeCheckValue(input.kind, input.value), userId: ticket.userId });
-    // No answer stores nothing: a failed owner read never writes a match.
+    let matched: boolean | null;
+    try {
+      matched = await owner.matches({ kind: input.kind, value: normalizeCheckValue(input.kind, input.value), userId: ticket.userId });
+    } catch {
+      matched = null;
+    }
+    // No answer stores nothing and takes no attempt: a failed owner read never writes a match.
     if (matched === null) return fail('support.disclosure_unwired', `${ownerName} gave no verified answer`, ownerName);
 
-    const check = await this.book.put({
-      ticketId: ticket.id,
-      kind: input.kind,
-      valueDigest,
-      matched,
-      checkedBy: operatorId,
-      checkedAt: at,
-    });
+    const check = await this.book.put(
+      { ticketId: ticket.id, kind: input.kind, valueDigest, matched, checkedBy: operatorId, checkedAt: at },
+      cap,
+    );
+    // At the cap the answer is neither stored nor shown.
+    if (!check) return exhausted();
     if (!check.matched) return fail('support.verification_mismatch', 'the check does not match');
     await trail('matched');
     return check;
@@ -312,7 +319,7 @@ export class VerificationChecks {
    * owner's read door. Every call is an audit row with the operator.
    */
   async disclose(operatorId: string, ticketId: string, kind: SupportDisclosureKind): Promise<never> {
-    const ticket = await this.openTicket(operatorId, ticketId, 'a closed request opens no read');
+    const ticket = await this.openTicket(operatorId, ticketId, 'disclosure', kind, 'a closed request opens no read');
     const at = this.now().toISOString();
     const fail = async (code: SupportVerificationErrorCode, message: string, detail: string): Promise<never> => {
       await this.book.audit({ ticketId: ticket.id, action: 'disclosure', kind, outcome: code, operator: operatorId, at });

@@ -90,6 +90,15 @@ export async function POST(request: Request) {
       { status: 502, headers: NO_STORE },
     );
   }
-  const status = result.kind === 'forbidden' ? (result.refusal.status === 401 ? 401 : 403) : result.kind === 'refused' ? 409 : 502;
+  // A refusal keeps svc-support's own status (a mismatch 400, the gate 412, attempts used up 429) so a caller can tell them apart.
+  const refusedStatus = (status: number) => ([400, 404, 409, 412, 429].includes(status) ? status : 409);
+  const status =
+    result.kind === 'forbidden'
+      ? result.refusal.status === 401
+        ? 401
+        : 403
+      : result.kind === 'refused'
+        ? refusedStatus(result.refusal.status)
+        : 502;
   return Response.json({ ok: false, refusal: explainVerificationFailure(result) }, { status, headers: NO_STORE });
 }

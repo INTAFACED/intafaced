@@ -3,6 +3,7 @@ import {
   SUPPORT_DISCLOSURE_OWNER,
   SUPPORT_VERIFICATION_CHECK_KINDS,
   SUPPORT_VERIFICATION_CHECK_OWNER,
+  SUPPORT_VERIFICATION_RECORD_KINDS,
   supportRecordVerificationCheckInputSchema,
   type SupportDisclosureKind,
   type SupportVerificationCheckKind,
@@ -22,6 +23,8 @@ import { isTicketId } from './model';
 export type { SupportVerificationChecks };
 export const CHECK_KINDS = SUPPORT_VERIFICATION_CHECK_KINDS;
 export const CHECK_OWNER = SUPPORT_VERIFICATION_CHECK_OWNER;
+export const RECORD_KINDS = SUPPORT_VERIFICATION_RECORD_KINDS;
+export type RecordKind = (typeof RECORD_KINDS)[number];
 export const DISCLOSURES = SUPPORT_DISCLOSURE_KINDS;
 export const DISCLOSURE_OWNER = SUPPORT_DISCLOSURE_OWNER;
 export type Disclosure = SupportDisclosureKind;
@@ -85,8 +88,8 @@ const BY_CODE: Readonly<Record<string, (detail: string) => Entry>> = {
   }),
   'support.verification_mismatch': () => ({
     title: 'That does not match',
-    body: 'The check was recorded as not matching. Nothing was read.',
-    next: 'Ask the customer again. Never tell them which part did not match.',
+    body: 'A check was stored as not matching, and it counts toward this request’s attempts. Nothing was read.',
+    next: 'Ask the customer again; the same value will not be asked twice. Never tell them which part did not match.',
   }),
   'support.verification_attempts_unset': () => ({
     title: 'The number of check attempts is not set',

@@ -240,9 +240,8 @@ const appRouter = createSupportRouter(
   new KbAuthoring(store, new SqlKbReviewBook(sql)),
   guests,
   env.SUPPORT_KB_SEGMENT_CAP ?? null,
-  // Balance disclosure gate: no record owner is wired (svc-pay does not serve its ownership door; svc-trade has none), so
-  // every check refuses naming its owner, and customerBalance refuses support.verification_checks_required.
-  // No owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired: every check refuses naming it.
+  // Balance disclosure gate: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired:
+  // every check refuses naming its owner, and every read refuses support.verification_checks_required.
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
 );
 const edgeContext = createEdgeContext({

@@ -181,14 +181,31 @@ describe('the balance disclosure gate', () => {
     expect(book.rows).toEqual([]);
   });
 
+  it('an owner that throws or gives no answer takes no attempt and stores nothing', async () => {
+    const thrower: VerificationAnswer = {
+      matches: async () => {
+        throw new Error('timeout');
+      },
+    };
+    const { checks, book } = desk({ 'svc-pay': thrower, 'svc-identity': owner(null) }, 1);
+    for (let i = 0; i < 3; i += 1) {
+      await expect(checks.record(OPERATOR, check('deposit_id', D1))).rejects.toMatchObject({ code: 'support.disclosure_unwired' });
+      await expect(checks.record(OPERATOR, check('email', EMAIL))).rejects.toMatchObject({ code: 'support.disclosure_unwired' });
+    }
+    expect((await checks.list(OPERATOR, TICKET)).attemptsUsed).toBe(0);
+    expect(book.rows).toEqual([]);
+    expect(book.trail.filter((r) => r.outcome === 'support.disclosure_unwired')).toHaveLength(6);
+  });
+
   it('a closed request takes no check and opens no read, even with the gate held before it closed', async () => {
     const { owners } = all();
-    const { checks, ticket } = desk(owners);
+    const { checks, ticket, book } = desk(owners);
     await checks.record(OPERATOR, check('email', EMAIL));
     await checks.record(OPERATOR, check('deposit_id', D1));
     ticket.status = 'closed';
     await expect(checks.record(OPERATOR, check('withdrawal_id', W1))).rejects.toMatchObject({ code: 'support.ticket_closed' });
     await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    expect(book.trail.filter((r) => r.outcome === 'support.ticket_closed').map((r) => r.action)).toEqual(['record', 'disclosure']);
   });
 
   it('a ticket the operator may not see answers as not found on every door, before any owner is asked', async () => {

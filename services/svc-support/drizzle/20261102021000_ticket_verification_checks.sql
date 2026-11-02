@@ -4,7 +4,7 @@
 -- ticket_verification_checks: one row per check an owning service answered. It holds the check's kind, a sha256 digest of
 -- the value bound to the ticket and kind, whether it matched, who recorded it and when. Never the typed email or id. Once
 -- per (ticket, kind, digest).
--- verification_audit: one row per check attempt, per check outcome and per read behind the gate, with the operator. No value.
+-- verification_audit: one row per check and per read behind the gate on a request, with its outcome and the operator. No value.
 -- Both refuse update and delete.
 
 CREATE TABLE IF NOT EXISTS "support"."ticket_verification_checks" (
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "support"."ticket_verification_checks" (
 CREATE TABLE IF NOT EXISTS "support"."verification_audit" (
   "id" bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   "ticket_id" uuid NOT NULL REFERENCES "support"."tickets" ("id") ON DELETE RESTRICT,
-  "action" text NOT NULL CHECK ("action" IN ('record_attempt', 'record', 'disclosure')),
+  "action" text NOT NULL CHECK ("action" IN ('record', 'disclosure')),
   "kind" text NOT NULL CHECK ("kind" IN ('email', 'client_order_id', 'withdrawal_id', 'deposit_id', 'balance', 'fills', 'destination')),
   "outcome" text NOT NULL CHECK ("outcome" ~ '^[a-z_.]{1,64}$'),
   "operator" text NOT NULL CHECK (char_length("operator") BETWEEN 1 AND 128),

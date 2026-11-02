@@ -8,7 +8,9 @@ import {
   DISCLOSURE_OWNER,
   DISCLOSURE_WORDS,
   DISCLOSURES,
+  RECORD_KINDS,
   isCheckValue,
+  type RecordKind,
   type Disclosure,
   type SupportVerificationView,
   type VerificationReply,
@@ -26,9 +28,6 @@ import { Failed } from './support-action-parts';
  * withdrawals or deposits. Each is answered by the service that owns the fact, never ticked by the agent; the typed value
  * is never shown back or kept. Every control is here with its named blocker; every answer is svc-support's, as it came.
  */
-
-const RECORD_KINDS = ['withdrawal_id', 'deposit_id', 'client_order_id'] as const;
-type RecordKind = (typeof RECORD_KINDS)[number];
 
 export interface VerificationGateViewProps {
   readonly view: SupportVerificationView | null;
