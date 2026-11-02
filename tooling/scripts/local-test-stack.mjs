@@ -29,6 +29,9 @@
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
+ *   node tooling/scripts/local-test-stack.mjs build [--rebuild]   the builds `start` runs (services, Customer, console,
+ *                                         invitation site) and their stamp, and nothing started: the Real-app journeys
+ *                                         workflow builds once and its shards start on that build
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
@@ -1933,6 +1936,22 @@ function onlyFlag(flags) {
   return names;
 }
 
+/**
+ * The builds `start` runs, and nothing else: no secrets, database or process. The stamp it writes is what `start` reads,
+ * so a checkout of the same commit with no edits that receives these outputs and the stamp starts without building, and
+ * any difference (another commit, an edit, a missing output) rebuilds exactly as a cold start would.
+ */
+function cmdBuild(flags) {
+  say('INTAFACED local test stack: build only');
+  say(`  repo ${REPO}`);
+  say(`  state ${STATE}`);
+  fs.mkdirSync(P.logs, { recursive: true, mode: 0o700 });
+  adoptEnvCustomerDist();
+  ensureBuilt(flags.includes('--rebuild'));
+  ensureInvitationBuilt(flags.includes('--rebuild'));
+  say(`  build: stamp ${P.buildStamp}`);
+}
+
 async function cmdStart(flags) {
   const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
@@ -3658,6 +3677,7 @@ async function runCli() {
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
+  else if (cmd === 'build') cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
@@ -3686,7 +3706,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }
