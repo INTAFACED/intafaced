@@ -154,6 +154,10 @@
       "types": "./dist/support-record-ownership.d.ts",
       "default": "./dist/support-record-ownership.js"
     },
+    "./support-linked-records": {
+      "types": "./dist/support-linked-records.d.ts",
+      "default": "./dist/support-linked-records.js"
+    },
     "./support-trade-summary": {
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"

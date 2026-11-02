@@ -35,6 +35,11 @@ const schema = serviceEnvSchema
        */
       TRADE_URL: z.string().url().optional(),
       /**
+       * svc-pay, for its record ownership door (does this withdrawal or deposit belong to the ticket's customer?). Unset
+       * means every withdrawal or deposit link refuses `support.link_record_owner_unwired` naming svc-pay, never a guess.
+       */
+      PAY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+      /**
        * Seconds without a heartbeat before an online or busy agent reads as
        * offline. Blank is an owner value left unset: availability stays as
        * last set and the desk says so. Never defaulted.

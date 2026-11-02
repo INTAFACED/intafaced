@@ -74,6 +74,8 @@ tRPC under `/trpc` (edge mounts `/api/support`). Principal via edge HMAC
 | `support.listQueue`        | `support:ops`         | Unassigned open/pending only                                                                                                                                                                                                                                                                                    |
 | `support.next`             | `support:ops`         | Peek next free ticket                                                                                                                                                                                                                                                                                           |
 | `support.claim`            | `support:ops`         | Exclusive claim (atomic)                                                                                                                                                                                                                                                                                        |
+| `support.linkRecord`       | `support:ops`         | Link an order, withdrawal or deposit to the ticket, only if its owner says it is the ticket customer's (see Linked records)                                                                                                                                                                                     |
+| `support.linkedRecords`    | `support:ops`         | The records linked to one ticket, oldest first                                                                                                                                                                                                                                                                  |
 
 HTTP: `GET /health`, `GET /ready` (`stage: 4-audited-grounded-desk`,
 `store: postgres`, `accountStateSource: svc-identity`, desk vs
@@ -213,6 +215,19 @@ requester account, otherwise `support.merge_not_allowed`; the same request twice
 comments and files move to the survivor, the source ends `closed` (its `mergedInto` read from `support.ticket_merges`), and a `merged`
 trail row lands on both requests. A rating or an escalation case file stays on the source. The key is (source, survivor): a replay returns
 the stored result and moves nothing. `previewMerge` reads what would move and what stays, for the confirmation.
+
+Linked records (J-support-public-20 #1): `linkRecord` (`support:ops`, `{ticketId, kind, recordId}`, no customer id) links a
+related order, withdrawal or deposit to a request. The customer comes off the ticket and the owning service answers whether the
+record is theirs: svc-pay's signed `/internal/support/record-ownership` door (`packages/contracts/src/support-record-ownership.ts`,
+`PAY_URL`) for a withdrawal or deposit. Another customer's record and a missing one refuse alike with
+`support.link_record_not_owned`, so the desk learns nothing about which ids exist. No address or credential for the owner refuses
+`support.link_record_owner_unwired` naming it, and no verified answer (down, no door yet, a shape that is not the contract's)
+refuses `support.link_record_owner_unreachable` naming it; neither is ever read as owned or not owned. An order refuses
+`support.link_record_owner_unwired` naming svc-trade, which has no ownership answer: the desk's order read folds a missing order
+into its "silent" answer, so it cannot tell a missing order from another customer's without telling the desk which ids exist.
+A link is kept in `support.ticket_record_links` (migration `20261102013926_ticket_record_links`): kind, record id, who and when,
+no amount, status or address; append-only, once per (ticket, kind, record), so linking again returns the first link.
+`linkedRecords` reads them for the desk; the customer's own read of the ticket never carries them.
 
 ## Migrations
 

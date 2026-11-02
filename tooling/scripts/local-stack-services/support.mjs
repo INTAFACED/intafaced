@@ -4,6 +4,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...c('svc-support', PORTS.support),
     DATABASE_URL: dbUrl('svc_support', secrets),
     IDENTITY_URL: urlOf('identity'),
+    // svc-pay's record ownership door: the desk links a withdrawal or deposit only when svc-pay says it is the customer's.
+    PAY_URL: urlOf('pay'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
     // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart

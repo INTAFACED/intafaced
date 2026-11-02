@@ -29,6 +29,7 @@ import { openLocalTestAttachments } from './local-test-attachments.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
+import { createRecordOwnershipClient, LinkedRecords, SqlLinkBook } from './linked-records.js';
 import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -239,6 +240,12 @@ const appRouter = createSupportRouter(
   new KbAuthoring(store, new SqlKbReviewBook(sql)),
   guests,
   env.SUPPORT_KB_SEGMENT_CAP ?? null,
+  // Records linked to a request: svc-pay answers whether a withdrawal or deposit is the customer's. Unset PAY_URL refuses naming svc-pay.
+  new LinkedRecords(
+    new SqlLinkBook(sql),
+    support,
+    createRecordOwnershipClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+  ),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
