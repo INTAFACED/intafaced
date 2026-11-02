@@ -3,7 +3,7 @@ import { supportVerificationCheckSchema, supportVerificationChecksSchema } from 
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { DISCLOSURE_PROCEDURE, type SupportVerificationView, type VerificationRequest } from './verification';
+import type { SupportVerificationView, VerificationRequest } from './verification';
 
 const LABELS: PartLabels = {
   service: 'svc-support',
@@ -31,9 +31,9 @@ export function runVerification(ctx: FounderCallContext, request: VerificationRe
       'support',
       'recordVerificationCheck',
       'POST',
-      { ticketId: request.ticketId, kind: 'owned_record', recordKind: request.recordKind, recordId: request.recordId },
+      { ticketId: request.ticketId, kind: request.kind, value: request.value },
       parseWith(supportVerificationCheckSchema),
     );
   }
-  return founderCall(ctx, 'support', DISCLOSURE_PROCEDURE[request.what], 'GET', { ticketId: request.ticketId }, () => null);
+  return founderCall(ctx, 'support', 'readDisclosure', 'GET', { ticketId: request.ticketId, kind: request.what }, () => null);
 }

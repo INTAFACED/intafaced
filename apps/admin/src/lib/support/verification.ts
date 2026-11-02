@@ -1,7 +1,11 @@
 import {
-  SUPPORT_CHECK_RECORD_KINDS,
-  SUPPORT_CHECK_RECORD_OWNER,
-  type SupportCheckRecordKind,
+  SUPPORT_DISCLOSURE_KINDS,
+  SUPPORT_DISCLOSURE_OWNER,
+  SUPPORT_VERIFICATION_CHECK_KINDS,
+  SUPPORT_VERIFICATION_CHECK_OWNER,
+  supportRecordVerificationCheckInputSchema,
+  type SupportDisclosureKind,
+  type SupportVerificationCheckKind,
   type SupportVerificationChecks,
 } from '@intafaced/contracts/support-verification-checks';
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
@@ -11,26 +15,28 @@ import { explainSupportFailure, supportCodeOf } from './refusal';
 import { isTicketId } from './model';
 
 /**
- * Balance disclosure gate on the desk (RC-support-public-01, J-support-public-20 #2): what the panel sends and how it reads
- * svc-support's answers. Pure, so the route and the panel share it and it is tested without a server.
+ * Balance disclosure gate on the desk (RC-support-public-01, J-support-public-20 #2): what the "Verify the customer" card
+ * sends and how it reads svc-support's answers. Pure, so the route and the card share it and it is tested without a server.
  */
 
 export type { SupportVerificationChecks };
-export const CHECK_RECORD_KINDS = SUPPORT_CHECK_RECORD_KINDS;
-export const CHECK_RECORD_OWNER = SUPPORT_CHECK_RECORD_OWNER;
+export const CHECK_KINDS = SUPPORT_VERIFICATION_CHECK_KINDS;
+export const CHECK_OWNER = SUPPORT_VERIFICATION_CHECK_OWNER;
+export const DISCLOSURES = SUPPORT_DISCLOSURE_KINDS;
+export const DISCLOSURE_OWNER = SUPPORT_DISCLOSURE_OWNER;
+export type Disclosure = SupportDisclosureKind;
 
-export const RECORD_KIND_WORDS: Readonly<Record<SupportCheckRecordKind, string>> = {
-  order: 'Order',
-  withdrawal: 'Withdrawal',
-  deposit: 'Deposit',
+export const CHECK_KIND_WORDS: Readonly<Record<SupportVerificationCheckKind, string>> = {
+  email: 'Email',
+  client_order_id: 'Client order id',
+  withdrawal_id: 'Withdrawal id',
+  deposit_id: 'Deposit id',
 };
 
-/** The two reads behind the gate. */
-export const DISCLOSURES = ['balance', 'withdrawal_destination'] as const;
-export type Disclosure = (typeof DISCLOSURES)[number];
-export const DISCLOSURE_PROCEDURE: Readonly<Record<Disclosure, string>> = {
-  balance: 'customerBalance',
-  withdrawal_destination: 'customerWithdrawalDestination',
+export const DISCLOSURE_WORDS: Readonly<Record<Disclosure, string>> = {
+  balance: 'Read the balance',
+  fills: 'Read the fills',
+  destination: 'Read the withdrawal destination',
 };
 
 export interface SupportVerificationView {
@@ -39,19 +45,23 @@ export interface SupportVerificationView {
 }
 
 export type VerificationRequest =
-  | { readonly action: 'check'; readonly ticketId: string; readonly recordKind: SupportCheckRecordKind; readonly recordId: string }
+  | { readonly action: 'check'; readonly ticketId: string; readonly kind: SupportVerificationCheckKind; readonly value: string }
   | { readonly action: 'disclosure'; readonly ticketId: string; readonly what: Disclosure };
 
-/** A record id as the customer quoted it: a uuid, whitespace around it forgiven (a ticket id is not: `isTicketId`). */
-export const isRecordId = (value: unknown): value is string => typeof value === 'string' && isTicketId(value.trim());
+/** Whether a value is the shape svc-support takes for that kind (an email, a client order id, or a uuid). */
+export function isCheckValue(kind: SupportVerificationCheckKind, value: unknown): value is string {
+  return supportRecordVerificationCheckInputSchema.safeParse({ ticketId: '00000000-0000-4000-8000-000000000000', kind, value }).success;
+}
 
 /** What the browser may ask the route for. Anything else is refused before anything is sent. */
 export function readVerificationRequest(raw: Record<string, unknown>): VerificationRequest | null {
   if (!isTicketId(raw.ticketId)) return null;
   const ticketId = raw.ticketId.toLowerCase();
   if (raw.action === 'check') {
-    if (!(CHECK_RECORD_KINDS as readonly unknown[]).includes(raw.recordKind) || !isRecordId(raw.recordId)) return null;
-    return { action: 'check', ticketId, recordKind: raw.recordKind as SupportCheckRecordKind, recordId: raw.recordId.trim().toLowerCase() };
+    if (!(CHECK_KINDS as readonly unknown[]).includes(raw.kind)) return null;
+    const kind = raw.kind as SupportVerificationCheckKind;
+    if (!isCheckValue(kind, raw.value)) return null;
+    return { action: 'check', ticketId, kind, value: raw.value.trim() };
   }
   if (raw.action === 'disclosure') {
     if (!(DISCLOSURES as readonly unknown[]).includes(raw.what)) return null;
@@ -64,38 +74,33 @@ type Entry = Omit<RefusalView, 'code' | 'changed'>;
 
 const BY_CODE: Readonly<Record<string, (detail: string) => Entry>> = {
   'support.verification_checks_required': (detail) => ({
-    title: 'Two checks the customer can confirm are needed first',
-    body: `svc-support refused to read it: ${detail || 'fewer than two checks are recorded'}. Nothing was read.`,
-    next: 'Ask the customer for the ids of two of their own records and record each as a check.',
+    title: 'The customer’s email and one of their record ids are needed first',
+    body: `svc-support refused to read it: ${detail || 'the two checks are not matched'}. Nothing was read.`,
+    next: 'Ask the customer for the email on their account and the id of one of their own orders, withdrawals or deposits, and record each.',
   }),
-  'support.verification_check_owner_unwired': (detail) => ({
-    title: `${detail || 'The owning service'} cannot confirm records yet`,
-    body: `svc-support asks ${detail || 'the service that owns the record'} whether a record is the customer's, and it gives no answer yet. No check was recorded.`,
-    next: 'Nothing was changed. This check works once that service answers.',
+  'support.disclosure_unwired': (detail) => ({
+    title: `${detail || 'The owning service'} serves the desk no door for this yet`,
+    body: `svc-support would ask ${detail || 'the service that owns it'}, which gives the desk no answer yet. Nothing was stored and nothing was read.`,
+    next: 'Nothing was changed. Escalate as a money request if the customer needs an answer now.',
   }),
-  'support.verification_check_owner_unreachable': (detail) => ({
-    title: `${detail || 'The owning service'} did not answer`,
-    body: 'svc-support got no verified answer on whether the record is the customer’s. No check was recorded.',
-    next: 'Nothing was changed. Try again in a moment.',
+  'support.verification_mismatch': () => ({
+    title: 'That does not match',
+    body: 'The check was recorded as not matching. Nothing was read.',
+    next: 'Ask the customer again. Never tell them which part did not match.',
   }),
-  'support.verification_check_not_owned': () => ({
-    title: 'That record is not this customer’s',
-    body: 'Its owner says the record does not belong to the customer on this request, or it does not exist. No check was recorded.',
-    next: 'Check the id with the customer. Never read another customer’s record from this request.',
+  'support.verification_attempts_unset': () => ({
+    title: 'The number of check attempts is not set',
+    body: 'The owner has not set how many checks one request may take (SUPPORT_VERIFICATION_ATTEMPTS), so no check is taken. Nothing was stored.',
+    next: 'The owner sets it; until then the gate stays shut.',
   }),
-  'support.balance_read_unwired': () => ({
-    title: 'The desk has no balance read',
-    body: 'The checks are recorded, but svc-support cannot read a balance. Nothing was read.',
-    next: 'Escalate as a money request if the customer needs an answer about their balance.',
-  }),
-  'support.withdrawal_destination_read_unwired': () => ({
-    title: 'The desk has no withdrawal destination read',
-    body: 'The checks are recorded, but svc-support cannot read a withdrawal destination. Nothing was read.',
-    next: 'Escalate as a money request if the customer needs an answer about where a withdrawal went.',
+  'support.verification_attempts_exhausted': (detail) => ({
+    title: 'This request has used every check attempt',
+    body: `It has taken the ${detail || 'allowed'} attempts the owner allows. Nothing was stored.`,
+    next: 'Escalate the request; do not open a new one to try again.',
   }),
 };
 
-/** The text svc-support put after its code: the owner it waits on, or how many checks are recorded. */
+/** The text svc-support put after its code: the owner it waits on, or how many checks are matched. */
 export function detailAfter(code: string, message: string): string {
   const at = message.indexOf(code);
   return at < 0 ? '' : message.slice(at + code.length).trim();

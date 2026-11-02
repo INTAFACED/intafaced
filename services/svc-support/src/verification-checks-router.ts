@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import {
   SUPPORT_VERIFICATION_ERROR_CODES,
   scopedProcedure,
+  supportDisclosureReadInputSchema,
   supportRecordVerificationCheckInputSchema,
   supportTicketOnlyInputSchema,
   supportVerificationCheckSchema,
@@ -14,10 +15,11 @@ import { mapError } from './router.js';
 import { userCopy } from './user-copy.js';
 
 /**
- * Balance disclosure gate (RC-support-public-01, J-support-public-20 #2). Every procedure is the desk's (`support:ops`) and
- * takes a ticket, never a customer: the customer comes off the ticket, and a ticket outside the caller's desk scope answers
- * as not found. `customerBalance` and `customerWithdrawalDestination` have no success answer: before two checks they refuse
- * `support.verification_checks_required`, after them they refuse because the desk has no such read.
+ * Balance disclosure gate (RC-support-public-01, J-support-public-20 #2). Every procedure is the desk's (`support:ops`, an
+ * interactive-only scope, so never an API key) and takes a ticket, never a customer: the customer comes off the ticket, and
+ * a ticket outside the caller's desk scope answers as not found. `readDisclosure` (balance, fills or destination) and
+ * `customerBalance` (the journey's name for the balance read) have no success answer: before the two matched checks they
+ * refuse `support.verification_checks_required`, after them `support.disclosure_unwired` naming the owner of the read.
  */
 export function verificationCheckProcedures(checks: VerificationChecks) {
   return {
@@ -45,23 +47,23 @@ export function verificationCheckProcedures(checks: VerificationChecks) {
         }
       }),
 
-    customerBalance: scopedProcedure('support:ops')
-      .input(supportTicketOnlyInputSchema)
+    readDisclosure: scopedProcedure('support:ops')
+      .input(supportDisclosureReadInputSchema)
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await checks.customerBalance(ctx.principal!.userId, input.ticketId);
+          return await checks.disclose(ctx.principal!.userId, input.ticketId, input.kind);
         } catch (err) {
           mapCheck(err);
         }
       }),
 
-    customerWithdrawalDestination: scopedProcedure('support:ops')
+    customerBalance: scopedProcedure('support:ops')
       .input(supportTicketOnlyInputSchema)
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await checks.customerWithdrawalDestination(ctx.principal!.userId, input.ticketId);
+          return await checks.disclose(ctx.principal!.userId, input.ticketId, 'balance');
         } catch (err) {
           mapCheck(err);
         }
@@ -71,17 +73,16 @@ export function verificationCheckProcedures(checks: VerificationChecks) {
 
 const HTTP: Record<SupportVerificationErrorCode, TRPCError['code']> = {
   'support.verification_checks_required': 'PRECONDITION_FAILED',
-  'support.verification_check_not_owned': 'BAD_REQUEST',
-  'support.verification_check_owner_unwired': 'PRECONDITION_FAILED',
-  'support.verification_check_owner_unreachable': 'PRECONDITION_FAILED',
-  'support.balance_read_unwired': 'PRECONDITION_FAILED',
-  'support.withdrawal_destination_read_unwired': 'PRECONDITION_FAILED',
+  'support.verification_mismatch': 'BAD_REQUEST',
+  'support.disclosure_unwired': 'PRECONDITION_FAILED',
+  'support.verification_attempts_unset': 'PRECONDITION_FAILED',
+  'support.verification_attempts_exhausted': 'TOO_MANY_REQUESTS',
 };
 
 const isGateCode = (code: string): code is SupportVerificationErrorCode =>
   (SUPPORT_VERIFICATION_ERROR_CODES as readonly string[]).includes(code);
 
-/** A gate refusal keeps its code first in the message, then its detail (the owner it waits on, or the checks counted). */
+/** A gate refusal keeps its code first in the message, then its detail (the owner it waits on, or the checks matched). */
 function mapCheck(err: unknown): never {
   if (err instanceof SupportError && isGateCode(err.code)) {
     const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);

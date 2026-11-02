@@ -1,143 +1,212 @@
+import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
-  SUPPORT_CHECK_RECORD_OWNER,
+  matchedVerificationCount,
+  SUPPORT_DISCLOSURE_OWNER,
+  SUPPORT_VERIFICATION_CHECK_OWNER,
   SUPPORT_VERIFICATION_CHECKS_REQUIRED,
   supportVerificationCheckSchema,
-  type SupportCheckRecordKind,
+  type SupportDisclosureKind,
   type SupportRecordVerificationCheckInput,
   type SupportTicket,
   type SupportVerificationCheck,
+  type SupportVerificationCheckKind,
   type SupportVerificationChecks,
   type SupportVerificationErrorCode,
 } from '@intafaced/contracts';
 import { SupportError } from './support-service.js';
-import type { TicketOrderSource } from './ticket-order.js';
 
 /**
- * BALANCE DISCLOSURE GATE (RC-support-public-01, J-support-public-20 #2).
+ * BALANCE DISCLOSURE GATE (RC-support-public-01, ACC-0189, SUP-0004; J-support-public-20 #2).
  *
  * Someone who writes in saying "my withdrawal is missing" may not be the account holder. So the desk may not read the
- * customer's balance or withdrawal destination from a request until two checks the customer can confirm are recorded on
- * that request.
+ * customer's balance, fills or withdrawal destination from a request until the request holds two matched checks the
+ * customer can confirm: an email equal to their registered email, and one id of a record of their own.
  *
- * A check is proved by the service that owns the fact, never by the operator ticking a box. The one kind is `owned_record`:
- * an order, withdrawal or deposit id the customer quotes, which counts only when its owning service says it is the ticket
- * customer's. The customer comes off the ticket, never from the operator's input. svc-support never reads that service's
- * tables, so it asks through a `RecordOwnershipAnswer`:
+ * A check is proved by the service that owns the fact, never by the operator ticking a box, and the customer comes off the
+ * ticket, never from the operator's input. svc-support never reads that service's tables; it asks a `VerificationAnswer`:
  *
- *   · svc-pay answers for a withdrawal or a deposit through its signed ownership door (`SUPPORT_RECORD_OWNERSHIP_PATH` in
- *     `packages/contracts`). svc-pay does not serve that door yet, so the desk has no answer wired: recording the check
- *     refuses `support.verification_check_owner_unwired` naming svc-pay, and no check is written.
- *   · svc-trade answers for an order through the order read the desk already makes (`ticket-order.ts`, GET
- *     `/internal/orders/:id`): the order's own userId is compared with the ticket customer's. svc-trade does not serve that
- *     read yet, so a configured TRADE_URL answers nothing and the check refuses `support.verification_check_owner_unreachable`
- *     naming svc-trade; with TRADE_URL unset it refuses `support.verification_check_owner_unwired`.
+ *   · email → svc-identity. Its one account door (`/internal/account/:userId`, the port in `account-state.ts`) carries no
+ *     email and no comparison, so there is no answer to wire: an email check refuses `support.disclosure_unwired` naming
+ *     svc-identity.
+ *   · client_order_id → svc-trade, which serves no lookup by a customer's own order id (the desk's order read in
+ *     `ticket-order.ts` takes svc-trade's order uuid, a different id). Refuses naming svc-trade.
+ *   · withdrawal_id, deposit_id → svc-pay, which does not serve its ownership door (`support-record-ownership.ts`).
+ *     Refuses naming svc-pay.
  *
- * With two checks on two different records recorded, the gate opens and the read still refuses
- * (`support.balance_read_unwired`, `support.withdrawal_destination_read_unwired`): the desk has no read of a balance or a
- * destination, and this module adds none. Nothing here moves, posts or reads money.
+ * Nothing is stored for a check that got no answer. A check that got one is stored as a sha256 digest of the value bound to
+ * the ticket and kind, with whether it matched: never the value. A mismatch is stored unmatched and refuses
+ * `support.verification_mismatch` without saying which part failed. The same value again counts once and asks nothing.
  *
- * A closed request takes no check and opens no read (`support.ticket_closed`): a request reopened later is not proved by
- * checks recorded before it closed. Checks stay on the request they were recorded on; a merge does not carry them.
+ * With the gate held, each read still refuses `support.disclosure_unwired` naming its owner (svc-ledger for a balance,
+ * svc-trade for fills, svc-pay for a destination): the desk has no read door, and this module adds none. Nothing here
+ * moves, posts or reads money.
  *
- * Checks are append-only (a database trigger refuses update and delete), once per (ticket, record kind, record id).
+ * Attempts per request are capped by an owner value (`SUPPORT_VERIFICATION_ATTEMPTS`). Blank, every check refuses
+ * `support.verification_attempts_unset`; it is never defaulted. Every check attempt and every read is an audit row with the
+ * operator. A closed request takes no check and opens no read. Checks stay on the request they were recorded on.
  */
 
-/** Whether a record belongs to a customer, from the service that owns it. */
-export interface RecordOwnershipAnswer {
+/** Whether a value is the customer's, from the service that owns the fact. */
+export interface VerificationAnswer {
   /** True or false from a verified answer for exactly this question; null when the service gave none. */
-  owns(input: { recordKind: SupportCheckRecordKind; recordId: string; userId: string }): Promise<boolean | null>;
+  matches(input: { kind: SupportVerificationCheckKind; value: string; userId: string }): Promise<boolean | null>;
 }
 
-/**
- * svc-trade's answer for an order, from the order read svc-support already makes. Only a parsed snapshot for exactly that
- * order is an answer; anything else (route unserved, trade silent, matcher down, a reply that does not parse) is none.
- * A missing order is therefore no answer rather than a "no": the desk never infers ownership from a silence.
- */
-export function tradeOrderOwnership(orders: TicketOrderSource): RecordOwnershipAnswer {
-  return {
-    async owns({ recordKind, recordId, userId }) {
-      if (recordKind !== 'order') return null;
-      const read = await orders.read(recordId);
-      if (read.kind !== 'order' || read.order.orderId.toLowerCase() !== recordId.toLowerCase()) return null;
-      return read.order.userId.toLowerCase() === userId.toLowerCase();
-    },
-  };
-}
+/** Which owners this deployment can ask. Absent means the owner serves the desk no door yet; none is wired on main. */
+export type VerificationOwners = Partial<Record<'svc-identity' | 'svc-trade' | 'svc-pay', VerificationAnswer>>;
 
-/** Which owners this deployment can ask. Absent means the owner gives the desk no answer yet. */
-export type RecordOwners = Partial<Record<'svc-pay' | 'svc-trade', RecordOwnershipAnswer>>;
+export type StoredCheck = SupportVerificationCheck & { valueDigest: string };
 
-/** Where checks are kept. `put` writes a check once; the same (ticket, record kind, record id) again returns the first. */
+export type VerificationAuditRow = {
+  ticketId: string;
+  action: 'record_attempt' | 'record' | 'disclosure';
+  kind: SupportVerificationCheckKind | SupportDisclosureKind;
+  /** `matched`, `already_recorded`, a refusal code, or `attempted` for the reserved attempt. */
+  outcome: string;
+  operator: string;
+  at: string;
+};
+
+/** Where checks and their audit are kept. */
 export interface CheckBook {
   list(ticketId: string): Promise<SupportVerificationCheck[]>;
-  put(check: SupportVerificationCheck): Promise<SupportVerificationCheck>;
+  find(ticketId: string, kind: SupportVerificationCheckKind, valueDigest: string): Promise<SupportVerificationCheck | null>;
+  /** Writes a check once per (ticket, kind, digest); the same again returns the first. */
+  put(check: StoredCheck): Promise<SupportVerificationCheck>;
+  attemptsUsed(ticketId: string): Promise<number>;
+  /** Takes one attempt if fewer than `cap` are used, atomically, writing its `record_attempt` audit row. */
+  reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean>;
+  audit(row: VerificationAuditRow): Promise<void>;
 }
 
-const sameRecord = (a: Pick<SupportVerificationCheck, 'ticketId' | 'recordKind' | 'recordId'>, b: typeof a) =>
-  a.ticketId === b.ticketId && a.recordKind === b.recordKind && a.recordId.toLowerCase() === b.recordId.toLowerCase();
+/** The value as compared: an email folds case, a uuid folds case, a client order id is kept as the customer has it. */
+export function normalizeCheckValue(kind: SupportVerificationCheckKind, value: string): string {
+  const v = value.trim();
+  return kind === 'client_order_id' ? v : v.toLowerCase();
+}
+
+/** sha256 over the ticket, kind and value, so one digest never matches across requests (`verify:<ticket>:<kind>:<value>`). */
+export function checkDigest(ticketId: string, kind: SupportVerificationCheckKind, value: string): string {
+  return createHash('sha256')
+    .update(`verify:${ticketId.toLowerCase()}:${kind}:${normalizeCheckValue(kind, value)}`)
+    .digest('hex');
+}
+
+const publicCheck = ({ valueDigest: _digest, ...check }: StoredCheck): SupportVerificationCheck => check;
 
 export class MemoryCheckBook implements CheckBook {
-  private readonly rows: SupportVerificationCheck[] = [];
+  readonly rows: StoredCheck[] = [];
+  readonly trail: VerificationAuditRow[] = [];
 
   async list(ticketId: string): Promise<SupportVerificationCheck[]> {
-    return this.rows.filter((row) => row.ticketId === ticketId).map((row) => ({ ...row }));
+    return this.rows.filter((row) => row.ticketId === ticketId).map(publicCheck);
   }
 
-  async put(check: SupportVerificationCheck): Promise<SupportVerificationCheck> {
-    const existing = this.rows.find((row) => sameRecord(row, check));
-    if (existing) return { ...existing };
+  async find(ticketId: string, kind: SupportVerificationCheckKind, valueDigest: string): Promise<SupportVerificationCheck | null> {
+    const row = this.rows.find((r) => r.ticketId === ticketId && r.kind === kind && r.valueDigest === valueDigest);
+    return row ? publicCheck(row) : null;
+  }
+
+  async put(check: StoredCheck): Promise<SupportVerificationCheck> {
+    const existing = await this.find(check.ticketId, check.kind, check.valueDigest);
+    if (existing) return existing;
     this.rows.push({ ...check });
-    return { ...check };
+    return publicCheck(check);
+  }
+
+  async attemptsUsed(ticketId: string): Promise<number> {
+    return this.trail.filter((row) => row.ticketId === ticketId && row.action === 'record_attempt').length;
+  }
+
+  async reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean> {
+    if ((await this.attemptsUsed(row.ticketId)) >= cap) return false;
+    this.trail.push({ ...row });
+    return true;
+  }
+
+  async audit(row: VerificationAuditRow): Promise<void> {
+    this.trail.push({ ...row });
   }
 }
 
 type PgCheck = {
   ticket_id: string;
-  kind: 'owned_record';
-  record_kind: SupportCheckRecordKind;
-  record_id: string;
-  recorded_by: string;
-  recorded_at: Date;
+  kind: SupportVerificationCheckKind;
+  matched: boolean;
+  checked_by: string;
+  checked_at: Date;
 };
 
 function fromRow(row: PgCheck): SupportVerificationCheck {
   return supportVerificationCheckSchema.parse({
     ticketId: row.ticket_id,
     kind: row.kind,
-    recordKind: row.record_kind,
-    recordId: row.record_id,
-    recordedBy: row.recorded_by,
-    recordedAt: row.recorded_at.toISOString(),
+    matched: row.matched,
+    checkedBy: row.checked_by,
+    checkedAt: row.checked_at.toISOString(),
   });
 }
-
-const COLUMNS = 'ticket_id, kind, record_kind, record_id, recorded_by, recorded_at';
 
 export class SqlCheckBook implements CheckBook {
   constructor(private readonly sql: Sql) {}
 
   async list(ticketId: string): Promise<SupportVerificationCheck[]> {
     const rows = await this.sql<PgCheck[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM support.ticket_verification_checks
-      WHERE ticket_id = ${ticketId} ORDER BY recorded_at, record_kind, record_id
+      SELECT ticket_id, kind, matched, checked_by, checked_at FROM support.ticket_verification_checks
+      WHERE ticket_id = ${ticketId} ORDER BY checked_at, kind, value_digest
     `;
     return rows.map(fromRow);
   }
 
-  async put(check: SupportVerificationCheck): Promise<SupportVerificationCheck> {
-    // The (ticket, record kind, record id) key decides a race: the loser inserts nothing and reads the winner's row.
-    await this.sql`
-      INSERT INTO support.ticket_verification_checks (ticket_id, kind, record_kind, record_id, recorded_by, recorded_at)
-      VALUES (${check.ticketId}, ${check.kind}, ${check.recordKind}, ${check.recordId}, ${check.recordedBy}, ${check.recordedAt})
-      ON CONFLICT (ticket_id, record_kind, record_id) DO NOTHING
-    `;
+  async find(ticketId: string, kind: SupportVerificationCheckKind, valueDigest: string): Promise<SupportVerificationCheck | null> {
     const rows = await this.sql<PgCheck[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM support.ticket_verification_checks
-      WHERE ticket_id = ${check.ticketId} AND record_kind = ${check.recordKind} AND record_id = ${check.recordId}
+      SELECT ticket_id, kind, matched, checked_by, checked_at FROM support.ticket_verification_checks
+      WHERE ticket_id = ${ticketId} AND kind = ${kind} AND value_digest = ${valueDigest}
     `;
-    if (!rows[0]) throw new Error('support.ticket_verification_checks: the check was neither written nor found');
-    return fromRow(rows[0]);
+    return rows[0] ? fromRow(rows[0]) : null;
+  }
+
+  async put(check: StoredCheck): Promise<SupportVerificationCheck> {
+    // The (ticket, kind, digest) key decides a race: the loser inserts nothing and reads the winner's row.
+    await this.sql`
+      INSERT INTO support.ticket_verification_checks (ticket_id, kind, value_digest, matched, checked_by, checked_at)
+      VALUES (${check.ticketId}, ${check.kind}, ${check.valueDigest}, ${check.matched}, ${check.checkedBy}, ${check.checkedAt})
+      ON CONFLICT (ticket_id, kind, value_digest) DO NOTHING
+    `;
+    const found = await this.find(check.ticketId, check.kind, check.valueDigest);
+    if (!found) throw new Error('support.ticket_verification_checks: the check was neither written nor found');
+    return found;
+  }
+
+  async attemptsUsed(ticketId: string): Promise<number> {
+    const [row] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM support.verification_audit WHERE ticket_id = ${ticketId} AND action = 'record_attempt'
+    `;
+    return row?.n ?? 0;
+  }
+
+  async reserveAttempt(row: VerificationAuditRow & { action: 'record_attempt' }, cap: number): Promise<boolean> {
+    // One request's attempts are counted and taken under one lock, so two operators at once cannot pass the cap together.
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.verification_attempts:${row.ticketId}`}, 0))`;
+      const [used] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.verification_audit WHERE ticket_id = ${row.ticketId} AND action = 'record_attempt'
+      `;
+      if ((used?.n ?? 0) >= cap) return false;
+      await tx`
+        INSERT INTO support.verification_audit (ticket_id, action, kind, outcome, operator, at)
+        VALUES (${row.ticketId}, ${row.action}, ${row.kind}, ${row.outcome}, ${row.operator}, ${row.at})
+      `;
+      return true;
+    }) as Promise<boolean>;
+  }
+
+  async audit(row: VerificationAuditRow): Promise<void> {
+    await this.sql`
+      INSERT INTO support.verification_audit (ticket_id, action, kind, outcome, operator, at)
+      VALUES (${row.ticketId}, ${row.action}, ${row.kind}, ${row.outcome}, ${row.operator}, ${row.at})
+    `;
   }
 }
 
@@ -145,76 +214,118 @@ function refuse(code: SupportVerificationErrorCode | 'support.ticket_closed', me
   return new SupportError(message, code, detail);
 }
 
+type TicketReader = {
+  /** The ticket for an operator: a ticket outside their desk scope, or none, answers `support.not_found`. */
+  getTicket(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<SupportTicket>;
+};
+
 export class VerificationChecks {
   constructor(
     private readonly book: CheckBook,
-    private readonly support: {
-      /** The ticket for an operator: a ticket outside their desk scope, or none, answers `support.not_found`. */
-      getTicket(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<SupportTicket>;
-    },
-    /** Absent owners give no answer: svc-pay does not serve its ownership door; svc-trade answers through its order read. */
-    private readonly owners: RecordOwners = {},
+    private readonly support: TicketReader,
+    /** The owner's cap on check attempts per request. Null is unset, and every check refuses. Never defaulted. */
+    private readonly attemptsAllowed: number | null,
+    /** None is wired on main: no owner serves the desk a door yet. */
+    private readonly owners: VerificationOwners = {},
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** Record one check, if the owning service says the quoted record is the ticket customer's. Refused, nothing is written. */
+  private async openTicket(operatorId: string, ticketId: string, closed: string): Promise<SupportTicket> {
+    const ticket = await this.support.getTicket({ userId: operatorId, ticketId, asOperator: true });
+    if (ticket.status === 'closed') throw refuse('support.ticket_closed', closed);
+    return ticket;
+  }
+
+  /** Record one check, from what the customer says. Matched, it is returned; otherwise a typed refusal. */
   async record(operatorId: string, input: SupportRecordVerificationCheckInput): Promise<SupportVerificationCheck> {
-    const ticket = await this.support.getTicket({ userId: operatorId, ticketId: input.ticketId, asOperator: true });
-    if (ticket.status === 'closed') throw refuse('support.ticket_closed', 'a closed request takes no further checks');
-    const recordId = input.recordId.toLowerCase();
-    // A record already checked was proved the customer's when it was recorded; recording it again changes nothing.
-    const existing = (await this.book.list(ticket.id)).find((row) =>
-      sameRecord(row, { ticketId: ticket.id, recordKind: input.recordKind, recordId }),
-    );
-    if (existing) return existing;
+    const ticket = await this.openTicket(operatorId, input.ticketId, 'a closed request takes no further checks');
+    const at = this.now().toISOString();
+    const trail = (outcome: string) =>
+      this.book.audit({ ticketId: ticket.id, action: 'record', kind: input.kind, outcome, operator: operatorId, at });
+    const fail = async (code: SupportVerificationErrorCode, message: string, detail?: string): Promise<never> => {
+      await trail(code);
+      throw refuse(code, message, detail);
+    };
 
-    const ownerName = SUPPORT_CHECK_RECORD_OWNER[input.recordKind];
+    if (this.attemptsAllowed === null)
+      return fail('support.verification_attempts_unset', 'the owner has not set how many checks a request may take');
+
+    const valueDigest = checkDigest(ticket.id, input.kind, input.value);
+    // The same value again counts once: it asks nothing and takes no attempt.
+    const existing = await this.book.find(ticket.id, input.kind, valueDigest);
+    if (existing) {
+      if (existing.matched) {
+        await trail('already_recorded');
+        return existing;
+      }
+      return fail('support.verification_mismatch', 'the check does not match');
+    }
+
+    // An owner with no door gives no answer to guess against, so asking it takes no attempt.
+    const ownerName = SUPPORT_VERIFICATION_CHECK_OWNER[input.kind];
     const owner = this.owners[ownerName];
-    if (!owner) throw refuse('support.verification_check_owner_unwired', `${ownerName} gives the desk no ownership answer yet`, ownerName);
-    const owned = await owner.owns({ recordKind: input.recordKind, recordId, userId: ticket.userId });
-    if (owned === null)
-      throw refuse('support.verification_check_owner_unreachable', `${ownerName} gave no verified ownership answer`, ownerName);
-    // A missing record and another customer's answer the same way: the refusal says nothing about which ids exist.
-    if (!owned) throw refuse('support.verification_check_not_owned', "the record is not the ticket customer's");
+    if (!owner) return fail('support.disclosure_unwired', `${ownerName} serves the desk no door for this check yet`, ownerName);
 
-    return this.book.put({
+    const taken = await this.book.reserveAttempt(
+      { ticketId: ticket.id, action: 'record_attempt', kind: input.kind, outcome: 'attempted', operator: operatorId, at },
+      this.attemptsAllowed,
+    );
+    if (!taken)
+      return fail(
+        'support.verification_attempts_exhausted',
+        'this request has taken every check attempt allowed',
+        `${this.attemptsAllowed}`,
+      );
+
+    const matched = await owner.matches({ kind: input.kind, value: normalizeCheckValue(input.kind, input.value), userId: ticket.userId });
+    // No answer stores nothing: a failed owner read never writes a match.
+    if (matched === null) return fail('support.disclosure_unwired', `${ownerName} gave no verified answer`, ownerName);
+
+    const check = await this.book.put({
       ticketId: ticket.id,
       kind: input.kind,
-      recordKind: input.recordKind,
-      recordId,
-      recordedBy: operatorId,
-      recordedAt: this.now().toISOString(),
+      valueDigest,
+      matched,
+      checkedBy: operatorId,
+      checkedAt: at,
     });
+    if (!check.matched) return fail('support.verification_mismatch', 'the check does not match');
+    await trail('matched');
+    return check;
   }
 
-  /** The checks on the request, oldest first, and how many the gate needs. Desk only. */
+  /** The checks on the request, oldest first, how many of the two are matched, and the attempts. Desk only. */
   async list(operatorId: string, ticketId: string): Promise<SupportVerificationChecks> {
     const ticket = await this.support.getTicket({ userId: operatorId, ticketId, asOperator: true });
-    return { required: SUPPORT_VERIFICATION_CHECKS_REQUIRED, checks: await this.book.list(ticket.id) };
-  }
-
-  /** The customer's balance, behind the gate. Always refuses: before the checks for want of them, after for want of a read. */
-  async customerBalance(operatorId: string, ticketId: string): Promise<never> {
-    await this.gate(operatorId, ticketId);
-    throw refuse('support.balance_read_unwired', 'the desk has no read of a balance');
-  }
-
-  /** The customer's withdrawal destination, behind the same gate. Always refuses, as `customerBalance` does. */
-  async customerWithdrawalDestination(operatorId: string, ticketId: string): Promise<never> {
-    await this.gate(operatorId, ticketId);
-    throw refuse('support.withdrawal_destination_read_unwired', 'the desk has no read of a withdrawal destination');
-  }
-
-  private async gate(operatorId: string, ticketId: string): Promise<void> {
-    const ticket = await this.support.getTicket({ userId: operatorId, ticketId, asOperator: true });
-    if (ticket.status === 'closed') throw refuse('support.ticket_closed', 'a closed request opens no read');
     const checks = await this.book.list(ticket.id);
-    const required = SUPPORT_VERIFICATION_CHECKS_REQUIRED;
-    if (checks.length < required)
-      throw refuse(
+    return {
+      required: SUPPORT_VERIFICATION_CHECKS_REQUIRED,
+      matched: matchedVerificationCount(checks),
+      attemptsAllowed: this.attemptsAllowed,
+      attemptsUsed: await this.book.attemptsUsed(ticket.id),
+      checks,
+    };
+  }
+
+  /**
+   * One read behind the gate. Always refuses: before the gate for want of the two matched checks, after it for want of the
+   * owner's read door. Every call is an audit row with the operator.
+   */
+  async disclose(operatorId: string, ticketId: string, kind: SupportDisclosureKind): Promise<never> {
+    const ticket = await this.openTicket(operatorId, ticketId, 'a closed request opens no read');
+    const at = this.now().toISOString();
+    const fail = async (code: SupportVerificationErrorCode, message: string, detail: string): Promise<never> => {
+      await this.book.audit({ ticketId: ticket.id, action: 'disclosure', kind, outcome: code, operator: operatorId, at });
+      throw refuse(code, message, detail);
+    };
+    const matched = matchedVerificationCount(await this.book.list(ticket.id));
+    if (matched < SUPPORT_VERIFICATION_CHECKS_REQUIRED)
+      return fail(
         'support.verification_checks_required',
-        'two checks the customer can confirm are needed first',
-        `${checks.length} of ${required} recorded`,
+        'an email and a record id the customer confirms are needed first',
+        `${matched} of ${SUPPORT_VERIFICATION_CHECKS_REQUIRED} matched`,
       );
+    const ownerName = SUPPORT_DISCLOSURE_OWNER[kind];
+    return fail('support.disclosure_unwired', `${ownerName} serves the desk no read door yet`, ownerName);
   }
 }

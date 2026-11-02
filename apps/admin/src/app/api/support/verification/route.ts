@@ -3,12 +3,13 @@ import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { isTicketId } from '@/lib/support/model';
-import { explainVerificationFailure, readVerificationRequest, RECORD_KIND_WORDS } from '@/lib/support/verification';
+import { CHECK_KIND_WORDS, explainVerificationFailure, readVerificationRequest } from '@/lib/support/verification';
 import { loadVerification, runVerification } from '@/lib/support/verification-server';
 
 /**
  * Balance disclosure gate (RC-support-public-01, J-support-public-20 #2). GET reads the checks on one request; POST records a
- * check (a record its owner says is the customer's) or asks for the balance or withdrawal destination behind the gate.
+ * check (the customer's email or one of their record ids, answered by its owner) or asks for the balance, fills or withdrawal
+ * destination behind the gate.
  *
  * Runs as the signed-in founder; svc-support takes the actor from the verified session and the customer off the ticket. A
  * read behind the gate has no success answer today: it refuses for want of checks, or for want of a read.
@@ -22,7 +23,7 @@ const INVALID = {
   ok: false,
   refusal: {
     title: 'That request was not accepted',
-    body: 'A check names a ticket, a record kind and the record id; a read names a ticket and what to read. Nothing was sent.',
+    body: 'A check names a ticket, a kind and a value of that kind; a read names a ticket and what to read. Nothing was sent.',
     next: 'Fix the fields and try again.',
     code: 'admin.request_invalid',
     changed: 'no',
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
   if (session instanceof Response) return session;
   const id = new URL(request.url).searchParams.get('id');
   if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
-  return Response.json(await loadVerification(session, id.trim().toLowerCase()), { headers: NO_STORE });
+  return Response.json(await loadVerification(session, id.toLowerCase()), { headers: NO_STORE });
 }
 
 export async function POST(request: Request) {
@@ -55,10 +56,10 @@ export async function POST(request: Request) {
   if (!ask) return Response.json(INVALID, { status: 400, headers: NO_STORE });
 
   const result = await runVerification(session, ask);
-  // The audit line names who asked for what on which ticket, and never a record id.
+  // The audit line names who asked for what on which ticket, and never the value typed.
   console.warn(
     JSON.stringify({
-      audit: ask.action === 'check' ? 'admin.support_verification_check' : `admin.support_disclosure_${ask.what}`,
+      audit: ask.action === 'check' ? `admin.support_verification_check_${ask.kind}` : `admin.support_disclosure_${ask.what}`,
       at: new Date().toISOString(),
       founder: session.session.userId,
       ticketId: ask.ticketId,
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: true,
-        summary: `svc-support recorded the ${RECORD_KIND_WORDS[ask.recordKind].toLowerCase()} as a check the customer can confirm.`,
+        summary: `${CHECK_KIND_WORDS[ask.kind]} matched. svc-support recorded it as a check the customer confirmed.`,
       },
       { headers: NO_STORE },
     );

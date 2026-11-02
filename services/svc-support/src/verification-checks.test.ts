@@ -1,204 +1,205 @@
 import { describe, expect, it } from 'vitest';
-import type { SupportTicket } from '@intafaced/contracts';
-import { MemoryCheckBook, tradeOrderOwnership, VerificationChecks, type RecordOwnershipAnswer } from './verification-checks.js';
-import type { TicketOrderReadResult, TicketOrderSource } from './ticket-order.js';
+import type { SupportRecordVerificationCheckInput, SupportTicket } from '@intafaced/contracts';
+import {
+  checkDigest,
+  MemoryCheckBook,
+  VerificationChecks,
+  type VerificationAnswer,
+  type VerificationOwners,
+} from './verification-checks.js';
 import { SupportError } from './support-service.js';
 
 /**
- * J-support-public-20 #2: the customer's balance or withdrawal destination is refused until two checks the customer can
- * confirm are recorded. A check is a record the owning service says is the ticket customer's; nothing else counts, and the
- * open gate still reads nothing.
+ * J-support-public-20 #2 (RC-support-public-01): the customer's balance, fills or withdrawal destination is refused until
+ * the request holds a matched email and a matched record id. Only the owning service's answer counts, only a digest is
+ * kept, and the open gate still reads nothing.
  */
 
 const OPERATOR = '33333333-3333-4333-8333-333333333333';
 const CUSTOMER = '44444444-4444-4444-8444-444444444444';
-const OTHER = '66666666-6666-4666-8666-666666666666';
 const TICKET = '55555555-5555-4555-8555-555555555555';
 const HIDDEN = '77777777-7777-4777-8777-777777777777';
 const W1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const D1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const THEIRS = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const MISSING = '00000000-0000-4000-8000-000000000000';
+const D1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const EMAIL = 'ann@example.com';
 const AT = new Date('2026-11-02T02:00:00.000Z');
 
-/** svc-pay as a table of (kind, id) → owner; every question asked is kept. */
-function svcPay(answer?: boolean | null): RecordOwnershipAnswer & { asked: unknown[] } {
-  const records: Record<string, string> = { [`withdrawal:${W1}`]: CUSTOMER, [`deposit:${D1}`]: CUSTOMER, [`deposit:${THEIRS}`]: OTHER };
+/** An owner that knows the customer's values; every question asked is kept. */
+function owner(answer?: boolean | null): VerificationAnswer & { asked: unknown[] } {
+  const theirs = new Set([`email:${EMAIL}`, `withdrawal_id:${W1}`, `deposit_id:${D1}`, 'client_order_id:my-order-7']);
   const asked: unknown[] = [];
   return {
     asked,
-    async owns(input) {
+    async matches(input) {
       asked.push(input);
       if (answer !== undefined) return answer;
-      return records[`${input.recordKind}:${input.recordId}`] === input.userId;
+      return input.userId === CUSTOMER && theirs.has(`${input.kind}:${input.value}`);
     },
   };
 }
 
-function desk(owners: ConstructorParameters<typeof VerificationChecks>[2] = {}) {
-  const reads: unknown[] = [];
+function desk(owners: VerificationOwners = {}, attempts: number | null = 10) {
+  const book = new MemoryCheckBook();
   const ticket = { status: 'open' as SupportTicket['status'] };
   const checks = new VerificationChecks(
-    new MemoryCheckBook(),
+    book,
     {
       getTicket: async (input) => {
-        reads.push(input);
         if (input.ticketId !== TICKET) throw new SupportError('ticket not found', 'support.not_found');
         return { id: TICKET, userId: CUSTOMER, status: ticket.status } as SupportTicket;
       },
     },
+    attempts,
     owners,
     () => AT,
   );
-  return { checks, reads, ticket };
+  return { checks, book, ticket };
 }
 
-const owned = (recordKind: 'withdrawal' | 'deposit' | 'order', recordId: string, ticketId = TICKET) =>
-  ({ ticketId, kind: 'owned_record', recordKind, recordId }) as const;
+const all = () => {
+  const o = owner();
+  return { o, owners: { 'svc-identity': o, 'svc-trade': o, 'svc-pay': o } as VerificationOwners };
+};
+const check = (kind: SupportRecordVerificationCheckInput['kind'], value: string, ticketId = TICKET) =>
+  ({ ticketId, kind, value }) as SupportRecordVerificationCheckInput;
 
 describe('the balance disclosure gate', () => {
-  it('as on main, no owner answers: the balance and the destination refuse for want of checks, and no check can be written', async () => {
-    const { checks } = desk();
-    await expect(checks.customerBalance(OPERATOR, TICKET)).rejects.toMatchObject({
-      code: 'support.verification_checks_required',
-      missingKey: '0 of 2 recorded',
-    });
-    await expect(checks.customerWithdrawalDestination(OPERATOR, TICKET)).rejects.toMatchObject({
-      code: 'support.verification_checks_required',
-    });
-    await expect(checks.record(OPERATOR, owned('withdrawal', W1))).rejects.toMatchObject({
-      code: 'support.verification_check_owner_unwired',
-      missingKey: 'svc-pay',
-    });
-    await expect(checks.record(OPERATOR, owned('order', W1))).rejects.toMatchObject({
-      code: 'support.verification_check_owner_unwired',
-      missingKey: 'svc-trade',
-    });
-    expect(await checks.list(OPERATOR, TICKET)).toEqual({ required: 2, checks: [] });
-  });
-
-  it("records a check only for a record the owner says is the ticket customer's, and asks about the ticket's customer", async () => {
-    const pay = svcPay();
-    const { checks } = desk({ 'svc-pay': pay });
-    const check = await checks.record(OPERATOR, owned('withdrawal', W1.toUpperCase()));
-    expect(check).toEqual({
-      ticketId: TICKET,
-      kind: 'owned_record',
-      recordKind: 'withdrawal',
-      recordId: W1,
-      recordedBy: OPERATOR,
-      recordedAt: AT.toISOString(),
-    });
-    expect(pay.asked).toEqual([{ recordKind: 'withdrawal', recordId: W1, userId: CUSTOMER }]);
-    // Another customer's record, a missing one and the right id under the wrong kind refuse alike, and write nothing.
-    for (const [kind, id] of [
-      ['deposit', THEIRS],
-      ['withdrawal', MISSING],
-      ['deposit', W1],
+  it('as on main, no owner serves a door: every check refuses naming its owner, stores nothing, and every read refuses for want of checks', async () => {
+    const { checks, book } = desk();
+    for (const [kind, value, ownerName] of [
+      ['email', EMAIL, 'svc-identity'],
+      ['client_order_id', 'my-order-7', 'svc-trade'],
+      ['withdrawal_id', W1, 'svc-pay'],
+      ['deposit_id', D1, 'svc-pay'],
     ] as const)
-      await expect(checks.record(OPERATOR, owned(kind, id))).rejects.toMatchObject({
-        code: 'support.verification_check_not_owned',
-        missingKey: undefined,
+      await expect(checks.record(OPERATOR, check(kind, value))).rejects.toMatchObject({
+        code: 'support.disclosure_unwired',
+        missingKey: ownerName,
       });
-    expect((await checks.list(OPERATOR, TICKET)).checks).toEqual([check]);
+    for (const kind of ['balance', 'fills', 'destination'] as const)
+      await expect(checks.disclose(OPERATOR, TICKET, kind)).rejects.toMatchObject({
+        code: 'support.verification_checks_required',
+        missingKey: '0 of 2 matched',
+      });
+    expect(book.rows).toEqual([]);
+    expect(await checks.list(OPERATOR, TICKET)).toEqual({ required: 2, matched: 0, attemptsAllowed: 10, attemptsUsed: 0, checks: [] });
+    // Each check and each read is an audit row with the operator; an owner with no door takes no attempt.
+    expect(book.trail.filter((r) => r.action === 'record')).toHaveLength(4);
+    expect(book.trail.filter((r) => r.action === 'disclosure')).toHaveLength(3);
+    expect(book.trail.every((r) => r.operator === OPERATOR)).toBe(true);
   });
 
-  it('one record recorded twice is one check, and the gate stays shut', async () => {
-    const pay = svcPay();
-    const { checks } = desk({ 'svc-pay': pay });
-    const first = await checks.record(OPERATOR, owned('withdrawal', W1));
-    expect(await checks.record('another-operator', owned('withdrawal', W1))).toEqual(first);
-    expect(pay.asked).toHaveLength(1);
-    await expect(checks.customerBalance(OPERATOR, TICKET)).rejects.toMatchObject({
+  it('the owner value for attempts is blank: every check refuses, never defaulted, before any owner is asked', async () => {
+    const { o, owners } = all();
+    const { checks, book } = desk(owners, null);
+    await expect(checks.record(OPERATOR, check('email', EMAIL))).rejects.toMatchObject({ code: 'support.verification_attempts_unset' });
+    expect(o.asked).toEqual([]);
+    expect(book.rows).toEqual([]);
+  });
+
+  it('one matched email is not enough; the email and a record id open the gate, and the read still refuses naming its owner', async () => {
+    const { o, owners } = all();
+    const { checks } = desk(owners);
+    const email = await checks.record(OPERATOR, check('email', ' Ann@Example.COM '));
+    expect(email).toEqual({ ticketId: TICKET, kind: 'email', matched: true, checkedBy: OPERATOR, checkedAt: AT.toISOString() });
+    expect(o.asked).toEqual([{ kind: 'email', value: EMAIL, userId: CUSTOMER }]);
+    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({
       code: 'support.verification_checks_required',
-      missingKey: '1 of 2 recorded',
+      missingKey: '1 of 2 matched',
     });
+    await checks.record(OPERATOR, check('withdrawal_id', W1.toUpperCase()));
+    expect((await checks.list(OPERATOR, TICKET)).matched).toBe(2);
+    for (const [kind, ownerName] of [
+      ['balance', 'svc-ledger'],
+      ['fills', 'svc-trade'],
+      ['destination', 'svc-pay'],
+    ] as const)
+      await expect(checks.disclose(OPERATOR, TICKET, kind)).rejects.toMatchObject({
+        code: 'support.disclosure_unwired',
+        missingKey: ownerName,
+      });
   });
 
-  it('two checks on two records open the gate, and the read still refuses: the desk has no read of either', async () => {
-    const { checks } = desk({ 'svc-pay': svcPay() });
-    await checks.record(OPERATOR, owned('withdrawal', W1));
-    await checks.record(OPERATOR, owned('deposit', D1));
-    await expect(checks.customerBalance(OPERATOR, TICKET)).rejects.toMatchObject({ code: 'support.balance_read_unwired' });
-    await expect(checks.customerWithdrawalDestination(OPERATOR, TICKET)).rejects.toMatchObject({
-      code: 'support.withdrawal_destination_read_unwired',
-    });
+  it('two record ids are not the email: the gate stays shut', async () => {
+    const { owners } = all();
+    const { checks } = desk(owners);
+    await checks.record(OPERATOR, check('withdrawal_id', W1));
+    await checks.record(OPERATOR, check('deposit_id', D1));
+    await checks.record(OPERATOR, check('client_order_id', 'my-order-7'));
+    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ missingKey: '1 of 2 matched' });
   });
 
-  it('an owner that gives no verified answer refuses naming it, and writes nothing', async () => {
-    const { checks } = desk({ 'svc-pay': svcPay(null) });
-    await expect(checks.record(OPERATOR, owned('deposit', D1))).rejects.toMatchObject({
-      code: 'support.verification_check_owner_unreachable',
+  it("another customer's id is stored unmatched, refuses without saying which part failed, and the read stays refused", async () => {
+    const { owners } = all();
+    const { checks, book } = desk(owners);
+    await checks.record(OPERATOR, check('email', EMAIL));
+    const err = await checks.record(OPERATOR, check('withdrawal_id', THEIRS)).catch((e: SupportError) => e);
+    expect(err).toMatchObject({ code: 'support.verification_mismatch', missingKey: undefined });
+    expect(String((err as Error).message)).not.toMatch(/withdrawal|email|owner|exist/i);
+    expect((await checks.list(OPERATOR, TICKET)).checks.map((c) => [c.kind, c.matched])).toEqual([
+      ['email', true],
+      ['withdrawal_id', false],
+    ]);
+    await expect(checks.disclose(OPERATOR, TICKET, 'destination')).rejects.toMatchObject({ code: 'support.verification_checks_required' });
+    // The store never holds the typed value: only a digest bound to the ticket and kind.
+    expect(JSON.stringify(book.rows)).not.toContain(THEIRS);
+    expect(JSON.stringify(book.rows)).not.toContain(EMAIL);
+    expect(book.rows[1]!.valueDigest).toBe(checkDigest(TICKET, 'withdrawal_id', THEIRS));
+    expect(checkDigest(TICKET, 'email', EMAIL)).not.toBe(checkDigest(HIDDEN, 'email', EMAIL));
+  });
+
+  it('the same value again counts once, asks nothing and takes no attempt', async () => {
+    const { o, owners } = all();
+    const { checks } = desk(owners, 2);
+    const first = await checks.record(OPERATOR, check('email', EMAIL));
+    expect(await checks.record('another-operator', check('email', 'ANN@example.com'))).toEqual(first);
+    await expect(checks.record(OPERATOR, check('withdrawal_id', THEIRS))).rejects.toMatchObject({ code: 'support.verification_mismatch' });
+    await expect(checks.record(OPERATOR, check('withdrawal_id', THEIRS))).rejects.toMatchObject({ code: 'support.verification_mismatch' });
+    expect(o.asked).toHaveLength(2);
+    expect((await checks.list(OPERATOR, TICKET)).attemptsUsed).toBe(2);
+  });
+
+  it('the attempts the owner allows run out, and then a check refuses before any owner is asked', async () => {
+    const { o, owners } = all();
+    const { checks } = desk(owners, 1);
+    await expect(checks.record(OPERATOR, check('deposit_id', THEIRS))).rejects.toMatchObject({ code: 'support.verification_mismatch' });
+    await expect(checks.record(OPERATOR, check('deposit_id', D1))).rejects.toMatchObject({
+      code: 'support.verification_attempts_exhausted',
+      missingKey: '1',
+    });
+    expect(o.asked).toHaveLength(1);
+  });
+
+  it('an owner that gives no verified answer refuses naming it, and stores nothing (no match is ever written from silence)', async () => {
+    const silent = owner(null);
+    const { checks, book } = desk({ 'svc-pay': silent });
+    await expect(checks.record(OPERATOR, check('deposit_id', D1))).rejects.toMatchObject({
+      code: 'support.disclosure_unwired',
       missingKey: 'svc-pay',
     });
-    expect((await checks.list(OPERATOR, TICKET)).checks).toEqual([]);
+    expect(book.rows).toEqual([]);
+  });
+
+  it('a closed request takes no check and opens no read, even with the gate held before it closed', async () => {
+    const { owners } = all();
+    const { checks, ticket } = desk(owners);
+    await checks.record(OPERATOR, check('email', EMAIL));
+    await checks.record(OPERATOR, check('deposit_id', D1));
+    ticket.status = 'closed';
+    await expect(checks.record(OPERATOR, check('withdrawal_id', W1))).rejects.toMatchObject({ code: 'support.ticket_closed' });
+    await expect(checks.disclose(OPERATOR, TICKET, 'balance')).rejects.toMatchObject({ code: 'support.ticket_closed' });
   });
 
   it('a ticket the operator may not see answers as not found on every door, before any owner is asked', async () => {
-    const pay = svcPay(true);
-    const { checks, reads } = desk({ 'svc-pay': pay });
+    const { o, owners } = all();
+    const { checks } = desk(owners);
     for (const call of [
-      () => checks.record(OPERATOR, owned('withdrawal', W1, HIDDEN)),
+      () => checks.record(OPERATOR, check('email', EMAIL, HIDDEN)),
       () => checks.list(OPERATOR, HIDDEN),
-      () => checks.customerBalance(OPERATOR, HIDDEN),
-      () => checks.customerWithdrawalDestination(OPERATOR, HIDDEN),
+      () => checks.disclose(OPERATOR, HIDDEN, 'balance'),
     ])
       await expect(call()).rejects.toMatchObject({ code: 'support.not_found' });
-    expect(pay.asked).toEqual([]);
-    expect(reads.every((r) => JSON.stringify(r) === JSON.stringify({ userId: OPERATOR, ticketId: HIDDEN, asOperator: true }))).toBe(true);
-  });
-
-  it('a closed request takes no check and opens no read, even with two checks recorded before it closed', async () => {
-    const pay = svcPay();
-    const { checks, ticket } = desk({ 'svc-pay': pay });
-    await checks.record(OPERATOR, owned('withdrawal', W1));
-    await checks.record(OPERATOR, owned('deposit', D1));
-    ticket.status = 'closed';
-    await expect(checks.record(OPERATOR, owned('withdrawal', MISSING))).rejects.toMatchObject({ code: 'support.ticket_closed' });
-    await expect(checks.customerBalance(OPERATOR, TICKET)).rejects.toMatchObject({ code: 'support.ticket_closed' });
-    await expect(checks.customerWithdrawalDestination(OPERATOR, TICKET)).rejects.toMatchObject({ code: 'support.ticket_closed' });
-    expect(pay.asked).toHaveLength(2);
-  });
-});
-
-describe("svc-trade's answer for an order", () => {
-  const ORDER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-  const snapshot = (orderId: string, userId: string): TicketOrderReadResult => ({
-    kind: 'order',
-    order: { orderId, userId, status: 'filled', symbol: 'BTC/USDT', side: 'buy', filledQuantity: '1', feeAsset: 'USDT', feeAmount: '0' },
-  });
-  const trade = (read: (id: string) => TicketOrderReadResult): TicketOrderSource & { asked: string[] } => {
-    const asked: string[] = [];
-    return { asked, read: async (id) => (asked.push(id), read(id)) };
-  };
-
-  it("records an order the read says is the ticket customer's, and refuses another customer's with nothing written", async () => {
-    const orders = trade((id) => snapshot(id, id === ORDER ? CUSTOMER.toUpperCase() : OTHER));
-    const { checks } = desk({ 'svc-trade': tradeOrderOwnership(orders) });
-    expect(await checks.record(OPERATOR, owned('order', ORDER))).toMatchObject({ recordKind: 'order', recordId: ORDER });
-    await expect(checks.record(OPERATOR, owned('order', THEIRS))).rejects.toMatchObject({ code: 'support.verification_check_not_owned' });
-    expect((await checks.list(OPERATOR, TICKET)).checks).toHaveLength(1);
-    expect(orders.asked).toEqual([ORDER, THEIRS]);
-  });
-
-  it('no order read (route unserved, trade silent, matcher down) or a snapshot of another order is no answer, never a yes', async () => {
-    for (const read of [
-      (): TicketOrderReadResult => ({ kind: 'unknown', reason: 'trade_silent' }),
-      (): TicketOrderReadResult => ({ kind: 'unknown', reason: 'matcher_down' }),
-      (): TicketOrderReadResult => snapshot(THEIRS, CUSTOMER),
-    ]) {
-      const { checks } = desk({ 'svc-trade': tradeOrderOwnership(trade(read)) });
-      await expect(checks.record(OPERATOR, owned('order', ORDER))).rejects.toMatchObject({
-        code: 'support.verification_check_owner_unreachable',
-        missingKey: 'svc-trade',
-      });
-      expect((await checks.list(OPERATOR, TICKET)).checks).toEqual([]);
-    }
-  });
-
-  it('answers for orders alone', async () => {
-    const orders = trade((id) => snapshot(id, CUSTOMER));
-    expect(await tradeOrderOwnership(orders).owns({ recordKind: 'withdrawal', recordId: W1, userId: CUSTOMER })).toBeNull();
-    expect(orders.asked).toEqual([]);
+    expect(o.asked).toEqual([]);
   });
 });
