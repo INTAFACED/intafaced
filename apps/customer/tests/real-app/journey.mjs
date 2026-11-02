@@ -32,14 +32,14 @@ async function lift() {
   return stdout.trim().split('\n').at(-1) ?? 'lifted';
 }
 
-// The steps W9's baseline lists as unbuilt, on a full CI run only (tooling/scripts/journey-fail-fast.mjs); empty elsewhere.
-const FAST_STEPS = failFastSteps();
+// The planner's fail-fast plan, on a full CI run only (tooling/scripts/journey-fail-fast.mjs); empty elsewhere.
+const FAST_PLAN = failFastSteps();
 
 /** True inside a step that fails fast. Outside a test (a helper at import time) it is false. */
 function inFastStep() {
-  if (FAST_STEPS.size === 0) return false;
+  if (FAST_PLAN.steps.size === 0) return false;
   try {
-    return failsFast(FAST_STEPS, test.info().title);
+    return failsFast(FAST_PLAN, test.info().title);
   } catch {
     return false;
   }
@@ -64,12 +64,12 @@ export const test = base.extend({
     // Its own time, apart from the test's: a test that timed out inside its freeze is exactly the one to lift.
     { auto: true, timeout: 150_000 },
   ],
-  // A step that fails fast ends after FAIL_FAST.testMs, unless the step names its own limit: a limit set before this runs
-  // (describe.configure, test.use) is kept, and one set inside the test (test.setTimeout) is set after it, so it wins.
+  // A test that fails fast ends after FAIL_FAST.testMs, unless it has a limit other than the project's: one set before this
+  // runs (describe.configure, test.use, test.slow) is kept, and one set inside the test (test.setTimeout) comes after it.
   failFastStep: [
     async ({}, use, testInfo) => {
       const ordinary = testInfo.timeout === testInfo.project.timeout && testInfo.timeout > 0;
-      if (ordinary && failsFast(FAST_STEPS, testInfo.title)) testInfo.setTimeout(FAIL_FAST.testMs);
+      if (ordinary && failsFast(FAST_PLAN, testInfo.title)) testInfo.setTimeout(FAIL_FAST.testMs);
       await use();
     },
     { auto: true },
@@ -77,7 +77,7 @@ export const test = base.extend({
   // ...and every page it opens, through the `page` fixture or its own browser.newContext(), waits FAIL_FAST.waitMs for an
   // action and FAIL_FAST.testMs for a navigation, unless the call names its own timeout (Playwright applies these two
   // options to each context the test creates).
-  actionTimeout: async ({ actionTimeout }, use, testInfo) => use(failsFast(FAST_STEPS, testInfo.title) ? FAIL_FAST.waitMs : actionTimeout),
+  actionTimeout: async ({ actionTimeout }, use, testInfo) => use(failsFast(FAST_PLAN, testInfo.title) ? FAIL_FAST.waitMs : actionTimeout),
   navigationTimeout: async ({ navigationTimeout }, use, testInfo) =>
-    use(failsFast(FAST_STEPS, testInfo.title) ? FAIL_FAST.testMs : navigationTimeout),
+    use(failsFast(FAST_PLAN, testInfo.title) ? FAIL_FAST.testMs : navigationTimeout),
 });

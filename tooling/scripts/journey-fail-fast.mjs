@@ -4,29 +4,31 @@
  * not built or its rail is not wired. Measured on run 1138 (1 Nov 2026): 525 such steps took 98 of the run's 483
  * journey-minutes; ten of them (J-agents) waited out the whole 90 s test limit each.
  *
- * Such a step still runs, every assertion unchanged, and still counts red; it only stops waiting sooner:
+ * Such a test still runs, every assertion unchanged, and still counts red; it only stops waiting sooner:
  *   - each wait (an action, or an `expect` from journey.mjs, which every journey and helper imports) with no timeout of its
  *     own gives up after FAIL_FAST.waitMs, the 5 s the journeys already give a part they know is unbuilt
  *     (`UNBUILT = { timeout: 5_000 }` in 10 journey files and agents.mjs). A wait with its own timeout keeps it. This
- *     reaches every page the step opens, its own browser.newContext() ones too;
- *   - a navigation waits up to FAIL_FAST.testMs, so it is never cut at the short wait, only by the step's own end;
- *   - the step ends after FAIL_FAST.testMs unless it names its own limit (describe.configure, test.use, test.slow or
- *     test.setTimeout), which wins.
+ *     reaches every page the test opens, its own browser.newContext() ones too;
+ *   - a navigation waits up to FAIL_FAST.testMs, so it is never cut at the short wait, only by the test's own end;
+ *   - the test ends after FAIL_FAST.testMs unless it has a limit other than the project's (describe.configure,
+ *     test.use, test.slow or test.setTimeout), which wins.
  *
- * Which steps: the planner's list (planFailFast), the baseline's unbuilt steps less any that passed in a finished run on
- * main it read (its last runs and the newest scheduled one), so a step built since the baseline was written is never cut
- * short. Each shard keeps only listed steps that its own baseline still calls unbuilt.
+ * Which tests: the planner's plan (planFailFast). A test fails fast when its step is unbuilt in the baseline and that
+ * exact test (by title) passed in none of the finished runs on main the planner read (its last three and the two newest
+ * scheduled ones). A step key can name more than one test (J-merchant-07 has two `#2`s): one built test of an unbuilt
+ * step is never cut short (run 1143 cut J-merchant-07 "#2 reads funds…", which takes 140 s and passes). Each shard keeps
+ * only steps its own baseline still calls unbuilt. No report read, no plan: nothing fails fast.
  *
- * Nothing is skipped and no test is changed: a step that passes is a pass, and a step outside the list (built,
- * a regression, or new) gets the ordinary limits. Only full runs of the Real-app journeys workflow on a push or by hand
- * set JOURNEY_FAIL_FAST=1. The daily scheduled run on main keeps the ordinary limits, so a step that is built since the
- * baseline was written passes on main under them at least once a day, and the baseline's next rewrite (from a run on
- * main) moves it out of `unbuilt` (docs/runbooks/regression-issue-state.md). A targeted run (a builder proving a step)
- * and a local run keep the ordinary limits too.
+ * Nothing is skipped and no test is changed: a test that passes is a pass, and a test outside the plan (built, a
+ * regression, or new) gets the ordinary limits. Only full runs of the Real-app journeys workflow on a push or by hand set
+ * JOURNEY_FAIL_FAST=1. The daily scheduled run on main keeps the ordinary limits, so a test built since the baseline was
+ * written passes on main under them, then leaves the plan, and the baseline's next rewrite (from a run on main) moves its
+ * step out of `unbuilt` (docs/runbooks/regression-issue-state.md). A targeted run (a builder proving a step) and a local
+ * run keep the ordinary limits too.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const FAIL_FAST = { waitMs: 5_000, testMs: 30_000 };
 
@@ -50,18 +52,14 @@ export function unbuiltSteps(baseline) {
   return new Set((baseline?.steps ?? []).filter((s) => s?.state === 'unbuilt' && typeof s.step === 'string').map((s) => s.step));
 }
 
-const KEY = /^J-[a-z0-9-]+-\d+#\d+$/;
-
-/** The step keys with a passing result in a Playwright JSON report. */
-export function passedSteps(report) {
+/** The titles of the tests a Playwright JSON report passed, as Main trust reads a test (every run expected or flaky). */
+export function passedTitles(report) {
   const out = new Set();
   const walk = (suite) => {
-    for (const spec of suite?.specs ?? [])
-      for (const t of spec.tests ?? [])
-        if ((t.results ?? []).some((r) => r?.status === 'passed')) {
-          const key = stepKey(spec.title);
-          if (key) out.add(key);
-        }
+    for (const spec of suite?.specs ?? []) {
+      const tests = spec.tests ?? [];
+      if (tests.length && tests.every((t) => t.status === 'expected' || t.status === 'flaky')) out.add(spec.title);
+    }
     for (const child of suite?.suites ?? []) walk(child);
   };
   for (const suite of report?.suites ?? []) walk(suite);
@@ -69,43 +67,47 @@ export function passedSteps(report) {
 }
 
 /**
- * The plan's list: the baseline's unbuilt steps that did not pass in any of the finished runs on main read (the planner's
- * last runs and the newest scheduled one). A step built since the baseline was written has passed in one of them, so it
- * gets the ordinary limits even before the baseline is rewritten (run 1143: J-merchant-07 #2 and #5, built since, failed
- * under the short limits, and the step after them with them). No report read, no list: nothing fails fast.
+ * The plan: { steps, passed }, the baseline's unbuilt step keys and the titles of their tests that passed in any report
+ * read, which keep the ordinary limits. Null when no report was read.
  */
 export function planFailFast(baseline, reports) {
-  if (reports.length === 0) return [];
-  const passed = new Set(reports.flatMap((r) => [...passedSteps(r)]));
-  return [...unbuiltSteps(baseline)].filter((k) => !passed.has(k)).sort();
+  if (reports.length === 0) return null;
+  const steps = unbuiltSteps(baseline);
+  const passed = new Set();
+  for (const r of reports) for (const title of passedTitles(r)) if (steps.has(stepKey(title))) passed.add(title);
+  return { steps: [...steps].sort(), passed: [...passed].sort() };
 }
 
+const KEY = /^J-[a-z0-9-]+-\d+#\d+$/;
+const NONE = { steps: new Set(), passed: new Set() };
+
 /**
- * The steps that fail fast in this run: those the plan listed (env JOURNEY_FAIL_FAST_STEPS, separated by spaces) that are
- * still unbuilt in this checkout's baseline, when the run fails fast (env JOURNEY_FAIL_FAST=1); else none. An unreadable
- * baseline or an empty plan fails fast on nothing.
+ * This run's plan, when it fails fast (env JOURNEY_FAIL_FAST=1): the planner's (env JOURNEY_FAIL_FAST_PLAN, JSON), its
+ * steps narrowed to those this checkout's baseline still calls unbuilt. Otherwise, or with no plan, an unreadable plan
+ * or an unreadable baseline, a plan with no steps: nothing fails fast.
  */
 export function failFastSteps(env = process.env, read = () => fs.readFileSync(BASELINE_PATH, 'utf8')) {
-  if (env.JOURNEY_FAIL_FAST !== '1') return new Set();
-  const planned = String(env.JOURNEY_FAIL_FAST_STEPS ?? '')
-    .split(/\s+/)
-    .filter((k) => KEY.test(k));
+  if (env.JOURNEY_FAIL_FAST !== '1') return NONE;
   try {
+    const plan = JSON.parse(env.JOURNEY_FAIL_FAST_PLAN ?? '');
     const unbuilt = unbuiltSteps(JSON.parse(read()));
-    return new Set(planned.filter((k) => unbuilt.has(k)));
+    const steps = (Array.isArray(plan?.steps) ? plan.steps : []).filter((k) => KEY.test(k) && unbuilt.has(k));
+    const passed = (Array.isArray(plan?.passed) ? plan.passed : []).filter((t) => typeof t === 'string');
+    return { steps: new Set(steps), passed: new Set(passed) };
   } catch {
-    return new Set();
+    return NONE;
   }
 }
 
-/** Whether the test titled `title` fails fast in this run. */
-export const failsFast = (steps, title) => {
+/** Whether the test titled `title` fails fast under `plan`. */
+export const failsFast = (plan, title) => {
   const key = stepKey(title);
-  return key !== null && steps.has(key);
+  return key !== null && plan.steps.has(key) && !plan.passed.has(title);
 };
 
-// The planner: node tooling/scripts/journey-fail-fast.mjs --plan [--report <report.json>]... prints the plan's list.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// The planner: node tooling/scripts/journey-fail-fast.mjs --plan [--report <report.json>]... prints the plan as JSON, or
+// nothing when no report was read.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   if (args[0] !== '--plan') {
     console.error('usage: journey-fail-fast.mjs --plan [--report <report.json>]...');
@@ -120,7 +122,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.error(`skipping ${args[i]}: ${e.message}`);
       }
     }
-  const steps = planFailFast(JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')), reports);
-  console.error(`${steps.length} unbuilt steps fail fast (${reports.length} reports read)`);
-  console.log(steps.join(' '));
+  const plan = planFailFast(JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')), reports);
+  if (!plan) console.error(`no report read: nothing fails fast`);
+  else
+    console.error(
+      `${plan.steps.length} unbuilt steps fail fast, except ${plan.passed.length} of their tests that passed (${reports.length} reports read)`,
+    );
+  console.log(plan ? JSON.stringify(plan) : '');
 }

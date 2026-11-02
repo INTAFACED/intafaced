@@ -91,7 +91,7 @@ jobs:
       shards: ${{ steps.plan.outputs.shards }}
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
-      fast_steps: ${{ steps.fast.outputs.steps }}
+      fast_plan: ${{ steps.fast.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,12 +113,13 @@ jobs:
             got=$((got + 1))
             [ "$got" -ge 3 ] && break
           done
-          # The newest finished scheduled run too: it keeps the ordinary limits, so a step built since the baseline passes
-          # there (the fail-fast list below leaves it out). Kept apart, so the shard plan reads the last runs as before.
+          # The two newest finished scheduled runs too: they keep the ordinary limits, so a test built since the baseline
+          # passes there (the fail-fast plan below leaves it out). Kept apart, so the shard plan reads the last runs as before.
           for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/scheduled/$id" 2>/dev/null || continue
             echo "fail-fast reads the scheduled run $id"
-            break
+            sched=$((${sched:-0} + 1))
+            [ "$sched" -ge 2 ] && break
           done
       - name: Plan
         id: plan
@@ -135,16 +136,16 @@ jobs:
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
             echo "count=$(jq length <<<"$shards")"
           } >> "$GITHUB_OUTPUT"
-      # The steps that fail fast (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps that passed in none
-      # of the runs read above. Best effort: without it nothing fails fast.
-      - name: Fail-fast list
+      # The fail-fast plan (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps, less each of their tests
+      # that passed in a run read above. Best effort: without it nothing fails fast.
+      - name: Fail-fast plan
         id: fast
         continue-on-error: true
         run: |
           node --test tooling/scripts/journey-fail-fast.test.mjs
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json "$RUNNER_TEMP"/scheduled/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
-          echo "steps=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
+          echo "plan=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
       - name: Targeted run has its plan
         if: env.JOURNEYS_TARGET != '' && steps.plan.outputs.shards == ''
         run: |
@@ -317,8 +318,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
-      # setup above runs beside the build. It waits for that job at most 10 minutes. Best effort: without the build (the
-      # job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
+      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 20 s (about 3 asks per
+      # shard on a healthy run); an answer that fails is asked again, and a run with no such job (in any attempt) stops at
+      # once. Best effort: without the build (the job failed or is late), or when the stamp does not vouch for this
+      # checkout, `start` builds as before.
       - name: Take the run's build
         continue-on-error: true
         timeout-minutes: 12
@@ -326,14 +329,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           state=""
-          for _ in $(seq 1 60); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" --jq '.jobs[] | select(.name == "Build the stack once") | "\(.status) \(.conclusion)"' | head -1)
-            case "$state" in completed\ *) break ;; esac
-            sleep 10
+          for _ in $(seq 1 30); do
+            if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
+              # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
+              state=$(jq -r '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$jobs")
+              case "$state" in completed\ * | none) break ;; esac
+            fi
+            sleep 20
           done
-          echo "build job: ${state:-not found}"
+          echo "build job: ${state:-not read}"
           if [ "$state" != "completed success" ]; then
-            echo "::warning::no build from this run (${state:-not found}); this shard builds the stack itself"
+            echo "::warning::no build from this run (${state:-not read}); this shard builds the stack itself"
             exit 0
           fi
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-build --dir "$RUNNER_TEMP/stack-build"
@@ -390,12 +396,12 @@ jobs:
       # The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
         env:
-          # A full run on a push or by hand fails fast on the plan's list: the baseline's unbuilt steps that passed in
-          # no finished run read (tooling/scripts/journey-fail-fast.mjs). The daily scheduled run keeps the ordinary
-          # limits, so a step built since the baseline was written passes on main under them; a targeted run, where a
-          # builder proves a step, keeps them too.
+          # A full run on a push or by hand fails fast on the plan: the baseline's unbuilt steps, less each of their
+          # tests that passed in a finished run read (tooling/scripts/journey-fail-fast.mjs). The daily scheduled run
+          # keeps the ordinary limits, so a test built since the baseline was written passes on main under them; a
+          # targeted run, where a builder proves a step, keeps them too.
           JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && '1' || '0' }}
-          JOURNEY_FAIL_FAST_STEPS: ${{ needs.plan.outputs.fast_steps }}
+          JOURNEY_FAIL_FAST_PLAN: ${{ needs.plan.outputs.fast_plan }}
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}

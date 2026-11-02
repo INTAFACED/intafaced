@@ -6,7 +6,7 @@ import {
   FAIL_FAST,
   failFastSteps,
   failsFast,
-  passedSteps,
+  passedTitles,
   planFailFast,
   stepKey,
   unbuiltSteps,
@@ -19,17 +19,19 @@ test('a step is keyed as Main trust keys it', () => {
   assert.equal(stepKey('look sweep 390'), null);
 });
 
-test('only unbuilt steps fail fast, never a regression', () => {
+test('only unbuilt steps fail fast, never a regression, and a title that passed keeps the ordinary limits', () => {
   const steps = unbuiltSteps({
     steps: [{ step: 'J-a-01#1', state: 'unbuilt' }, { step: 'J-a-01#2', state: 'regression' }, { step: 'J-a-01#3' }],
   });
   assert.deepEqual([...steps], ['J-a-01#1']);
-  assert.equal(failsFast(steps, 'J-a-01 #1 x'), true);
-  assert.equal(failsFast(steps, 'J-a-01 #2 x'), false);
-  assert.equal(failsFast(steps, 'J-a-01 #10 x'), false);
+  const plan = { steps, passed: new Set(['J-a-01 #1 the built one']) };
+  assert.equal(failsFast(plan, 'J-a-01 #1 x'), true);
+  assert.equal(failsFast(plan, 'J-a-01 #1 the built one'), false);
+  assert.equal(failsFast(plan, 'J-a-01 #2 x'), false);
+  assert.equal(failsFast(plan, 'J-a-01 #10 x'), false);
 });
 
-test('only a run that asks fails fast, only on planned steps still unbuilt, and an unreadable baseline fails fast on nothing', () => {
+test('only a run that asks fails fast, only on planned steps still unbuilt; no or a bad plan or baseline fails fast on nothing', () => {
   const read = () =>
     JSON.stringify({
       steps: [
@@ -37,12 +39,16 @@ test('only a run that asks fails fast, only on planned steps still unbuilt, and 
         { step: 'J-a-01#2', state: 'regression' },
       ],
     });
-  const on = { JOURNEY_FAIL_FAST: '1', JOURNEY_FAIL_FAST_STEPS: 'J-a-01#1 J-a-01#2 J-b-01#1 junk' };
-  assert.equal(failFastSteps({}, read).size, 0);
-  assert.equal(failFastSteps({ ...on, JOURNEY_FAIL_FAST: '0' }, read).size, 0);
-  assert.deepEqual([...failFastSteps(on, read)], ['J-a-01#1']);
-  assert.equal(failFastSteps({ JOURNEY_FAIL_FAST: '1' }, read).size, 0, 'no plan, nothing fails fast');
-  assert.equal(failFastSteps(on, () => 'not json').size, 0);
+  const plan = JSON.stringify({ steps: ['J-a-01#1', 'J-a-01#2', 'J-b-01#1', 'junk'], passed: ['J-a-01 #1 built'] });
+  const on = { JOURNEY_FAIL_FAST: '1', JOURNEY_FAIL_FAST_PLAN: plan };
+  assert.equal(failFastSteps({}, read).steps.size, 0);
+  assert.equal(failFastSteps({ ...on, JOURNEY_FAIL_FAST: '0' }, read).steps.size, 0);
+  const got = failFastSteps(on, read);
+  assert.deepEqual([...got.steps], ['J-a-01#1']);
+  assert.deepEqual([...got.passed], ['J-a-01 #1 built']);
+  assert.equal(failFastSteps({ JOURNEY_FAIL_FAST: '1' }, read).steps.size, 0, 'no plan, nothing fails fast');
+  assert.equal(failFastSteps({ ...on, JOURNEY_FAIL_FAST_PLAN: '' }, read).steps.size, 0);
+  assert.equal(failFastSteps(on, () => 'not json').steps.size, 0);
 });
 
 const report = (results) => ({
@@ -51,25 +57,25 @@ const report = (results) => ({
       specs: [],
       suites: [
         {
-          specs: Object.entries(results).map(([title, statuses]) => ({
-            title,
-            tests: [{ results: statuses.map((status) => ({ status })) }],
-          })),
+          specs: Object.entries(results).map(([title, status]) => ({ title, tests: [{ status }] })),
         },
       ],
     },
   ],
 });
 
-test('a step that passed in a run read is built: the plan leaves it to the ordinary limits', () => {
-  const baseline = {
-    steps: ['J-m-07#2', 'J-m-07#5', 'J-m-07#9'].map((step) => ({ step, state: 'unbuilt' })),
-  };
-  const r1 = report({ 'J-m-07 #2 reads funds': ['passed'], 'J-m-07 #9 x': ['failed'] });
-  const r2 = report({ 'J-m-07 #5 tops up': ['failed', 'passed'], 'J-m-07 #9 x': ['timedOut'] });
-  assert.deepEqual([...passedSteps(r1)], ['J-m-07#2']);
-  assert.deepEqual(planFailFast(baseline, [r1, r2]), ['J-m-07#9']);
-  assert.deepEqual(planFailFast(baseline, []), [], 'no report read, no list');
+test('a test that passed in a run read keeps the ordinary limits, though its step key names another that fails', () => {
+  const baseline = { steps: ['J-m-07#2', 'J-m-07#9'].map((step) => ({ step, state: 'unbuilt' })) };
+  // As in J-merchant-07: two tests share #2, and only one is built.
+  const r1 = report({ 'J-m-07 #2 reads funds': 'expected', 'J-m-07 #2 a speed': 'unexpected', 'J-m-07 #9 x': 'unexpected' });
+  const r2 = report({ 'J-m-07 #9 x': 'flaky', 'J-other-01 #1 y': 'expected' });
+  assert.deepEqual([...passedTitles(r1)], ['J-m-07 #2 reads funds']);
+  const plan = planFailFast(baseline, [r1, r2]);
+  assert.deepEqual(plan, { steps: ['J-m-07#2', 'J-m-07#9'], passed: ['J-m-07 #2 reads funds', 'J-m-07 #9 x'] });
+  const p = { steps: new Set(plan.steps), passed: new Set(plan.passed) };
+  assert.equal(failsFast(p, 'J-m-07 #2 reads funds'), false);
+  assert.equal(failsFast(p, 'J-m-07 #2 a speed'), true);
+  assert.equal(planFailFast(baseline, []), null, 'no report read, no plan');
 });
 
 test("the waits are the journeys' own UNBUILT bar, and a step outlasts its waits", () => {
