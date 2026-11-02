@@ -573,7 +573,7 @@ const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
 let marketStopped = false;
 
 /**
- * #6 rests a buy a quarter of the way into the spread and, a while later, sells into exactly its display. The TEST
+ * #6 rests a buy inside the spread and, a while later, sells into exactly its display. The TEST
  * maker requotes on a random walk every few seconds, so by then its bids can stand above that buy (run 1128: 0.04614 BTC
  * ahead), and a sell would meet them first. #6 stops the maker for its window, as J-copy-bots-otc-14 #7 does: the book
  * then holds the iceberg and nothing moves in front of it.
@@ -593,9 +593,8 @@ async function stopMarketMaker() {
   tool('local-test-market.mjs', 'stop');
 }
 
-/** The BTC/USDT levels that would meet or stand in front of a buy resting at `price`: asks at or below it, bids above it. */
-async function inFrontOf(price) {
-  const book = await btcBook();
+/** The levels of `book` that would meet or stand in front of a buy resting at `price`: asks at or below it, bids above it. */
+function inFrontOf(book, price) {
   return {
     asks: book.asks.filter(([p]) => toUnits(p) <= toUnits(price)),
     bids: book.bids.filter(([p]) => toUnits(p) > toUnits(price)),
@@ -621,18 +620,33 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   const me = await api(trader);
   const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
   const { bid, ask } = await bestPrices();
-  // A whole-USDT buy a quarter of the way into the spread: the best bid, so a sell reaches it, far from the ask.
+  // A whole-USDT price a quarter of the way into the maker's spread, far from its ask.
   const one = toUnits('1');
-  const price = fromUnits(((toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n) / one) * one);
-  expect(toUnits(price)).toBeGreaterThan(toUnits(bid));
-  expect(toUnits(price)).toBeLessThan(toUnits(ask));
+  const whole = (units) => (units / one) * one;
+  const quoted = whole(toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n);
+  expect(quoted).toBeGreaterThan(toUnits(bid));
+  expect(quoted).toBeLessThan(toUnits(ask));
   // From here to the refill nothing but this step trades on BTC/USDT: the maker's quotes come down (stopMarketMaker).
   await stopMarketMaker();
-  // The maker's exit cancels its quotes; a cancel that failed would leave them in front of the iceberg.
-  expect(await inFrontOf(price), 'the stopped TEST maker left orders at or in front of the iceberg price').toEqual({
+  // The maker's exit cancels its quotes; a cancel that failed would leave them at or in front of that price.
+  const book = await btcBook();
+  expect(inFrontOf(book, fromUnits(quoted)), 'the stopped TEST maker left orders at or in front of its old spread').toEqual({
     asks: [],
     bids: [],
   });
+  // With the maker gone, the price band is a collar around what still rests on BTC/USDT: the middle of its best bid and
+  // ask, or the one side that has an order (priceBandFor in svc-trade). A buy an earlier journey left well below the bid
+  // (J-cex-spot-02 rests buys at 87 to 90% of it) then sets that reference, and a buy at the maker's old price is refused
+  // as above the band (Real-app journeys run 1144, issue 7122). So the iceberg rests at the middle of the book that is
+  // left, the maker's old bid standing in for an empty bid side, or one whole USDT above the best bid when no ask is left.
+  // That is the best bid, so a sell reaches it. The buy is inside the band: at the band's reference when both sides rest,
+  // below the ask that is the reference when no bid does, and one whole USDT above the lone bid that is the reference
+  // when no ask does. The refill sell's band is then centred between the iceberg and the best ask.
+  const floor = book.bids[0] ? toUnits(book.bids[0][0]) : toUnits(bid);
+  const ceiling = book.asks[0] ? toUnits(book.asks[0][0]) : null;
+  const price = fromUnits(ceiling == null ? whole(floor) + one : whole((floor + ceiling) / 2n));
+  expect(toUnits(price)).toBeGreaterThan(floor);
+  if (ceiling != null) expect(toUnits(price)).toBeLessThan(ceiling);
   const iceberg = (clientOrderId, displayQty) =>
     me.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
