@@ -74,7 +74,11 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   const snapshots = {};
   let series = null;
   const refundLists = [];
-  page.on('response', async (r) => {
+  // Each answer is stored only once its body is read, a step after the response event and after the page may already
+  // draw it; so each read is held as it starts, and `stored()` waits for every one begun so far before the lists are
+  // read (in run 1141 the refunds list was still unstored while its tile already read None: issue 7120).
+  const reads = [];
+  const store = async (r) => {
     const url = new URL(r.url());
     if (r.status() !== 200 || !url.pathname.startsWith('/api/pay/trpc/')) return;
     const data = dataOf(await r.json().catch(() => null));
@@ -82,7 +86,9 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
     if (url.pathname.endsWith('merchantMetrics.snapshot')) snapshots[JSON.parse(url.searchParams.get('input')).window.preset] = data;
     else if (url.pathname.endsWith('merchantMetrics.series')) series = data;
     else if (url.pathname.endsWith('payment.refunds.list')) refundLists.push(data);
-  });
+  };
+  page.on('response', (r) => void reads.push(store(r)));
+  const stored = () => Promise.all(reads);
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   await expect(page.getByText('TEST First Ltd').first()).toBeVisible();
@@ -117,6 +123,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   // Each period's tiles: a money figure the service has no rows for reads "—" with "No payments in this period", never
   // 0.00; the payment count is the service's own measured count; refunds issued reads None while the refunds list is
   // empty; and the strip carries that period's own as-of.
+  await stored();
   expect(refundLists.length).toBeGreaterThan(0);
   const metrics = page.getByRole('region', { name: 'Reporting period' });
   for (const [preset, button] of [
@@ -150,6 +157,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
     for (const tile of shown) if (tile.label !== 'Payments') expect(tile.value, `${preset} ${tile.label}`).not.toMatch(/^0([.,]0*)?\b/);
     await asOfSays(metrics, snap.freshness);
   }
+  await stored();
   for (const list of refundLists) expect(list.items).toEqual([]);
 
   // Pending settlement draws no figure for a business with no balance, with today's as-of.
