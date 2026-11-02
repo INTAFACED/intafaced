@@ -170,10 +170,15 @@ jobs:
         run: |
           git ls-files --others --ignored --exclude-standard --directory | grep -Ev '(^|/)(node_modules|\.turbo)/' | grep -v '^apps/admin/\.next' > "$RUNNER_TEMP/outputs.txt"
           echo "$(wc -l < "$RUNNER_TEMP/outputs.txt") build outputs"
-          if grep -rlsE 'previewModeSigningKey|"encryptionKey"' $(cat "$RUNNER_TEMP/outputs.txt"); then
-            echo "::error::a build output above holds a signing or encryption key, and the build artifact is public"
-            exit 1
-          fi
+          # Fails closed: per output, a match (grep exit 0) or an unreadable one (2) stops the pack; only no match (1) goes on.
+          while IFS= read -r out; do
+            code=0
+            grep -rlE 'previewModeSigningKey|"encryptionKey"' -- "$out" || code=$?
+            if [ "$code" -ne 1 ]; then
+              echo "::error::$out holds a signing or encryption key, or could not be read (grep exit $code), and the build artifact is public"
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/outputs.txt"
           mkdir -p "$RUNNER_TEMP/stack-build"
           tar -cf "$RUNNER_TEMP/stack-build/outputs.tar" -T "$RUNNER_TEMP/outputs.txt"
           jq 'with_entries(select(.key | startswith("admin") | not))' "$RUNNER_TEMP/stack-state/build-stamp.json" > "$RUNNER_TEMP/stack-build/build-stamp.json"
