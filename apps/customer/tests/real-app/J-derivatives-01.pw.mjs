@@ -98,6 +98,9 @@ test(`${J} #2 reads the gated list: each contract open or blocked as the service
   // The desk offers the live listings (never a paper one): every contract it offers is in the gated list.
   const picker = page.getByRole('combobox', { name: 'Choose a contract' });
   await picker.click();
+  // The list opens in a popup drawn after the click, and allInnerTexts reads at once without waiting: read the options
+  // once the stack's TEST perpetual is on screen among them, or a slow frame reads none (run 1138, #7112).
+  await expect(page.getByRole('option', { name: SYMBOL, exact: true })).toBeVisible();
   const offered = (await page.getByRole('option').allInnerTexts()).map((o) => o.trim());
   await page.keyboard.press('Escape');
   expect(offered).toContain(SYMBOL);
