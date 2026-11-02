@@ -80,6 +80,11 @@ const schema = serviceEnvSchema
        */
       SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * How many check attempts one request may take at the balance disclosure gate (RC-support-public-01). Blank is an
+       * owner value left unset: every check refuses support.verification_attempts_unset. Never defaulted.
+       */
+      SUPPORT_VERIFICATION_ATTEMPTS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
        * How many personal views one person may save, and how many shared views the desk may keep.
        * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
        */
