@@ -99,7 +99,7 @@ async function openRequest(page, queue, ticket) {
  * compares the trail before and after a refusal starts from a trail the card no longer adds to.
  */
 async function cardRead(workspace) {
-  const card = workspace.getByRole('region', { name: 'Customer' });
+  const card = workspace.getByRole('region', { name: 'Customer', exact: true });
   await expect(card.getByTestId('customer-account-state')).toBeVisible();
   await expect(card.getByRole('button', { name: 'Read again' })).toBeEnabled();
 }
@@ -246,7 +246,7 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   const ticket = await request(`TEST card ${RUN}`);
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
-  const card = workspace.getByRole('region', { name: 'Customer' });
+  const card = workspace.getByRole('region', { name: 'Customer', exact: true });
   await expect(card).toBeVisible();
   // The state shown is the one svc-support reads from identity for this request's customer.
   const read = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
