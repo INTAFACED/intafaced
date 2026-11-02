@@ -29,9 +29,10 @@
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
- *   node tooling/scripts/local-test-stack.mjs build [--rebuild]   the builds `start` runs (services, Customer, console,
- *                                         invitation site) and their stamp, and nothing started: the Real-app journeys
- *                                         workflow builds once and its shards start on that build
+ *   node tooling/scripts/local-test-stack.mjs build [--rebuild] [--no-admin]   the builds `start` runs (services,
+ *                                         Customer, console unless --no-admin, invitation site) and their stamp, and
+ *                                         nothing started: the Real-app journeys workflow builds once and its shards
+ *                                         start on that build
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
@@ -1030,7 +1031,8 @@ function ensureInvitationBuilt(rebuild) {
   );
 }
 
-function ensureBuilt(rebuild) {
+/** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
+function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
@@ -1038,7 +1040,7 @@ function ensureBuilt(rebuild) {
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
     if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
-    ensureAdminBuilt(rebuild);
+    if (admin) ensureAdminBuilt(rebuild);
     return;
   }
   if (backend === 'missing') {
@@ -1051,7 +1053,7 @@ function ensureBuilt(rebuild) {
       P.buildStamp,
       JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
     );
-    ensureAdminBuilt(rebuild);
+    if (admin) ensureAdminBuilt(rebuild);
     return;
   }
   // The services restart onto this build only when their own source moved (not for a Customer-only change).
@@ -1088,7 +1090,7 @@ function ensureBuilt(rebuild) {
       2,
     ),
   );
-  ensureAdminBuilt(rebuild);
+  if (admin) ensureAdminBuilt(rebuild);
 }
 
 // Each schema migrates as its own role inside its own schema and reads no build output, so they run side by side,
@@ -1953,7 +1955,7 @@ function cmdBuild(flags) {
   // The builds run with TMPDIR in the state folder (baseEnv), as under `start`.
   for (const d of [P.logs, path.join(STATE, 'tmp')]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
   adoptEnvCustomerDist();
-  ensureBuilt(flags.includes('--rebuild'));
+  ensureBuilt(flags.includes('--rebuild'), { admin: !flags.includes('--no-admin') });
   ensureInvitationBuilt(flags.includes('--rebuild'));
   say(`  build: stamp ${P.buildStamp}`);
 }
