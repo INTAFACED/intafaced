@@ -52,6 +52,12 @@ const ADDRESS = { line1: '1 Market', line2: null, city: 'Berlin', region: null, 
 const APPROVAL = { approvalId: 'appr-profile', operationId: 'op-profile' };
 const GRAND_DEST = '0x222222222222222222222222222222222222abcd';
 const WINDOW = { from: '2026-10-05T00:00:00.000Z', to: '2026-10-19T00:00:00.000Z' };
+// The PayFac child's summary reads a rolling 30 days back from the clock (summary.ts, rolling_30d from new Date()), so
+// its rows are dated from the test's own clock: one inside the window, one outside it that must not count. (Failure it
+// prevents: rows fixed at 2026-10-05 fell out of the window on 4 Nov 2026, and every full CI run went red.)
+const dayBefore = (days: number): string => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+const CHILD_DAY_IN = dayBefore(7);
+const CHILD_DAY_OUT = dayBefore(40);
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -218,8 +224,9 @@ describe('merchant portal procedures', () => {
         (${merchantA}, '2026-10-06', 'USDT', 2, 1, 0, 0, 0),
         (${merchantA}, '2026-10-05', 'USDC', 4, 1, 4, 1, 3),
         (${merchantA}, '2026-10-12', 'USDT', 8, 1, 0, 0, 0),
-        (${childId}, '2026-10-05', 'USDT', 5, 1, 0, 0, 0),
-        (${childId}, '2026-10-05', 'USDC', 6, 1, 0, 0, 0)`;
+        (${childId}, ${CHILD_DAY_IN}, 'USDT', 5, 1, 0, 0, 0),
+        (${childId}, ${CHILD_DAY_IN}, 'USDC', 6, 1, 0, 0, 0),
+        (${childId}, ${CHILD_DAY_OUT}, 'USDT', 9, 1, 0, 0, 0)`;
     const payId = (
       await sql<Array<{ id: string }>>`
         INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, rail_ref, status)
