@@ -716,7 +716,11 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   await expect(orderRow).toHaveCount(1);
   const orderHeads = (await orderRow.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
   const orderCells = (await orderRow.locator('td').allInnerTexts()).map((c) => c.trim());
-  expect(orderCells[orderHeads.indexOf('Status')], orderHeads.join(' | ')).toBe('Filled');
+  // The Status cell holds the status tag (and a link to the order's changes beside it): the tag reads Filled.
+  const statusAt = orderHeads.indexOf('Status');
+  expect(statusAt, orderHeads.join(' | ')).toBeGreaterThanOrEqual(0);
+  await expect(orderRow.locator('td').nth(statusAt).getByText('Filled', { exact: true })).toBeVisible();
+  expect(orderCells[statusAt]).not.toMatch(/Open|Partly|Cancel/i);
   expect(shownUnits(orderCells[orderHeads.indexOf('Filled')])).toBe(toUnits(amount));
   await page.locator('[role=tab]', { hasText: 'Trade history' }).click();
   // Each fill's row shows its price, amount, fee amount and asset, the fee rate and the maker role.
