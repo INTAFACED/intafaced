@@ -31,7 +31,7 @@ const en = {
   waitTitle: 'Applying again is closed',
   waitBody: 'Applying again waits on a waiting period the platform has not set.',
   waitRunningTitle: 'Applying again opens later',
-  waitRunningBody: 'The waiting period after a rejection has not ended yet. Nothing was sent.',
+  waitRunningBody: 'The waiting period after a rejection is still running. Nothing was sent.',
   reapplyAfter: 'You may apply again after',
   reapplyOpen: 'The waiting period has ended. You may apply again; it ended at',
   uncertainBody: 'We could not confirm whether it was sent. Read this page again before you apply again.',

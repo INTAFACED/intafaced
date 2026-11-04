@@ -242,7 +242,7 @@ const COPY: Readonly<Record<string, Words>> = {
   },
   'trade.copy_lead_reapply_wait': {
     title: 'Applying again opens later',
-    body: 'The waiting period after a rejection has not ended yet. Nothing was sent.',
+    body: 'The waiting period after a rejection is still running. Nothing was sent.',
   },
   'trade.copy_lead_criteria_unset': {
     title: 'Lead approvals are closed',
