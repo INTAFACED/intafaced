@@ -71,13 +71,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST, not owner decisions (BK-acct-01, BK-acct-03, BK-pots-01): blank refuses each by name, so the
     // J-bank-01 journey can read labelled TEST account terms, add and remove a currency, make spaces up to a TEST
     // limit and see the account details per currency switched off with rail.bank (no banking partner here).
+    // The TEST tier publishes a TEST overdraft fee of 1 USDT, so it is a plan that allows a negative balance: J-bank-02 #8
+    // pays more than the balance holds on it and sees the bank refuse, naming the overdraft as switched off
+    // (bank.overdraft_switched_off), as no overdraft engine exists in this build.
     BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
       tier: 'TEST base tier',
       version: 'local-test-1',
       currency: 'USDT',
       monthlyFee: '0',
       minimumBalance: '0',
-      overdraftFee: null,
+      overdraftFee: '1',
       included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
     }),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
-import { accountTermsOutput } from './account-terms.js';
+import { accountFeatures, accountTermsOutput } from './account-terms.js';
 import { profileField, profileOutput, profileView } from './profile.js';
 
 /**
@@ -26,14 +26,17 @@ export function createAccountsRouter(
   guard: <T>(fn: () => Promise<T>) => Promise<T>,
 ) {
   return router({
-    /** The published base-tier terms. Blank refuses `bank.account_terms_unset`; there are no built-in terms. */
+    /**
+     * The published base-tier terms. Blank refuses `bank.account_terms_unset`; there are no built-in terms. A plan that
+     * publishes an overdraft carries `bank.overdraft_switched_off`: no overdraft engine exists in this build.
+     */
     features: scopedProcedure('bank:read', { module: 'bank' })
       .input(forProfile.optional())
       .output(accountTermsOutput)
       .query(({ ctx, input }) =>
         guard(async () => {
           await bank.profiles.personalOnly(ctx.principal.userId, input?.profile);
-          return bank.accountTerms();
+          return accountFeatures(bank.accountTerms());
         }),
       ),
 

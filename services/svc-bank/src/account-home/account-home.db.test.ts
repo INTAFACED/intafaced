@@ -108,7 +108,17 @@ describe('account home (BK-acct-01) and the space limit (BK-pots-01)', () => {
 
     it('returns the published terms exactly, figures as decimal strings', async () => {
       const terms = { ...TEST_TERMS, monthlyFee: '2.50', overdraftFee: '0' };
-      expect(await as(ADA, { accountTerms: JSON.stringify(terms) }).api.accounts.features()).toEqual(terms);
+      expect(await as(ADA, { accountTerms: JSON.stringify(terms) }).api.accounts.features()).toEqual({
+        ...terms,
+        overdraftBlocker: 'bank.overdraft_switched_off',
+      });
+    });
+
+    it('names no overdraft blocker for a plan with no overdraft, and the blocker for one that publishes an overdraft (J-bank-02 #8)', async () => {
+      const none = await as(ADA, { accountTerms: JSON.stringify({ ...TEST_TERMS, overdraftFee: null }) }).api.accounts.features();
+      expect(none).toMatchObject({ overdraftFee: null, overdraftBlocker: null });
+      const some = await as(ADA, { accountTerms: JSON.stringify({ ...TEST_TERMS, overdraftFee: '1' }) }).api.accounts.features();
+      expect(some).toMatchObject({ overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' });
     });
   });
 

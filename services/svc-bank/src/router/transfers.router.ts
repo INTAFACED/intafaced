@@ -243,16 +243,23 @@ export function createTransfersRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
             );
           }
-          const result = await bank.personalPay.send({
-            actorUserId: ctx.principal.userId,
-            transferId: input.transferId,
-            fromSpaceId: input.fromSpaceId,
-            toUserId: input.toUserId,
-            amount: parseAmount(input.amount),
-            note,
-            reference,
-            requestId: input.requestId ?? null,
-          });
+          const result = await bank.personalPay
+            .send({
+              actorUserId: ctx.principal.userId,
+              transferId: input.transferId,
+              fromSpaceId: input.fromSpaceId,
+              toUserId: input.toUserId,
+              amount: parseAmount(input.amount),
+              note,
+              reference,
+              requestId: input.requestId ?? null,
+            })
+            .catch(async (err: unknown) => {
+              // Paying more than the balance holds (J-bank-02 #8): no plan in this build lets a balance go below zero, so
+              // the ledger refuses and the caller is told their own figures. The debit side is the caller's own space
+              // (assertSelf above); nothing of the recipient's is read or named.
+              throw await bank.spendFigures.refusal(err, ctx.principal.userId, from.assetId);
+            });
           return {
             ledgerTxId: result.ledgerTxId,
             amount: result.amount,

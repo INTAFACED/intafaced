@@ -567,6 +567,8 @@ export const accountTermsSchema = z.object({
   minimumBalance: money,
   overdraftFee: money.nullable(),
   included: z.array(z.string()),
+  /** Null when the plan has no overdraft; `bank.overdraft_switched_off` when it publishes one, as no overdraft engine exists. */
+  overdraftBlocker: z.literal('bank.overdraft_switched_off').nullable(),
 });
 export type AccountTerms = z.infer<typeof accountTermsSchema>;
 const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });

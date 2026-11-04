@@ -70,7 +70,7 @@ import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
 import { BankRailSend } from './BankRailSend';
-import { PlanRule } from './PlanRule';
+import { PlanRule, overBalanceProblem, usePlanTerms } from './PlanRule';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -628,6 +628,8 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const context = spaceContext(search, 'from');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const query = useBankRead('spaces.list', { limit });
+  // The plan's rule for paying more than the balance holds (J-bank-02 #8): shown under the form and in the review.
+  const plan = usePlanTerms();
   const [fromId, setFrom] = useState(context.status === 'valid' ? context.id : '');
   const [destination, setDestination] = useState<'space' | 'user'>('space');
   const [scheduled, setScheduled] = useState(false);
@@ -789,6 +791,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ],
                         validate: (input) =>
                           scheduleWindowIssue(input) ??
+                          (scheduled ? null : overBalanceProblem(plan.resource, from, input.amount)) ??
                           validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
                         ...(!scheduled && destination === 'user'
@@ -842,7 +845,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             );
           }}
         </ResourceView>
-        <PlanRule />
+        <PlanRule plan={plan} />
       </Section>
       <BankRailSend />
       <Schedules open={open} />

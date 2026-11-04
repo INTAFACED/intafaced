@@ -14,7 +14,9 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // (BANK_ONRAMP_PARTNER=payin-sim, which takes no money): it answers with its own TEST payment page, where the payer
 // approves and is sent back, and its signed "paid" call, made here as the partner would, credits through the deposit
 // recipe. They pay as a second TEST person, who starts with nothing, so the first person's 50 USDT stays as #4 to #8
-// read it. #8 runs on the stack's TEST plan, which has no overdraft, so it proves the refusal.
+// read it. #8 runs on the stack's TEST plan, which publishes a TEST overdraft fee (a plan that allows a negative balance);
+// no overdraft engine exists in this build, so the bank names it switched off and a payment to another person for more
+// than the balance is refused with that rule, at the review and by the bank itself, and nothing moves.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const WAYS = [
@@ -105,18 +107,20 @@ async function bank(who) {
     if (!res.ok) return { ok: false, status: res.status, code: body?.error?.data?.intafacedCode ?? body?.error?.data?.code, body };
     return { ok: true, data: body.result.data };
   };
-  return {
+  const doors = (service) => ({
     query: (procedure, input) =>
-      fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
+      fetch(`${EDGE}/api/${service}/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
       }).then(answer),
     mutate: (procedure, input) =>
-      fetch(`${EDGE}/api/bank/trpc/${procedure}`, {
+      fetch(`${EDGE}/api/${service}/trpc/${procedure}`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify(input),
       }).then(answer),
-  };
+  });
+  // The same session's identity doors: a handle lookup and the step-up a payment to a person asks for.
+  return { ...doors('bank'), identity: doors('identity') };
 }
 
 async function usdt(who) {
@@ -489,49 +493,91 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   expect(await usdt(who)).toBe('50');
 });
 
-test(`${J} #8 pays more than the bank holds: the plan has no overdraft, so the payment is refused with its rule and nothing moves`, async ({
+test(`${J} #8 pays another person more than the bank holds on a plan that allows a negative balance: refused with the plan's rule, and nothing moves`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const who = person();
+  const payee = payer();
   const api = await bank(who);
-  // A second USDT space to pay into, so the main balance has somewhere to go.
-  // (Made once per run: a retried step finds it already there.)
-  let listed = await api.query('spaces.list', { limit: 50 });
-  if (!listed.data.some((s) => s.name === 'TEST trip')) {
-    expect((await api.mutate('spaces.create', { assetId: 'USDT', name: 'TEST trip' })).ok).toBe(true);
-    listed = await api.query('spaces.list', { limit: 50 });
-  }
-  const main = listed.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
-  const trip = listed.data.find((s) => s.name === 'TEST trip');
+  const main = (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(main.balance).toBe('50');
+  const payeeBefore = await usdtUnits(payee);
+
+  // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee. No overdraft engine exists in
+  // this build, so the bank names it switched off rather than claim a negative balance it cannot book.
+  const terms = await api.query('accounts.features', undefined);
+  expect(terms).toMatchObject({
+    ok: true,
+    data: { tier: 'TEST base tier', overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' },
+  });
+  const rule =
+    'Your plan, TEST base tier, allows a negative balance at an overdraft fee of 1 USDT, but the overdraft is switched off in this build: the bank cannot book a balance below zero yet. Asking to pay more than you hold is refused and nothing moves.';
 
   await signInWithCode(page, who);
   await page.goto('/bank/transfers');
-  // The plan's rule, from the owner's published TEST terms.
-  await expect(page.getByTestId('plan-rule')).toContainText(
-    'Your plan, TEST base tier, has no overdraft: a payment cannot take your balance below zero.',
-  );
+  const planRule = page.getByTestId('plan-rule');
+  await expect(planRule).toContainText(rule);
+  await expect(planRule).toContainText('Reference: bank.overdraft_switched_off');
   const sent = [];
-  page.on('request', (req) => req.method() === 'POST' && req.url().includes('/api/bank/trpc/transfers.') && sent.push(req.url()));
+  page.on(
+    'request',
+    (req) => req.method() === 'POST' && /\/api\/(bank|identity)\/trpc\/(transfers|stepUp)\./.test(req.url()) && sent.push(req.url()),
+  );
+
+  // The person pays another person 60 USDT from the 50 USDT the bank holds for them.
   await page.getByLabel('From your space').selectOption(main.id);
+  await page.getByLabel('Destination').selectOption({ label: 'Another person' });
+  await page.getByPlaceholder('@handle').fill(payee.handle);
+  await page.getByRole('button', { name: 'Find' }).click();
+  await expect(page.getByText(`Paying @${payee.handle}`)).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
-  await dialog.getByLabel(/Amount/).fill('60');
+  await dialog.getByLabel(/Amount \(USDT\)/).fill('60');
   await dialog.getByRole('button', { name: 'Review' }).click();
-  await expect(dialog.getByText('exceeds the available', { exact: false })).toBeVisible();
+  // Refused at the review with the shortfall and the plan's rule; no code is asked for and nothing is sent.
+  await expect(dialog).toContainText(
+    `This is 10 USDT more than this space holds (50 USDT). ${rule} Reference: bank.overdraft_switched_off`,
+  );
+  await expect(dialog.getByTestId('step-up-confirm')).toHaveCount(0);
   expect(sent).toEqual([]);
 
-  // The bank refuses it too, with the figures, when asked directly; nothing moves.
-  const refused = await api.mutate('transfers.create', {
-    transferId: crypto.randomUUID(),
-    fromSpaceId: main.id,
-    toSpaceId: trip.id,
-    amount: '60',
-  });
+  // The bank refuses the same payment itself, after the person confirms it is them: its own figures, nothing posted.
+  const found = await api.identity.query('users.resolveHandle', { handle: payee.handle });
+  expect(found).toMatchObject({ ok: true, data: { found: true, self: false } });
+  const toUserId = found.data.userId;
+  const transferId = `jb2-8-${payee.handle}`;
+  const fields = { transferId, fromSpaceId: main.id, toUserId, assetId: 'USDT', amount: '60' };
+  const pay = async () => {
+    const begun = await api.identity.mutate('stepUp.begin', {
+      scope: 'bank.step_up.transfers.toUser',
+      purpose: 'transfers.toUser',
+      target: toUserId,
+      amount: '60',
+      fields,
+    });
+    expect(begun.ok, JSON.stringify(begun.body ?? '').slice(0, 300)).toBe(true);
+    const done = await api.identity.mutate('stepUp.complete', { challengeId: begun.data.challengeId, totpCode: await codeFor() });
+    expect(done.ok, JSON.stringify(done.body ?? '').slice(0, 300)).toBe(true);
+    return api.mutate('transfers.toUser', {
+      transferId,
+      fromSpaceId: main.id,
+      toUserId,
+      amount: '60',
+      stepUpApprovalId: done.data.stepUpApprovalId,
+    });
+  };
+  const refused = await pay();
   expect(refused).toMatchObject({ ok: false, status: 400 });
   expect(refused.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
-  const after = await api.query('spaces.list', { limit: 50 });
-  expect(after.data.find((s) => s.id === main.id).balance).toBe('50');
-  expect(after.data.find((s) => s.id === trip.id).balance).toBe('0');
+  expect(refused.body?.error?.data?.spend).toMatchObject({ assetId: 'USDT', available: '50' });
+  // Asking again is refused the same way: never a second attempt that lands.
+  const again = await pay();
+  expect(again.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
+
+  // Nothing moved: the payer's balance never went below zero, the payee got nothing, and no payment is listed.
+  expect(await usdt(who)).toBe('50');
+  expect(await usdtUnits(payee)).toBe(payeeBefore);
+  const out = await api.query('transfers.list', { limit: 50 });
+  expect(out.ok && out.data.items.filter((item) => item.kind === 'transfer_out')).toEqual([]);
 });

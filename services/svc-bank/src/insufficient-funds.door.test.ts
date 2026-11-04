@@ -79,6 +79,12 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
         throw opts.transferError;
       },
     },
+    personalPay: {
+      send: async (input: unknown) => {
+        posted.push(input);
+        throw opts.transferError;
+      },
+    },
     spendFigures: new SpendFiguresReader(sql, ledger),
     // Nobody here is a member of a shared pot (BK-acct-09): both transfer checks let the call through.
     sharedPots: { assertMayTakeOut: async () => undefined, assertMayAddTo: async () => undefined },
@@ -125,5 +131,22 @@ describe('RC-wallet-09 transfers.create refused for funds', () => {
   it('other refusals keep their own code', async () => {
     const { caller } = build({ transferError: new BankError('locked', 'bank.space_locked') });
     await expect(caller.transfers.create(spend(MINE))).rejects.toMatchObject({ cause: { code: 'bank.space_locked' } });
+  });
+});
+
+describe('J-bank-02 #8 transfers.toUser refused for funds', () => {
+  const pay = { transferId: 'jb2-8-pay-person-1', fromSpaceId: FROM, toUserId: OTHER, amount: '12' };
+
+  it('answers bank.insufficient_funds with the payer own figures, never the recipient', async () => {
+    const { caller, posted } = build({ transferError: refusedForFunds() });
+    const cause = await causeOf(caller.transfers.toUser(pay));
+    expect((cause as BankError).code).toBe('bank.insufficient_funds');
+    expect(spendFiguresOf(cause)).toEqual({ assetId: 'USDT', available: '10', onHold: '5', inEarn: '20' });
+    expect(posted).toHaveLength(1);
+  });
+
+  it('other refusals keep their own code', async () => {
+    const { caller } = build({ transferError: new BankError('over the limit', 'bank.personal_transfer_limit_exceeded') });
+    await expect(caller.transfers.toUser(pay)).rejects.toMatchObject({ cause: { code: 'bank.personal_transfer_limit_exceeded' } });
   });
 });

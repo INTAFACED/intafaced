@@ -18,8 +18,8 @@
     },
     "BANK_ACCOUNT_TERMS_JSON": {
       "service": "bank",
-      "value": "{\"tier\": \"TEST base tier\", \"version\": \"local-test-1\", \"currency\": \"USDT\", \"monthlyFee\": \"0\", \"minimumBalance\": \"0\", \"overdraftFee\": null, \"included\": [\"TEST spaces for your goals\", \"TEST moves between your spaces\"]}",
-      "note": "Made-up base-tier terms labelled TEST so the account panel has something to read; not a price."
+      "value": "{\"tier\": \"TEST base tier\", \"version\": \"local-test-1\", \"currency\": \"USDT\", \"monthlyFee\": \"0\", \"minimumBalance\": \"0\", \"overdraftFee\": \"1\", \"included\": [\"TEST spaces for your goals\", \"TEST moves between your spaces\"]}",
+      "note": "Made-up base-tier terms labelled TEST so the account panel has something to read; not a price. The TEST overdraft fee of 1 USDT makes it a plan that allows a negative balance, so J-bank-02 #8 sees the bank refuse with the overdraft named switched off."
     },
     "BANK_ACCOUNT_CURRENCIES": {
       "service": "bank",
