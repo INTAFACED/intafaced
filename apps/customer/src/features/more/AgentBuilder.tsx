@@ -26,6 +26,7 @@ import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, TryTool } from './AgentGuardrails';
 import { EvaluationsPage } from './AgentEvaluations';
+import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -484,6 +485,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               </>
             ) : page === 'Test' ? (
               <>
+                <TestPanel agent={agent} />
                 <Sessions agent={agent} session={session} twice />
                 <TryTool agent={agent} session={session} />
               </>
@@ -492,7 +494,9 @@ export function OwnAgentPage({ id }: { id: string }) {
             ) : page === 'Permissions' ? (
               <PermissionsPage agent={agent} />
             ) : page === 'Runs' ? (
-              <Runs agent={agent} />
+              <RunsPage agent={agent} live={<Runs agent={agent} />} />
+            ) : page === 'Analytics' ? (
+              <AnalyticsPage agent={agent} />
             ) : page === 'Usage' ? (
               <Usage agent={agent} />
             ) : page === 'Evaluations' ? (
@@ -501,7 +505,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics'>}`,
                   )}
                 </p>
               </Panel>

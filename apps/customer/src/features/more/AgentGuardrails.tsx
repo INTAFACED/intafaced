@@ -72,7 +72,7 @@ function Answer({ failed }: { failed: Failed }) {
 
 const slug = (tool: string) => tool.replaceAll('.', '_');
 /** A tool in words, or its name when the copy has none. */
-function toolWords(t: Words, tool: string): string {
+export function toolWords(t: Words, tool: string): string {
   const key = `tool_${slug(tool)}`;
   return hasGuardrailWords(key) ? t(key) : tool;
 }

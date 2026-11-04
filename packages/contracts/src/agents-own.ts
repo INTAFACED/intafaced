@@ -268,3 +268,107 @@ export const ownAgentEvalStartSchema = z.object({
   threshold: z.string().max(16),
 });
 export type OwnAgentEvalStart = z.infer<typeof ownAgentEvalStartSchema>;
+
+/**
+ * DRY RUNS AND TEST RUNS (AG-spend-04, AG-testing-01). A dry run checks one call of one of the agent's tools the way a
+ * real call in a new session of the agent is checked (the caps that let the session open, the tool declared on the
+ * agent, that it moves no value, the person's consent for its class, the owner's baseline, the person's rule, and the
+ * tool's door) and says what the call would do. Nothing runs and nothing is billed: no session is opened, and no ledger entry, intent or
+ * reservation is made. A dry run is a test run, labelled TEST and listed apart from live runs; live analytics leave test
+ * runs out unless the person includes them.
+ */
+export const OWN_AGENT_DRY_RUN_CHECKS = [
+  'caps_set',
+  'tool_declared',
+  'moves_no_value',
+  'consent',
+  'baseline',
+  'rule',
+  'door_wired',
+] as const;
+export type OwnAgentDryRunCheckName = (typeof OWN_AGENT_DRY_RUN_CHECKS)[number];
+
+/** One check, in the order a real call meets it: passed, or not with the refusal code a real call would get. */
+export const ownAgentDryRunCheckSchema = z.object({
+  check: z.enum(OWN_AGENT_DRY_RUN_CHECKS),
+  passed: z.boolean(),
+  code: z.string().nullable(),
+});
+export type OwnAgentDryRunCheck = z.infer<typeof ownAgentDryRunCheckSchema>;
+
+/**
+ * What the call would do: run the tool once in a session of the agent (`run`), hold an approval request and run nothing
+ * until the person approves (`ask`), or be refused with the first failing check's code (`refused`).
+ */
+export const ownAgentDryRunEffectSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('run'),
+    tool: z.string(),
+    module: z.string(),
+    dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
+    input: z.record(z.string(), z.string()),
+  }),
+  z.object({
+    kind: z.literal('ask'),
+    tool: z.string(),
+    module: z.string(),
+    dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
+    input: z.record(z.string(), z.string()),
+  }),
+  z.object({ kind: z.literal('refused'), tool: z.string(), code: z.string() }),
+]);
+export type OwnAgentDryRunEffect = z.infer<typeof ownAgentDryRunEffectSchema>;
+
+/** One test run of the person's own agent: today a dry run. Never billed (cost 0), labelled TEST. */
+export const ownAgentTestRunSchema = z.object({
+  id: z.string().uuid(),
+  requestId: z.string(),
+  kind: z.literal('dry_run'),
+  tool: z.string(),
+  input: z.record(z.string(), z.string()),
+  checks: z.array(ownAgentDryRunCheckSchema),
+  effect: ownAgentDryRunEffectSchema,
+  cost: z.literal('0'),
+  assetId: z.string(),
+  label: z.literal('TEST'),
+  createdAt: z.string(),
+});
+export type OwnAgentTestRun = z.infer<typeof ownAgentTestRunSchema>;
+
+/** `own.dryRun` input: one call of one tool. The same request id again is the same dry run. */
+export const ownAgentDryRunStartSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(8).max(200),
+  tool: z.string().min(1).max(120),
+  input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+});
+export type OwnAgentDryRunStart = z.infer<typeof ownAgentDryRunStartSchema>;
+
+/**
+ * `own.holds`: what this agent holds for the person across all its sessions, read from svc-agents' own tables: its
+ * sessions, its spend reservations (any state) and its stored place intents. A dry run adds to none of them.
+ */
+export const ownAgentHoldsSchema = z.object({
+  sessions: z.number().int().nonnegative(),
+  reservations: z.number().int().nonnegative(),
+  intents: z.number().int().nonnegative(),
+});
+export type OwnAgentHolds = z.infer<typeof ownAgentHoldsSchema>;
+
+/**
+ * `own.analytics`: the agent's runs by outcome and what they cost. Live runs only unless `includeTest` is true, which
+ * adds the test runs (never billed, so the cost is the same). `includeTest` is false when not sent.
+ */
+export const ownAgentAnalyticsSchema = z.object({
+  includeTest: z.boolean(),
+  runs: z.number().int().nonnegative(),
+  liveRuns: z.number().int().nonnegative(),
+  executed: z.number().int().nonnegative(),
+  refused: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  /** Null when test runs are left out. */
+  testRuns: z.number().int().nonnegative().nullable(),
+  cost: z.string(),
+  assetId: z.string(),
+});
+export type OwnAgentAnalytics = z.infer<typeof ownAgentAnalyticsSchema>;

@@ -9,6 +9,10 @@ import {
   ownAgentEvalRunSchema,
   ownAgentEvalsSchema,
   ownAgentEvalStartSchema,
+  ownAgentAnalyticsSchema,
+  ownAgentDryRunStartSchema,
+  ownAgentHoldsSchema,
+  ownAgentTestRunSchema,
   ownAgentRuleSchema,
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
@@ -43,6 +47,7 @@ import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
+import { dryRunToolCall, ownAgentAnalytics, ownAgentHolds, OwnTestRunStore } from './dry-run.js';
 import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
@@ -367,6 +372,71 @@ export function ownRouter(
           });
         }),
     }),
+
+    /**
+     * A dry run of one call of one of the agent's tools (AG-spend-04): every check a real call meets, in its order, and
+     * what the call would do. It opens no session and calls no tool, runtime, spend gate or ledger, so no ledger entry,
+     * intent or reservation is made; it is stored as a test run, labelled TEST and never billed. The same request id
+     * again is the same dry run.
+     */
+    dryRun: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentDryRunStartSchema)
+      .output(ownAgentTestRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          const call = { tool: input.tool, input: input.input };
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).dryRun(ctx.principal.userId, agent.id, input.requestId, call, () =>
+            dryRunToolCall(sqlOf(sql), tooling.baseline, { ownerId: ctx.principal.userId, agent, ...call }),
+          );
+        });
+      }),
+
+    /** The agent's test runs, newest first, apart from its live runs (`own.runs`). Each is labelled TEST and cost 0. */
+    testRuns: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentTestRunSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).list(ctx.principal.userId, agent.id, input.limit);
+        });
+      }),
+
+    /** What the agent holds for the person across its sessions: sessions, spend reservations and place intents. */
+    holds: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput)
+      .output(ownAgentHoldsSchema)
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return ownAgentHolds(sqlOf(sql), ctx.principal.userId, ownSessionAgentId(agent.id));
+        });
+      }),
+
+    /** The agent's runs by outcome and their cost: live runs only, unless the person includes test runs. */
+    analytics: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ includeTest: z.boolean().optional() }))
+      .output(ownAgentAnalyticsSchema)
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return ownAgentAnalytics(sqlOf(sql), {
+            ownerId: ctx.principal.userId,
+            agentId: agent.id,
+            sessionAgentId: ownSessionAgentId(agent.id),
+            includeTest: input.includeTest === true,
+            assetId: feeAssetId,
+          });
+        });
+      }),
 
     tool: router({
       /**
