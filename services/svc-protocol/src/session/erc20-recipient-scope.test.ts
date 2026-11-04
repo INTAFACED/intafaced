@@ -302,6 +302,10 @@ describe('every function with an address input in the compiled contracts is clas
     'AccountFactory.createAccount(address,bytes32)': 'permissionless deploy; no asset of the calling account moves',
     'DeployerReputation.registerLock(address)': 'permissionless public registry; reads the beneficiary from the lock, moves nothing',
     'DeployerReputation.registerVesting(address)': 'permissionless public registry; reads the beneficiary from the vesting, moves nothing',
+    'ClaimLinkEscrow.claim(address,address,bytes)':
+      "pays a link's escrowed tokens, never the caller's, and only to the `to` the link key signed for; the caller's own assets never move",
+    'ClaimLinkEscrow.clawback(address)':
+      "pays only the link's recorded sender, and only when the caller is that sender; the id picks which link",
     'FailClosedOracle.report(address,uint256)': 'reporter-gated price feed; moves no funds',
     'FeeTokenRelay.setFeeToken(address,bool)': 'operator-gated fee token allowlist; moves no funds',
     'FeeTokenRelay.swap((address,address,address,uint256,uint256,address,uint256,uint256,uint256,uint256),bytes,(address,uint256,uint256,uint8,bytes32,bytes32)[])':

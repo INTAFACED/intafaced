@@ -4,7 +4,7 @@ import { isWeb3Path, matchWeb3Route, WEB3_ROUTES } from './routes';
 import { lastShellRoute, rememberShellRoute, shellOf, SHELL_DEFAULT } from './shell-state';
 
 describe('Web3 routes (IA-SPEC 2.8)', () => {
-  it('has all thirty-one routes, each registered as a web3 room', () => {
+  it('has all thirty-three routes, each registered as a web3 room', () => {
     expect(WEB3_ROUTES.map((route) => route.path)).toEqual([
       '/dex',
       '/dex/pools',
@@ -20,12 +20,14 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
       '/wallet/send',
       '/wallet/receive',
       '/wallet/scan',
+      '/wallet/claim-links',
       '/wallet/address-book',
       '/wallet/approvals',
       '/wallet/session-keys',
       '/wallet/accounts',
       '/wallet/safety',
       '/wallet/groups/:groupId',
+      '/wallet/claim/:linkId',
       '/chain',
       '/chain/blocks',
       '/chain/blocks/:height',

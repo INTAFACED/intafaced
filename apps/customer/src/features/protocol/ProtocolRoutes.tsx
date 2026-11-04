@@ -1,8 +1,9 @@
 import { ParkedProtocolRoom } from './ParkedProtocolRoom';
 import { NotFoundRoute, PendingRoute } from './PendingRoute';
-import { matchWeb3Route } from './routes';
+import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { ClaimPage } from './wallet/ClaimPage';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { AddressPage } from './watch/AddressPage';
@@ -38,6 +39,11 @@ export function ProtocolRoutes({ path }: { path: string }) {
         <PendingRoute room={route.room} page={route.explorer === 'block' ? 'blockDetail' : 'txDetail'} blocker="indexer" valid={false} />
       );
     return route.explorer === 'block' ? <BlockPage height={Number(value)} /> : <TxPage hash={value.toLowerCase()} />;
+  }
+  if (route.walletClaim) {
+    const id = safeDecode(params.linkId);
+    if (id === undefined || !ADDRESS_SHAPE.test(id)) return <NotFoundRoute path={path} />;
+    return <ClaimPage id={id} />;
   }
   if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {

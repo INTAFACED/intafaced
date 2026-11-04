@@ -112,6 +112,8 @@ library SessionKeyLib {
     //   meme launch, token factory create: the recipient / token / quote addresses
     //     sit inside a struct with dynamic fields, and a fake pair token lets the
     //     caller drain the quote side
+    //   claim-link create: locks the account's tokens under a link key the caller
+    //     chooses, and whoever holds that key claims them to any address
     bytes4 internal constant SEL_ESCROW_OPEN = 0x492284ae; // open(address,address,uint128,address,address,uint16,uint32,uint8)
     bytes4 internal constant SEL_LOCK = 0xdd467064; // lock(uint256)
     bytes4 internal constant SEL_ESCROW_RELEASE = 0x37bdc99b; // release(uint256)
@@ -131,6 +133,7 @@ library SessionKeyLib {
     bytes4 internal constant SEL_RECOVERY_SET_THRESHOLD = 0x17c4de35; // setThreshold(uint64)
     bytes4 internal constant SEL_CARD_SET_SETTLEMENT = 0x8f4e6f37; // setSettlement(address)
     bytes4 internal constant SEL_PAYMASTER_WITHDRAW_FLOAT = 0xf9bf1347; // withdrawFloat(address,uint256)
+    bytes4 internal constant SEL_CLAIM_LINK_CREATE = 0x9c1d17ce; // create(address,uint256,address,uint64)
 
     // ── The recipient-bearing selectors ──────────────────────────────────────
     //
@@ -288,6 +291,7 @@ library SessionKeyLib {
             selector == SEL_RECOVERY_SET_THRESHOLD ||
             selector == SEL_CARD_SET_SETTLEMENT ||
             selector == SEL_PAYMASTER_WITHDRAW_FLOAT ||
+            selector == SEL_CLAIM_LINK_CREATE ||
             selector == SEL_UPGRADE_TO_AND_CALL;
     }
 

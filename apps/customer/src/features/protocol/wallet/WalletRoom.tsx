@@ -11,7 +11,9 @@ import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
+import { ActivityPanel } from './ActivityPanel';
 import { AddressBookPanel } from './AddressBookPanel';
+import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';
 import { ReceivePanel } from './ReceivePanel';
@@ -25,7 +27,6 @@ const SECTIONS = Object.keys(WALLET_SECTIONS) as WalletSection[];
 type Section = WalletSection;
 /** The sections that show a table of what the wallet holds or did; the others are their own panels. */
 const HEADERS: Partial<Record<Section, readonly string[]>> = {
-  activity: ['hdr_time', 'hdr_event', 'hdr_status'],
   sessionKeys: ['hdr_name', 'hdr_address', 'hdr_status'],
   accounts: ['hdr_name', 'hdr_address', 'hdr_status'],
   safety: ['hdr_event', 'hdr_status'],
@@ -159,6 +160,10 @@ export function WalletRoom({
       <ReceivePanel />
     ) : section === 'scan' ? (
       <ScanPanel />
+    ) : section === 'claimLinks' ? (
+      <ClaimLinksPanel />
+    ) : section === 'activity' ? (
+      <ActivityPanel />
     ) : section === 'addressBook' ? (
       groupId === undefined ? (
         <AddressBookPanel />

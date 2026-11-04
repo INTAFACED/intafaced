@@ -165,6 +165,8 @@ export const appRouter = createProtocolRouter({
           gasLimit: env.PROTOCOL_FEE_RELAY_GAS_LIMIT,
         }
       : null,
+  claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  replacement: () => ({ bumpBps: env.PROTOCOL_TX_FEE_BUMP_BPS, ceilingWei: env.PROTOCOL_TX_FEE_CEILING_WEI }),
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null
       ? { usdTokens: env.PROTOCOL_PRICE_USD_TOKENS, minReserveUsd: env.PROTOCOL_PRICE_MIN_RESERVE_USD }

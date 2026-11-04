@@ -81,6 +81,8 @@ export const FORBIDDEN_SIGNATURES = [
   'setThreshold(uint64)', // UserElectedRecovery
   'setSettlement(address)', // CardPull
   'withdrawFloat(address,uint256)', // ScopedPaymaster
+  // locks the account's tokens under a link key the caller chooses; whoever holds the key claims them anywhere
+  'create(address,uint256,address,uint64)', // ClaimLinkEscrow
   // addresses inside a struct with dynamic fields; a fake pair token drains the quote side
   'launch((address,string,string,uint8,uint256,address,uint16,uint256,uint256,uint64,bytes32))', // MemeLaunch
   'createToken(bytes32,(string,string,uint8,uint256,address))', // TokenFactory

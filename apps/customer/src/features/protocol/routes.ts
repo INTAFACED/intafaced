@@ -17,6 +17,7 @@ export const WALLET_SECTIONS = {
   send: '/wallet/send',
   receive: '/wallet/receive',
   scan: '/wallet/scan',
+  claimLinks: '/wallet/claim-links',
   addressBook: '/wallet/address-book',
   approvals: '/wallet/approvals',
   sessionKeys: '/wallet/session-keys',
@@ -34,6 +35,8 @@ export interface Web3Route {
   wallet?: WalletSection;
   /** The wallet room's page for one wallet group (`groupId`), under its address book section. */
   walletGroup?: true;
+  /** The page a claim link opens (`linkId`, the link key's address; the key itself rides in the fragment). */
+  walletClaim?: true;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
   /** One pool's page by its contract address (D-explorer-05). */
@@ -72,6 +75,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
+  { path: '/wallet/claim/:linkId', room: 'wallet', walletClaim: true, param: { name: 'linkId', shape: ADDRESS_SHAPE } },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
   { path: '/chain/blocks/:height', room: 'chain', explorer: 'block', param: { name: 'height', shape: digits } },

@@ -310,6 +310,15 @@ export const SUITES = [
     sources: ['paymaster/FeeTokenRelay.sol', 'oracle/IPriceOracle.sol'],
   },
   {
+    name: 'claim-link',
+    expect: 'compiles',
+    /**
+     * D-swap-12 — send tokens by a link: a one-time link key locks tokens, its signature pays a bound recipient once, and
+     * only the sender takes them back after expiry. Own suite so no other suite's change stales this bytecode.
+     */
+    sources: ['escrow/ClaimLinkEscrow.sol'],
+  },
+  {
     name: 'rwa',
     expect: 'compiles',
     /**

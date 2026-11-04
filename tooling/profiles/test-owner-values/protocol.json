@@ -90,6 +90,16 @@
       "service": "protocol",
       "value": "400000",
       "note": "TEST gas a relayed fee-token swap is priced for and sent with. Blank in production refuses protocol.fee_relay_unset."
+    },
+    "PROTOCOL_TX_FEE_BUMP_BPS": {
+      "service": "protocol",
+      "value": "2000",
+      "note": "TEST: a speed-up or cancel raises both fee fields of the pending transaction by 20% (RC-dex-protocol-01, J-dex-protocol-04 #8). Blank in production refuses protocol.fee_bump_unset."
+    },
+    "PROTOCOL_TX_FEE_CEILING_WEI": {
+      "service": "protocol",
+      "value": "100000000000",
+      "note": "TEST: a speed-up or cancel is never built above 100 gwei per gas (RC-dex-protocol-01). Blank in production refuses protocol.fee_ceiling_unset."
     }
   }
 }

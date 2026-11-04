@@ -641,3 +641,29 @@ describe('committed recovery artefacts match the Solidity in this tree', () => {
     }
   });
 });
+
+describe('committed claim-link escrow artefacts match the Solidity in this tree (D-swap-12)', () => {
+  const claimLink = (SUITES as Suite[]).find((s) => s.name === 'claim-link');
+
+  it('compiles ClaimLinkEscrow in its own suite', () => {
+    expect(claimLink?.expect).toBe('compiles');
+    const artefact = loadArtifact('ClaimLinkEscrow');
+    expect(artefact.contractName).toBe('ClaimLinkEscrow');
+    expect(artefact.suite).toBe('claim-link');
+    expect(artefact.bytecode.length).toBeGreaterThan(2);
+  });
+
+  it('records a sourceHash that still matches the .sol files on disk', () => {
+    expect(loadArtifact('ClaimLinkEscrow').sourceHash).toBe(computeSourceHash(suiteSources(claimLink, collectSources())));
+  });
+
+  it('has create, claim and clawback, and no owner, admin or sweep path to locked tokens', () => {
+    const names = loadArtifact('ClaimLinkEscrow')
+      .abi.filter((entry) => entry.type === 'function')
+      .map((entry) => ('name' in entry ? entry.name : ''));
+    for (const forbidden of ['owner', 'pause', 'withdraw', 'sweep', 'execute', 'upgradeTo', 'transferOwnership', 'setExpiry'])
+      expect(names, `ClaimLinkEscrow must not expose ${forbidden}()`).not.toContain(forbidden);
+    for (const required of ['create', 'claim', 'clawback', 'links', 'openAmount', 'minExpirySeconds', 'maxExpirySeconds'])
+      expect(names).toContain(required);
+  });
+});

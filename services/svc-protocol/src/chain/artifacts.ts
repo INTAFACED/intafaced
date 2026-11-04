@@ -70,6 +70,7 @@ export type ArtifactName =
   | 'UserElectedRecovery'
   | 'ScopedPaymaster'
   | 'FeeTokenRelay'
+  | 'ClaimLinkEscrow'
   | 'TestToken'
   | 'RwaRegistry'
   | 'CardPull';

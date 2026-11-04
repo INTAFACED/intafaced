@@ -4,7 +4,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { useApi } from '../../session/session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
-import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
+import { useRegionBlocked } from '../region';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
 import { RepresentationPanel } from './RepresentationPanel';
@@ -21,6 +21,8 @@ import {
   transferCalldata,
 } from './transfer';
 import { useWallet } from './WalletProvider';
+import { recordSent } from './sent-store';
+import { signingGate } from './signing-gate';
 
 type Contract = 'checking' | 'contract' | 'wallet' | 'unknown';
 type Outcome =
@@ -109,20 +111,14 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
     if (destination.kind !== 'address' || !wallet.address || units === null) return;
     setOutcome({ kind: 'busy' });
     // A send is a signing action: the representation gate runs first and never fails open.
-    const representation = await api.representationStatus(wallet.address);
-    if (!representation.ok) {
-      const key =
-        representation.code === REGION_BLOCKED_CODE
-          ? 'permitRefused_region'
-          : representation.code === 'compliance.representation_unset'
-            ? 'permitRefused_representation_unset'
-            : 'permitRefused_representation_unavailable';
+    const gate = await signingGate(api, wallet.address);
+    if (gate.kind === 'refused') {
       setReviewing(false);
-      return setOutcome({ kind: 'refused', message: t(key) });
+      return setOutcome({ kind: 'refused', message: t(gate.key) });
     }
-    if (!representation.data.accepted) {
+    if (gate.kind === 'needed') {
       setReviewing(false);
-      return setOutcome({ kind: 'representation', address: wallet.address, status: representation.data });
+      return setOutcome({ kind: 'representation', address: gate.address, status: gate.status });
     }
     setReviewing(false);
     const result = await wallet.sign(
@@ -130,8 +126,16 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         ? { kind: 'transaction', to: chosen.address, data: transferCalldata(destination.address, units) }
         : { kind: 'transaction', to: destination.address, value: toHexValue(units) },
     );
-    if (result.status === 'sent') setOutcome({ kind: 'sent', hash: result.hash });
-    else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
+    if (result.status === 'sent') {
+      // Kept in this browser so Activity shows it while it is pending, and a speed-up or cancel can name it.
+      recordSent(APP_CHAIN_ID, wallet.address, {
+        hash: result.hash,
+        sentAt: Date.now(),
+        kind: 'send',
+        label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
+      });
+      setOutcome({ kind: 'sent', hash: result.hash });
+    } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
     else setOutcome({ kind: 'idle' });
   };

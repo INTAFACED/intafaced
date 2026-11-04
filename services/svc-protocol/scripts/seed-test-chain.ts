@@ -44,6 +44,11 @@ export const TEST_TOKENS = {
    * (J-dex-protocol-02 #11): it trades in no pool, so it is never offered to swap, only to pay a fee and be refused.
    */
   EUR: { address: '0x00000000000000000000000000000000000e0e00', name: 'TEST EUR', symbol: 'TESTEUR', decimals: 6 },
+  /**
+   * An airdropped TEST token that trades in no pool (J-dex-protocol-04 #7): `fund <address> spam` sends some to a wallet
+   * unasked, from the TEST deployer, so the wallet's Activity has a spam row to hide and show.
+   */
+  DROP: { address: '0x00000000000000000000000000000000000d7090', name: 'TEST Airdrop', symbol: 'TESTDROP', decimals: 18 },
 } as const;
 /**
  * The TEST network-fee relay's parts (RC-dex-protocol-02, J-dex-protocol-02 #11). The relayer submits a person's signed
@@ -65,6 +70,13 @@ export const TEST_ORACLE_STALENESS_SECONDS = 86_400;
 const TEST_ORACLE_MAX_DISAGREEMENT_BPS = 100;
 /** The TEST relay's published markup on the oracle rate: 5% (500 bps), immutable in the deployed relay. */
 export const TEST_FEE_MARKUP_BPS = 500;
+/**
+ * The TEST claim-link escrow's published expiry bounds (D-swap-12, J-dex-protocol-04 #6): a link lasts at least one
+ * minute and at most 30 days. Immutable in the deployed escrow. TEST values: one minute keeps a journey's wait short.
+ */
+export const TEST_CLAIM_EXPIRY_BOUNDS = { min: 60, max: 30 * 86_400 } as const;
+/** What `fund <address> spam` sends: an amount of TEST Airdrop nobody asked for. */
+const SPAM_FUNDING = '1000';
 /** What `fund <address> stable` gives: TEST USD only, and no TEST ETH. */
 const STABLE_ONLY_FUNDING = '100';
 
@@ -170,7 +182,12 @@ async function seed(out: string) {
   await publicClient.request({ method: 'evm_setAutomine', params: [true] } as never);
   // Seeded already (the chain kept running across a stack restart): the record still names what is on the node.
   if (existsSync(out)) {
-    const record = JSON.parse(readFileSync(out, 'utf8')) as { factory: Address; oracle?: Address; tokens: typeof TEST_TOKENS };
+    const record = JSON.parse(readFileSync(out, 'utf8')) as {
+      factory: Address;
+      oracle?: Address;
+      claimEscrow?: Address;
+      tokens: typeof TEST_TOKENS;
+    };
     const [factoryCode, tokenCode, oracleCode] = await Promise.all([
       publicClient.getCode({ address: record.factory }),
       publicClient.getCode({ address: TEST_TOKENS.USD.address }),
@@ -179,6 +196,12 @@ async function seed(out: string) {
     if (factoryCode && factoryCode !== '0x' && tokenCode && tokenCode !== '0x' && oracleCode && oracleCode !== '0x') {
       // The live fee token's mark is pushed again, so a chain that outlived the staleness bound still prices it.
       await reportMark(clients(), record.oracle!, TEST_TOKENS.USD.address, TEST_FEE_MARKS.USD);
+      // A chain seeded before the claim-link escrow existed gets it (and the TEST Airdrop token) now.
+      const escrowCode = record.claimEscrow ? await publicClient.getCode({ address: record.claimEscrow }) : undefined;
+      if (!escrowCode || escrowCode === '0x') {
+        const claimEscrow = await seedClaimLinkParts(clients());
+        writeFileSync(out, `${JSON.stringify({ ...record, tokens: TEST_TOKENS, claimEscrow }, null, 2)}\n`);
+      }
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -199,7 +222,8 @@ async function seed(out: string) {
   // runtime code copied to the fixed address. TestToken keeps name, symbol and decimals as immutables, so that code is
   // the whole token: nothing in storage to copy, and the copy answers exactly as the deployment does.
   const token = artifact('TestToken');
-  for (const t of Object.values(TEST_TOKENS)) {
+  // TEST Airdrop is deployed last (seedClaimLinkParts), so every address seeded before it stays where it was.
+  for (const t of Object.values(TEST_TOKENS).filter((entry) => entry.symbol !== TEST_TOKENS.DROP.symbol)) {
     const deployed = await deploy('TestToken', [t.name, t.symbol, t.decimals]);
     const code = await publicClient.getCode({ address: deployed });
     await publicClient.request({ method: 'anvil_setCode', params: [t.address, code] } as never);
@@ -305,6 +329,8 @@ async function seed(out: string) {
       }),
     );
 
+  const claimEscrow = await seedClaimLinkParts(all);
+
   const record = {
     node: version,
     chainId,
@@ -318,11 +344,54 @@ async function seed(out: string) {
     feeRelay,
     feeRelayer: TEST_FEE_RELAYER,
     feeMarkupBps: TEST_FEE_MARKUP_BPS,
+    claimEscrow,
+    claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
+}
+
+/**
+ * The claim-link escrow (D-swap-12) with its TEST expiry bounds, and the TEST Airdrop token at its fixed address (in no
+ * pool). Returns the escrow's address. Runs on automine, inside the seed.
+ */
+async function seedClaimLinkParts({ publicClient, walletClient }: Clients): Promise<Address> {
+  const drop = TEST_TOKENS.DROP;
+  if ((await publicClient.getCode({ address: drop.address })) === undefined) {
+    const a = artifact('TestToken');
+    const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args: [drop.name, drop.symbol, drop.decimals] });
+    const deployed = (await publicClient.waitForTransactionReceipt({ hash })).contractAddress as Address;
+    const code = await publicClient.getCode({ address: deployed });
+    await publicClient.request({ method: 'anvil_setCode', params: [drop.address, code] } as never);
+  }
+  const escrow = artifact('ClaimLinkEscrow');
+  const hash = await walletClient.deployContract({
+    abi: escrow.abi,
+    bytecode: escrow.bytecode,
+    args: [BigInt(TEST_CLAIM_EXPIRY_BOUNDS.min), BigInt(TEST_CLAIM_EXPIRY_BOUNDS.max)],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`claim-link escrow deploy failed: ${hash}`);
+  return receipt.contractAddress;
+}
+
+/**
+ * Sends TEST Airdrop to `address` from the TEST deployer, unasked (J-dex-protocol-04 #7): a token in no pool arriving in a
+ * transaction the wallet did not send, which the wallet's Activity counts as spam.
+ */
+async function fundSpam(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.DROP.address,
+    abi: artifact('TestToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(SPAM_FUNDING, TEST_TOKENS.DROP.decimals)],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`sent ${address}: ${SPAM_FUNDING} ${TEST_TOKENS.DROP.name}, unasked, in ${receipt.transactionHash}`);
 }
 
 /** TEST funding for one TEST wallet: TEST ETH for gas, and TEST Token A and B. Anyone may mint a TestToken. */
@@ -364,5 +433,6 @@ async function fundStable(address: Address) {
 const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable]');
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam]');

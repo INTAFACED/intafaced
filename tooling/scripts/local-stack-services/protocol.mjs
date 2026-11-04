@@ -69,6 +69,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only (same profile): how long a contract ownership challenge stays signable. Blank in production refuses
       // protocol.listing.challenge_ttl_unset and no challenge is issued.
       PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: 'TEST:300',
+      // LOCAL TEST only, labelled in the same file: the seeded claim-link escrow (D-swap-12), whose expiry bounds are its
+      // own immutable values, and the fee bump and per-gas ceiling a speed-up or cancel is built with (RC-dex-protocol-01).
+      // Production stays blank and they refuse protocol.claim_escrow_unset, protocol.fee_bump_unset and
+      // protocol.fee_ceiling_unset.
+      ...(chain?.claimEscrow ? { PROTOCOL_CLAIM_ESCROW_ADDRESS: chain.claimEscrow } : {}),
+      PROTOCOL_TX_FEE_BUMP_BPS: '2000',
+      PROTOCOL_TX_FEE_CEILING_WEI: '100000000000',
     };
   },
 });
