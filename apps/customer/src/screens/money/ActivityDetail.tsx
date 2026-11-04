@@ -8,7 +8,7 @@ import { titleOf } from './activity-view';
 import { DETAIL_MAX_PAGES, findGroup, idFromPath, sharedOrder } from './activity-detail';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
-import { readSent } from '../../features/pay/personal/personal-model';
+import { readSent, requestPath } from '../../features/pay/personal/personal-model';
 import { withDeviceHandle } from '../../data';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -41,6 +41,32 @@ function CopyButton({ value, copy }: { value: string; copy: Copy }) {
       {done ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
       {done ? copy.t('Copied') : copy.t('Copy reference')}
     </Button>
+  );
+}
+
+/**
+ * A completed payment between two people has no Cancel: it is final. What it has is the way back, a refund, which is a
+ * new payment: the sender asks the other person for it, the recipient sends it back from Pay with the figures filled in.
+ */
+function RefundPointer({ item, copy }: { item: ActivityItem; copy: Copy }) {
+  if (item.kind !== 'transfer_in' && item.kind !== 'transfer_out') return null;
+  const handle = item.counterparty?.handle ?? null;
+  if (!handle)
+    return (
+      <p className="money-detail__note" data-testid="money-refund">
+        {copy.t('Refund unnamed note')}
+      </p>
+    );
+  const sent = item.kind === 'transfer_out';
+  // The sender's way back is a payment request they share with the other person; the recipient's is Send, filled in.
+  const href = sent ? '/pay/request' : requestPath({ to: handle, amount: item.amount, asset: item.asset });
+  return (
+    <p className="money-detail__note" data-testid="money-refund">
+      {copy.t(sent ? 'Refund sent note' : 'Refund received note', { handle })}{' '}
+      <a href={href} data-testid="money-refund-link">
+        {sent ? copy.t('Refund sent link') : copy.t('Refund received link', { handle })}
+      </a>
+    </p>
   );
 }
 
@@ -183,6 +209,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             )}
           </div>
           <p className="money-detail__note">{t('Report a problem note')}</p>
+          <RefundPointer item={item} copy={copy} />
           <ActivityNote key={item.id} item={item} />
         </section>
         {group.lines.length > 1 && (

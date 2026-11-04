@@ -114,15 +114,28 @@ export function RecentPanel() {
               return (
                 <li key={item.id} className="pay-recent__row" data-testid="recent-payment">
                   <span className="pay-recent__main">
-                    <span className="pay-recent__who">{summary}</span>
+                    <span className="pay-recent__who" data-testid="recent-payment-who">
+                      {summary}
+                    </span>
+                    {item.paymentNote ? (
+                      <span className="pay-recent__meta" data-testid="recent-payment-note">
+                        {item.paymentNote}
+                      </span>
+                    ) : null}
                     <span className="pay-recent__meta">
                       <span lang="zxx">{stamp(item.postedAt, timeZone, now)}</span>
                       {' · '}
-                      <span className="pay-recent__status">{copy.t('statusDone')}</span>
+                      <span className="pay-recent__status" data-testid="recent-payment-status">
+                        {copy.t('statusDone')}
+                      </span>
                     </span>
                   </span>
                   <span className="pay-recent__side">
-                    <span className={`pay-recent__amount${out ? '' : ' pay-recent__amount--in'}`} lang="zxx">
+                    <span
+                      className={`pay-recent__amount${out ? '' : ' pay-recent__amount--in'}`}
+                      lang="zxx"
+                      data-testid="recent-payment-amount"
+                    >
                       {amount}
                     </span>
                     <a className="pay-recent__link" href={receiptHref(item)} aria-label={copy.t('receiptFor', { summary })}>
