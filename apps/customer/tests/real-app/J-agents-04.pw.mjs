@@ -1,15 +1,18 @@
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, toUnits } from './stack.mjs';
 
 // J-agents-04, in the running app (docs/roadmap/journeys.json): test my agent before release without spending real
 // money. One test per step, titled "J-agents-04 #<n>", run in order on one verified TEST account with a draft agent of
 // its own. A test session holds no reservation and never calls the ledger; every test reply and log row reads TEST.
 // #5 to #7 are built (AG-testing-02): the agent's Evaluations page, its test set and evaluation runs on the test engine
 // (no model, never billed, no ledger call), each result labelled TEST, every answer read back from svc-agents.
-// #1 to #4 fail at their first missing part, quickly (UNBUILT): there is no test run in the Test panel, dry run, or
-// live and test run lists (AG-testing-01, AG-spend-04).
+// #3 and #4 are built (AG-spend-04, AG-testing-01): a dry run of one tool call on the Test page reports every check a
+// real call meets and the would-be effect, and makes no ledger entry, intent or reservation (read back from the ledger
+// and svc-agents); it is a test run, listed apart from live runs on Runs and left out of live analytics by default.
+// #1 and #2 fail at their first missing part, quickly (UNBUILT): there is no test-engine run in the Test panel and no
+// test of a tool that would move value (AG-testing-01).
 const J = 'J-agents-04';
 const agents = agentsRun(J);
 
@@ -19,6 +22,21 @@ const main = (page) => page.getByRole('main');
 const testPanel = (page) => main(page).getByRole('region', { name: 'Test' });
 const evals = (page) => main(page).getByRole('region', { name: 'Evaluations' });
 const startForm = (page) => evals(page).getByRole('form', { name: 'Start an evaluation' });
+const pages = (page) => page.getByRole('group', { name: 'Agent pages' });
+
+/** The checks a real call of one of the agent's tools meets, in order, as the dry run words them. */
+const CHECKS = {
+  tool_declared: 'The agent carries this tool',
+  input_declared: 'Every input is one the tool declares',
+  moves_no_value: 'The tool moves no value',
+  consent: 'You allowed this kind of tool',
+  baseline: 'The platform’s baseline covers this kind of tool',
+  rule: 'Your rules let the call go ahead',
+  caps_set: 'Your spending caps for this agent are set',
+  door_wired: 'The tool’s connection is built',
+};
+/** The one call #3 dry runs: the help search the service starter carries, with its two declared inputs. */
+const CALL = { tool: 'support.kb.search', words: 'Search help articles', input: { kbQuery: 'TEST question', limit: '5' } };
 
 /** One of the person's own agent's service reads through Edge, on a sign-in of its own: the answer's data. */
 async function ownRead(procedure, input) {
@@ -27,11 +45,22 @@ async function ownRead(procedure, input) {
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
-/** The journey's own agent's test set and evaluation runs, as svc-agents holds them. */
-async function evalsRead() {
+/** The journey's own agent, as svc-agents holds it. */
+async function ownAgent() {
   const [agent] = (await ownRead('list', { limit: 50 })).filter((row) => row.name === OWN_AGENT);
   expect(agent, 'the journey made its own agent').toBeTruthy();
-  return ownRead('evals.get', { id: agent.id, limit: 50 });
+  return agent;
+}
+/** The journey's own agent's test set and evaluation runs, as svc-agents holds them. */
+async function evalsRead() {
+  return ownRead('evals.get', { id: (await ownAgent()).id, limit: 50 });
+}
+/** The person's ledger lines (every asset, newest first) and balances, as the ledger answers them through Edge. */
+async function ledgerNow() {
+  const me = await api(agents.account());
+  const { status, body } = await me.get('/api/v1/ledger?limit=200');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return { entries: body.entries, balances: await me.balances() };
 }
 
 test(`${J} starts: a verified TEST account with a draft agent of its own`, async ({ page }) => {
@@ -67,22 +96,131 @@ test(`${J} #2 tests a tool that would move value: the run reports what it would 
 test(`${J} #3 submits a dry run of one tool call: the checks it passed and the would-be effect; no ledger entry, intent or reservation`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Test');
-  await testPanel(page).getByRole('button', { name: 'Dry run one call' }).click(UNBUILT);
+  // The agent as a real call of its help search needs it: the person's caps for it (Limits), and their consent to its
+  // own-data tools, given on the consent card the first real call of one asks for (Test, "Try a tool").
+  await openOwnAgent(page, agents, 'Limits');
+  const limits = main(page).getByRole('form', { name: 'Spending limits' });
+  await expect(limits).toBeVisible();
+  await limits.getByRole('textbox', { name: /^Per call/ }).fill('0.5');
+  await limits.getByRole('textbox', { name: /^Per session/ }).fill('1');
+  await limits.getByRole('textbox', { name: /^Per month/ }).fill('5');
+  await limits.getByRole('button', { name: 'Save limits' }).click();
+  await expect(limits.getByRole('status')).toHaveText('Limits saved.');
+  await pages(page).getByRole('button', { name: 'Test', exact: true }).click();
+  const tryTool = main(page).getByRole('region', { name: 'Try a tool' });
+  await tryTool.getByRole('combobox', { name: 'Tool' }).selectOption({ label: CALL.words });
+  await tryTool.getByRole('button', { name: 'Run a test' }).click();
+  const card = page.getByRole('dialog', { name: /^Allow this agent to use/ });
+  await card.getByRole('button', { name: 'Allow' }).click();
+  await expect(tryTool.getByRole('status')).toHaveText('Allowed: your own data. Run the test again.');
+
+  const agent = await ownAgent();
+  const before = {
+    ledger: await ledgerNow(),
+    holds: await ownRead('holds', { id: agent.id }),
+    tests: await ownRead('testRuns', { id: agent.id, limit: 50 }),
+  };
+
+  await testPanel(page).getByRole('combobox', { name: 'Tool' }).selectOption({ label: CALL.words }, UNBUILT);
+  for (const [field, value] of Object.entries(CALL.input))
+    await testPanel(page)
+      .getByRole('textbox', { name: new RegExp(`^${field}`) })
+      .fill(value);
+  await testPanel(page).getByRole('button', { name: 'Dry run one call' }).click();
   const dry = testPanel(page).getByRole('region', { name: 'Dry run' });
-  await expect(dry.getByRole('list', { name: 'Checks passed' }).getByRole('listitem').first()).toBeVisible();
+
+  // The checks it passed: every check a real call of the help search meets, in order, each passed, none failed.
+  await expect(dry.getByRole('list', { name: 'Checks passed' }).getByRole('listitem')).toHaveText(Object.values(CHECKS));
+  await expect(dry.getByRole('list', { name: 'Checks not passed' })).toHaveCount(0);
+  // The would-be effect: the one read it would run, with its input, and that it moves nothing; never billed.
   await expect(dry.getByRole('term').filter({ hasText: 'Would-be effect' })).toBeVisible();
+  await expect(dry.getByTestId('dry-effect')).toHaveText(
+    `Would run “${CALL.words}” once in a session of this agent, with kbQuery: TEST question; limit: 5: it reads support data and moves no value.`,
+  );
+  await expect(dry.getByTestId('dry-cost')).toHaveText('0 USDT');
   await expect(dry).toContainText('No entry, intent or reservation was made.');
+
+  // svc-agents holds the dry run as one new test run: those checks, all passed, that effect, labelled TEST, cost 0.
+  const tests = await ownRead('testRuns', { id: agent.id, limit: 50 });
+  expect(tests).toHaveLength(before.tests.length + 1);
+  expect(tests[0]).toMatchObject({
+    kind: 'dry_run',
+    tool: CALL.tool,
+    input: CALL.input,
+    cost: '0',
+    label: 'TEST',
+    effect: { kind: 'run', tool: CALL.tool, module: 'support', dataClass: 'own_data', input: CALL.input },
+  });
+  expect(tests[0].checks).toEqual(Object.keys(CHECKS).map((check) => ({ check, passed: true, code: null })));
+
+  // No ledger entry, intent or reservation exists: the ledger lines and balances are exactly as before, and svc-agents
+  // holds no reservation and no intent for this agent, and no more sessions than before.
+  expect(await ledgerNow()).toEqual(before.ledger);
+  expect(await ownRead('holds', { id: agent.id })).toEqual({ ...before.holds, reservations: 0, intents: 0 });
 });
 
 test(`${J} #4 looks at the lists: live and test runs listed separately; test runs left out of live analytics by default`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Runs');
-  await expect(main(page).getByRole('tab', { name: 'Live runs' })).toBeVisible(UNBUILT);
-  await expect(main(page).getByRole('tab', { name: 'Test runs' })).toBeVisible();
+  // One live run of the agent, on its Limits page's session: an engine run, billed as any live run is.
+  await openOwnAgent(page, agents, 'Limits');
+  const session = main(page).getByRole('region', { name: 'Session' });
+  await session.getByRole('button', { name: 'Open a session' }).click();
+  await session.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST question');
+  await session.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(session.getByRole('region', { name: 'Reply' })).toBeVisible();
+  const agent = await ownAgent();
+  const live = await ownRead('runs', { id: agent.id, limit: 50 });
+  const tests = await ownRead('testRuns', { id: agent.id, limit: 50 });
+  expect(live.filter((run) => run.status === 'executed').length, 'a live run was made').toBeGreaterThan(0);
+  expect(tests.length, '#3 made a test run').toBeGreaterThan(0);
+
+  // Two lists, each its own tab. Live runs: exactly the service's live runs, none labelled TEST.
+  await pages(page).getByRole('button', { name: 'Runs', exact: true }).click();
+  const liveTab = main(page).getByRole('tab', { name: 'Live runs' });
+  const testTab = main(page).getByRole('tab', { name: 'Test runs' });
+  await expect(liveTab).toBeVisible(UNBUILT);
+  await expect(testTab).toBeVisible();
+  await expect(liveTab).toHaveAttribute('aria-selected', 'true');
+  const liveTable = tableIn(main(page), 'Runs');
+  await expect(liveTable.getByRole('row')).toHaveCount(1 + live.length);
+  await expect(liveTable.getByTestId('run-cost')).toHaveText(live.map((run) => `${run.cost} ${run.assetId}`));
+  await expect(liveTable).not.toContainText('TEST');
+  await expect(tableIn(main(page), 'Test runs')).toHaveCount(0);
+
+  // Test runs: exactly the service's test runs, each a dry run labelled TEST at 0, and the live list is not among them.
+  await testTab.click();
+  await expect(testTab).toHaveAttribute('aria-selected', 'true');
+  const testTable = tableIn(main(page), 'Test runs');
+  await expect(testTable.getByRole('row')).toHaveCount(1 + tests.length);
+  await expect(testTable.getByTestId('test-run-label')).toHaveText(tests.map(() => 'TEST'));
+  await expect(testTable.getByTestId('test-run-cost')).toHaveText(tests.map((run) => `0 ${run.assetId}`));
+  await expect(testTable).toContainText('Dry run');
+  await expect(tableIn(main(page), 'Runs')).toHaveCount(0);
+
+  // Live analytics, by default: "Include test runs" is off and the figures are the live runs alone.
   await openOwnAgent(page, agents, 'Analytics');
-  await expect(main(page).getByRole('checkbox', { name: 'Include test runs' })).not.toBeChecked();
+  const include = main(page).getByRole('checkbox', { name: 'Include test runs' });
+  await expect(include).not.toBeChecked();
+  const byDefault = await ownRead('analytics', { id: agent.id });
+  expect(byDefault).toMatchObject({ includeTest: false, runs: live.length, liveRuns: live.length, testRuns: null });
+  expect(toUnits(byDefault.cost)).toBe(live.reduce((sum, run) => sum + toUnits(run.cost), 0n));
+  const figure = (id) => main(page).getByTestId(`analytics-${id}`);
+  await expect(figure('runs')).toHaveText(String(live.length));
+  await expect(figure('test-runs')).toHaveText('—');
+  await expect(figure('cost')).toHaveText(`${byDefault.cost} ${byDefault.assetId}`);
+
+  // Included on request: the runs grow by exactly the test runs, and what was spent does not move.
+  await include.check();
+  await expect(figure('runs')).toHaveText(String(live.length + tests.length));
+  await expect(figure('test-runs')).toHaveText(String(tests.length));
+  await expect(figure('cost')).toHaveText(`${byDefault.cost} ${byDefault.assetId}`);
+  expect(await ownRead('analytics', { id: agent.id, includeTest: true })).toEqual({
+    ...byDefault,
+    includeTest: true,
+    runs: live.length + tests.length,
+    testRuns: tests.length,
+  });
 });
 
 test(`${J} #5 opens Evaluations with no test set: a visible warning that the agent has no test set`, async ({ page }) => {
