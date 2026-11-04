@@ -343,8 +343,11 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(inUse).toContainText(subAccountId);
 
   const mainBefore = (await (await api(follower)).balances()).USDT;
+  // The copy room, loaded as a new page, still acts as the sub-account (checked before the wizard's dialog hides the
+  // rest of the page from the accessibility tree).
+  await page.goto(`/trade/copy/${state('spotRef')}`);
+  await expect(inUse, 'the copy room is opened as the sub-account').toContainText(subAccountId);
   const asSub = await openWizardAtLimits(page);
-  await expect(inUse, 'the wizard is opened as the sub-account').toBeVisible();
   await fillLimits(asSub, { perOrder: '50', total: '200', fixed: '20' });
   await asSub.getByRole('button', { name: 'Next' }).click();
   const subAnswer = page.waitForResponse((res) => res.url().includes('copy.follow'));
