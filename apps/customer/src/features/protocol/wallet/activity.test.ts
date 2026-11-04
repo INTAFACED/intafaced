@@ -31,6 +31,8 @@ describe('wallet activity rows (D-portfolio-wallet-03, RC-dex-protocol-01)', () 
     expect(isSpam(row(2, { from: OTHER, transfers: [{ token: token(LISTED), amount: '1', direction: 'in' }] }), ME, listed)).toBe(false);
     expect(isSpam(row(3, { transfers: [{ token: token(DROP), amount: '1', direction: 'out' }] }), ME, listed)).toBe(false);
     expect(isSpam(row(4, { from: OTHER }), ME, listed)).toBe(false);
+    // With the pool list unread, nothing is hidden as spam.
+    expect(isSpam(row(5, { from: OTHER, transfers: [{ token: token(DROP), amount: '1', direction: 'in' }] }), ME, null)).toBe(false);
   });
 
   it('keeps a pending send, and marks it replaced only once its same-nonce replacement is seen', () => {
@@ -48,12 +50,27 @@ describe('wallet activity rows (D-portfolio-wallet-03, RC-dex-protocol-01)', () 
       ME,
       listed,
       words,
-      2_000_500,
     );
     expect(pending.map((r) => r.status)).toEqual(['pending', 'pending']);
-    const mined = activityRows([row(9)], sent, [{ hash: hash(8), status: 'unknown', replacingHash: null }], ME, listed, words, 2_001_000);
+    const mined = activityRows([row(9)], sent, [{ hash: hash(8), status: 'unknown', replacingHash: null }], ME, listed, words);
     expect(mined.find((r) => r.hash === hash(8))).toMatchObject({ status: 'replaced', replacedBy: hash(9) });
     expect(mined.find((r) => r.hash === hash(9))).toMatchObject({ status: 'confirmed', mine: true });
+  });
+
+  it('says a send the network did not answer for is unread, never dropped or done', () => {
+    const sent = [{ hash: hash(7), sentAt: 0, kind: 'send' as const }];
+    expect(activityRows([], sent, [{ hash: hash(7), status: 'unknown', replacingHash: null }], ME, listed, words)[0]?.status).toBe(
+      'unread',
+    );
+    // A send this read did not ask about is not listed at all.
+    expect(activityRows([], sent, [], ME, listed, words)).toEqual([]);
+  });
+
+  it('starts a cell a spreadsheet would run as a formula with a quote mark', () => {
+    const rows: ActivityRow[] = [
+      { hash: hash(2), time: 0, what: '=HYPERLINK("x")', status: 'confirmed', replacedBy: null, mine: false, spam: true },
+    ];
+    expect(activityCsv(rows, () => 'Confirmed')).toContain(`"'=HYPERLINK(""x"")"`);
   });
 
   it('exports exactly the rows given, header first, every field quoted', () => {

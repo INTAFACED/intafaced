@@ -120,6 +120,7 @@ const en = {
   fact_maxFee: 'Network fee, most per gas',
   fact_priorityFee: 'Network fee, priority per gas',
   fact_nonce: 'Replaces the transaction with nonce',
+  fact_gasLimit: 'Gas limit',
   permitTitle: 'Sign a token allowance',
   permitNote:
     'A permit lets the spender you name move up to this amount of the token from your wallet until it expires. The token, its signing details and your next nonce are read through your wallet’s own network connection. The signature stays on this page: nothing is sent to us or to the spender.',

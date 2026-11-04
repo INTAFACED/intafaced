@@ -55,7 +55,7 @@ export function ClaimLinksPanel() {
   const links = usePolled(
     (signal) => (address ? api.claimLinkList(address, signal) : Promise.resolve(null)),
     `claim-links:${address}`,
-    3000,
+    5000,
   );
   const [token, setToken] = useState('');
   const [amount, setAmount] = useState('');
@@ -95,6 +95,7 @@ export function ClaimLinksPanel() {
       return setProblem(t('linksExpiryInvalid', { min: String(minMinutes), max: String(maxMinutes) }));
     await gated(async () => {
       setBusy(true);
+      setCreated(null);
       // The one-time link key: made here, kept only in this function and the link shown below.
       const key = generatePrivateKey();
       const id = privateKeyToAccount(key).address;
@@ -129,13 +130,31 @@ export function ClaimLinksPanel() {
           },
         ],
       });
+      if (result.status !== 'sent') {
+        setBusy(false);
+        return setProblem(t('linksFailed', { message: result.status === 'rejected' ? tw('sendRejected') : result.message }));
+      }
+      for (const hash of result.hashes) recordSent(APP_CHAIN_ID, address, { hash, sentAt: Date.now(), kind: 'other', label: name });
+      // The link is shown only once the escrow holds exactly what was asked, for this sender, under this id: a lock that
+      // reverted (or an id someone else took first) never produces a link.
+      const mined = await waitMined((hash) => wallet.read('eth_getTransactionReceipt', [hash]), result.hashes.at(-1)!, 120_000);
+      const held = mined.status === 'success' ? await api.claimLinkGet(id) : null;
       setBusy(false);
-      if (result.status === 'sent') {
-        for (const hash of result.hashes) recordSent(APP_CHAIN_ID, address, { hash, sentAt: Date.now(), kind: 'other', label: name });
-        setCreated({ url: claimLinkUrl(window.location.origin, id, key), amount: amount.trim(), token: name, minutes: wanted });
-        links.reload();
-      } else if (result.status === 'rejected') setProblem(t('linksFailed', { message: tw('sendRejected') }));
-      else setProblem(t('linksFailed', { message: result.message }));
+      links.reload();
+      if (
+        !held?.ok ||
+        held.data.link.state !== 'open' ||
+        held.data.link.sender.toLowerCase() !== address.toLowerCase() ||
+        held.data.link.token.address.toLowerCase() !== chosen.address.toLowerCase() ||
+        held.data.link.amount !== units.toString()
+      )
+        return setProblem(t('linksFailed', { message: mined.status === 'timeout' ? tw('seqNotMined') : tw('seqReverted') }));
+      setCreated({
+        url: claimLinkUrl(window.location.origin, id, key),
+        amount: amount.trim(),
+        token: name,
+        minutes: wanted,
+      });
     });
   };
 

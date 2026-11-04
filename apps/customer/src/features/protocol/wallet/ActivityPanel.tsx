@@ -18,7 +18,7 @@ import { transfersCopy } from './transfers-copy';
 import { usePolled } from './use-polled';
 import { useWallet } from './WalletProvider';
 
-type Status = 'pending' | 'confirmed' | 'failed' | 'replaced' | 'dropped';
+type Status = 'pending' | 'confirmed' | 'failed' | 'replaced' | 'dropped' | 'unread';
 export interface ActivityRow {
   hash: string;
   /** Unix seconds: the block's time, or when this browser sent it while it is not in a block yet. */
@@ -34,16 +34,15 @@ type IndexedRow = ExplorerAddressTxsPage['rows'][number];
 type Lookup = { hash: string; status: 'pending' | 'success' | 'failed' | 'dropped' | 'replaced' | 'unknown'; replacingHash: string | null };
 
 const same = (a: string | null | undefined, b: string | null | undefined) => Boolean(a && b && a.toLowerCase() === b.toLowerCase());
-/** A sent transaction the network has not answered for this long without a replacement mined reads dropped. */
-const UNSEEN_GRACE_MS = 30_000;
 
 /**
  * Spam (D-portfolio-wallet-03): a transaction someone else sent that only brought this wallet tokens no pool on this
  * network lists, the usual unasked airdrop. The token-listing flags of D-launch-listing-02 are not built yet; this is
  * the rule until they are. It is a view filter: the row is hidden, never deleted, and "Show spam" brings it back.
  */
-export function isSpam(row: IndexedRow, me: string, listed: ReadonlySet<string>): boolean {
-  if (same(row.from, me) || row.transfers.length === 0) return false;
+export function isSpam(row: IndexedRow, me: string, listed: ReadonlySet<string> | null): boolean {
+  // Without the pool list nothing is called spam: an unread list never hides a real transfer.
+  if (listed === null || same(row.from, me) || row.transfers.length === 0) return false;
   return row.transfers.every((transfer) => transfer.direction === 'in' && !listed.has(transfer.token.address.toLowerCase()));
 }
 
@@ -53,9 +52,8 @@ export function activityRows(
   sent: readonly SentRecord[],
   lookups: readonly Lookup[],
   me: string,
-  listed: ReadonlySet<string>,
+  listed: ReadonlySet<string> | null,
   words: { sent: string; received: string; call: string },
-  now: number,
 ): ActivityRow[] {
   const byHash = new Map(lookups.map((lookup) => [lookup.hash.toLowerCase(), lookup]));
   const rows: ActivityRow[] = indexed.map((row) => {
@@ -78,6 +76,8 @@ export function activityRows(
   for (const record of sent) {
     if (rows.some((row) => same(row.hash, record.hash))) continue;
     const lookup = byHash.get(record.hash.toLowerCase());
+    // Only sends this read asked the network about are listed; older ones are on later pages of the indexer's list.
+    if (!lookup) continue;
     const replacement = sent.find((other) => same(other.replaces, record.hash));
     const replacementSeen =
       replacement &&
@@ -91,8 +91,9 @@ export function activityRows(
     else if (lookup?.status === 'replaced' || replacementSeen) {
       status = 'replaced';
       replacedBy = lookup?.replacingHash ?? replacement?.hash ?? null;
-    } else if (lookup?.status === 'dropped' || now - record.sentAt > UNSEEN_GRACE_MS) status = 'dropped';
-    else status = 'pending';
+    } else if (lookup.status === 'dropped') status = 'dropped';
+    // The network did not answer for it on this read: said plainly, never guessed as dropped or done.
+    else status = 'unread';
     rows.push({
       hash: record.hash,
       time: Math.floor(record.sentAt / 1000),
@@ -108,7 +109,8 @@ export function activityRows(
 
 /** A CSV of exactly the rows given, header first. Every field is quoted. */
 export function activityCsv(rows: readonly ActivityRow[], statusWords: (row: ActivityRow) => string): string {
-  const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+  // A cell a spreadsheet would run as a formula (a token's symbol is chosen by whoever made it) starts with ' instead.
+  const quote = (value: string) => `"${(/^[=+\-@\t\r]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
   const lines = [['Transaction', 'Time (UTC)', 'What', 'Status'].map(quote).join(',')];
   for (const row of rows) lines.push([row.hash, new Date(row.time * 1000).toISOString(), row.what, statusWords(row)].map(quote).join(','));
   return `${lines.join('\n')}\n`;
@@ -133,7 +135,7 @@ export function ActivityPanel() {
   const explorer = useMemo(() => createExplorerApi(transport), [transport]);
   const pairs = useResource((signal) => api.ammPairs(signal), 'activity:pairs');
   const listed = useMemo(
-    () => new Set(pairs.resource.status === 'ready' ? pairs.resource.data.tokens.map((token) => token.address.toLowerCase()) : []),
+    () => (pairs.resource.status === 'ready' ? new Set(pairs.resource.data.tokens.map((token) => token.address.toLowerCase())) : null),
     [pairs.resource],
   );
   const me = wallet.status === 'connected' ? wallet.address : null;
@@ -166,15 +168,11 @@ export function ActivityPanel() {
   );
 
   const rows = feed.data
-    ? activityRows(
-        feed.data.page.rows,
-        feed.data.sent,
-        feed.data.lookups,
-        me ?? '',
-        listed,
-        { sent: t('activitySent'), received: t('activityReceived'), call: t('activityCall') },
-        Date.now(),
-      )
+    ? activityRows(feed.data.page.rows, feed.data.sent, feed.data.lookups, me ?? '', listed, {
+        sent: t('activitySent'),
+        received: t('activityReceived'),
+        call: t('activityCall'),
+      })
     : [];
   const visible = rows.filter((row) => (showFailed || row.status !== 'failed') && (showSpam || !row.spam));
   const statusWords = (row: ActivityRow) =>
@@ -186,7 +184,9 @@ export function ActivityPanel() {
           ? t('activityFailed')
           : row.status === 'replaced'
             ? t('activityReplaced', { hash: row.replacedBy ? shortAddress(row.replacedBy) : '' })
-            : t('activityDropped');
+            : row.status === 'dropped'
+              ? t('activityDropped')
+              : t('activityUnread');
   const when = (seconds: number) => new Date(seconds * 1000).toLocaleString(renderedLocale, { dateStyle: 'medium', timeStyle: 'medium' });
 
   const exportRows = () => {
@@ -217,6 +217,16 @@ export function ActivityPanel() {
     setBuilt(plan.ok ? { status: 'ready', plan: plan.data } : { status: 'refused', message: refusalText(plan.code, plan.message) });
   };
 
+  /** The nonce the network shows for a hash just sent, read through our indexer; null when it does not answer in time. */
+  const sentNonce = async (hash: string): Promise<number | null> => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const answer = await explorer.tx(APP_CHAIN_ID, hash);
+      if (answer.ok && answer.data.transaction) return answer.data.transaction.nonce;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return null;
+  };
+
   const send = async (plan: ProtocolReplacement, replaces: string) => {
     if (!me) return;
     const result = await wallet.sign({
@@ -227,17 +237,24 @@ export function ActivityPanel() {
       maxFeePerGas: toHexValue(BigInt(plan.replacement.maxFeePerGas)),
       maxPriorityFeePerGas: toHexValue(BigInt(plan.replacement.maxPriorityFeePerGas)),
       nonce: toHexValue(BigInt(plan.nonce)),
+      gas: toHexValue(BigInt(plan.gas)),
     });
     if (result.status === 'sent') {
       const original = readSent(APP_CHAIN_ID, me).find((record) => same(record.hash, replaces));
-      recordSent(APP_CHAIN_ID, me, {
-        hash: result.hash,
-        sentAt: Date.now(),
-        kind: plan.mode,
-        replaces,
-        label: plan.mode === 'cancel' ? t('sheetCancel') : (original?.label ?? t('activityCall')),
-      });
-      setNotice({ role: 'status', text: t('sheetSent', { hash: result.hash }) });
+      const label = plan.mode === 'cancel' ? t('sheetCancel') : (original?.label ?? t('activityCall'));
+      // Some wallets ignore a requested nonce. Only a transaction the network shows at the planned nonce replaces the
+      // first one; anything else is recorded as a send of its own and the person is told both may happen.
+      const nonce = await sentNonce(result.hash);
+      if (nonce === plan.nonce) {
+        recordSent(APP_CHAIN_ID, me, { hash: result.hash, sentAt: Date.now(), kind: plan.mode, replaces, label });
+        setNotice({ role: 'status', text: t('sheetSent', { hash: result.hash }) });
+      } else {
+        recordSent(APP_CHAIN_ID, me, { hash: result.hash, sentAt: Date.now(), kind: 'other', label });
+        setNotice({
+          role: 'alert',
+          text: t('activityOtherNonce', { got: nonce === null ? '?' : String(nonce), want: String(plan.nonce) }),
+        });
+      }
       feed.reload();
     } else if (result.status === 'failed') setNotice({ role: 'alert', text: t('sheetRefused_other', { message: result.message }) });
   };

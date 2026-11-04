@@ -43,7 +43,8 @@ export function readSent(chainId: number, address: string): SentRecord[] {
         HASH.test((entry as SentRecord).hash) &&
         typeof (entry as SentRecord).sentAt === 'number' &&
         ['send', 'speedUp', 'cancel', 'other'].includes((entry as SentRecord).kind) &&
-        ((entry as SentRecord).replaces === undefined || HASH.test((entry as SentRecord).replaces!)),
+        ((entry as SentRecord).replaces === undefined || HASH.test((entry as SentRecord).replaces!)) &&
+        ((entry as SentRecord).label === undefined || typeof (entry as SentRecord).label === 'string'),
     );
   } catch {
     return [];
@@ -55,7 +56,6 @@ export function recordSent(chainId: number, address: string, record: SentRecord)
   try {
     const next = [record, ...readSent(chainId, address).filter((entry) => entry.hash.toLowerCase() !== record.hash.toLowerCase())];
     store()?.setItem(keyFor(chainId, address), JSON.stringify(next.slice(0, LIMIT)));
-    window.dispatchEvent(new Event('intafaced:wallet-sent'));
   } catch {
     /* storage blocked: Activity still shows what the indexer read */
   }

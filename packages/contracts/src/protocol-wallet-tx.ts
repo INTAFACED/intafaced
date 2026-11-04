@@ -19,6 +19,8 @@ export const TX_NOT_YOURS = 'protocol.tx_not_yours' as const;
 export const FEE_BUMP_UNSET = 'protocol.fee_bump_unset' as const;
 export const FEE_CEILING_UNSET = 'protocol.fee_ceiling_unset' as const;
 export const FEE_ABOVE_CEILING = 'protocol.fee_above_ceiling' as const;
+/** A pending contract creation has no call to repeat: only a cancel can replace it. */
+export const TX_SPEEDUP_CREATE = 'protocol.tx_speedup_create' as const;
 
 const units = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -93,6 +95,11 @@ export const protocolReplacementOutputSchema = z
     chainId: z.number().int().positive(),
     from: address,
     nonce: z.number().int().nonnegative(),
+    /**
+     * The pending transaction's own gas limit. A wallet that estimates a replacement against the pending state (where the
+     * original already ran) gets too little and the replacement reverts out of gas, so the replacement keeps this one.
+     */
+    gas: units,
     to: address,
     value: units,
     data: hex,

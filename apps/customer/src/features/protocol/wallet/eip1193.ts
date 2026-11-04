@@ -95,6 +95,8 @@ export type SignRequest =
        * network keeps one of the two. Absent, the wallet picks the next nonce itself.
        */
       nonce?: string;
+      /** Hex. Only for a replacement: the pending transaction's own gas limit, so the wallet does not under-estimate it. */
+      gas?: string;
     };
 
 export interface TypedDataDocument {
@@ -200,7 +202,8 @@ export interface SheetFact {
     | 'token'
     | 'maxFee'
     | 'priorityFee'
-    | 'nonce';
+    | 'nonce'
+    | 'gasLimit';
   value: string;
 }
 const SPENDER_KEYS = ['spender', 'operator', 'delegate'];
@@ -251,6 +254,7 @@ export function refuseReason(request: SignRequest): string | null {
       if (BigInt(request.maxPriorityFeePerGas!) > BigInt(request.maxFeePerGas!)) return 'The priority fee is above the most per gas.';
     }
     if (request.nonce !== undefined && !/^0x[0-9a-fA-F]{1,16}$/.test(request.nonce)) return 'The nonce is not a hex number.';
+    if (request.gas !== undefined && !/^0x[0-9a-fA-F]{1,16}$/.test(request.gas)) return 'The gas limit is not a hex number.';
   }
   if (request.kind === 'typedData') {
     const { domain, types, primaryType } = request.typedData;
@@ -282,6 +286,7 @@ export function describeRequest(request: SignRequest): SheetFact[] {
           ]
         : []),
       ...(request.nonce !== undefined ? [{ label: 'nonce' as const, value: BigInt(request.nonce).toString() }] : []),
+      ...(request.gas !== undefined ? [{ label: 'gasLimit' as const, value: BigInt(request.gas).toString() }] : []),
     ];
   const { domain, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
@@ -323,6 +328,7 @@ export function transactionParams(request: Extract<SignRequest, { kind: 'transac
       : {}),
     // A replacement names the nonce it replaces; any other send leaves it to the wallet.
     ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
+    ...(request.gas !== undefined ? { gas: request.gas } : {}),
   };
 }
 

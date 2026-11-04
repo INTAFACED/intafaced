@@ -34,6 +34,15 @@ export function claimHash(escrow: string, chainId: number, id: string, to: strin
   );
 }
 
+/** The address of a link key; null for a value that is not a valid key (zero, or past the curve's order). */
+function keyAddress(key: Hex): string | null {
+  try {
+    return privateKeyToAccount(key).address;
+  } catch {
+    return null;
+  }
+}
+
 type Outcome = { kind: 'idle' } | { kind: 'busy' } | { kind: 'claimed'; to: string } | { kind: 'refused'; message: string };
 
 /**
@@ -60,7 +69,7 @@ export function ClaimPage({ id }: { id: string }) {
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const [gate, setGate] = useState<Extract<SigningGate, { kind: 'needed' }> | null>(null);
   const when = (seconds: number) => new Date(seconds * 1000).toLocaleString(renderedLocale, { dateStyle: 'medium', timeStyle: 'medium' });
-  const keyMatches = key !== null && privateKeyToAccount(key).address.toLowerCase() === id.toLowerCase();
+  const keyMatches = key !== null && keyAddress(key)?.toLowerCase() === id.toLowerCase();
   const read = link.resource.status === 'ready' ? link.resource.data.link : null;
   const escrow = config.resource.status === 'ready' ? config.resource.data : null;
   const connected = wallet.status === 'connected' && wallet.address !== null && wallet.guard?.ok === true;
@@ -143,6 +152,10 @@ export function ClaimPage({ id }: { id: string }) {
           <p role="alert">{t('claimNoKey')}</p>
         ) : !keyMatches ? (
           <p role="alert">{t('claimWrongKey')}</p>
+        ) : config.resource.status === 'failed' ? (
+          <p role="alert" data-code={config.resource.failure.code}>
+            {config.resource.failure.code === 'protocol.claim_escrow_unset' ? t('linksRefused_escrow_unset') : t('linksRefused_unread')}
+          </p>
         ) : !connected ? (
           <>
             <p className="muted">{t('claimConnect')}</p>

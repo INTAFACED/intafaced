@@ -202,6 +202,8 @@ describeOnChain('ClaimLinkEscrow and the replacement builder', () => {
 
       const speedUp = await buildReplacement(pc, SETTING, { txHash: original, from: sender.address, mode: 'speedUp' });
       expect(speedUp).toMatchObject({ nonce: pending.nonce, to: getAddress(token), data, value: '0' });
+      // The original's own gas limit: an estimate against the pending state (where the original already ran) is too low.
+      expect(speedUp.gas).toBe(pending.gas.toString());
       expect(BigInt(speedUp.replacement.maxFeePerGas)).toBe(bumpFee(2_000_000_000n, 2000));
       expect(BigInt(speedUp.replacement.maxPriorityFeePerGas)).toBe(bumpFee(1_000_000_000n, 2000));
       expect(BigInt(speedUp.replacement.maxFeePerGas)).toBeGreaterThanOrEqual((2_000_000_000n * 12_000n) / 10_000n);
@@ -228,7 +230,7 @@ describeOnChain('ClaimLinkEscrow and the replacement builder', () => {
         data: speedUp.data as Hex,
         value: 0n,
         nonce: speedUp.nonce,
-        gas: 100_000n,
+        gas: BigInt(speedUp.gas),
         maxFeePerGas: BigInt(speedUp.replacement.maxFeePerGas),
         maxPriorityFeePerGas: BigInt(speedUp.replacement.maxPriorityFeePerGas),
       });

@@ -6,6 +6,7 @@ import {
   TX_FINAL,
   TX_NOT_FOUND,
   TX_NOT_YOURS,
+  TX_SPEEDUP_CREATE,
   type ProtocolReplacement,
   type ProtocolReplacementInput,
 } from '@intafaced/contracts';
@@ -53,6 +54,11 @@ export async function buildReplacement(
     throw new WalletTxRefusal(TX_NOT_YOURS, 'this transaction was sent by another account; only its sender can replace it.');
   if (tx.blockNumber !== null)
     throw new WalletTxRefusal(TX_FINAL, 'Final. A completed transfer cannot be canceled or revoked; send a new transaction instead.');
+  if (input.mode === 'speedUp' && !tx.to)
+    throw new WalletTxRefusal(
+      TX_SPEEDUP_CREATE,
+      'this transaction creates a contract, so there is no call to repeat; only a cancel can replace it.',
+    );
   // A legacy transaction has one gas price; both fields of the replacement start from it.
   const oldMax = tx.maxFeePerGas ?? tx.gasPrice ?? 0n;
   const oldTip = tx.maxPriorityFeePerGas ?? tx.gasPrice ?? 0n;
@@ -65,12 +71,12 @@ export async function buildReplacement(
     );
   const from = getAddress(tx.from) as Address;
   const speedUp = input.mode === 'speedUp';
-  if (speedUp && !tx.to) throw new WalletTxRefusal(TX_NOT_FOUND, 'this transaction creates a contract; only a cancel can replace it.');
   return {
     mode: input.mode,
     chainId: await chain.getChainId(),
     from,
     nonce: tx.nonce,
+    gas: tx.gas.toString(),
     to: speedUp ? getAddress(tx.to!) : from,
     value: speedUp ? tx.value.toString() : '0',
     data: speedUp ? tx.input : '0x',
