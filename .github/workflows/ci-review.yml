@@ -43,7 +43,7 @@ jobs:
     permissions:
       contents: read # the default branch's checkout and the compare diff
       checks: read # find the seal's check run on the head
-      actions: write # re-run a red seal once the review passes
+      actions: write # re-run a red seal once the review passes; read this run's tree index
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,6 +52,23 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+
+      # The tree index the seal reads (review-marker.mjs readReviewRuns): an artifact named by this head's tree sha, so
+      # a FAIL is found when the same code comes back on another branch without listing every run of this workflow (a
+      # list GitHub cuts at 1,000; #7132 finding 2). Before the review: a run that can't index its head fails before any
+      # verdict. A re-run attempt keeps its run's first index rather than replacing it.
+      - name: Index this head's tree
+        id: index
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/ci-review.mjs index "$RUNNER_TEMP/index"
+      - name: Upload the tree index
+        if: steps.index.outputs.exists != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.index.outputs.name }}
+          path: ${{ runner.temp }}/index/index.json
+          if-no-files-found: error
 
       - name: Read the diff
         env:
