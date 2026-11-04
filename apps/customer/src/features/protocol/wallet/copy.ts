@@ -50,6 +50,7 @@ const en = {
   section_sessionKeys: 'Session keys',
   section_accounts: 'Accounts',
   section_safety: 'Safety',
+  section_claimLinks: 'Claim links',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',
   empty_approvals: 'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',
@@ -118,6 +119,7 @@ const en = {
   fact_message: 'Message',
   fact_maxFee: 'Network fee, most per gas',
   fact_priorityFee: 'Network fee, priority per gas',
+  fact_nonce: 'Replaces the transaction with nonce',
   permitTitle: 'Sign a token allowance',
   permitNote:
     'A permit lets the spender you name move up to this amount of the token from your wallet until it expires. The token, its signing details and your next nonce are read through your wallet’s own network connection. The signature stays on this page: nothing is sent to us or to the spender.',

@@ -179,6 +179,24 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_FEE_RELAY_URL: blankIsUnset(z.string().url().optional()),
     PROTOCOL_FEE_RELAY_GAS_LIMIT: z.string().default('').transform(parseRelayGasLimit),
     /**
+     * Claim links (D-swap-12): the ClaimLinkEscrow contract on PROTOCOL_CHAIN_ID. Its expiry bounds are its own immutable
+     * values, read from it. NO DEFAULT: zero refuses `protocol.claim_escrow_unset` and no link can be sent.
+     */
+    PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
+    /**
+     * Speed up and cancel (RC-dex-protocol-01): how much a replacement raises both fee fields, in basis points (1 to
+     * 10000), and the most per gas any replacement may offer, in whole wei. NO DEFAULTS: blank refuses
+     * `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset` and nothing is built.
+     */
+    PROTOCOL_TX_FEE_BUMP_BPS: z
+      .string()
+      .default('')
+      .transform((raw) => {
+        const bps = parsePositiveWhole(raw);
+        return bps !== null && bps <= 10_000 ? bps : null;
+      }),
+    PROTOCOL_TX_FEE_CEILING_WEI: z.string().default('').transform(parseFeeCapWei),
+    /**
      * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
      * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
      */

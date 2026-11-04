@@ -62,6 +62,10 @@
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"
     },
+    "./protocol-wallet-tx": {
+      "types": "./dist/protocol-wallet-tx.d.ts",
+      "default": "./dist/protocol-wallet-tx.js"
+    },
     "./outcome-markets": {
       "types": "./dist/outcome-markets.d.ts",
       "default": "./dist/outcome-markets.js"

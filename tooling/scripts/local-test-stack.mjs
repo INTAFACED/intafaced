@@ -1388,6 +1388,7 @@ function testChain() {
     router: record.router,
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
+    claimEscrow: record.claimEscrow ?? null,
   };
 }
 

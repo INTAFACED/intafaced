@@ -16,6 +16,7 @@
 //   node tooling/scripts/local-test-chain.mjs gate open|closed second   the same for the second network's gate alone
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
+//   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
 //
 // `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
@@ -264,8 +265,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -288,7 +289,7 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable]');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam]');
     process.exit(2);
   }
 }

@@ -90,6 +90,11 @@ export type SignRequest =
        */
       maxFeePerGas?: string;
       maxPriorityFeePerGas?: string;
+      /**
+       * Hex. Only for a replacement (speed up or cancel, RC-dex-protocol-01): the pending transaction's own nonce, so the
+       * network keeps one of the two. Absent, the wallet picks the next nonce itself.
+       */
+      nonce?: string;
     };
 
 export interface TypedDataDocument {
@@ -194,7 +199,8 @@ export interface SheetFact {
     | 'domain'
     | 'token'
     | 'maxFee'
-    | 'priorityFee';
+    | 'priorityFee'
+    | 'nonce';
   value: string;
 }
 const SPENDER_KEYS = ['spender', 'operator', 'delegate'];
@@ -244,6 +250,7 @@ export function refuseReason(request: SignRequest): string | null {
         return 'The network fee is not a pair of hex amounts per gas.';
       if (BigInt(request.maxPriorityFeePerGas!) > BigInt(request.maxFeePerGas!)) return 'The priority fee is above the most per gas.';
     }
+    if (request.nonce !== undefined && !/^0x[0-9a-fA-F]{1,16}$/.test(request.nonce)) return 'The nonce is not a hex number.';
   }
   if (request.kind === 'typedData') {
     const { domain, types, primaryType } = request.typedData;
@@ -274,6 +281,7 @@ export function describeRequest(request: SignRequest): SheetFact[] {
             { label: 'priorityFee' as const, value: `${BigInt(request.maxPriorityFeePerGas).toString()} wei` },
           ]
         : []),
+      ...(request.nonce !== undefined ? [{ label: 'nonce' as const, value: BigInt(request.nonce).toString() }] : []),
     ];
   const { domain, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
@@ -313,6 +321,8 @@ export function transactionParams(request: Extract<SignRequest, { kind: 'transac
     ...(request.maxFeePerGas !== undefined && request.maxPriorityFeePerGas !== undefined
       ? { maxFeePerGas: request.maxFeePerGas, maxPriorityFeePerGas: request.maxPriorityFeePerGas }
       : {}),
+    // A replacement names the nonce it replaces; any other send leaves it to the wallet.
+    ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
   };
 }
 

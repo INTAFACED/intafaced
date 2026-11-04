@@ -21,6 +21,7 @@ import {
   transferCalldata,
 } from './transfer';
 import { useWallet } from './WalletProvider';
+import { recordSent } from './sent-store';
 
 type Contract = 'checking' | 'contract' | 'wallet' | 'unknown';
 type Outcome =
@@ -130,8 +131,16 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         ? { kind: 'transaction', to: chosen.address, data: transferCalldata(destination.address, units) }
         : { kind: 'transaction', to: destination.address, value: toHexValue(units) },
     );
-    if (result.status === 'sent') setOutcome({ kind: 'sent', hash: result.hash });
-    else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
+    if (result.status === 'sent') {
+      // Kept in this browser so Activity shows it while it is pending, and a speed-up or cancel can name it.
+      recordSent(APP_CHAIN_ID, wallet.address, {
+        hash: result.hash,
+        sentAt: Date.now(),
+        kind: 'send',
+        label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
+      });
+      setOutcome({ kind: 'sent', hash: result.hash });
+    } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
     else setOutcome({ kind: 'idle' });
   };

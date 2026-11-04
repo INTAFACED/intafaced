@@ -40,6 +40,13 @@ import {
   tokensListOutputSchema,
   type TokenWindowId,
 } from '@intafaced/contracts/protocol-tokens';
+import {
+  protocolClaimLinkConfigOutputSchema,
+  protocolClaimLinkGetOutputSchema,
+  protocolClaimLinkListOutputSchema,
+  protocolReplacementOutputSchema,
+  type ProtocolReplacementInput,
+} from '@intafaced/contracts/protocol-wallet-tx';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -103,6 +110,18 @@ export function createProtocolApi(api: ApiClient) {
     /** Records the wallet's signature over `representationStatus().message`. The service checks that the address signed it. */
     representationAccept: (input: { address: string; version: string; signature: string }) =>
       api.mutate('protocol', 'representation.accept', input, protocolRepresentationAcceptOutputSchema),
+    /** The claim-link escrow and its published expiry bounds, read from the contract; blank refuses by name (D-swap-12). */
+    claimLinkConfig: (signal?: AbortSignal) =>
+      api.query('protocol', 'claimLink.config', undefined, protocolClaimLinkConfigOutputSchema, { signal }),
+    /** One claim link by its id (the link key's address), read from the escrow, with the chain's clock. */
+    claimLinkGet: (id: string, signal?: AbortSignal) =>
+      api.query('protocol', 'claimLink.get', { id }, protocolClaimLinkGetOutputSchema, { signal }),
+    /** Every claim link `sender` created, newest first, with the chain's clock. */
+    claimLinkList: (sender: string, signal?: AbortSignal) =>
+      api.query('protocol', 'claimLink.list', { sender }, protocolClaimLinkListOutputSchema, { signal }),
+    /** One unsigned same-nonce replacement for a pending transaction; a mined one refuses `protocol.tx_final`. */
+    buildReplacement: (input: ProtocolReplacementInput, signal?: AbortSignal) =>
+      api.query('protocol', 'tx.buildReplacement', input, protocolReplacementOutputSchema, { signal }),
     /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
     ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
     /** Every listed token's USD price from the pools at one block, or why it has none. */

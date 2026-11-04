@@ -77,6 +77,8 @@ import {
 } from './amm/fee-relay.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createWalletTxRouters } from './wallet-tx/router.js';
+import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
@@ -458,6 +460,13 @@ export interface ProtocolRouterDeps {
    * a token refuses `protocol.fee_relay_unset`.
    */
   feeRelay?: () => FeeRelaySetting | null;
+  /** `PROTOCOL_CLAIM_ESCROW_ADDRESS` (D-swap-12). Null, zero or absent: claim links refuse `protocol.claim_escrow_unset`. */
+  claimEscrow?: () => Address | null;
+  /**
+   * `PROTOCOL_TX_FEE_BUMP_BPS` and `PROTOCOL_TX_FEE_CEILING_WEI` (RC-dex-protocol-01). Absent or null: speed up and cancel
+   * refuse `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset`.
+   */
+  replacement?: () => ReplacementSetting;
   /** How a signed fee-token swap is posted to the relayer; `fetch` with a timeout when absent. */
   postRelay?: (url: string, body: unknown) => Promise<{ status: number; body: unknown }>;
   /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
@@ -1255,6 +1264,14 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
     walletSession: createWalletSessionRouter(addressBookDeps),
     addressBook: createAddressBookRouter(addressBookDeps),
+
+    // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
+    ...createWalletTxRouters({
+      chain: () => chain.client,
+      claimEscrow: () => deps.claimEscrow?.() ?? null,
+      replacement: () => deps.replacement?.() ?? { bumpBps: null, ceilingWei: null },
+      toTrpcError,
+    }),
 
     // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
     // Account = signed principal; address = that account's own registered smart account. Never a body field.
