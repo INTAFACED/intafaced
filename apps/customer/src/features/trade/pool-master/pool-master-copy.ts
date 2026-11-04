@@ -34,7 +34,8 @@ const en = {
   stateOther: 'Not open to investors',
   investorsTitle: 'Investors',
   noInvestors: 'No investors',
-  moneyNote: 'Investing, the seed round and redemptions open when pooled funds can be held on the platform ledger. No money moves here today.',
+  moneyNote:
+    'Investing, the seed round and redemptions open when pooled funds can be held on the platform ledger. No money moves here today.',
   summaryTitle: 'What happens next',
   summaryReview: 'Two founders review your application. Once approved you create one strategy, within the platform’s limits for its type.',
   summaryWhitelist: 'Founders keep the list of accounts that may invest in your strategy.',
