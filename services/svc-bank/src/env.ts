@@ -6,6 +6,7 @@ import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
 import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
+import { ONRAMP_PARTNER_SETTINGS } from './ramps/payin-sim.js';
 import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
@@ -264,6 +265,22 @@ const schema = serviceEnvSchema
        * exactly `dev` or `test`, or not absolute, the service refuses to start.
        */
       BANK_PAYOUT_SIM_RECORDS_DIR: z.string().optional(),
+      /**
+       * WHO TAKES ADD-MONEY PAYMENTS ON A TEST STACK. `none` (default) | `payin-sim` (J-bank-02 #3, #5).
+       *
+       * `none` leaves fiat pay-in as `socket.psp-partners`: an accepted price still ends `bank.fiat_ramp_socket` and nothing
+       * is credited. `payin-sim` is a TEST pay-in stand-in for the local stack and journey tests only (`ramps/payin-sim.ts`):
+       * for the hosted ways to pay in `BANK_PAYIN_SIM_JSON` it opens a TEST payment page on this service, sends the payer
+       * back to `BANK_PAYIN_SIM_RETURN_URL`, and credits only on its signed "paid" job call. The service refuses to start
+       * with it outside dev or test.
+       */
+      BANK_ONRAMP_PARTNER: z.enum(ONRAMP_PARTNER_SETTINGS).default('none'),
+      /** The pay-in stand-in's TEST catalogue (its label and the hosted ways to pay it opens). Read only with `payin-sim`. */
+      BANK_PAYIN_SIM_JSON: z.string().optional(),
+      /** LOCAL TEST: this service's own loopback address, where the pay-in stand-in serves its page. Read only with `payin-sim`. */
+      BANK_PAYIN_SIM_PAGE_URL: z.string().optional(),
+      /** LOCAL TEST: the customer app's loopback page the stand-in sends the payer back to. Read only with `payin-sim`. */
+      BANK_PAYIN_SIM_RETURN_URL: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.

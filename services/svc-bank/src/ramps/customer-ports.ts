@@ -37,6 +37,11 @@ export interface OnrampPaymentInstruction {
 }
 
 export interface OnrampPaymentPort {
+  /**
+   * LOCAL TEST: the stack's pay-in stand-in (`payin-sim`) serves its page on a loopback http address, which this flag lets
+   * through. Never set by a real partner: every other hosted page must be https.
+   */
+  readonly loopbackPages?: boolean;
   open(input: {
     onrampId: string;
     quoteId: string;

@@ -1304,8 +1304,9 @@ export const customerOnramps = bank.table('customer_onramps', {
 });
 
 /**
- * One add-money request (J-bank-02): opened with a partner instruction, or refused with the rail and the reason.
- * A record of what was asked, never a balance or a credit.
+ * One add-money request (J-bank-02): opened with a partner instruction, or refused with the rail and the reason; an
+ * opened one moves on to pending and credited. A record of what was asked and when, never a balance: the credit is the
+ * ledger's deposit recipe.
  */
 export const addMoneyRequests = bank.table('add_money_requests', {
   id: uuid('id').primaryKey(),
@@ -1320,6 +1321,12 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   quoteId: uuid('quote_id'),
   onrampId: uuid('onramp_id'),
   createdAt: createdAt(),
+  // Migration 20261104103406: when each step happened, and the credit (J-bank-02 #3, #5).
+  openedAt: tstz('opened_at'),
+  pendingAt: tstz('pending_at'),
+  creditedAt: tstz('credited_at'),
+  creditedAmount: amount('credited_amount'),
+  ledgerTxId: text('ledger_tx_id'),
 });
 
 /**

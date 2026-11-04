@@ -365,6 +365,10 @@ export type BankErrorCode =
   | 'bank.onramp_quote_expired'
   /** The partner answered without a hosted URL or bank-transfer instruction. None is invented. */
   | 'bank.onramp_instruction_missing'
+  /** No add-money request of this customer's under that id. */
+  | 'bank.add_money_request_missing'
+  /** The partner said a pay-in was paid in another amount or currency than the payment it opened. Nothing is credited. */
+  | 'bank.onramp_paid_mismatch'
   /**
    * Crypto off-ramp has no published fee schedule. Zero is not assumed.
    * Kind fiat still refuses `bank.fiat_ramp_socket` before this.

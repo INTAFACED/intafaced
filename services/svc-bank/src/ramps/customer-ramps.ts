@@ -19,6 +19,8 @@ import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.j
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import type { OnrampStandIn } from './onramp-sim.js';
+import { isLoopbackHost } from './payin-sim.js';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 import { openApprovalLinks, type ApprovalLinkStore } from './address-approval.js';
@@ -273,7 +275,7 @@ export async function createOnramp(
       'bank.fiat_ramp_socket',
     );
   }
-  const stored = normaliseInstruction(input.method, instruction);
+  const stored = normaliseInstruction(input.method, instruction, deps.payments.loopbackPages === true);
 
   const inserted = await transaction(deps.sql, async (tx) => {
     const again = await tx<QuoteRow[]>`
@@ -610,6 +612,7 @@ function sameOnramp(row: CustomerOnrampRow, userId: string, quoteId: string): Cu
 function normaliseInstruction(
   method: OnrampMethod,
   instruction: OnrampPaymentInstruction,
+  loopbackPages = false,
 ): {
   partnerRail: string;
   hostedUrl: string | null;
@@ -644,10 +647,25 @@ function normaliseInstruction(
     };
   }
   const hostedUrl = instruction.hostedUrl?.trim() ?? '';
-  if (!hostedUrl.startsWith('https://') || hostedUrl.length > 2000 || /\s/.test(hostedUrl)) {
+  const secure = hostedUrl.startsWith('https://') || (loopbackPages && isLoopbackHttp(hostedUrl));
+  if (!secure || hostedUrl.length > 2000 || /\s/.test(hostedUrl)) {
     throw new BankError('The partner did not return an https hosted payment URL', 'bank.onramp_instruction_missing');
   }
   return { partnerRail, hostedUrl, bankReference: null, bankAccountName: null, bankAccountRef: null };
+}
+
+/**
+ * An http page on this machine, which only the local stack's TEST pay-in stand-in may name, and only in a dev or test
+ * process: the port's own flag is not enough on its own, so a live posture never takes an http page whatever a port says.
+ */
+function isLoopbackHttp(raw: string): boolean {
+  if (!isExplicitDevOrTest(process.env.APP_ENV) || process.env.NODE_ENV === 'production') return false;
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' && isLoopbackHost(url);
+  } catch {
+    return false;
+  }
 }
 
 function toQuote(row: QuoteRow): OnrampQuoteView {

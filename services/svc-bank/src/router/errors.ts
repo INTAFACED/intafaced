@@ -380,6 +380,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.onramp_quote_missing': 'PRECONDITION_FAILED',
   'bank.onramp_quote_expired': 'PRECONDITION_FAILED',
   'bank.onramp_instruction_missing': 'PRECONDITION_FAILED',
+  'bank.add_money_request_missing': 'NOT_FOUND',
+  'bank.onramp_paid_mismatch': 'CONFLICT',
   'bank.offramp_fee_unset': 'PRECONDITION_FAILED',
   'bank.offramp_fee_inconsistent': 'PRECONDITION_FAILED',
   'bank.deposit_custody_unset': 'PRECONDITION_FAILED',

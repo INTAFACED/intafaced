@@ -51,7 +51,7 @@ function depositCustody(urlOf) {
   throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
   name: 'bank',
   env: () => ({
     ...c('svc-bank', PORTS.bank),
@@ -126,10 +126,19 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     BANK_GLOBAL_PARTNER: 'global-sim',
     BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
     BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
-    // LOCAL TEST rate stand-in for add money (J-bank-02 #4; prices nothing real, opens no payment, refused under live
-    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused here.
+    // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
+    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
+    // through the pay-in stand-in below.
     BANK_ONRAMP_RATES: 'ramp-sim',
     BANK_ONRAMP_SIM_JSON: testValue('BANK_ONRAMP_SIM_JSON'),
+    // LOCAL TEST pay-in stand-in for add money (J-bank-02 #3, #5; takes no money, refused under live posture): for the
+    // ways to pay its TEST catalogue lists it opens a TEST payment page on svc-bank's own address and sends the payer back
+    // to the app; saying paid is its signed job call, which only a test makes here. Value arrives from its own TEST rail
+    // boundary, through the deposit recipe.
+    BANK_ONRAMP_PARTNER: 'payin-sim',
+    BANK_PAYIN_SIM_JSON: testValue('BANK_PAYIN_SIM_JSON'),
+    BANK_PAYIN_SIM_PAGE_URL: urlOf('bank'),
+    BANK_PAYIN_SIM_RETURN_URL: `${CUSTOMER_ORIGIN}/bank/ramps/new`,
     // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
     // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.

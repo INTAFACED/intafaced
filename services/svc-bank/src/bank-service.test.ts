@@ -3102,6 +3102,8 @@ describe('svc-bank money PG-hard', () => {
         'customer_onramps.rate': 'the rate copied onto that instruction; written once',
         'add_money_requests.amount':
           'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
+        'add_money_requests.credited_amount':
+          "a RECORD of what one paid request credited (the quote's receive amount); written once with its ledger tx id",
         'cash_out_requests.amount':
           'the amount the customer asked to cash out on one request; refused, or held, settled or given back under its own key',
         'cash_out_requests.fee': "the partner's fee for that one payout, copied once from its price; never charged from here",

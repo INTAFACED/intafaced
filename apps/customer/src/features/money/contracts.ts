@@ -606,6 +606,8 @@ export const addMoneyMethodsSchema = z.object({
       blocker: z.string().nullable(),
       // The TEST stand-in's label when the local stack's rate stand-in priced this way to pay.
       standIn: z.string().nullable().default(null),
+      // The TEST pay-in stand-in's label when the local stack's TEST partner opens this way to pay.
+      payStandIn: z.string().nullable().default(null),
     }),
   ),
 });
@@ -617,11 +619,14 @@ export const addMoneyRequestSchema = z.object({
   method: z.enum(ADD_MONEY_METHODS),
   country: z.string(),
   rail: z.enum(['rail.bank', 'rail.card']),
-  status: z.enum(['opening', 'refused', 'opened']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited']),
   refusalCode: z.string().nullable(),
   onramp: z
     .object({
       onrampId: z.string(),
+      // What the person receives: the quote's receive amount, in this asset.
+      assetId: z.string(),
+      amount: money,
       payAmount: money,
       fee: money,
       payCurrency: z.string(),
@@ -631,6 +636,12 @@ export const addMoneyRequestSchema = z.object({
     })
     .nullable(),
   createdAt: z.string(),
+  // When the partner opened the payment, the payer approved it, and the money was credited; null until each happened.
+  openedAt: z.string().nullable().default(null),
+  pendingAt: z.string().nullable().default(null),
+  creditedAt: z.string().nullable().default(null),
+  // What the ledger credited: the quote's receive amount, never anything else. Null until credited.
+  creditedAmount: money.nullable().default(null),
 });
 export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
 /** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
@@ -925,6 +936,7 @@ export const bankReads = {
   'accounts.profile': bankProfileSchema,
   'addMoney.methods': addMoneyMethodsSchema,
   'addMoney.requests': z.array(addMoneyRequestSchema),
+  'addMoney.request': addMoneyRequestSchema,
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,

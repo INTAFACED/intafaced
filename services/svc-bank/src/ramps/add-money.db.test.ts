@@ -10,15 +10,16 @@ import { fileURLToPath } from 'node:url';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
-import { createBankServices } from '../bank-service.js';
+import { createBankServices, type BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import type { OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import type { PayFiatRampPort } from './pay-fiat-adapter.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
 import { onrampSim } from './onramp-sim.js';
+import { PAYIN_SIM_RAIL, payinSim } from './payin-sim.js';
 
 const SECRET = 'bank-add-money-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -93,8 +94,9 @@ describe('add money (J-bank-02)', () => {
     ledger = new MemoryLedger();
   });
 
-  function as(userId: string, ramps: NonNullable<Parameters<typeof createBankServices>[3]>['ramps'] = {}) {
-    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps });
+  type Options = NonNullable<Parameters<typeof createBankServices>[3]>;
+  function as(userId: string, ramps: Options['ramps'] = {}, extra: Omit<Options, 'ramps'> = {}) {
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ...extra, ramps });
     const raw = encodePrincipal({
       sub: userId,
       userId,
@@ -123,10 +125,10 @@ describe('add money (J-bank-02)', () => {
     it('with no partner, every way names the rail it needs and the reason, and writes no quote', async () => {
       const { methods } = await as(ADA).addMoney.methods(ask);
       expect(methods).toEqual([
-        { method: 'bank_transfer', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
-        { method: 'pay_by_bank', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
-        { method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
-        { method: 'wallet_pay', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
+        { method: 'bank_transfer', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null, payStandIn: null },
+        { method: 'pay_by_bank', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null, payStandIn: null },
+        { method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null, payStandIn: null },
+        { method: 'wallet_pay', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null, payStandIn: null },
       ]);
       expect(await sql`SELECT 1 FROM bank.ramp_onramp_quotes`).toHaveLength(0);
     });
@@ -151,6 +153,7 @@ describe('add money (J-bank-02)', () => {
         quote: null,
         blocker: 'bank.onramp_rate_unset',
         standIn: null,
+        payStandIn: null,
       });
     });
 
@@ -199,7 +202,14 @@ describe('add money (J-bank-02)', () => {
         blocker: null,
         standIn: 'TEST add-money stand-in',
       });
-      expect(by.card).toEqual({ method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null });
+      expect(by.card).toEqual({
+        method: 'card',
+        rail: 'rail.card',
+        quote: null,
+        blocker: 'bank.fiat_ramp_socket',
+        standIn: null,
+        payStandIn: null,
+      });
       const de = await as(ADA, { onrampStandIn: standIn }).addMoney.methods(ask);
       expect(de.methods.every((m) => m.quote === null && m.blocker === 'bank.fiat_ramp_socket' && m.standIn === null)).toBe(true);
     });
@@ -423,6 +433,182 @@ describe('add money (J-bank-02)', () => {
       const ada = as(ADA, { programme: NO_RAMP_PROGRAMME, payFiat: livePay, onrampQuotes: testQuotes(), onrampPayments: testPartner() });
       const row = await ada.addMoney.start({ requestId: randomUUID(), ...ask, method: 'pay_by_bank' });
       expect(row).toMatchObject({ status: 'refused', rail: 'rail.bank', refusalCode: 'bank.fiat_ramp_socket' });
+    });
+  });
+  describe('paid through the TEST pay-in stand-in of the local stack (J-bank-02 #3, #5)', () => {
+    const rates = onrampSim({
+      label: 'TEST add-money stand-in',
+      quoteValidSeconds: 600,
+      quotes: [
+        { country: 'NL', method: 'pay_by_bank', asset: 'USDT', payCurrency: 'EUR', rate: '2', fee: '1', deliveryEstimate: null },
+        { country: 'NL', method: 'bank_transfer', asset: 'USDT', payCurrency: 'EUR', rate: '2', fee: '1', deliveryEstimate: null },
+      ],
+    });
+    const partner = payinSim(
+      { label: 'TEST pay-in stand-in', methods: ['pay_by_bank'] },
+      new URL('http://127.0.0.1:14999'),
+      new URL('http://127.0.0.1:3210/bank/ramps/new'),
+    );
+    const nl = { assetId: 'USDT', amount: '12.345678', country: 'NL' };
+
+    /** The customer's router and the bank's own services (the partner's job door and page call these), on one ledger. */
+    function wired(userId: string) {
+      const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        ramps: { onrampStandIn: rates },
+        onrampPartner: partner,
+      });
+      return { caller: as(userId, { onrampStandIn: rates }, { onrampPartner: partner }), bank };
+    }
+
+    async function opened(userId: string) {
+      const { caller, bank } = wired(userId);
+      const { methods } = await caller.addMoney.methods(nl);
+      const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+      const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+      return { caller, bank, quote, request };
+    }
+
+    /** The person's available USDT on the ledger, in units. */
+    const available = async (userId: string) =>
+      (await ledger.balances('user', userId)).find((b) => b.account.kind === 'available' && b.account.assetId === 'USDT')?.amount ?? 0n;
+
+    it('labels the way it opens, and opens it with the page the partner answered, posting nothing', async () => {
+      const { caller, quote, request } = await opened(ADA);
+      const { methods } = await caller.addMoney.methods(nl);
+      const by = Object.fromEntries(methods.map((m) => [m.method, m]));
+      expect(by.pay_by_bank).toMatchObject({ standIn: 'TEST add-money stand-in', payStandIn: 'TEST pay-in stand-in' });
+      expect(by.bank_transfer).toMatchObject({ payStandIn: null });
+      expect(quote).toMatchObject({ amount: '12.345678', payAmount: '25.691356', payCurrency: 'EUR' });
+      expect(request).toMatchObject({
+        status: 'opened',
+        pendingAt: null,
+        creditedAt: null,
+        creditedAmount: null,
+        onramp: {
+          partnerRail: PAYIN_SIM_RAIL,
+          hostedUrl: `http://127.0.0.1:14999/test/payin-sim/pay/${request.requestId}`,
+          amount: '12.345678',
+          payAmount: '25.691356',
+        },
+      });
+      expect(request.openedAt).not.toBeNull();
+      nothingPosted();
+    });
+
+    it('a bank transfer it does not open still ends with no partner: refused with the rail, nothing posted', async () => {
+      const { caller } = wired(ADA);
+      const { methods } = await caller.addMoney.methods(nl);
+      const quoteId = methods.find((m) => m.method === 'bank_transfer')!.quote!.quoteId;
+      const row = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'bank_transfer', quoteId });
+      expect(row).toMatchObject({ status: 'refused', refusalCode: 'bank.fiat_ramp_socket', onramp: null });
+      nothingPosted();
+    });
+
+    it('approved on the page is pending and sends the payer back; approving again changes nothing', async () => {
+      const { caller, bank, request } = await opened(ADA);
+      const first = await bank.addMoney.approved(request.requestId);
+      expect(first.returnUrl).toBe(`http://127.0.0.1:3210/bank/ramps/new?request=${request.requestId}`);
+      expect(first.request).toMatchObject({ status: 'pending', creditedAt: null });
+      const again = await bank.addMoney.approved(request.requestId);
+      expect(again.request).toEqual(first.request);
+      // The customer's own read says the same (the router shows the customer's fields only).
+      const { onramp: _approvedOnramp, ...approvedView } = first.request;
+      expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(approvedView);
+      nothingPosted();
+    });
+
+    it('paid credits the quote receive amount exactly, once, through the deposit recipe from its rail', async () => {
+      const { caller, bank, quote, request } = await opened(ADA);
+      await bank.addMoney.approved(request.requestId);
+      const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+      const first = await bank.addMoney.paid(paid);
+      expect(first).toMatchObject({ status: 'credited', creditedAmount: quote.amount });
+      for (const at of [first.createdAt, first.openedAt, first.pendingAt, first.creditedAt]) expect(at).not.toBeNull();
+      // Credited once: the partner saying paid again, or from another replica, posts nothing more.
+      const [second, third] = await Promise.all([bank.addMoney.paid(paid), bank.addMoney.paid(paid)]);
+      expect(second).toEqual(first);
+      expect(third).toEqual(first);
+      const journal = ledger.journal();
+      expect(journal).toHaveLength(1);
+      expect(journal[0]).toMatchObject({
+        idempotencyKey: `deposit:${PAYIN_SIM_RAIL}:add-money:${request.requestId}`,
+        reason: 'deposit.credited',
+      });
+      // Invariant: the person gained the quote's receive amount to the last unit, and the book still replays to itself.
+      expect(await available(ADA)).toBe(parseAmount(quote.amount));
+      expect(journal[0]!.entries).toHaveLength(2);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+      const { onramp: _creditedOnramp, ...creditedView } = first;
+      expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(creditedView);
+    });
+
+    it('a crash after the credit and before the row said so catches up on the next paid, crediting nothing twice', async () => {
+      const { bank, quote, request } = await opened(ADA);
+      const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+      await bank.addMoney.paid(paid);
+      // As if the process died between the ledger post and the row's update.
+      await sql`
+        UPDATE bank.add_money_requests SET status = 'opened', credited_at = NULL, credited_amount = NULL, ledger_tx_id = NULL
+         WHERE id = ${request.requestId}::uuid
+      `;
+      const again = await bank.addMoney.paid(paid);
+      expect(again).toMatchObject({ status: 'credited', creditedAmount: quote.amount });
+      expect(ledger.journal()).toHaveLength(1);
+      expect(await available(ADA)).toBe(parseAmount(quote.amount));
+    });
+
+    it('paid in another amount or currency than the payment opened credits nothing', async () => {
+      const { bank, quote, request } = await opened(ADA);
+      for (const wrong of [
+        { paidAmount: '25.691355', payCurrency: 'EUR' },
+        { paidAmount: quote.payAmount, payCurrency: 'GBP' },
+      ]) {
+        const err = await bank.addMoney.paid({ requestId: request.requestId, ...wrong }).catch((e: unknown) => e);
+        expect((err as { code?: string }).code).toBe('bank.onramp_paid_mismatch');
+      }
+      nothingPosted();
+      expect((await bank.addMoney.opened(request.requestId)).request).toMatchObject({ status: 'opened' });
+    });
+
+    it('a refused request, an unknown id, or a request someone else asks for is never approved, credited or shown', async () => {
+      const { caller, bank } = wired(ADA);
+      const refused = await caller.addMoney.start({
+        requestId: randomUUID(),
+        assetId: 'USDT',
+        amount: '20',
+        country: 'DE',
+        method: 'card',
+      });
+      expect(refused.status).toBe('refused');
+      for (const call of [
+        () => bank.addMoney.approved(refused.requestId),
+        () => bank.addMoney.paid({ requestId: refused.requestId, paidAmount: '1', payCurrency: 'EUR' }),
+      ]) {
+        expect(((await call().catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.ramp_conflict');
+      }
+      const missing = await bank.addMoney.approved(randomUUID()).catch((e: unknown) => e);
+      expect((missing as { code?: string }).code).toBe('bank.add_money_request_missing');
+      const { request } = await opened(ADA);
+      expect(
+        codeOf(
+          await as(BOB)
+            .addMoney.request({ requestId: request.requestId })
+            .catch((e: unknown) => e),
+        ),
+      ).toBe('bank.add_money_request_missing');
+      nothingPosted();
+    });
+
+    it('with no pay-in partner wired, approving and paid refuse by name and nothing moves', async () => {
+      const { request, quote } = await opened(ADA);
+      const plain = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps: { onrampStandIn: rates } });
+      for (const call of [
+        () => plain.addMoney.approved(request.requestId),
+        () => plain.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' }),
+      ]) {
+        expect(((await call().catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.fiat_ramp_socket');
+      }
+      nothingPosted();
     });
   });
 });

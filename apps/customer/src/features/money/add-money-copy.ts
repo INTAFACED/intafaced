@@ -51,6 +51,22 @@ const en = {
   status_expired: 'Refused: the price ran out',
   expiredTitle: 'The price ran out',
   expiredBody: 'The price ran out before the partner opened the payment, so nothing was charged. See ways to pay for a new price.',
+  youReceive: 'You receive',
+  standInPriced: 'TEST price from a stand-in: {label}.',
+  payStandIn: 'TEST payment page from a stand-in: {label}. No real money moves.',
+  redirecting: 'Taking you to the payment page',
+  status_pending: 'Pending: you approved it, the money is on its way',
+  status_credited: 'Credited',
+  trackerTitle: 'Where your payment stands',
+  trackerLead: 'Each step shows when it happened. This page updates on its own.',
+  trackerAmount: 'You receive',
+  step_created: 'Created',
+  step_opened: 'Sent to the payment page',
+  step_pending: 'Pending',
+  step_credited: 'Credited',
+  stepNotYet: 'Waiting',
+  stepSkipped: 'Not reported by the partner',
+  creditedAmount: 'Credited: {amount}',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -106,6 +122,22 @@ const es: Record<keyof typeof en, string> = {
   expiredTitle: 'El precio caducó',
   expiredBody:
     'El precio caducó antes de que el socio abriera el pago, así que no se cobró nada. Consulta las formas de pago para obtener un precio nuevo.',
+  youReceive: 'Recibes',
+  standInPriced: 'Precio de PRUEBA de un sustituto: {label}.',
+  payStandIn: 'Página de pago de PRUEBA de un sustituto: {label}. No se mueve dinero real.',
+  redirecting: 'Te llevamos a la página de pago',
+  status_pending: 'Pendiente: lo aprobaste, el dinero está en camino',
+  status_credited: 'Abonado',
+  trackerTitle: 'Dónde está tu pago',
+  trackerLead: 'Cada paso muestra cuándo ocurrió. Esta página se actualiza sola.',
+  trackerAmount: 'Recibes',
+  step_created: 'Creado',
+  step_opened: 'Enviado a la página de pago',
+  step_pending: 'Pendiente',
+  step_credited: 'Abonado',
+  stepNotYet: 'En espera',
+  stepSkipped: 'El socio no lo informó',
+  creditedAmount: 'Abonado: {amount}',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -161,6 +193,22 @@ const fr: Record<keyof typeof en, string> = {
   expiredTitle: 'Le prix a expiré',
   expiredBody:
     'Le prix a expiré avant que le partenaire n’ouvre le paiement : rien n’a été débité. Consultez les moyens de paiement pour un nouveau prix.',
+  youReceive: 'Vous recevez',
+  standInPriced: 'Prix de TEST d’un substitut : {label}.',
+  payStandIn: 'Page de paiement de TEST d’un substitut : {label}. Aucun argent réel ne bouge.',
+  redirecting: 'Nous vous emmenons vers la page de paiement',
+  status_pending: 'En attente : vous l’avez approuvé, l’argent arrive',
+  status_credited: 'Crédité',
+  trackerTitle: 'Où en est votre paiement',
+  trackerLead: 'Chaque étape indique quand elle a eu lieu. Cette page se met à jour toute seule.',
+  trackerAmount: 'Vous recevez',
+  step_created: 'Créé',
+  step_opened: 'Envoyé à la page de paiement',
+  step_pending: 'En attente',
+  step_credited: 'Crédité',
+  stepNotYet: 'À venir',
+  stepSkipped: 'Non signalé par le partenaire',
+  creditedAmount: 'Crédité : {amount}',
 };
 
 export const addMoneyCopy = defineCopy('customer.money.addMoney', en, { es, fr });
