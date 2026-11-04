@@ -7,6 +7,7 @@ import type { BankServices } from '../bank-service.js';
 import type { LoanMissedPaymentPolicy } from '../loans/loan-servicing-preview.js';
 import type { StepUpGate } from '../step-up/step-up-gate.js';
 import { ALLOCATION_CLASSES, ALLOCATION_TYPES } from '../portfolio/allocation.js';
+import { SEND_REVIEW_REASONS } from '../transfers/send-review.js';
 
 /**
  * What the svc-bank router files share: output shapes, the destination gate and the options type. The
@@ -109,6 +110,11 @@ export const balanceEntriesOutput = z.object({
       direction: z.enum(['debit', 'credit']),
       amount: signedAmountString,
       postedAt: z.string(),
+      state: z.literal('completed'),
+      fee: z
+        .string()
+        .regex(/^\d+(\.\d{1,18})?$/)
+        .nullable(),
     }),
   ),
   nextCursor: z.string().nullable(),
@@ -305,3 +311,19 @@ export const actionApprovalFields = {
   approvalId: z.string().max(128).nullish(),
   operationId: z.string().max(128).nullish(),
 };
+
+/** A personal send the owner's review holds (PP-send-request-10), as its sender reads it: never the rule's line. */
+export const heldSendOutput = z.object({
+  transferId: z.string(),
+  status: z.enum(['in_review', 'released', 'rejected']),
+  reasonClass: z.enum(SEND_REVIEW_REASONS),
+  amount: amountString,
+  assetId: z.string(),
+  note: z.string().nullable(),
+  reference: z.string().nullable(),
+  requestId: z.string().guid().nullable(),
+  toHandle: z.string().nullable(),
+  ledgerTxId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  decidedAt: z.string().datetime().nullable(),
+});

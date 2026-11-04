@@ -10,6 +10,7 @@ import {
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
+import { BankError } from '../errors.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
 import {
   createTransferBinding,
@@ -18,12 +19,37 @@ import {
   scheduleToUserBinding,
   toUserBinding,
 } from '../step-up/money-out-fields.js';
-import { amountString, gateDestination, hideDestinationDetail, stepUpApprovalField } from './shared.js';
+import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
+import { heldRefusal, isHeldSend } from '../transfers/send-review.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
 export function createTransfersRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
+  /**
+   * The owner's send review (PP-send-request-10) holds a send to another person above its line, and only Send
+   * (`toUser`) can hold one. Every other door that pays another person (a transfer to their space, a standing or
+   * one-off order, an edit of its amount) refuses above the line, so none of them is a way around the review. An
+   * unknown destination counts as another person's, as for the step-up.
+   */
+  async function refuseOverReviewLine(
+    callerId: string,
+    assetId: string,
+    amount: string,
+    to: { readonly userId: string } | { readonly spaceId: string },
+  ) {
+    // Router tests hand in a partial personal-pay stub without the rule; the real service always has this method.
+    if (!bank.personalPay.overReviewLine?.(assetId, parseAmount(amount))) return;
+    if ('userId' in to && to.userId === callerId) return;
+    if ('spaceId' in to) {
+      const space = await bank.spaces.find(to.spaceId);
+      if (space !== null && space.userId === callerId) return;
+    }
+    throw new BankError(
+      'A payment to another person above the review line goes through Send, where it is reviewed (bank.personal_send_review_door)',
+      'bank.personal_send_review_door',
+    );
+  }
   return router({
     /**
      * The caller's own transfer history: money sent to or received from another person, and moves between their own
@@ -149,6 +175,7 @@ export function createTransfersRouter(c: BankRouterContext) {
            */
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { spaceId: input.toSpaceId });
 
           // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
           // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
@@ -263,6 +290,9 @@ export function createTransfersRouter(c: BankRouterContext) {
               if (from.kind !== 'primary') throw err;
               throw await bank.spendFigures.refusal(err, ctx.principal.userId, from.assetId);
             });
+          // The owner's send review holds it (PP-send-request-10): nothing moved, so it is answered as a typed refusal that
+          // names the review; `transfers.held` reads its state and reason class. A retry with the same id answers the same.
+          if (isHeldSend(result)) throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
             amount: result.amount,
@@ -272,6 +302,15 @@ export function createTransfersRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * The sender's own send that the review holds (PP-send-request-10): In review with its reason class, or how the review
+     * ended. Nobody else can read it, and a stranger gets the same not-found as a missing id.
+     */
+    held: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ transferId: z.string().min(8).max(64) }))
+      .output(heldSendOutput)
+      .query(async ({ ctx, input }) => guard(async () => bank.personalPay.heldSend(ctx.principal.userId, input.transferId))),
 
     /** Receipt for one personal send. Parties only. A stranger gets the same not-found as a missing id. */
     get: scopedProcedure('bank:read', { module: 'bank' })
@@ -354,6 +393,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { userId: input.toUserId });
           // Approval happens at creation, and again for an edit of the amount or end (updateSchedule). The payee
           // never changes, and the order runs without a session, so execution, pause and resume need none (cancel
           // and pause are protective).
@@ -410,6 +450,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           // another user is the same product feature on a timer.
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { spaceId: input.toSpaceId });
 
           // A standing order to another person is approved at creation; an unknown destination counts as foreign.
           if (stepUpEnforced) {
@@ -547,6 +588,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           // Ownership before the write, as `cancel` does.
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
+          await refuseOverReviewLine(ctx.principal.userId, schedule.assetId, input.amount, { spaceId: schedule.toSpaceId });
           if (stepUpEnforced) {
             const to = await bank.spaces.find(schedule.toSpaceId);
             if (to === null || to.userId !== ctx.principal.userId) {

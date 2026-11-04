@@ -9,6 +9,7 @@ import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requ
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
+import { fetchHeldSend, type HeldSend } from '../../held-send';
 
 /** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
@@ -191,15 +192,69 @@ function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | n
   );
 }
 
+/** A send the owner's review holds, as its sender reads it: its state, the reason class, and what it would send. */
+function HeldStatus({ held }: { held: HeldSend }) {
+  const { t } = roomsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  const state = held.status === 'in_review' ? t('heldInReview') : held.status === 'rejected' ? t('heldRejected') : t('heldReleased');
+  const reason = held.reasonClass === 'amount_over_review_line' ? t('heldReason_amount_over_review_line') : t('heldReasonOther');
+  return (
+    <>
+      <p className="pay-banner" role="status" data-testid="payment-status" data-status={held.status}>
+        {state}
+      </p>
+      <Rows
+        rows={[
+          [t('heldStatusRow'), <span data-testid="payment-status-word">{state}</span>],
+          [
+            t('heldReasonRow'),
+            <span data-testid="payment-review-reason" data-reason={held.reasonClass}>
+              {reason}
+            </span>,
+          ],
+          [t('requestAmount'), <span lang="zxx">{`${fmtAmount(held.amount, { places: 18 })} ${held.assetId}`}</span>],
+          [t('heldTo'), held.toHandle ? `@${held.toHandle}` : t('notSet')],
+          [t('requestMade'), <span lang="zxx">{stamp(held.createdAt, timeZone, Date.now())}</span>],
+          [t('reference'), <span lang="zxx">{held.transferId}</span>],
+        ]}
+      />
+      <p className="pay-hint" data-testid="payment-held-note">
+        {held.status === 'in_review' ? t('heldNote') : held.status === 'rejected' ? t('heldRejectedNote') : t('heldReleasedNote')}
+      </p>
+    </>
+  );
+}
+
 function PaymentRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
+  // A send the review holds is not in the ledger's activity: the bank's own record of it is read first. Not found means
+  // it was never held, and the activity is read; any other failure says so, never "not in your activity".
+  const [held, setHeld] = useState<{ state: 'loading' } | { state: 'none' } | { state: 'failed' } | { state: 'held'; data: HeldSend }>({
+    state: 'loading',
+  });
+  const [heldTry, retryHeld] = useState(0);
+  useEffect(() => {
+    if (!id) return setHeld({ state: 'none' });
+    setHeld({ state: 'loading' });
+    const controller = new AbortController();
+    void fetchHeldSend(api, id, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.ok) setHeld({ state: 'held', data: result.data });
+      else setHeld(result.code === 'bank.held_send_not_found' ? { state: 'none' } : { state: 'failed' });
+    });
+    return () => controller.abort();
+  }, [api, id, userId, heldTry]);
   const source = useMemo(() => createActivityFeed(api, { pageSize: 50 }), [api, userId]);
   const feed = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const item = feed.status === 'ready' && id ? (feed.data.items.find((row) => row.id === id || row.txId === id) ?? null) : null;
   const body =
-    feed.status === 'loading' ? (
+    held.state === 'held' ? (
+      <HeldStatus held={held.data} />
+    ) : held.state === 'failed' ? (
+      <StateBlock kind="error" title={t('paymentFailed')} onRetry={() => retryHeld((n) => n + 1)} retryLabel={t('tryAgain')} />
+    ) : held.state === 'loading' || feed.status === 'loading' ? (
       <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
     ) : feed.status === 'refused' ? (
       (() => {

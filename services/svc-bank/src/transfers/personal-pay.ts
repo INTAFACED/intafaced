@@ -29,6 +29,16 @@ import type { PersonalRequestNotices } from './request-notices.js';
 import type { PersonalTransferNotices } from './transfer-notices.js';
 import type { IncomingCredit } from '../sorter/income-sorter.js';
 import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
+import {
+  heldSendView,
+  isHeldSend,
+  reviewReason,
+  sameHeldSend,
+  SEND_REVIEW_COLS,
+  type HeldSendView,
+  type SendReviewRow,
+  type SendReviewRule,
+} from './send-review.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
@@ -247,6 +257,11 @@ export class PersonalPayService {
        * while it holds. Unset refuses every such withdrawal (`bank.security_lock_unset`), never "no lock".
        */
       securityLock?: SecurityLockPort;
+      /**
+       * The owner's send review rule (PP-send-request-10): a send above its asset's line is held for a review before any
+       * money moves. Unset = no rule published, and no send is held.
+       */
+      reviewRule?: SendReviewRule | null;
       now?: () => Date;
     } = {},
   ) {}
@@ -265,7 +280,9 @@ export class PersonalPayService {
     reference?: string | null;
     requestId?: string | null;
     now?: Date;
-  }): Promise<PersonalTransferView> {
+    /** Only the review's own release sends with this: the held send was reviewed, so the rule is not asked again. */
+    reviewed?: true;
+  }): Promise<PersonalTransferView | HeldSendView> {
     const now = this.now(input.now);
     const note = plainNote(input.note);
     const reference = plainReference(input.reference);
@@ -285,6 +302,12 @@ export class PersonalPayService {
       reference,
       requestId,
     };
+
+    // A send the review holds, or held before: answered from its review row, and no money moves while it waits.
+    if (!input.reviewed) {
+      const held = await this.holdForReview(input.transferId, instruction, now);
+      if (held) return held;
+    }
 
     await this.sweepStale(input.actorUserId, now);
 
@@ -416,6 +439,7 @@ export class PersonalPayService {
       const from =
         (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
         (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
+      // svc-pay reviewed this withdrawal under its own rules before it asked: the send review does not hold it again.
       const sent = await this.send({
         actorUserId: input.fromUserId,
         transferId: input.transferId,
@@ -423,7 +447,9 @@ export class PersonalPayService {
         toUserId: input.toUserId,
         amount: input.amount,
         now,
+        reviewed: true,
       });
+      if (isHeldSend(sent)) throw new Error(`withdrawal ${input.transferId} was not posted`);
       return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
     } catch (err) {
       if (!isDefinitePersonalRefusal(err)) throw err;
@@ -604,6 +630,211 @@ export class PersonalPayService {
       };
     });
     return { published: entries.length > 0, entries };
+  }
+
+  /**
+   * The review step of a send. A transfer id already held answers from its row (a retry, or a released send that then
+   * goes on to post through the normal path). A new send above the rule's line is checked against the terms as any send
+   * is, then written as held: no reservation, no ledger call. Returns null when the send goes on now.
+   */
+  private async holdForReview(
+    transferId: string,
+    instruction: {
+      actorUserId: string;
+      fromSpaceId: string;
+      toUserId: string;
+      assetId: string;
+      amount: Amount;
+      note: string | null;
+      reference: string | null;
+      requestId: string | null;
+    },
+    now: Date,
+  ): Promise<HeldSendView | null> {
+    const earlier = await this.reviewRow(transferId);
+    if (earlier) {
+      if (!sameHeldSend(earlier, instruction))
+        throw new BankError(
+          `Transfer ${transferId} already exists on different terms (bank.personal_transfer_conflict)`,
+          'bank.personal_transfer_conflict',
+        );
+      return earlier.status === 'released' ? null : heldSendView(earlier);
+    }
+    const reason = reviewReason(this.options.reviewRule, instruction.assetId, instruction.amount);
+    if (reason === null) return null;
+    // A send the bank would refuse now is refused now, never held: an unknown, frozen or closed recipient...
+    await this.spaces.assertCanReceive(instruction.toUserId);
+    const row = await this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${instruction.actorUserId}), hashtext(${instruction.assetId}))`;
+      // A send already under way under this id (posted, or reserved by a race) is never turned into a held one.
+      const [sent] = await tx<Array<{ transfer_id: string }>>`
+        SELECT transfer_id FROM bank.personal_transfers WHERE transfer_id = ${transferId}
+      `;
+      if (sent) return null;
+      // ...a request it cannot settle (its claim also keeps anyone else from paying it while this waits)...
+      if (instruction.requestId)
+        await this.claim(tx, {
+          requestId: instruction.requestId,
+          transferId,
+          payerUserId: instruction.actorUserId,
+          toUserId: instruction.toUserId,
+          assetId: instruction.assetId,
+          amount: instruction.amount,
+          now,
+        });
+      // ...or over the limits, as any send is: a review never stands in for a refusal.
+      await this.assertWithinTerms(tx, instruction.actorUserId, instruction.assetId, instruction.amount, now);
+      const handles = await this.snapshotHandles(instruction.actorUserId, instruction.toUserId);
+      await tx`
+        INSERT INTO bank.personal_send_reviews (
+          transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, reference, request_id, from_handle,
+          to_handle, reason_class, status, created_at
+        ) VALUES (
+          ${transferId}, ${instruction.actorUserId}, ${instruction.fromSpaceId}, ${instruction.toUserId}, ${instruction.assetId},
+          ${formatAmount(instruction.amount)}::numeric, ${instruction.note}, ${instruction.reference}, ${instruction.requestId},
+          ${handles.from}, ${handles.to}, ${reason}, 'in_review', ${now}
+        )
+        ON CONFLICT (transfer_id) DO NOTHING
+      `;
+      const [held] = await tx<SendReviewRow[]>`
+        SELECT ${tx.unsafe(SEND_REVIEW_COLS)} FROM bank.personal_send_reviews WHERE transfer_id = ${transferId}
+      `;
+      return held ?? null;
+    });
+    if (row === null) return null;
+    if (!sameHeldSend(row, instruction))
+      throw new BankError(
+        `Transfer ${transferId} already exists on different terms (bank.personal_transfer_conflict)`,
+        'bank.personal_transfer_conflict',
+      );
+    return heldSendView(row);
+  }
+
+  /** True when the owner's review rule would hold a send of this size: only `send` can hold one for a review. */
+  overReviewLine(assetId: string, amount: Amount): boolean {
+    return reviewReason(this.options.reviewRule, assetId, amount) !== null;
+  }
+
+  private async reviewRow(transferId: string): Promise<SendReviewRow | null> {
+    const [row] = await this.sql<SendReviewRow[]>`
+      SELECT ${this.sql.unsafe(SEND_REVIEW_COLS)} FROM bank.personal_send_reviews WHERE transfer_id = ${transferId}
+    `;
+    return row ?? null;
+  }
+
+  /** The sender's own held send, by transfer id. Anyone else, and an unknown id, read `bank.held_send_not_found`. */
+  async heldSend(userId: string, transferId: string): Promise<HeldSendView> {
+    const row = await this.reviewRow(transferId);
+    if (!row || row.from_user_id !== userId)
+      throw new BankError('No held payment with that id (bank.held_send_not_found)', 'bank.held_send_not_found');
+    return heldSendView(row);
+  }
+
+  /** Every held send waiting for a review, oldest first, for the operators who decide them. */
+  async heldForReview(limit: number): Promise<Array<HeldSendView & { fromUserId: string; toUserId: string }>> {
+    const rows = await this.sql<SendReviewRow[]>`
+      SELECT ${this.sql.unsafe(SEND_REVIEW_COLS)} FROM bank.personal_send_reviews
+       WHERE status IN ('in_review', 'releasing') ORDER BY created_at ASC LIMIT ${limit}
+    `;
+    return rows.map((row) => ({ ...heldSendView(row), fromUserId: row.from_user_id, toUserId: row.to_user_id }));
+  }
+
+  /**
+   * An operator releases a held send: it is sent now through the normal path under its own transfer id, so the terms,
+   * the balance and the recipient are checked as of now and it posts once. A refusal leaves it held (the operator can
+   * reject it). A repeat after a crash finds the posted send and finishes marking the row.
+   */
+  async releaseHeld(transferId: string, operatorId: string, at?: Date): Promise<HeldSendView> {
+    const now = this.now(at);
+    // The release is claimed first (in_review -> releasing), so a reject can never land on a send that is being posted;
+    // a release that crashed part-way is resumed from `releasing` by the next call.
+    const [claimed] = await this.sql<SendReviewRow[]>`
+      UPDATE bank.personal_send_reviews SET status = 'releasing', decided_by = ${operatorId}
+       WHERE transfer_id = ${transferId} AND status IN ('in_review', 'releasing')
+      RETURNING ${this.sql.unsafe(SEND_REVIEW_COLS)}
+    `;
+    const row = claimed ?? (await this.reviewRow(transferId));
+    if (!row) throw new BankError('No held payment with that id (bank.held_send_not_found)', 'bank.held_send_not_found');
+    if (row.status === 'released') return heldSendView(row);
+    if (row.status !== 'releasing')
+      throw new BankError(`The held payment is ${row.status} (bank.held_send_decided)`, 'bank.held_send_decided');
+    let sent: Awaited<ReturnType<PersonalPayService['send']>>;
+    try {
+      sent = await this.send({
+        actorUserId: row.from_user_id,
+        transferId: row.transfer_id,
+        fromSpaceId: row.from_space_id,
+        toUserId: row.to_user_id,
+        amount: parseAmount(row.amount),
+        note: row.note,
+        reference: row.reference,
+        requestId: row.request_id,
+        now,
+        reviewed: true,
+      });
+    } catch (err) {
+      // A refusal that proves nothing posted (the balance, the limits, the recipient, as of now) puts it back in review,
+      // so an operator can reject it. Anything else may have posted: it stays releasing, and a repeat finds out.
+      if (isDefinitePersonalRefusal(err))
+        await this.sql`
+          UPDATE bank.personal_send_reviews SET status = 'in_review', decided_by = NULL
+           WHERE transfer_id = ${transferId} AND status = 'releasing'
+        `;
+      throw err;
+    }
+    if (sent.status !== 'posted' || !('ledgerTxId' in sent) || !sent.ledgerTxId) throw new Error(`held send ${transferId} did not post`);
+    const [released] = await this.sql<SendReviewRow[]>`
+      UPDATE bank.personal_send_reviews
+         SET status = 'released', ledger_tx_id = ${sent.ledgerTxId}, decided_by = ${operatorId}, decided_at = ${now}
+       WHERE transfer_id = ${transferId} AND status = 'releasing'
+      RETURNING ${this.sql.unsafe(SEND_REVIEW_COLS)}
+    `;
+    return heldSendView(released ?? (await this.reviewRow(transferId))!);
+  }
+
+  /**
+   * An operator rejects a held send. Nothing was taken while it waited, so nothing moves; a payment request it claimed is
+   * free to be paid again. A send being released (or released) is never rejected.
+   */
+  async rejectHeld(transferId: string, operatorId: string, at?: Date): Promise<HeldSendView> {
+    const now = this.now(at);
+    const rejected = await this.sql.begin(async (tx) => {
+      const [done] = await tx<SendReviewRow[]>`
+        UPDATE bank.personal_send_reviews
+           SET status = 'rejected', decided_by = ${operatorId}, decided_at = ${now}
+         WHERE transfer_id = ${transferId} AND status = 'in_review'
+           AND NOT EXISTS (SELECT 1 FROM bank.personal_transfers WHERE transfer_id = ${transferId})
+        RETURNING ${tx.unsafe(SEND_REVIEW_COLS)}
+      `;
+      if (done?.request_id)
+        await tx`
+          UPDATE bank.personal_requests SET claim_transfer_id = NULL, updated_at = ${now}
+           WHERE id = ${done.request_id} AND claim_transfer_id = ${transferId} AND status = 'open'
+        `;
+      return done ?? null;
+    });
+    if (rejected) return heldSendView(rejected);
+    const row = await this.reviewRow(transferId);
+    if (!row) throw new BankError('No held payment with that id (bank.held_send_not_found)', 'bank.held_send_not_found');
+    if (row.status === 'rejected') return heldSendView(row);
+    throw new BankError(`The held payment is ${row.status} (bank.held_send_decided)`, 'bank.held_send_decided');
+  }
+
+  /**
+   * The fee each of the user's own posted personal sends charged, by ledger transaction id: zero. A send posts as one
+   * `bankTransfer` with no fee leg, and a published fee above zero refuses the send (`bank.personal_transfer_fee_unwired`),
+   * so a posted send never charged one. Only sends this user is a party to are answered.
+   */
+  async feesFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const out = new Map<string, string>();
+    if (txIds.length === 0) return out;
+    const rows = await this.sql<Array<{ ledger_tx_id: string }>>`
+      SELECT ledger_tx_id FROM bank.personal_transfers
+       WHERE status = 'posted' AND ledger_tx_id IN ${this.sql(txIds)}
+         AND (from_user_id = ${userId} OR to_user_id = ${userId})
+    `;
+    for (const row of rows) out.set(row.ledger_tx_id, '0');
+    return out;
   }
 
   async factsFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>> {

@@ -75,6 +75,18 @@ const en = {
   paymentActivity: 'Open your activity',
   paymentProblem: 'Report a problem',
   paymentReason: 'Reporting a payment and getting it back are not connected. The receipt is the record.',
+  // A send the owner's review holds (PP-send-request-10): nothing has moved while it waits.
+  heldInReview: 'In review',
+  heldReleased: 'Released and sent',
+  heldRejected: 'Not sent',
+  heldReasonRow: 'Why',
+  heldReason_amount_over_review_line: 'Large payment check: payments above a set amount are checked before they are sent.',
+  heldReasonOther: 'A check before it is sent.',
+  heldStatusRow: 'Status',
+  heldTo: 'To',
+  heldNote: 'Nothing has left your account. It is sent once the check passes; if it doesn’t, nothing moves.',
+  heldRejectedNote: 'The check did not pass, so nothing was sent and nothing left your account.',
+  heldReleasedNote: 'The check passed and the payment was sent.',
   // Claim
   claimTitle: 'Claim a payment',
   claimLine: 'Someone sent you money before you had an account.',

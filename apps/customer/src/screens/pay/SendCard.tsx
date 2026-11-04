@@ -60,6 +60,7 @@ import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
 import { stepUpAgain, stepUpProblem, type StepUpHow } from './send-step-up';
+import { heldSendHref, SEND_IN_REVIEW } from '../../features/pay/held-send';
 import { PAY_SENT_EVENT } from './recent-model';
 import { termsVerdict, useSendTerms, type TermsVerdict } from './send-terms';
 import {
@@ -487,6 +488,8 @@ function SendForm({
   // the bank first, so a rule switched off is followed at once and a refused call moves nothing.
   const [stepUp, setStepUp] = useState<{ code: string; problem: string | null; checking: StepUpHow | null } | null>(null);
   const checking = useRef(false);
+  // A send the owner's review holds (PP-send-request-10): nothing moved; its status page says In review and why.
+  const [heldId, setHeldId] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(() => lastReceipt.get(key) ?? null);
 
   // A handle that looks like someone saved is flagged before Review and again on it. It is a caution, not a block.
@@ -532,6 +535,7 @@ function SendForm({
     });
     if (!parsed.success) return (setFailure(payCopy.t('Check amount and recipient')), setReview(null));
     setFailure(null);
+    setHeldId(null);
     setReview({
       input: parsed.data,
       source,
@@ -638,6 +642,13 @@ function SendForm({
       // The owner's rule asks for a fresh confirmation (or the one given was spent or ran out): nothing was sent. The
       // same review, with the same transfer id, waits for it.
       setStepUp({ code: '', checking: null, problem: stepUpApprovalId ? payCopy.t('Confirm again') : null });
+      return;
+    }
+    if (outcome.code === SEND_IN_REVIEW) {
+      setStepUp(null);
+      setReview(null);
+      setHeldId(review.input.transferId);
+      reload();
       return;
     }
     // Any other answer is final for this review (a mismatch included: confirming again would bind the same fields).
@@ -780,6 +791,15 @@ function SendForm({
           onRetry={() => void retryRecovery()}
           showActivity={!(recoveryProblem && !knownCleanup)}
         />
+      ) : null}
+
+      {heldId ? (
+        <p className="pay-banner" role="status" data-testid="pay-held">
+          {payCopy.t('Held for review')}{' '}
+          <a href={heldSendHref(heldId)} data-testid="pay-held-link">
+            {payCopy.t('See its status')}
+          </a>
+        </p>
       ) : null}
 
       {linkNotice ? (

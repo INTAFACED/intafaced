@@ -175,6 +175,11 @@
       "service": "bank",
       "value": "{\"slashing\": \"TEST wording, not the owner's: if the network penalises the staked funds, what you get back can be less than you put in.\", \"ownership\": \"TEST wording, not the owner's: the saving stays yours in the custodial ledger while it is staked or unbonding.\"}",
       "note": "Made-up staking risk wording labelled TEST so the staking pool page has something to read (J-bank-08 #6); not the owner's disclosure."
+    },
+    "BANK_PERSONAL_SEND_REVIEW_JSON": {
+      "service": "bank",
+      "value": "{\"USDT\": \"50\"}",
+      "note": "Made-up TEST review line: a USDT send to another person above 50 is held for a review, so the held state can be seen (J-pay-01 #6); not the owner rule. The stack sets it only when a journey asks (LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on)."
     }
   }
 }

@@ -54,6 +54,17 @@ function moneyOutStepUp() {
   throw new Error(`LOCAL_STACK_BANK_STEP_UP_MONEY_OUT is "${asked}"; leave it unset for the rule off, or set it to required.`);
 }
 
+/**
+ * The owner's personal send review rule (PP-send-request-10): unset on the stack, so no send is held, or the profile's
+ * TEST review line when a journey asks for it on a restart (J-pay-01 #6: a held send reads In review with its reason).
+ */
+function sendReview() {
+  const asked = process.env.LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'on') return { BANK_PERSONAL_SEND_REVIEW_JSON: testValue('BANK_PERSONAL_SEND_REVIEW_JSON') };
+  throw new Error(`LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW is "${asked}"; leave it unset for no review rule, or set it to on.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -187,6 +198,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     ...earnRiskWording(),
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
+    // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
+    ...sendReview(),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.

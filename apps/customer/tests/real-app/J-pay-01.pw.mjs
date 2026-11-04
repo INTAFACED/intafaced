@@ -166,6 +166,23 @@ function stepUpRule(required) {
   }
 }
 
+/**
+ * The owner's personal send review rule on the stack's bank (BANK_PERSONAL_SEND_REVIEW_JSON): on is the bank profile's
+ * TEST review line, a USDT send above 50 is held for a review; off (the stack's default) holds nothing.
+ */
+function reviewRule(on) {
+  const key = 'LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW';
+  const before = process.env[key];
+  if (on) process.env[key] = 'on';
+  else delete process.env[key];
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[key];
+    else process.env[key] = before;
+  }
+}
+
 /** A's transfers out of exactly this amount, as the bank lists them. */
 async function sentOf(amount) {
   const page = await trpc(await session(people().sender), 'GET', 'bank/trpc/transfers.list', { limit: 200 });
@@ -489,7 +506,9 @@ async function statusPage(page) {
   await expect(page).toHaveURL(/\/money\/activity\/[^/?]+/);
 }
 
-test(`${J} #6 reads the payment status page: Completed for both parties, no Cancel button, and a pointer to refund`, async ({ page }) => {
+test(`${J} #6 reads the payment status page: Completed for both parties, no Cancel button and a pointer to refund; a held send reads In review with the reason class`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const { sender, recipient } = people();
   const { reference } = run.read();
@@ -524,6 +543,38 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
     await expect(refund).toHaveText(`${side.note} ${side.link}`);
     await expect(refund.getByRole('link', { name: side.link, exact: true })).toHaveAttribute('href', side.href);
     await signOutBrowser(page.context());
+  }
+
+  // A held send: with the owner's review rule on (a TEST line of 50 USDT), A sends TEST 60 USDT. The bank holds it for a
+  // review before any money moves, and its status page reads In review with the reason class.
+  const held = '60';
+  const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
+  reviewRule(true);
+  try {
+    await signInA(page);
+    await sendForm(page, { amount: held, note: null, signedIn: true });
+    await page.getByTestId('pay-review').click();
+    await page.getByTestId('pay-send').click();
+    const notice = page.getByTestId('pay-held');
+    await expect(notice).toContainText('In review: this payment is checked before it is sent. Nothing has left your account.');
+    await notice.getByRole('link', { name: 'See its status' }).click();
+    await expect(page).toHaveURL(/\/pay\/history\/[^/?]+$/);
+    await expect(page.getByTestId('payment-status')).toHaveText('In review');
+    await expect(page.getByTestId('payment-status')).toHaveAttribute('data-status', 'in_review');
+    await expect(page.getByTestId('payment-review-reason')).toHaveText(
+      'Large payment check: payments above a set amount are checked before they are sent.',
+    );
+    await expect(page.getByTestId('payment-review-reason')).toHaveAttribute('data-reason', 'amount_over_review_line');
+    await expect(page.getByTestId('payment-held-note')).toHaveText(
+      'Nothing has left your account. It is sent once the check passes; if it doesn’t, nothing moves.',
+    );
+    await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+    // Nothing moved while it waits, and the bank has no send out of A for it.
+    expect(await usdt(sender)).toBe(before.sender);
+    expect(await usdt(recipient)).toBe(before.recipient);
+    expect(await sentOf(held)).toEqual([]);
+  } finally {
+    reviewRule(false);
   }
 });
 
@@ -615,7 +666,7 @@ test(`${J} #7 the recipient opens Pay: the payment, note and sender in activity,
   await expect(orders.getByRole('cell').first()).toContainText('Always on. We keep this one on for your protection.');
 });
 
-test(`${J} #8 either person opens the balance page: the balance on screen equals the ledger's, and the payment's row shows its date`, async ({
+test(`${J} #8 either person opens the balance page: the balance on screen equals the ledger's, and the payment's row shows its state, date and fee`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -641,10 +692,12 @@ test(`${J} #8 either person opens the balance page: the balance on screen equals
     const onScreen = (await check.innerText()).match(/your balance: ([\d,.]+) USDT\.$/)?.[1];
     expect(onScreen, 'the balance line names a figure').toBeTruthy();
     expect(toUnits(onScreen.replaceAll(',', ''))).toBe(toUnits(ledger));
-    // The payment's row: its reference, its date, and the amount on this person's side.
+    // The payment's row: its reference, its state, its date, its fee, and the amount on this person's side.
     const row = page.getByRole('row').filter({ hasText: reference });
     await expect(row).toHaveCount(1);
+    await expect(row.getByTestId('entry-state')).toHaveText('Completed');
     await expect(row.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
+    await expect(row.getByTestId('entry-fee')).toHaveText('No fee');
     await expect(row).toContainText(`${side.sign}${AMOUNT}`);
     await signOutBrowser(page.context());
   }

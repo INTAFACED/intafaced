@@ -13,6 +13,10 @@ export const balanceEntriesSchema = z.object({
       direction: z.enum(['debit', 'credit']),
       amount: z.string(),
       postedAt: z.string(),
+      /** Every entry is posted to the ledger. Absent from an older server: then no state is shown. */
+      state: z.literal('completed').optional(),
+      /** The fee this movement charged where the bank knows it (a personal send); null when it does not. */
+      fee: z.string().nullable().optional(),
     }),
   ),
   nextCursor: z.string().nullable(),
@@ -60,4 +64,9 @@ export function shownSum(rows: readonly BalanceEntryRow[]): string | null {
     total += value;
   }
   return str(total);
+}
+
+/** True only for a fee the bank answered as exactly zero; an unreadable figure is never read as zero. */
+export function feeIsZero(fee: string): boolean {
+  return dec(fee) === 0n;
 }

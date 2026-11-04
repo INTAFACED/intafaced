@@ -742,6 +742,11 @@ export type BankErrorCode =
   | 'bank.personal_transfer_daily_limit_exceeded'
   /** Same transfer id, different note, payee, amount, request, or reference. */
   | 'bank.personal_transfer_conflict'
+  | 'bank.held_send_not_found'
+  | 'bank.personal_send_in_review'
+  | 'bank.personal_send_review_door'
+  | 'bank.personal_send_rejected'
+  | 'bank.held_send_decided'
   | 'bank.personal_transfer_not_found'
   | 'bank.personal_note_invalid'
   /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
