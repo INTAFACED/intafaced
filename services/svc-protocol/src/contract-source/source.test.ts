@@ -14,11 +14,12 @@ import {
   findFunction,
   loadSources,
   matchSource,
+  SOURCES,
   minimalProxyTarget,
   slotImplementation,
   withoutMetadata,
 } from './source.js';
-import { createContractSourceRouter, revertReason, type ContractChain } from './router.js';
+import { createContractSourceRouter, ranOutOfGas, revertReason, type ContractChain } from './router.js';
 
 const sources = loadSources();
 const token = loadArtifact('TestToken');
@@ -46,9 +47,16 @@ const PLAIN = '0x4444444444444444444444444444444444444444' as Address;
 const clone = (target: Address): Hex => `0x363d3d373d3d3d363d73${target.slice(2).toLowerCase()}5af43d82803e903d91602b57fd5bf3`;
 
 describe('source status against the committed builds', () => {
-  it('reads every committed build with runtime code, and none of the bytecode-less ones', () => {
-    expect(sources.map((s) => s.contractName)).toContain('TestToken');
-    expect(sources.every((s) => s.deployedBytecode.length > 2)).toBe(true);
+  it('reads every committed build with runtime code once, at import', () => {
+    expect(sources.map((s) => s.artifact.contractName)).toContain('TestToken');
+    expect(sources.every((s) => s.artifact.deployedBytecode.length > 2)).toBe(true);
+    expect(SOURCES.map((s) => s.artifact.contractName)).toEqual(sources.map((s) => s.artifact.contractName));
+  });
+
+  it('a deployed library, its own address written into its code, is still its build', () => {
+    const lib = loadArtifact('SessionKeyLib');
+    const deployed = `0x73${'ab'.repeat(20)}${lib.deployedBytecode.slice(44)}` as Hex;
+    expect(matchSource(sources, deployed).source).toMatchObject({ status: 'exact', name: 'SessionKeyLib' });
   });
 
   it('exact: the build byte for byte apart from its immutables, named with its file and compiler', () => {
@@ -224,6 +232,32 @@ describe('protocol.contract router', () => {
     expect(decodeFunctionData({ abi: token.abi, data: seen[0]!.data })).toMatchObject({ functionName: 'balanceOf', args: [PLAIN] });
   });
 
+  it('read: a wrongly checksummed address is still called, in its checksummed form', async () => {
+    const seen: string[] = [];
+    const chain = fakeChain({
+      codes,
+      call: async (to) => {
+        seen.push(to);
+        return encodeAbiParameters([{ type: 'uint256' }], [1n]);
+      },
+    });
+    const upper = `0x${CLONE.slice(2).toUpperCase()}`;
+    await caller(chain).read({ address: upper, signature: 'totalSupply()', args: [] });
+    expect(seen).toEqual([CLONE]);
+  });
+
+  it('read: an answer that is not the declared one, and a read past the gas cap, each refuse by name', async () => {
+    await expect(
+      caller(fakeChain({ codes, call: async () => '0x' })).read({ address: IMPL, signature: 'totalSupply()', args: [] }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('protocol.contract_answer_unreadable: the contract answered nothing'),
+    });
+    expect(ranOutOfGas(Object.assign(new Error('call failed'), { cause: { details: 'out of gas' } }))).toBe(true);
+    expect(ranOutOfGas(new Error('EVM error OutOfGas'))).toBe(true);
+    expect(ranOutOfGas(new Error('execution reverted'))).toBe(false);
+  });
+
   it('read: refused with no interface, and a revert names the contract’s own error', async () => {
     await expect(caller(fakeChain({ codes })).read({ address: PLAIN, signature: 'x()', args: [] })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -251,6 +285,14 @@ describe('protocol.contract router', () => {
     await expect(
       caller(fakeChain({ codes })).buildWrite({ address: CLONE, signature: 'mint(address,uint256)', args: [PLAIN, '5'], value: '1' }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('is not payable') });
+    await expect(
+      caller(fakeChain({ codes })).buildWrite({
+        address: CLONE,
+        signature: 'mint(address,uint256)',
+        args: [PLAIN, '5'],
+        value: '9'.repeat(78),
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('larger than a transaction can carry') });
     await expect(
       caller(fakeChain({ codes })).buildWrite({ address: CLONE, signature: 'balanceOf(address)', args: [PLAIN] }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining(CONTRACT_FUNCTION_UNKNOWN) });

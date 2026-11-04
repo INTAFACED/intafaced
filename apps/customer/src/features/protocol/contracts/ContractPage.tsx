@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ContractFunction, ContractSource, ProtocolContractInspect } from '@intafaced/contracts/protocol-contract-source';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
@@ -150,6 +150,14 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
   const [gate, setGate] = useState<{ needed: Extract<SigningGate, { kind: 'needed' }>; resume: () => void } | null>(null);
   const account = wallet.status === 'connected' ? wallet.address : null;
 
+  // One Write at a time: set before the first await, so a second click cannot start a second build or wallet request.
+  const inFlight = useRef(false);
+  const settle = (problemText: string | null = null) => {
+    inFlight.current = false;
+    setBusy(false);
+    if (problemText) setProblem(problemText);
+  };
+
   const send = async () => {
     const built = await api.contractBuildWrite({
       address,
@@ -157,17 +165,15 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
       args: values,
       ...(fn.stateMutability === 'payable' && value.trim() ? { value: value.trim() } : {}),
     });
-    if (!built.ok) return setProblem(t('writeFailed', { message: plain(built.message) }));
-    setBusy(true);
+    if (!built.ok) return settle(t('writeFailed', { message: plain(built.message) }));
     const result = await wallet.sign({ kind: 'transaction', to: built.data.to, data: built.data.data, value: built.data.value });
-    if (result.status !== 'sent') {
-      setBusy(false);
-      if (result.status === 'rejected') return setProblem(t('writeRejected'));
-      return setProblem(t('writeFailed', { message: result.status === 'failed' ? result.message : '' }));
-    }
+    if (result.status !== 'sent')
+      return settle(
+        result.status === 'rejected' ? t('writeRejected') : t('writeFailed', { message: result.status === 'failed' ? result.message : '' }),
+      );
     setOutcome(t('writeSent', { hash: result.hash }));
     const mined = await waitMined((hash) => wallet.read('eth_getTransactionReceipt', [hash]), result.hash, 120_000);
-    setBusy(false);
+    settle();
     setOutcome(
       mined.status === 'success'
         ? t('writeMined', { block: String(mined.blockNumber ?? ''), hash: result.hash })
@@ -179,17 +185,19 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!account || inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
     setProblem(null);
     setOutcome(null);
-    if (!account) return;
     const outcomeOfGate = await signingGate(api, account);
-    if (outcomeOfGate.kind === 'refused') return setProblem(tw(outcomeOfGate.key));
+    if (outcomeOfGate.kind === 'refused') return settle(tw(outcomeOfGate.key));
     if (outcomeOfGate.kind === 'needed') return setGate({ needed: outcomeOfGate, resume: () => void send() });
     await send();
   };
 
   return (
-    <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
+    <>
       {gate && (
         <RepresentationPanel
           address={gate.needed.address}
@@ -199,27 +207,35 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
             const resume = gate.resume;
             setGate(null);
             if (end.kind === 'accepted') resume();
-            else if (end.kind === 'rejected') setProblem(t('writeRejected'));
-            else if (end.kind === 'region') setProblem(tw('permitRefused_region'));
-            else setProblem(t('writeFailed', { message: end.message }));
+            else if (end.kind === 'rejected') settle(t('writeRejected'));
+            else if (end.kind === 'region') settle(tw('permitRefused_region'));
+            else settle(t('writeFailed', { message: end.message }));
           }}
         />
       )}
-      <h4 className="numeric">{fn.signature}</h4>
-      <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
-      {fn.stateMutability === 'payable' && (
-        <Field label={t('value')} value={value} onChange={(event) => setValue(event.target.value)} inputMode="numeric" autoComplete="off" />
-      )}
-      <Button type="submit" disabled={busy || !account || wallet.guard?.ok !== true}>
-        {t('write')}
-      </Button>
-      {problem && <p role="alert">{problem}</p>}
-      {outcome && (
-        <p role="status" data-testid="contract-write-result">
-          {outcome}
-        </p>
-      )}
-    </form>
+      <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
+        <h4 className="numeric">{fn.signature}</h4>
+        <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
+        {fn.stateMutability === 'payable' && (
+          <Field
+            label={t('value')}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            inputMode="numeric"
+            autoComplete="off"
+          />
+        )}
+        <Button type="submit" disabled={busy || !account || wallet.guard?.ok !== true}>
+          {t('write')}
+        </Button>
+        {problem && <p role="alert">{problem}</p>}
+        {outcome && (
+          <p role="status" data-testid="contract-write-result">
+            {outcome}
+          </p>
+        )}
+      </form>
+    </>
   );
 }
 

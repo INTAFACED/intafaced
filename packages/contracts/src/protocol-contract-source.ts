@@ -21,6 +21,10 @@ export const CONTRACT_FUNCTION_UNKNOWN = 'protocol.contract_function_unknown';
 export const CONTRACT_ARGUMENT_INVALID = 'protocol.contract_argument_invalid';
 /** The read was answered with a revert; the message carries the contract's own reason when it gave one. */
 export const CONTRACT_CALL_REVERTED = 'protocol.contract_call_reverted';
+/** The read ran past the gas this platform allows one public read (`CONTRACT_READ_GAS` in svc-protocol). */
+export const CONTRACT_READ_GAS_EXCEEDED = 'protocol.contract_read_gas_exceeded';
+/** The contract answered with data that is not the function's declared answer (empty, or the wrong shape). */
+export const CONTRACT_ANSWER_UNREADABLE = 'protocol.contract_answer_unreadable';
 
 export const CONTRACT_SOURCE_STATUSES = ['exact', 'similar', 'unverified'] as const;
 export type ContractSourceStatus = (typeof CONTRACT_SOURCE_STATUSES)[number];

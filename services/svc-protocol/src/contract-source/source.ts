@@ -6,25 +6,55 @@ import {
   type ContractFunction,
   type ContractSource,
 } from '@intafaced/contracts/protocol-contract-source';
-import { deployedCodeMatches, type ContractArtifact } from '../chain/artifacts.js';
+import type { ContractArtifact } from '../chain/artifacts.js';
+import { MINIMAL_PROXY_PREFIX, MINIMAL_PROXY_SUFFIX } from '../accounts/address.js';
 
 /**
  * Source status, proxies and the Read/Write interface (D-explorer-06). Pure: no chain, no clock.
  *
- * The sources on file are the builds this service compiled and committed (`contracts/out/`), read once at import so a
- * missing or broken artefact fails the service at boot, as `chain/artifacts.ts` asks of request-path callers. Nothing
+ * The sources on file are the builds this service compiled and committed (`contracts/out/`), read once at import
+ * (`SOURCES`) so a missing or broken artefact fails the service at boot, as `chain/artifacts.ts` asks of request-path
+ * callers. Nothing
  * here claims more than those builds: a contract that matches none of them is unverified, said so, with the reason.
  */
 const outDir = new URL('../../contracts/out/', import.meta.url);
 
-/** Every committed build with runtime code (a library's code carries its own address, so it never matches and is left out). */
-export function loadSources(dir: URL = outDir): ContractArtifact[] {
+/**
+ * One committed build, its runtime decoded and masked once: the immutables zeroed and, for a library, the PUSH20 of its
+ * own address that solc leaves as zeros in the build and the deployment fills in.
+ */
+export interface Source {
+  artifact: ContractArtifact;
+  masks: ReadonlyArray<readonly [number, number]>;
+  /** The masked runtime, and the same without its metadata tail (null when it has none). */
+  runtime: Buffer;
+  body: Buffer | null;
+}
+
+/** solc's library guard: the runtime starts PUSH20 <address>, all zeros in the build. */
+const LIBRARY_HEAD = /^0x73(?:00){20}/;
+
+function prepare(artifact: ContractArtifact): Source {
+  const masks: Array<readonly [number, number]> = [];
+  for (const ranges of Object.values(artifact.immutableReferences ?? {}))
+    for (const { start, length } of ranges) masks.push([start, length]);
+  if (LIBRARY_HEAD.test(artifact.deployedBytecode)) masks.push([1, 20]);
+  const runtime = applyMasks(masks, Buffer.from(artifact.deployedBytecode.slice(2), 'hex'));
+  return { artifact, masks, runtime, body: withoutMetadata(runtime) };
+}
+
+/** Every committed build with runtime code, in name order. */
+export function loadSources(dir: URL = outDir): Source[] {
   return readdirSync(dir)
     .filter((file) => file.endsWith('.json'))
     .sort()
     .map((file) => JSON.parse(readFileSync(new URL(file, dir), 'utf8')) as ContractArtifact)
-    .filter((artifact) => artifact.deployedBytecode && artifact.deployedBytecode.length > 2);
+    .filter((artifact) => artifact.deployedBytecode && artifact.deployedBytecode.length > 2)
+    .map(prepare);
 }
+
+/** The committed builds, read at import: a missing or broken artefact fails the service at boot. */
+export const SOURCES: readonly Source[] = loadSources();
 
 /**
  * The runtime code without the compiler's CBOR metadata tail, or null when the code ends in none. solc ends the runtime
@@ -41,21 +71,28 @@ export function withoutMetadata(code: Buffer): Buffer | null {
   return code.subarray(0, start);
 }
 
-function masked(artifact: ContractArtifact, code: Buffer): Buffer {
+function applyMasks(masks: Source['masks'], code: Buffer): Buffer {
   const out = Buffer.from(code);
-  for (const ranges of Object.values(artifact.immutableReferences ?? {}))
-    for (const { start, length } of ranges) if (start + length <= out.length) out.fill(0, start, start + length);
+  for (const [start, length] of masks) if (start + length <= out.length) out.fill(0, start, start + length);
   return out;
 }
 
 /**
- * Same code as the build apart from the metadata tail: equal once the immutables are masked and both tails are cut off,
- * with the tails present on both sides. That is the same compiled program from a source whose text differs.
+ * Exact: the build byte for byte once the immutables (and a library's own address) are masked on both sides; a different
+ * length is a different contract (`deployedCodeMatches` in `chain/artifacts.ts` is the same check without the library mask).
  */
-export function similarTo(artifact: ContractArtifact, runtime: Hex): boolean {
-  const expected = withoutMetadata(masked(artifact, Buffer.from(artifact.deployedBytecode.slice(2), 'hex')));
-  const actual = withoutMetadata(masked(artifact, Buffer.from(runtime.slice(2), 'hex')));
-  return expected !== null && actual !== null && expected.length > 0 && expected.equals(actual);
+export function exactTo(source: Source, code: Buffer): boolean {
+  return code.length === source.runtime.length && applyMasks(source.masks, code).equals(source.runtime);
+}
+
+/**
+ * Similar: the same once the metadata tails are cut from both, with a tail on both sides. That is the same compiled
+ * program from a source whose text differs.
+ */
+export function similarTo(source: Source, code: Buffer): boolean {
+  if (!source.body || source.body.length === 0) return false;
+  const body = withoutMetadata(applyMasks(source.masks, code));
+  return body !== null && body.equals(source.body);
 }
 
 export interface SourceMatch {
@@ -71,17 +108,18 @@ const described = (artifact: ContractArtifact) => ({
 });
 
 /** Exact first, across every source; then similar; else unverified with its reason. */
-export function matchSource(sources: readonly ContractArtifact[], runtime: Hex | null): SourceMatch {
+export function matchSource(sources: readonly Source[], runtime: Hex | null): SourceMatch {
   if (!runtime || runtime === '0x') return { source: { status: 'unverified', reason: 'no_code' }, artifact: null };
-  const exact = sources.find((artifact) => deployedCodeMatches(artifact, runtime));
-  if (exact) return { source: { status: 'exact', ...described(exact) }, artifact: exact };
-  const similar = sources.find((artifact) => similarTo(artifact, runtime));
-  if (similar) return { source: { status: 'similar', ...described(similar) }, artifact: similar };
+  const code = Buffer.from(runtime.slice(2), 'hex');
+  const exact = sources.find((source) => exactTo(source, code));
+  if (exact) return { source: { status: 'exact', ...described(exact.artifact) }, artifact: exact.artifact };
+  const similar = sources.find((source) => similarTo(source, code));
+  if (similar) return { source: { status: 'similar', ...described(similar.artifact) }, artifact: similar.artifact };
   return { source: { status: 'unverified', reason: 'no_matching_source' }, artifact: null };
 }
 
-/** EIP-1167 minimal proxy runtime: the implementation address sits between this head and tail. */
-const EIP1167 = /^0x363d3d373d3d3d363d73([0-9a-f]{40})5af43d82803e903d91602b57fd5bf3$/i;
+/** EIP-1167 minimal proxy runtime, the head and tail `accounts/address.ts` deploys smart accounts with. */
+const EIP1167 = new RegExp(`^0x${MINIMAL_PROXY_PREFIX.slice(2 + 20)}([0-9a-f]{40})${MINIMAL_PROXY_SUFFIX}$`, 'i');
 /** EIP-1967 implementation slot: keccak256('eip1967.proxy.implementation') - 1. */
 export const EIP1967_IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc' as const;
 
