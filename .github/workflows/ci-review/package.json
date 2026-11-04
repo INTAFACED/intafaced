@@ -1,0 +1,8 @@
+{
+  "name": "intafaced-ci-reviewer",
+  "private": true,
+  "description": "The CI review job's pinned reviewer CLI (.github/workflows/ci-review.yml). npm ci checks every tarball against package-lock.json.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.317"
+  }
+}

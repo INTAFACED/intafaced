@@ -255,11 +255,11 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     );
   else if (reviewIn)
     out.push(
-      `REVIEW: the review is in and the sign-off workflow re-runs the seal; wait for it. Re-run the "${SEAL}" job once only if "${RERUN_STATUS}" turns red. Nothing to fix in the code.`,
+      `REVIEW: an "${REVIEW_STATUS}" status is on this head, but the seal no longer reads statuses or comments (AGENTS.md item 8): it waits for the "CI review" job's Verdict on this exact head, which runs on every push and re-runs the seal when it passes. Read that job: a FAIL there lists its findings; fix them and push. Nothing else to do.`,
     );
   else
     out.push(
-      `REVIEW: every other check is green; the seal waits for "Independent review: PASS ${sha}" from a listed reviewer, and the sign-off workflow re-runs the seal when it lands. Ask the review thread if nobody has yet; a PASS that names this PR's own session (a session-trailer line of its commits, AGENTS.md item 8) does not count, so another session reviews. Nothing to fix in the code.`,
+      `REVIEW: every other check is green; the seal waits for the "CI review" job's Verdict on ${sha} (AGENTS.md item 8), which runs on every push to an in-repo pull request and re-runs the seal when it passes. If that job failed its Verdict step, its summary lists the blocking findings: fix them and push a new head. If it failed before a verdict, re-run it once. A comment or a status counts for nothing.`,
     );
   return out;
 }
@@ -340,11 +340,11 @@ function selfTest() {
   assert(!summarize(onlyReview).some((l) => l.startsWith('RED ')), 'and lists nothing as red');
   assert(
     last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).startsWith('REVIEW'),
-    'a review status alone leaves the re-run to the sign-off workflow',
+    'a review status alone is still a REVIEW red',
   );
   assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).includes('the review is in'),
-    'and does not send the author back to the reviewer',
+    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).includes('no longer reads statuses'),
+    'and says a status no longer seals: the CI review job does',
   );
   assert(
     last(summarize({ ...onlyReview, statuses: [{ context: RERUN_STATUS, state: 'failure' }] })).startsWith('RESEAL'),
