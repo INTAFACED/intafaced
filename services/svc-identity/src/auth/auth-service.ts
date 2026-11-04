@@ -3667,6 +3667,50 @@ export class AuthService {
     return result.count > 0;
   }
 
+  /**
+   * Act as one of your own sub-accounts (I-account-lifecycle-04): an access token on the caller's own session that also
+   * names the sub-account (`sub_account`). Only a live, unfrozen sub-account of this user, on a live session of an
+   * active account. The token keeps the session, so ending the session ends it too, and the edge re-checks the
+   * sub-account on every request. No refresh token: the browser's refresh cookie stays the main account's, so a refresh
+   * returns to the main account. Ordinary session scopes only: no pay, founder or step-up scope rides on it.
+   */
+  async subAccountSession(input: {
+    userId: string;
+    sessionId: string;
+    subAccountId: string;
+  }): Promise<{ accessToken: string; expiresAt: Date; userId: string; subAccountId: string; label: string }> {
+    const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId}`;
+    if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+    const [session] = await this.sql<Array<{ family_id: string; trusted_device_id: string | null; mfa: boolean }>>`
+      SELECT family_id, trusted_device_id, mfa FROM sessions
+      WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()
+    `;
+    if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
+    const [sub] = await this.sql<Array<{ id: string; parent_user_id: string; revoked: boolean; frozen: number | string; label: string }>>`
+      SELECT id, parent_user_id, revoked, frozen, label FROM sub_accounts WHERE id = ${input.subAccountId} LIMIT 1
+    `;
+    if (!sub || sub.parent_user_id !== input.userId) {
+      throw new AuthError('Sub-account not found or not owned by caller', 'auth.sub_account_denied');
+    }
+    if (sub.revoked) throw new AuthError('Sub-account is revoked', 'auth.sub_account_revoked');
+    if (Number(sub.frozen) !== 0) throw new AuthError('Sub-account is frozen', 'auth.sub_account_denied');
+    const tier = await this.kycTier(input.userId);
+    const { token, expiresAt } = await issueAccessToken(
+      {
+        userId: input.userId,
+        sessionId: input.sessionId,
+        scopes: this.defaultScopes(),
+        tier,
+        mfa: session.mfa,
+        familyId: session.family_id,
+        trustedDeviceId: session.trusted_device_id,
+        subAccountId: sub.id,
+      },
+      this.tokens,
+    );
+    return { accessToken: token, expiresAt, userId: input.userId, subAccountId: sub.id, label: sub.label };
+  }
+
   async getSubAccountOwnership(subAccountId: string): Promise<{ id: string; parentUserId: string; revoked: boolean } | null> {
     const rows = await this.sql<
       Array<{ id: string; parent_user_id: string; revoked: boolean }>

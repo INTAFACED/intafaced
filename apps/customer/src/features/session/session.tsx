@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createApiClient, type ApiClient, type ApiResult } from '../../shared/api';
-import { createSessionController, sessionSchema, type Session, type SessionNotice } from './session-restore';
+import { createSessionController, sessionSchema, type RefreshOutcome, type Session, type SessionNotice } from './session-restore';
 import { useProfiles, type Profiles } from './use-profiles';
 
 export { sessionSchema, type Session };
@@ -19,6 +19,12 @@ type SessionContext = {
   notice: SessionNotice | null;
   /** Ask the server again to end the session after a logout it did not confirm. */
   retryLogout: () => Promise<ApiResult<{ ok: true }>>;
+  /** This tab acts as a sub-account and is confirming it again after a refresh; actions on the old token are refused. */
+  subAccountWaiting: boolean;
+  /** Act as one of the person's own sub-accounts in this tab (main account only). */
+  enterSubAccount: (subAccountId: string) => Promise<ApiResult<Session>>;
+  /** Back to the main account in this tab. */
+  leaveSubAccount: () => Promise<RefreshOutcome>;
   /** Derived from the profile in view: Business only while the person has picked a business they belong to. */
   mode: 'Personal' | 'Business';
   /** The profiles the person can pick and the one in view. */
@@ -29,7 +35,7 @@ const Context = createContext<SessionContext | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [controller] = useState(createSessionController);
-  const { session, restoring, restoreFailed, notice } = useSyncExternalStore(
+  const { session, restoring, restoreFailed, notice, subAccountWaiting } = useSyncExternalStore(
     controller.subscribe,
     controller.getState,
     controller.getState,
@@ -43,10 +49,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       createApiClient({
         token: () => accessToken,
-        canWrite: () => controller.getState().session?.accessToken === accessToken,
-        onUnauthorized: (requestToken) => {
-          if (requestToken && controller.getState().session?.accessToken === requestToken) controller.clear();
+        // No write goes out while a tab acting as a sub-account is confirming it again (the bar says so).
+        canWrite: () => {
+          const now = controller.getState();
+          return now.session?.accessToken === accessToken && !now.subAccountWaiting;
         },
+        onUnauthorized: (requestToken) => controller.unauthorized(requestToken),
       }),
     [accessToken, controller],
   );
@@ -63,7 +71,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         restoreFailed,
         retryRestore: () => void controller.retryRestore(),
         notice,
+        subAccountWaiting: subAccountWaiting === true,
         retryLogout: controller.retryLogout,
+        enterSubAccount: controller.enterSubAccount,
+        leaveSubAccount: controller.leaveSubAccount,
         mode: profiles.business ? 'Business' : 'Personal',
         profiles,
         userId: session?.userId ?? null,

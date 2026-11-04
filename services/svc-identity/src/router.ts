@@ -2112,6 +2112,40 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * Act as one of your own sub-accounts (I-account-lifecycle-04): an access token on this session that names the
+       * sub-account. Only a person signed in on the main account: an API key, or a token already acting as a
+       * sub-account, is refused. No refresh token: a refresh returns to the main account. Rules: auth-service
+       * `subAccountSession`.
+       */
+      subAccountSession: protectedProcedure
+        .input(z.object({ subAccountId: z.string().guid() }))
+        .output(
+          z.object({
+            accessToken: z.string(),
+            expiresAt: z.string(),
+            userId: z.string(),
+            subAccountId: z.string(),
+            label: z.string(),
+            refreshable: z.literal(false),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            if (ctx.principal.kid || ctx.principal.sub_account) {
+              throw new AuthError('Only the main account, signed in, can switch to a sub-account', 'auth.sub_account_denied');
+            }
+            const issued = await auth.subAccountSession({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              subAccountId: input.subAccountId.toLowerCase(),
+            });
+            return { ...issued, expiresAt: issued.expiresAt.toISOString(), refreshable: false as const };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
     }),
 
     totp: router({
