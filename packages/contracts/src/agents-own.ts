@@ -191,3 +191,80 @@ export const ownAgentToolCallSchema = z.discriminatedUnion('outcome', [
   }),
 ]);
 export type OwnAgentToolCall = z.infer<typeof ownAgentToolCallSchema>;
+
+/**
+ * EVALUATIONS (AG-testing-02). A person's own agent's test set is its cases: an input and the answer expected. An
+ * evaluation runs every case `repeats` times on the test engine (never a model, never billed, no ledger call) and each
+ * result is labelled TEST. A result passes when its reply contains the expected answer; the run's score is the share of
+ * results that passed, in percent, and it passes when the score is at least the person's threshold. A blank threshold or
+ * repeats count is refused with its name, and nothing is run or stored.
+ */
+export const OWN_AGENT_EVAL_LIMITS = { cases: 20, repeats: 10, text: 2000 } as const;
+
+export const ownAgentEvalCaseSchema = z.object({ input: z.string(), expected: z.string() });
+export type OwnAgentEvalCase = z.infer<typeof ownAgentEvalCaseSchema>;
+
+/** One result: one case on one repeat, as the test engine answered it, and whether the reply held the expected answer. */
+export const ownAgentEvalResultSchema = z.object({
+  caseIndex: z.number().int().nonnegative(),
+  repeat: z.number().int().positive(),
+  input: z.string(),
+  expected: z.string(),
+  reply: z.string(),
+  passed: z.boolean(),
+  label: z.literal('TEST'),
+});
+export type OwnAgentEvalResult = z.infer<typeof ownAgentEvalResultSchema>;
+
+/**
+ * One evaluation run, the one its request id names. `score` is the passed share in percent as a decimal string, cut
+ * (never rounded up) to two places; `verdict` compares the exact share with `threshold`.
+ */
+export const ownAgentEvalRunSchema = z.object({
+  id: z.string().uuid(),
+  requestId: z.string(),
+  cases: z.array(ownAgentEvalCaseSchema),
+  repeats: z.number().int().positive(),
+  threshold: z.string(),
+  passed: z.number().int().nonnegative(),
+  total: z.number().int().positive(),
+  score: z.string(),
+  verdict: z.enum(['pass', 'fail']),
+  label: z.literal('TEST'),
+  results: z.array(ownAgentEvalResultSchema),
+  createdAt: z.string(),
+});
+export type OwnAgentEvalRun = z.infer<typeof ownAgentEvalRunSchema>;
+
+/** One run in the list: its counts and verdict, with how many cases it ran but not the cases or results themselves. */
+export const ownAgentEvalRunSummarySchema = ownAgentEvalRunSchema.omit({ cases: true, results: true }).extend({
+  cases: z.number().int().positive(),
+});
+export type OwnAgentEvalRunSummary = z.infer<typeof ownAgentEvalRunSummarySchema>;
+
+/**
+ * `own.evals.get`: the agent's test set (empty until a run saves one), its newest run in full (null before the first),
+ * and its runs newest first as summaries.
+ */
+export const ownAgentEvalsSchema = z.object({
+  testSet: z.array(ownAgentEvalCaseSchema),
+  latest: ownAgentEvalRunSchema.nullable(),
+  runs: z.array(ownAgentEvalRunSummarySchema),
+});
+export type OwnAgentEvals = z.infer<typeof ownAgentEvalsSchema>;
+
+/**
+ * `own.evals.start` input. `repeats` and `threshold` arrive as the person typed them: blank is unset and refused
+ * (`agents.eval.repeats_unset`, `agents.eval.threshold_unset`), never a default; a blank, long or extra case is refused
+ * by the service by name (`agents.eval.case_blank`, `agents.eval.case_too_long`, `agents.eval.too_many_cases`). The
+ * same request id again is the same run; with other cases, repeats or threshold it is refused `agents.request_id_replay`.
+ */
+export const ownAgentEvalStartSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(8).max(200),
+  // Loose on purpose: a blank case, a long one or one case too many reaches the service, which refuses it by name.
+  cases: z.array(z.object({ input: z.string().max(20_000), expected: z.string().max(20_000) })).max(100),
+  repeats: z.string().max(16),
+  threshold: z.string().max(16),
+});
+export type OwnAgentEvalStart = z.infer<typeof ownAgentEvalStartSchema>;
