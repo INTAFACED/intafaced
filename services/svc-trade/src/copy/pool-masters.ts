@@ -288,16 +288,28 @@ export class PoolDesk {
     });
   }
 
-  /** The founders' read: master applications oldest first (every state), pools, whitelists and the batch limit. */
+  /**
+   * The founders' read, oldest first: every open master application (as the lead queue lists every open one) and the
+   * newest decided ones, the pools that are not terminated, their whitelists, and the batch limit.
+   */
   async read(principal: Principal): Promise<PooledMastersRead> {
     requireOperator(principal);
     const applications = await this.deps.sql<ApplicationRow[]>`
-      SELECT * FROM trade.copy_lead_applications WHERE kind = 'pool_master' ORDER BY created_at ASC, id ASC LIMIT ${LIST_MAX}`;
-    const pools = await this.deps.sql<PoolRow[]>`SELECT * FROM trade.copy_pools ORDER BY created_at ASC, id ASC LIMIT ${LIST_MAX}`;
+      SELECT * FROM trade.copy_lead_applications
+      WHERE kind = 'pool_master' AND (
+        status IN ('pending', 'awaiting_second')
+        OR id IN (
+          SELECT id FROM trade.copy_lead_applications WHERE kind = 'pool_master' AND status IN ('approved', 'rejected')
+          ORDER BY decided_at DESC NULLS LAST, id DESC LIMIT ${LIST_MAX}
+        )
+      )
+      ORDER BY created_at ASC, id ASC`;
+    const pools = await this.deps.sql<PoolRow[]>`
+      SELECT * FROM trade.copy_pools WHERE state <> 'terminated' ORDER BY created_at ASC, id ASC`;
     const members = await this.deps.sql<Array<{ pool_id: string; user_id: string; created_at: Date; added_by: string }>>`
-      SELECT pool_id, user_id, created_at, added_by FROM trade.copy_pool_whitelist
-      WHERE pool_id IN (SELECT id FROM trade.copy_pools ORDER BY created_at ASC, id ASC LIMIT ${LIST_MAX})
-      ORDER BY created_at ASC, user_id ASC`;
+      SELECT w.pool_id, w.user_id, w.created_at, w.added_by FROM trade.copy_pool_whitelist w
+      JOIN trade.copy_pools p ON p.id = w.pool_id AND p.state <> 'terminated'
+      ORDER BY w.created_at ASC, w.user_id ASC`;
     return {
       applications: applications.map(applicationView),
       pools: pools.map(poolView),
@@ -322,15 +334,7 @@ export class PoolDesk {
     input: { poolId: string; userIds: readonly string[]; clientRequestId: string },
   ): Promise<WhitelistImportResult> {
     requireOperatorWrite(principal);
-    const limit = this.deps.whitelistBatchMax;
-    if (limit === null) throw new CopyError('The whitelist batch limit is not set by the platform', 'trade.pool_batch_limit_unset');
     const userIds = [...new Set(input.userIds.map((u) => u.trim().toLowerCase()).filter((u) => u.length > 0))];
-    if (userIds.length === 0) throw new CopyError('Add at least one account id', 'trade.pool_whitelist_empty');
-    if (userIds.length > limit) {
-      throw new CopyError(`One import adds at most ${limit} accounts; this one has ${userIds.length}`, 'trade.pool_batch_too_large');
-    }
-    const bad = userIds.find((u) => !UUID.test(u));
-    if (bad) throw new CopyError(`Not an account id: ${bad.slice(0, 40)}`, 'trade.pool_whitelist_uid_invalid');
     if (!UUID.test(input.poolId)) throw new CopyError('No such pool', 'trade.pool_not_found');
     const requestId = `pool.whitelist:${input.poolId.toLowerCase()}:${input.clientRequestId.trim()}`;
     return this.deps.sql.begin(async (tx) => {
@@ -349,6 +353,17 @@ export class PoolDesk {
           SELECT count(*)::text AS n FROM trade.copy_pool_whitelist WHERE import_id = ${done.id}`;
         return { poolId: pool.id, importId: done.id, requested: userIds.length, added: Number(mine?.n ?? 0), members: await count() };
       }
+      // A new import: checked against the limit in force now. A retry of an accepted import was answered above, so
+      // lowering the limit later never refuses it.
+      const limit = this.deps.whitelistBatchMax;
+      if (limit === null) throw new CopyError('The whitelist batch limit is not set by the platform', 'trade.pool_batch_limit_unset');
+      if (userIds.length === 0) throw new CopyError('Add at least one account id', 'trade.pool_whitelist_empty');
+      if (userIds.length > limit) {
+        throw new CopyError(`One import adds at most ${limit} accounts; this one has ${userIds.length}`, 'trade.pool_batch_too_large');
+      }
+      const bad = userIds.find((u) => !UUID.test(u));
+      if (bad) throw new CopyError(`Not an account id: ${bad.slice(0, 40)}`, 'trade.pool_whitelist_uid_invalid');
+      if (pool.state === 'terminated') throw new CopyError('That pool is terminated', 'trade.pool_not_found');
       const now = this.deps.now();
       const importId = randomUUID();
       await tx`

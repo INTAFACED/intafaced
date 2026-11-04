@@ -395,7 +395,12 @@ test(`${J} #6 opens pooled masters and the pool whitelist: master applications f
   await expect(bodyRows(members)).toHaveCount(2);
   for (const id of accounts) await expect(rowOf(members, id)).toHaveCount(1);
   // The same import again adds no one twice.
-  await deskCall(page, { action: 'whitelist', poolId: created.poolId, accountIds: accounts.join(',') });
+  const replay = await deskCall(page, { action: 'whitelist', poolId: created.poolId, accountIds: [...accounts].reverse().join('\n') });
+  expect([replay.status, replay.body?.data?.importId, replay.body?.data?.members], JSON.stringify(replay.body).slice(0, 300)).toEqual([
+    200,
+    imported.body.data.importId,
+    2,
+  ]);
   expect((await whitelistOf()).members).toHaveLength(2);
 });
 

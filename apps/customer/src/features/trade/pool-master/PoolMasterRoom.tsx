@@ -82,9 +82,6 @@ function refusalOf(failure: Failed, t: T): Refusal {
   };
 }
 
-/** A business key for one create: the same press retried is one strategy. */
-const newKey = () => `create-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-
 export function PoolMasterRoom() {
   const { t } = poolMasterCopy.useCopy();
   const { api, userId } = useSession();
@@ -100,7 +97,6 @@ export function PoolMasterRoom() {
   const [strategyType, setStrategyType] = useState<StrategyType>('stable');
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
-  const createKey = useRef(newKey());
   const [sent, setSent] = useState<Mine | null>(null);
   const [justApplied, setJustApplied] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -159,11 +155,12 @@ export function PoolMasterRoom() {
       const made = await api.mutate(
         'trade',
         'copy.pool.create',
-        { name: poolName.trim(), strategyType, clientRequestId: createKey.current },
+        // The business key is the approval: one strategy per approved application, so a retry or a second tab answers
+        // the strategy already made instead of a refusal.
+        { name: poolName.trim(), strategyType, clientRequestId: `approved:${application?.applicationId ?? ''}` },
         poolSchema,
       );
       if (!made.ok) return made;
-      createKey.current = newKey();
       return { ok: true as const, data: { application, pool: made.data, investors: current?.investors ?? 0 } };
     });
   }

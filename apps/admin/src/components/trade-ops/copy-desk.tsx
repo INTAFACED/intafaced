@@ -392,7 +392,10 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
                         ? 'Not set by the owner: every import is refused.'
                         : `${desk.pooledMasters.batchLimit} accounts per import`,
                   },
-                  { label: 'Pools with a whitelist', value: String(desk.pooledMasters.whitelists.length) },
+                  {
+                    label: 'Pools with accounts on their whitelist',
+                    value: String(desk.pooledMasters.whitelists.filter((w) => w.members.length > 0).length),
+                  },
                 ]}
               />
               {desk.pooledMasters.pools.length > 0 ? (

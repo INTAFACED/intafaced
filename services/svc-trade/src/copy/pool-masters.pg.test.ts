@@ -216,6 +216,14 @@ describe('pooled masters', () => {
     await expect(
       h.pools.importWhitelist(founder(FOUNDER_A), { poolId: pool.poolId, userIds: [uid(30)], clientRequestId: 'w1' }),
     ).rejects.toMatchObject({ code: 'trade.pool_whitelist_key_reused' });
+    // The owner lowers the limit: a retry of the accepted import is answered, not refused; a new one above it is refused.
+    const lowered = new PoolDesk({ sql: sql(), now, law: STABLE, whitelistBatchMax: 1 });
+    expect(await lowered.importWhitelist(founder(FOUNDER_A), { poolId: pool.poolId, userIds: twenty, clientRequestId: 'w1' })).toEqual(
+      first,
+    );
+    await expect(
+      lowered.importWhitelist(founder(FOUNDER_A), { poolId: pool.poolId, userIds: [uid(40), uid(41)], clientRequestId: 'w9' }),
+    ).rejects.toMatchObject({ code: 'trade.pool_batch_too_large' });
     // A second import adds only the accounts not already on the list.
     expect(
       await h.pools.importWhitelist(founder(FOUNDER_B), { poolId: pool.poolId, userIds: [uid(1), uid(21)], clientRequestId: 'w2' }),
