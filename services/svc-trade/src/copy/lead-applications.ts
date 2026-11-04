@@ -114,10 +114,15 @@ export const LEAD_REAPPLY_WAIT_MAX_SECONDS = 366 * 24 * 60 * 60;
 export function parseLeadReapplyWait(raw: string | undefined): number | null {
   const value = (raw ?? '').trim();
   if (!value) return null;
-  if (!/^\d+$/.test(value) || Number(value) > LEAD_REAPPLY_WAIT_MAX_SECONDS) {
+  return checkedReapplyWait(/^\d+$/.test(value) ? Number(value) : Number.NaN);
+}
+
+/** The wait itself: whole seconds, 0 to one year. Anything else stops the boot, never a silent default. */
+function checkedReapplyWait(seconds: number): number {
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > LEAD_REAPPLY_WAIT_MAX_SECONDS) {
     throw new Error(`TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS must be whole seconds, 0 to ${LEAD_REAPPLY_WAIT_MAX_SECONDS}, or blank`);
   }
-  return Number(value);
+  return seconds;
 }
 
 interface ApplicationRow {
@@ -208,10 +213,7 @@ export class LeadDesk {
 
   constructor(private readonly deps: LeadDeskDeps) {
     const wait = deps.reapplyWaitSeconds ?? null;
-    if (wait !== null && (!Number.isInteger(wait) || wait < 0 || wait > LEAD_REAPPLY_WAIT_MAX_SECONDS)) {
-      throw new Error(`The lead re-apply wait must be whole seconds, 0 to ${LEAD_REAPPLY_WAIT_MAX_SECONDS}`);
-    }
-    this.waitSeconds = wait;
+    this.waitSeconds = wait === null ? null : checkedReapplyWait(wait);
   }
 
   /** The applicant's newest application, or null. */

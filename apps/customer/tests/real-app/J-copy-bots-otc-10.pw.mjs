@@ -214,18 +214,20 @@ test(`${J} #4 rejects with a reason: the applicant sees it and when the owner's 
     REAPPLY_WAIT_MS,
   );
   run.write({ rejectedId: waiting.id, reapplyAfter: decided.reapplyAfter });
+  // Inside the wait svc-trade refuses a new application by the wait's code, and the record is re-read unchanged: no
+  // second row. Asked first, seconds after the decision, well inside the TEST wait.
+  const applicant = await api(rejectWho);
+  const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
+  expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait');
+  expect(await mineOf(rejectWho)).toEqual(decided);
+  // The room shows the reason and when the wait ends, and offers no application while it runs.
   await signIn(page, rejectWho);
   await page.goto('/copy/lead/apply');
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByText('You may apply again after')).toBeVisible();
   await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
-  // Inside the wait the room offers no application, and svc-trade refuses one by the wait's code: no second row.
-  expect(Date.now(), 'this check runs inside the wait').toBeLessThan(Date.parse(decided.reapplyAfter));
   await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
-  const applicant = await api(rejectWho);
-  const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
-  expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait');
-  expect(await mineOf(rejectWho)).toEqual(decided);
+  expect(Date.now(), 'the room was read inside the wait').toBeLessThan(Date.parse(decided.reapplyAfter));
 });
 
 test(`${J} #4 may resubmit after the owner's wait: the room opens the application again and it waits in the queue`, async ({ page }) => {

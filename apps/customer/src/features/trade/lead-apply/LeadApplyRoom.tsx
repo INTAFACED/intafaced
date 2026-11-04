@@ -21,7 +21,7 @@ const mineSchema = z.object({
   displayName: z.string(),
   submittedAt: z.string(),
   reason: z.string().nullable(),
-  reapplyAfter: z.string().nullable(),
+  reapplyAfter: z.string().nullable().default(null),
 });
 type Mine = z.infer<typeof mineSchema>;
 
@@ -73,15 +73,17 @@ export function LeadApplyRoom() {
   // After a rejection, applying again opens once the platform's wait has passed from the decision; with the wait unset
   // it never opens, so only a first application is offered.
   const reapplyAfter = current?.state === 'disapproved' ? current.reapplyAfter : null;
+  // The page's clock, moved on when the wait ends (a long wait in steps a browser timer can hold). If this device's clock
+  // runs ahead, svc-trade still refuses an early application by the wait's code, and the room says so.
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     if (!reapplyAfter) return;
-    const left = Date.parse(reapplyAfter) - Date.now();
+    const left = Date.parse(reapplyAfter) - clock;
     if (left <= 0) return;
-    const timer = setTimeout(() => setClock(Date.now()), Math.min(left + 250, 2_147_000_000));
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(left + 250, 2_000_000_000));
     return () => clearTimeout(timer);
-  }, [reapplyAfter]);
-  const waitOver = reapplyAfter !== null && Date.parse(reapplyAfter) <= Math.max(clock, Date.now());
+  }, [reapplyAfter, clock]);
+  const waitOver = reapplyAfter !== null && Date.parse(reapplyAfter) <= clock;
   const canApply = !current || waitOver;
 
   async function apply(e: FormEvent) {
