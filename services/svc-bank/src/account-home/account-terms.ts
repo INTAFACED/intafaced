@@ -29,7 +29,26 @@ const termsSchema = z
 
 export type AccountTerms = z.infer<typeof termsSchema>;
 
-export const accountTermsOutput = termsSchema;
+/**
+ * Why a plan's overdraft cannot be used in this build (J-bank-02 #8). A published overdraft fee says the plan allows a
+ * negative balance, but no overdraft engine exists: the ledger refuses any user balance below zero, and lending without
+ * collateral needs its own engine and licence (spec BK-loan-08, preview only). So a payment above the balance is refused
+ * `bank.insufficient_funds` on every plan, and a plan that publishes an overdraft names this blocker instead of claiming
+ * a negative balance the bank cannot book.
+ */
+export const OVERDRAFT_SWITCHED_OFF = 'bank.overdraft_switched_off' as const;
+
+export const accountTermsOutput = termsSchema.extend({
+  /** Null when the plan has no overdraft (nothing is switched off); the blocker when it publishes one. */
+  overdraftBlocker: z.literal(OVERDRAFT_SWITCHED_OFF).nullable(),
+});
+
+export type AccountFeatures = z.infer<typeof accountTermsOutput>;
+
+/** The published terms as the customer reads them: exactly as published, plus whether their overdraft can be used. */
+export function accountFeatures(terms: AccountTerms): AccountFeatures {
+  return { ...terms, overdraftBlocker: terms.overdraftFee === null ? null : OVERDRAFT_SWITCHED_OFF };
+}
 
 const unset = () =>
   new BankError('The owner has not published the account terms, so no fee or feature is claimed', 'bank.account_terms_unset');

@@ -102,7 +102,17 @@ function TermsFacts({ terms }: { terms: AccountTerms }) {
       </Fact>
       <Fact label={t('monthlyFee')}>{funds(terms.monthlyFee, terms.currency)}</Fact>
       <Fact label={t('minimumBalance')}>{funds(terms.minimumBalance, terms.currency)}</Fact>
-      <Fact label={t('overdraft')}>{terms.overdraftFee === null ? t('noOverdraft') : funds(terms.overdraftFee, terms.currency)}</Fact>
+      <Fact label={t('overdraft')}>
+        {terms.overdraftFee === null ? (
+          t('noOverdraft')
+        ) : (
+          // A published overdraft the bank cannot book yet (J-bank-02 #8): the fee, then the blocker by name.
+          <>
+            {funds(terms.overdraftFee, terms.currency)} · {t('overdraftOff')}{' '}
+            <small className="muted">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
+          </>
+        )}
+      </Fact>
       <Fact label={t('included')}>
         <ul lang="und">
           {terms.included.map((line) => (
