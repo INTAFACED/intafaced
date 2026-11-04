@@ -240,6 +240,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Applying again is closed',
     body: 'Applying again waits on a waiting period the platform has not set.',
   },
+  'trade.copy_lead_reapply_wait': {
+    title: 'Applying again opens later',
+    body: 'The waiting period after a rejection is still running. Nothing was sent.',
+  },
   'trade.copy_lead_criteria_unset': {
     title: 'Lead approvals are closed',
     body: 'The criteria a lead must meet are not set, so no application can be approved.',

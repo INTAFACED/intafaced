@@ -735,6 +735,15 @@ const schema = serviceEnvSchema
       TRADE_COPY_MIN_TIER: z.string().default(''),
 
       /**
+       * How long, in whole seconds (0 to one year), a rejected lead applicant waits from the decision before applying
+       * again (CB-copy-12, J-copy-bots-otc-10 #4).
+       *
+       * Empty (default) = unset → every new application after a rejection refuses `trade.copy_lead_reapply_wait_unset`.
+       * Owner value. Never invent a wait; blank never means no wait.
+       */
+      TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
+
+      /**
        * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
        * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
        */

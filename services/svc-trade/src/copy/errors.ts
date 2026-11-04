@@ -81,7 +81,8 @@ export type CopyErrorCode =
   | 'trade.copy_lead_criteria_unset'
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
-  | 'trade.copy_lead_reapply_wait_unset';
+  | 'trade.copy_lead_reapply_wait_unset'
+  | 'trade.copy_lead_reapply_wait';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
