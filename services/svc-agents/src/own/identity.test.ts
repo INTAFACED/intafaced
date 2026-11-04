@@ -18,6 +18,7 @@ import { UserSpendStore } from '../spend/store.js';
 import { createFixtureSupportDesk } from '../support-agent/desk-port.js';
 import { assistantEngine, draftAgent, testEngineDraft } from './assistant.js';
 import { OwnIdentityStore, tokenLifetime } from './identity.js';
+import { OWN_RUN_TASK } from './routes.js';
 
 /**
  * An own agent's identity and the drafting assistant (AG-identity-01, AG-builder-03; J-agents-03 #5, #6), through the
@@ -126,7 +127,20 @@ if (!available) {
     }>,
   } = {}) {
     const provider = new MockModelProvider({ id: 'primary' });
-    const gateway = new ModelGateway([provider], parseRoutingTable({ routes: [] }));
+    const gateway = new ModelGateway(
+      [provider],
+      parseRoutingTable({
+        routes: [
+          {
+            task: OWN_RUN_TASK,
+            providerId: 'primary',
+            model: 'reasoning-md',
+            maxOutputTokens: 2048,
+            price: { inputPerMillion: '1', outputPerMillion: '5' },
+          },
+        ],
+      }),
+    );
     const meter = new UsageMeter(sql, new MemoryLedger(), { assetId: 'USDT', windowMinutes: 60 });
     const runtime = new AgentRuntime(sql, gateway, meter, new MemoryEventBus('svc-agents'), {
       feeAssetId: 'USDT',
