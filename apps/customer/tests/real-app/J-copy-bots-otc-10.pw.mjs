@@ -358,7 +358,8 @@ test(`${J} #6 opens pooled masters and the pool whitelist: master applications f
   await page.getByRole('button', { name: 'Create strategy' }).click();
   const strategy = page.getByRole('region', { name: `Your strategy: ${poolName}` });
   await expect(strategy).toContainText('Strategy creation');
-  await expect(strategy).toContainText('No investors yet');
+  await expect(strategy).toContainText('No investors');
+  expect((await poolMasterOf(master)).investors).toBe(0);
   const created = (await poolMasterOf(master)).pool;
   expect(created).toMatchObject({ name: poolName, strategyType: 'stable', state: 'strategy_creation' });
   await signOutBrowser(page.context());

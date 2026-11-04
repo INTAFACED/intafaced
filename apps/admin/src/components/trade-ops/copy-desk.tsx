@@ -351,7 +351,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
         <TabsPanel value="pooled" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">
             A pooled master runs one pool that investors join. Masters apply from the master center; two founders approve, as for a lead,
-            and an approved master may create one pool. A pool holds no money yet: its money doors wait on the ledger&apos;s pool recipes.
+            and an approved master may create one pool. A pool holds no money: its money doors wait on the ledger&apos;s pool recipes.
           </p>
           {desk ? (
             <>
