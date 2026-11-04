@@ -258,18 +258,25 @@ describe('personal send review: a held send moves nothing until it is released (
     );
   });
 
-  it('a release the balance no longer covers is refused and stays held; a rejection moves nothing and answers the sender', async () => {
+  it('a release the bank refuses goes back to review, and a rejection then moves nothing and answers the sender', async () => {
     await ready();
     const ada = await caller(ADA, ['bank:read', 'bank:write']);
     const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
     await expect(
       ada.transfers.toUser({ transferId: 'held-send-5', fromSpaceId: from.id, toUserId: BOB, amount: '60' }),
     ).rejects.toMatchObject(held('held-send-5'));
-    // Meanwhile Ada spends most of it on a send under the line.
-    await ada.transfers.toUser({ transferId: 'small-send-5', fromSpaceId: from.id, toUserId: CY, amount: '45' });
-    await expect(bank.personalPay.releaseHeld('held-send-5', 'operator-1')).rejects.toBeTruthy();
+    // Meanwhile the owner lowers the per-payment limit below it: the release is refused by the bank's own terms, a refusal
+    // that proves nothing posted, so the held send goes back to review (in the table, not only in the sender's view).
+    await db.sql`UPDATE bank.personal_transfer_terms SET per_transfer_limit = 55 WHERE asset_id = 'USDT'`;
+    await expect(bank.personalPay.releaseHeld('held-send-5', 'operator-1')).rejects.toMatchObject({
+      code: expect.stringContaining('bank.personal_transfer'),
+    });
+    expect((await db.sql`SELECT status, decided_by FROM bank.personal_send_reviews WHERE transfer_id = 'held-send-5'`)[0]).toEqual({
+      status: 'in_review',
+      decided_by: null,
+    });
     expect((await ada.transfers.held({ transferId: 'held-send-5' })).status).toBe('in_review');
-    expect(await available(ADA)).toBe('55');
+    expect(await available(ADA)).toBe('100');
 
     const rejected = await bank.personalPay.rejectHeld('held-send-5', 'operator-1');
     expect(rejected).toMatchObject({ status: 'rejected', ledgerTxId: null, decidedAt: expect.any(String) });
@@ -280,6 +287,26 @@ describe('personal send review: a held send moves nothing until it is released (
       code: 'PRECONDITION_FAILED',
       message: expect.stringContaining('bank.personal_send_rejected'),
     });
+    expect(p2p()).toHaveLength(0);
+    expect(await available(ADA)).toBe('100');
+    expect(await available(BOB)).toBe('0');
+  });
+
+  it('a release whose outcome is not proven stays releasing, and a reject never lands on it', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    await expect(
+      ada.transfers.toUser({ transferId: 'held-send-6', fromSpaceId: from.id, toUserId: BOB, amount: '60' }),
+    ).rejects.toMatchObject(held('held-send-6'));
+    // Ada spends most of it on a send under the line. This test ledger's refusal carries no proof that the post did not
+    // commit, so the release's outcome is unknown: it stays releasing, the sender still reads In review, and no reject
+    // may land on a send that might be posting.
+    await ada.transfers.toUser({ transferId: 'small-send-6', fromSpaceId: from.id, toUserId: CY, amount: '45' });
+    await expect(bank.personalPay.releaseHeld('held-send-6', 'operator-1')).rejects.toBeTruthy();
+    expect((await db.sql`SELECT status FROM bank.personal_send_reviews WHERE transfer_id = 'held-send-6'`)[0]!.status).toBe('releasing');
+    expect((await ada.transfers.held({ transferId: 'held-send-6' })).status).toBe('in_review');
+    await expect(bank.personalPay.rejectHeld('held-send-6', 'operator-1')).rejects.toMatchObject({ code: 'bank.held_send_decided' });
     expect(p2p()).toHaveLength(1);
     expect(await available(ADA)).toBe('55');
     expect(await available(BOB)).toBe('0');
