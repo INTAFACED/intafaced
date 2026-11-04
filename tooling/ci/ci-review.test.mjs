@@ -159,7 +159,16 @@ const { readFileSync: readWf } = await import('node:fs');
 // The workflow as it is (it indexes first) and as it was before the index (the two index steps cut out).
 const WF = readWf(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 const WF_BARE = WF.slice(0, WF.indexOf("      - name: Index this head's tree\n")) + WF.slice(WF.indexOf('      - name: Read the diff\n'));
-const version = (n, date, text) => ({ sha: String(n).padStart(40, '9'), date, text });
+// A version of the workflow on main: by default GitHub's squash merge of a pull request (one parent, its merge commit),
+// merged at `date`. `committed` plants an author-set committer date; `parents` and `pull: null` plant a commit GitHub
+// didn't make as a pull request's merge into main.
+const version = (n, date, text, { committed = date, parents = 1, pull = { merged_at: date, base: { ref: 'main' } } } = {}) => ({
+  sha: String(n).padStart(40, '9'),
+  date: committed,
+  text,
+  parents,
+  pull,
+});
 const INDEX = {
   workflow: { created_at: BORN },
   commits: [version(2, MERGED_AT, WF), version(1, BORN, WF_BARE)],
@@ -177,7 +186,17 @@ const indexApi = (index, path, base = FRESH_BASE) => {
     const n = Number(new URLSearchParams(qs).get('page'));
     return index.commits === null
       ? { message: 'not a list' }
-      : index.commits.slice((n - 1) * 100, n * 100).map((c) => ({ sha: c.sha, commit: { committer: { date: c.date } } }));
+      : index.commits.slice((n - 1) * 100, n * 100).map((c) => ({
+          sha: c.sha,
+          parents: Array.from({ length: c.parents }, () => ({ sha: 'f'.repeat(40) })),
+          commit: { committer: { date: c.date } },
+        }));
+  }
+  const pulls = /\/commits\/([0-9a-f]{40})\/pulls$/.exec(p);
+  if (pulls) {
+    const c = index.commits.find((v) => v.sha === pulls[1]);
+    if (c?.pull === 'unreadable') return { message: 'not a list' };
+    return c?.pull ? [{ ...c.pull, merge_commit_sha: c.sha }] : [];
   }
   if (p.endsWith('/contents/.github/workflows/ci-review.yml')) {
     const c = index.commits.find((v) => v.sha === new URLSearchParams(qs).get('ref'));
@@ -477,19 +496,22 @@ test('fails closed (planted, #7146 review finding 1): a head whose merge base is
   assert.ok(!early.asked.some((p) => p.includes('/runs?') || p.includes('/artifacts')), 'no list read for a stale head');
 });
 
-test('reads whole (planted, #7146 review finding 6): exactly 1,000 in one list, and over 1,000 in two seconds', async () => {
-  // Main's reader asked for an 11th page after ten full ones and threw, and wouldn't split a two-second slice, so a
-  // window holding either could fail every seal for good.
+test('reads whole (planted, #7146 review finding 6): over 1,000 in two seconds, and ten full pages are never whole', async () => {
+  // Main's reader wouldn't split a two-second slice, so a window holding over 1,000 runs in two seconds failed every seal
+  // for good. Ten full pages stay "more than GitHub lists" even when the count says 1,000 (#7152 CI review: GitHub may
+  // cap the count too), so a window that big is sliced and a head's own list that big fails closed.
   const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
   const thousand = Array.from({ length: 1000 }, (_, i) => run({ id: 10 + i, head_sha: NEXT, head_commit: { tree_id: TREE } }));
-  const exact = await readReviewRuns(
-    'INTAFACED/intafaced',
-    NEXT,
-    't',
-    undefined,
-    fakeApi({ lists: { [`head_sha=${NEXT}`]: thousand }, trees: { [NEXT]: TREE } }).get,
+  await assert.rejects(
+    readReviewRuns(
+      'INTAFACED/intafaced',
+      NEXT,
+      't',
+      undefined,
+      fakeApi({ lists: { [`head_sha=${NEXT}`]: thousand }, trees: { [NEXT]: TREE } }).get,
+    ),
+    /head_sha=.*more than 1,000/,
   );
-  assert.equal(exact.length, 1000);
   // 1,500 runs in two seconds just before the window ends (900 in the first, 600 in the second), on other code, and a
   // FAIL on this code among them.
   const end = Date.parse(MERGED_AT) + INDEX_MARGIN_MS;
@@ -503,28 +525,34 @@ test('reads whole (planted, #7146 review finding 6): exactly 1,000 in one list, 
       jobs: [[reviewJob(OLDER, i === 1200 ? 'failure' : 'success')]],
     }),
   );
-  const get = async (path) => {
-    const bound = indexApi(INDEX, path);
-    if (bound !== undefined) return bound;
-    const [p, qs = ''] = path.split('?');
-    if (p.includes('/git/commits/')) return { tree: { sha: TREE } };
-    if (p.endsWith('/actions/artifacts')) return { total_count: 0, artifacts: [] };
-    const params = new URLSearchParams(qs);
-    const n = Number(params.get('page'));
-    const created = params.get('created');
-    let list = [];
-    if (params.get('head_sha') === NEXT) list = [mine];
-    else if (created?.startsWith('<')) list = burst.filter((r) => Date.parse(r.created_at) < Date.parse(created.slice(1)));
-    else if (created?.includes('..')) {
-      const [x, y] = created.split('..').map(Date.parse);
-      list = burst.filter((r) => Date.parse(r.created_at) >= x && Date.parse(r.created_at) <= y + 999);
-    }
-    return { total_count: list.length, workflow_runs: list.slice((n - 1) * 100, n * 100) };
-  };
-  const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, get, () => end - 1);
-  assert.deepEqual(runs.map((r) => r.id).sort(), [3, 6200]);
-  const v = await ciReviewVerdict({ sha: NEXT, base: 'main', runs, attempts: async (r) => r.jobs, tree: async () => TREE });
-  assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
+  // `cap` plants a GitHub that reports at most that many in total_count and lists no more than ten pages.
+  const reader =
+    (cap = Infinity) =>
+    async (path) => {
+      const bound = indexApi(INDEX, path);
+      if (bound !== undefined) return bound;
+      const [p, qs = ''] = path.split('?');
+      if (p.includes('/git/commits/')) return { tree: { sha: TREE } };
+      if (p.endsWith('/actions/artifacts')) return { total_count: 0, artifacts: [] };
+      const params = new URLSearchParams(qs);
+      const n = Number(params.get('page'));
+      const created = params.get('created');
+      let list = [];
+      if (params.get('head_sha') === NEXT) list = [mine];
+      else if (created?.startsWith('<')) list = burst.filter((r) => Date.parse(r.created_at) < Date.parse(created.slice(1)));
+      else if (created?.includes('..')) {
+        const [x, y] = created.split('..').map(Date.parse);
+        list = burst.filter((r) => Date.parse(r.created_at) >= x && Date.parse(r.created_at) <= y + 999);
+      }
+      return { total_count: Math.min(list.length, cap), workflow_runs: n > 10 ? [] : list.slice((n - 1) * 100, n * 100) };
+    };
+  // The FAIL is run 6200, past the first 1,000: a GitHub that caps the count at 1,000 must not make ten pages look whole.
+  for (const cap of [Infinity, 1000]) {
+    const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, reader(cap), () => end - 1);
+    assert.deepEqual(runs.map((r) => r.id).sort(), [3, 6200], `count capped at ${cap}`);
+    const v = await ciReviewVerdict({ sha: NEXT, base: 'main', runs, attempts: async (r) => r.jobs, tree: async () => TREE });
+    assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
+  }
 });
 
 test('the window before the index is read in time slices past 1,000, whole or not at all', async () => {
@@ -688,6 +716,26 @@ test("the window ends when main's workflow last began to index, from its history
   const g = await ciReviewVerdict({ sha: NEXT, base: 'main', runs: got, attempts: async (r) => r.jobs, tree: async () => TREE });
   assert.deepEqual([g.ok, g.state], [false, 'fail'], g.why);
 
+  // #7152 CI review: the time is the pull request's merged_at, GitHub's record, never a committer date an author set.
+  // A version committed (author-set) at 07:00 but merged at 10:00 ends the window at 10:00 plus the margin. A version
+  // that isn't a pull request's merge into main by GitHub (a merge commit's side, a direct push, no pull request found)
+  // leaves the window open.
+  const late = { ...INDEX, commits: [version(2, '2026-11-04T10:00:00Z', WF, { committed: MERGED_AT }), INDEX.commits[1]] };
+  assert.deepEqual(await readIndexLive('o/r', 't', fakeApi({ index: late }).get), {
+    start: Date.parse(BORN),
+    end: Date.parse('2026-11-04T10:00:00Z') + INDEX_MARGIN_MS,
+    open: false,
+  });
+  for (const odd of [
+    { parents: 2 },
+    { parents: 0 },
+    { pull: null },
+    { pull: { merged_at: MERGED_AT, base: { ref: 'side/b' } } },
+    { pull: { merged_at: null, base: { ref: 'main' } } },
+  ]) {
+    const index = { ...INDEX, commits: [version(2, MERGED_AT, WF, odd), INDEX.commits[1]] };
+    assert.deepEqual(await readIndexLive('o/r', 't', fakeApi({ index }).get), { start: Date.parse(BORN), open: true }, JSON.stringify(odd));
+  }
   // Main's newest workflow doesn't index (reverted now, or the file deleted): the window stays open up to now, so a FAIL
   // made after the first merge, outside any index, is still read. Never a lock, never a miss.
   const later = run({
@@ -725,7 +773,10 @@ test("the window ends when main's workflow last began to index, from its history
   await assert.rejects(read({ ...INDEX, workflow: {} }), /no readable created_at/);
   await assert.rejects(read({ ...INDEX, commits: null }), /commits on main: not a list/);
   await assert.rejects(read({ ...INDEX, commits: [] }), /no commits on main/);
-  await assert.rejects(read({ ...INDEX, commits: [version(2, 'never', WF), version(1, BORN, WF_BARE)] }), /no readable commit date/);
+  await assert.rejects(
+    read({ ...INDEX, commits: [version(2, MERGED_AT, WF, { pull: 'unreadable' }), INDEX.commits[1]] }),
+    /pull requests of .*not a list/,
+  );
 });
 
 test('a closed window is read once per seal, and its runs on this code again by id on every poll', async () => {

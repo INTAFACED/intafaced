@@ -872,9 +872,9 @@ export async function readReviewRuns(repo, sha, token, branch, get = api, now = 
       total = Math.max(total, count);
       if (total > 1000) throw new TooMany(what, total);
       all.push(...batch);
+      // Ten full pages are never taken as whole, even when the count says 1,000: GitHub may cap the count too. The
+      // window is then read in slices instead (readWindow); a head's own list fails closed.
       if (batch.length < 100) break;
-      // Exactly 1,000 fill ten pages: once the reported count is read there, the list is whole (an 11th page can't be asked).
-      if (page === 10 && all.length >= total) break;
     }
     if (all.length < total) throw new Error(`${what}: ${all.length} of ${total} read, not whole; the seal fails closed`);
     return all;
@@ -977,17 +977,30 @@ async function readMergeBase(repo, sha, token, get) {
  * The window's bounds, from GitHub's records (ms since the epoch). `start` is the workflow's `created_at` (no run of it
  * is older). `end` is INDEX_MARGIN_MS after the index last went live: REVIEW_BASE's commits to REVIEW_WORKFLOW, newest
  * first, each version read at its commit, back to the newest one that doesn't index first (indexesFirst; a deleted file
- * doesn't); the commit after it began the unbroken run of indexing versions, and its committer date (GitHub's: the base
- * only takes merges GitHub makes) is when. If the newest version doesn't index, the window stays `open`: every run up
- * to now, with a warning. Any unreadable list, version or date fails closed.
+ * doesn't); the commit after it began the unbroken run of indexing versions, and its pull request's `merged_at` is when.
+ * Each indexing version must be GitHub's merge of a pull request into the base, or the window stays `open`, as it does
+ * when the newest version doesn't index: every run up to now, with a warning. Any unreadable list or version fails
+ * closed.
  */
 export async function readIndexLive(repo, token, get = api) {
   const workflow = await get(`/repos/${repo}/actions/workflows/${REVIEW_WORKFLOW.split('/').pop()}`, token);
   const start = Date.parse(workflow?.created_at ?? '');
   if (!Number.isFinite(start)) throw new Error(`${REVIEW_WORKFLOW}: no readable created_at; the seal fails closed`);
   // Newest first, a page at a time, ending at the first version that doesn't index: one content read per edit since
-  // the index last went live.
+  // the index last went live. Each indexing version must be a commit GitHub made when it merged a pull request into
+  // REVIEW_BASE (one parent, named as that pull request's merge commit), and the time is that pull request's
+  // `merged_at`, GitHub's record, never a committer date an author could set. Anything else leaves the window open.
+  const landed = async (c) => {
+    if (!Array.isArray(c?.parents) || c.parents.length !== 1) return null;
+    const pulls = await get(`/repos/${repo}/commits/${c.sha}/pulls`, token);
+    if (!Array.isArray(pulls)) throw new Error(`the pull requests of ${c.sha}: not a list; the seal fails closed`);
+    const p = pulls.find((x) => x?.merge_commit_sha === c.sha && x?.base?.ref === REVIEW_BASE);
+    const at = Date.parse(p?.merged_at ?? '');
+    return Number.isFinite(at) ? at : null;
+  };
   let began = null;
+  let beganAt = null;
+  let unconfirmed = null;
   let seen = 0;
   walk: for (let page = 1; ; page++) {
     if (page > 50) throw new Error(`${REVIEW_WORKFLOW}: no version without the index in 5,000 commits; the seal fails closed`);
@@ -1003,20 +1016,26 @@ export async function readIndexLive(repo, token, get = api) {
       if (f !== null && typeof f?.content !== 'string')
         throw new Error(`${REVIEW_WORKFLOW} at ${c.sha}: no readable content; the seal fails closed`);
       if (f === null || !indexesFirst(Buffer.from(f.content, 'base64').toString('utf8'))) break walk;
+      const at = await landed(c);
+      if (at === null) {
+        unconfirmed = c.sha;
+        break walk;
+      }
       began = c;
+      beganAt = at;
     }
     if (batch.length < 100) break;
   }
   if (seen === 0) throw new Error(`${REVIEW_WORKFLOW}: no commits on ${REVIEW_BASE}; the seal fails closed`);
-  if (!began) {
+  if (!began || unconfirmed) {
     console.log(
-      `::warning title=Tree index not live::${REVIEW_BASE}'s ${REVIEW_WORKFLOW} doesn't index its head before the review, so the seal reads every CI review run up to now, in slices.`,
+      unconfirmed
+        ? `::warning title=Tree index time unconfirmed::${REVIEW_WORKFLOW} at ${unconfirmed} isn't a pull request's merge into ${REVIEW_BASE} by GitHub, so when the index went live can't be read from GitHub's record; the seal reads every CI review run up to now, in slices.`
+        : `::warning title=Tree index not live::${REVIEW_BASE}'s ${REVIEW_WORKFLOW} doesn't index its head before the review, so the seal reads every CI review run up to now, in slices.`,
     );
     return { start, open: true };
   }
-  const at = Date.parse(began?.commit?.committer?.date ?? '');
-  if (!Number.isFinite(at)) throw new Error(`${REVIEW_WORKFLOW} at ${began.sha}: no readable commit date; the seal fails closed`);
-  return { start, end: Math.max(start, at) + INDEX_MARGIN_MS, open: false };
+  return { start, end: Math.max(start, beganAt) + INDEX_MARGIN_MS, open: false };
 }
 
 /**
