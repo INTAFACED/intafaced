@@ -321,6 +321,10 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'journey-verdict.mjs':
+    "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
+  'journey-verdict.test.mjs':
+    'the tests of journey-verdict.mjs (node --test), run in the `changes` job of ci.yml and before each verdict in real-app-journeys.yml.',
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
   'bisect-main.mjs':
@@ -331,6 +335,8 @@ export const NOT_GATES = {
     'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/main-trust.mjs --self-test` checks the decision table and parser.',
   'post-merge-trust.mjs':
     'runs from main-trust.yml after Order-path CX-8, Customer Money browser checks, Real-app journeys or PR checks (the Dependency audit) finish on main: re-runs a whole-run check that broke after a green once, then opens one issue naming the commits since the last green; for journeys, opens one issue per journey whose step passed, then failed on two runs in a row, and prints newly passing and newly broken steps. It only writes issues. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/post-merge-trust.mjs --self-test` checks the decision table and the report comparison and is wired in the `changes` job of ci.yml.',
+  'journey-baseline-guard.mjs':
+    'PR-only guard: needs the PR’s docs/runbooks/journey-baseline.json against origin/main and the reports of the journeys runs on main between the two runs they name, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a step that passed on main added as unbuilt, a step taken off without a pass on main, and a rewrite from a run that is not a finished run on main (docs/runbooks/regression-issue-state.md). Its tests are tooling/scripts/journey-baseline-guard.test.mjs, which the tooling tests run.',
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. It covers unit tests, the browser journeys and harnesses (`*.pw.mjs`) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':

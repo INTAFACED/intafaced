@@ -1262,8 +1262,27 @@ export function startDependencies(defs, def, envOf = (d) => d.env()) {
   });
 }
 
+/**
+ * Why a service is left out of this start, or null. Today only the indexer: it follows the TEST chain, and without one
+ * its env names the zero venue address, which svc-indexer refuses at boot (indexer.venue_unset). That failed the whole
+ * start on a machine without anvil (project-state research/factory-2026-11/LANE-4-GROUND-TRUTH.md, section 5, 3 Nov),
+ * and `restart <service>`, which is a stop and a full start, with it. `chain` is testChain()'s answer: with a running,
+ * seeded chain (every CI shard brings anvil) nothing is left out, so CI starts exactly what it started before.
+ */
+export function absentWhy(name, chain) {
+  if (name === 'indexer' && !chain)
+    return 'no TEST chain to follow (no anvil binary, or the chain is not running); the explorer reads answer as a service that did not answer';
+  return null;
+}
+
 /** Starts every service once the services it waits for (startDependencies) answer, the rest side by side. */
-async function startServices(defs) {
+async function startServices(all) {
+  const chain = testChain();
+  const defs = all.filter((d) => {
+    const why = absentWhy(d.name, chain);
+    if (why) say(`  ${d.name}: not started, ${why}`);
+    return !why;
+  });
   const envs = new Map(defs.map((d) => [d, d.env()]));
   const envOf = (d) => envs.get(d);
   const started = new Map();
@@ -1425,7 +1444,9 @@ async function startTestChain(secrets) {
         writeProcs(procs);
       }
     }
-    say('  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED)');
+    say(
+      '  chain: no anvil binary (LOCAL_STACK_ANVIL_BIN unset, none on PATH); svc-protocol keeps no node (UNUSED), and svc-indexer is not started',
+    );
     return [];
   }
   if (!ownedAlive(procs.chain)) {
@@ -1856,10 +1877,13 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   const nats = await httpGet(`http://${HOST}:${PORTS.natsMonitor}/healthz`, 2000);
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
+  const chain = testChain();
   for (const n of serviceNames()) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
-    const state = r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
+    // A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still does.
+    const absent = r.status !== 200 ? absentWhy(n, chain) : null;
+    const state = absent ? 'absent (no TEST chain)' : r.status !== 200 ? `DOWN (${r.status})` : halted ? `HALTED (${halted})` : 'ok';
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state]);
   }
   if (procs.chain) {
@@ -1923,7 +1947,7 @@ async function healthTable({ gateMarket = false } = {}) {
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
-  return rows.slice(0, -1).every((r) => String(r[3]).startsWith('ok')) && !(gateMarket && marketBad);
+  return rows.slice(0, -1).every((r) => /^(ok|absent)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */
