@@ -79,6 +79,8 @@ export const GATE_PATHS = [
   ['tooling/scripts/journey-freeze-guard.mjs', 'the journey harness guard: no journey leaks the platform posting freeze'],
   ['apps/customer/tests/real-app/journey.mjs', "every journey's test, wrapped by the posting-freeze guard"],
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
+  ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],
+  ['docs/roadmap/journeys.json', 'the journey steps the journeys run, its verdict and the money rule read'],
 ];
 
 function globToRegExp(glob) {
