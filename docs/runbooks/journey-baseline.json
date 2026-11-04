@@ -49,7 +49,7 @@
   "counts": {
     "stepsInRun": 1520,
     "failing": 532,
-    "unbuilt": 524,
+    "unbuilt": 525,
     "regression": 5,
     "notBaselined": 3
   },
@@ -665,6 +665,13 @@
       "state": "unbuilt",
       "money": true,
       "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-cex-spot-01#1",
+      "file": "apps/customer/tests/real-app/J-cex-spot-01.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-copy-bots-otc-01#5",
