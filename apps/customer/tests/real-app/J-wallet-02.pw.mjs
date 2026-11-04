@@ -240,9 +240,11 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   test.setTimeout(120_000);
   const { account: who, address, credited, label, tx } = state();
   if (!credited) throw new Error(`${J} #5 credited nothing, so there is no event to deliver again`);
-  // This account's USDT came only from #5's 100 USDT credits (one per attempt that credited), so the ledger says how many.
-  const credits = Number(toUnits(credited) / toUnits('100'));
-  expect(toUnits(credited) % toUnits('100')).toBe(0n);
+  // #5 left the ledger's USDT, in units. This account's USDT came only from #5's 100 USDT credits (one per attempt that
+  // credited), so that says how many credits there were.
+  const held = BigInt(credited);
+  const credits = Number(held / toUnits('100'));
+  expect(held % toUnits('100')).toBe(0n);
   expect(credits).toBeGreaterThanOrEqual(1);
 
   // The same chain event, delivered three more times: each delivery is accepted and names the same transaction.
@@ -252,8 +254,8 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   expect(ledgerNow, `the ledger answered no ${ASSET} balance`).toBeTruthy();
 
   // One credit: the ledger holds exactly what #5's credit left, nothing more.
-  expect(toUnits(ledgerNow.free)).toBe(toUnits(credited));
-  expect(toUnits(ledgerNow.total)).toBe(toUnits(credited));
+  expect(toUnits(ledgerNow.free)).toBe(held);
+  expect(toUnits(ledgerNow.total)).toBe(held);
 
   // One row: the bank keeps one deposit record for this transaction, credited once, for 100.
   const listed = await client.get(`/api/bank/trpc/deposits.list?input=${encodeURIComponent(JSON.stringify({ txId: tx }))}`);
