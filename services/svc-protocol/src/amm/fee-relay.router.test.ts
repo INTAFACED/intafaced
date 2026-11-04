@@ -98,7 +98,12 @@ describe('protocol.amm fee relay', () => {
         maxFeePerGasWei: '2000000000',
         maxPriorityFeePerGasWei: '1',
       }),
-    ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('protocol.fee_swap_pool_unlisted') });
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('protocol.fee_swap_pool_unlisted'),
+      // The client branches on the cause's code (contracts' error formatter sends it), never on the prose.
+      cause: { code: 'protocol.fee_swap_pool_unlisted' },
+    });
     await expect(
       relay.amm.prepareFeeSwap({
         owner: OWNER,

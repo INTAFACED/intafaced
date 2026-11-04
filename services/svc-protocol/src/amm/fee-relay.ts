@@ -35,6 +35,22 @@ import {
  * fail-closed oracle plus its published markup; nothing here computes a price of its own.
  */
 
+/** A refusal whose code the client can branch on: tRPC's error formatter sends `cause.code` as the code. */
+export class FeeRelayRefusal extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(`${code}: ${message}`);
+    this.name = 'FeeRelayRefusal';
+  }
+}
+
+export function feeRefusal(trpcCode: TRPCError['code'], code: string, message: string): TRPCError {
+  const cause = new FeeRelayRefusal(code, message);
+  return new TRPCError({ code: trpcCode, message: cause.message, cause });
+}
+
 export const FEE_RELAY_ABI = parseAbi([
   'function oracle() view returns (address)',
   'function markupBps() view returns (uint16)',
@@ -86,10 +102,11 @@ export function parseRelayGasLimit(raw: string | null | undefined): bigint | nul
 
 export function requireFeeRelay(setting: FeeRelaySetting | null | undefined): FeeRelaySetting {
   if (!setting)
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `${FEE_RELAY_UNSET}: PROTOCOL_FEE_RELAY_ADDRESS, PROTOCOL_FEE_RELAY_URL and PROTOCOL_FEE_RELAY_GAS_LIMIT are owner settings; pay the network fee in native currency.`,
-    });
+    throw feeRefusal(
+      'PRECONDITION_FAILED',
+      FEE_RELAY_UNSET,
+      `PROTOCOL_FEE_RELAY_ADDRESS, PROTOCOL_FEE_RELAY_URL and PROTOCOL_FEE_RELAY_GAS_LIMIT are owner settings; pay the network fee in native currency.`,
+    );
   return setting;
 }
 
@@ -119,20 +136,23 @@ export function revertName(err: unknown): string | null {
 export function feeTokenRefusal(err: unknown, token: Address): TRPCError | null {
   const name = revertName(err);
   if (name === 'NotAllowlisted')
-    return new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `${FEE_TOKEN_NOT_ALLOWLISTED}: ${token} is not on the relay's allowlist of fee tokens; pay the network fee in native currency.`,
-    });
+    return feeRefusal(
+      'PRECONDITION_FAILED',
+      FEE_TOKEN_NOT_ALLOWLISTED,
+      `${token} is not on the relay's allowlist of fee tokens; pay the network fee in native currency.`,
+    );
   if (name === 'Stale')
-    return new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `${FEE_TOKEN_ORACLE_STALE}: the oracle's mark for ${token} is older than its staleness bound; pay the network fee in native currency.`,
-    });
+    return feeRefusal(
+      'PRECONDITION_FAILED',
+      FEE_TOKEN_ORACLE_STALE,
+      `the oracle's mark for ${token} is older than its staleness bound; pay the network fee in native currency.`,
+    );
   if (name === 'MissingReport' || name === 'Disagreement')
-    return new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `${FEE_TOKEN_ORACLE_UNREAD}: the oracle gives no mark for ${token} (${name === 'MissingReport' ? 'a source has not reported' : 'its sources disagree'}); pay the network fee in native currency.`,
-    });
+    return feeRefusal(
+      'PRECONDITION_FAILED',
+      FEE_TOKEN_ORACLE_UNREAD,
+      `the oracle gives no mark for ${token} (${name === 'MissingReport' ? 'a source has not reported' : 'its sources disagree'}); pay the network fee in native currency.`,
+    );
   return null;
 }
 
@@ -283,10 +303,11 @@ async function permitDomain(chain: FeeRelayChain, token: Address, chainId: numbe
     ])) as [string, string];
     return { name, version, chainId, verifyingContract: getAddress(token) };
   } catch {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: `${FEE_TOKEN_PERMIT_UNREAD}: ${token} gives no EIP-712 permit domain (eip712Domain or version), so no permit can be signed for it.`,
-    });
+    throw feeRefusal(
+      'PRECONDITION_FAILED',
+      FEE_TOKEN_PERMIT_UNREAD,
+      `${token} gives no EIP-712 permit domain (eip712Domain or version), so no permit can be signed for it.`,
+    );
   }
 }
 
@@ -370,10 +391,7 @@ export async function checkOrderSignature(relay: Address, chainId: number, order
     signer = null;
   }
   if (!signer || signer.toLowerCase() !== order.owner.toLowerCase())
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `${FEE_SWAP_SIGNATURE_INVALID}: the order is not signed by its owner ${order.owner}.`,
-    });
+    throw feeRefusal('FORBIDDEN', FEE_SWAP_SIGNATURE_INVALID, `the order is not signed by its owner ${order.owner}.`);
 }
 
 /** The relay's swap() call for a signed order and its permits, as the relayer sends it. */
@@ -429,16 +447,18 @@ export async function relayFeeSwap(
   const maxFee = BigInt(input.maxFeePerGasWei);
   const priority = BigInt(input.maxPriorityFeePerGasWei);
   if (maxFee > feeCapWei || priority > maxFee || setting.gasLimit * maxFee !== BigInt(order.gasWei))
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'protocol.fee_relay_gas_mismatch: the per-gas fee is over the cap, or does not match the gas the order was signed for.',
-    });
+    throw feeRefusal(
+      'BAD_REQUEST',
+      'protocol.fee_relay_gas_mismatch',
+      'the per-gas fee is over the cap, or does not match the gas the order was signed for.',
+    );
   const quote = await quoteFee(chain, setting, order.feeToken as Address, maxFee);
   if (BigInt(quote.charge) > BigInt(order.maxCharge))
-    throw new TRPCError({
-      code: 'CONFLICT',
-      message: `${FEE_CHARGE_ABOVE_SIGNED}: the relay now prices the fee at ${quote.charge}, above the ${order.maxCharge} signed for; get a new quote.`,
-    });
+    throw feeRefusal(
+      'CONFLICT',
+      FEE_CHARGE_ABOVE_SIGNED,
+      `the relay now prices the fee at ${quote.charge}, above the ${order.maxCharge} signed for; get a new quote.`,
+    );
   const data = encodeRelaySwap(input);
   try {
     // Tried as if the relay contract itself sent it: a real token refuses a fee paid to the zero address (an eth_call's
@@ -448,10 +468,11 @@ export async function relayFeeSwap(
   } catch (err) {
     const refusal = feeTokenRefusal(err, order.feeToken as Address);
     if (refusal) throw refusal;
-    throw new TRPCError({
-      code: 'CONFLICT',
-      message: `${FEE_RELAY_REFUSED}: the swap would not succeed on the chain now (${revertName(err) ?? 'reverted'}); nothing was sent.`,
-    });
+    throw feeRefusal(
+      'CONFLICT',
+      FEE_RELAY_REFUSED,
+      `the swap would not succeed on the chain now (${revertName(err) ?? 'reverted'}); nothing was sent.`,
+    );
   }
   const sent = await post(setting.url, {
     to: getAddress(setting.relay),
@@ -469,9 +490,6 @@ export async function relayFeeSwap(
     typeof body.relayer !== 'string' ||
     !/^0x[0-9a-fA-F]{40}$/.test(body.relayer)
   )
-    throw new TRPCError({
-      code: 'BAD_GATEWAY',
-      message: `${FEE_RELAY_REFUSED}: the relayer did not take the swap; nothing was sent.`,
-    });
+    throw feeRefusal('BAD_GATEWAY', FEE_RELAY_REFUSED, `the relayer did not take the swap; nothing was sent.`);
   return { hash: body.hash as Hex, relayer: getAddress(body.relayer) };
 }

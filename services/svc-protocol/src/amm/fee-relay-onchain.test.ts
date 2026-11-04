@@ -88,7 +88,12 @@ describeOnChain('FeeTokenRelay: a stable-only wallet swaps and pays the fee in t
     } as never)) as Hex;
     return { status: 200, body: { hash, relayer: RELAYER } };
   };
-  const refusalOf = (err: unknown) => (err instanceof TRPCError ? err.message.split(':')[0] : String(err));
+  /** The code a client sees: the cause's, which the error formatter sends; the prose prefix must agree with it. */
+  const refusalOf = (err: unknown) => {
+    if (!(err instanceof TRPCError)) return String(err);
+    const code = (err.cause as { code?: string } | undefined)?.code;
+    return code === err.message.split(':')[0] ? code : `mismatch: ${String(code)} / ${err.message}`;
+  };
 
   beforeAll(async () => {
     if (!chainUp && devChainMod.devChainRequired()) throw new Error('REQUIRE_EVM_CHAIN=1 but no RPC at ' + devChainMod.devRpcUrl());

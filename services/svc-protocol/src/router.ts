@@ -66,6 +66,7 @@ import { listAllowances } from './amm/allowances.js';
 import { blockBalances, routeOptions } from './amm/routes.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
 import {
+  feeRefusal,
   planFeeSwap,
   quoteFee,
   readFeeTokens,
@@ -564,19 +565,17 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       });
     const listed = (await readPairs(factory)).pools.some((entry) => entry.pool.toLowerCase() === pool.toLowerCase());
     if (!listed)
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: `protocol.fee_swap_pool_unlisted: ${pool} is not a pool the network's factory lists; a fee-token swap uses listed pools only.`,
-      });
+      throw feeRefusal(
+        'BAD_REQUEST',
+        'protocol.fee_swap_pool_unlisted',
+        `${pool} is not a pool the network's factory lists; a fee-token swap uses listed pools only.`,
+      );
   };
   /** The most per gas a person may offer: refused above the owner's cap, never lowered to it. */
   const withinFeeCap = (maxFee: bigint): bigint => {
     const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
     if (maxFee > cap)
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: `protocol.swap_fee_over_cap: ${maxFee} wei per gas is above the owner's fee cap of ${cap}.`,
-      });
+      throw feeRefusal('BAD_REQUEST', 'protocol.swap_fee_over_cap', `${maxFee} wei per gas is above the owner's fee cap of ${cap}.`);
     return maxFee;
   };
 
