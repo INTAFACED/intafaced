@@ -1,18 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import {
-  api,
-  bestPrices,
-  fromUnits,
-  fund,
-  journeyState,
-  otherTrader,
-  signUpInBrowser,
-  times,
-  toUnits,
-  tool,
-  signOutBrowser,
-} from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { TEST_DEPOSIT_TRAVEL_RULE } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { api, bestPrices, fromUnits, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool, signOutBrowser } from './stack.mjs';
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
@@ -60,6 +50,36 @@ function reviewValue(review, label) {
     .first();
 }
 
+/**
+ * One TEST chain delivery of `amount` USDT to a deposit address svc-pay issued, final at the published 6 confirmations, as
+ * transfer `label`: the same label to the same address is the same transfer, so sending it again is a replay. Returns the
+ * transaction hash, as Deposit's records show it.
+ */
+function chainDeposit(address, amount, label) {
+  const out = tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', amount, '6', '--tx', label);
+  expect(out).toContain('"received":true');
+  const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
+  expect(tx, out).toBeTruthy();
+  return tx;
+}
+
+/**
+ * A rate the service sends as a ratio ("0.0008"), as the percent the desk shows to two places ("0.08"), in units: rounded
+ * half away from zero, so a rebate (a negative rate) rounds as its size does.
+ */
+function asPercent(ratio) {
+  const cent = toUnits('0.01');
+  const percent = wireUnits(ratio) * 100n;
+  const size = percent < 0n ? -percent : percent;
+  const rounded = ((size + cent / 2n) / cent) * cent;
+  return percent < 0n ? -rounded : rounded;
+}
+
+/** The pointer leaves the top bar, as a person's does, so a door's hover menu closes over the room. */
+async function pointerOff(page) {
+  await page.mouse.move(0, 600);
+}
+
 /** One order's fills as the service reports them. */
 async function fillsOf(who, orderId) {
   const { status, body } = await (await api(who)).get(`/api/v1/orders/${orderId}/trades?symbol=BTC%2FUSDT&limit=50`);
@@ -91,8 +111,17 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
-  // Signed in, and the way to Verify is shown: Home says it where the total would be (in Simple, where the app opens;
-  // Pro says it in its Summary).
+  // An account exists: identity signs the same email and password in on a session of its own, and names its user id.
+  const { userId } = await api(who);
+  expect(userId).toMatch(/^[0-9a-f-]{36}$/);
+  // This browser is signed in as that account: its account menu names the handle, the account id and an unverified level.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  const summary = page.getByTestId('account-summary');
+  await expect(summary).toContainText(`@${handle}`);
+  await expect(summary).toContainText(`Account ID ${userId.slice(0, 8)}…`);
+  await expect(summary).toContainText('Verification: Not verified');
+  await page.keyboard.press('Escape');
+  // Home, where the app opens, asks for verification where the total would be, with its own Verify now.
   await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
   await expect(
     page
@@ -100,6 +129,19 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
       .or(page.getByRole('button', { name: 'Verify now' }))
       .first(),
   ).toBeVisible();
+  // The Trade door, from the top bar, reads "Verify to trade" with the way to Verify, and that way opens Verification.
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
+  await expect(page).toHaveURL(/\/trade$/);
+  await pointerOff(page);
+  const access = page.getByTestId('trade-access');
+  await expect(access).toHaveAttribute('data-state', 'verify');
+  await expect(access.getByText('Verify to trade', { exact: true })).toBeVisible();
+  const way = access.getByRole('link', { name: 'Verify now' });
+  await expect(way).toHaveAttribute('href', '/verification');
+  await way.click();
+  await expect(page).toHaveURL(/\/verification(\?|$)/);
+  await expect(page.getByTestId('verification__level-tag')).toContainText('Not verified');
+  await expect(page.getByLabel('Level to request')).toBeVisible();
 });
 
 test(`${J} #2 tries a TEST limit buy before verifying and is refused in plain words`, async ({ page }) => {
@@ -130,39 +172,176 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
+  // Signs in again, so the session carries the new level.
   await signOutBrowser(page.context());
+  await signIn(page, who);
+  // The tier reads verified: on the Trade door, in the account menu and on Verification.
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
+  await expect(page).toHaveURL(/\/trade$/);
+  await pointerOff(page);
+  const access = page.getByTestId('trade-access');
+  await expect(access).toHaveAttribute('data-state', 'verified');
+  await expect(access.getByText('Verified to trade', { exact: true })).toBeVisible();
+  await expect(access).toContainText('Your level: Full');
+  await expect(access.getByText('Verify to trade')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
+  await page.keyboard.press('Escape');
+  await page.goto('/verification');
+  await expect(page.getByTestId('verification__level-tag')).toContainText('Full');
+  await expect(page.getByTestId('verification__level-tag')).not.toContainText('Not verified');
+
+  // The desk accepts orders: the service's own order check passes a resting limit buy for this account with no refusal,
+  // and the order form's only remaining stop is money (#4 funds the account), never verification.
   await desk(page);
-  // The desk accepts orders: a resting limit buy away from the market gets a priced preview, and the only thing
-  // that still stops it is money (#4 funds the account), never verification.
   const away = await awayBid(90);
-  await previewed(page, async () => {
-    await page.getByRole('textbox', { name: 'Price' }).first().fill(away);
-    await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+  // The check of this exact order: the price and amount typed below (a check sent before both were typed is not it).
+  const check = page.waitForResponse((r) => {
+    if (!r.url().includes('/api/v1/orders/preview') || r.request().method() !== 'POST') return false;
+    const sent = r.request().postDataJSON();
+    const same = (value, want) => typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) && toUnits(value) === toUnits(want);
+    return sent?.side === 'buy' && same(sent?.amount, '0.001') && same(sent?.price, away);
   });
+  await page.getByRole('textbox', { name: 'Price' }).first().fill(away);
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+  const answer = await check;
+  expect(answer.status()).toBe(200);
+  const preview = await answer.json();
+  expect(preview, JSON.stringify(preview).slice(0, 400)).toMatchObject({ orderable: true, refusals: [], holdAsset: 'USDT' });
+  expect(wireUnits(preview.holdAmount)).toBe(times(away, '0.001'));
   const reason = page.locator('#dk-reason-buy');
   await expect(reason).toContainText('Not enough USDT');
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
+  // The place door itself takes the same order past verification to the money check: it answers on funds (no USDT
+  // yet), not on permission, and nothing is held and no order rests.
+  const placed = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    amount: '0.001',
+    price: away,
+    clientOrderId: `${J}-3-${who.handle}`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBe(400);
+  expect(placed.body.code, JSON.stringify(placed.body).slice(0, 300)).toBe('InsufficientFunds');
+  expect(await openOrders(who)).toHaveLength(0);
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page }) => {
+test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
   const who = account();
-  const first = fund(who.email, 'USDT', '1000');
-  expect(first.tx).toBeTruthy();
-  const replay = fund(who.email, 'USDT', '1000', first.ref);
-  expect(replay.tx).toBe(first.tx);
-  const balances = await (await api(who)).balances();
-  expect(balances.USDT).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
+  const client = await api(who);
+  const usdt = async () => (await client.balances()).USDT ?? { free: '0', used: '0', total: '0' };
+  expect(toUnits((await usdt()).total)).toBe(0n);
+  // Funds it as a person does: Deposit issues a USDT address on TEST Ethereum, and the stack's TEST chain sends 1000 USDT
+  // to it, final at the published 6 confirmations (svc-pay's chain webhook, signed as the watcher would deliver it). The
+  // test uses no direct ledger post.
+  await signIn(page, who);
+  await page.goto('/uc/recharge');
+  await pointerOff(page);
+  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
+  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Ethereum' });
+  await page.getByRole('checkbox', { name: 'I will send only USDT on TEST Ethereum.' }).check();
+  await page.getByRole('button', { name: 'Show my deposit address' }).click();
+  const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
+  expect(address.length).toBeGreaterThan(8);
+  const label = `jcs01-${who.handle}-1000`;
+  const tx = chainDeposit(address, '1000', label);
+  // A deposit of 1000 or more waits for the depositor's travel-rule declaration (the stack's TEST rule, W-deposit-07):
+  // the person declares where it came from, and compliance releases it once on the founder console.
+  // 1000 is at or over the stack's TEST threshold, so this deposit is the held kind (read from the stack's own rule).
+  expect(toUnits('1000') >= toUnits(TEST_DEPOSIT_TRAVEL_RULE.threshold), TEST_DEPOSIT_TRAVEL_RULE.threshold).toBe(true);
+  const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
+  // svc-pay may record the hold just after the delivery answers, so the room is read again until it shows it.
+  await expect(async () => {
+    await page.reload();
+    await pointerOff(page);
+    await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule', {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
+  expect(toUnits((await usdt()).total)).toBe(0n);
+  const panel = records
+    .locator('tbody tr', { has: page.getByTestId('deposit-travel-rule') })
+    .filter({ has: page.locator(`xpath=preceding-sibling::tr[1][contains(., "${tx}")]`) })
+    .getByTestId('deposit-travel-rule');
+  const form = panel.getByTestId('deposit-travel-rule-form');
+  await form.getByRole('radio', { name: 'An exchange or other crypto platform' }).check();
+  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
+  await form.getByLabel('Sender’s address').fill('1 TEST Street, Testville');
+  await form.getByRole('button', { name: 'Send declaration' }).click();
+  await expect(panel).toHaveAttribute('data-state', 'under_review', { timeout: 30_000 });
+  const founderContext = await browser.newContext();
+  try {
+    const founder = await founderContext.newPage();
+    await founderSignIn(founder, 'a');
+    await founder.goto(`${ADMIN}/accounts/${client.userId}?tab=money`, { waitUntil: 'load' });
+    const holds = founder.getByTestId('read-money.deposit-travel-rule');
+    await expect(holds.getByRole('table')).toBeVisible({ timeout: 60_000 });
+    // This new account has exactly one USDT hold, the deposit above, so the one row released is this deposit's.
+    const rows = holds.locator('tbody > tr', { hasText: 'USDT' });
+    await expect(rows).toHaveCount(1);
+    await rows.getByRole('button', { name: 'Open' }).click();
+    const detail = holds.getByTestId('row-detail');
+    const review = detail.getByTestId('deposit-travel-rule-review');
+    await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
+    await review.getByRole('button', { name: 'Release and credit once' }).click();
+    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('credited it once', { timeout: 60_000 });
+  } finally {
+    await founderContext.close();
+  }
+  await expect.poll(async () => (await usdt()).free, { timeout: 30_000 }).toMatch(/^1000(\.0+)?$/);
+  const credited = await usdt();
+  expect(credited).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
+  // The same deposit is replayed (the chain delivers the same transfer again): the same transaction, and nothing added.
+  expect(chainDeposit(address, '1000', label)).toBe(tx);
+  // Read for longer than the first credit took to land, so a second credit that posts late is seen.
+  for (let i = 0; i < 10; i += 1) {
+    expect(await usdt()).toEqual(credited);
+    await page.waitForTimeout(1_000);
+  }
+  // Deposit's records hold the transfer once, credited, and the ledger's own history shows one 1000 USDT deposit.
+  await page.reload();
+  await pointerOff(page);
+  await expect(records.locator('tbody tr', { hasText: tx })).toHaveCount(1);
+  await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
+  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
+  const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
+  await expect(history.locator('tbody tr')).toHaveCount(1);
+  await expect(history.locator('tbody tr')).toContainText(/1,?000 USDT/);
+  // The desk's balance equals the ledger exactly: its Assets row and the order form's Available, unit for unit.
   await desk(page);
-  await expect(page.getByText('Available').first().locator('..')).toContainText('1,000');
+  await page.locator('[role=tab]', { hasText: /^Assets$/ }).click();
+  const table = page.getByTestId('dk-table');
+  const heads = (await table.locator('th').allInnerTexts()).map((h) => h.trim());
+  const cells = (
+    await table
+      .locator('tr', { has: page.locator('td', { hasText: /^USDT$/ }) })
+      .locator('td')
+      .allInnerTexts()
+  ).map((c) => c.trim());
+  const ledger = await usdt();
+  expect(shownUnits(cells[heads.indexOf('Available')]), heads.join(' | ')).toBe(wireUnits(ledger.free));
+  expect(shownUnits(cells[heads.indexOf('In orders')])).toBe(wireUnits(ledger.used));
+  expect(shownUnits(cells[heads.indexOf('Total')])).toBe(wireUnits(ledger.total));
+  expect(wireUnits(ledger.free)).toBe(toUnits('1000'));
+  expect(wireUnits(ledger.used)).toBe(0n);
+  expect(shownUnits(await page.getByTestId('dk-avail').locator('dd').first().innerText())).toBe(wireUnits(ledger.free));
 });
 
 test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode and positions`, async ({ page }) => {
+  // One signed-in client of the account's own for every service read below (the retries reuse it).
+  const client = await api(account());
   await desk(page);
+  await expect(page).toHaveURL(new RegExp(`${DESK}$`));
   await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
   // The ticker's last price is the service's.
   await expect(async () => {
-    const { body } = await (await api(account())).get('/api/v1/ticker/BTC%2FUSDT');
+    const { body } = await client.get('/api/v1/ticker/BTC%2FUSDT');
     expect(shownUnits(await page.getByTestId('dk-last').innerText())).toBe(wireUnits(body.last));
   }).toPass({ timeout: 30_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
@@ -178,18 +357,44 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
       expect(book.has(shownUnits(await price.innerText())), side).toBe(true);
     }
   }).toPass({ timeout: 30_000 });
+  // The chart draws the service's candles: on 15m, its legend's close is the close of the service's newest 15m candle.
   // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
+  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '15m', exact: true }).click();
+  await page.mouse.move(0, 0);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
+  await expect(async () => {
+    const { body } = await client.get('/api/v1/ohlcv/BTC%2FUSDT?timeframe=15m&limit=3');
+    expect(Array.isArray(body) && body.length > 0, JSON.stringify(body).slice(0, 200)).toBe(true);
+    const close = page.getByTestId('pc-legend').locator('.pc-ohlc').nth(3).locator('b');
+    expect(shownUnits(await close.innerText())).toBe(wireUnits(body.at(-1)[4]));
+  }).toPass({ timeout: 60_000 });
   // The tape draws the service's prints: its newest row's price is among the service's recent trades.
   await page.locator('[role=tab]', { hasText: 'Last trades' }).click();
   await expect(async () => {
-    const { body } = await (await api(account())).get('/api/v1/trades/BTC%2FUSDT?limit=50');
+    const { body } = await client.get('/api/v1/trades/BTC%2FUSDT?limit=50');
     const prices = new Set(body.map((t) => toUnits(String(t.price))));
     const first = page.locator('[data-testid=dk-bk-row--tape] [data-testid=dk-bk-price]').first();
     expect(prices.has(shownUnits(await first.innerText()))).toBe(true);
   }).toPass({ timeout: 60_000 });
-  await expect(page.getByText(/Your rates: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
-  await expect(page.getByText(/trading mode/i).first()).toBeVisible();
+  // The fee line: this account's own maker and taker rates, as the service lists them for BTC/USDT, to the shown 0.01%.
+  const { body: fees } = await client.get('/api/v1/account/fees');
+  const rates = fees['BTC/USDT'];
+  expect(rates, JSON.stringify(fees).slice(0, 300)).toBeTruthy();
+  const line = page.getByRole('form', { name: 'Buy BTC' }).getByTestId('dk-fees-mine');
+  await expect(line).toHaveText(/^Your rates: maker [−-]?[\d.]+% · taker [−-]?[\d.]+%$/);
+  const [, maker, taker] = /maker ([−-]?[\d.]+)% · taker ([−-]?[\d.]+)%/.exec(await line.innerText());
+  expect(toUnits(maker.replace('−', '-'))).toBe(asPercent(rates.maker));
+  expect(toUnits(taker.replace('−', '-'))).toBe(asPercent(rates.taker));
+  // The trading-mode line: cash spot, open, as the service lists the market (orderable, active, session open, OPEN).
+  const { body: markets } = await client.get('/api/v1/markets?limit=500');
+  const listing = markets.find((m) => m.symbol === 'BTC/USDT');
+  expect(listing, 'BTC/USDT is listed').toBeTruthy();
+  expect(listing).toMatchObject({ spot: true, active: true, orderable: true, sessionOpen: true });
+  // A listing that names no lifecycle state is open by the desk's own rule (market.ts); one that names a state names OPEN.
+  expect(listing.lifecycle?.state ?? 'OPEN').toBe('OPEN');
+  const mode = page.getByTestId('dk-stats').locator('.dk-stat', { has: page.locator('.dk-stat-label', { hasText: /^Trading mode$/ }) });
+  await expect(mode.locator('.dk-stat-value')).toHaveText('Cash spot · Open');
+  // The positions tab reads that cash spot holds balances, not positions.
   await page.locator('[role=tab]', { hasText: /^Positions$/ }).click();
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
 });
