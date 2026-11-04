@@ -41,7 +41,7 @@
  * Usage:
  *   node tooling/ci/journey-baseline-guard.mjs [--repo owner/name] [--base-ref origin/main]
  *   node tooling/ci/journey-baseline-guard.mjs --base-file a.json --head-file b.json --journeys-file journeys.json \
- *     --runs-file runs.json [--report <run number>=<report.json>]... [--contains <sha>@<run number>=yes|no]...
+ *     --runs-file runs.json [--report <run number>=<report.json>]... [--contains <sha>@<run number>|main=yes|no]...
  *     [--commit-files <sha>=<a JSON list of the files that commit changes>]...   (offline)
  * Exit 0 = pass, 1 = refused, 2 = usage or lookup error, 3 = GitHub refused (stop, no retry).
  */
@@ -107,6 +107,7 @@ export function judgeBaselineChange({
   reports,
   contains = () => undefined,
   commitFiles = () => undefined,
+  onMain = () => undefined,
 }) {
   const problems = [];
   const notes = [];
@@ -152,6 +153,11 @@ export function judgeBaselineChange({
         no(`${what} after a stricter test, but strengthenedBy "${c}" is not a full sha`, step);
         continue;
       }
+      // The runbook: "That commit must be on `main`". A commit only on a branch is contained by no run, so without this
+      // every pass would read as "before the stricter test" and any green step could be listed.
+      const isOnMain = onMain(c);
+      if (isOnMain === undefined) no(`${what} after commit ${c.slice(0, 7)}, but whether it is on main couldn't be read`, step);
+      else if (!isOnMain) no(`${what} after commit ${c.slice(0, 7)}, which is not on main`, step);
       const missing = ['blocker', 'lane', 'lastPassedRun'].filter((k) => e[k] === undefined || e[k] === '');
       if (missing.length) no(`${what} after a stricter test, without ${missing.join(', ')}`, step);
       const files = commitFiles(c);
@@ -217,6 +223,19 @@ export function render(result, { baseRun, headRun, changed }) {
   return lines.join('\n');
 }
 
+/**
+ * The runs a change must be judged against, by run number. An entry added as unbuilt (or turned into unbuilt) needs
+ * every finished run on main from the base's named run to the newest, whatever run the head names: rule 2 is "a step
+ * that has passed on main is never added as unbuilt", and a pass after the named run counts as much as one in it.
+ * Otherwise the base's run to the head's run is enough.
+ */
+export function runRange(base, head) {
+  const from = base.run?.number;
+  const before = byStep(base.steps);
+  const addsUnbuilt = (head.steps ?? []).some((e) => e.state === 'unbuilt' && before.get(e.step)?.state !== 'unbuilt');
+  return { from, to: addsUnbuilt ? Infinity : Math.max(from, head.run?.number ?? from), addsUnbuilt };
+}
+
 // ── Reads ────────────────────────────────────────────────────────────────────
 
 /** The finished, uncancelled Real-app journeys runs on main numbered from..to, oldest first. Pages back from the newest. */
@@ -233,7 +252,10 @@ export function listRuns(gh, repo, from, to, maxPages = 30) {
       if (['cancelled', 'skipped'].includes(r.conclusion)) continue;
       out.push({ number: r.run_number, id: r.id, head_sha: r.head_sha });
     }
-    if (!runs.length || runs.at(-1).run_number <= from) return out.sort((a, b) => a.number - b.number);
+    if (runs.length && runs.at(-1).run_number <= from) return out.sort((a, b) => a.number - b.number);
+    // An empty page before run `from` is a list cut short (GitHub returns at most 1,000 runs for a filtered list), never
+    // the whole range: fail closed.
+    if (!runs.length) throw new Error(`the runs list ended before run ${from}; it can't be read whole`);
   }
   throw new Error(`run ${from} is more than ${maxPages} pages of runs back; read fewer runs or raise maxPages`);
 }
@@ -300,9 +322,8 @@ async function main() {
       return 0;
     }
     const live = liveSteps(read(o.offline ? o.journeysFile : JOURNEYS_PATH));
-    const from = base.run?.number;
-    const to = Math.max(from, head.run?.number ?? from);
-    let runs, reports, headRunMeta, contains, commitFiles;
+    const { from, to, addsUnbuilt } = runRange(base, head);
+    let runs, reports, headRunMeta, contains, commitFiles, onMain;
     if (o.offline) {
       const listed = read(o.runsFile);
       runs = listed.filter((r) => r.number >= from && r.number <= to).sort((a, b) => a.number - b.number);
@@ -311,6 +332,7 @@ async function main() {
       reports = new Map(runs.map((r) => [r.number, given.has(r.number) ? stepStates(read(given.get(r.number))) : null]));
       const facts = new Map(o.contains.map((s) => s.split('=')).map(([k, v]) => [k, v === 'yes']));
       contains = (sha, n) => facts.get(`${sha}@${n}`);
+      onMain = (sha) => facts.get(`${sha}@main`);
       const files = new Map(o.commitFiles.map((x) => x.split('=')).map(([sha, f]) => [sha, read(f)]));
       commitFiles = (sha) => files.get(sha);
     } else {
@@ -323,7 +345,7 @@ async function main() {
       // Only an entry added as unbuilt needs every run in the range; a removal needs a pass after the base's run, which
       // the PR's named run usually shows. So the range is read only when it is needed (a long range costs a minute per
       // 20 to 30 reports, against the gates job's 10-minute limit).
-      const needsRange = (head.steps ?? []).some((e) => e.state === 'unbuilt' && byStep(base.steps).get(e.step)?.state !== 'unbuilt');
+      const needsRange = addsUnbuilt;
       const headStates = runs.some((r) => r.number === head.run?.number) ? readReport(gh, o.repo, head.run.id) : undefined;
       reports = new Map(
         runs.map((r) => [r.number, r.number === head.run?.number ? headStates : needsRange ? readReport(gh, o.repo, r.id) : undefined]),
@@ -337,12 +359,19 @@ async function main() {
           runs: runs.filter((r) => r.number === head.run?.number),
           reports,
         });
-        if (!quick.ok) for (const r of runs) if (!reports.get(r.number)) reports.set(r.number, readReport(gh, o.repo, r.id));
+        if (!quick.ok) for (const r of runs) if (reports.get(r.number) === undefined) reports.set(r.number, readReport(gh, o.repo, r.id));
       }
       const shaOf = new Map(runs.map((r) => [r.number, r.head_sha]));
       // GitHub's compare from the commit to the run's head: "ahead" or "identical" means the run has the commit.
       contains = (sha, n) => {
         const r = gh(['api', `repos/${o.repo}/compare/${sha}...${shaOf.get(n)}`, '--jq', '.status'], { allowFail: true });
+        const status = r.status === 0 ? r.stdout.trim() : '';
+        return status ? ['ahead', 'identical'].includes(status) : undefined;
+      };
+      // On main: main's head contains the commit (the same compare, against the base ref's sha).
+      const mainSha = execFileSync('git', ['rev-parse', o.baseRef], { encoding: 'utf8' }).trim();
+      onMain = (sha) => {
+        const r = gh(['api', `repos/${o.repo}/compare/${sha}...${mainSha}`, '--jq', '.status'], { allowFail: true });
         const status = r.status === 0 ? r.stdout.trim() : '';
         return status ? ['ahead', 'identical'].includes(status) : undefined;
       };
@@ -358,7 +387,7 @@ async function main() {
         return Array.isArray(files) && files.length < 300 ? files : undefined;
       };
     }
-    const result = judgeBaselineChange({ base, head, live, headRunMeta, runs, reports, contains, commitFiles });
+    const result = judgeBaselineChange({ base, head, live, headRunMeta, runs, reports, contains, commitFiles, onMain });
     console.log(render(result, { baseRun: from, headRun: head.run?.number, changed }));
     return result.ok ? 0 : 1;
   } catch (e) {
