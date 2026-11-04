@@ -164,18 +164,18 @@ export const REVIEW_INDEX_PREFIX = 'ci-review-tree-';
 export const reviewIndexName = (tree) => `${REVIEW_INDEX_PREFIX}${tree}`;
 /**
  * Runs from before the index went live have no index artifact, so the seal reads them as a window: every
- * pull_request_target run created from REVIEW_BORN (ci-review.yml merged at 06:20 UTC on 4 Nov 2026, #7132) until an
- * hour after the first CI review run that indexed its head (readIndexLive). That time comes from the runs themselves,
- * never from a typed date or a commit date: the index step also uploads a REVIEW_INDEX_LIVE marker when the repository
- * has none, and the seal takes the earliest marker uploaded by a genuine CI review run. With no such marker the seal
- * fails closed. From then on every review run indexes its head before any verdict (ci-review.test.mjs holds the step
- * unconditional and before the review), so no run falls between the window and the index. The window is read in time
- * slices when it holds more than GitHub lists for one filter, so it can never lock the seal.
+ * pull_request_target run of REVIEW_WORKFLOW created before INDEX_MARGIN_MS after INDEX_PR merged (readIndexLive). The
+ * time is GitHub's record of the merge (`merged_at`), which no author can set; a run made after it used the default
+ * branch's copy with the index step, which indexes its head before any verdict (ci-review.test.mjs holds that step
+ * unconditional and before the review), so no run falls between the window and the index. If INDEX_PR isn't merged
+ * into REVIEW_BASE, the seal fails closed. The window's start is the workflow's own `created_at` on GitHub. It is read
+ * in time slices when it holds more than GitHub lists for one filter, so it can never lock the seal, and it is read
+ * again on every poll, so a re-run of a run in it is seen.
+ * If this change is ever reverted and landed again, the new pull request sets INDEX_PR to its own number.
  */
-export const REVIEW_BORN = '2026-11-04T00:00:00Z';
-export const REVIEW_INDEX_LIVE = 'ci-review-index-live';
-/** How long after the first indexed run the window still reads: overlap only adds runs that are indexed anyway. */
-export const INDEX_MARGIN_MS = 60 * 60_000;
+export const INDEX_PR = 7146;
+/** Overlap after the merge: a run started by an event just before it may be created a little later. */
+export const INDEX_MARGIN_MS = 6 * 60 * 60_000;
 
 /**
  * The CI review's verdict on head `sha`, from GitHub's Actions API. `runs` are the workflow runs listed for
@@ -788,10 +788,10 @@ async function readGroupCommits(repo, base, head, token) {
   return out;
 }
 
-/** What a seal process keeps between polls, per API reader: trees, the closed window, and index runs of other workflows. */
+/** What a seal process keeps between polls, per API reader: trees, the window's bounds, and index runs that hold no verdict. */
 const caches = new WeakMap();
 const cacheFor = (get) => {
-  if (!caches.has(get)) caches.set(get, { trees: new Map(), window: new Map(), live: new Map(), foreign: new Map() });
+  if (!caches.has(get)) caches.set(get, { trees: new Map(), live: new Map(), foreign: new Map() });
   return caches.get(get);
 };
 
@@ -812,7 +812,7 @@ class TooMany extends Error {
  *      new branch and pull request. One keyed read (the artifacts named reviewIndexName(tree)), then each named run
  *      not already listed. The index only points: ciReviewVerdict checks each run's workflow, event, tree and attempts.
  *   4. Its pull_request_target runs created before the index went live (readIndexLive), which have no index: a window
- *      growing then, read once per seal and in time slices if it ever holds more than 1,000.
+ *      that stops growing then, read on every poll and in time slices if it ever holds more than 1,000.
  * Nothing reads every run of the workflow, so the seal keeps working however many runs the repository has (before,
  * a list of every pull_request_target run failed every seal closed once it passed 1,000; #7132 finding 2).
  */
@@ -845,67 +845,48 @@ export async function readReviewRuns(repo, sha, token, branch, get = api) {
     for (const run of await runs(q)) out.set(run.id, run);
 
   if (!cache.live.has(repo)) cache.live.set(repo, await readIndexLive(repo, token, get));
-  if (!cache.window.has(repo)) cache.window.set(repo, await readWindow(runs, cache.live.get(repo)));
-  for (const run of cache.window.get(repo)) out.set(run.id, run);
+  for (const run of await readWindow(runs, cache.live.get(repo))) out.set(run.id, run);
 
   const name = reviewIndexName(await readTree(repo, sha, token, get));
   for (const a of await whole(`the tree index ${name}`, `/repos/${repo}/actions/artifacts?name=${name}`, 'artifacts')) {
     const id = a?.workflow_run?.id;
     if (a?.name !== name || !Number.isSafeInteger(id) || out.has(id)) continue;
     if (cache.foreign.has(id)) continue;
-    // A run the index names but GitHub no longer has (deleted) holds no verdict. A run of another workflow or event (an
-    // artifact of the same name planted by any other run) never changes, so it is read once per seal, not every poll.
+    // A run the index names but GitHub no longer has (deleted), or a run of another workflow or event (an artifact of
+    // the same name planted by any other run), holds no verdict and never will: read once per seal, not every poll. A
+    // CI review run is read on every poll, so a new attempt of it is seen.
     const run = await get(`/repos/${repo}/actions/runs/${id}`, token, { missingOk: true });
-    if (run?.id !== id) continue;
-    if (run.path !== REVIEW_WORKFLOW || run.event !== 'pull_request_target') cache.foreign.set(id, true);
+    if (run?.id !== id || run.path !== REVIEW_WORKFLOW || run.event !== 'pull_request_target') cache.foreign.set(id, true);
     else out.set(id, run);
   }
   return [...out.values()];
 }
 
 /**
- * When the tree index went live, plus INDEX_MARGIN_MS (ms since the epoch): the created_at of the earliest run named by a
- * REVIEW_INDEX_LIVE artifact that is a run of REVIEW_WORKFLOW started by pull_request_target (only the default branch's
- * copy runs on that event, and only its index step uploads the marker). A marker from any other run counts for nothing.
- * Fails closed when there is no such run, when the markers can't be read whole, or when a run's date can't be read.
+ * The window's bounds, from GitHub's records (ms since the epoch): `end` is INDEX_PR's `merged_at` plus INDEX_MARGIN_MS,
+ * `start` the workflow's `created_at` (no run of it is older). Fails closed when INDEX_PR isn't merged into REVIEW_BASE
+ * or a time can't be read.
  */
 export async function readIndexLive(repo, token, get = api) {
-  const what = `the ${REVIEW_INDEX_LIVE} markers`;
-  const all = [];
-  let total = 0;
-  for (let page = 1; ; page++) {
-    if (page > 10) throw new TooMany(what, total);
-    const r = await get(`/repos/${repo}/actions/artifacts?name=${REVIEW_INDEX_LIVE}&per_page=100&page=${page}`, token);
-    const batch = r?.artifacts;
-    if (!Array.isArray(batch)) throw new Error(`${what}: not a list; the seal fails closed`);
-    total = Math.max(total, Number(r?.total_count) || 0);
-    if (total > 1000) throw new TooMany(what, total);
-    all.push(...batch);
-    if (batch.length < 100) break;
-  }
-  if (all.length < total) throw new Error(`${what}: ${all.length} of ${total} read, not whole; the seal fails closed`);
-  const markers = all.filter((a) => a?.name === REVIEW_INDEX_LIVE);
-  let live = null;
-  for (const id of new Set(markers.map((a) => a?.workflow_run?.id).filter(Number.isSafeInteger))) {
-    const run = await get(`/repos/${repo}/actions/runs/${id}`, token, { missingOk: true });
-    if (run?.id !== id || run.path !== REVIEW_WORKFLOW || run.event !== 'pull_request_target') continue;
-    const at = Date.parse(run.created_at ?? '');
-    if (!Number.isFinite(at)) throw new Error(`run ${id}: no readable created_at; the seal fails closed`);
-    if (live === null || at < live) live = at;
-  }
-  if (live === null)
+  const pull = await get(`/repos/${repo}/pulls/${INDEX_PR}`, token);
+  const merged = Date.parse(pull?.merged_at ?? '');
+  if (!Number.isFinite(merged) || pull?.base?.ref !== REVIEW_BASE)
     throw new Error(
-      `no CI review run has indexed its head yet (no ${REVIEW_INDEX_LIVE} marker from a ${REVIEW_WORKFLOW} pull_request_target run), so runs from before the index can't be bounded; the seal fails closed until one runs`,
+      `#${INDEX_PR}, which added the tree index, isn't merged into ${REVIEW_BASE} (merged_at ${pull?.merged_at ?? 'unread'}), so runs from before the index can't be bounded; the seal fails closed`,
     );
-  return live + INDEX_MARGIN_MS;
+  const workflow = await get(`/repos/${repo}/actions/workflows/${REVIEW_WORKFLOW.split('/').pop()}`, token);
+  const start = Date.parse(workflow?.created_at ?? '');
+  if (!Number.isFinite(start) || start > merged)
+    throw new Error(`${REVIEW_WORKFLOW}: no readable created_at before #${INDEX_PR} merged; the seal fails closed`);
+  return { start, end: merged + INDEX_MARGIN_MS };
 }
 
 /**
  * The window (readReviewRuns list 4): pull_request_target runs created before `end` (readIndexLive). One list when
- * GitHub can give it whole; otherwise halves of [REVIEW_BORN, end), each read whole or halved again, and the runs read
+ * GitHub can give it whole; otherwise halves of [start, end), each read whole or halved again, and the runs read
  * must number exactly what the single list reported, or the seal fails closed.
  */
-async function readWindow(runs, end) {
+async function readWindow(runs, { start, end }) {
   const at = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
   try {
     return await runs(`event=pull_request_target&created=${encodeURIComponent(`<${at(end)}`)}`);
@@ -923,7 +904,7 @@ async function readWindow(runs, end) {
         await slice(mid + 1000, to);
       }
     };
-    await slice(Date.parse(REVIEW_BORN), end - 1000);
+    await slice(Math.floor(start / 1000) * 1000 - 1000, end - 1000);
     if (!e.total || found.size !== e.total)
       throw new Error(`the window before ${at(end)}: ${found.size} runs read in slices, ${e.total} listed; the seal fails closed`);
     return [...found.values()];

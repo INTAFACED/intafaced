@@ -72,15 +72,6 @@ jobs:
           # Kept for the repository's retention setting (the default, which is also its longest); an earlier attempt's
           # index is replaced only once it has expired.
           overwrite: ${{ steps.index.outputs.expired == 'true' }}
-      # The go-live marker: the first run that indexes its head says so, and the seal bounds the runs from before the
-      # index by that run's start (review-marker.mjs readIndexLive). Uploaded only while the repository lists none.
-      - name: Mark the index live
-        if: steps.index.outputs.live == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ci-review-index-live
-          path: ${{ runner.temp }}/index/index.json
-          if-no-files-found: error
 
       - name: Read the diff
         env:

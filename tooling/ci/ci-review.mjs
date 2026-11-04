@@ -107,7 +107,7 @@ export async function indexHead(dir) {
   const pull = eventPull(JSON.parse(readFileSync(path, 'utf8')), repo);
   if (!pull) throw new Error('not a pull_request_target event with a base and head sha');
   // The seal's own tree reader (review-marker.mjs readTree), so the name written here and the name it reads agree.
-  const { readTree, reviewIndexName, REVIEW_INDEX_LIVE } = await import('./review-marker.mjs');
+  const { readTree, reviewIndexName } = await import('./review-marker.mjs');
   const json = async (p) => {
     const r = await getText(p, 'application/vnd.github+json');
     if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
@@ -124,14 +124,9 @@ export async function indexHead(dir) {
   // An earlier attempt's index that has expired is replaced (the upload step's `overwrite`), so the run stays indexed.
   const exists = earlier.some((a) => !a?.expired);
   const expired = !exists && earlier.length > 0;
-  // The go-live marker (review-marker.mjs readIndexLive): uploaded only while the repository lists none, so the earliest
-  // one names the first run that indexed its head. A re-run finds its own and uploads no second.
-  const marker = await json(`/repos/${repo}/actions/artifacts?name=${REVIEW_INDEX_LIVE}&per_page=1`);
-  if (!Number.isFinite(Number(marker?.total_count))) throw new Error(`could not count the ${REVIEW_INDEX_LIVE} markers`);
-  const live = Number(marker.total_count) === 0;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.json'), JSON.stringify({ head: pull.head, tree, pr: pull.number }));
-  if (output) appendFileSync(output, `name=${name}\nexists=${exists}\nexpired=${expired}\nlive=${live}\n`);
+  if (output) appendFileSync(output, `name=${name}\nexists=${exists}\nexpired=${expired}\n`);
   console.log(`${pull.head} has tree ${tree}: ${exists ? 'already indexed by an earlier attempt' : 'indexed'} as ${name}`);
 }
 
