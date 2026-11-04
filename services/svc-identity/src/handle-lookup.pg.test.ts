@@ -131,12 +131,12 @@ if (!available) {
       expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'memberSince', 'name', 'self', 'userId']);
     });
 
-    it('answers a null name for an account with no profile row, never a made-up one', async () => {
+    it('answers a null name for a profile with no name, never a made-up one', async () => {
       const sender = await signUp('Sender_Four');
-      const bare = await signUp('No_Profile');
-      await db.sql`DELETE FROM profiles WHERE user_id = ${bare}`;
+      const bare = await signUp('No_Name');
+      await db.sql`UPDATE profiles SET display_name = NULL WHERE user_id = ${bare}`;
       const api = await as(sender);
-      expect(await api.users.resolveHandle({ handle: 'no_profile' })).toMatchObject({ found: true, userId: bare, name: null });
+      expect(await api.users.resolveHandle({ handle: 'no_name' })).toMatchObject({ found: true, userId: bare, name: null });
     });
   });
 
