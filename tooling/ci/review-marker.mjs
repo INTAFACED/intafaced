@@ -172,7 +172,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
   const want = String(sha ?? '').toLowerCase();
   if (!SHA40.test(want)) return { ok: false, state: 'none', why: `"${sha}" is not a full head sha` };
   if (base !== REVIEW_BASE)
-    return { ok: false, state: 'none', why: `the pull request's base is ${base ?? 'unknown'}, not ${REVIEW_BASE}: only a pull request into ${REVIEW_BASE} is sealed` };
+    return {
+      ok: false,
+      state: 'none',
+      why: `the pull request's base is ${base ?? 'unknown'}, not ${REVIEW_BASE}: only a pull request into ${REVIEW_BASE} is sealed`,
+    };
   const intoMain = (r) =>
     (r?.pull_requests ?? []).some((p) => p?.base?.ref === REVIEW_BASE && (number == null || Number(p?.number) === Number(number)));
   const headOf = (r) => String(r?.head_sha ?? '').toLowerCase();
@@ -208,7 +212,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
   }
   const ignored = (runs ?? []).length - own.length;
   if (own.length === 0)
-    return { ok: false, state: 'none', why: `no ${REVIEW_WORKFLOW} run started by pull_request_target on ${want}${ignored ? ` (${ignored} other run(s) ignored)` : ''}` };
+    return {
+      ok: false,
+      state: 'none',
+      why: `no ${REVIEW_WORKFLOW} run started by pull_request_target on ${want}${ignored ? ` (${ignored} other run(s) ignored)` : ''}`,
+    };
   let passedIn = null;
   let pending = false;
   for (const run of own) {
@@ -217,7 +225,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
         if (String(job.head_sha ?? want).toLowerCase() !== want) continue;
         const step = (job.steps ?? []).find((s) => s?.name === VERDICT_STEP);
         if (step?.conclusion === 'failure')
-          return { ok: false, state: 'fail', why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${want}; a FAIL stands for its head, so push a fix` };
+          return {
+            ok: false,
+            state: 'fail',
+            why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
+          };
         if (!intoMain(run)) continue; // reviewed against another base: neither a pass nor pending here
         if (job.status !== 'completed') pending = true;
         else if (job.conclusion === 'success' && step?.conclusion === 'success') passedIn ??= `run ${run.id} attempt ${i + 1}`;
@@ -227,7 +239,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
   if (passedIn) return { ok: true, state: 'pass', why: `CI review passed on ${want} (${passedIn})` };
   return pending
     ? { ok: false, state: 'pending', why: `the CI review on ${want} is still running` }
-    : { ok: false, state: 'none', why: `no CI review on ${want} passed its ${VERDICT_STEP} step (it did not finish, or failed before a verdict; re-run it)` };
+    : {
+        ok: false,
+        state: 'none',
+        why: `no CI review on ${want} passed its ${VERDICT_STEP} step (it did not finish, or failed before a verdict; re-run it)`,
+      };
 }
 
 /**
@@ -620,7 +636,14 @@ async function mergeGroupSelfTest(reviewers, manifests) {
 
   const shaOf = (n) => String(n).padStart(40, 'c');
   const reviewed = (n, verdict = 'success', base = REVIEW_BASE) => [
-    { id: 900 + n, path: REVIEW_WORKFLOW, event: 'pull_request_target', head_sha: shaOf(n), pull_requests: [{ number: n, base: { ref: base } }], jobs: [[reviewJob(shaOf(n), verdict)]] },
+    {
+      id: 900 + n,
+      path: REVIEW_WORKFLOW,
+      event: 'pull_request_target',
+      head_sha: shaOf(n),
+      pull_requests: [{ number: n, base: { ref: base } }],
+      jobs: [[reviewJob(shaOf(n), verdict)]],
+    },
   ];
   // 1: docs only. 2: money (svc-pay), CI review passed. 3: security (.github), CI review passed.
   // 4: money with no review. 5: money with only a PASS comment and an `Independent review` status from the shared
@@ -637,10 +660,15 @@ async function mergeGroupSelfTest(reviewers, manifests) {
     },
     6: { files: ['docs/x.md'], state: 'closed' },
     7: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(7, 'failure') },
-    8: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(8, 'success', 'claude/b') },
+    8: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(8, 'success', 'side/b') },
   };
   const io = {
-    pull: async (n) => ({ state: world[n].state ?? 'open', head: { sha: shaOf(n) }, base: { ref: REVIEW_BASE }, user: { login: 'author' } }),
+    pull: async (n) => ({
+      state: world[n].state ?? 'open',
+      head: { sha: shaOf(n) },
+      base: { ref: REVIEW_BASE },
+      user: { login: 'author' },
+    }),
     files: async (n) => world[n].files,
     manifests: async () => manifests,
     reviewRuns: async (sha) => world[Number(sha.replace(/^c+/, ''))].runs ?? [],
@@ -748,10 +776,15 @@ async function readGroupCommits(repo, base, head, token) {
  */
 export async function readReviewRuns(repo, sha, token, branch, get = api) {
   const file = REVIEW_WORKFLOW.split('/').pop();
-  const queries = [`head_sha=${sha}`, ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : []), 'event=pull_request_target'];
+  const queries = [
+    `head_sha=${sha}`,
+    ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : []),
+    'event=pull_request_target',
+  ];
   const out = new Map();
   for (const q of queries) {
-    let read = 0, total = 0;
+    let read = 0,
+      total = 0;
     for (let page = 1; ; page++) {
       if (page > 10) throw new Error(`${file} runs (${q}): more than 1,000, not read whole; the seal fails closed`);
       const r = await get(`/repos/${repo}/actions/workflows/${file}/runs?${q}&per_page=100&page=${page}`, token, { missingOk: true });
@@ -849,7 +882,9 @@ async function main() {
   const pull = PR_NUMBER ? await api(`/repos/${REPO}/pulls/${PR_NUMBER}`, GH_TOKEN) : null;
   const branch = String(pull?.head?.ref ?? '') || undefined;
   if (PR_NUMBER && pull?.base?.ref !== REVIEW_BASE) {
-    console.error(`::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`);
+    console.error(
+      `::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`,
+    );
     process.exit(1);
   }
   if (PR_NUMBER) {
@@ -877,7 +912,8 @@ async function main() {
     }
     // A FAIL stands for this head and for its code: waiting can't change it.
     if (verdict.state === 'fail' || Date.now() + REVIEW_POLL_MS > deadline) break;
-    if (attempt === 1) console.log(`${verdict.why}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
+    if (attempt === 1)
+      console.log(`${verdict.why}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
     await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
   console.error(

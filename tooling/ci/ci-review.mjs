@@ -24,7 +24,7 @@ import { pathToFileURL } from 'node:url';
 export const MAX_DIFF_BYTES = 400_000;
 const SHA40 = /^[0-9a-f]{40}$/;
 
-/** The structured answer the reviewer must give (claude -p --json-schema). */
+/** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
   type: 'object',
   properties: {
@@ -60,7 +60,8 @@ export function readAnswer(text) {
   } catch {
     return { ok: false, why: 'the reviewer printed no JSON' };
   }
-  if (out?.is_error !== false || out?.subtype !== 'success') return { ok: false, why: `the reviewer ended with an error (${out?.subtype ?? 'no subtype'})` };
+  if (out?.is_error !== false || out?.subtype !== 'success')
+    return { ok: false, why: `the reviewer ended with an error (${out?.subtype ?? 'no subtype'})` };
   const a = out.structured_output;
   if (!a || typeof a !== 'object') return { ok: false, why: 'the reviewer gave no structured answer' };
   if (a.verdict !== 'PASS' && a.verdict !== 'FAIL') return { ok: false, why: `the verdict "${a.verdict}" is neither PASS nor FAIL` };
@@ -68,8 +69,10 @@ export function readAnswer(text) {
     return { ok: false, why: 'the findings are not a list of strings' };
   // A PASS may carry notes only; a blocking finding under a PASS makes it a FAIL.
   const blocking = a.findings.filter((f) => !/^note:/i.test(f.trim()));
-  if (a.verdict === 'PASS' && blocking.length > 0) return { ok: true, verdict: 'FAIL', findings: a.findings, why: 'a PASS with blocking findings counts as FAIL' };
-  if (a.verdict === 'FAIL' && blocking.length === 0) return { ok: true, verdict: 'FAIL', findings: ['the reviewer answered FAIL without a finding'], why: 'FAIL' };
+  if (a.verdict === 'PASS' && blocking.length > 0)
+    return { ok: true, verdict: 'FAIL', findings: a.findings, why: 'a PASS with blocking findings counts as FAIL' };
+  if (a.verdict === 'FAIL' && blocking.length === 0)
+    return { ok: true, verdict: 'FAIL', findings: ['the reviewer answered FAIL without a finding'], why: 'FAIL' };
   return { ok: true, verdict: a.verdict, findings: a.findings, why: a.verdict };
 }
 
@@ -105,7 +108,16 @@ async function cmdDiff(dir) {
   writeFileSync(join(dir, 'head.txt'), pull.head);
   if (tooLarge) {
     // Too large to judge whole: a FAIL for this head, written here, so the reviewer never sees a cut diff.
-    writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head: pull.head, verdict: 'FAIL', findings: [`the diff is ${Buffer.byteLength(r.text)} bytes, over ${MAX_DIFF_BYTES}; it can't be reviewed whole; split the pull request`] }));
+    writeFileSync(
+      join(dir, 'verdict.json'),
+      JSON.stringify({
+        head: pull.head,
+        verdict: 'FAIL',
+        findings: [
+          `the diff is ${Buffer.byteLength(r.text)} bytes, over ${MAX_DIFF_BYTES}; it can't be reviewed whole; split the pull request`,
+        ],
+      }),
+    );
     writeFileSync(join(dir, 'skip-reviewer'), '1');
     console.log('diff too large: FAIL without asking the reviewer');
     return;
@@ -132,7 +144,9 @@ function cmdJudge(dir) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
   if (v.verdict !== 'PASS') {
-    console.error(`::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`);
+    console.error(
+      `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`,
+    );
     process.exit(1);
   }
 }

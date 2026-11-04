@@ -4,7 +4,15 @@
 // a passing re-run, an empty commit pushed after a FAIL, and a run of a branch's own copy of the workflow.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ciReviewVerdict, lookForSignoff, reviewJob, reviewReason, sealMergeGroup, REVIEW_WORKFLOW, STATUS_CONTEXT } from './review-marker.mjs';
+import {
+  ciReviewVerdict,
+  lookForSignoff,
+  reviewJob,
+  reviewReason,
+  sealMergeGroup,
+  REVIEW_WORKFLOW,
+  STATUS_CONTEXT,
+} from './review-marker.mjs';
 import { buildPrompt, readAnswer, eventPull, VERDICT_SCHEMA, MAX_DIFF_BYTES } from './ci-review.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -13,7 +21,15 @@ const NEXT = 'd'.repeat(40);
 const money = new Map([['services/svc-pay', [{ dependencies: { '@intafaced/ledger-client': 'workspace:*' } }]]]);
 const MONEY_FILES = ['services/svc-pay/src/payout.ts'];
 
-const run = (over = {}) => ({ id: 1, path: REVIEW_WORKFLOW, event: 'pull_request_target', head_sha: HEAD, run_attempt: 1, pull_requests: [{ number: 7, base: { ref: 'main' } }], ...over });
+const run = (over = {}) => ({
+  id: 1,
+  path: REVIEW_WORKFLOW,
+  event: 'pull_request_target',
+  head_sha: HEAD,
+  run_attempt: 1,
+  pull_requests: [{ number: 7, base: { ref: 'main' } }],
+  ...over,
+});
 /** A fake GitHub for one head: its CI review runs, each with the jobs of each attempt, plus what the seal must ignore. */
 // `trees` maps a head to its commit's tree; by default every head has its own tree. `onBranch` runs are listed as the
 // pull request's earlier heads.
@@ -43,12 +59,19 @@ test('fails on (planted): a money PR with no verdict', async () => {
   // A review that failed before its Verdict step (the reviewer errored) is no verdict either.
   const errored = reviewJob(HEAD, 'success');
   errored.conclusion = 'failure';
-  errored.steps = [{ name: 'Review', status: 'completed', conclusion: 'failure' }, { name: 'Verdict', status: 'completed', conclusion: 'skipped' }];
+  errored.steps = [
+    { name: 'Review', status: 'completed', conclusion: 'failure' },
+    { name: 'Verdict', status: 'completed', conclusion: 'skipped' },
+  ];
   const v = await lookForSignoff({ sha: HEAD, base: 'main', io: world([run({ jobs: [[errored]] })]) });
   assert.equal(v.ok, false);
   assert.equal(v.state, 'none');
   // Still running: not yet.
-  const p = await lookForSignoff({ sha: HEAD, base: 'main', io: world([run({ jobs: [[reviewJob(HEAD, 'success', { status: 'in_progress' })]] })]) });
+  const p = await lookForSignoff({
+    sha: HEAD,
+    base: 'main',
+    io: world([run({ jobs: [[reviewJob(HEAD, 'success', { status: 'in_progress' })]] })]),
+  });
   assert.deepEqual([p.ok, p.state], [false, 'pending']);
 });
 
@@ -106,7 +129,11 @@ test('fails (planted): an empty commit pushed after a FAIL; a real change gets a
   const again = await lookForSignoff({ sha: NEXT, base: 'main', io: world([rerun, passed], { trees: { [OLDER]: 'T1', [NEXT]: 'T1' } }) });
   assert.deepEqual([again.ok, again.state], [false, 'fail'], again.why);
   // A real change: NEXT has a new tree, so its own passing review counts.
-  const changed = await lookForSignoff({ sha: NEXT, base: 'main', io: world([failed, passed], { trees: { [OLDER]: 'T1', [NEXT]: 'T2' } }) });
+  const changed = await lookForSignoff({
+    sha: NEXT,
+    base: 'main',
+    io: world([failed, passed], { trees: { [OLDER]: 'T1', [NEXT]: 'T2' } }),
+  });
   assert.deepEqual([changed.ok, changed.state], [true, 'pass'], changed.why);
   // Without a tree reader, a run on another head is no verdict (fails closed), never ignored.
   const blind = await ciReviewVerdict({ sha: NEXT, base: 'main', runs: [failed, passed], attempts: async (r) => r.jobs });
@@ -118,10 +145,30 @@ test('fails (planted): a FAIL pushed again as a new branch and pull request, sam
   // stands. A fake API answers each runs query: the FAIL is only in the every-branch list.
   const reader = (await import('./review-marker.mjs')).readReviewRuns;
   assert.equal(typeof reader, 'function', 'readReviewRuns is exported for this test');
-  const failed = run({ id: 1, head_sha: OLDER, head_branch: 'feat-1', head_commit: { id: OLDER, tree_id: 'a'.repeat(40) }, jobs: [[reviewJob(OLDER, 'failure')]] });
-  const passed = run({ id: 2, head_sha: NEXT, head_branch: 'feat-2', head_commit: { id: NEXT, tree_id: 'a'.repeat(40) }, jobs: [[reviewJob(NEXT, 'success')]] });
-  const lists = { [`head_sha=${NEXT}`]: [passed], 'event=pull_request_target&branch=feat-2': [passed], 'event=pull_request_target': [failed, passed] };
-  const get = async (path) => { const q = path.split('?')[1].replace(/&per_page=.*$/, ''); const rs = lists[q] ?? []; return { total_count: rs.length, workflow_runs: rs }; };
+  const failed = run({
+    id: 1,
+    head_sha: OLDER,
+    head_branch: 'feat-1',
+    head_commit: { id: OLDER, tree_id: 'a'.repeat(40) },
+    jobs: [[reviewJob(OLDER, 'failure')]],
+  });
+  const passed = run({
+    id: 2,
+    head_sha: NEXT,
+    head_branch: 'feat-2',
+    head_commit: { id: NEXT, tree_id: 'a'.repeat(40) },
+    jobs: [[reviewJob(NEXT, 'success')]],
+  });
+  const lists = {
+    [`head_sha=${NEXT}`]: [passed],
+    'event=pull_request_target&branch=feat-2': [passed],
+    'event=pull_request_target': [failed, passed],
+  };
+  const get = async (path) => {
+    const q = path.split('?')[1].replace(/&per_page=.*$/, '');
+    const rs = lists[q] ?? [];
+    return { total_count: rs.length, workflow_runs: rs };
+  };
   const runs = await reader('INTAFACED/intafaced', NEXT, 't', 'feat-2', get);
   const v = await ciReviewVerdict({ sha: NEXT, base: 'main', runs, attempts: async (r) => r.jobs, tree: async () => 'a'.repeat(40) });
   assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
@@ -133,22 +180,31 @@ test('fails (planted): a FAIL pushed again as a new branch and pull request, sam
 test('fails (planted): a PASS reviewed against a side branch, then the pull request pointed at main', async () => {
   // The reviewer's case (project-state #1249, comment 6621463311): branch B holds an unreviewed money change M; H = M +
   // a harmless commit. PR H -> B passes its review (the diff from B is harmless), then is pointed at main.
-  const sideBranchPass = run({ pull_requests: [{ number: 7, base: { ref: 'claude/b' } }], jobs: [[reviewJob(HEAD, 'success')]] });
+  const sideBranchPass = run({ pull_requests: [{ number: 7, base: { ref: 'side/b' } }], jobs: [[reviewJob(HEAD, 'success')]] });
   const v = await lookForSignoff({ sha: HEAD, base: 'main', number: 7, io: world([sideBranchPass]) });
   assert.equal(v.ok, false, v.why);
   // A run that names no pull request (pull_requests empty) is no review of one into main either.
-  const unnamed = await lookForSignoff({ sha: HEAD, base: 'main', io: world([run({ pull_requests: [], jobs: [[reviewJob(HEAD, 'success')]] })]) });
+  const unnamed = await lookForSignoff({
+    sha: HEAD,
+    base: 'main',
+    io: world([run({ pull_requests: [], jobs: [[reviewJob(HEAD, 'success')]] })]),
+  });
   assert.equal(unnamed.ok, false, unnamed.why);
   // A pass into main for another pull request number doesn't seal this one.
   const other = await lookForSignoff({ sha: HEAD, base: 'main', number: 8, io: world([run({ jobs: [[reviewJob(HEAD, 'success')]] })]) });
   assert.equal(other.ok, false, other.why);
   // Control: the same head reviewed into main passes.
-  const fresh = await lookForSignoff({ sha: HEAD, base: 'main', number: 7, io: world([sideBranchPass, run({ id: 2, jobs: [[reviewJob(HEAD, 'success')]] })]) });
+  const fresh = await lookForSignoff({
+    sha: HEAD,
+    base: 'main',
+    number: 7,
+    io: world([sideBranchPass, run({ id: 2, jobs: [[reviewJob(HEAD, 'success')]] })]),
+  });
   assert.deepEqual([fresh.ok, fresh.state], [true, 'pass'], fresh.why);
 });
 
 test("fails: a pull request whose base isn't main now is never sealed, even with a pass into main", async () => {
-  const v = await lookForSignoff({ sha: HEAD, base: 'claude/b', number: 7, io: world([run({ jobs: [[reviewJob(HEAD, 'success')]] })]) });
+  const v = await lookForSignoff({ sha: HEAD, base: 'side/b', number: 7, io: world([run({ jobs: [[reviewJob(HEAD, 'success')]] })]) });
   assert.equal(v.ok, false, v.why);
   const unknown = await lookForSignoff({ sha: HEAD, io: world([run({ jobs: [[reviewJob(HEAD, 'success')]] })]) });
   assert.equal(unknown.ok, false, unknown.why);
@@ -166,7 +222,12 @@ test('the review job runs only on pull requests into main, and again when one is
 
 test("fails: a branch's own copy of the workflow, or another workflow, can't seal", async () => {
   for (const over of [{ event: 'pull_request' }, { event: 'workflow_dispatch' }, { path: '.github/workflows/forged.yml' }]) {
-    const v = await ciReviewVerdict({ sha: HEAD, base: 'main', runs: [run({ ...over, jobs: [[reviewJob(HEAD, 'success')]] })], attempts: async (r) => r.jobs });
+    const v = await ciReviewVerdict({
+      sha: HEAD,
+      base: 'main',
+      runs: [run({ ...over, jobs: [[reviewJob(HEAD, 'success')]] })],
+      attempts: async (r) => r.jobs,
+    });
     assert.equal(v.ok, false, JSON.stringify(over));
   }
   // A job of another name, or a passing job whose Verdict step was skipped, doesn't count.

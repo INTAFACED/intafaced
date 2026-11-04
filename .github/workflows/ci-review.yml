@@ -58,12 +58,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/ci-review.mjs diff "$RUNNER_TEMP/review"
 
-      # The reviewer CLI at the version and tarball hashes in tooling/ci/ci-review/package-lock.json (npm ci refuses any
+      # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
       # other bytes), installed outside the checkout so the repository's .npmrc and workspace play no part.
       - name: Install the pinned reviewer
         run: |
           mkdir -p "$RUNNER_TEMP/reviewer"
-          cp tooling/ci/ci-review/package.json tooling/ci/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
+          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
           npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
 
       # No tools, no settings, no MCP servers and no session kept: the reviewer reads the prompt (the brief, then the
