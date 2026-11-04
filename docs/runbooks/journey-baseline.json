@@ -1,19 +1,19 @@
 {
   "about": "The Real-app journeys baseline on main. docs/runbooks/regression-issue-state.md says how it is read.",
   "run": {
-    "number": 1119,
-    "id": 41295134966,
-    "sha": "347e2d8a1550220544ecce48f5e708cbd50fb4c8",
-    "url": "https://github.com/INTAFACED/intafaced/actions/runs/41295134966"
+    "number": 1154,
+    "id": 41778595911,
+    "sha": "000d254809a8bd78112d4ba44fe0aae904f314b1",
+    "url": "https://github.com/INTAFACED/intafaced/actions/runs/41778595911"
   },
   "runsRead": {
     "from": 58,
-    "to": 1119,
-    "read": 136,
-    "noReport": [231, 235, 236, 238, 1086],
-    "note": "every completed Real-app journeys run on main from 58 to 1119 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report"
+    "to": 1154,
+    "read": 165,
+    "noReport": [231, 235, 236, 238],
+    "note": "every completed Real-app journeys run on main from 58 to 1154 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report"
   },
-  "moneyRuleAt": "72cec1b33598361c6d871d65672c8293a70b135b",
+  "moneyRuleAt": "000d254809a8bd78112d4ba44fe0aae904f314b1",
   "moneyPackages": [
     "packages/connect-data-lake",
     "packages/execution-arb",
@@ -47,11 +47,11 @@
     "tooling/pay-sim"
   ],
   "counts": {
-    "stepsInRun": 1520,
-    "failing": 532,
+    "stepsInRun": 1521,
+    "failing": 529,
     "unbuilt": 524,
     "regression": 5,
-    "notBaselined": 3
+    "notBaselined": 0
   },
   "steps": [
     {
@@ -83,21 +83,21 @@
       "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-03#8",
       "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-04#1",
       "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-04#2",
@@ -146,7 +146,7 @@
       "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-05#2",
@@ -195,7 +195,7 @@
       "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-06#2",
@@ -209,7 +209,7 @@
       "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-06#4",
@@ -244,21 +244,21 @@
       "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-07#2",
       "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-07#3",
       "file": "apps/customer/tests/real-app/J-agents-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-07#4",
@@ -293,7 +293,7 @@
       "file": "apps/customer/tests/real-app/J-agents-08.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Test timeout of 90000ms exceeded."
+      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
     },
     {
       "step": "J-agents-08#2",
@@ -461,14 +461,14 @@
       "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-agents-14#2",
       "file": "apps/customer/tests/real-app/J-agents-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-agents-14#3",
@@ -531,7 +531,7 @@
       "file": "apps/customer/tests/real-app/J-agents-16.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-agents-16#5",
@@ -725,7 +725,7 @@
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-gates.mjs hold jcf2mvxnzpzq@local-test.invalid USDT all"
+      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-gates.mjs hold jcf2mw1ohclr@local-test.invalid USDT all"
     },
     {
       "step": "J-copy-bots-otc-04#1",
@@ -893,7 +893,7 @@
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "{\"message\":\"Route POST:/api/v1/copy/lead/orders not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"09bfd86a-8a0c-478c-ac08-63d86820b3d5\"}"
+      "why": "{\"message\":\"Route POST:/api/v1/copy/lead/orders not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"c7d43053-3adb-4a06-ac1b-ce3e16805e7a\"}"
     },
     {
       "step": "J-copy-bots-otc-07#4",
@@ -907,7 +907,7 @@
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-copy-bots-otc-07#6",
@@ -1370,7 +1370,7 @@
       "state": "unbuilt",
       "money": true,
       "issue": 7001,
-      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"60a445d4-a817-4365-b732-3e622e9064a9\"}",
+      "why": "UNBUILT: no public recurring buy API; answered {\"message\":\"Route POST:/api/v1/recurring not found\",\"error\":\"Not Found\",\"statusCode\":404,\"requestId\":\"e413ce5d-f7fb-457e-aa34-836bccea5620\"}",
       "lastPassedRun": 988,
       "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
       "blocker": "UNBUILT: no public recurring buy API (POST /api/v1/recurring answers 404)",
@@ -1759,7 +1759,7 @@
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-30.pw.mjs",
       "state": "unbuilt",
       "money": false,
-      "why": "{\"error\":{\"message\":\"BTC/USDT: limit is outside the slice price band against reference 65217.94\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"TRPCError: BTC/USDT: limit is outs"
+      "why": "{\"error\":{\"message\":\"BTC/USDT: limit is outside the slice price band against reference 65035.24\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"TRPCError: BTC/USDT: limit is outs"
     },
     {
       "step": "J-copy-bots-otc-30#2",
@@ -3492,14 +3492,14 @@
       "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "the approval used by the payout admission (needs PAY_MERCHANT_CONTROLS=required on the stack)"
+      "why": "TimeoutError: page.waitForResponse: Timeout 5000ms exceeded while waiting for event \"response\""
     },
     {
       "step": "J-merchant-07#8",
       "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-world.mjs merchant-settlement 25065f76-cc71-4f78-a090-c9abfd308764 --net"
+      "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-world.mjs merchant-settlement 81f884ab-bb54-4137-b821-7523336c2091 --net"
     },
     {
       "step": "J-more-catalogue-02#3",
@@ -3697,14 +3697,14 @@
       "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
       "state": "unbuilt",
       "money": false,
-      "why": "the founder-wide verification queue is not connected: svc-pay has no founder-wide KYB list"
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-ops-console-22#5",
       "file": "apps/customer/tests/real-app/J-ops-console-22.pw.mjs",
       "state": "unbuilt",
       "money": false,
-      "why": "the jurisdiction board has no setting history read yet"
+      "why": "Test timeout of 30000ms exceeded."
     },
     {
       "step": "J-p2p-05#1",
@@ -3794,6 +3794,13 @@
       "why": "bank.statements.jobs.create: {\"error\":{\"message\":\"No procedure found on path \\\"statements.jobs.create\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure foun"
     },
     {
+      "step": "J-portfolio-11#5",
+      "file": "apps/customer/tests/real-app/J-portfolio-11.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "skipped in run 1154: not reached"
+    },
+    {
       "step": "J-support-public-01#3",
       "file": "apps/customer/tests/real-app/J-support-public-01.pw.mjs",
       "state": "regression",
@@ -3809,13 +3816,6 @@
       "why": "linkRecord: {\"error\":{\"message\":\"No procedure found on path \\\"linkRecord\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"linkRecord\\\"\\n   "
     },
     {
-      "step": "J-support-public-20#2",
-      "file": "apps/customer/tests/real-app/J-support-public-20.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "customerBalance: {\"error\":{\"message\":\"No procedure found on path \\\"customerBalance\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"custome"
-    },
-    {
       "step": "J-support-public-20#7",
       "file": "apps/customer/tests/real-app/J-support-public-20.pw.mjs",
       "state": "unbuilt",
@@ -3823,30 +3823,5 @@
       "why": "requestWithdrawalFreeze: {\"error\":{\"message\":\"No procedure found on path \\\"requestWithdrawalFreeze\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found o"
     }
   ],
-  "notBaselined": [
-    {
-      "step": "J-copy-bots-otc-01#3",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
-      "money": true,
-      "issue": 7000,
-      "lastPassedRun": 1118,
-      "why": "the leader list after Top return"
-    },
-    {
-      "step": "J-copy-bots-otc-14#6",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-14.pw.mjs",
-      "money": true,
-      "issue": null,
-      "lastPassedRun": 1118,
-      "why": "expect(received).toEqual(expected) // deep equality"
-    },
-    {
-      "step": "J-copy-bots-otc-14#7",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-14.pw.mjs",
-      "money": true,
-      "issue": null,
-      "lastPassedRun": 1118,
-      "why": "the bot still holds its reserve"
-    }
-  ]
+  "notBaselined": []
 }
