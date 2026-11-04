@@ -547,7 +547,7 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
     data: { tier: 'TEST base tier', overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' },
   });
   const rule =
-    'Your plan, TEST base tier, allows a negative balance at an overdraft fee of 1 USDT, but the overdraft is switched off in this build: the bank cannot book a balance below zero yet. Asking to pay more than you hold is refused and nothing moves.';
+    'Your plan, TEST base tier, allows a negative balance at an overdraft fee of 1 USDT, but the overdraft is switched off in this build: the bank does not book a balance below zero. Asking to pay more than you hold is refused and nothing moves.';
 
   await signInWithCode(page, who);
   await page.goto('/bank/transfers');
