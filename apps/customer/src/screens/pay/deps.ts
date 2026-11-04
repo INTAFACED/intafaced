@@ -94,4 +94,6 @@ export { encodeQr, qrPath } from '../../features/pay/personal/qr';
 
 export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';
-export { confirmWithStepUp } from '../../features/account/security-step-up';
+export { confirmWithStepUp, type StepUpMethod } from '../../features/account/security-step-up';
+// The confirmation request for exactly one send to a person: the fields svc-bank hashes for `transfers.toUser`.
+export { personSendStepUp } from '../../features/money/person-send-terms';

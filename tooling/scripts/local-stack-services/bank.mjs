@@ -43,6 +43,17 @@ function originationFee() {
   );
 }
 
+/**
+ * The owner's money-out step-up rule (ADR 2026-10-14-money-out-step-up): off on the stack, as in production today, or
+ * `required` when a journey asks for it on a restart (J-pay-01 #5: the fresh confirmation before a send to a person).
+ */
+function moneyOutStepUp() {
+  const asked = process.env.LOCAL_STACK_BANK_STEP_UP_MONEY_OUT;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'required') return { BANK_STEP_UP_MONEY_OUT: 'required' };
+  throw new Error(`LOCAL_STACK_BANK_STEP_UP_MONEY_OUT is "${asked}"; leave it unset for the rule off, or set it to required.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -174,6 +185,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST wording from the bank profile (BK-earn-04, J-bank-08 #6): what slashing means and who owns a staked saving.
     // `LOCAL_STACK_BANK_EARN_RISK_WORDING=off` on a restart leaves it blank, so the pool page's "not published" can be seen.
     ...earnRiskWording(),
+    // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
+    ...moneyOutStepUp(),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.

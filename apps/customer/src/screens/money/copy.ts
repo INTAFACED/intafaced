@@ -560,6 +560,12 @@ const messages = {
   Copied: 'Copied',
   'Report a problem': 'Report a problem',
   'Report a problem note': 'Support can look into any transaction on your account. Include the reference above.',
+  // A payment between two people is final once it completes: no Cancel, and a refund is a new payment back.
+  'Refund sent note': 'This payment is complete and can’t be cancelled. To get it back, ask @{handle} to send you a refund.',
+  'Refund sent link': 'Request a refund from @{handle}',
+  'Refund received note': 'This payment is complete and can’t be cancelled. To refund it, send it back to @{handle}.',
+  'Refund received link': 'Refund @{handle}',
+  'Refund unnamed note': 'This payment is complete and can’t be cancelled. A refund is a new payment back.',
   'See {asset} history': 'See {asset} history',
   'See the order': 'See your orders',
   'Parts of this transaction': 'Parts of this transaction',

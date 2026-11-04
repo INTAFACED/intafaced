@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
+import { ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. The stack's gates
@@ -29,7 +32,7 @@ async function lookUp(page, handle) {
   await to.press('Tab');
 }
 
-const usdt = async (who) => (await (await api(who)).balances()).USDT?.free ?? '0';
+const usdt = async (who) => (await (await session(who)).balances()).USDT?.free ?? '0';
 
 /** A tRPC answer through the person's own session, or a thrown error naming what was refused. */
 async function trpc(session, method, path, input) {
@@ -83,15 +86,99 @@ async function signUpAs(page, handle, { verified = false } = {}) {
 }
 
 /** A on /pay with B's handle, the amount and the note typed in: where steps 4 and 5 start. */
-async function sendForm(page) {
+async function sendForm(page, { amount = AMOUNT, note = NOTE, signedIn = false } = {}) {
   const { sender, recipient } = people();
-  await signIn(page, sender);
+  if (!signedIn) await signIn(page, sender);
   await page.goto('/pay');
   await lookUp(page, recipient.handle);
   await expect(page.getByTestId('recipient-handle').first()).toHaveText(`@${recipient.handle}`);
-  await page.getByLabel('Amount to send').fill(AMOUNT);
-  await page.locator('#pay-note').fill(NOTE);
+  await page.getByLabel('Amount to send').fill(amount);
+  if (note) await page.locator('#pay-note').fill(note);
   await expect(page.getByTestId('pay-terms')).toHaveAttribute('data-terms', 'ok');
+}
+
+// ── A's authenticator: from #5 on, A signs in and confirms sends with a code from it ─────────────────────────────
+
+const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+
+/** The next authenticator code for A, keeping its step so no code is ever used twice. */
+async function aCode() {
+  const state = run.read();
+  if (!state.secret) throw new Error(`${J} #5 set up no authenticator for A, so there is no code to give`);
+  const { totp } = await totpLib();
+  const next = await nextCode(totp, state.secret, state.step);
+  run.write({ step: next.step });
+  return next.code;
+}
+
+/** A six-digit code that is none of the authenticator's codes for the steps around now: a wrong code. */
+async function wrongCode() {
+  const { totp } = await totpLib();
+  const { secret } = run.read();
+  const now = Math.floor(Date.now() / 30_000);
+  const near = new Set([-2, -1, 0, 1, 2].map((d) => totp(secret, { at: new Date((now + d) * 30_000) })));
+  let code = 123456;
+  while (near.has(String(code).padStart(6, '0'))) code = (code + 1) % 1_000_000;
+  return String(code).padStart(6, '0');
+}
+
+/**
+ * The person's own API session. Once A has an authenticator each sign-in spends a code (a 30-second step), so A's
+ * session is kept for this file's run while it is young; everyone else signs in afresh.
+ */
+const kept = new Map();
+async function session(who) {
+  const state = run.read();
+  if (!state.secret || who.email !== state.sender?.email) return api(who);
+  const held = kept.get(who.email);
+  if (held && Date.now() - held.at < 4 * 60_000) return held.client;
+  const client = await api(who, { totpCode: await aCode() });
+  kept.set(who.email, { client, at: Date.now() });
+  return client;
+}
+
+/** Signs A in on the page with the password and a fresh code, as a person with an authenticator does. */
+async function signInA(page) {
+  const { sender } = people();
+  const totpCode = await aCode();
+  await page.goto('/login');
+  await page.fill('input[name=totp]', totpCode);
+  await page.fill('input[name=identifier]', sender.email);
+  await page.fill('input[name=password]', sender.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
+/**
+ * The owner's money-out rule on the stack's bank: `required` asks for a fresh confirmation on every send to another
+ * person (BANK_STEP_UP_MONEY_OUT, ADR 2026-10-14-money-out-step-up); off is the stack's default. Set for the restart only.
+ */
+function stepUpRule(required) {
+  const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
+  const before = process.env[key];
+  if (required) process.env[key] = 'required';
+  else delete process.env[key];
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[key];
+    else process.env[key] = before;
+  }
+}
+
+/** A's transfers out of exactly this amount, as the bank lists them. */
+async function sentOf(amount) {
+  const page = await trpc(await session(people().sender), 'GET', 'bank/trpc/transfers.list', { limit: 200 });
+  return page.items.filter((item) => item.kind === 'transfer_out' && toUnits(item.amount) === toUnits(amount));
+}
+
+/** Every `transfers.toUser` the page sends, by body, so a second post would be seen even if the bank refused it. */
+function sends(page) {
+  const seen = [];
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().includes('/api/bank/trpc/transfers.toUser')) seen.push(req.postDataJSON());
+  });
+  return seen;
 }
 
 /** The Send room is what is on screen: the Send tab chosen, the To field ready, and no not-found page. */
@@ -296,67 +383,269 @@ test(`${J} #4 presses Review and sees amount, recipient identity, source, note, 
   await expect(dialog).toBeVisible();
 });
 
-test(`${J} #5 confirms with a double click and the money moves once`, async ({ page }) => {
-  await sendForm(page);
-  await page.getByTestId('pay-review').click();
-  await page.getByTestId('pay-send').dblclick();
-  await expect(page.getByTestId('pay-receipt')).toBeVisible();
-  await expect(page.getByTestId('pay-receipt-amount')).toContainText(AMOUNT);
-  const reference = (await page.getByTestId('pay-receipt-reference').innerText()).trim();
-  expect(reference).not.toBe('');
-  run.write({ reference });
-  // Exactly TEST 25 USDT left A and reached B: one post, not two.
+test(`${J} #5 confirms through the owner's fresh confirmation step: a wrong code is refused, and a double click, a held reply or a reload never sends twice`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
   const { sender, recipient } = people();
-  const { before } = run.read();
-  expect(toUnits(before.sender) - toUnits(await usdt(sender))).toBe(toUnits(AMOUNT));
-  expect(toUnits(await usdt(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
+  // A sets up an authenticator app, as a person who confirms payments with a code does.
+  await signIn(page, sender);
+  const { totp } = await totpLib();
+  const { secret, step } = await addAuthenticator(page, totp);
+  run.write({ secret, step });
+  const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
+  expect(before).toEqual(run.read().before);
+
+  // The owner's rule asks for a fresh confirmation before money leaves for another person.
+  stepUpRule(true);
+  try {
+    const posted = sends(page);
+    const approved = () => posted.filter((body) => typeof body.stepUpApprovalId === 'string');
+    await sendForm(page, { signedIn: true });
+    await page.getByTestId('pay-review').click();
+    // A double click on Send: one call, which the bank refuses because the rule asks for a fresh confirmation.
+    await page.getByTestId('pay-send').dblclick();
+    const stepUp = page.getByTestId('pay-step-up');
+    await expect(stepUp).toBeVisible();
+    await expect(stepUp.getByRole('heading', { name: 'Confirm it’s you' })).toBeVisible();
+    await expect(stepUp).toContainText('This sends money to another person, so we check it’s you first.');
+    expect(posted).toHaveLength(1);
+    expect(approved()).toEqual([]);
+
+    // A wrong code is refused, and nothing moves.
+    await stepUp.getByLabel('Authenticator code').fill(await wrongCode());
+    await page.getByTestId('pay-step-up-confirm').click();
+    await expect(page.getByTestId('pay-step-up-problem')).toHaveText(
+      'That code didn’t match, so nothing was sent. Check your authenticator app and try again.',
+    );
+    await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
+    expect(approved()).toEqual([]);
+    expect(await usdt(sender)).toBe(before.sender);
+    expect(await usdt(recipient)).toBe(before.recipient);
+    expect(await sentOf(AMOUNT)).toEqual([]);
+
+    // The right code, confirmed with a double click: one send carries the approval, and the ledger posts once.
+    await stepUp.getByLabel('Authenticator code').fill(await aCode());
+    await page.getByTestId('pay-step-up-confirm').dblclick();
+    await expect(page.getByTestId('pay-receipt')).toBeVisible();
+    await expect(page.getByTestId('pay-receipt-amount')).toContainText(AMOUNT);
+    const reference = (await page.getByTestId('pay-receipt-reference').innerText()).trim();
+    expect(reference).not.toBe('');
+    run.write({ reference });
+    expect(approved()).toHaveLength(1);
+    expect(new Set(posted.map((body) => body.transferId)).size).toBe(1);
+    expect(toUnits(before.sender) - toUnits(await usdt(sender))).toBe(toUnits(AMOUNT));
+    expect(toUnits(await usdt(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
+    expect(await sentOf(AMOUNT)).toHaveLength(1);
+
+    // A second payment, TEST 1.5 USDT, whose reply is held on its way back: A double clicks, then reloads the page.
+    const second = '1.5';
+    const mid = { sender: await usdt(sender), recipient: await usdt(recipient) };
+    const posted2 = sends(page);
+    let release;
+    const released = new Promise((resolve) => (release = resolve));
+    let reached;
+    const arrived = new Promise((resolve) => (reached = resolve));
+    await page.route('**/api/bank/trpc/transfers.toUser', async (route) => {
+      if (typeof route.request().postDataJSON()?.stepUpApprovalId !== 'string') return route.continue();
+      const answer = await route.fetch();
+      reached();
+      await released;
+      await route.fulfill({ response: answer }).catch(() => undefined);
+    });
+    await sendForm(page, { amount: second, note: null, signedIn: true });
+    await page.getByTestId('pay-review').click();
+    await page.getByTestId('pay-send').click();
+    await expect(stepUp).toBeVisible();
+    await stepUp.getByLabel('Authenticator code').fill(await aCode());
+    await page.getByTestId('pay-step-up-confirm').dblclick();
+    await arrived;
+    // While the reply is held, the button says it is sending and cannot be pressed again.
+    await expect(page.getByTestId('pay-step-up-confirm')).toBeDisabled();
+    await expect(page.getByTestId('pay-step-up-confirm')).toHaveText('Sending…');
+    await page.reload();
+    release();
+    // After the reload, Send waits on the payment that was on its way: it is not sent again, and Review stays off.
+    await expect(page.getByTestId('pay-waiting')).toContainText('We’re still confirming your last payment.');
+    await expect(page.getByTestId('pay-review')).toBeDisabled();
+    await page.waitForTimeout(2000);
+    await page.unroute('**/api/bank/trpc/transfers.toUser');
+    expect(posted2.filter((body) => typeof body.stepUpApprovalId === 'string')).toHaveLength(1);
+    expect(toUnits(mid.sender) - toUnits(await usdt(sender))).toBe(toUnits(second));
+    expect(toUnits(await usdt(recipient)) - toUnits(mid.recipient)).toBe(toUnits(second));
+    expect(await sentOf(second)).toHaveLength(1);
+    run.write({ second });
+  } finally {
+    stepUpRule(false);
+  }
 });
 
-/** The payment's status page, opened from the receipt link on Pay's recent payments. */
-async function statusPage(page, who) {
-  await signIn(page, who);
+/** The 25 USDT payment's status page, opened from its receipt link on the person's recent payments in Pay. */
+async function statusPage(page) {
   await page.goto('/pay');
-  await page
-    .getByRole('link', { name: /receipt/i })
-    .first()
-    .click();
+  const row = page.getByTestId('recent-payment').filter({ hasText: new RegExp(`[−+]${AMOUNT} USDT`) });
+  await expect(row).toHaveCount(1);
+  await row.getByRole('link', { name: /receipt/i }).click();
   await expect(page).toHaveURL(/\/money\/activity\/[^/?]+/);
-  await expect(page.getByText('Completed').first()).toBeVisible();
 }
 
-test(`${J} #6 reads the payment status page: Completed for both, no Cancel, and a way to report a problem`, async ({ page }) => {
+test(`${J} #6 reads the payment status page: Completed for both parties, no Cancel button, and a pointer to refund`, async ({ page }) => {
+  test.setTimeout(240_000);
   const { sender, recipient } = people();
-  for (const who of [sender, recipient]) {
-    await statusPage(page, who);
+  const { reference } = run.read();
+  if (!reference) throw new Error(`${J} #5 sent nothing, so there is no payment to read`);
+  const sides = [
+    {
+      signIn: () => signInA(page),
+      note: `This payment is complete and can’t be cancelled. To get it back, ask @${recipient.handle} to send you a refund.`,
+      link: `Request a refund from @${recipient.handle}`,
+      href: `/pay/request?to=${recipient.handle}&amount=${AMOUNT}&asset=USDT`,
+    },
+    {
+      signIn: () => signIn(page, recipient),
+      note: `This payment is complete and can’t be cancelled. To refund it, send it back to @${sender.handle}.`,
+      link: `Refund @${sender.handle}`,
+      href: `/pay/send?to=${sender.handle}&amount=${AMOUNT}&asset=USDT`,
+    },
+  ];
+  for (const side of sides) {
+    await side.signIn();
+    await statusPage(page);
+    await expect(page.getByTestId('money-act__done')).toHaveText('Completed');
+    await expect(page.getByTestId('money-act__hold')).toHaveCount(0);
     await expect(page.getByText(NOTE)).toBeVisible();
-    await expect(page.getByText(run.read().reference).first()).toBeVisible();
+    await expect(page.getByText(reference).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /cancel/i })).toHaveCount(0);
     await expect(
       page.getByRole('link', { name: 'Report a problem' }).or(page.getByRole('button', { name: 'Report a problem' })),
     ).toBeVisible();
+    const refund = page.getByTestId('money-refund');
+    await expect(refund).toHaveText(`${side.note} ${side.link}`);
+    await expect(refund.getByRole('link', { name: side.link, exact: true })).toHaveAttribute('href', side.href);
     await signOutBrowser(page.context());
   }
 });
 
-test(`${J} #7 the recipient opens Pay and sees the payment, the sender, the note and a notice`, async ({ page }) => {
+/**
+ * B's payment event delivered again: the bank's personal_transfer.posted for this payment, read off the stack's bus and
+ * published once more with its payload unchanged (same transfer) under a new envelope key, so the bus does not drop it as
+ * its own duplicate and svc-notify is what must hold. Returns the payload.
+ */
+function redeliverPayment(ledgerTxId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, LEDGER_TX: ledgerTxId } = process.env;
+    const subject = EVENT_CATALOG.personalTransferPosted.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName('bank', prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.ledgerTxId === ledgerTxId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + ledgerTxId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-bank', streamPrefix: prefix });
+    await bus.publish('personalTransferPosted', payload, { idempotencyKey: payload.transferId + ':again:' + Date.now() });
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(ROOT, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the payment event again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+/** Until svc-notify's consumer of posted personal sends has taken and acknowledged every message on the bus. */
+async function noticesCaughtUp() {
+  await expect(async () => {
+    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const consumer = info.account_details
+      ?.flatMap((a) => a.stream_detail ?? [])
+      .flatMap((st) => st.consumer_detail ?? [])
+      .find((c) => c.name === 'notify-personal-transfer-posted');
+    expect(consumer?.num_pending ?? -1).toBe(0);
+    expect(consumer?.num_ack_pending ?? -1).toBe(0);
+  }).toPass({ timeout: 30_000 });
+}
+
+test(`${J} #7 the recipient opens Pay: the payment, note and sender in activity, one in-app notice even for a duplicate event, and the mandatory class locked on`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const { sender, recipient } = people();
+  const { reference } = run.read();
+  if (!reference) throw new Error(`${J} #5 sent nothing, so there is nothing to receive`);
   await signIn(page, recipient);
   await page.goto('/pay');
-  await expect(page.getByText(`@${sender.handle}`).first()).toBeVisible();
-  await expect(page.getByText(`+${AMOUNT} USDT`).first()).toBeVisible();
+  const row = page.getByTestId('recent-payment').filter({ hasText: `+${AMOUNT} USDT` });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('recent-payment-who')).toHaveText(`Received from @${sender.handle}`);
+  await expect(row.getByTestId('recent-payment-note')).toHaveText(NOTE);
+  await expect(row.getByTestId('recent-payment-amount')).toHaveText(`+${AMOUNT} USDT`);
+  await expect(row.getByTestId('recent-payment-status')).toHaveText('Completed');
+
+  // The in-app notice: one, and still one after the same payment's event is delivered again.
+  const received = `You received ${AMOUNT} USDT.`;
   await page.goto('/notifications');
   await expect(page.getByText('Money received').first()).toBeVisible();
-  await expect(page.getByText(`You received ${AMOUNT} USDT.`)).toHaveCount(1);
+  await expect(page.getByText(received, { exact: true })).toHaveCount(1);
+  expect(redeliverPayment(reference).ledgerTxId).toBe(reference);
+  await noticesCaughtUp();
+  await page.reload();
+  await expect(page.getByText('Money received').first()).toBeVisible();
+  await expect(page.getByText(received, { exact: true })).toHaveCount(1);
+
+  // The class payment notices belong to is mandatory in the app: its in-app switch is on and locked, and says why.
+  await page.goto('/notifications?view=settings');
+  const toggle = page.getByRole('switch', { name: 'Orders and trades, Inbox in the app', exact: true });
+  await expect(toggle).toBeChecked();
+  await expect(toggle).toBeDisabled();
+  const orders = page.getByRole('row').filter({ hasText: 'Fills, ended orders, escrow and payment updates' });
+  await expect(orders).toHaveCount(1);
+  await expect(orders.getByRole('cell').first()).toContainText('Always on. We keep this one on for your protection.');
 });
 
-test(`${J} #8 each person's balance on screen equals the ledger`, async ({ page }) => {
+test(`${J} #8 either person opens the balance page: the balance on screen equals the ledger's, and the payment's row shows its date`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const { sender, recipient } = people();
-  for (const who of [sender, recipient]) {
-    await signIn(page, who);
+  const { reference, before, second } = run.read();
+  if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
+  const moved = toUnits(AMOUNT) + toUnits(second);
+  for (const side of [
+    { who: sender, signIn: () => signInA(page), expected: toUnits(before.sender) - moved, sign: '−' },
+    { who: recipient, signIn: () => signIn(page, recipient), expected: toUnits(before.recipient) + moved, sign: '+' },
+  ]) {
+    await side.signIn();
+    // The ledger's USDT balance for this person, through their own API: what this run moved, exactly.
+    const ledger = await usdt(side.who);
+    expect(toUnits(ledger)).toBe(side.expected);
+    // Money: the balance is shown as the ledger answers it (the screen groups thousands; none here to undo).
     await page.goto('/money');
-    // The screen groups thousands; the ledger answers a plain decimal (75 and 25 here, so no grouping to undo).
-    const ledger = await usdt(who);
     await expect(page.getByText(new RegExp(`(^|\\s)${ledger.replace('.', '\\.')}\\s*USDT`)).first()).toBeVisible();
+    // The balance page for USDT: the bank's check of every entry against the ledger's balance, and that balance.
+    await page.goto('/money/balance/USDT');
+    const check = page.getByText(/^All \d+ entries add up to your balance: /);
+    await expect(check).toBeVisible();
+    const onScreen = (await check.innerText()).match(/your balance: ([\d,.]+) USDT\.$/)?.[1];
+    expect(onScreen, 'the balance line names a figure').toBeTruthy();
+    expect(toUnits(onScreen.replaceAll(',', ''))).toBe(toUnits(ledger));
+    // The payment's row: its reference, its date, and the amount on this person's side.
+    const row = page.getByRole('row').filter({ hasText: reference });
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
+    await expect(row).toContainText(`${side.sign}${AMOUNT}`);
     await signOutBrowser(page.context());
   }
 });
