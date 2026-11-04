@@ -13,6 +13,7 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
 import type { AffiliatePayFeeLeg } from './affiliate-accrue.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
+// Identity serves this path; Pay only calls it, with the fee event's id and nothing else.
 
 export interface AffiliatePayoutPort {
   payoutPayFee(feeEventId: string): Promise<void>;
