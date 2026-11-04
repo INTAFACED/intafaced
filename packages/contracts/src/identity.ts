@@ -144,10 +144,11 @@ export const selfFreezeStateSchema = z
 export type SelfFreezeState = z.infer<typeof selfFreezeStateSchema>;
 
 /**
- * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2). A service that stores a payout destination in the person's own name
- * asks identity whether the holder name it was given is the account's verified legal name. svc-identity compares, so the
- * legal name never leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`,
- * service credentials, body-bound; svc-p2p is the only caller today.
+ * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2; CB-otc-08, J-copy-bots-otc-24 #3). A service that stores a payout
+ * destination in the person's own name, or prices a desk request that names a settlement account, asks identity whether
+ * the holder name it was given is the account's verified legal name. svc-identity compares, so the legal name never
+ * leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`, service credentials,
+ * body-bound; svc-p2p and svc-trade are its callers.
  *
  * - `match` / `mismatch`: the names compared after identity's normalising (case, Latin accents, spacing, dashes,
  *   apostrophes, full stops and commas do not count; the words and their order do).

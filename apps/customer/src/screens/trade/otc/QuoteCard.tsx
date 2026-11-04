@@ -67,14 +67,16 @@ interface Props {
   now: number;
   /** The providers this quote asked, or the room's current pick when the room did not see it asked (a reload or a link). */
   providers: string[];
+  /** The settlement name this quote's request gave (CB-otc-08), so a re-price is checked again; none when it gave none. */
+  settlementName?: string;
   /** Re-read the quote from the service (and release a device note if that proves the outcome). */
   onCheck: (id: string) => Promise<void>;
   /** Show a quote a write just returned; `select` opens it in place of this one (a re-price). */
-  onQuote: (quote: RfqQuote, options?: { select?: boolean; asked?: string[] }) => void;
+  onQuote: (quote: RfqQuote, options?: { select?: boolean; asked?: string[]; settlementName?: string }) => void;
 }
 
 /** One quote in full: the returned numbers, the all-in cost, the live countdown, and what may be done to it now. */
-export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck, onQuote }: Props) {
+export function QuoteCard({ api, writer, quote, readAt, now, providers, settlementName, onCheck, onQuote }: Props) {
   const { t } = otcCopy.useCopy();
   const { timeZone } = usePreferences();
   const [confirming, setConfirming] = useState<Confirming | null>(null);
@@ -157,6 +159,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
           qty: quote.qty,
           makerIds: asked,
           ...(quote.counterparty === 'maker' ? { makerId: quote.counterpartyId } : {}),
+          ...(settlementName ? { settlementName } : {}),
         }),
     });
     if (result.kind !== 'done') return;
@@ -168,7 +171,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
       q.side === quote.side &&
       compareDecimals(q.qty, quote.qty) === 0;
     setMismatch(!matches);
-    if (matches) onQuote(q, { select: true, asked });
+    if (matches) onQuote(q, { select: true, asked, settlementName });
   }
 
   async function send(action: Confirming) {
