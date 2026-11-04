@@ -36,6 +36,7 @@ import {
 } from '@intafaced/contracts/protocol-swap';
 import {
   tokenPageOutputSchema,
+  tokensBriefOutputSchema,
   tokensLeaderboardOutputSchema,
   tokensListOutputSchema,
   type TokenWindowId,
@@ -135,6 +136,8 @@ export function createProtocolApi(api: ApiClient) {
     /** Wallets ranked by realised results from public swaps; each row carries the trades it sums. */
     tokensLeaderboard: (signal?: AbortSignal) =>
       api.query('protocol', 'tokens.leaderboard', undefined, tokensLeaderboardOutputSchema, { signal }),
+    /** The market brief over the 24 hours to the head block, from the pools; null brief when nothing traded. */
+    tokensBrief: (signal?: AbortSignal) => api.query('protocol', 'tokens.brief', undefined, tokensBriefOutputSchema, { signal }),
     /** The owner's swap settings; blank refuses and the form keeps Swap off. */
     swapSettings: (signal?: AbortSignal) =>
       api.query('protocol', 'amm.swapSettings', undefined, protocolSwapSettingsOutputSchema, { signal }),

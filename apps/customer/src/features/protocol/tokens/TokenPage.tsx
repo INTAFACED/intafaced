@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { TokenPageData } from '@intafaced/contracts/protocol-tokens';
+import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
 import { navigate } from '../../../app/location';
 import { Button, DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
@@ -334,7 +335,44 @@ const FLAG_KEY = {
   no_history: 'flagNoHistory',
 } as const;
 
-function TokenFacts({ data, t }: { data: PageData; t: TokensTranslate }) {
+type ProtocolApi = ReturnType<typeof createProtocolApi>;
+
+/**
+ * The token's price in US dollars (D-swap-11): the same `amm.prices` read the swap form uses, from the pools against the
+ * owner's dollar reference tokens at one block, shown in full with that block's time. Blank reference settings refuse by
+ * their code; a token the reliability filter leaves out says why. Never a guess or a carried-over figure.
+ */
+function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: TokensTranslate }) {
+  const { resource } = useResource((signal) => api.tokenPrices(signal), `tokens:usd:${address.toLowerCase()}`);
+  if (resource.status === 'loading') return <span className="muted">{t('usdReading')}</span>;
+  if (resource.status === 'failed')
+    return resource.failure.code === PRICE_SETTINGS_UNSET ? (
+      <span data-blocker="price_feed" data-code={PRICE_SETTINGS_UNSET}>
+        {t('notAvailable')}: {t('usdBlocked', { code: PRICE_SETTINGS_UNSET })}
+      </span>
+    ) : (
+      <span>{t('usdUnread')}</span>
+    );
+  const { prices, asOf, blockNumber } = resource.data;
+  const found = prices.find((entry) => entry.address.toLowerCase() === address.toLowerCase());
+  if (!found) return <span>{t('usdUnread')}</span>;
+  if (found.usd === null) return <span data-reason={found.reason}>{found.reason === 'thin_reserve' ? t('usdThin') : t('usdNoRoute')}</span>;
+  return (
+    <>
+      <span data-testid="token-price-usd" data-usd={found.usd} data-block={blockNumber}>
+        ${found.usd}
+      </span>{' '}
+      ·{' '}
+      <time data-testid="token-usd-as-of" dateTime={asOf}>
+        {t('usdAsOf', { time: clockTime(Date.parse(asOf), currentPreferences().timeZone), block: blockNumber })}
+      </time>
+      <br />
+      <span className="muted">{t(`usdBasis_${found.basis!}`)}</span>
+    </>
+  );
+}
+
+function TokenFacts({ data, api, t }: { data: PageData; api: ProtocolApi; t: TokensTranslate }) {
   const { quote } = data;
   return (
     <section aria-label={t('factsTitle')}>
@@ -354,14 +392,7 @@ function TokenFacts({ data, t }: { data: PageData; t: TokensTranslate }) {
             value={data.price === null ? t('noPrice') : `${data.price} ${quote.symbol || t('noSymbol')}`}
             testId="token-price"
           />
-          <Fact
-            label={t('factPriceUsd')}
-            value={
-              <span data-blocker="price_feed">
-                {t('notAvailable')}: {t('usdBlocked')}
-              </span>
-            }
-          />
+          <Fact label={t('factPriceUsd')} value={<UsdPrice address={data.token.address} api={api} t={t} />} />
           <Fact
             label={t('factLiquidity')}
             value={
@@ -451,7 +482,7 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
       <p className="muted">
         {data.token.name || t('noName')} · {data.token.symbol || t('noSymbol')} · {data.token.address}
       </p>
-      <TokenFacts data={data} t={t} />
+      <TokenFacts data={data} api={protocol} t={t} />
       <QuickTicket data={data} api={protocol} t={t} />
       <TokenTrust data={data} t={t} />
       <Panel title={t('tokenSections')}>
@@ -470,8 +501,8 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
 
 /**
  * A token's page (/dex/tokens/:address, D-portfolio-wallet-07 with D-launch-listing-02 and D-explorer-05): facts, trust,
- * pairs, holders and trades, all read from the chain at one block. A figure with no source (the dollar price, market cap,
- * the trust criteria and the organic score's inputs) names what is missing instead of a guess.
+ * pairs, holders and trades, all read from the chain at one block, and the dollar price from the pools' own read. A figure
+ * with no source (market cap, the trust criteria and the organic score's inputs) names what is missing instead of a guess.
  */
 export function TokenPage({ address }: { address: string | undefined }) {
   const { language } = usePreferences();

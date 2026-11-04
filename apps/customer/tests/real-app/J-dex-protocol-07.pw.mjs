@@ -21,9 +21,11 @@ import { tableIn } from './tables.mjs';
 // shows is compared with what the running service lists and with the chain itself, at the block the page read.
 // The stack prices tokens in TEST Token B, a labelled LOCAL TEST value (tooling/profiles/test-owner-values/protocol.json);
 // a blank quote token refuses protocol.tokens_quote_unset (services/svc-protocol/src/amm/tokens.router.test.ts).
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3's market brief: no market data source exists on the platform, so the room names that blocker (market_data).
-// - #4's dollar price: no dollar price source exists on the stack, so the page names that blocker (price_feed).
+// #3's market brief is written by svc-protocol from the same pools over the 24 hours to the head block; the run's TEST
+// swaps fall in those hours, so the stack shows a brief, and each line is checked against the chain and the 24-hour list.
+// #4's dollar price is the stack's D-swap-11 price read: TEST USD is the dollar reference there (PROTOCOL_PRICE_USD_TOKENS
+// and PROTOCOL_PRICE_MIN_RESERVE_USD, TEST owner values in tooling/profiles/test-owner-values/protocol.json), and the
+// check works the price out from the TEST USD pools' reserves on the chain at the block the page names.
 const J = 'J-dex-protocol-07';
 const UNBUILT = { timeout: 5_000 };
 const TOKEN = '0x4200000000000000000000000000000000000006';
@@ -278,12 +280,90 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
 }) => {
   await openTokens(page);
   await page.getByRole('tab', { name: 'Market brief' }).click();
-  // No service writes a brief: there is no market data source on the platform. The room shows the empty state and names
-  // that blocker; the clause stays red by that name at the end of this step, after the other clauses have run.
-  const brief = page.getByRole('tabpanel', { name: 'Market brief' });
-  await expect(brief).toContainText('No brief today.');
-  await expect(brief).toContainText('There is no market data source here.');
-  await expect(brief.locator('[data-code]')).toHaveAttribute('data-code', 'market_data');
+  const panel = page.getByRole('tabpanel', { name: 'Market brief' });
+  // The brief covers the 24 hours to the block it names. The run's TEST swaps were mined minutes ago, inside those hours,
+  // so the stack must show a brief and not "No brief today".
+  const asOfLine = panel.getByTestId('brief-as-of');
+  await expect(asOfLine).toBeVisible();
+  const block = BigInt(await asOfLine.getAttribute('data-block'));
+  const now = Number((await chain.getBlock({ blockNumber: block })).timestamp);
+  const since = now - 86_400;
+  await expect(asOfLine.locator('time')).toHaveAttribute('datetime', isoTime(now));
+  await expect(panel).not.toContainText('No brief today.');
+  const day = new Date(now * 1000).toISOString().slice(0, 10);
+  const brief = panel.getByRole('article', { name: `Brief for ${day}` });
+  await expect(brief.getByRole('heading', { name: `Brief for ${day}` })).toBeVisible();
+
+  // The 24-hour list at the same block: the tokens the pages list, and the figures the brief's lines must repeat.
+  const list = await service(page.request, 'tokens.list', { window: '24h' });
+  expect(list.blockNumber, 'the brief and the 24-hour list are read at the same block').toBe(block.toString());
+  const listedTokens = new Set(list.tokens.map((t) => t.token.address.toLowerCase()));
+
+  // Trades and pools: every Swap logged after the window opened, up to the brief's block, by the factory's pools whose two
+  // tokens the pages list (a pool with a token the pages leave out is left out with it), read from the chain.
+  const { factory } = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  const count = await chain.readContract({ address: factory, abi: factoryAbi, functionName: 'allPoolsLength', blockNumber: block });
+  const all = [];
+  for (let i = 0n; i < count; i++) {
+    const pool = await chain.readContract({ address: factory, abi: factoryAbi, functionName: 'allPools', args: [i], blockNumber: block });
+    const sides = await Promise.all(
+      ['token0', 'token1'].map((functionName) => chain.readContract({ address: pool, abi: poolAbi, functionName })),
+    );
+    if (sides.every((token) => listedTokens.has(token.toLowerCase()))) all.push({ pool });
+  }
+  expect(all.length, 'the factory lists pools').toBeGreaterThan(0);
+  const recent = (await swapsIn(all, block)).filter((s) => s.time > since);
+  expect(recent.length, 'the run seeded TEST swaps in the last 24 hours').toBeGreaterThan(0);
+  const trades = brief.getByTestId('brief-trades');
+  const pools = new Set(recent.map((s) => s.pool.toLowerCase())).size;
+  await expect(trades).toHaveAttribute('data-trades', String(recent.length));
+  await expect(trades).toHaveAttribute('data-pools', String(pools));
+  await expect(trades).toHaveText(`${recent.length} trade(s) in ${pools} pool(s).`);
+
+  // Each named token is the one the 24-hour list ranks first at the same block, with the list's own figure.
+  const byAddress = (a, b) => (a.token.address.toLowerCase() < b.token.address.toLowerCase() ? -1 : 1);
+  const priced = list.tokens.filter((t) => t.growthBps !== null);
+  const up = priced.filter((t) => t.growthBps > 0).sort((a, b) => b.growthBps - a.growthBps || byAddress(a, b))[0];
+  const down = priced.filter((t) => t.growthBps < 0).sort((a, b) => a.growthBps - b.growthBps || byAddress(a, b))[0];
+  expect(up ?? down, 'the TEST swaps moved a price over 24 hours, so a rise or a fall is named').toBeTruthy();
+  const label = (row) =>
+    row.lookalikeOf
+      ? `Symbol hidden: copies ${row.lookalikeOf.name}`
+      : row.token.symbol || row.token.name || `${row.token.address.slice(0, 6)}…${row.token.address.slice(-4)}`;
+  for (const [id, row, verb, none] of [
+    ['brief-gainer', up, 'Biggest rise', 'No token’s price rose over 24 hours.'],
+    ['brief-loser', down, 'Biggest fall', 'No token’s price fell over 24 hours.'],
+  ]) {
+    const line = brief.getByTestId(id);
+    if (!row) {
+      await expect(line).toHaveText(none);
+      continue;
+    }
+    await expect(line).toHaveAttribute('data-token', row.token.address);
+    await expect(line).toHaveAttribute('data-bps', String(row.growthBps));
+    await expect(line).toHaveText(`${verb}: ${label(row)}, ${percent(row.growthBps)} over 24 hours.`);
+    await expect(line.getByRole('link')).toHaveAttribute('href', `/dex/tokens/${row.token.address}`);
+  }
+  const top = list.tokens
+    .filter((t) => t.trades > 0 && t.price !== null)
+    .sort((a, b) => {
+      const va = toUnits(a.volume);
+      const vb = toUnits(b.volume);
+      return va === vb ? b.trades - a.trades || byAddress(a, b) : va > vb ? -1 : 1;
+    })[0];
+  expect(top, 'a traded token with a price, so its volume can be named').toBeTruthy();
+  const most = brief.getByTestId('brief-most-traded');
+  await expect(most).toHaveAttribute('data-token', top.token.address);
+  await expect(most).toHaveText(`Most traded: ${label(top)}, ${top.volume} ${list.quote.symbol} over ${top.trades} trade(s).`);
+  // New listings: every token whose first pool was created in the window, newest first, as the list's listing times say.
+  const fresh = list.tokens.filter((t) => t.listedAt > since).sort((a, b) => b.listedAt - a.listedAt || byAddress(a, b));
+  const newLine = brief.getByTestId('brief-new');
+  await expect(newLine).toHaveAttribute('data-count', String(fresh.length));
+  expect(fresh.map((t) => t.token.address.toLowerCase())).toContain(fixtures.noSymbol.toLowerCase());
+  expect(
+    await newLine.locator('li[data-token]').evaluateAll((items) => items.map((i) => i.getAttribute('data-token').toLowerCase())),
+  ).toEqual(fresh.map((t) => t.token.address.toLowerCase()));
+
   await page.getByRole('tab', { name: 'Stablecoins' }).click();
   // The owner has listed no stablecoins on the stack, so the screener refuses with that reason and its one code.
   const stable = page.getByRole('tabpanel', { name: 'Stablecoins' });
@@ -315,12 +395,6 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
     expect(sum(realised), `realised for ${wallet}`).toBe(total);
   }
   expect(realisedSeen, 'at least one sell, so a realised result exists').toBeGreaterThan(0);
-
-  await page.getByRole('tab', { name: 'Market brief' }).click();
-  expect(
-    await brief.getByText(/^Brief for /).count(),
-    'BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing',
-  ).toBeGreaterThan(0);
 });
 
 test(`${J} #4 opens a token page: price, liquidity in token amounts, fees and growth; market cap "Not available" with no supply source; a USD price with its as-of time`, async ({
@@ -375,12 +449,35 @@ test(`${J} #4 opens a token page: price, liquidity in token amounts, fees and gr
   await expect(facts.locator('[data-blocker="supply_source"]')).toHaveText(/^Not available: /);
   await expect(facts).not.toContainText(/Market cap\s*\$/);
 
-  // The dollar price: no dollar price source exists on the stack, so this clause stays red by that name.
-  await expect(facts.locator('[data-blocker="price_feed"]')).toHaveText(/^Not available: /);
-  expect(
-    await facts.getByText(/\$\d[\d,]*(\.\d+)?/).count(),
-    'BLOCKED (price_feed): no dollar price source is set on the stack, so the page shows no USD price with its as-of time',
-  ).toBeGreaterThan(0);
+  // The dollar price with its as-of time: TEST USD per TEST Token A from A's deepest pool with TEST USD that holds at least
+  // the TEST minimum reserve on its dollar side, at the block the price names, and that block's own time.
+  const usd = facts.getByTestId('token-price-usd');
+  await expect(usd).toBeVisible();
+  const usdBlock = BigInt(await usd.getAttribute('data-block'));
+  const { tokens } = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  const dollar = tokens.USD.address;
+  const profile = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/protocol.json'), 'utf8')).values;
+  expect(profile.PROTOCOL_PRICE_USD_TOKENS.value.toLowerCase()).toBe(dollar.toLowerCase());
+  const usdDecimals = await decimalsOf(dollar, usdBlock);
+  const minimum = BigInt(profile.PROTOCOL_PRICE_MIN_RESERVE_USD.value) * 10n ** BigInt(usdDecimals);
+  let deepest = null;
+  for (const pool of pools) {
+    if (!same(pool.token0, dollar) && !same(pool.token1, dollar)) continue;
+    const [mine, theirs] = await reserves(pool, TOKEN_A.address, usdBlock);
+    if (theirs >= minimum && (!deepest || theirs > deepest.theirs)) deepest = { mine, theirs };
+  }
+  expect(deepest, 'TEST Token A has a TEST USD pool above the TEST minimum reserve').not.toBeNull();
+  const usdPrice = (deepest.theirs * 10n ** 18n * 10n ** BigInt(TOKEN_A.decimals)) / (deepest.mine * 10n ** BigInt(usdDecimals));
+  expect(usdPrice).toBeGreaterThan(0n);
+  await expect(usd).toHaveAttribute('data-usd', exact(usdPrice, 18));
+  await expect(usd).toHaveText(`$${exact(usdPrice, 18)}`);
+  await expect(facts).toContainText('From its deepest pool with a dollar reference token.');
+  const usdTime = Number((await chain.getBlock({ blockNumber: usdBlock })).timestamp);
+  const usdAsOf = facts.getByTestId('token-usd-as-of');
+  expect(Date.parse(await usdAsOf.getAttribute('datetime'))).toBe(usdTime * 1000);
+  await expect(usdAsOf).toHaveText(new RegExp(`^as of \\d{2}:\\d{2}, block ${usdBlock}$`));
+  expect(Math.abs(Date.now() - usdTime * 1000)).toBeLessThan(10 * 60_000);
+  await expect(facts.locator('[data-blocker="price_feed"]')).toHaveCount(0);
 });
 
 test(`${J} #5 reads the trust tier and the organic score: "unknown" with a note with no history, "Not scored" while inputs are blank, suspicious flags, and a lookalike name masked`, async ({

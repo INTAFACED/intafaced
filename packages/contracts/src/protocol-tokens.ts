@@ -155,3 +155,46 @@ export const tokensLeaderboardOutputSchema = z
   .object({ blockNumber: units, asOf: z.number().int(), quote: tokenBasicsSchema, rows: z.array(leaderboardRowSchema) })
   .strict();
 export type TokensLeaderboard = z.infer<typeof tokensLeaderboardOutputSchema>;
+
+/** A token the brief names, with the 24-hour figure it is named for, as `tokens.list` states it for the same block. */
+const briefMoverSchema = z
+  .object({ token: tokenBasicsSchema, lookalikeOf: tokenLookalikeSchema.nullable(), growthBps: z.number().int() })
+  .strict();
+const briefTradedSchema = z
+  .object({ token: tokenBasicsSchema, lookalikeOf: tokenLookalikeSchema.nullable(), volume: decimal, trades: z.number().int().positive() })
+  .strict();
+
+/**
+ * The market brief (D-portfolio-wallet-06): written only from the factory's own pools over the 24 hours to the head
+ * block, every line one figure of the 24-hour token list at that block. With no swap in those 24 hours there is nothing
+ * to write and `brief` is null ("No brief today"); a line with nothing to name (no token rose) is null, never filled in.
+ */
+export const tokensBriefOutputSchema = z
+  .object({
+    blockNumber: units,
+    asOf: z.number().int().nonnegative(),
+    /** The UTC date of the head block, YYYY-MM-DD. */
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    /** The window's start, unix seconds: swaps after it and up to the head block count. */
+    since: z.number().int(),
+    quote: tokenBasicsSchema,
+    brief: z
+      .object({
+        /** Swaps in every pool of the factory in the window. */
+        trades: z.number().int().positive(),
+        /** Pools with at least one of those swaps. */
+        pools: z.number().int().positive(),
+        /** The highest 24-hour growth above zero; null when no token rose. */
+        topGainer: briefMoverSchema.nullable(),
+        /** The lowest 24-hour growth below zero; null when no token fell. */
+        topLoser: briefMoverSchema.nullable(),
+        /** The highest 24-hour volume in the quote token; null when no traded token has a price to value it. */
+        mostTraded: briefTradedSchema.nullable(),
+        /** Tokens whose first pool was created in the window, newest first. */
+        newListings: z.array(tokenBasicsSchema),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type TokensBrief = z.infer<typeof tokensBriefOutputSchema>;

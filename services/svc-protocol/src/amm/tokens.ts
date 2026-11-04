@@ -10,6 +10,7 @@ import {
   type TokenBasics,
   type TokenListRow,
   type TokenPageData,
+  type TokensBrief,
   type TokensLeaderboard,
   type TokensList,
   type TokenWindowId,
@@ -474,5 +475,52 @@ export function leaderboard(snap: MarketSnapshot, quote: TokenBasics): TokensLea
     rows: [...rows.values()]
       .sort((a, b) => (a.realised === b.realised ? 0 : a.realised > b.realised ? -1 : 1))
       .map((row) => ({ wallet: row.wallet, realised: formatScaled(toScaled(row.realised, quote.decimals)), trades: row.trades })),
+  };
+}
+
+const DAY_SECONDS = TOKEN_WINDOW_SECONDS['24h'];
+
+/**
+ * The market brief (D-portfolio-wallet-06): what the factory's pools did in the 24 hours to the head block, each line one
+ * figure of the 24-hour token list at the same block, so the brief and the list can never disagree. Nothing traded in the
+ * window: no brief. A line with nothing to name stays null; a tie is broken by address so the same block reads the same.
+ */
+export function marketBrief(snap: MarketSnapshot, quote: TokenBasics): TokensBrief {
+  const since = snap.asOf - DAY_SECONDS;
+  const head = {
+    blockNumber: snap.blockNumber.toString(),
+    asOf: snap.asOf,
+    day: new Date(snap.asOf * 1000).toISOString().slice(0, 10),
+    since,
+    quote,
+  };
+  const recent = snap.swaps.filter((s) => s.time > since);
+  if (recent.length === 0) return { ...head, brief: null };
+  const rows = tokensList(snap, quote, '24h').tokens;
+  const byAddress = (a: TokenListRow, b: TokenListRow) => (lower(a.token.address) < lower(b.token.address) ? -1 : 1);
+  const growing = rows.filter((r) => r.growthBps !== null);
+  const up = growing.filter((r) => r.growthBps! > 0).sort((a, b) => b.growthBps! - a.growthBps! || byAddress(a, b))[0];
+  const down = growing.filter((r) => r.growthBps! < 0).sort((a, b) => a.growthBps! - b.growthBps! || byAddress(a, b))[0];
+  const traded = rows
+    .filter((r) => r.trades > 0 && r.price !== null)
+    .sort((a, b) => {
+      const va = parseUnits(a.volume, PLACES);
+      const vb = parseUnits(b.volume, PLACES);
+      return va === vb ? b.trades - a.trades || byAddress(a, b) : va > vb ? -1 : 1;
+    })[0];
+  const mover = (r: TokenListRow | undefined) => (r ? { token: r.token, lookalikeOf: r.lookalikeOf, growthBps: r.growthBps! } : null);
+  return {
+    ...head,
+    brief: {
+      trades: recent.length,
+      pools: new Set(recent.map((s) => lower(s.pool))).size,
+      topGainer: mover(up),
+      topLoser: mover(down),
+      mostTraded: traded ? { token: traded.token, lookalikeOf: traded.lookalikeOf, volume: traded.volume, trades: traded.trades } : null,
+      newListings: rows
+        .filter((r) => r.listedAt > since)
+        .sort((a, b) => b.listedAt - a.listedAt || byAddress(a, b))
+        .map((r) => r.token),
+    },
   };
 }
