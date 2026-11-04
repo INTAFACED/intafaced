@@ -550,6 +550,25 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     err instanceof TRPCError || err instanceof SwapFeeError || err instanceof SwapSlippageError || err instanceof PoolTokenError
       ? toTrpcError(err)
       : toTrpcError(classifyChainError(err, 'amm.feeRelay', chain.config.rpcUrl));
+  /**
+   * A fee-token swap only ever names a pool the configured factory lists, read from the chain: the relayer pays the gas
+   * of whatever it sends, so a pool of the caller's own making (one that behaves in the pre-send check and burns the gas
+   * when sent) is refused before anything is built or posted.
+   */
+  const requireFactoryPool = async (pool: Address) => {
+    const factory = deps.ammFactoryAddress();
+    if (isZeroAddress(factory))
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
+      });
+    const listed = (await readPairs(factory)).pools.some((entry) => entry.pool.toLowerCase() === pool.toLowerCase());
+    if (!listed)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `protocol.fee_swap_pool_unlisted: ${pool} is not a pool the network's factory lists; a fee-token swap uses listed pools only.`,
+      });
+  };
   /** The most per gas a person may offer: refused above the owner's cap, never lowered to it. */
   const withinFeeCap = (maxFee: bigint): bigint => {
     const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
@@ -1625,6 +1644,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             const tokenIn = toChecksum(input.tokenIn);
             const amountIn = BigInt(input.amountIn);
             const minAmountOut = BigInt(input.minAmountOut);
+            await requireFactoryPool(pool);
             const quoted = await freshPoolQuote(chain, pool, tokenIn, amountIn);
             assertMinAmountOut(minAmountOut, quoted.amountOut, slippageBps);
             return await planFeeSwap(
@@ -1652,6 +1672,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           const setting = requireFeeRelay(deps.feeRelay?.());
           try {
             const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
+            // The same pool and minimum checks as when the order was prepared, against the chain as it is now.
+            const slippageBps = requireSwapSlippageBps(deps.swapSlippageBps());
+            const pool = input.order.pool as Address;
+            await requireFactoryPool(pool);
+            const quoted = await freshPoolQuote(chain, pool, toChecksum(input.order.tokenIn), BigInt(input.order.amountIn));
+            assertMinAmountOut(BigInt(input.order.minAmountOut), quoted.amountOut, slippageBps);
             return await relayFeeSwap(feeChain(), setting, chain.config.chainId, input, cap, deps.postRelay ?? postJson);
           } catch (err) {
             throw feeRelayError(err);
