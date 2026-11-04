@@ -61,7 +61,8 @@ export function contractChain(chain: ProtocolChain): ContractChain {
   };
   return {
     chainId: chain.config.chainId,
-    head: () => read('contract.head', () => chain.client.getBlockNumber()),
+    // Never viem's cached height (4 s by default): a Read right after a Write must see the block that mined it.
+    head: () => read('contract.head', () => chain.client.getBlockNumber({ cacheTime: 0 })),
     code: (address, block) =>
       read('contract.getCode', async () => {
         const code = await chain.client.getCode({ address, blockNumber: block });

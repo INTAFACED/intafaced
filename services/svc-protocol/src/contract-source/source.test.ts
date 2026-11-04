@@ -19,7 +19,8 @@ import {
   slotImplementation,
   withoutMetadata,
 } from './source.js';
-import { createContractSourceRouter, ranOutOfGas, revertReason, type ContractChain } from './router.js';
+import { contractChain, createContractSourceRouter, ranOutOfGas, revertReason, type ContractChain } from './router.js';
+import type { ProtocolChain } from '../chain/client.js';
 
 const sources = loadSources();
 const token = loadArtifact('TestToken');
@@ -308,5 +309,22 @@ describe('protocol.contract router', () => {
     expect(revertReason(token.abi, { data: '0x' })).toBe('No reason returned');
     expect(revertReason(token.abi, new Error('x'))).toBe('No reason returned');
     expect(revertReason(token.abi, { cause: { data: '0x12345678' } })).toBe('Unrecognised revert data 0x12345678');
+  });
+});
+
+describe('the chain reads', () => {
+  it('reads the head uncached, so a Read right after a mined Write sees its block', async () => {
+    const asked: unknown[] = [];
+    const chain = {
+      config: { chainId: 84532, rpcUrl: 'http://127.0.0.1:8545' },
+      client: {
+        getBlockNumber: async (options: unknown) => {
+          asked.push(options);
+          return 9n;
+        },
+      },
+    } as unknown as ProtocolChain;
+    expect(await contractChain(chain).head()).toBe(9n);
+    expect(asked).toEqual([{ cacheTime: 0 }]);
   });
 });
