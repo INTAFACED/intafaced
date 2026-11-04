@@ -380,7 +380,7 @@ test(`${J} #6 opens pooled masters and the pool whitelist: master applications f
   await form.getByRole('textbox', { name: 'Account ids' }).fill(tooMany.join('\n'));
   const refusedImport = await answerTo(page, 'whitelist', () => form.getByRole('button', { name: 'Add to whitelist' }).click());
   expect([refusedImport.status, refusedImport.body.code]).toEqual([400, 'trade.pool_batch_too_large']);
-  await expect(page.getByRole('alert')).toContainText(`at most ${WHITELIST_BATCH} accounts`);
+  await expect(page.getByRole('alert').filter({ hasText: `at most ${WHITELIST_BATCH} accounts` })).toBeVisible();
   const whitelistOf = async () => (await readDesk(page)).pooledMasters.whitelists.find((w) => w.poolId === created.poolId);
   expect((await whitelistOf()).members).toEqual([]);
 
