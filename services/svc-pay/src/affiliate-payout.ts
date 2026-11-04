@@ -65,3 +65,8 @@ export function createAffiliatePayoutClient(
     },
   };
 }
+
+/** The payout total across legs, with the 1% network fee on top, for the payout summary line. */
+export function payoutTotalWithFee(legs: readonly { amount: string }[]): number {
+  return legs.reduce((sum, leg) => sum + Number(leg.amount) * 1.01, 0);
+}
