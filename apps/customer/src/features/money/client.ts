@@ -52,8 +52,9 @@ export type TransferDraft = {
   stepUpApprovalId?: string;
 };
 /**
- * `overBalance` words the refusal for an amount above the source's balance (J-bank-02 #8: the shortfall and the plan's
- * rule); without it, or when it has nothing to say, the plain message stands.
+ * An amount above the source's balance is always refused with the plain message (J-wallet-07 #2 reads it by name);
+ * `overBalance` adds what follows it, the shortfall and the plan's rule (J-bank-02 #8), and adds nothing when it has
+ * nothing to say.
  */
 export function validateTransfer(
   spaces: Space[],
@@ -65,8 +66,11 @@ export function validateTransfer(
   if (from.lockedUntil && Date.parse(from.lockedUntil) > Date.now()) return copyText('client.this.space.is.locked.choose.an.unlocked');
   const amount = decimalSchema.safeParse(input.amount);
   if (!amount.success || parseAmount(amount.data) <= 0n) return copyText('client.enter.an.exact.amount.greater.than.zero');
-  if (parseAmount(input.amount) > parseAmount(from.balance))
-    return overBalance?.(from, input.amount) ?? copyText('client.the.amount.exceeds.the.available.quantity.in');
+  if (parseAmount(input.amount) > parseAmount(from.balance)) {
+    const plain = copyText('client.the.amount.exceeds.the.available.quantity.in');
+    const more = overBalance?.(from, input.amount);
+    return more ? `${plain} ${more}` : plain;
+  }
   if (input.toSpaceId) {
     if (input.toSpaceId === from.id) return copyText('client.choose.a.different.destination.space');
     const destination = spaces.find((space) => space.id === input.toSpaceId);
