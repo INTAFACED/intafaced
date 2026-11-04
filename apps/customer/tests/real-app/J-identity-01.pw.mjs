@@ -246,15 +246,11 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
   // beside the password rule, before anything is typed.
   restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', false);
   try {
-    await expect
-      .poll(
-        async () => {
-          await page.goto('/register');
-          return page.getByRole('status').filter({ hasText: 'screening list is not set' }).count();
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(1);
+    // Identity may still be coming back up: open the page again until it has asked identity and shows the answer.
+    await expect(async () => {
+      await page.goto('/register');
+      await expect(page.getByRole('status').filter({ hasText: 'screening list is not set' })).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 45_000 });
     await expect(page.getByRole('status').filter({ hasText: 'screening list is not set' })).toHaveText(
       'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
     );
