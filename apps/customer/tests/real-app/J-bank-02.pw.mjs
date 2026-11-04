@@ -107,6 +107,39 @@ async function bank(who) {
     if (!res.ok) return { ok: false, status: res.status, code: body?.error?.data?.intafacedCode ?? body?.error?.data?.code, body };
     return { ok: true, data: body.result.data };
   };
+  return {
+    query: (procedure, input) =>
+      fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
+        headers,
+      }).then(answer),
+    mutate: (procedure, input) =>
+      fetch(`${EDGE}/api/bank/trpc/${procedure}`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }).then(answer),
+  };
+}
+
+/**
+ * #8's own sign-in for `who`: the bank and identity doors on one session (a handle lookup and the step-up a payment to a
+ * person asks for). `withCode: false` signs in a person with no authenticator without spending one of #6's codes.
+ */
+async function session(who, { withCode = true } = {}) {
+  const totpCode = withCode ? await codeFor() : undefined;
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
+  const answer = async (res) => {
+    const body = await res.json();
+    if (!res.ok) return { ok: false, status: res.status, code: body?.error?.data?.intafacedCode ?? body?.error?.data?.code, body };
+    return { ok: true, data: body.result.data };
+  };
   const doors = (service) => ({
     query: (procedure, input) =>
       fetch(`${EDGE}/api/${service}/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
@@ -119,7 +152,6 @@ async function bank(who) {
         body: JSON.stringify(input),
       }).then(answer),
   });
-  // The same session's identity doors: a handle lookup and the step-up a payment to a person asks for.
   return { ...doors('bank'), identity: doors('identity') };
 }
 
@@ -499,10 +531,13 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
   test.setTimeout(300_000);
   const who = person();
   const payee = payer();
-  const api = await bank(who);
-  const main = (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  const api = await session(who);
+  const theirs = await session(payee, { withCode: false });
+  const mainOf = async (doors) =>
+    (await doors.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  const main = await mainOf(api);
   expect(main.balance).toBe('50');
-  const payeeBefore = await usdtUnits(payee);
+  const payeeBefore = (await mainOf(theirs)).balance;
 
   // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee. No overdraft engine exists in
   // this build, so the bank names it switched off rather than claim a negative balance it cannot book.
@@ -568,7 +603,7 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
     });
   };
   const refused = await pay();
-  expect(refused).toMatchObject({ ok: false, status: 400 });
+  expect(refused, JSON.stringify(refused.body ?? refused).slice(0, 600)).toMatchObject({ ok: false, status: 400 });
   expect(refused.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
   expect(refused.body?.error?.data?.spend).toMatchObject({ assetId: 'USDT', available: '50' });
   // Asking again is refused the same way: never a second attempt that lands.
@@ -576,8 +611,8 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
   expect(again.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
 
   // Nothing moved: the payer's balance never went below zero, the payee got nothing, and no payment is listed.
-  expect(await usdt(who)).toBe('50');
-  expect(await usdtUnits(payee)).toBe(payeeBefore);
+  expect((await mainOf(api)).balance).toBe('50');
+  expect((await mainOf(theirs)).balance).toBe(payeeBefore);
   const out = await api.query('transfers.list', { limit: 50 });
   expect(out.ok && out.data.items.filter((item) => item.kind === 'transfer_out')).toEqual([]);
 });
