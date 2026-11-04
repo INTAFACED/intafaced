@@ -2838,34 +2838,29 @@ export class AuthService {
    * same null: the caller must not learn which handles belong to restricted
    * accounts. Returns the stored handle and whether its owner lets people find
    * them by it (PP-send-request-03); the caller hides an undiscoverable one
-   * from everyone but its owner. Also the name they chose for their profile
-   * (null when there is no profile row) and the month they joined, so the
-   * sender can check who they are about to pay (J-pay-01 #2).
+   * from everyone but its owner.
    */
-  async findActiveByHandle(handle: string): Promise<{
-    userId: string;
-    handle: string;
-    discoverable: boolean;
-    name: string | null;
-    memberSince: string;
-  } | null> {
-    const rows = await this.sql<
-      Array<{ id: string; handle: string; handle_discoverable: boolean; display_name: string | null; member_since: string }>
-    >`
-      SELECT u.id, u.handle, u.handle_discoverable, p.display_name,
-             to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS member_since
-        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE u.handle = ${handle} AND u.status = 'active' LIMIT 1`;
+  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
+    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
+      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
-    return row
-      ? {
-          userId: row.id,
-          handle: row.handle,
-          discoverable: row.handle_discoverable,
-          name: row.display_name,
-          memberSince: row.member_since,
-        }
-      : null;
+    return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
+  }
+
+  /**
+   * The payee card Send shows once a handle or pay code has named an account (J-pay-01 #2): the name the person chose
+   * for their profile (null when none) and the month they joined (`YYYY-MM`, UTC). Only `active` accounts; frozen,
+   * closed and missing are the same null. Never an email, phone or legal name.
+   */
+  async payeeCardOf(
+    userId: string,
+  ): Promise<{ name: string | null; memberSince: string; discoverable: boolean } | null> {
+    const rows = await this.sql<Array<{ display_name: string | null; member_since: string; handle_discoverable: boolean }>>`
+      SELECT p.display_name, to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS member_since, u.handle_discoverable
+        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = ${userId} AND u.status = 'active' LIMIT 1`;
+    const row = rows[0];
+    return row ? { name: row.display_name, memberSince: row.member_since, discoverable: row.handle_discoverable } : null;
   }
 
   /**

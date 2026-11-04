@@ -1203,10 +1203,9 @@ export function createIdentityRouter(
        * Pay by exact @handle: show the sender who they are about to pay.
        *
        * Returns the least that lets a sender confirm the right person: the
-       * stored handle, the user id the transfer needs, `self`, the name the
-       * person chose for their profile (the name check of J-pay-01 #2; null
-       * when they have none) and the month they joined (`memberSince`, the
-       * member badge). Never an email, phone or legal name.
+       * stored handle, the user id the transfer needs, and `self`. No display
+       * name (a profile display name is never returned here; `payeeCard`
+       * answers it by the user id this returns), no email, phone or legal name.
        *
        * No enumeration: exact case-insensitive match only; malformed, unknown,
        * frozen, closed and undiscoverable (to anyone but their owner) handles
@@ -1219,14 +1218,7 @@ export function createIdentityRouter(
         .output(
           z.discriminatedUnion('found', [
             z.object({ found: z.literal(false) }),
-            z.object({
-              found: z.literal(true),
-              userId: z.string().guid(),
-              handle: z.string(),
-              self: z.boolean(),
-              name: z.string().nullable(),
-              memberSince: z.string().regex(/^\d{4}-\d{2}$/),
-            }),
+            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
           ]),
         )
         .query(async ({ ctx, input }) => {
@@ -1247,7 +1239,31 @@ export function createIdentityRouter(
           const self = hit.userId === ctx.principal.userId;
           // Discoverability off (PP-send-request-03): the same miss as an unknown handle for everyone but the owner.
           if (!hit.discoverable && !self) return { found: false as const };
-          return { found: true as const, userId: hit.userId, handle: hit.handle, self, name: hit.name, memberSince: hit.memberSince };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self };
+        }),
+
+      /**
+       * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
+       * chose for their profile (null when none) and the month they joined (the member badge). Keyed by the user id
+       * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
+       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions only.
+       */
+      payeeCard: protectedProcedure
+        .input(z.object({ userId: z.string().guid() }))
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), name: z.string().nullable(), memberSince: z.string().regex(/^\d{4}-\d{2}$/) }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee card needs a signed-in session' });
+          }
+          const card = await auth.payeeCardOf(input.userId);
+          if (!card) return { found: false as const };
+          if (!card.discoverable && input.userId !== ctx.principal.userId) return { found: false as const };
+          return { found: true as const, name: card.name, memberSince: card.memberSince };
         }),
 
       /**
