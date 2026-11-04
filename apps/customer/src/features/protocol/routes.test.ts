@@ -4,7 +4,7 @@ import { isWeb3Path, matchWeb3Route, WEB3_ROUTES } from './routes';
 import { lastShellRoute, rememberShellRoute, shellOf, SHELL_DEFAULT } from './shell-state';
 
 describe('Web3 routes (IA-SPEC 2.8)', () => {
-  it('has all thirty-three routes, each registered as a web3 room', () => {
+  it('has all thirty-four routes, each registered as a web3 room', () => {
     expect(WEB3_ROUTES.map((route) => route.path)).toEqual([
       '/dex',
       '/dex/pools',
@@ -39,6 +39,7 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
       '/chain/audit',
       '/protocol',
       '/protocol/contracts',
+      '/protocol/contracts/:address',
       '/protocol/rails',
       '/protocol/audit',
     ]);
@@ -51,6 +52,8 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
     expect(matchWeb3Route('/dex/pools/abc')?.route.pool).toBe('detail');
     expect(matchWeb3Route('/dex/pools/')?.route.tab).toBe('pools');
     expect(matchWeb3Route('/chain/blocks/123456')?.params).toEqual({ height: '123456' });
+    expect(matchWeb3Route('/protocol/contracts')?.route.tab).toBe('contracts');
+    expect(matchWeb3Route(`/protocol/contracts/0x${'ab'.repeat(20)}`)?.route.contract).toBe(true);
   });
 
   it('knows nothing it was not given', () => {

@@ -1,3 +1,8 @@
+import {
+  protocolContractBuildWriteOutputSchema,
+  protocolContractInspectOutputSchema,
+  protocolContractReadOutputSchema,
+} from '@intafaced/contracts/protocol-contract-source';
 import { z } from 'zod';
 import {
   dexHealthSchema,
@@ -97,6 +102,15 @@ export function createProtocolApi(api: ApiClient) {
     health: (signal?: AbortSignal) => api.query('protocol', 'health', undefined, protocolHealthSchema, { signal }),
     indexerStatus: (signal?: AbortSignal) => api.query('indexer', 'status', undefined, indexerStatusSchema, { signal }),
     dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),
+    /** A contract's source status, its proxy and the interface its Read and Write tabs use (D-explorer-06). */
+    contractInspect: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'contract.inspect', { address }, protocolContractInspectOutputSchema, { signal }),
+    /** One read function called at the contract's address, at one block. */
+    contractRead: (input: { address: string; signature: string; args: string[] }) =>
+      api.query('protocol', 'contract.read', input, protocolContractReadOutputSchema),
+    /** The unsigned call for one write function; the person's own wallet signs and sends it. */
+    contractBuildWrite: (input: { address: string; signature: string; args: string[]; value?: string }) =>
+      api.query('protocol', 'contract.buildWrite', input, protocolContractBuildWriteOutputSchema),
     /** The owner-published network registry. A field the owner has not published is null. */
     networksList: (signal?: AbortSignal) => api.query('protocol', 'networks.list', undefined, protocolNetworksListOutputSchema, { signal }),
     /** Recorded contracts and router versions for one chain. A chain with nothing recorded is a refusal, not an empty list. */

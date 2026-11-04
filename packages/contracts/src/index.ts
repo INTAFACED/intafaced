@@ -96,6 +96,7 @@ export * from './protocol-address-book.js';
 export * from './protocol-wallet-tx.js';
 export * from './outcome-markets.js';
 export * from './protocol-tokens.js';
+export * from './protocol-contract-source.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
 export * from './merchant-room-access.js';

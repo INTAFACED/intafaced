@@ -56,6 +56,18 @@ A book belongs to a wallet address and the visitor may be signed out, so ownersh
 
 Session refusals: `protocol.wallet_session_unset` (secret, lifetime or origins blank), `wallet_session_origin_unlisted`, `wallet_challenge_invalid`, `wallet_signature_not_owner`, `wallet_session_invalid`. Tables: `wallet_contacts`, `wallet_groups`, `wallet_group_members` (20261029050900); each write locks its owner, so the maximum holds under concurrent adds. Group activity needs the indexer's wallet-activity reader and is not served here.
 
+### `contract.*` — source status, proxies and the Read/Write tabs (D-explorer-06)
+
+Public (`publicJurisdictionProcedure`), read only, every chain read at one block (`src/contract-source/`).
+
+| Procedure             | Input                                  | Output / refusals                                                                                                                                                                                                                                                                                                         |
+| --------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contract.inspect`    | `{ address }`                          | `{ address, chainId, blockNumber, source, proxy, interface }`. `source` is `exact` or `similar` (name, file, compiler, source hash) or `unverified` with `no_code` / `no_matching_source`. `proxy` is an EIP-1167 clone or an EIP-1967 slot, with the implementation and its own source status.                           |
+| `contract.read`       | `{ address, signature, args }`         | `{ blockNumber, outputs }`: an `eth_call` at the inspected block, gas capped at `CONTRACT_READ_GAS`. `contract_interface_unknown`, `contract_function_unknown` (a write asked from Read), `contract_argument_invalid` (names the argument), `contract_call_reverted` (the contract's own error, or "No reason returned"). |
+| `contract.buildWrite` | `{ address, signature, args, value? }` | `{ chainId, to, data, value }`, the unsigned call the person's own wallet signs and sends. Value only for a payable function. Same refusals as `read`.                                                                                                                                                                    |
+
+The source on file is this service's own committed builds (`contracts/out/`), read once at boot. **Exact**: the runtime equals a build with only its immutables masked (`deployedCodeMatches`). **Similar**: equal once the CBOR metadata tail is cut from both, so the same program from source text that differs. Anything else is **unverified**, never guessed. For a proxy, Read and Write use the implementation's interface against the proxy's own address; an unverified implementation leaves no interface, and both tabs refuse. Not covered: EIP-1967 beacon proxies, Diamond (EIP-2535) facets, and sources compiled outside this repo (no public verifier is called).
+
 ### `launch.*` — ERC-20 deploy from an in-repo template (`launch.token-factory`, §8.4)
 
 | Procedure                     | Guard          | Input                            | Output                                                                                                             |
