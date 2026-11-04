@@ -50,6 +50,7 @@ import {
   type Contact,
   type PaymentRequest,
   type PersonalPayApi,
+  type SavedRecipientsOutcome,
   type SentEntry,
 } from './deps';
 import { payCopy } from './copy';
@@ -57,7 +58,16 @@ import { personalCopy } from './personal-copy';
 import { copyText } from './share';
 import { PAY_SENT_EVENT } from './recent-model';
 import { termsVerdict, useSendTerms, type TermsVerdict } from './send-terms';
-import { checkAmount, lookalikeOf, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
+import {
+  checkAmount,
+  lookalikeOf,
+  SAVED_PAGE,
+  parseAccountId,
+  rememberRecipient,
+  sentBefore,
+  sourcesFrom,
+  type Source,
+} from './send-model';
 import type { IdentityState } from './identity-state';
 import type { z } from 'zod';
 
@@ -71,11 +81,18 @@ const BALANCE_PLACES = 8;
  * `name` is the name on their profile and `memberSince` the month they joined (`YYYY-MM`), when the lookup said so.
  * `member` is true when the service itself confirmed a member behind the handle or pay code.
  */
-type Payee = { userId: string; handle: string | null; name: string | null; memberSince: string | null; member: boolean };
+type Payee = {
+  userId: string;
+  handle: string | null;
+  /** Undefined when nothing was asked about their name (a pay code, an Account ID, an older server): no line is shown. */
+  name?: string | null;
+  memberSince: string | null;
+  member: boolean;
+};
 const payee = (userId: string, handle: string | null, more: Partial<Omit<Payee, 'userId' | 'handle'>> = {}): Payee => ({
   userId,
   handle,
-  name: more.name ?? null,
+  ...(more.name !== undefined ? { name: more.name } : {}),
   memberSince: more.memberSince ?? null,
   member: more.member ?? false,
 });
@@ -209,14 +226,17 @@ function SendForm({
   const contacts = useMemo(() => contactsFrom(readSent(userId)), [userId, remembered]);
   const toast = useToast();
   // The people this customer saved to pay again: a looked-up handle is checked against them (J-pay-01 #2).
-  const [saved, setSaved] = useState<{ kind: 'loading' } | { kind: 'ok'; handles: string[] } | { kind: 'failed' }>({ kind: 'loading' });
+  // Kept with the account it was read for, so another account's list is never used after a switch.
+  const [savedRead, setSaved] = useState<{ owner: string; outcome: SavedRecipientsOutcome } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
+    setSaved(null);
     void fetchSavedRecipients(api, controller.signal).then((outcome) => {
-      if (!controller.signal.aborted) setSaved(outcome);
+      if (!controller.signal.aborted) setSaved({ owner: userId, outcome });
     });
     return () => controller.abort();
   }, [api, userId]);
+  const saved: SavedRecipientsOutcome | { kind: 'loading' } = savedRead?.owner === userId ? savedRead.outcome : { kind: 'loading' };
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -462,9 +482,15 @@ function SendForm({
   const [receipt, setReceipt] = useState<Receipt | null>(() => lastReceipt.get(key) ?? null);
 
   // A handle that looks like someone saved is flagged before Review and again on it. It is a caution, not a block.
-  const lookalike =
-    recipient.kind === 'found' && recipient.handle && saved.kind === 'ok' ? lookalikeOf(recipient.handle, saved.handles) : null;
-  const savedUnchecked = recipient.kind === 'found' && recipient.handle !== null && saved.kind === 'failed';
+  const foundHandle = recipient.kind === 'found' ? recipient.handle : null;
+  const savedHandles = saved.kind === 'ok' ? saved.handles : null;
+  const lookalike = useMemo(
+    () => (foundHandle && savedHandles ? lookalikeOf(foundHandle, savedHandles) : null),
+    [foundHandle, savedHandles],
+  );
+  // The list answers at most SAVED_PAGE saved recipients; a full page may not be all of them, so the screen says so.
+  const savedUnchecked =
+    foundHandle !== null && lookalike === null && (saved.kind === 'failed' || (savedHandles !== null && savedHandles.length >= SAVED_PAGE));
 
   // Enter looks the person up when nothing has been asked yet, or when the last try failed or was rationed.
   const retryable = recipient.kind === 'idle' || (recipient.kind === 'problem' && recipient.retry === true);
@@ -473,13 +499,15 @@ function SendForm({
     ? payCopy.t('Still confirming')
     : recipient.kind !== 'found'
       ? payCopy.t('Choose who to pay')
-      : !source
-        ? payCopy.t('Choose what to send')
-        : amountCheck.kind === 'exceeds'
-          ? payCopy.t('Not enough {asset}', { asset: source.asset })
-          : amountCheck.kind !== 'ok'
-            ? payCopy.t('Enter an amount')
-            : termsBlock(verdict, personal);
+      : recipient.handle !== null && saved.kind === 'loading'
+        ? payCopy.t('Checking saved')
+        : !source
+          ? payCopy.t('Choose what to send')
+          : amountCheck.kind === 'exceeds'
+            ? payCopy.t('Not enough {asset}', { asset: source.asset })
+            : amountCheck.kind !== 'ok'
+              ? payCopy.t('Enter an amount')
+              : termsBlock(verdict, personal);
 
   function prepare() {
     if (reason !== null || recipient.kind !== 'found' || !source || inFlight.current || verdict.kind !== 'ok') return;
@@ -1098,9 +1126,11 @@ function PayeeLine({ who, locale, testId = 'recipient-found' }: { who: Payee; lo
       </span>
       {who.handle ? (
         <span className="pay-found__who">
-          <span className="pay-found__name" data-testid="recipient-name">
-            {who.name ?? payCopy.t('No name shared')}
-          </span>
+          {who.name !== undefined ? (
+            <span className="pay-found__name" data-testid="recipient-name">
+              {who.name ?? payCopy.t('No name shared')}
+            </span>
+          ) : null}
           <span className="pay-found__handle" data-testid="recipient-handle">{`@${who.handle}`}</span>
         </span>
       ) : (

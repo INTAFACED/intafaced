@@ -102,12 +102,10 @@ async function onSend(page) {
   await expect(page.getByText(/page not found/i)).toHaveCount(0);
 }
 
+/** The personal rooms the Pay card offers as its own tabs, beside Send. */
+const TABS = ['Receive', 'Request', 'Bills', 'Global'];
 /** Every other personal Pay room, by its name and address (apps/customer/src/app/navigation.ts). */
 const OTHER_ROOMS = [
-  ['Request', '/pay/request'],
-  ['Receive', '/pay/receive'],
-  ['Bill pay', '/pay/bills'],
-  ['Send globally', '/pay/global'],
   ['Scheduled', '/pay/scheduled'],
   ['Contacts', '/pay/contacts'],
   ['Send limits', '/pay/send/limits'],
@@ -155,7 +153,8 @@ test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, wi
   await page.goto('/');
   await page.getByRole('link', { name: 'Pay', exact: true }).first().click();
   await onSend(page);
-  // The other personal rooms are listed in the room itself, each a link to its own address.
+  // The other personal rooms are listed in the room itself: the card's tabs, then a list of links to the rest.
+  for (const name of TABS) await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
   const list = page.getByRole('navigation', { name: 'More in Pay' });
   for (const [name, href] of OTHER_ROOMS) await expect(list.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
   await expect(list.getByRole('link')).toHaveCount(OTHER_ROOMS.length);

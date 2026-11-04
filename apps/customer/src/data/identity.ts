@@ -50,7 +50,8 @@ export type MeOutcome =
   | { kind: 'failed' };
 
 export type ResolveOutcome =
-  | { kind: 'found'; userId: string; handle: string; self: boolean; name: string | null; memberSince: string | null }
+  /** `name` is undefined when the server does not answer names (older than J-pay-01 #2), null when they have none. */
+  | { kind: 'found'; userId: string; handle: string; self: boolean; name: string | null | undefined; memberSince: string | null }
   | { kind: 'notFound' }
   | { kind: 'rateLimited' }
   /** The server has no `resolveHandle` yet: fall back to the Account ID input. */
@@ -93,7 +94,8 @@ export async function resolveHandle(api: ApiClient, handle: string, signal?: Abo
   if (!result.data.found) return { kind: 'notFound' };
   // The answer must be about the handle we asked for. Anything else is a bad answer, not a person to pay.
   if (result.data.handle.toLowerCase() !== clean.toLowerCase()) return { kind: 'failed' };
-  const name = result.data.name?.trim() ? result.data.name.trim() : null;
+  const raw = result.data.name;
+  const name = raw === undefined ? undefined : raw?.trim() ? raw.trim() : null;
   return {
     kind: 'found',
     userId: result.data.userId,
@@ -112,7 +114,7 @@ const savedRecipientsSchema = z.array(z.object({ handle: z.string().min(1), labe
 
 export type SavedRecipientsOutcome = { kind: 'ok'; handles: string[] } | { kind: 'failed' };
 
-/** The 100 most recent saved recipients' handles. Any failure is `failed`: the screen says it could not check, never "none". */
+/** The most recently saved recipients' handles, one page of 100. Any failure is `failed`: the screen says it could not check, never "none". */
 export async function fetchSavedRecipients(api: ApiClient, signal?: AbortSignal): Promise<SavedRecipientsOutcome> {
   const result = await api.query('identity', 'recipients.list', { limit: 100 }, savedRecipientsSchema, { signal });
   return result.ok ? { kind: 'ok', handles: result.data.map((row) => row.handle) } : { kind: 'failed' };

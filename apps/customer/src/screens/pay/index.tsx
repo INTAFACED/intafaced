@@ -27,9 +27,9 @@ import { RecentPanel } from './RecentPanel';
 import { rooms, roomTitle } from '../../app/navigation';
 
 /**
- * The other personal Pay rooms (J-pay-01 #1), read from the one route table so a new room is listed where it is routed.
- * Send itself and Pay's own address are the page this list sits on; a parameter room, a business room and a hidden one
- * are not listed.
+ * The other personal Pay rooms beyond the card's own tabs (J-pay-01 #1), read from the one route table so a new room is
+ * listed where it is routed. Pay's own address and the tabs are already on the page; a parameter room, a business room
+ * and a hidden one are not listed.
  */
 export const payRooms = () =>
   rooms.filter(
@@ -40,7 +40,7 @@ export const payRooms = () =>
       !room.hidden &&
       !room.path.includes(':') &&
       room.path !== '/pay' &&
-      room.path !== '/pay/send' &&
+      !Object.values(ROUTES).includes(room.path) &&
       !isHiddenPath(room.path),
   );
 
@@ -69,6 +69,7 @@ function PayTabs({ path, search }: ScreenProps) {
   const { api, userId, session } = useSession();
   const identity = useIdentity(api, userId);
   const tab = tabOf(path);
+  const otherRooms = useMemo(payRooms, []);
   // A payment link opens Send already filled in. It is only a suggestion: Send still reviews every field.
   const prefill = useMemo(() => (tab === 'send' ? parseRequestSearch(search) : null), [tab, search]);
   const tagline =
@@ -136,7 +137,7 @@ function PayTabs({ path, search }: ScreenProps) {
           )}
           <nav className="pay-rooms" aria-label={t('Pay rooms')} data-testid="pay-rooms">
             <p className="pay-rooms__title">{t('Pay rooms')}</p>
-            {payRooms().map((room) => (
+            {otherRooms.map((room) => (
               <a key={room.path} className="pay-chip" href={room.path}>
                 {roomTitle(room)}
               </a>

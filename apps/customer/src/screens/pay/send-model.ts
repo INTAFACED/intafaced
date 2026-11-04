@@ -66,6 +66,9 @@ export function sourcesFrom(spaces: readonly SpaceRow[], nowMs: number): Source[
     }));
 }
 
+/** How many saved recipients Send reads (the most `identity.recipients.list` answers in one page). */
+export const SAVED_PAGE = 100;
+
 // ── Look-alike handles (J-pay-01 #2) ────────────────────────────────────────────────────────────────────────────
 
 /** Characters people misread for one another in a handle: each is read as the letter it imitates. */

@@ -55,7 +55,7 @@ describe('resolveHandle', () => {
       userId: ID,
       handle: 'Luffy2',
       self: false,
-      name: null,
+      name: undefined,
       memberSince: null,
     });
     expect(decodeURIComponent(urls[0]!)).toBe('/api/identity/trpc/users.resolveHandle?input={"handle":"luffy2"}');
