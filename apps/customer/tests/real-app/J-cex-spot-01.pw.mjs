@@ -214,8 +214,11 @@ async function depositReleased(page, browser, client, who, amount, label) {
     let found = false;
     for (let i = 0, n = await rows.count(); i < n && !found; i += 1) {
       const toggle = rows.nth(i).getByRole('button', { name: /^(Open|Close)$/ });
-      if ((await toggle.innerText()).trim() === 'Open') await toggle.click();
-      await expect(toggle).toHaveText('Close');
+      // A click before the console is ready to answer it opens nothing, so it is clicked again until the row is open.
+      await expect(async () => {
+        if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 });
+      }).toPass({ timeout: 30_000 });
       await expect(detail).toHaveCount(1);
       const text = await detail.innerText();
       seen.push(text.replace(/\s+/g, ' ').slice(0, 200));
