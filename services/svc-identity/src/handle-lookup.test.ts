@@ -41,9 +41,9 @@ async function ctx(opts: { anonymous?: boolean; userId?: string; apiKeyId?: stri
 }
 
 const users = new Map([
-  ['luffy', { userId: FRIEND, handle: 'Luffy', discoverable: true, name: 'Monkey D. Luffy', memberSince: '2026-03' }],
-  ['me_self', { userId: ME, handle: 'Me_Self', discoverable: true, name: null, memberSince: '2025-12' }],
-  ['hidden_one', { userId: HIDDEN, handle: 'Hidden_One', discoverable: false, name: 'Hidden', memberSince: '2026-01' }],
+  ['luffy', { userId: FRIEND, handle: 'Luffy', discoverable: true }],
+  ['me_self', { userId: ME, handle: 'Me_Self', discoverable: true }],
+  ['hidden_one', { userId: HIDDEN, handle: 'Hidden_One', discoverable: false }],
 ]);
 
 function setup(limiter?: HandleLookupLimiter) {
@@ -74,12 +74,12 @@ describe('identity.users.resolveHandle', () => {
     expect(findActiveByHandle).not.toHaveBeenCalled();
   });
 
-  it('resolves an exact handle and returns exactly userId, handle, self, their chosen name and the month they joined', async () => {
+  it('resolves an exact handle and returns exactly userId, handle, self', async () => {
     const { router } = setup();
     const api = router.createCaller(await ctx());
     const hit = await api.users.resolveHandle({ handle: 'Luffy' });
-    expect(hit).toEqual({ found: true, userId: FRIEND, handle: 'Luffy', self: false, name: 'Monkey D. Luffy', memberSince: '2026-03' });
-    expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'memberSince', 'name', 'self', 'userId']);
+    expect(hit).toEqual({ found: true, userId: FRIEND, handle: 'Luffy', self: false });
+    expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'self', 'userId']);
   });
 
   it('accepts the leading @ the UI shows and ignores surrounding space', async () => {
@@ -97,8 +97,6 @@ describe('identity.users.resolveHandle', () => {
       userId: ME,
       handle: 'Me_Self',
       self: true,
-      name: null,
-      memberSince: '2025-12',
     });
   });
 
@@ -114,8 +112,6 @@ describe('identity.users.resolveHandle', () => {
       userId: HIDDEN,
       handle: 'Hidden_One',
       self: true,
-      name: 'Hidden',
-      memberSince: '2026-01',
     });
   });
 
@@ -172,5 +168,42 @@ describe('normaliseHandleQuery', () => {
     expect(normaliseHandleQuery('ab')).toBeNull();
     expect(normaliseHandleQuery('abc%')).toBeNull();
     expect(normaliseHandleQuery('abc def')).toBeNull();
+  });
+});
+
+describe('identity.users.payeeCard (J-pay-01 #2)', () => {
+  const cards = new Map([
+    [FRIEND, { name: 'Monkey D. Luffy', memberSince: '2026-03', discoverable: true }],
+    [HIDDEN, { name: 'Hidden', memberSince: '2026-01', discoverable: false }],
+  ]);
+  function cardSetup() {
+    const payeeCardOf = vi.fn(async (userId: string) => cards.get(userId) ?? null);
+    const auth = { payeeCardOf } as unknown as AuthService;
+    return { router: createIdentityRouter(auth, {} as unknown as RankService, { registrationOpen: true }), payeeCardOf };
+  }
+
+  it('answers exactly the chosen name and the month joined for a findable account, never more', async () => {
+    const api = cardSetup().router.createCaller(await ctx());
+    const card = await api.users.payeeCard({ userId: FRIEND });
+    expect(card).toEqual({ found: true, name: 'Monkey D. Luffy', memberSince: '2026-03' });
+  });
+
+  it('answers an unknown account and one that is not findable the same, except to its owner', async () => {
+    const api = cardSetup().router.createCaller(await ctx());
+    expect(await api.users.payeeCard({ userId: '66666666-6666-4666-8666-666666666666' })).toEqual({ found: false });
+    expect(await api.users.payeeCard({ userId: HIDDEN })).toEqual({ found: false });
+    const owner = cardSetup().router.createCaller(await ctx({ userId: HIDDEN }));
+    expect(await owner.users.payeeCard({ userId: HIDDEN })).toEqual({ found: true, name: 'Hidden', memberSince: '2026-01' });
+  });
+
+  it('refuses an anonymous caller and an API key before reading anything', async () => {
+    const { router, payeeCardOf } = cardSetup();
+    await expect(router.createCaller(await ctx({ anonymous: true })).users.payeeCard({ userId: FRIEND })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    await expect(
+      router.createCaller(await ctx({ apiKeyId: '55555555-5555-4555-8555-555555555555' })).users.payeeCard({ userId: FRIEND }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(payeeCardOf).not.toHaveBeenCalled();
   });
 });

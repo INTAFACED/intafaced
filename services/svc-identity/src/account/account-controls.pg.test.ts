@@ -221,7 +221,7 @@ if (!available) {
   }
 
   describe('profile.get and profile.update', () => {
-    it('round-trips a display name and locale, and resolveHandle answers the chosen name (J-pay-01 #2), never the email', async () => {
+    it('round-trips a display name and locale, and resolveHandle still returns no display name', async () => {
       const user = await register();
       const caller = await callerOf(user);
       expect(await caller.profile.get()).toMatchObject({ displayName: user.handle, locale: 'en', region: 'DE', version: 0 });
@@ -229,9 +229,8 @@ if (!available) {
       expect(updated).toMatchObject({ displayName: 'Ada Lovelace', locale: 'fr', region: 'DE', version: 1 });
       expect(await caller.profile.get()).toEqual(updated);
       const resolved = await caller.users.resolveHandle({ handle: user.handle });
-      expect(resolved).toMatchObject({ found: true, userId: user.userId, handle: user.handle, self: true, name: 'Ada Lovelace' });
-      expect(Object.keys(resolved).sort()).toEqual(['found', 'handle', 'memberSince', 'name', 'self', 'userId']);
-      expect(JSON.stringify(resolved)).not.toContain(user.email);
+      expect(resolved).toEqual({ found: true, userId: user.userId, handle: user.handle, self: true });
+      expect(resolved).not.toHaveProperty('displayName');
       const audit = await db.sql<Array<{ fields: string[]; old_display_name: string; new_display_name: string; session_id: string }>>`
         SELECT fields, old_display_name, new_display_name, session_id::text FROM profile_audit WHERE user_id = ${user.userId}
       `;

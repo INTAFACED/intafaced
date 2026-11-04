@@ -18,6 +18,7 @@ import {
   contactsFrom,
   createPersonalPayApi,
   dec,
+  fetchPayeeCard,
   fetchSavedRecipients,
   fmtAmount,
   fractionDigits,
@@ -275,10 +276,11 @@ function SendForm({
       case 'found':
         if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
           return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
-        return setRecipient({
-          kind: 'found',
-          ...payee(outcome.userId, outcome.handle, { name: outcome.name, memberSince: outcome.memberSince, member: true }),
-        });
+        {
+          const who = await withCard(mine, controller.signal, payee(outcome.userId, outcome.handle, { member: true }));
+          if (lookup.current.id !== mine || controller.signal.aborted) return;
+          return setRecipient({ kind: 'found', ...who });
+        }
       case 'notFound':
         return setRecipient({ kind: 'problem', text: payCopy.t('Handle not found', { handle }) });
       case 'rateLimited':
@@ -292,6 +294,17 @@ function SendForm({
       case 'failed':
         return setRecipient({ kind: 'problem', text: payCopy.t('Lookup failed'), retry: true });
     }
+  }
+
+  /**
+   * The person a lookup or a pay code named, with their payee card (J-pay-01 #2): the name on their profile and the
+   * month they joined, which is also the member badge. When the card can't be read, the person is still shown by handle,
+   * with no name line and no badge. A newer lookup that started meanwhile wins: the caller checks `mine` again.
+   */
+  async function withCard(mine: number, signal: AbortSignal, who: Payee): Promise<Payee> {
+    const card = await fetchPayeeCard(api, who.userId, signal);
+    if (lookup.current.id !== mine || signal.aborted || card.kind !== 'ok') return who;
+    return { ...who, name: card.name, memberSince: card.memberSince, member: true };
   }
 
   /**
@@ -313,7 +326,11 @@ function SendForm({
         if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
           return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
         setTo(byHandle ? outcome.handle : outcome.userId);
-        return setRecipient({ kind: 'found', ...payee(outcome.userId, byHandle ? outcome.handle : null, { member: true }) });
+        {
+          const who = await withCard(mine, controller.signal, payee(outcome.userId, byHandle ? outcome.handle : null, { member: true }));
+          if (lookup.current.id !== mine || controller.signal.aborted) return;
+          return setRecipient({ kind: 'found', ...who });
+        }
       case 'invalid':
         return setRecipient({ kind: 'problem', text: personal.t('qrInvalid') });
       case 'payeeUnavailable':

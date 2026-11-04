@@ -41,6 +41,7 @@ export { fractionDigits } from '../../data/decimal';
 export {
   fetchMe,
   fetchMyPayQr,
+  fetchPayeeCard,
   fetchSavedRecipients,
   PAY_QR_KEY_UNSET,
   resolveHandle,

@@ -59,12 +59,6 @@ if (!available) {
     return s.userId;
   }
 
-  /** The month the account was created, as identity stored it (UTC). */
-  async function joined(userId: string) {
-    const [row] = await db.sql<Array<{ created_at: Date }>>`SELECT created_at FROM users WHERE id = ${userId}`;
-    return row!.created_at.toISOString().slice(0, 7);
-  }
-
   async function as(userId: string) {
     const { token } = await issueAccessToken(
       { userId, sessionId: '44444444-4444-4444-8444-444444444444', scopes: [...SESSION_SCOPES], tier: 'none', mfa: true },
@@ -79,18 +73,9 @@ if (!available) {
       const sender = await signUp('Sender_One');
       const friend = await signUp('Straw_Hat');
       const api = await as(sender);
-      // Sign-up names the profile after the handle; the name the person chose later is what a sender sees.
-      await db.sql`UPDATE profiles SET display_name = 'Nami Navigator' WHERE user_id = ${friend}`;
       for (const q of ['Straw_Hat', 'straw_hat', 'STRAW_HAT', '@sTRAW_hAT']) {
         const hit = await api.users.resolveHandle({ handle: q });
-        expect(hit).toEqual({
-          found: true,
-          userId: friend,
-          handle: 'Straw_Hat',
-          self: false,
-          name: 'Nami Navigator',
-          memberSince: await joined(friend),
-        });
+        expect(hit).toEqual({ found: true, userId: friend, handle: 'Straw_Hat', self: false });
       }
     });
 
@@ -116,27 +101,31 @@ if (!available) {
       expect(await api.users.resolveHandle({ handle: 'closed_pal' })).toEqual(unknown);
     });
 
+    it('answers the payee card by user id: the chosen name and the month joined, null for no name, nothing for a frozen account', async () => {
+      const sender = await signUp('Card_Sender');
+      const friend = await signUp('Card_Friend');
+      const nameless = await signUp('Card_Nameless');
+      const frozen = await signUp('Card_Frozen');
+      await db.sql`UPDATE profiles SET display_name = 'Nami Navigator' WHERE user_id = ${friend}`;
+      await db.sql`UPDATE profiles SET display_name = NULL WHERE user_id = ${nameless}`;
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${frozen}`;
+      const [row] = await db.sql<Array<{ created_at: Date }>>`SELECT created_at FROM users WHERE id = ${friend}`;
+      const api = await as(sender);
+      expect(await api.users.payeeCard({ userId: friend })).toEqual({
+        found: true,
+        name: 'Nami Navigator',
+        memberSince: row!.created_at.toISOString().slice(0, 7),
+      });
+      expect(await api.users.payeeCard({ userId: nameless })).toMatchObject({ found: true, name: null });
+      expect(await api.users.payeeCard({ userId: frozen })).toEqual({ found: false });
+    });
+
     it('marks your own handle self:true and returns no extra fields', async () => {
       const me = await signUp('Myself_Here');
       const api = await as(me);
       const hit = await api.users.resolveHandle({ handle: 'myself_here' });
-      expect(hit).toEqual({
-        found: true,
-        userId: me,
-        handle: 'Myself_Here',
-        self: true,
-        name: 'Myself_Here',
-        memberSince: await joined(me),
-      });
-      expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'memberSince', 'name', 'self', 'userId']);
-    });
-
-    it('answers a null name for a profile with no name, never a made-up one', async () => {
-      const sender = await signUp('Sender_Four');
-      const bare = await signUp('No_Name');
-      await db.sql`UPDATE profiles SET display_name = NULL WHERE user_id = ${bare}`;
-      const api = await as(sender);
-      expect(await api.users.resolveHandle({ handle: 'no_name' })).toMatchObject({ found: true, userId: bare, name: null });
+      expect(hit).toEqual({ found: true, userId: me, handle: 'Myself_Here', self: true });
+      expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'self', 'userId']);
     });
   });
 

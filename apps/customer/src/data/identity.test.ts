@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../shared/api';
-import { cleanHandle, fetchMe, fetchMyPayQr, resolveHandle, resolvePayQr } from './identity';
+import { cleanHandle, fetchMe, fetchMyPayQr, fetchPayeeCard, resolveHandle, resolvePayQr } from './identity';
 
 const ID = '1f985d42-852d-4b50-a4d9-bdfa0384027c';
 const trpc = (data: unknown) => new Response(JSON.stringify({ result: { data } }), { status: 200 });
@@ -47,33 +47,29 @@ describe('fetchMe', () => {
   });
 });
 
+describe('fetchPayeeCard (J-pay-01 #2)', () => {
+  it('asks by user id and answers the trimmed name and the month joined; a blank name is none', async () => {
+    const { api, urls } = client(() => trpc({ found: true, name: ' Monkey ', memberSince: '2026-03' }));
+    expect(await fetchPayeeCard(api, ID)).toEqual({ kind: 'ok', name: 'Monkey', memberSince: '2026-03' });
+    expect(decodeURIComponent(urls[0]!)).toBe(`/api/identity/trpc/users.payeeCard?input={"userId":"${ID}"}`);
+    expect(await fetchPayeeCard(client(() => trpc({ found: true, name: '  ', memberSince: '2026-03' })).api, ID)).toEqual({
+      kind: 'ok',
+      name: null,
+      memberSince: '2026-03',
+    });
+  });
+  it('is none when not found, refused, missing or of the wrong shape: the screen then shows no name line', async () => {
+    expect(await fetchPayeeCard(client(() => trpc({ found: false })).api, ID)).toEqual({ kind: 'none' });
+    expect(await fetchPayeeCard(client(() => error(404)).api, ID)).toEqual({ kind: 'none' });
+    expect(await fetchPayeeCard(client(() => trpc({ found: true, name: 'x', memberSince: 'March' })).api, ID)).toEqual({ kind: 'none' });
+  });
+});
+
 describe('resolveHandle', () => {
   it('asks for the exact handle without the @', async () => {
     const { api, urls } = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false }));
-    expect(await resolveHandle(api, '@luffy2')).toEqual({
-      kind: 'found',
-      userId: ID,
-      handle: 'Luffy2',
-      self: false,
-      name: undefined,
-      memberSince: null,
-    });
+    expect(await resolveHandle(api, '@luffy2')).toEqual({ kind: 'found', userId: ID, handle: 'Luffy2', self: false });
     expect(decodeURIComponent(urls[0]!)).toBe('/api/identity/trpc/users.resolveHandle?input={"handle":"luffy2"}');
-  });
-  it('carries the name they chose and the month they joined (J-pay-01 #2), and drops a blank name', async () => {
-    const named = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: ' Monkey ', memberSince: '2026-03' }));
-    expect(await resolveHandle(named.api, 'luffy2')).toEqual({
-      kind: 'found',
-      userId: ID,
-      handle: 'Luffy2',
-      self: false,
-      name: 'Monkey',
-      memberSince: '2026-03',
-    });
-    const blank = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: '  ', memberSince: '2026-03' }));
-    expect(await resolveHandle(blank.api, 'luffy2')).toMatchObject({ name: null });
-    const odd = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: 'x', memberSince: 'March' }));
-    expect(await resolveHandle(odd.api, 'luffy2')).toEqual({ kind: 'failed' });
   });
   it('reports yourself so the screen can refuse', async () => {
     const { api } = client(() => trpc({ found: true, userId: ID, handle: 'test_friend', self: true }));

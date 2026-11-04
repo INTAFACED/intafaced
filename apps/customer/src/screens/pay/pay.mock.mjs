@@ -1,6 +1,7 @@
 // Answers the calls the Pay screen makes, for the Playwright tests. No service is contacted.
 //  - /api/identity/trpc/me                    (GET)   caller's own handle        [backend PR #4688]
 //  - /api/identity/trpc/users.resolveHandle   (GET)   exact @handle lookup       [backend PR #4688]
+//  - /api/identity/trpc/users.payeeCard      (GET)   payee card (none here)     [J-pay-01 #2]
 //  - /api/identity/trpc/recipients.list       (GET)   saved recipients (none here) [J-pay-01 #2]
 //  - /api/identity/trpc/handle.get            (GET)   own handle settings        [PP-send-request-03]
 //  - /api/identity/trpc/handle.change         (POST)  change own handle (TEST cap below)
@@ -74,6 +75,7 @@ export async function mock(page, overrides = {}) {
       return trpc({ found: false });
     },
     savedRecipients: () => trpc([]),
+    payeeCard: () => trpc({ found: false }),
     handleGet: () => trpc(handleView()),
     handleChange: ({ body }) => {
       const next = String(body.handle).trim().replace(/^@/, '');
@@ -132,6 +134,7 @@ export async function mock(page, overrides = {}) {
       me: 'me',
       'users.resolveHandle': 'resolve',
       'recipients.list': 'savedRecipients',
+      'users.payeeCard': 'payeeCard',
       'handle.get': 'handleGet',
       'handle.change': 'handleChange',
       'handle.setDiscoverable': 'handleDiscoverable',
