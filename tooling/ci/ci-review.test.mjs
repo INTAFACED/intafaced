@@ -13,7 +13,7 @@ import {
   readReviewRuns,
   reviewIndexName,
   REVIEW_BORN,
-  INDEX_STEP,
+  REVIEW_INDEX_LIVE,
   readIndexLive,
   REVIEW_WORKFLOW,
   STATUS_CONTEXT,
@@ -148,29 +148,24 @@ test('fails (planted): an empty commit pushed after a FAIL; a real change gets a
 /**
  * A fake GitHub API for readReviewRuns, answering the paths it reads: each runs list (keyed by its decoded query, paged
  * 100 at a time; `totals` overrides a list's total_count to plant a short read), the tree index's artifacts by name,
- * single runs by id, commits' trees, and the default branch's commits to ci-review.yml with each one's copy (`workflow`:
- * newest first, `index` true when that copy runs the index step). `asked` records every path read.
+ * single runs by id, commits' trees, and the go-live marker (`live`: the runs its artifacts name; by default one CI
+ * review run started at LIVE_AT). `asked` records every path read.
  */
 const LIVE_AT = '2026-11-04T12:00:00Z';
-const LIVE_WORKFLOW = [{ sha: '1'.repeat(40), date: LIVE_AT, index: true }];
-// The default branch's commits to ci-review.yml and each one's copy, for the fake APIs below.
-const workflowApi = (workflow, path) => {
+const liveRun = (id, created_at, over = {}) => run({ id, head_sha: 'c'.repeat(40), created_at, ...over });
+const LIVE = [liveRun(77, LIVE_AT)];
+// The go-live marker's answers, for the fake APIs below: undefined when the path is something else.
+const liveApi = (live, path) => {
   const [p, qs = ''] = path.split('?');
-  if (p.endsWith('/commits')) {
+  if (p.endsWith('/actions/artifacts') && new URLSearchParams(qs).get('name') === REVIEW_INDEX_LIVE) {
     const n = Number(new URLSearchParams(qs).get('page'));
-    return workflow.slice((n - 1) * 100, n * 100).map((c) => ({ sha: c.sha, commit: { committer: { date: c.date } } }));
+    const all = live.map((r) => ({ name: REVIEW_INDEX_LIVE, workflow_run: { id: r.id } }));
+    return { total_count: all.length, artifacts: all.slice((n - 1) * 100, n * 100) };
   }
-  const at = /\/contents\/\.github\/workflows\/ci-review\.yml$/.test(p) && new URLSearchParams(qs).get('ref');
-  if (at) {
-    const c = workflow.find((w) => w.sha === at);
-    if (!c) return null;
-    return {
-      content: Buffer.from(`steps:\n  - run: node ${c.index ? INDEX_STEP : 'tooling/ci/ci-review.mjs diff'} x\n`).toString('base64'),
-    };
-  }
-  return undefined;
+  const one = /\/actions\/runs\/(\d+)$/.exec(p);
+  return one ? live.find((r) => r.id === Number(one[1])) : undefined;
 };
-const fakeApi = ({ lists = {}, totals = {}, artifacts = {}, byId = {}, trees = {}, workflow = LIVE_WORKFLOW } = {}) => {
+const fakeApi = ({ lists = {}, totals = {}, artifacts = {}, byId = {}, trees = {}, live = LIVE } = {}) => {
   const asked = [];
   const page = (all, qs, key, total) => {
     const n = Number(new URLSearchParams(qs).get('page'));
@@ -178,8 +173,8 @@ const fakeApi = ({ lists = {}, totals = {}, artifacts = {}, byId = {}, trees = {
   };
   const get = async (path) => {
     asked.push(path);
-    const wf = workflowApi(workflow, path);
-    if (wf !== undefined) return wf;
+    const marker = liveApi(live, path);
+    if (marker !== undefined) return marker;
     const [p, qs = ''] = path.split('?');
     const commit = /\/git\/commits\/([0-9a-f]{40})$/.exec(p);
     if (commit) return { tree: { sha: trees[commit[1]] ?? '' } };
@@ -358,8 +353,8 @@ test('the window before the index is read in time slices past 1,000, whole or no
     const asked = [];
     const get = async (path) => {
       asked.push(path);
-      const wf = workflowApi(LIVE_WORKFLOW, path);
-      if (wf !== undefined) return wf;
+      const marker = liveApi(LIVE, path);
+      if (marker !== undefined) return marker;
       const [p, qs = ''] = path.split('?');
       if (p.includes('/git/commits/')) return { tree: { sha: TREE } };
       if (p.endsWith('/actions/artifacts')) return { total_count: 0, artifacts: [] };
@@ -435,43 +430,44 @@ test('the tree index fails closed past 1,000 entries, keeps pointing when expire
   );
 });
 
-test('the window ends when the index went live on the default branch, read from it; without the index step it fails closed', async () => {
+test('the window ends an hour after the first run that indexed its head, read from the runs; with none it fails closed', async () => {
   const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
   const lists = { [`head_sha=${NEXT}`]: [mine] };
-  // Three commits to ci-review.yml, newest first: the two newest run the index step, the oldest doesn't. The index went
-  // live at the older of the two, and the window reads until an hour after it.
-  const history = [
-    { sha: '3'.repeat(40), date: '2026-11-06T09:00:00Z', index: true },
-    { sha: '2'.repeat(40), date: '2026-11-05T09:00:00Z', index: true },
-    { sha: '1'.repeat(40), date: '2026-11-04T06:20:12Z', index: false },
+  // Markers from two CI review runs and from two runs that aren't (a push run, and a branch copy's pull_request run),
+  // both earlier. Only CI review runs started by pull_request_target count: the earliest is 5 Nov 09:00.
+  const live = [
+    liveRun(81, '2026-11-06T09:00:00Z'),
+    liveRun(82, '2026-11-05T09:00:00Z'),
+    liveRun(83, '2026-11-04T07:00:00Z', { event: 'push' }),
+    liveRun(84, '2026-11-04T08:00:00Z', { event: 'pull_request' }),
   ];
-  assert.equal(await readIndexLive('o/r', 't', fakeApi({ workflow: history }).get), Date.parse('2026-11-05T10:00:00Z'));
+  assert.equal(await readIndexLive('o/r', 't', fakeApi({ live }).get), Date.parse('2026-11-05T10:00:00Z'));
   // A FAIL on the same tree from a run made before the index went live, on another branch: found in the window.
   const before = run({
     id: 8,
     head_sha: OLDER,
-    created_at: '2026-11-05T09:30:00Z',
+    created_at: '2026-11-05T08:30:00Z',
     head_commit: { tree_id: TREE },
     jobs: [[reviewJob(OLDER, 'failure')]],
   });
   const api = fakeApi({
-    workflow: history,
+    live,
     lists: { ...lists, 'event=pull_request_target&created=<2026-11-05T10:00:00Z': [before] },
     trees: { [NEXT]: TREE },
   });
   const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, api.get);
   const v = await ciReviewVerdict({ sha: NEXT, base: 'main', runs, attempts: async (r) => r.jobs, tree: async () => TREE });
   assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
-  // The index step was taken out again (the newest copy doesn't run it): runs made now aren't indexed, so it fails closed.
-  const removed = [{ sha: '4'.repeat(40), date: '2026-11-07T09:00:00Z', index: false }, ...history];
-  const read = (workflow) =>
-    readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, fakeApi({ workflow, lists, trees: { [NEXT]: TREE } }).get);
-  await assert.rejects(read(removed), /doesn't run the tree index/);
-  // No commits, a copy that can't be read, or more commits than can be read whole: fails closed too.
-  await assert.rejects(read([]), /doesn't run the tree index/);
-  await assert.rejects(read([{ sha: '5'.repeat(40), date: 'not a date', index: true }]), /no readable date/);
-  const many = Array.from({ length: 1001 }, (_, i) => ({ sha: i.toString(16).padStart(40, '0'), date: LIVE_AT, index: true }));
-  await assert.rejects(read(many), /more than 1,000 commits/);
+  // No marker, or markers only from runs that aren't CI review runs: nothing bounds the window, so it fails closed.
+  const read = (over) =>
+    readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, fakeApi({ lists, trees: { [NEXT]: TREE }, ...over }).get);
+  await assert.rejects(read({ live: [] }), /no CI review run has indexed its head yet/);
+  await assert.rejects(read({ live: live.slice(2) }), /no CI review run has indexed its head yet/);
+  await assert.rejects(read({ live: [liveRun(85, 'not a date')] }), /no readable created_at/);
+  // The marker list read short fails closed.
+  const short = async (path) =>
+    path.includes(`name=${REVIEW_INDEX_LIVE}`) ? { total_count: 3, artifacts: [] } : fakeApi({ lists, trees: { [NEXT]: TREE } }).get(path);
+  await assert.rejects(readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, short), /markers: 0 of 3 read, not whole/);
   assert.ok(Date.parse(LIVE_AT) > Date.parse(REVIEW_BORN));
 });
 
@@ -487,6 +483,22 @@ test('the review job indexes its head before it reviews, and a re-run keeps the 
   assert.match(step, /if-no-files-found: error/);
   assert.match(step, /overwrite: \$\{\{ steps\.index\.outputs\.expired == 'true' \}\}/);
   assert.doesNotMatch(step, /continue-on-error/);
+  // The index step runs on every review, unconditionally, and its failure fails the job before any verdict.
+  const own = wf.slice(index, wf.indexOf('\n      - ', index + 1));
+  assert.doesNotMatch(own, /\n\s+if:|continue-on-error/);
+  assert.match(own, /\n\s+run: node tooling\/ci\/ci-review\.mjs index "\$RUNNER_TEMP\/index"$/);
+  // The go-live marker is uploaded by the same job, before the review, only while the repository lists none.
+  const live = at('Mark the index live');
+  assert.ok(live > upload && live < diff);
+  const mark = wf.slice(live, diff);
+  assert.match(mark, /if: steps\.index\.outputs\.live == 'true'/);
+  assert.match(mark, new RegExp(`name: ${REVIEW_INDEX_LIVE}\\n`));
+  assert.doesNotMatch(mark, /continue-on-error/);
+  // No other step between the index and the review is conditional or may fail quietly.
+  assert.doesNotMatch(
+    wf.slice(index, diff).replace(/if: steps\.index\.outputs\.(exists != 'true'|live == 'true')/g, ''),
+    /\n\s+if:|continue-on-error/,
+  );
 });
 
 test("the index step names the head's tree, and keeps an index an earlier attempt uploaded", async () => {
@@ -501,7 +513,7 @@ test("the index step names the head's tree, and keeps an index an earlier attemp
   );
   const saved = { ...process.env };
   const realFetch = globalThis.fetch;
-  const index = async ({ tree = TREE, earlier = [], status = 200 } = {}) => {
+  const index = async ({ tree = TREE, earlier = [], status = 200, markers = 0 } = {}) => {
     const output = path.join(dir, `out-${Math.random()}`);
     Object.assign(process.env, {
       GITHUB_REPOSITORY: 'o/r',
@@ -513,7 +525,12 @@ test("the index step names the head's tree, and keeps an index an earlier attemp
     const asked = [];
     globalThis.fetch = async (url) => {
       asked.push(String(url));
-      const body = String(url).includes(`/git/commits/${NEXT}`) ? { tree: { sha: tree } } : { artifacts: earlier };
+      const u = String(url);
+      const body = u.includes(`/git/commits/${NEXT}`)
+        ? { tree: { sha: tree } }
+        : u.includes(`name=${REVIEW_INDEX_LIVE}`)
+          ? { total_count: markers, artifacts: [] }
+          : { artifacts: earlier };
       return new Response(JSON.stringify(body), { status });
     };
     try {
@@ -526,9 +543,11 @@ test("the index step names the head's tree, and keeps an index an earlier attemp
     }
   };
   const fresh = await index();
-  assert.match(fresh.out, new RegExp(`^name=${reviewIndexName(TREE)}\nexists=false\nexpired=false\n$`));
+  assert.match(fresh.out, new RegExp(`^name=${reviewIndexName(TREE)}\nexists=false\nexpired=false\nlive=true\n$`));
   assert.ok(fresh.asked.some((u) => u.includes('/actions/runs/99/artifacts?name=')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'index', 'index.json'), 'utf8')).tree, TREE);
+  // Once any marker is listed, no run uploads another.
+  assert.match((await index({ markers: 1 })).out, /live=false/);
   const rerun = await index({ earlier: [{ name: reviewIndexName(TREE), expired: false }] });
   assert.match(rerun.out, /exists=true\nexpired=false/);
   const lapsed = await index({ earlier: [{ name: reviewIndexName(TREE), expired: true }] });

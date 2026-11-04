@@ -165,14 +165,16 @@ export const reviewIndexName = (tree) => `${REVIEW_INDEX_PREFIX}${tree}`;
 /**
  * Runs from before the index went live have no index artifact, so the seal reads them as a window: every
  * pull_request_target run created from REVIEW_BORN (ci-review.yml merged at 06:20 UTC on 4 Nov 2026, #7132) until an
- * hour after the first commit of the default branch's ci-review.yml that runs INDEX_STEP (readIndexLive). From then on
- * every review run indexes its head before any verdict, so no run falls between the two. The end is read from the
- * repository, never typed in: if the default branch's ci-review.yml doesn't run the index step, the seal fails closed.
- * The window is read in time slices when it holds more than GitHub lists for one filter, so it can never lock the seal.
+ * hour after the first CI review run that indexed its head (readIndexLive). That time comes from the runs themselves,
+ * never from a typed date or a commit date: the index step also uploads a REVIEW_INDEX_LIVE marker when the repository
+ * has none, and the seal takes the earliest marker uploaded by a genuine CI review run. With no such marker the seal
+ * fails closed. From then on every review run indexes its head before any verdict (ci-review.test.mjs holds the step
+ * unconditional and before the review), so no run falls between the window and the index. The window is read in time
+ * slices when it holds more than GitHub lists for one filter, so it can never lock the seal.
  */
 export const REVIEW_BORN = '2026-11-04T00:00:00Z';
-export const INDEX_STEP = 'tooling/ci/ci-review.mjs index';
-/** How long after the index's first commit on the default branch the window still reads: a run started just before. */
+export const REVIEW_INDEX_LIVE = 'ci-review-index-live';
+/** How long after the first indexed run the window still reads: overlap only adds runs that are indexed anyway. */
 export const INDEX_MARGIN_MS = 60 * 60_000;
 
 /**
@@ -862,32 +864,39 @@ export async function readReviewRuns(repo, sha, token, branch, get = api) {
 }
 
 /**
- * When the tree index went live, plus INDEX_MARGIN_MS (ms since the epoch): the committer date of the oldest commit in
- * the unbroken run of REVIEW_BASE's commits to REVIEW_WORKFLOW, newest first, whose copy of the file runs INDEX_STEP.
- * Fails closed when the newest copy doesn't run it (no run made now is indexed), when the commit list can't be read
- * whole, or when a copy or a date can't be read.
+ * When the tree index went live, plus INDEX_MARGIN_MS (ms since the epoch): the created_at of the earliest run named by a
+ * REVIEW_INDEX_LIVE artifact that is a run of REVIEW_WORKFLOW started by pull_request_target (only the default branch's
+ * copy runs on that event, and only its index step uploads the marker). A marker from any other run counts for nothing.
+ * Fails closed when there is no such run, when the markers can't be read whole, or when a run's date can't be read.
  */
 export async function readIndexLive(repo, token, get = api) {
-  const path = `/repos/${repo}/commits?path=${encodeURIComponent(REVIEW_WORKFLOW)}&sha=${REVIEW_BASE}`;
-  const commits = [];
+  const what = `the ${REVIEW_INDEX_LIVE} markers`;
+  const all = [];
+  let total = 0;
   for (let page = 1; ; page++) {
-    if (page > 10) throw new Error(`${REVIEW_WORKFLOW}: more than 1,000 commits, not read whole; the seal fails closed`);
-    const batch = await get(`${path}&per_page=100&page=${page}`, token);
-    if (!Array.isArray(batch)) throw new Error(`${REVIEW_WORKFLOW}'s commits: not a list; the seal fails closed`);
-    commits.push(...batch);
+    if (page > 10) throw new TooMany(what, total);
+    const r = await get(`/repos/${repo}/actions/artifacts?name=${REVIEW_INDEX_LIVE}&per_page=100&page=${page}`, token);
+    const batch = r?.artifacts;
+    if (!Array.isArray(batch)) throw new Error(`${what}: not a list; the seal fails closed`);
+    total = Math.max(total, Number(r?.total_count) || 0);
+    if (total > 1000) throw new TooMany(what, total);
+    all.push(...batch);
     if (batch.length < 100) break;
   }
+  if (all.length < total) throw new Error(`${what}: ${all.length} of ${total} read, not whole; the seal fails closed`);
+  const markers = all.filter((a) => a?.name === REVIEW_INDEX_LIVE);
   let live = null;
-  for (const c of commits) {
-    const sha = String(c?.sha ?? '');
-    if (!SHA40.test(sha)) throw new Error(`${REVIEW_WORKFLOW}'s commits: an unreadable sha; the seal fails closed`);
-    const file = await get(`/repos/${repo}/contents/${REVIEW_WORKFLOW}?ref=${sha}`, token, { missingOk: true });
-    if (!String(file?.content ? Buffer.from(file.content, 'base64').toString('utf8') : '').includes(INDEX_STEP)) break;
-    live = Date.parse(c?.commit?.committer?.date ?? '');
-    if (!Number.isFinite(live)) throw new Error(`${REVIEW_WORKFLOW} at ${sha}: no readable date; the seal fails closed`);
+  for (const id of new Set(markers.map((a) => a?.workflow_run?.id).filter(Number.isSafeInteger))) {
+    const run = await get(`/repos/${repo}/actions/runs/${id}`, token, { missingOk: true });
+    if (run?.id !== id || run.path !== REVIEW_WORKFLOW || run.event !== 'pull_request_target') continue;
+    const at = Date.parse(run.created_at ?? '');
+    if (!Number.isFinite(at)) throw new Error(`run ${id}: no readable created_at; the seal fails closed`);
+    if (live === null || at < live) live = at;
   }
   if (live === null)
-    throw new Error(`${REVIEW_BASE}'s ${REVIEW_WORKFLOW} doesn't run the tree index (${INDEX_STEP}); the seal fails closed`);
+    throw new Error(
+      `no CI review run has indexed its head yet (no ${REVIEW_INDEX_LIVE} marker from a ${REVIEW_WORKFLOW} pull_request_target run), so runs from before the index can't be bounded; the seal fails closed until one runs`,
+    );
   return live + INDEX_MARGIN_MS;
 }
 
