@@ -42,7 +42,15 @@ function signed(userId: string) {
   });
 }
 
-const space = (id: string, userId: string) => ({ id, userId, assetId: 'USDT', kind: 'named', name: id, archivedAt: null });
+const space = (id: string, userId: string, kind: 'primary' | 'named' = 'named') => ({
+  id,
+  userId,
+  assetId: 'USDT',
+  kind,
+  name: id,
+  archivedAt: null,
+});
+const MAIN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 function bal(kind: 'available' | 'hold', amount: string, ownerId = USER): Balance {
   return {
@@ -56,6 +64,7 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
   const posted: unknown[] = [];
   const spaces = new Map([FROM, MINE].map((id) => [id, space(id, USER)]));
   spaces.set(THEIRS, space(THEIRS, OTHER));
+  spaces.set(MAIN, space(MAIN, USER, 'primary'));
   const sql = ((_s: TemplateStringsArray, ...values: unknown[]) =>
     opts.earnFails
       ? Promise.reject(new Error('earn read down'))
@@ -135,7 +144,7 @@ describe('RC-wallet-09 transfers.create refused for funds', () => {
 });
 
 describe('J-bank-02 #8 transfers.toUser refused for funds', () => {
-  const pay = { transferId: 'jb2-8-pay-person-1', fromSpaceId: FROM, toUserId: OTHER, amount: '12' };
+  const pay = { transferId: 'jb2-8-pay-person-1', fromSpaceId: MAIN, toUserId: OTHER, amount: '12' };
 
   it('answers bank.insufficient_funds with the payer own figures, never the recipient', async () => {
     const { caller, posted } = build({ transferError: refusedForFunds() });
@@ -143,6 +152,13 @@ describe('J-bank-02 #8 transfers.toUser refused for funds', () => {
     expect((cause as BankError).code).toBe('bank.insufficient_funds');
     expect(spendFiguresOf(cause)).toEqual({ assetId: 'USDT', available: '10', onHold: '5', inEarn: '20' });
     expect(posted).toHaveLength(1);
+  });
+
+  it('from a named space, which is its own sub-account, the refusal is the ledger one with no main-account figures', async () => {
+    const { caller } = build({ transferError: refusedForFunds() });
+    const cause = await causeOf(caller.transfers.toUser({ ...pay, fromSpaceId: FROM }));
+    expect(cause).toBeInstanceOf(InsufficientFundsError);
+    expect(spendFiguresOf(cause)).toBeUndefined();
   });
 
   it('other refusals keep their own code', async () => {

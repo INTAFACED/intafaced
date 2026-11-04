@@ -257,7 +257,10 @@ export function createTransfersRouter(c: BankRouterContext) {
             .catch(async (err: unknown) => {
               // Paying more than the balance holds (J-bank-02 #8): no plan in this build lets a balance go below zero, so
               // the ledger refuses and the caller is told their own figures. The debit side is the caller's own space
-              // (assertSelf above); nothing of the recipient's is read or named.
+              // (assertSelf above); nothing of the recipient's is read or named. The figures are the person's main
+              // account, so they are given only for a payment from it: a named space is a sub-account of its own, and
+              // its refusal stays the ledger's, with no figures that would describe a different balance.
+              if (from.kind !== 'primary') throw err;
               throw await bank.spendFigures.refusal(err, ctx.principal.userId, from.assetId);
             });
           return {

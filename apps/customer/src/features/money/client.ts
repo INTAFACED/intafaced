@@ -51,13 +51,22 @@ export type TransferDraft = {
   /** The single-use step-up approval for this exact send to a person (J-bank-04 #4). */
   stepUpApprovalId?: string;
 };
-export function validateTransfer(spaces: Space[], input: TransferDraft): string | null {
+/**
+ * `overBalance` words the refusal for an amount above the source's balance (J-bank-02 #8: the shortfall and the plan's
+ * rule); without it, or when it has nothing to say, the plain message stands.
+ */
+export function validateTransfer(
+  spaces: Space[],
+  input: TransferDraft,
+  overBalance?: (from: Space, amount: string) => string | null,
+): string | null {
   const from = spaces.find((space) => space.id === input.fromSpaceId);
   if (!from) return copyText('client.choose.one.of.your.available.spaces');
   if (from.lockedUntil && Date.parse(from.lockedUntil) > Date.now()) return copyText('client.this.space.is.locked.choose.an.unlocked');
   const amount = decimalSchema.safeParse(input.amount);
   if (!amount.success || parseAmount(amount.data) <= 0n) return copyText('client.enter.an.exact.amount.greater.than.zero');
-  if (parseAmount(input.amount) > parseAmount(from.balance)) return copyText('client.the.amount.exceeds.the.available.quantity.in');
+  if (parseAmount(input.amount) > parseAmount(from.balance))
+    return overBalance?.(from, input.amount) ?? copyText('client.the.amount.exceeds.the.available.quantity.in');
   if (input.toSpaceId) {
     if (input.toSpaceId === from.id) return copyText('client.choose.a.different.destination.space');
     const destination = spaces.find((space) => space.id === input.toSpaceId);

@@ -2,7 +2,7 @@ import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { formatAmount, parseAmount } from '../../shared/money';
 import { useSession } from '../session/session';
-import { amount, funds, useBankRead } from './components';
+import { funds, useBankRead } from './components';
 import type { AccountTerms } from './contracts';
 import { planRuleCopy } from './plan-rule-copy';
 
@@ -26,7 +26,7 @@ function ruleParts(resource: Resource<AccountTerms>): { words: string; code: str
   if (terms.overdraftFee === null) return { words: t('noOverdraft', { tier: terms.tier }), code: null };
   return {
     words: t('overdraft', { tier: terms.tier, fee: funds(terms.overdraftFee, terms.currency) }),
-    code: terms.overdraftBlocker,
+    code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off',
   };
 }
 
@@ -52,15 +52,18 @@ export function overBalanceProblem(resource: Resource<AccountTerms>, from: { bal
     return null;
   }
   if (wanted <= held) return null;
+  // `funds` keeps a hidden balance hidden: the shortfall would give it away, so both are masked together.
   const over = planRuleCopy.t('overBalance', {
-    shortfall: amount(formatAmount(wanted - held), from.assetId),
-    balance: amount(from.balance, from.assetId),
+    shortfall: funds(formatAmount(wanted - held), from.assetId),
+    balance: funds(from.balance, from.assetId),
   });
   const rule = planRuleLine(resource);
   return rule ? `${over} ${rule}` : over;
 }
 
 export function PlanRuleText({ resource, reload }: { resource: Resource<AccountTerms>; reload?: () => void }) {
+  // Subscribes to the language, so the rule re-renders when it changes wherever it is mounted.
+  planRuleCopy.useCopy();
   if (resource.status === 'loading') return <Loading />;
   const parts = ruleParts(resource);
   if (!parts) return resource.status === 'failed' ? <Failure result={resource.failure} retry={reload} /> : null;

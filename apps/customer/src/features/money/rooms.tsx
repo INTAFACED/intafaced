@@ -630,6 +630,9 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const query = useBankRead('spaces.list', { limit });
   // The plan's rule for paying more than the balance holds (J-bank-02 #8): shown under the form and in the review.
   const plan = usePlanTerms();
+  // Read at review time, not when the dialog opened: terms that arrive or reload later still reach the review.
+  const planTerms = useRef(plan.resource);
+  planTerms.current = plan.resource;
   const [fromId, setFrom] = useState(context.status === 'valid' ? context.id : '');
   const [destination, setDestination] = useState<'space' | 'user'>('space');
   const [scheduled, setScheduled] = useState(false);
@@ -791,8 +794,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         ],
                         validate: (input) =>
                           scheduleWindowIssue(input) ??
-                          (scheduled ? null : overBalanceProblem(plan.resource, from, input.amount)) ??
-                          validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
+                          validateTransfer(
+                            spaces,
+                            { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1],
+                            (space, asked) => overBalanceProblem(planTerms.current, space, asked),
+                          ),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
                         ...(!scheduled && destination === 'user'
                           ? {

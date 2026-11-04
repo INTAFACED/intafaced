@@ -7,6 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
 import { PlanRuleText, overBalanceProblem, planRuleLine } from './PlanRule';
 import type { ApiResult } from '../../shared/api';
 import type { AccountTerms } from './contracts';
+import { validateTransfer, type Space } from './client';
 
 type Refusal = Extract<ApiResult<AccountTerms>, { ok: false }>;
 const failed = (failure: Refusal) => ({ status: 'failed' as const, failure });
@@ -76,5 +77,34 @@ describe('the plan rule for paying more than you hold', () => {
       <PlanRuleText resource={failed({ ok: false, reason: 'error', code: 'bank.company_account_unwired', message: 'x' })} />,
     );
     expect(company).toContain('A business has no account of its own in this build');
+  });
+});
+
+describe('the transfer review uses the plan rule only for an amount above the balance', () => {
+  const space = (patch: Partial<Space> = {}): Space => ({
+    id: '11111111-1111-4111-8111-111111111111',
+    assetId: 'USDT',
+    kind: 'primary',
+    name: 'Main',
+    goalTarget: null,
+    lockedUntil: null,
+    balance: '50',
+    ledgerAccount: { ownerType: 'user', ownerId: 'u', assetId: 'USDT', kind: 'available' },
+    ...patch,
+  });
+  const draft = (from: Space, amount: string) => ({ transferId: 'review-reference', fromSpaceId: from.id, toUserId: 'someone', amount });
+  const rule = () => 'THE PLAN RULE';
+
+  it('over the balance: the plan rule; within it: no refusal; without a rule: the plain message', () => {
+    const from = space();
+    expect(validateTransfer([from], draft(from, '60'), rule)).toBe('THE PLAN RULE');
+    expect(validateTransfer([from], draft(from, '50'), rule)).toBeNull();
+    expect(validateTransfer([from], draft(from, '60'))).toContain('exceeds the available');
+    expect(validateTransfer([from], draft(from, '60'), () => null)).toContain('exceeds the available');
+  });
+
+  it('a locked space is refused for being locked first, never for the overdraft', () => {
+    const from = space({ lockedUntil: new Date(Date.now() + 86_400_000).toISOString() });
+    expect(validateTransfer([from], draft(from, '60'), rule)).not.toBe('THE PLAN RULE');
   });
 });
