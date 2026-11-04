@@ -61,11 +61,16 @@ function chainDeposit(address, amount, label) {
   return tx;
 }
 
-/** A rate the service sends as a ratio ("0.0008"), as the percent the desk shows to two places ("0.08"), in units. */
+/**
+ * A rate the service sends as a ratio ("0.0008"), as the percent the desk shows to two places ("0.08"), in units: rounded
+ * half away from zero, so a rebate (a negative rate) rounds as its size does.
+ */
 function asPercent(ratio) {
   const cent = toUnits('0.01');
   const percent = wireUnits(ratio) * 100n;
-  return ((percent + cent / 2n) / cent) * cent;
+  const size = percent < 0n ? -percent : percent;
+  const rounded = ((size + cent / 2n) / cent) * cent;
+  return percent < 0n ? -rounded : rounded;
 }
 
 /** One order's fills as the service reports them. */
@@ -109,6 +114,14 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await expect(summary).toContainText(`Account ID ${userId.slice(0, 8)}…`);
   await expect(summary).toContainText('Verification: Not verified');
   await page.keyboard.press('Escape');
+  // Home, where the app opens, asks for verification where the total would be, with its own Verify now.
+  await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
+  await expect(
+    page
+      .getByRole('link', { name: 'Verify now' })
+      .or(page.getByRole('button', { name: 'Verify now' }))
+      .first(),
+  ).toBeVisible();
   // The Trade door, from the top bar, reads "Verify to trade" with the way to Verify, and that way opens Verification.
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
   await expect(page).toHaveURL(/\/trade$/);
@@ -233,8 +246,11 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
   expect(credited).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
   // The same deposit is replayed (the chain delivers the same transfer again): the same transaction, and nothing added.
   expect(chainDeposit(address, '1000', label)).toBe(tx);
-  const replayed = await usdt();
-  expect(replayed).toEqual(credited);
+  // Read for longer than the first credit took to land, so a second credit that posts late is seen.
+  for (let i = 0; i < 10; i += 1) {
+    expect(await usdt()).toEqual(credited);
+    await page.waitForTimeout(1_000);
+  }
   // Deposit's records hold the transfer once, credited, and the ledger's own history shows one 1000 USDT deposit.
   await page.reload();
   await page.mouse.move(0, 600);
@@ -266,12 +282,14 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
 });
 
 test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode and positions`, async ({ page }) => {
+  // One signed-in client of the account's own for every service read below (the retries reuse it).
+  const client = await api(account());
   await desk(page);
   await expect(page).toHaveURL(new RegExp(`${DESK}$`));
   await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
   // The ticker's last price is the service's.
   await expect(async () => {
-    const { body } = await (await api(account())).get('/api/v1/ticker/BTC%2FUSDT');
+    const { body } = await client.get('/api/v1/ticker/BTC%2FUSDT');
     expect(shownUnits(await page.getByTestId('dk-last').innerText())).toBe(wireUnits(body.last));
   }).toPass({ timeout: 30_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
@@ -293,30 +311,30 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   await page.mouse.move(0, 0);
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
   await expect(async () => {
-    const { body } = await (await api(account())).get('/api/v1/ohlcv/BTC%2FUSDT?timeframe=15m&limit=3');
+    const { body } = await client.get('/api/v1/ohlcv/BTC%2FUSDT?timeframe=15m&limit=3');
     expect(Array.isArray(body) && body.length > 0, JSON.stringify(body).slice(0, 200)).toBe(true);
     const close = page.getByTestId('pc-legend').locator('.pc-ohlc').nth(3).locator('b');
-    expect(shownUnits(await close.innerText())).toBe(wireUnits(String(body.at(-1)[4])));
+    expect(shownUnits(await close.innerText())).toBe(wireUnits(body.at(-1)[4]));
   }).toPass({ timeout: 60_000 });
   // The tape draws the service's prints: its newest row's price is among the service's recent trades.
   await page.locator('[role=tab]', { hasText: 'Last trades' }).click();
   await expect(async () => {
-    const { body } = await (await api(account())).get('/api/v1/trades/BTC%2FUSDT?limit=50');
+    const { body } = await client.get('/api/v1/trades/BTC%2FUSDT?limit=50');
     const prices = new Set(body.map((t) => toUnits(String(t.price))));
     const first = page.locator('[data-testid=dk-bk-row--tape] [data-testid=dk-bk-price]').first();
     expect(prices.has(shownUnits(await first.innerText()))).toBe(true);
   }).toPass({ timeout: 60_000 });
   // The fee line: this account's own maker and taker rates, as the service lists them for BTC/USDT, to the shown 0.01%.
-  const { body: fees } = await (await api(account())).get('/api/v1/account/fees');
+  const { body: fees } = await client.get('/api/v1/account/fees');
   const rates = fees['BTC/USDT'];
   expect(rates, JSON.stringify(fees).slice(0, 300)).toBeTruthy();
   const line = page.getByTestId('dk-fees-mine');
-  await expect(line).toHaveText(/^Your rates: maker [\d.]+% · taker [\d.]+%$/);
-  const [, maker, taker] = /maker ([\d.]+)% · taker ([\d.]+)%/.exec(await line.innerText());
-  expect(toUnits(maker)).toBe(asPercent(rates.maker));
-  expect(toUnits(taker)).toBe(asPercent(rates.taker));
+  await expect(line).toHaveText(/^Your rates: maker [−-]?[\d.]+% · taker [−-]?[\d.]+%$/);
+  const [, maker, taker] = /maker ([−-]?[\d.]+)% · taker ([−-]?[\d.]+)%/.exec(await line.innerText());
+  expect(toUnits(maker.replace('−', '-'))).toBe(asPercent(rates.maker));
+  expect(toUnits(taker.replace('−', '-'))).toBe(asPercent(rates.taker));
   // The trading-mode line: cash spot, open, as the service lists the market (orderable, active, session open, OPEN).
-  const { body: markets } = await (await api(account())).get('/api/v1/markets?limit=500');
+  const { body: markets } = await client.get('/api/v1/markets?limit=500');
   const listing = markets.find((m) => m.symbol === 'BTC/USDT');
   expect(listing, 'BTC/USDT is listed').toBeTruthy();
   expect(listing).toMatchObject({ spot: true, active: true, orderable: true, sessionOpen: true });

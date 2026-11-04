@@ -9,18 +9,26 @@ import { marketsCopy } from './copy';
 const TRADE_LEVEL = KYC_LADDER_LEVELS.indexOf('basic');
 
 export type TradeAccessState =
-  { kind: 'verify' } | { kind: 'pending' } | { kind: 'verified'; level: (typeof KYC_LADDER_LEVELS)[number] } | { kind: 'unread' };
+  | { kind: 'verify' }
+  | { kind: 'pending' }
+  | { kind: 'verified'; level: Exclude<(typeof KYC_LADDER_LEVELS)[number], 'none'> }
+  | { kind: 'unread' };
 
 /** What the Trade door says about trading, from identity's own answer: the level held now and the newest request. */
 export function tradeAccess(
   answer: { tier: (typeof KYC_LADDER_LEVELS)[number]; records: readonly { status: string }[] } | null,
 ): TradeAccessState {
   if (answer === null) return { kind: 'unread' };
-  if (KYC_LADDER_LEVELS.indexOf(answer.tier) >= TRADE_LEVEL) return { kind: 'verified', level: answer.tier };
+  if (answer.tier !== 'none' && KYC_LADDER_LEVELS.indexOf(answer.tier) >= TRADE_LEVEL) return { kind: 'verified', level: answer.tier };
   return answer.records[0]?.status === 'pending' ? { kind: 'pending' } : { kind: 'verify' };
 }
 
-const LEVEL_WORD = { none: 'Level none', basic: 'Level basic', full: 'Level full', institutional: 'Level institutional' } as const;
+/** The levels the verified line can name: basic and up (below basic the door asks to verify instead). */
+const LEVEL_WORD: Record<Exclude<(typeof KYC_LADDER_LEVELS)[number], 'none'>, 'Level basic' | 'Level full' | 'Level institutional'> = {
+  basic: 'Level basic',
+  full: 'Level full',
+  institutional: 'Level institutional',
+};
 
 /**
  * The Trade door's line about the person's own trading access: "Verify to trade" with the way to Verify, "Verification
@@ -50,13 +58,13 @@ export function TradeAccess() {
     );
   if (state.kind === 'verified')
     return (
-      <div data-testid="trade-access" data-state="verified" data-level={state.level} className="mkt-access" role="status">
+      <div data-testid="trade-access" data-state="verified" data-level={state.level} className="mkt-access">
         <strong>{t('Verified to trade')}</strong>
         <span className="mkt-muted">{t('Access level', { level: t(LEVEL_WORD[state.level]) })}</span>
       </div>
     );
   return (
-    <div data-testid="trade-access" data-state={state.kind} className="mkt-access" role="status">
+    <div data-testid="trade-access" data-state={state.kind} className="mkt-access">
       <strong>{t(state.kind === 'pending' ? 'Verification pending' : 'Verify to trade')}</strong>
       <span className="mkt-muted">{t(state.kind === 'pending' ? 'Access pending body' : 'Access verify body')}</span>
       <a className="mkt-access__link" href="/verification">

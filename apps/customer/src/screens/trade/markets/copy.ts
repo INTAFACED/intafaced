@@ -64,7 +64,6 @@ const messages = {
   'See your request': 'See your request',
   'Verified to trade': 'Verified to trade',
   'Access level': 'Your level: {level}',
-  'Level none': 'Not verified',
   'Level basic': 'Basic',
   'Level full': 'Full',
   'Level institutional': 'Institutional',
