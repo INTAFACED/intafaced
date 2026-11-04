@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, bestPrices, fromUnits, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool, signOutBrowser } from './stack.mjs';
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
@@ -125,6 +126,8 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   // The Trade door, from the top bar, reads "Verify to trade" with the way to Verify, and that way opens Verification.
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
   await expect(page).toHaveURL(/\/trade$/);
+  // The pointer leaves the top bar, as a person's does, so the door's hover menu closes over the room.
+  await page.mouse.move(0, 600);
   const access = page.getByTestId('trade-access');
   await expect(access).toHaveAttribute('data-state', 'verify');
   await expect(access.getByText('Verify to trade', { exact: true })).toBeVisible();
@@ -170,6 +173,8 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   // The tier reads verified: on the Trade door, in the account menu and on Verification.
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Trade', exact: true }).click();
   await expect(page).toHaveURL(/\/trade$/);
+  // The pointer leaves the top bar, as a person's does, so the door's hover menu closes over the room.
+  await page.mouse.move(0, 600);
   const access = page.getByTestId('trade-access');
   await expect(access).toHaveAttribute('data-state', 'verified');
   await expect(access.getByText('Verified to trade', { exact: true })).toBeVisible();
@@ -222,14 +227,15 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page }) => {
-  test.setTimeout(120_000);
+test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
   const who = account();
   const client = await api(who);
   const usdt = async () => (await client.balances()).USDT ?? { free: '0', used: '0', total: '0' };
   expect(toUnits((await usdt()).total)).toBe(0n);
   // Funds it as a person does: Deposit issues a USDT address on TEST Ethereum, and the stack's TEST chain sends 1000 USDT
-  // to it, final at the published 6 confirmations (svc-pay's chain webhook, signed as the watcher would deliver it).
+  // to it, final at the published 6 confirmations (svc-pay's chain webhook, signed as the watcher would deliver it). The
+  // test uses no direct ledger post.
   await signIn(page, who);
   await page.goto('/uc/recharge');
   await page.mouse.move(0, 600);
@@ -241,6 +247,38 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
   expect(address.length).toBeGreaterThan(8);
   const label = `jcs01-${who.handle}-1000`;
   const tx = chainDeposit(address, '1000', label);
+  // A deposit of 1000 or more waits for the depositor's travel-rule declaration (the stack's TEST rule, W-deposit-07):
+  // the person declares where it came from, and compliance releases it once on the founder console.
+  await page.reload();
+  await page.mouse.move(0, 600);
+  const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
+  await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
+  expect(toUnits((await usdt()).total)).toBe(0n);
+  const panel = records
+    .locator('tbody tr', { has: page.getByTestId('deposit-travel-rule') })
+    .filter({ has: page.locator(`xpath=preceding-sibling::tr[1][contains(., "${tx}")]`) })
+    .getByTestId('deposit-travel-rule');
+  const form = panel.getByTestId('deposit-travel-rule-form');
+  await form.getByRole('radio', { name: 'An exchange or other crypto platform' }).check();
+  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
+  await form.getByLabel('Sender’s address').fill('1 TEST Street, Testville');
+  await form.getByRole('button', { name: 'Send declaration' }).click();
+  await expect(panel).toHaveAttribute('data-state', 'under_review', { timeout: 30_000 });
+  const founder = await (await browser.newContext()).newPage();
+  try {
+    await founderSignIn(founder, 'a');
+    await founder.goto(`${ADMIN}/accounts/${client.userId}?tab=money`, { waitUntil: 'load' });
+    const holds = founder.getByTestId('read-money.deposit-travel-rule');
+    await expect(holds.getByRole('table')).toBeVisible({ timeout: 60_000 });
+    await holds.locator('tbody > tr', { hasText: 'USDT' }).first().getByRole('button', { name: 'Open' }).click();
+    const detail = holds.getByTestId('row-detail');
+    const review = detail.getByTestId('deposit-travel-rule-review');
+    await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
+    await review.getByRole('button', { name: 'Release and credit once' }).click();
+    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('credited it once', { timeout: 60_000 });
+  } finally {
+    await founder.context().close();
+  }
   await expect.poll(async () => (await usdt()).free, { timeout: 30_000 }).toMatch(/^1000(\.0+)?$/);
   const credited = await usdt();
   expect(credited).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
@@ -254,7 +292,6 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
   // Deposit's records hold the transfer once, credited, and the ledger's own history shows one 1000 USDT deposit.
   await page.reload();
   await page.mouse.move(0, 600);
-  const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
   await expect(records.locator('tbody tr', { hasText: tx })).toHaveCount(1);
   await expect(records.locator('tbody tr', { hasText: tx }).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
@@ -328,7 +365,7 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   const { body: fees } = await client.get('/api/v1/account/fees');
   const rates = fees['BTC/USDT'];
   expect(rates, JSON.stringify(fees).slice(0, 300)).toBeTruthy();
-  const line = page.getByTestId('dk-fees-mine');
+  const line = page.getByRole('form', { name: 'Buy BTC' }).getByTestId('dk-fees-mine');
   await expect(line).toHaveText(/^Your rates: maker [−-]?[\d.]+% · taker [−-]?[\d.]+%$/);
   const [, maker, taker] = /maker ([−-]?[\d.]+)% · taker ([−-]?[\d.]+)%/.exec(await line.innerText());
   expect(toUnits(maker.replace('−', '-'))).toBe(asPercent(rates.maker));
