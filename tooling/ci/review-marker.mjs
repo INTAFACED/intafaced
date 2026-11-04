@@ -191,11 +191,14 @@ export function indexesFirst(text) {
   const at = (name) => wf.indexOf(`- name: ${name}\n`);
   const [index, upload, diff, verdict] = ["Index this head's tree", 'Upload the tree index', 'Read the diff', 'Verdict'].map(at);
   if (!(index > 0 && upload > index && diff > upload && verdict > diff)) return false;
+  // All four in one job (no job key between them), so the verdict can't run where the index didn't.
+  if (/\n  [\w-]+:[ \t]*(#.*)?\n/.test(wf.slice(index, verdict))) return false;
   const own = wf.slice(index, wf.indexOf('\n      - ', index + 1));
   if (/\n\s+if:|continue-on-error/.test(own)) return false;
   if (!/\n\s+run: node tooling\/ci\/ci-review\.mjs index "\$RUNNER_TEMP\/index"(\n|$)/.test(own)) return false;
   const step = wf.slice(upload, diff);
   if (!/if: steps\.index\.outputs\.exists != 'true'/.test(step)) return false;
+  if (!/\n\s+uses: actions\/upload-artifact@[0-9a-f]{40}\b/.test(step)) return false;
   if (!/name: \$\{\{ steps\.index\.outputs\.name \}\}/.test(step) || !/if-no-files-found: error/.test(step)) return false;
   return !/\n\s+if:|continue-on-error/.test(wf.slice(index, diff).replace(/if: steps\.index\.outputs\.exists != 'true'/g, ''));
 }
@@ -884,6 +887,15 @@ export async function readReviewRuns(repo, sha, token, branch, get = api, now = 
     if (run?.id !== id) throw new Error(`run ${id} (${why}) could not be read; the seal fails closed`);
     return run;
   };
+  // The merge base first: a head too stale to seal fails before any list is read.
+  const based = await readMergeBase(repo, sha, token, get);
+  const stale = (keep) => {
+    if (based < now() - keep)
+      throw new Error(
+        `${sha}'s merge base with ${REVIEW_BASE} is from ${new Date(based).toISOString()}, older than the ${Math.floor(keep / 86_400_000)} days the tree index keeps a CI review's FAIL, so a FAIL on this code may no longer be found; the seal fails closed. Update the branch from ${REVIEW_BASE}`,
+      );
+  };
+  stale(INDEX_KEEP_MS);
   for (const q of [`head_sha=${sha}`, ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : [])])
     for (const run of await runs(q)) out.set(run.id, run);
 
@@ -898,9 +910,20 @@ export async function readReviewRuns(repo, sha, token, branch, get = api, now = 
   const bounds = cache.live.get(repo);
   if (!bounds.open && now() > bounds.end) {
     // The window has closed: its runs are listed once per seal, kept whole, and each head reads those on its own code
-    // again by id on every poll, so a new attempt of one is seen.
+    // again by id on every poll, so a new attempt of one is seen. A run deleted since the listing is gone from a fresh
+    // listing too (with its verdict, as when it was never there); one still listed and unreadable fails closed.
     if (!cache.window.has(repo)) cache.window.set(repo, await readWindow(runs, bounds, now));
-    for (const r of cache.window.get(repo)) if (!otherCode(r) && !out.has(r.id)) out.set(r.id, await byId(r.id, 'in the window'));
+    for (let fresh = false; ; fresh = true) {
+      const mine = cache.window.get(repo).filter((r) => !otherCode(r) && !out.has(r.id));
+      const read = await Promise.all(mine.map((r) => get(`/repos/${repo}/actions/runs/${r.id}`, token, { missingOk: true })));
+      const gone = mine.filter((r, i) => read[i]?.id !== r.id);
+      if (gone.length === 0) {
+        for (const run of read) out.set(run.id, run);
+        break;
+      }
+      if (fresh) throw new Error(`run ${gone[0].id} (in the window) could not be read; the seal fails closed`);
+      cache.window.set(repo, await readWindow(runs, bounds, now));
+    }
   } else for (const r of await readWindow(runs, bounds, now)) if (!otherCode(r)) out.set(r.id, r);
 
   const name = reviewIndexName(tree);
@@ -920,17 +943,18 @@ export async function readReviewRuns(repo, sha, token, branch, get = api, now = 
     else out.set(id, run);
   }
 
-  // How long this tree's index artifacts are kept: the shorter of INDEX_KEEP_MS and what GitHub set on them.
+  // How long this tree's index is kept: the shorter of INDEX_KEEP_MS and what GitHub set on the artifacts of CI review
+  // runs here (an artifact planted by any other run, or a fork's, sets nothing).
   let keep = INDEX_KEEP_MS;
   for (const a of index) {
+    const run = out.get(a?.workflow_run?.id);
+    const { repository_id: home, head_repository_id: from } = a?.workflow_run ?? {};
+    if (a?.name !== name || run?.path !== REVIEW_WORKFLOW || run?.event !== 'pull_request_target') continue;
+    if (home != null && from != null && home !== from) continue;
     const kept = Date.parse(a?.expires_at ?? '') - Date.parse(a?.created_at ?? '');
-    if (a?.name === name && Number.isFinite(kept) && kept > 0) keep = Math.min(keep, kept);
+    if (Number.isFinite(kept) && kept > 0) keep = Math.min(keep, kept);
   }
-  const based = await readMergeBase(repo, sha, token, get);
-  if (based < now() - keep)
-    throw new Error(
-      `${sha}'s merge base with ${REVIEW_BASE} is from ${new Date(based).toISOString()}, older than the ${Math.floor(keep / 86_400_000)} days the tree index keeps a CI review's FAIL, so a FAIL on this code may no longer be found; the seal fails closed. Update the branch from ${REVIEW_BASE}`,
-    );
+  stale(keep);
   return [...out.values()];
 }
 
@@ -961,27 +985,29 @@ export async function readIndexLive(repo, token, get = api) {
   const workflow = await get(`/repos/${repo}/actions/workflows/${REVIEW_WORKFLOW.split('/').pop()}`, token);
   const start = Date.parse(workflow?.created_at ?? '');
   if (!Number.isFinite(start)) throw new Error(`${REVIEW_WORKFLOW}: no readable created_at; the seal fails closed`);
-  const commits = [];
-  for (let page = 1; ; page++) {
-    if (page > 10) throw new Error(`${REVIEW_WORKFLOW}: more than 1,000 commits on ${REVIEW_BASE}, not read whole; the seal fails closed`);
+  // Newest first, a page at a time, ending at the first version that doesn't index: one content read per edit since
+  // the index last went live.
+  let began = null;
+  let seen = 0;
+  walk: for (let page = 1; ; page++) {
+    if (page > 50) throw new Error(`${REVIEW_WORKFLOW}: no version without the index in 5,000 commits; the seal fails closed`);
     const batch = await get(
       `/repos/${repo}/commits?sha=${REVIEW_BASE}&path=${encodeURIComponent(REVIEW_WORKFLOW)}&per_page=100&page=${page}`,
       token,
     );
     if (!Array.isArray(batch)) throw new Error(`${REVIEW_WORKFLOW}'s commits on ${REVIEW_BASE}: not a list; the seal fails closed`);
-    commits.push(...batch);
+    seen += batch.length;
+    for (const c of batch) {
+      if (!SHA40.test(String(c?.sha ?? ''))) throw new Error(`${REVIEW_WORKFLOW}: a commit with no readable sha; the seal fails closed`);
+      const f = await get(`/repos/${repo}/contents/${REVIEW_WORKFLOW}?ref=${c.sha}`, token, { missingOk: true });
+      if (f !== null && typeof f?.content !== 'string')
+        throw new Error(`${REVIEW_WORKFLOW} at ${c.sha}: no readable content; the seal fails closed`);
+      if (f === null || !indexesFirst(Buffer.from(f.content, 'base64').toString('utf8'))) break walk;
+      began = c;
+    }
     if (batch.length < 100) break;
   }
-  if (commits.length === 0) throw new Error(`${REVIEW_WORKFLOW}: no commits on ${REVIEW_BASE}; the seal fails closed`);
-  let began = null;
-  for (const c of commits) {
-    if (!SHA40.test(String(c?.sha ?? ''))) throw new Error(`${REVIEW_WORKFLOW}: a commit with no readable sha; the seal fails closed`);
-    const f = await get(`/repos/${repo}/contents/${REVIEW_WORKFLOW}?ref=${c.sha}`, token, { missingOk: true });
-    if (f !== null && typeof f?.content !== 'string')
-      throw new Error(`${REVIEW_WORKFLOW} at ${c.sha}: no readable content; the seal fails closed`);
-    if (f === null || !indexesFirst(Buffer.from(f.content, 'base64').toString('utf8'))) break;
-    began = c;
-  }
+  if (seen === 0) throw new Error(`${REVIEW_WORKFLOW}: no commits on ${REVIEW_BASE}; the seal fails closed`);
   if (!began) {
     console.log(
       `::warning title=Tree index not live::${REVIEW_BASE}'s ${REVIEW_WORKFLOW} doesn't index its head before the review, so the seal reads every CI review run up to now, in slices.`,
