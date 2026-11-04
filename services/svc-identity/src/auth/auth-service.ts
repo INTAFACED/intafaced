@@ -2852,9 +2852,7 @@ export class AuthService {
    * for their profile (null when none) and the month they joined (`YYYY-MM`, UTC). Only `active` accounts; frozen,
    * closed and missing are the same null. Never an email, phone or legal name.
    */
-  async payeeCardOf(
-    userId: string,
-  ): Promise<{ name: string | null; memberSince: string; discoverable: boolean } | null> {
+  async payeeCardOf(userId: string): Promise<{ name: string | null; memberSince: string; discoverable: boolean } | null> {
     const rows = await this.sql<Array<{ display_name: string | null; member_since: string; handle_discoverable: boolean }>>`
       SELECT p.display_name, to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS member_since, u.handle_discoverable
         FROM users u LEFT JOIN profiles p ON p.user_id = u.id
