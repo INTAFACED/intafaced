@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Address, Hex } from 'viem';
+import { parseUnits, type Address, type Hex } from 'viem';
 import {
   ORGANIC_SCORE_UNSET,
   TOKENS_HOLDERS_INCONSISTENT,
   TOKENS_READ_TOO_LARGE,
   TRUST_CRITERIA_UNSET,
   tokenPageOutputSchema,
+  tokensBriefOutputSchema,
   tokensLeaderboardOutputSchema,
   tokensListOutputSchema,
   type TokenBasics,
@@ -14,6 +15,7 @@ import {
   formatScaled,
   holdersFrom,
   leaderboard,
+  marketBrief,
   MAX_HOLDERS,
   normaliseName,
   tokenPage,
@@ -318,5 +320,65 @@ describe('formatScaled', () => {
   it('keeps negatives and trims trailing zeros', () => {
     expect(formatScaled(-15n * 10n ** 17n)).toBe('-1.5');
     expect(formatScaled(0n)).toBe('0');
+  });
+});
+
+describe('marketBrief', () => {
+  it('names each line from the 24-hour list at the same block: the gainer, the most traded, the trades and the new listings', () => {
+    const snap = snapshot();
+    const brief = tokensBriefOutputSchema.parse(marketBrief(snap, B));
+    const list = tokensList(snap, B, '24h');
+    const row = (address: string) => list.tokens.find((t) => t.token.address === address)!;
+    expect(brief).toMatchObject({ blockNumber: '40', asOf: NOW, day: '1970-01-01', since: NOW - 86_400 });
+    expect(brief.brief).not.toBeNull();
+    expect(brief.brief!.trades).toBe(snap.swaps.length);
+    expect(brief.brief!.pools).toBe(1);
+    expect(brief.brief!.topGainer).toEqual({ token: A, lookalikeOf: null, growthBps: row(A.address).growthBps });
+    expect(brief.brief!.topGainer!.growthBps).toBe(5_000);
+    expect(brief.brief!.topLoser).toBeNull();
+    expect(brief.brief!.mostTraded).toEqual({ token: A, lookalikeOf: null, volume: row(A.address).volume, trades: row(A.address).trades });
+    // Listed at 9,000 and 100, both after the window opened: the newest first.
+    expect(brief.brief!.newListings).toEqual(
+      [LOOK, A, B].filter((t) => row(t.address).listedAt > NOW - 86_400).sort((x, y) => row(y.address).listedAt - row(x.address).listedAt),
+    );
+    expect(brief.brief!.newListings[0]).toEqual(LOOK);
+    // B is the quote token: it traded in every swap, and is still never ranked against the tokens it prices.
+    expect(row(B.address).trades).toBeGreaterThan(0);
+    const named = [brief.brief!.topGainer, brief.brief!.topLoser, brief.brief!.mostTraded].map((line) => line?.token.address);
+    expect(named).not.toContain(B.address);
+  });
+
+  it('writes no brief when no swap falls in the 24 hours to the head block, and counts a swap only after the window opens', () => {
+    const late = { ...snapshot(), asOf: 200_000 };
+    const quiet = marketBrief(late, B);
+    expect(quiet.brief).toBeNull();
+    expect(quiet.day).toBe('1970-01-03');
+    const one = { ...late, swaps: [...late.swaps, swap(39, 200_000 - 86_399, W1, 'buy', 1n * E6, 3n * E18)] };
+    const edge = { ...late, swaps: [...late.swaps, swap(39, 200_000 - 86_400, W1, 'buy', 1n * E6, 3n * E18)] };
+    expect(marketBrief(one, B).brief?.trades).toBe(1);
+    expect(marketBrief(edge, B).brief).toBeNull();
+  });
+
+  it('never names the quote token, even when its volume is the highest in the list', () => {
+    const snap = snapshot();
+    // One TEST buy paying far more B than the A it takes is worth: B's leg now outweighs every other token's volume.
+    snap.swaps = [...snap.swaps, swap(35, NOW - 10, W4, 'buy', 1n * E6, 1_000_000n * E18)];
+    const list = tokensList(snap, B, '24h').tokens;
+    const volume = (address: string) => parseUnits(list.find((t) => t.token.address === address)!.volume, 18);
+    expect(volume(B.address) > volume(A.address)).toBe(true);
+    expect(volume(B.address) > volume(LOOK.address)).toBe(true);
+    expect(marketBrief(snap, B).brief!.mostTraded!.token).toEqual(A);
+  });
+
+  it('names the biggest fall and leaves the gainer null when no token rose', () => {
+    const snap = snapshot();
+    // A at 3 B a day ago and 2 B now.
+    snap.syncs = snap.syncs.map((s) => (s.pool === P1 ? { ...s, reserve1: s.time === 100 ? 3_000n * E18 : 2_000n * E18 } : s));
+    snap.pools = snap.pools.map((p) => (p.pool === P1 ? { ...p, reserve1: 2_000n * E18 } : p));
+    const { brief } = marketBrief(snap, B);
+    expect(brief!.topGainer).toBeNull();
+    expect(brief!.topLoser!.token).toEqual(A);
+    expect(brief!.topLoser!.growthBps).toBe(tokensList(snap, B, '24h').tokens.find((t) => t.token.address === A.address)!.growthBps);
+    expect(brief!.topLoser!.growthBps).toBeLessThan(0);
   });
 });

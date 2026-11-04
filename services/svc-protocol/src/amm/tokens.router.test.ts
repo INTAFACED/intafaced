@@ -32,6 +32,7 @@ describe('protocol.tokens with a blank owner setting', () => {
     ['list', (tokens: Tokens) => tokens.list({ window: '1h' })],
     ['page', (tokens: Tokens) => tokens.page({ address: TOKEN })],
     ['leaderboard', (tokens: Tokens) => tokens.leaderboard()],
+    ['brief', (tokens: Tokens) => tokens.brief()],
   ])('%s refuses a blank quote token by its code and reads nothing from the chain', async (_name, call) => {
     const { reads, tokens } = caller({ tokensQuoteToken: () => null });
     await expect(call(tokens)).rejects.toMatchObject({
