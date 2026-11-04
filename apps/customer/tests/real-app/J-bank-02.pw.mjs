@@ -256,8 +256,11 @@ test(`${J} #3 picks pay by bank: sent to the provider's page its response named,
   const who = await signUp(page, 'jb2pay');
   await verify(page, who);
   run.reset({ ...run.read(), payer: who });
+  // The payer starts with nothing: a new account holds no currency, so they add USDT to it first (as on the Bank Overview).
+  expect((await (await bank(who)).mutate('currencies.add', { assetId: 'USDT' })).ok).toBe(true);
   await signIn(page, who);
   const before = await usdtUnits(who);
+  expect(before).toBe(0n);
 
   const { quote, row } = await payByBankFromNL(page, '20');
   // The stand-in's TEST price: 20 USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR.
