@@ -37,7 +37,7 @@ function post(body: unknown, service = 'svc-p2p') {
   };
 }
 
-describe('POST /internal/holder-name-check (P-ads-merchant-18)', () => {
+describe('POST /internal/holder-name-check (P-ads-merchant-18, CB-otc-08)', () => {
   it('answers svc-p2p with the outcome alone, and nobody else at all', async () => {
     const seen: string[] = [];
     const server = await app(seen);
@@ -64,6 +64,24 @@ describe('POST /internal/holder-name-check (P-ads-merchant-18)', () => {
     expect((await server.inject(post({ userId: ADA }))).statusCode).toBe(400);
     expect((await server.inject(post({ userId: ADA, name: '' }))).statusCode).toBe(400);
     expect((await server.inject(post({ userId: 'not-a-uuid', name: 'Ada' }))).statusCode).toBe(400);
+    await server.close();
+  });
+
+  it('answers svc-trade the same way, for a desk settlement name (CB-otc-08)', async () => {
+    const seen: string[] = [];
+    const server = await app(seen);
+    const match = await server.inject(post({ userId: ADA, name: 'Ada Lovelace' }, 'svc-trade'));
+    expect(match.statusCode).toBe(200);
+    expect(match.json()).toEqual({ userId: ADA, outcome: 'match' });
+    const mismatch = await server.inject(post({ userId: ADA, name: 'Ada King' }, 'svc-trade'));
+    expect(mismatch.json()).toEqual({ userId: ADA, outcome: 'mismatch' });
+    expect(mismatch.body).not.toContain('Ada King');
+    // Other services stay refused before the checker is asked.
+    for (const other of ['svc-bank', 'svc-pay', 'svc-edge']) {
+      const refused = await server.inject(post({ userId: ADA, name: 'Ada Lovelace' }, other));
+      expect([refused.statusCode, refused.json().code]).toEqual([403, 'identity.forbidden']);
+    }
+    expect(seen).toEqual(['Ada Lovelace', 'Ada King']);
     await server.close();
   });
 });

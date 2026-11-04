@@ -1,10 +1,12 @@
 /**
- * The own-name rule's door (P-ads-merchant-18, J-p2p-04 #2): `POST /internal/holder-name-check`.
+ * The own-name rule's door (P-ads-merchant-18, J-p2p-04 #2; CB-otc-08, J-copy-bots-otc-24 #3):
+ * `POST /internal/holder-name-check`.
  *
- * svc-p2p sends the holder name a person typed for a payout destination and the account it is for; identity answers
- * only `holderNameCheckSchema` (match, mismatch, unverified, unconfigured or inactive). The verified legal name never leaves
+ * svc-p2p sends the holder name a person typed for a payout destination, and svc-trade the settlement account holder
+ * name a person gives with a desk price request, with the account it is for; identity answers only
+ * `holderNameCheckSchema` (match, mismatch, unverified, unconfigured or inactive). The verified legal name never leaves
  * identity, and the typed name is neither stored nor logged here. Service credentials, body-bound; any other service is
- * refused, since no other service stores a destination under this rule. Unknown account: 404.
+ * refused, since no other service checks a name under this rule. Unknown account: 404.
  */
 import type { FastifyInstance } from 'fastify';
 import {
@@ -15,6 +17,9 @@ import {
 } from '@intafaced/contracts';
 import { FounderControlError } from './controls/founder-controls.js';
 import { serviceOfRequest, type IdentityS2s } from './s2s-door.js';
+
+/** The services that check a name under the own-name rule: P2P payout destinations and OTC desk settlement names. */
+const HOLDER_NAME_CALLERS: ReadonlySet<string> = new Set(['svc-p2p', 'svc-trade']);
 
 export interface HolderNameChecker {
   holderNameCheck(input: HolderNameCheckInput): Promise<HolderNameCheck | null>;
@@ -29,8 +34,8 @@ export function registerHolderNameCheck(
     if (service === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
     }
-    if (service !== 'svc-p2p') {
-      return reply.code(403).send({ error: 'the holder-name check is for svc-p2p', code: 'identity.forbidden' });
+    if (!HOLDER_NAME_CALLERS.has(service)) {
+      return reply.code(403).send({ error: 'the holder-name check is for svc-p2p and svc-trade', code: 'identity.forbidden' });
     }
     const parsed = holderNameCheckInputSchema.safeParse(req.body);
     if (!parsed.success) {
