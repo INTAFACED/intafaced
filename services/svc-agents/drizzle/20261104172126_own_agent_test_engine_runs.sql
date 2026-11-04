@@ -1,3 +1,4 @@
+-- intafaced:destructive drops NOT NULL on tool, input_json, checks_json and effect_json, which an engine run has none of; the kind CHECK re-created below still requires all four on every dry_run and tool_test row, so no row loses them. No table, column or row is dropped.
 -- svc-agents · test engine runs and tool tests of a person's own agent (AG-testing-01; J-agents-04 #1, #2)
 -- Reversal: 20261104172126_own_agent_test_engine_runs.down.sql
 --

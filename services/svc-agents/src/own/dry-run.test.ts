@@ -16,6 +16,7 @@ import { UpstreamModelProvider } from '../providers/upstream.js';
 import { createAgentsRouter } from '../router.js';
 import { AgentRuntime } from '../runtime.js';
 import { UserSpendStore } from '../spend/store.js';
+import type { OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import type { PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
 
@@ -71,6 +72,13 @@ const ALL_PASSED = ['caps_set', 'tool_declared', 'moves_no_value', 'consent', 'b
   passed: true,
   code: null,
 }));
+
+/** A dry run's answer, narrowed to its kind: a test run of any other kind fails here. */
+type DryRunView = Extract<OwnAgentTestRun, { kind: 'dry_run' }>;
+const asDry = (run: OwnAgentTestRun): DryRunView => {
+  expect(run.kind).toBe('dry_run');
+  return run as DryRunView;
+};
 
 const available = await postgresAvailable(URL);
 
@@ -187,7 +195,7 @@ if (!available) {
       const { person } = people();
       const id = await draft(person);
       await person.own.consents.grant({ id, dataClass: 'own_data' });
-      const dry = await person.own.dryRun({ id, requestId: 'dry:all:0001', ...KB });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:all:0001', ...KB }));
       expect(dry).toMatchObject({ kind: 'dry_run', tool: KB.tool, input: KB.input, cost: '0', assetId: 'USDT', label: 'TEST' });
       expect(dry.checks).toEqual(ALL_PASSED);
       expect(dry.effect).toEqual({ kind: 'run', tool: KB.tool, module: 'support', dataClass: 'own_data', input: KB.input });
@@ -200,7 +208,7 @@ if (!available) {
       const { person } = people();
       const id = await draft(person, { capped: false });
       // A field the tool does not declare is not a check: a real call passes only the declared ones to the door.
-      const dry = await person.own.dryRun({ id, requestId: 'dry:fail:0001', tool: KB.tool, input: { kbQuery: 'TEST', page: '2' } });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:fail:0001', tool: KB.tool, input: { kbQuery: 'TEST', page: '2' } }));
       expect(dry.checks).toEqual([
         { check: 'caps_set', passed: false, code: 'agents.spend.cap_unset' },
         { check: 'tool_declared', passed: true, code: null },
@@ -218,7 +226,7 @@ if (!available) {
       const blank = people({}).person;
       const id = await draft(blank);
       await blank.own.consents.grant({ id, dataClass: 'own_data' });
-      const unset = await blank.own.dryRun({ id, requestId: 'dry:blank:0001', ...KB });
+      const unset = asDry(await blank.own.dryRun({ id, requestId: 'dry:blank:0001', ...KB }));
       expect(unset.checks.find((c) => c.check === 'baseline')).toEqual({
         check: 'baseline',
         passed: false,
@@ -229,12 +237,12 @@ if (!available) {
 
       const { person } = people();
       await person.own.rules.save({ id, tool: KB.tool, choice: 'hand_off' });
-      const handed = await person.own.dryRun({ id, requestId: 'dry:hand:0001', ...KB });
+      const handed = asDry(await person.own.dryRun({ id, requestId: 'dry:hand:0001', ...KB }));
       expect(handed.effect).toEqual({ kind: 'refused', tool: KB.tool, code: 'agents.rule_hand_off' });
 
       await person.own.consents.grant({ id, dataClass: 'live_write' });
       const comment = { tool: 'support.ticket.comment', input: { ticketId: 'TEST-ticket', body: 'TEST comment' } };
-      const unwired = await person.own.dryRun({ id, requestId: 'dry:door:0001', ...comment });
+      const unwired = asDry(await person.own.dryRun({ id, requestId: 'dry:door:0001', ...comment }));
       expect(unwired.checks.at(-1)).toEqual({ check: 'door_wired', passed: false, code: 'agents.tool_not_wired' });
       expect(unwired.effect).toEqual({ kind: 'refused', tool: comment.tool, code: 'agents.tool_not_wired' });
       await untouched();
@@ -246,7 +254,7 @@ if (!available) {
       await person.own.consents.grant({ id, dataClass: 'live_write' });
       await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
       const input = { ticketId: 'TEST-ticket', body: 'TEST comment' };
-      const dry = await person.own.dryRun({ id, requestId: 'dry:ask:0001', tool: 'support.ticket.comment', input });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:ask:0001', tool: 'support.ticket.comment', input }));
       expect(dry.checks.map((c) => c.check)).not.toContain('door_wired');
       expect(dry.checks.every((c) => c.passed)).toBe(true);
       expect(dry.effect).toEqual({ kind: 'ask', tool: 'support.ticket.comment', module: 'support', dataClass: 'live_write', input });
@@ -259,12 +267,12 @@ if (!available) {
       const caps = { check: 'caps_set', passed: true, code: null };
       const undeclared = { check: 'tool_declared', passed: false, code: 'agents.tool_not_declared' };
       for (const tool of ['trade.quote', 'no.such.tool']) {
-        const dry = await person.own.dryRun({ id, requestId: `dry:undeclared:${tool}`, tool, input: {} });
+        const dry = asDry(await person.own.dryRun({ id, requestId: `dry:undeclared:${tool}`, tool, input: {} }));
         expect(dry.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: true, code: null }]);
         expect(dry.effect).toEqual({ kind: 'refused', tool, code: 'agents.tool_not_declared' });
       }
       // A money tool is never on an agent, and the dry run names why as well.
-      const money = await person.own.dryRun({ id, requestId: 'dry:undeclared:ledger.transfer', tool: 'ledger.transfer', input: {} });
+      const money = asDry(await person.own.dryRun({ id, requestId: 'dry:undeclared:ledger.transfer', tool: 'ledger.transfer', input: {} }));
       expect(money.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }]);
       expect(money.effect).toEqual({ kind: 'refused', tool: 'ledger.transfer', code: 'agents.tool_not_declared' });
       await untouched();
@@ -421,7 +429,7 @@ if (!available) {
       const id = await draft(person);
       const { sessionId } = await person.own.session.open({ id });
       const ran = await person.own.run({ id, sessionId, requestId: 'live:run:0001', ask: 'TEST question' });
-      const dry = await person.own.dryRun({ id, requestId: 'dry:apart:0001', ...KB });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:apart:0001', ...KB }));
 
       const live = await person.own.runs({ id, limit: 50 });
       expect(live).toHaveLength(1);
