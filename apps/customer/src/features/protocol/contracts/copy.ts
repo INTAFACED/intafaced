@@ -48,7 +48,7 @@ const en = {
   writeSent: 'Sent: {hash}. Waiting for it to be mined.',
   writeMined: 'Mined in block {block}: {hash}.',
   writeReverted: 'Mined but reverted: {hash}. Nothing changed; the network fee was paid.',
-  writeNotMined: 'Sent: {hash}. Not mined yet; your wallet still holds it.',
+  writeNotMined: 'Sent: {hash}. It is still waiting to be mined, and your wallet holds it.',
   writeRejected: 'Your wallet declined. Nothing was sent.',
   writeFailed: 'Not sent: {message}',
   lookupLabel: 'Contract address',
