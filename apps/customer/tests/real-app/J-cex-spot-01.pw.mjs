@@ -206,15 +206,22 @@ async function depositReleased(page, browser, client, who, amount, label) {
     await founder.goto(`${ADMIN}/accounts/${client.userId}?tab=money`, { waitUntil: 'load' });
     const holds = founder.getByTestId('read-money.deposit-travel-rule');
     await expect(holds.getByRole('table')).toBeVisible({ timeout: 60_000 });
-    // The one USDT hold of this amount: #4's 1000 USDT hold, already released, is another amount.
-    const shown = Number(amount).toLocaleString('en-US');
-    const rows = holds
-      .locator('tbody > tr', { hasText: 'USDT' })
-      .filter({ hasText: new RegExp(`(^|[^\\d,.])(${shown}|${amount})([^\\d,]|$)`) });
-    await expect(rows).toHaveCount(1);
-    await rows.getByRole('button', { name: 'Open' }).click();
+    // This deposit's own hold, found by its transaction in each USDT hold's detail (#4's 1000 USDT hold is listed too).
+    const rows = holds.locator('tbody > tr', { hasText: 'USDT' }).filter({ has: founder.getByRole('button', { name: /^(Open|Close)$/ }) });
+    await expect(rows.first()).toBeVisible();
     const detail = holds.getByTestId('row-detail');
-    await expect(detail).toContainText(tx);
+    const seen = [];
+    let found = false;
+    for (let i = 0, n = await rows.count(); i < n && !found; i += 1) {
+      const toggle = rows.nth(i).getByRole('button', { name: /^(Open|Close)$/ });
+      if ((await toggle.innerText()).trim() === 'Open') await toggle.click();
+      await expect(toggle).toHaveText('Close');
+      await expect(detail).toHaveCount(1);
+      const text = await detail.innerText();
+      seen.push(text.replace(/\s+/g, ' ').slice(0, 200));
+      found = text.includes(tx);
+    }
+    expect(found, `no USDT hold names ${tx}: ${JSON.stringify(seen)}`).toBe(true);
     const review = detail.getByTestId('deposit-travel-rule-review');
     await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
     await review.getByRole('button', { name: 'Release and credit once' }).click();
