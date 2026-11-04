@@ -1,0 +1,99 @@
+name: CI review
+
+# The independent review AGENTS.md "Check, then merge" item 8 requires for money, security, gate-file and look-baseline
+# changes: every push to an in-repo pull request gets one review of its exact head, by the pinned reviewer CLI with no
+# tools, against tooling/ci/ci-review/REVIEW.md. The seal (tooling/ci/review-marker.mjs ciReviewVerdict) accepts only
+# this file's job `CI review` passing its step `Verdict` on the exact head, in a run started by pull_request_target, so
+# GitHub always runs the default branch's copy of this file, of the brief and of the scripts, never the pull request's.
+# A comment or a commit status counts for nothing. (Failure it prevents: #7078 merged 12 minutes before its review,
+# OWNER 154 (a); and the PASS comment came from the one login every agent shares.)
+#
+# Nothing here checks out, builds or runs code from the pull request: ci-review.mjs reads its diff through the compare
+# API at the event's base and head shas. The review key lives only in the `ci-review` environment, whose deployment
+# branch rule allows main alone, so only this default-branch workflow can read it; a pull request from a fork gets no
+# run (the key is never spent on one), so such a change can't be sealed and a member re-opens it from a branch here.
+#
+# Only pull requests into main are reviewed (`branches: [main]`), and a pull request pointed at main from another base
+# (`edited` with a base change) is reviewed afresh: a review against a side branch saw another diff, and the seal
+# counts only a run whose pull request's base is main (review-marker.mjs ciReviewVerdict).
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions: {}
+
+# One review per head. A newer push gets its own group, so it neither waits for nor cancels an older head's review.
+concurrency:
+  group: ci-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    # The seal reads this job by name (REVIEW_JOB) and its step `Verdict` by name (VERDICT_STEP): rename all three together.
+    name: CI review
+    # In-repo pull requests into main only; of `edited` events, only a base change (a title or body edit needs no review).
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      (github.event.action != 'edited' || github.event.changes.base)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25 # healthy run: a few minutes; the seal re-run below waits up to 4 minutes for a running seal
+    environment: ci-review
+    permissions:
+      contents: read # the default branch's checkout and the compare diff
+      checks: read # find the seal's check run on the head
+      actions: write # re-run a red seal once the review passes
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: Read the diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/ci-review.mjs diff "$RUNNER_TEMP/review"
+
+      # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
+      # other bytes), installed outside the checkout so the repository's .npmrc and workspace play no part.
+      - name: Install the pinned reviewer
+        run: |
+          mkdir -p "$RUNNER_TEMP/reviewer"
+          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
+          npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
+
+      # No tools, no settings, no MCP servers and no session kept: the reviewer reads the prompt (the brief, then the
+      # diff fenced as untrusted data) and answers in the schema. Run in an empty folder, so no CLAUDE.md is loaded. The
+      # key is in this step's environment only. The model and effort are pinned (every INTAFACED thread runs Opus,
+      # OWNER 56; a review is judgment, so high), so the judge can't change with the account's default.
+      - name: Review
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/review"
+          if [ -f "$dir/skip-reviewer" ]; then echo "the diff step already decided (too large to review whole)"; exit 0; fi
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::the ci-review environment has no CLAUDE_CODE_OAUTH_TOKEN secret, so no review runs and nothing is decided"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
+          "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
+            --model claude-opus-5-5 --effort high \
+            --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+            --no-session-persistence --output-format json --json-schema "$(cat "$dir/schema.json")" \
+            "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
+            < "$dir/prompt.txt" > "$dir/answer.json"
+          node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
+
+      # The step the seal reads: it fails only on a well-formed FAIL, which then stands for this head and its code.
+      - name: Verdict
+        run: node tooling/ci/ci-review.mjs judge "$RUNNER_TEMP/review"
+
+      - name: Re-run a red seal on this head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/ci-review.mjs rerun-seal

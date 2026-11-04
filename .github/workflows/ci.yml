@@ -488,13 +488,12 @@ jobs:
   merge-seal:
     name: CI merge seal
     runs-on: ubuntu-latest
-    # healthy run: seconds; up to 20 minutes when it waits for the independent review (tooling/ci/review-marker.mjs)
+    # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
     if: always()
     permissions:
       contents: read
-      statuses: read # the `Independent review` status
-      issues: read # the review comment itself, so the seal does not wait for the sign-off runner
+      actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review
     needs: [changes, gates, format, build, test-full]
     steps:
@@ -511,7 +510,7 @@ jobs:
         run: node tooling/ci/ci-affected.mjs --seal
       # On a pull request: its head. On a merge queue's commit (merge_group): every pull request in the group, each on its
       # own head, without waiting, since the queue only took pull requests whose seal had passed.
-      - name: Require the independent review sign-off
+      - name: Require the CI review on this exact head
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

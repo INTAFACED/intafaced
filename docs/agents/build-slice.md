@@ -34,7 +34,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 
 ## Independent review
 
-A money, security or gate-file PR gets one (AGENTS.md "Check, then merge" item 2). A different session reviews the exact head, never the author's: in a project, the review thread; ask for it with the PR number, the head sha and the slice id. It follows [reviewer-brief.md](reviewer-brief.md) and posts `Independent review: PASS <sha>` or its blocking findings. One review per head, diff only; fix blocking findings and ask again for the new head. After three rounds on one PR, step back and rethink the approach instead of a fourth.
+A money, security or gate-file PR needs one (AGENTS.md "Check, then merge" items 2 and 8). It is the `CI review` job, which reviews every push to an in-repo PR on its own: nobody asks for it, and a PASS comment counts for nothing. One review per head, diff only; a FAIL lists its blocking findings in the job summary, so fix them and push a new head. After three FAILs on one PR, step back and rethink the approach instead of a fourth. [reviewer-brief.md](reviewer-brief.md) stays the guide for a review a person or thread is asked for outside the seal.
 
 ## Briefing a new thread
 
