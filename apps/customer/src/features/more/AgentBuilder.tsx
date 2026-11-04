@@ -7,6 +7,7 @@ import { Button, DataTable, Dialog, Failure, Field, Panel, Tabs } from '../../sh
 import { navigate } from '../../app/location';
 import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
+import './agents-session.css';
 import {
   ownAgentCatalogueSchema as catalogueSchema,
   ownAgentLimitsSchema,
@@ -1119,7 +1120,7 @@ function PublishDialog({
             <legend>{t('publishChoose')}</legend>
             {publication.surfaces.map((surface) => (
               <div key={surface.surface}>
-                <label>
+                <label className="agent-surface-choice">
                   <input
                     type="checkbox"
                     disabled={!surface.allowed || busy}

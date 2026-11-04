@@ -68,3 +68,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* A surface to publish to (AG-builder-03): the page's reset gives a checkbox no size, so it gets one a person can tick. */
+.agent-surface-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--if-space-2);
+  cursor: pointer;
+}
+.agent-surface-choice input[type='checkbox'] {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--if-lime);
+  cursor: pointer;
+}

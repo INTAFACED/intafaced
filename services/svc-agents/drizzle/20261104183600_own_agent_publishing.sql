@@ -57,15 +57,3 @@ CREATE TABLE IF NOT EXISTS "agents"."own_agent_co_owners" (
 );
 CREATE INDEX IF NOT EXISTS "own_agent_co_owners_co_owner_idx" ON "agents"."own_agent_co_owners" ("co_owner_id");
 
--- What a session of an own agent opened on: its version and that version's instructions as they stood at the open, so
--- each run of the session reads them whatever is edited or published after. One row per session, never changed.
-CREATE TABLE IF NOT EXISTS "agents"."own_agent_session_versions" (
-  "session_id"    uuid PRIMARY KEY,
-  "agent_id"      uuid NOT NULL REFERENCES "agents"."own_agents" ("id"),
-  "owner_id"      text NOT NULL,
-  "version"       integer NOT NULL,
-  "instructions"  text NOT NULL,
-  "created_at"    timestamptz NOT NULL DEFAULT now(),
-  "updated_at"    timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "own_agent_session_versions_version_ck" CHECK ("version" >= 1)
-);
