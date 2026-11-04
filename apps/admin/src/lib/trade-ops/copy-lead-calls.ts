@@ -7,7 +7,10 @@ import {
   parseAudit,
   parseCriteria,
   parseListings,
+  parsePooledMasters,
   parseQueue,
+  parseWhitelistImport,
+  type WhitelistImport,
   type LeadApplication,
   type LeadCriteria,
   type LeadDeskRead,
@@ -33,15 +36,25 @@ const leadDesk = <T>(ctx: TradeCtx, proc: string, kind: 'query' | 'mutation', in
 
 /** The queue, the leads and the audit, read together; any one refused refuses the read. */
 export async function readLeadDesk(ctx: TradeCtx): Promise<Outcome<LeadDeskRead>> {
-  const [queue, leads, audit] = await Promise.all([
+  const [queue, leads, audit, pooledMasters] = await Promise.all([
     leadDesk(ctx, 'queue', 'query', {}, parseQueue),
     leadDesk(ctx, 'leads', 'query', {}, parseListings),
     leadDesk(ctx, 'audit', 'query', {}, parseAudit),
+    leadDesk(ctx, 'pooledMasters', 'query', {}, parsePooledMasters),
   ]);
   if (queue.kind !== 'ok') return queue;
   if (leads.kind !== 'ok') return leads;
   if (audit.kind !== 'ok') return audit;
-  return ok({ queue: queue.data, leads: leads.data, audit: audit.data }, queue.asOf);
+  if (pooledMasters.kind !== 'ok') return pooledMasters;
+  return ok({ queue: queue.data, leads: leads.data, audit: audit.data, pooledMasters: pooledMasters.data }, queue.asOf);
+}
+
+/** Add accounts to a pool's whitelist (CB-copy-pro-share-06); the request id is the import's business key. */
+export function importPoolWhitelist(
+  ctx: TradeCtx,
+  input: { poolId: string; userIds: string[]; clientRequestId: string },
+): Promise<Outcome<WhitelistImport>> {
+  return leadDesk(ctx, 'importWhitelist', 'mutation', input, parseWhitelistImport);
 }
 
 export function setLeadCriteria(

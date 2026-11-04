@@ -24,10 +24,14 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import {
   LEAD_STATE_TEXT,
   LEAD_STATUS_TEXT,
+  MASTER_STATUS_TEXT,
+  POOL_STATE_TEXT,
   type LeadApplication,
   type LeadAuditRow,
   type LeadDeskRead,
   type LeadListing,
+  type Pool,
+  type WhitelistMember,
 } from '@/lib/trade-ops/copy-lead';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import { OutcomeNotice } from './outcome-notice';
@@ -35,8 +39,10 @@ import { OutcomeNotice } from './outcome-notice';
 /**
  * Founders vet who may lead copy trading (CB-ops-01, CB-copy-12): the applications queue oldest first, the lead
  * criteria, an approval that needs a second founder before the lead is listed, a rejection whose reason the applicant
- * reads, and suspending a listed lead, every step in the audit. Pooled masters, whitelists, takeovers and levels have
- * their views here with the honest state: none of them is built in svc-trade, and their owner values are not set.
+ * reads, and suspending a listed lead, every step in the audit. Pooled masters apply from the master center into the
+ * same queue and are decided the same way (CB-copy-pro-share-11); an approved master creates one pool, and founders add
+ * investors to its whitelist within the owner's batch limit (CB-copy-pro-share-06). Takeovers and levels have their
+ * views here with the honest state: neither is built in svc-trade.
  */
 
 const utc = (iso: string) => iso.replace('T', ' ').slice(0, 19);
@@ -49,6 +55,8 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [days, setDays] = useState('');
+  const [whitelistPool, setWhitelistPool] = useState('');
+  const [accountIds, setAccountIds] = useState('');
   const [asking, setAsking] = useState<Reasoned | null>(null);
   const reads = useRef(0);
   const daysId = useId();
@@ -77,6 +85,66 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
     const out = await act('criteria', { action: 'criteria', minTrackRecordDays: days }, 'Criteria saved');
     if (out.kind === 'ok') setDays('');
   }
+
+  async function importWhitelist(e: FormEvent) {
+    e.preventDefault();
+    const poolId = whitelistPool || desk?.pooledMasters.pools[0]?.poolId || '';
+    const out = await act('whitelist', { action: 'whitelist', poolId, accountIds }, 'Added to the whitelist');
+    if (out.kind === 'ok') setAccountIds('');
+  }
+
+  /** Approve, confirm, file again and reject: the same decisions for a lead and for a pooled master. */
+  const decisions = (a: LeadApplication, confirmedText: string) => (
+    <span className="flex flex-wrap gap-2">
+      {a.status === 'pending' ? (
+        <Button
+          size={28}
+          variant="primary"
+          shape="rounded"
+          loading={busy === `approve:${a.id}`}
+          disabled={busy !== null}
+          onClick={() => void act(`approve:${a.id}`, { action: 'approve', applicationId: a.id }, 'Sent for a second founder')}
+        >
+          Approve
+        </Button>
+      ) : null}
+      {a.status === 'awaiting_second' && a.proposedBy?.toLowerCase() !== userId.toLowerCase() ? (
+        <Button
+          size={28}
+          variant="primary"
+          shape="rounded"
+          loading={busy === `confirm:${a.id}`}
+          disabled={busy !== null}
+          onClick={() => void act(`confirm:${a.id}`, { action: 'confirm', applicationId: a.id }, confirmedText)}
+        >
+          Confirm approval
+        </Button>
+      ) : null}
+      {a.status === 'awaiting_second' ? (
+        <Button
+          size={28}
+          variant="secondary"
+          shape="rounded"
+          loading={busy === `refile:${a.id}`}
+          disabled={busy !== null}
+          onClick={() => void act(`refile:${a.id}`, { action: 'approve', applicationId: a.id }, 'Sent for a second founder')}
+        >
+          File approval again
+        </Button>
+      ) : null}
+      {a.status === 'pending' || a.status === 'awaiting_second' ? (
+        <Button
+          size={28}
+          variant="secondary"
+          shape="rounded"
+          disabled={busy !== null}
+          onClick={() => setAsking({ kind: 'reject', application: a })}
+        >
+          Reject
+        </Button>
+      ) : null}
+    </span>
+  );
 
   const queueColumns: TableColumn<LeadApplication>[] = [
     {
@@ -109,56 +177,58 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
       headerLabel: 'Actions',
       width: 260,
       value: () => null,
+      cell: (a) => decisions(a, 'Approved and listed'),
+    },
+  ];
+
+  const masterColumns: TableColumn<LeadApplication>[] = [
+    {
+      id: 'at',
+      header: 'Applied (UTC)',
+      width: 170,
+      value: (a) => utc(a.appliedAt),
       cell: (a) => (
-        <span className="flex flex-wrap gap-2">
-          {a.status === 'pending' ? (
-            <Button
-              size={28}
-              variant="primary"
-              shape="rounded"
-              loading={busy === `approve:${a.id}`}
-              disabled={busy !== null}
-              onClick={() => void act(`approve:${a.id}`, { action: 'approve', applicationId: a.id }, 'Sent for a second founder')}
-            >
-              Approve
-            </Button>
-          ) : null}
-          {a.status === 'awaiting_second' && a.proposedBy?.toLowerCase() !== userId.toLowerCase() ? (
-            <Button
-              size={28}
-              variant="primary"
-              shape="rounded"
-              loading={busy === `confirm:${a.id}`}
-              disabled={busy !== null}
-              onClick={() => void act(`confirm:${a.id}`, { action: 'confirm', applicationId: a.id }, 'Approved and listed')}
-            >
-              Confirm approval
-            </Button>
-          ) : null}
-          {a.status === 'awaiting_second' ? (
-            <Button
-              size={28}
-              variant="secondary"
-              shape="rounded"
-              loading={busy === `refile:${a.id}`}
-              disabled={busy !== null}
-              onClick={() => void act(`refile:${a.id}`, { action: 'approve', applicationId: a.id }, 'Sent for a second founder')}
-            >
-              File approval again
-            </Button>
-          ) : null}
-          <Button
-            size={28}
-            variant="secondary"
-            shape="rounded"
-            disabled={busy !== null}
-            onClick={() => setAsking({ kind: 'reject', application: a })}
-          >
-            Reject
-          </Button>
-        </span>
+        <time dateTime={a.appliedAt} className="if-num text-xs">
+          {utc(a.appliedAt)}
+        </time>
       ),
     },
+    { id: 'name', header: 'Nickname', value: (a) => a.displayName },
+    { id: 'user', header: 'Account', value: (a) => a.userId, cell: (a) => <span className="if-num text-xs">{a.userId}</span> },
+    { id: 'contact', header: 'Contact', value: (a) => a.contact },
+    { id: 'style', header: 'Trading style', value: (a) => a.style },
+    {
+      id: 'status',
+      header: 'Status',
+      width: 210,
+      value: (a) => MASTER_STATUS_TEXT[a.status],
+      cell: (a) => (
+        <Badge tone={a.status === 'approved' ? 'lime' : a.status === 'rejected' ? 'error' : 'neutral'} variant="outline" density="dense">
+          {MASTER_STATUS_TEXT[a.status]}
+        </Badge>
+      ),
+    },
+    { id: 'reason', header: 'Reason', value: (a) => a.reason },
+    { id: 'act', header: '', headerLabel: 'Actions', width: 260, value: () => null, cell: (a) => decisions(a, 'Approved') },
+  ];
+
+  const poolColumns: TableColumn<Pool>[] = [
+    { id: 'name', header: 'Pool', value: (p) => p.name },
+    { id: 'master', header: 'Master', value: (p) => p.masterUserId, cell: (p) => <span className="if-num text-xs">{p.masterUserId}</span> },
+    { id: 'type', header: 'Type', width: 110, value: (p) => (p.strategyType === 'stable' ? 'Stable' : 'Aggressive') },
+    { id: 'state', header: 'State', width: 160, value: (p) => POOL_STATE_TEXT[p.state] ?? p.state },
+    {
+      id: 'limits',
+      header: 'Limits',
+      value: (p) => `Leverage ${p.limits.maxLeverage}x · drawdown ${p.limits.maxDrawdownPct}% · capital ${p.limits.maxCapital}`,
+    },
+    { id: 'created', header: 'Created (UTC)', width: 170, value: (p) => utc(p.createdAt) },
+  ];
+
+  const memberColumns: TableColumn<WhitelistMember>[] = [
+    { id: 'user', header: 'Account', value: (m) => m.userId, cell: (m) => <span className="if-num text-xs">{m.userId}</span> },
+    { id: 'added', header: 'Added (UTC)', width: 170, value: (m) => utc(m.addedAt) },
+    { id: 'by', header: 'Added by', value: (m) => m.addedBy, cell: (m) => <span className="if-num text-xs">{m.addedBy}</span> },
   ];
 
   const leadColumns: TableColumn<LeadListing>[] = [
@@ -280,38 +350,112 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 
         <TabsPanel value="pooled" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">
-            A pooled master runs one pool that followers join. Pools are not built in svc-trade (CB-copy-pro-share-03), so no one can apply
-            to run one and nothing here can be approved.
+            A pooled master runs one pool that investors join. Masters apply from the master center; two founders approve, as for a lead,
+            and an approved master may create one pool. A pool holds no money yet: its money doors wait on the ledger&apos;s pool recipes.
           </p>
-          <section aria-label="Master applications">
-            <Table<{ id: string }>
-              label="Master applications"
-              density="dense"
-              columns={[
-                { id: 'at', header: 'Applied (UTC)', value: () => null },
-                { id: 'name', header: 'Display name', value: () => null },
-                { id: 'pool', header: 'Pool', value: () => null },
-                { id: 'status', header: 'Status', value: () => null },
-              ]}
-              rows={[]}
-              getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No master applications: pools are not built.</p>}
-            />
-          </section>
+          {desk ? (
+            <>
+              <section aria-label="Master applications">
+                <Table<LeadApplication>
+                  label="Master applications"
+                  density="dense"
+                  columns={masterColumns}
+                  rows={desk.pooledMasters.applications}
+                  getRowId={(a) => a.id}
+                  emptyState={<p className="p-4 text-sm text-fg-2">No one has applied to run a pooled strategy.</p>}
+                />
+              </section>
+              <section aria-label="Pools">
+                <Table<Pool>
+                  label="Pools"
+                  density="dense"
+                  columns={poolColumns}
+                  rows={desk.pooledMasters.pools}
+                  getRowId={(p) => p.poolId}
+                  emptyState={<p className="p-4 text-sm text-fg-2">No pools: no approved master has created one.</p>}
+                />
+              </section>
+            </>
+          ) : null}
         </TabsPanel>
 
-        <TabsPanel value="whitelists" className="flex flex-col gap-3 pt-4">
-          <KeyValue
-            density="dense"
-            items={[
-              { label: 'Batch limit', value: 'Not set by the owner.' },
-              { label: 'Whitelists', value: 'None: pool whitelists are not built (CB-copy-pro-share-06), so none can be added.' },
-            ]}
-          />
+        <TabsPanel value="whitelists" className="flex flex-col gap-4 pt-4">
+          {desk ? (
+            <>
+              <KeyValue
+                density="dense"
+                items={[
+                  {
+                    label: 'Batch limit',
+                    value:
+                      desk.pooledMasters.batchLimit === null
+                        ? 'Not set by the owner: every import is refused.'
+                        : `${desk.pooledMasters.batchLimit} accounts per import`,
+                  },
+                  { label: 'Pools with a whitelist', value: String(desk.pooledMasters.whitelists.length) },
+                ]}
+              />
+              {desk.pooledMasters.pools.length > 0 ? (
+                <form aria-label="Whitelist import" onSubmit={(e) => void importWhitelist(e)} className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Pool
+                    <select
+                      className="adm-input"
+                      value={whitelistPool || desk.pooledMasters.pools[0]!.poolId}
+                      onChange={(e) => setWhitelistPool(e.target.value)}
+                    >
+                      {desk.pooledMasters.pools.map((p) => (
+                        <option key={p.poolId} value={p.poolId}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Account ids
+                    <textarea className="adm-input" rows={4} value={accountIds} onChange={(e) => setAccountIds(e.target.value)} />
+                  </label>
+                  <p className="text-xs text-fg-2">
+                    One per line or separated by commas. An account already on the list is not added twice.
+                  </p>
+                  <div>
+                    <Button
+                      type="submit"
+                      size={32}
+                      variant="secondary"
+                      shape="rounded"
+                      loading={busy === 'whitelist'}
+                      disabled={busy !== null}
+                    >
+                      Add to whitelist
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <p className="text-sm text-fg-2">No pools, so no whitelists: an approved master creates a pool first.</p>
+              )}
+              {desk.pooledMasters.whitelists.map((w) => (
+                <section key={w.poolId} aria-label={`Whitelist: ${w.poolName}`} className="flex flex-col gap-2">
+                  <h3 className="text-sm font-semibold">Whitelist: {w.poolName}</h3>
+                  <Table<WhitelistMember>
+                    label={`Whitelist: ${w.poolName}`}
+                    density="dense"
+                    columns={memberColumns}
+                    rows={w.members}
+                    getRowId={(m) => m.userId}
+                    emptyState={<p className="p-4 text-sm text-fg-2">No accounts on this whitelist.</p>}
+                  />
+                </section>
+              ))}
+            </>
+          ) : null}
         </TabsPanel>
 
         <TabsPanel value="takeovers" className="flex flex-col gap-3 pt-4">
-          <p className="text-sm text-fg-2">Takeovers per pool and day, once pools exist (CB-copy-pro-share-09).</p>
+          <p className="text-sm text-fg-2">
+            Takeovers per pool and day are not built (CB-copy-pro-share-09): a takeover is judged on a pool&apos;s net asset value, and
+            pools hold no money until the ledger&apos;s pool recipes exist.
+          </p>
           <section aria-label="Takeovers">
             <Table<{ id: string }>
               label="Takeovers"
@@ -323,7 +467,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
               ]}
               rows={[]}
               getRowId={(r) => r.id}
-              emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: pools are not built.</p>}
+              emptyState={<p className="p-4 text-sm text-fg-2">No takeovers: takeovers are not built.</p>}
             />
           </section>
         </TabsPanel>
@@ -332,7 +476,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
           <KeyValue
             density="dense"
             items={[
-              { label: 'Levels', value: 'None: lead levels are not built (CB-copy-pro-share-11).' },
+              { label: 'Levels', value: 'None: lead levels are not built (CB-copy-13, CB-copy-pro-share-03).' },
               { label: 'Ratio', value: 'Maximum ratio: not set by the platform.' },
             ]}
           />

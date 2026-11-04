@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { tradeOpsRoute } from '@/lib/trade-ops/bff';
-import { checkDays, checkLeadReason, type LeadApplication } from '@/lib/trade-ops/copy-lead';
+import { checkDays, checkLeadReason, splitAccountIds, type LeadApplication } from '@/lib/trade-ops/copy-lead';
 import {
   approveLead,
   approveLeadApproval,
   fileLeadApproval,
+  importPoolWhitelist,
   proposeLead,
   readLeadDesk,
   rejectLead,
@@ -27,6 +29,11 @@ import { ok, refused, type Outcome } from '@/lib/trade-ops/outcome';
  *   POST { action: 'confirm', applicationId }               founder B: approve it in identity, then list the lead
  *   POST { action: 'reject', applicationId, reason }        reject; the applicant reads the reason
  *   POST { action: 'suspend', leaderRef, reason }           suspend a listed lead (audited with the reason)
+ *   POST { action: 'whitelist', poolId, accountIds }        add accounts to a pool's whitelist, within the owner's
+ *                                                           batch limit (CB-copy-pro-share-06)
+ *
+ * A pooled master's application (CB-copy-pro-share-11) is in the same review queue and is approved, confirmed and
+ * rejected with the same actions; an approved master is not listed as a lead.
  *
  * The approval is bound to the application, the name it lists under and the criteria in force when it was filed; an
  * approval while the criteria are unset is refused here before anything is filed (svc-trade refuses it the same way,
@@ -42,7 +49,10 @@ const CRITERIA_UNSET = 'The lead criteria are not set. Set the minimum track rec
 async function current(ctx: TradeCtx, applicationId: string): Promise<Outcome<{ application: LeadApplication; days: number | null }>> {
   const read = await readLeadDesk(ctx);
   if (read.kind !== 'ok') return read;
-  const application = read.data.queue.applications.find((a) => a.id === applicationId);
+  const open = (a: LeadApplication) => a.status === 'pending' || a.status === 'awaiting_second';
+  const application =
+    read.data.queue.applications.find((a) => a.id === applicationId) ??
+    read.data.pooledMasters.applications.find((a) => a.id === applicationId && open(a));
   if (!application) return refused('trade.copy_lead_application_not_found', 'No such application is waiting. Read the room again.', 404);
   return ok({ application, days: read.data.queue.criteria?.minTrackRecordDays ?? null }, read.asOf);
 }
@@ -76,6 +86,18 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
       reason: reason.reason,
       clientRequestId: `copy-lead-suspend:${lead.leaderRef}:${lead.stateChangedAt}`,
     });
+  }
+
+  if (action === 'whitelist') {
+    if (typeof body.poolId !== 'string' || !UUID.test(body.poolId)) return refused('trade.pool_not_found', 'Choose a pool.', 400);
+    const accountIds = splitAccountIds(body.accountIds);
+    if (accountIds.length === 0) return refused('trade.pool_whitelist_empty', 'Add at least one account id.', 400);
+    // The import's business key is the pool and the set of accounts: the same import sent twice adds them once.
+    const key = createHash('sha256')
+      .update(JSON.stringify([...accountIds].sort()))
+      .digest('hex')
+      .slice(0, 40);
+    return importPoolWhitelist(ctx, { poolId: body.poolId.toLowerCase(), userIds: accountIds, clientRequestId: key });
   }
 
   if (action !== 'approve' && action !== 'confirm' && action !== 'reject')

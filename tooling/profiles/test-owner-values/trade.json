@@ -71,6 +71,16 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_COPY_POOL_TYPE_LIMITS": {
+      "service": "trade",
+      "value": "{\"published\": true, \"stable\": {\"maxLeverage\": \"3\", \"maxDrawdownPct\": \"20\", \"maxCapital\": \"100000\"}}",
+      "note": "TEST limits for a stable pooled strategy only, so a master can create one on the test stack; aggressive is left unset so its refusal can be seen."
+    },
+    "TRADE_COPY_POOL_WHITELIST_BATCH_MAX": {
+      "service": "trade",
+      "value": "20",
+      "note": "TEST batch limit of 20 accounts per pool whitelist import (the reference's figure), so J-copy-bots-otc-10 #6 sees 21 refused."
+    },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",

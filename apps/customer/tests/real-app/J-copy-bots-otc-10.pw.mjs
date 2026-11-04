@@ -2,24 +2,26 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState, signOutBrowser } from './stack.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { fundedTrader, signIn, signUp } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
 // J-copy-bots-otc-10, in the running app (docs/roadmap/journeys.json): vet lead applications and pooled masters in the
 // founder console. One test per step, titled "J-copy-bots-otc-10 #<n>". Founders A and B are the stack's LOCAL TEST founder
 // pair (admin.mjs); an approval needs both. The applicants are TEST accounts that apply through the customer app.
 // The lead criteria are owner values kept append-only, so #2 (criteria blank) holds on a fresh stack, as each CI shard is;
-// a second local run on the same stack needs a fresh one. Pooled masters, whitelists, takeovers and levels are parked
-// views with their honest empty or unset state: #6 waits on CB-copy-pro-share-11 and -06, #7 on -09 and -03.
+// a second local run on the same stack needs a fresh one. #6 applies as a pooled master from the master center, has two
+// founders approve, creates the pool and imports its whitelist within the stack's TEST batch limit. Takeovers and levels
+// are parked views with their honest unbuilt state: #7 waits on CB-copy-pro-share-09 and -03.
 const J = 'J-copy-bots-otc-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
 /** The owner's wait before a rejected applicant may apply again, as the stack's TEST profile sets it, in milliseconds. */
-const REAPPLY_WAIT_MS =
-  Number(
-    JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8')).values
-      .TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value,
-  ) * 1000;
+const PROFILE = JSON.parse(
+  readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8'),
+).values;
+const REAPPLY_WAIT_MS = Number(PROFILE.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value) * 1000;
+/** The owner's limit on accounts per pool whitelist import, as the stack's TEST profile sets it. */
+const WHITELIST_BATCH = Number(PROFILE.TRADE_COPY_POOL_WHITELIST_BATCH_MAX.value);
 
 test.describe.configure({ mode: 'default' });
 
@@ -279,17 +281,121 @@ test(`${J} #5 suspends a lead: the state changes once, with an audit row showing
   await expect(tableIn(page, 'Audit').getByRole('row', { name: new RegExp(reason) })).toHaveCount(1);
 });
 
-test(`${J} #6 opens pooled masters and the pool whitelist: master applications, and whitelists with the batch limit`, async ({ page }) => {
+/** The master center as svc-trade answers `copy.pool.mine` for `who`. */
+async function poolMasterOf(who) {
+  const res = await (await api(who)).get('/api/trade/trpc/copy.pool.mine');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body?.result?.data;
+}
+
+test(`${J} #6 opens pooled masters and the pool whitelist: master applications from the master center, and whitelists with the batch limit`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // A TEST trader applies to run a pooled strategy from the master center, in the customer app.
+  const master = await fundedTrader(page, 'pm', '100');
+  const masterId = (await api(master)).userId;
+  const nickname = `TEST master ${state('tag')}`;
+  const contact = `TEST contact ${state('tag')}`;
+  const style = 'TEST style: low-leverage majors';
+  await signIn(page, master);
+  await page.goto('/copy/pools/master');
+  await page.getByRole('textbox', { name: 'Nickname' }).fill(nickname, UNBUILT);
+  await page.getByRole('textbox', { name: 'Contact' }).fill(contact);
+  await page.getByRole('textbox', { name: 'Trading style' }).fill(style);
+  await page.getByRole('button', { name: 'Apply to run a pooled strategy' }).click();
+  await expect(page.getByRole('status').filter({ hasText: `Applied as ${nickname}` })).toBeVisible();
+  const applied = await poolMasterOf(master);
+  expect(applied).toMatchObject({ application: { state: 'submitted', nickname, contact, style }, pool: null, investors: 0 });
+  await signOutBrowser(page.context());
+
+  // The founders' Pooled masters view lists it from svc-trade, apart from the lead queue: the master center's application.
   await openDesk(page);
-  // The tables must come from a service: pools are not built, so nothing reads master applications or whitelists.
-  expect(
-    (await readDesk(page)).pooledMasters,
-    'UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service',
-  ).toBeDefined();
+  const desk = await readDesk(page);
+  const mine = desk.pooledMasters.applications.filter((a) => a.displayName === nickname);
+  expect(mine).toEqual([
+    expect.objectContaining({
+      id: applied.application.applicationId,
+      kind: 'pool_master',
+      userId: masterId,
+      contact,
+      style,
+      status: 'pending',
+    }),
+  ]);
+  expect(applicationOf(desk, nickname), 'a master application is not a lead application').toBeUndefined();
   await page.getByRole('tab', { name: 'Pooled masters' }).click();
-  await expect(tableIn(page, 'Master applications')).toBeVisible();
+  const masters = tableIn(page, 'Master applications');
+  const row = rowOf(masters, nickname);
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(contact);
+  await expect(row).toContainText(style);
+  await expect(row).toContainText(masterId);
+  await expect(row).toContainText('Waiting for review');
+
+  // Two founders approve it, as they approve a lead (the criteria were set at #3); an approved master is not listed.
+  await row.getByRole('button', { name: 'Approve' }).click();
+  await expect(row).toContainText('Waiting for a second founder');
+  const second = await (await browser.newContext()).newPage();
+  await openDesk(second, 'b');
+  await second.getByRole('tab', { name: 'Pooled masters' }).click();
+  await rowOf(tableIn(second, 'Master applications'), nickname).getByRole('button', { name: 'Confirm approval' }).click();
+  await expect(second.getByRole('status').filter({ hasText: 'Approved' })).toBeVisible();
+  await expect(rowOf(tableIn(second, 'Master applications'), nickname)).toContainText('Approved');
+  const decided = await readDesk(second);
+  expect(decided.pooledMasters.applications.find((a) => a.displayName === nickname)).toMatchObject({ status: 'approved', leaderRef: null });
+  expect(decided.leads.filter((l) => l.displayName === nickname)).toEqual([]);
+  await second.context().close();
+  await signOutBrowser(page.context());
+
+  // The approved master creates the one pool a whitelist belongs to, in the master center.
+  const poolName = `TEST pool ${state('tag')}`;
+  await signIn(page, master);
+  await page.goto('/copy/pools/master');
+  await expect(page.getByText(`Approved: you may run one pooled strategy as ${nickname}.`)).toBeVisible();
+  await page.getByRole('textbox', { name: 'Strategy name' }).fill(poolName);
+  await page.getByRole('button', { name: 'Create strategy' }).click();
+  const strategy = page.getByRole('region', { name: `Your strategy: ${poolName}` });
+  await expect(strategy).toContainText('Strategy creation');
+  await expect(strategy).toContainText('No investors yet');
+  const created = (await poolMasterOf(master)).pool;
+  expect(created).toMatchObject({ name: poolName, strategyType: 'stable', state: 'strategy_creation' });
+  await signOutBrowser(page.context());
+
+  // The pool whitelist: the batch limit is the owner's (the stack's TEST value), and an import above it is refused by
+  // its code with nothing written; an import within it lists the accounts under the pool, once.
+  const investor = await signUp(page, 'pi');
+  const accounts = [(await api(state('rejectWho'))).userId, (await api(investor)).userId];
+  await openDesk(page);
+  expect((await readDesk(page)).pooledMasters.batchLimit).toBe(WHITELIST_BATCH);
   await page.getByRole('tab', { name: 'Whitelists' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Whitelists' })).toContainText(/Batch limit/);
+  const panel = page.getByRole('tabpanel', { name: 'Whitelists' });
+  await expect(panel).toContainText('Batch limit');
+  await expect(panel).toContainText(`${WHITELIST_BATCH} accounts per import`);
+  const form = panel.getByRole('form', { name: 'Whitelist import' });
+  await form.getByRole('combobox', { name: 'Pool' }).selectOption({ label: poolName });
+  const tooMany = Array.from({ length: WHITELIST_BATCH + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
+  await form.getByRole('textbox', { name: 'Account ids' }).fill(tooMany.join('\n'));
+  const refusedImport = await answerTo(page, 'whitelist', () => form.getByRole('button', { name: 'Add to whitelist' }).click());
+  expect([refusedImport.status, refusedImport.body.code]).toEqual([400, 'trade.pool_batch_too_large']);
+  await expect(page.getByRole('alert')).toContainText(`at most ${WHITELIST_BATCH} accounts`);
+  const whitelistOf = async () => (await readDesk(page)).pooledMasters.whitelists.find((w) => w.poolId === created.poolId);
+  expect((await whitelistOf()).members).toEqual([]);
+
+  await form.getByRole('textbox', { name: 'Account ids' }).fill(accounts.join(', '));
+  const imported = await answerTo(page, 'whitelist', () => form.getByRole('button', { name: 'Add to whitelist' }).click());
+  expect(imported.status, JSON.stringify(imported.body).slice(0, 300)).toBe(200);
+  await expect(page.getByRole('status').filter({ hasText: 'Added to the whitelist' })).toBeVisible();
+  const listed = await whitelistOf();
+  expect(listed).toMatchObject({ poolName, masterUserId: masterId });
+  expect(listed.members.map((m) => m.userId).sort()).toEqual([...accounts].sort());
+  const members = tableIn(panel, `Whitelist: ${poolName}`);
+  await expect(bodyRows(members)).toHaveCount(2);
+  for (const id of accounts) await expect(rowOf(members, id)).toHaveCount(1);
+  // The same import again adds no one twice.
+  await deskCall(page, { action: 'whitelist', poolId: created.poolId, accountIds: accounts.join(',') });
+  expect((await whitelistOf()).members).toHaveLength(2);
 });
 
 test(`${J} #7 opens the takeover and level views: takeovers per pool and day; levels with "Maximum ratio: not set by the platform"`, async ({

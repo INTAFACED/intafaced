@@ -33,6 +33,13 @@ export const COPY_LEAD_APPROVE_ACTION = 'trade.copy_lead_approve' as const;
 
 export type LeadApplicationStatus = 'pending' | 'awaiting_second' | 'approved' | 'rejected';
 
+/**
+ * What an application asks for: to lead copy trading, or to run a pooled strategy as its master
+ * (CB-copy-pro-share-11). Both enter this one review queue and are decided the same way; only an approved lead is
+ * listed in the leader directory.
+ */
+export type ApplicationKind = 'lead' | 'pool_master';
+
 export interface LeadCriteria {
   readonly minTrackRecordDays: number;
   readonly setBy: string;
@@ -58,6 +65,7 @@ export interface MyLeadApplication {
 
 export interface LeadApplicationView {
   readonly id: string;
+  readonly kind: ApplicationKind;
   readonly userId: string;
   readonly displayName: string;
   readonly status: LeadApplicationStatus;
@@ -69,6 +77,9 @@ export interface LeadApplicationView {
   readonly reason: string | null;
   readonly leaderRef: string | null;
   readonly decidedAt: string | null;
+  /** A pooled master's contact and trading style as they applied (null on a lead application). */
+  readonly contact: string | null;
+  readonly style: string | null;
 }
 
 export interface LeadListingView {
@@ -125,8 +136,9 @@ function checkedReapplyWait(seconds: number): number {
   return seconds;
 }
 
-interface ApplicationRow {
+export interface ApplicationRow {
   id: string;
+  kind: ApplicationKind;
   user_id: string;
   display_name: string;
   status: LeadApplicationStatus;
@@ -138,6 +150,8 @@ interface ApplicationRow {
   leader_ref: string | null;
   created_at: Date;
   decided_at: Date | null;
+  contact: string | null;
+  style: string | null;
 }
 
 const LIST_MAX = 200;
@@ -157,9 +171,10 @@ export function leadApprovalPayload(input: {
   };
 }
 
-function view(row: ApplicationRow): LeadApplicationView {
+export function applicationView(row: ApplicationRow): LeadApplicationView {
   return {
     id: row.id,
+    kind: row.kind,
     userId: row.user_id,
     displayName: row.display_name,
     status: row.status,
@@ -171,26 +186,33 @@ function view(row: ApplicationRow): LeadApplicationView {
     reason: row.reason,
     leaderRef: row.leader_ref,
     decidedAt: row.decided_at?.toISOString() ?? null,
+    contact: row.contact,
+    style: row.style,
   };
 }
+const view = applicationView;
 
 /** When a rejected application's applicant may apply again, or null while the owner's wait is unset. */
-function reapplyAt(row: ApplicationRow, waitSeconds: number | null): Date | null {
+export function reapplyAt(row: ApplicationRow, waitSeconds: number | null): Date | null {
   if (row.status !== 'rejected' || waitSeconds === null || !row.decided_at) return null;
   return new Date(row.decided_at.getTime() + waitSeconds * 1000);
+}
+
+/** The applicant's word for where their application is. */
+export function applicantState(status: LeadApplicationStatus): MyLeadApplication['state'] {
+  return status === 'approved'
+    ? 'approved'
+    : status === 'rejected'
+      ? 'disapproved'
+      : status === 'awaiting_second'
+        ? 'under_review'
+        : 'submitted';
 }
 
 function mine(row: ApplicationRow, waitSeconds: number | null): MyLeadApplication {
   return {
     applicationId: row.id,
-    state:
-      row.status === 'approved'
-        ? 'approved'
-        : row.status === 'rejected'
-          ? 'disapproved'
-          : row.status === 'awaiting_second'
-            ? 'under_review'
-            : 'submitted',
+    state: applicantState(row.status),
     displayName: row.display_name,
     submittedAt: row.created_at.toISOString(),
     reason: row.status === 'rejected' ? row.reason : null,
@@ -219,7 +241,8 @@ export class LeadDesk {
   /** The applicant's newest application, or null. */
   async mine(principal: Principal): Promise<MyLeadApplication | null> {
     const [row] = await this.deps.sql<ApplicationRow[]>`
-      SELECT * FROM trade.copy_lead_applications WHERE user_id = ${principal.userId} ORDER BY created_at DESC, id DESC LIMIT 1`;
+      SELECT * FROM trade.copy_lead_applications WHERE user_id = ${principal.userId} AND kind = 'lead'
+      ORDER BY created_at DESC, id DESC LIMIT 1`;
     return row ? mine(row, this.waitSeconds) : null;
   }
 
@@ -235,7 +258,8 @@ export class LeadDesk {
       // One applicant at a time per person: the lock key is the person, so two submits cannot both insert.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`copy-lead-apply:${userId}`}))`;
       const [latest] = await tx<ApplicationRow[]>`
-        SELECT * FROM trade.copy_lead_applications WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT 1`;
+        SELECT * FROM trade.copy_lead_applications WHERE user_id = ${userId} AND kind = 'lead'
+        ORDER BY created_at DESC, id DESC LIMIT 1`;
       if (latest && (latest.status === 'pending' || latest.status === 'awaiting_second')) {
         if (latest.display_name !== displayName) {
           throw new CopyError('An application is already waiting under another name', 'trade.copy_lead_application_open');
@@ -268,7 +292,7 @@ export class LeadDesk {
   async queue(principal: Principal): Promise<{ applications: LeadApplicationView[]; criteria: LeadCriteria | null }> {
     requireOperator(principal);
     const rows = await this.deps.sql<ApplicationRow[]>`
-      SELECT * FROM trade.copy_lead_applications WHERE status IN ('pending', 'awaiting_second')
+      SELECT * FROM trade.copy_lead_applications WHERE status IN ('pending', 'awaiting_second') AND kind = 'lead'
       ORDER BY created_at ASC, id ASC LIMIT ${LIST_MAX}`;
     return { applications: rows.map(view), criteria: await this.criteria() };
   }
@@ -338,7 +362,7 @@ export class LeadDesk {
         tx as unknown as Sql,
         {
           id: randomUUIDFor(`propose:${row.id}:${approvalId}`),
-          kind: 'copy_lead.propose',
+          kind: row.kind === 'lead' ? 'copy_lead.propose' : 'copy_pool_master.propose',
           operatorId: principal.userId,
           accountId: row.user_id,
           objectId: row.id,
@@ -375,8 +399,9 @@ export class LeadDesk {
         throw new TradeOpsError('approval_mismatch', 'The founder who approved first cannot confirm. A second founder must.');
       }
       // Someone already in the directory is not listed again; the one exception is this application's own listing,
-      // written by an earlier confirm that stopped before it recorded the decision.
-      if (await this.inDirectory(tx, row.user_id, `copy-lead-approve:${row.id}`)) {
+      // written by an earlier confirm that stopped before it recorded the decision. A pooled master is not listed.
+      const listing = row.kind === 'lead';
+      if (listing && (await this.inDirectory(tx, row.user_id, `copy-lead-approve:${row.id}`))) {
         throw new CopyError('The applicant is already in the leader directory', 'trade.copy_lead_already_leading');
       }
       // Identity answers a retry of this same confirm (same operation) with the approval it consumed; any other use of
@@ -396,14 +421,17 @@ export class LeadDesk {
       if (row.proposed_by && row.proposed_by.trim().toLowerCase() === approverId.trim().toLowerCase()) {
         throw new TradeOpsError('approval_mismatch', 'The founder who attached this approval also approved it. File the approval again.');
       }
-      // The listing is idempotent on the application: a retry after a crash lists the same leader once.
-      const listed = await this.deps.directory.upsertListing(principal, {
-        clientRequestId: `copy-lead-approve:${row.id}`,
-        leaderUserId: row.user_id,
-        displayName: row.display_name,
-        recordKind: 'self_reported',
-        state: 'listed',
-      });
+      // The listing is idempotent on the application: a retry after a crash lists the same leader once. An approved
+      // pooled master may create a pool; nothing is listed for it.
+      const listed = listing
+        ? await this.deps.directory.upsertListing(principal, {
+            clientRequestId: `copy-lead-approve:${row.id}`,
+            leaderUserId: row.user_id,
+            displayName: row.display_name,
+            recordKind: 'self_reported',
+            state: 'listed',
+          })
+        : { leaderRef: null };
       const now = this.deps.now();
       const [next] = await tx<ApplicationRow[]>`
         UPDATE trade.copy_lead_applications
@@ -414,7 +442,7 @@ export class LeadDesk {
         tx as unknown as Sql,
         {
           id: randomUUIDFor(leadDecisionKey(row.id, 'approve')),
-          kind: 'copy_lead.approve',
+          kind: row.kind === 'lead' ? 'copy_lead.approve' : 'copy_pool_master.approve',
           operatorId: principal.userId,
           accountId: row.user_id,
           objectId: row.id,
@@ -448,7 +476,7 @@ export class LeadDesk {
         tx as unknown as Sql,
         {
           id: randomUUIDFor(leadDecisionKey(row.id, 'reject')),
-          kind: 'copy_lead.reject',
+          kind: row.kind === 'lead' ? 'copy_lead.reject' : 'copy_pool_master.reject',
           operatorId: principal.userId,
           accountId: row.user_id,
           objectId: row.id,
@@ -491,7 +519,7 @@ export class LeadDesk {
         FROM trade.copy_leader_listing_audit
         UNION ALL
         SELECT id::text AS id, occurred_at AS at, kind AS action, operator_id, object_id AS subject, reason, detail->>'key' AS key
-        FROM trade.operator_audit WHERE kind LIKE 'copy_lead.%'
+        FROM trade.operator_audit WHERE kind LIKE 'copy_lead.%' OR kind LIKE 'copy_pool%'
       ) feed ORDER BY at DESC, id DESC LIMIT ${LIST_MAX}`;
     return rows.map((r) => ({
       id: r.id,

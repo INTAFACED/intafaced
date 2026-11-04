@@ -12,8 +12,12 @@ export interface LeadCriteria {
   readonly setAt: string;
 }
 
+/** A lead application, or a pooled master's application from the master center (CB-copy-pro-share-11). */
+export type ApplicationKind = 'lead' | 'pool_master';
+
 export interface LeadApplication {
   readonly id: string;
+  readonly kind: ApplicationKind;
   readonly userId: string;
   readonly displayName: string;
   readonly status: LeadApplicationStatus;
@@ -22,6 +26,9 @@ export interface LeadApplication {
   readonly proposedBy: string | null;
   readonly reason: string | null;
   readonly leaderRef: string | null;
+  /** A pooled master's contact and trading style; null on a lead application. */
+  readonly contact: string | null;
+  readonly style: string | null;
 }
 
 export interface LeadListing {
@@ -48,10 +55,52 @@ export interface LeadQueue {
   readonly criteria: LeadCriteria | null;
 }
 
+export type PoolStrategyType = 'stable' | 'aggressive';
+
+export interface PoolLimits {
+  readonly maxLeverage: string;
+  readonly maxDrawdownPct: string;
+  readonly maxCapital: string;
+}
+
+export interface Pool {
+  readonly poolId: string;
+  readonly masterUserId: string;
+  readonly applicationId: string;
+  readonly name: string;
+  readonly strategyType: PoolStrategyType;
+  readonly limits: PoolLimits;
+  readonly state: string;
+  readonly createdAt: string;
+}
+
+export interface WhitelistMember {
+  readonly userId: string;
+  readonly addedAt: string;
+  readonly addedBy: string;
+}
+
+export interface Whitelist {
+  readonly poolId: string;
+  readonly poolName: string;
+  readonly masterUserId: string;
+  readonly members: readonly WhitelistMember[];
+}
+
+/** Pooled masters as svc-trade holds them (`copy.ops.leadDesk.pooledMasters`). */
+export interface PooledMasters {
+  readonly applications: readonly LeadApplication[];
+  readonly pools: readonly Pool[];
+  readonly whitelists: readonly Whitelist[];
+  /** The owner's limit on accounts per whitelist import; null while unset (every import is refused). */
+  readonly batchLimit: number | null;
+}
+
 export interface LeadDeskRead {
   readonly queue: LeadQueue;
   readonly leads: readonly LeadListing[];
   readonly audit: readonly LeadAuditRow[];
+  readonly pooledMasters: PooledMasters;
 }
 
 export const LEAD_STATUS_TEXT: Record<LeadApplicationStatus, string> = {
@@ -59,6 +108,18 @@ export const LEAD_STATUS_TEXT: Record<LeadApplicationStatus, string> = {
   awaiting_second: 'Waiting for a second founder',
   approved: 'Approved and listed',
   rejected: 'Rejected',
+};
+
+/** A pooled master's application is approved without a listing: an approved master may create a pool. */
+export const MASTER_STATUS_TEXT: Record<LeadApplicationStatus, string> = { ...LEAD_STATUS_TEXT, approved: 'Approved' };
+
+export const POOL_STATE_TEXT: Record<string, string> = {
+  strategy_creation: 'Strategy creation',
+  seed_round: 'Seed round',
+  trading: 'Trading',
+  settlement: 'Settlement',
+  matured: 'Matured',
+  terminated: 'Terminated',
 };
 
 export const LEAD_STATE_TEXT: Record<LeadListingState, string> = {
@@ -93,8 +154,10 @@ export function parseApplication(raw: unknown): LeadApplication | null {
   if (!r || !str(r.id) || !str(r.userId) || !str(r.displayName) || !str(r.appliedAt)) return null;
   if (!str(r.status) || !STATUSES.includes(r.status)) return null;
   if (!strOrNull(r.approvalId) || !strOrNull(r.proposedBy) || !strOrNull(r.reason) || !strOrNull(r.leaderRef)) return null;
+  if ((r.kind !== 'lead' && r.kind !== 'pool_master') || !strOrNull(r.contact) || !strOrNull(r.style)) return null;
   return {
     id: r.id,
+    kind: r.kind,
     userId: r.userId,
     displayName: r.displayName,
     status: r.status as LeadApplicationStatus,
@@ -103,6 +166,8 @@ export function parseApplication(raw: unknown): LeadApplication | null {
     proposedBy: r.proposedBy,
     reason: r.reason,
     leaderRef: r.leaderRef,
+    contact: r.contact,
+    style: r.style,
   };
 }
 
@@ -138,6 +203,85 @@ export function parseAuditRow(raw: unknown): LeadAuditRow | null {
 }
 
 export const parseAudit = (raw: unknown) => all(raw, parseAuditRow);
+
+function parsePool(raw: unknown): Pool | null {
+  const r = obj(raw);
+  const l = obj(r?.limits);
+  if (!r || !l || !str(r.poolId) || !str(r.masterUserId) || !str(r.applicationId) || !str(r.name) || !str(r.state) || !str(r.createdAt))
+    return null;
+  if (r.strategyType !== 'stable' && r.strategyType !== 'aggressive') return null;
+  if (!str(l.maxLeverage) || !str(l.maxDrawdownPct) || !str(l.maxCapital)) return null;
+  return {
+    poolId: r.poolId,
+    masterUserId: r.masterUserId,
+    applicationId: r.applicationId,
+    name: r.name,
+    strategyType: r.strategyType,
+    limits: { maxLeverage: l.maxLeverage, maxDrawdownPct: l.maxDrawdownPct, maxCapital: l.maxCapital },
+    state: r.state,
+    createdAt: r.createdAt,
+  };
+}
+
+function parseMember(raw: unknown): WhitelistMember | null {
+  const r = obj(raw);
+  return r && str(r.userId) && str(r.addedAt) && str(r.addedBy) ? { userId: r.userId, addedAt: r.addedAt, addedBy: r.addedBy } : null;
+}
+
+function parseWhitelist(raw: unknown): Whitelist | null {
+  const r = obj(raw);
+  if (!r || !str(r.poolId) || !str(r.poolName) || !str(r.masterUserId)) return null;
+  const members = all(r.members, parseMember);
+  return members ? { poolId: r.poolId, poolName: r.poolName, masterUserId: r.masterUserId, members } : null;
+}
+
+export function parsePooledMasters(raw: unknown): PooledMasters | null {
+  const r = obj(raw);
+  if (!r) return null;
+  const applications = all(r.applications, parseApplication);
+  const pools = all(r.pools, parsePool);
+  const whitelists = all(r.whitelists, parseWhitelist);
+  const batchLimit = r.batchLimit === null ? null : Number.isInteger(r.batchLimit) ? (r.batchLimit as number) : undefined;
+  if (!applications || !pools || !whitelists || batchLimit === undefined) return null;
+  return { applications, pools, whitelists, batchLimit };
+}
+
+export interface WhitelistImport {
+  readonly poolId: string;
+  readonly importId: string;
+  readonly requested: number;
+  readonly added: number;
+  readonly members: number;
+}
+
+export function parseWhitelistImport(raw: unknown): WhitelistImport | null {
+  const r = obj(raw);
+  if (!r || !str(r.poolId) || !str(r.importId)) return null;
+  if (![r.requested, r.added, r.members].every((n) => Number.isInteger(n))) return null;
+  return {
+    poolId: r.poolId,
+    importId: r.importId,
+    requested: r.requested as number,
+    added: r.added as number,
+    members: r.members as number,
+  };
+}
+
+/**
+ * Account ids as a founder pastes them: one per line, or separated by commas or spaces. Blank entries are dropped and
+ * repeats count once; the batch limit and the id shape are svc-trade's to check.
+ */
+export function splitAccountIds(value: unknown): string[] {
+  const text = typeof value === 'string' ? value : Array.isArray(value) ? value.filter((v) => typeof v === 'string').join('\n') : '';
+  return [
+    ...new Set(
+      text
+        .split(/[\s,;]+/)
+        .map((v) => v.trim().toLowerCase())
+        .filter((v) => v.length > 0),
+    ),
+  ];
+}
 
 /** The criteria as a founder types them: a whole number of days, 0 to 3650. Anything else is refused, not rounded. */
 export function checkDays(value: unknown): { ok: true; days: number } | { ok: false; message: string } {

@@ -46,6 +46,7 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import type { PoolDesk } from './copy/pool-masters.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
@@ -863,6 +864,7 @@ export function createTradeRouter(
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
   grid?: GridService,
+  poolDesk?: PoolDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -883,6 +885,24 @@ export function createTradeRouter(
       }
       if (err instanceof TradeOpsError)
         throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
+  /** The pooled masters desk (CB-copy-pro-share-11, -04, -06): its refusals carry their code the same way. */
+  const pool = async <T>(fn: (desk: PoolDesk) => Promise<T>): Promise<T> => {
+    try {
+      if (!poolDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return await fn(poolDesk);
+    } catch (err) {
+      if (err instanceof CopyError && (err.code.startsWith('trade.pool_') || err.code.startsWith('trade.copy_lead_'))) {
+        const code =
+          err.code === 'trade.pool_not_found'
+            ? 'NOT_FOUND'
+            : err.code === 'trade.pool_limit_not_set' || err.code === 'trade.pool_batch_limit_unset'
+              ? 'PRECONDITION_FAILED'
+              : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
+      }
       throw toTrpcError(err);
     }
   };
@@ -1853,10 +1873,39 @@ export function createTradeRouter(
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
+      /** The master center (CB-copy-pro-share-11, -04): apply to run a pooled strategy, then create its one pool. */
+      pool: router({
+        mine: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => pool((desk) => desk.mine(ctx.principal))),
+        applyAsMaster: scopedProcedure('trade:write', { module: 'trade' })
+          // Lengths are checked by the desk, which refuses with its own code, so the room can say what to fix.
+          .input(z.object({ nickname: z.string().max(400), contact: z.string().max(400), style: z.string().max(1000) }).strict())
+          .mutation(({ ctx, input }) => pool((desk) => desk.apply(ctx.principal, input))),
+        create: scopedProcedure('trade:write', { module: 'trade' })
+          .input(
+            z
+              .object({ name: z.string().max(400), strategyType: z.string().max(40), clientRequestId: z.string().trim().min(1).max(128) })
+              .strict(),
+          )
+          .mutation(({ ctx, input }) => pool((desk) => desk.create(ctx.principal, input))),
+      }),
+
       ops: router({
         /** The founders' lead desk (CB-ops-01): the queue, the criteria, two-founder approval, rejection, leads, audit. */
         leadDesk: router({
           queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.queue(ctx.principal))),
+          /** Pooled masters (CB-copy-pro-share-11, -06): master applications, pools, whitelists and the batch limit. */
+          pooledMasters: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => pool((desk) => desk.read(ctx.principal))),
+          importWhitelist: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z
+                .object({
+                  poolId: z.string().uuid(),
+                  userIds: z.array(z.string().max(80)).max(10_000),
+                  clientRequestId: z.string().trim().min(1).max(128),
+                })
+                .strict(),
+            )
+            .mutation(({ ctx, input }) => pool((desk) => desk.importWhitelist(ctx.principal, input))),
           leads: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.leads(ctx.principal))),
           audit: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.audit(ctx.principal))),
           setCriteria: scopedProcedure('admin:write', { module: 'trade' })

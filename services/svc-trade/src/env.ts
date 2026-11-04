@@ -744,6 +744,22 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * Each pooled strategy type's limits (CB-copy-pro-share-04). JSON or empty.
+       * Published shape: {"published":true,"stable":{"maxLeverage":"…","maxDrawdownPct":"…","maxCapital":"…"},"aggressive":{…}}
+       *
+       * Empty (default), or a type left out = unset → creating a pool of that type refuses `trade.pool_limit_not_set`.
+       * Owner values. Never invent a limit.
+       */
+      TRADE_COPY_POOL_TYPE_LIMITS: z.string().default(''),
+
+      /**
+       * How many accounts one pool whitelist import may add (CB-copy-pro-share-06), 1 to 10000.
+       *
+       * Empty (default) = unset → every import refuses `trade.pool_batch_limit_unset`. Owner value. Never invent one.
+       */
+      TRADE_COPY_POOL_WHITELIST_BATCH_MAX: z.string().default(''),
+
+      /**
        * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
        * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
        */

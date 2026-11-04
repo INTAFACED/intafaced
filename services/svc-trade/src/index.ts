@@ -39,6 +39,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { PoolDesk, parsePoolLaw, parsePoolWhitelistBatchMax } from './copy/pool-masters.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -381,6 +382,7 @@ const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
 const copyMinTier = parseCopyMinTier(env.TRADE_COPY_MIN_TIER);
+const leadReapplyWait = parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -558,9 +560,16 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
     directory: leaderDirectory,
     now: () => new Date(),
-    reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
+    reapplyWaitSeconds: leadReapplyWait,
   }),
   grid,
+  new PoolDesk({
+    sql,
+    now: () => new Date(),
+    law: parsePoolLaw(env.TRADE_COPY_POOL_TYPE_LIMITS),
+    whitelistBatchMax: parsePoolWhitelistBatchMax(env.TRADE_COPY_POOL_WHITELIST_BATCH_MAX),
+    reapplyWaitSeconds: leadReapplyWait,
+  }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

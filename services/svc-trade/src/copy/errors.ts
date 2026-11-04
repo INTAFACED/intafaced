@@ -82,7 +82,21 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.pool_master_application_invalid'
+  | 'trade.pool_master_application_open'
+  | 'trade.pool_master_already_approved'
+  | 'trade.pool_master_not_approved'
+  | 'trade.pool_name_invalid'
+  | 'trade.pool_type_invalid'
+  | 'trade.pool_limit_not_set'
+  | 'trade.pool_one_strategy_only'
+  | 'trade.pool_not_found'
+  | 'trade.pool_batch_limit_unset'
+  | 'trade.pool_batch_too_large'
+  | 'trade.pool_whitelist_empty'
+  | 'trade.pool_whitelist_uid_invalid'
+  | 'trade.pool_whitelist_key_reused';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
