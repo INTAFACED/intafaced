@@ -321,6 +321,10 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'journey-verdict.mjs':
+    "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
+  'journey-verdict.test.mjs':
+    'the tests of journey-verdict.mjs (node --test), run in the `changes` job of ci.yml and before each verdict in real-app-journeys.yml.',
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
   'bisect-main.mjs':
