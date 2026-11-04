@@ -6,6 +6,8 @@ const messages = {
     'This tab is back on your main account: the sub-account could not be confirmed again. Use it again from Account.',
   'You are using sub-account {label} in this tab.': 'You are using sub-account {label} in this tab.',
   'Switch back to the main account': 'Switch back to the main account',
+  'Confirming the sub-account again. Actions are refused until it answers; nothing runs as your main account.':
+    'Confirming the sub-account again. Actions are refused until it answers; nothing runs as your main account.',
   'The main account could not be reached. Try again.': 'The main account could not be reached. Try again.',
   'Skip to content': 'Skip to content',
   'Customer doors': 'Customer doors',

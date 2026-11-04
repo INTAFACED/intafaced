@@ -181,6 +181,11 @@ export type SessionState = {
   restoreFailed: boolean;
   /** Set when the server ended the session on purpose (sign-in used elsewhere, account frozen). */
   notice: SessionNotice | null;
+  /**
+   * True while a tab acting as a sub-account is confirming it again (after a refresh rotated the session) and has no
+   * answer yet. The tab never acts as the main account meanwhile: requests on the old token are refused, not re-sent.
+   */
+  subAccountWaiting?: boolean;
 };
 
 export type ChannelLike = {
@@ -201,31 +206,43 @@ function browserChannel(): ChannelLike | null {
 }
 
 /**
- * Which sub-account this tab acts as, so a reload keeps acting as it: the id only, in this tab's sessionStorage, never a
- * token. At boot the controller asks identity for the sub-account again on the main-account token.
+ * Which sub-account this tab acts as, so a reload keeps acting as it: the user and sub-account ids only, in this tab's
+ * sessionStorage, never a token. At boot the controller asks identity for it again on the main-account token, and only
+ * when the cookie still answers for the same user.
  */
-export type TabMemory = { read: () => string | null; write: (subAccountId: string | null) => void };
+export type TabChoice = { userId: string; subAccountId: string };
+export type TabMemory = { read: () => TabChoice | null; write: (choice: TabChoice | null) => void };
 const TAB_SUBACCOUNT_KEY = 'ifc-subaccount';
+const tabChoice = z.object({ userId: z.string().guid(), subAccountId: z.string().guid() }).strict();
 function browserTabMemory(): TabMemory {
   return {
     read() {
       try {
         const value = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(TAB_SUBACCOUNT_KEY);
-        return value && z.string().guid().safeParse(value).success ? value : null;
+        const parsed = value ? tabChoice.safeParse(JSON.parse(value)) : null;
+        return parsed?.success ? parsed.data : null;
       } catch {
         return null;
       }
     },
-    write(subAccountId) {
+    write(choice) {
       try {
         if (typeof sessionStorage === 'undefined') return;
-        if (subAccountId) sessionStorage.setItem(TAB_SUBACCOUNT_KEY, subAccountId);
+        if (choice) sessionStorage.setItem(TAB_SUBACCOUNT_KEY, JSON.stringify(choice));
         else if (sessionStorage.getItem(TAB_SUBACCOUNT_KEY) !== null) sessionStorage.removeItem(TAB_SUBACCOUNT_KEY);
       } catch {
         // Storage blocked: the tab still acts as the sub-account until it reloads.
       }
     },
   };
+}
+
+/** A reply that says nothing about the sub-account (no answer, unreadable): ask again later; never read as a refusal. */
+function noAnswer(result: ApiResult<unknown>): boolean {
+  if (result.ok) return false;
+  if (['unreachable', 'invalid_response', 'aborted', 'uncertain'].includes(result.reason)) return true;
+  const status = result.status;
+  return result.reason === 'error' && (status === undefined || status >= 500 || RETRYABLE_4XX.has(status));
 }
 
 /** Refresh this long before the access token expires. */
@@ -267,6 +284,12 @@ export function createSessionController(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let channel: ChannelLike | null = null;
   const listeners = new Set<() => void>();
+  /** The sub-account this tab means to act as, and the newest main-account token it has seen (the one to ask on). */
+  let wanted: TabChoice | null = null;
+  let latestMain: Session | null = null;
+  let reentry: Promise<ApiResult<Session>> | null = null;
+  let reentryTimer: ReturnType<typeof setTimeout> | undefined;
+  let reentryFailures = 0;
 
   function set(next: SessionState) {
     state = next;
@@ -303,8 +326,10 @@ export function createSessionController(
     if (outcome.kind === 'session') {
       // Other tabs on the main account take the rotated main token; this tab keeps acting as its sub-account when it was.
       tell({ type: 'session', session: outcome.session });
-      if (forSession.subAccountId) await reenter(outcome.session, forSession.subAccountId, started);
-      else commit(outcome.session);
+      if (forSession.subAccountId && wanted) {
+        latestMain = outcome.session;
+        await reenter('keep');
+      } else commit(outcome.session);
     } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     else {
       // 'unavailable' and 'refused' alike: keep the session; a mid-session 400/404 is likelier a deploy than a sign-out.
@@ -313,40 +338,117 @@ export function createSessionController(
       failures += 1;
     }
   }
-  /**
-   * A refresh rotates the session, and the old session id is revoked with it, so a sub-account token on it stops working.
-   * On every new main-account token, a tab that acts as a sub-account asks for the sub-account again on that token. Any
-   * failure (refused now, or no answer) puts the tab back on the main account and says so: it never switches silently.
-   * Dropped when anything newer happened in this tab meanwhile.
-   */
-  async function reenter(main: Session, subAccountId: string, started: number): Promise<void> {
-    let again: ApiResult<Session>;
-    try {
-      again = await askSubAccount(main, subAccountId);
-    } catch {
-      again = { ok: false, reason: 'invalid_response', message: 'The sub-account answer could not be read.' };
+  function want(choice: TabChoice | null) {
+    wanted = choice;
+    memory.write(choice);
+    if (!choice) {
+      if (reentryTimer !== undefined) clearTimeout(reentryTimer);
+      reentryTimer = undefined;
+      reentryFailures = 0;
     }
-    if (epoch !== started) return;
-    const sub = again.ok ? sessionSchema.safeParse(again.data) : null;
-    if (sub?.success && sub.data.subAccountId === subAccountId) {
-      adopt(sub.data);
-      return;
-    }
-    adopt(sessionSchema.parse(main));
-    set({ ...state, notice: 'subaccount_ended' });
   }
-  function adopt(value: Session) {
-    memory.write(value.subAccountId ?? null);
+  /**
+   * Ask identity for the wanted sub-account on the newest main-account token, one request at a time (a second caller
+   * shares the flight). A refresh rotates the session and revokes the old session id, so every new main token needs a
+   * new sub-account token: if a newer main token arrives meanwhile, the answer is dropped and the question asked again.
+   * - `enter`: the person pressed Use. A refusal or no answer changes nothing and is returned.
+   * - `keep`: the tab already acts as the sub-account. A refusal puts it back on the main account with a notice; no
+   *   answer keeps it waiting (never acting as main) and asks again with growing pauses.
+   * - `boot`: a reload. A refusal lands on the main account with a notice; no answer is a boot outage (Retry).
+   * A main token the server no longer accepts is refreshed from the cookie once, then the question is asked again.
+   */
+  function reenter(mode: 'enter' | 'keep' | 'boot'): Promise<ApiResult<Session>> {
+    if (reentry) return reentry;
+    const run = (async (): Promise<ApiResult<Session>> => {
+      const superseded: ApiResult<Session> = {
+        ok: false,
+        reason: 'aborted',
+        message: 'This tab’s sign-in changed while switching. Nothing was switched; try again.',
+      };
+      let refreshed = false;
+      for (;;) {
+        const target = wanted;
+        const main = latestMain;
+        if (!target || !main || target.userId !== main.userId) return superseded;
+        if (mode === 'keep' && !state.subAccountWaiting) set({ ...state, subAccountWaiting: true });
+        let answer: ApiResult<Session>;
+        try {
+          answer = await askSubAccount(main, target.subAccountId);
+        } catch {
+          answer = { ok: false, reason: 'invalid_response', message: 'The sub-account answer could not be read.' };
+        }
+        if (wanted !== target) return superseded;
+        if (latestMain !== main) continue;
+        if (answer.ok) {
+          const sub = sessionSchema.safeParse(answer.data);
+          if (sub.success && sub.data.subAccountId === target.subAccountId && sub.data.userId === main.userId) {
+            reentryFailures = 0;
+            adopt(sub.data);
+            return { ok: true, data: sub.data };
+          }
+          answer = { ok: false, reason: 'invalid_response', message: 'The sub-account answer could not be read.' };
+        }
+        if (answer.reason === 'unauthorized' && !refreshed) {
+          refreshed = true;
+          const outcome = await refresher.refresh();
+          if (wanted !== target) return superseded;
+          if (outcome.kind === 'session') {
+            tell({ type: 'session', session: outcome.session });
+            latestMain = outcome.session;
+            // Pressing Use from the main account: this tab takes the fresh main token too.
+            if (mode === 'enter') adopt(outcome.session);
+            continue;
+          }
+          if (outcome.kind === 'signed_out') {
+            signOut(noticeFor(outcome.code));
+            return answer;
+          }
+          answer = { ok: false, reason: 'unreachable', message: 'The main account could not be reached.' };
+        }
+        if (mode === 'enter') {
+          want(null);
+          return answer;
+        }
+        if (!noAnswer(answer)) {
+          want(null);
+          adopt(main, 'subaccount_ended');
+          return answer;
+        }
+        if (mode === 'boot') {
+          set({ session: null, restoring: false, restoreFailed: true, notice: null });
+          return answer;
+        }
+        if (reentryTimer !== undefined) clearTimeout(reentryTimer);
+        const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** reentryFailures);
+        reentryFailures += 1;
+        reentryTimer = setTimeout(() => {
+          reentryTimer = undefined;
+          if (active) void reenter('keep');
+        }, delay);
+        return answer;
+      }
+    })().finally(() => {
+      if (reentry === run) reentry = null;
+    });
+    reentry = run;
+    return run;
+  }
+  function adopt(value: Session, notice: SessionNotice | null = null) {
+    if (!value.subAccountId) latestMain = value;
     epoch += 1;
     failures = 0;
-    set({ session: value, restoring: false, restoreFailed: false, notice: null });
+    set({ session: value, restoring: false, restoreFailed: false, notice });
     arm();
   }
   function commit(value: Session) {
-    adopt(sessionSchema.parse(value));
+    const session = sessionSchema.parse(value);
+    // A sign-in as someone else forgets this tab's sub-account choice.
+    if (!session.subAccountId && wanted && wanted.userId !== session.userId) want(null);
+    adopt(session);
   }
   function signOut(notice: SessionNotice | null) {
-    memory.write(null);
+    want(null);
+    latestMain = null;
     epoch += 1;
     failures = 0;
     disarm();
@@ -360,16 +462,20 @@ export function createSessionController(
     if (!message.success) return;
     const current = state.session;
     if (!current) return;
-    if (message.data.type === 'logout') signOut(null);
-    else if (
-      message.data.session.userId === current.userId &&
-      // No sub-account token is ever shared; a tab acting as a sub-account asks for it again on the rotated main token.
-      !message.data.session.subAccountId &&
-      Date.parse(message.data.session.expiresAt) > Date.parse(current.expiresAt)
-    ) {
-      if (current.subAccountId) void reenter(message.data.session, current.subAccountId, epoch);
-      else adopt(message.data.session);
+    if (message.data.type === 'logout') {
+      signOut(null);
+      return;
     }
+    const rotated = message.data.session;
+    const known = latestMain ?? current;
+    // No sub-account token is ever shared, and a tab never adopts a different user's session or an older token.
+    if (rotated.subAccountId || rotated.userId !== current.userId) return;
+    if (Date.parse(rotated.expiresAt) <= Date.parse(known.expiresAt)) return;
+    if (current.subAccountId && wanted) {
+      // Another tab's refresh revoked the session this tab's sub-account token stands on: ask again on the new token.
+      latestMain = rotated;
+      void reenter('keep');
+    } else if (!current.subAccountId) adopt(rotated);
   }
   async function bootRefresh() {
     // Already signed in (a harness or a sign-in that beat the boot): nothing to restore, and no cookie rotation to spend.
@@ -377,11 +483,18 @@ export function createSessionController(
     const started = epoch;
     const outcome = await refresher.refresh();
     if (epoch !== started || state.session) return;
-    const remembered = outcome.kind === 'session' ? memory.read() : null;
-    // A reload of a tab that acted as a sub-account: ask for it again on the main token before the rooms paint.
-    if (outcome.kind === 'session' && remembered) await reenter(outcome.session, remembered, started);
-    else if (outcome.kind === 'session') commit(outcome.session);
-    else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
+    if (outcome.kind === 'session') {
+      const remembered = memory.read();
+      // A reload of a tab that acted as a sub-account: ask for it again on the main token before the rooms paint.
+      if (remembered && remembered.userId === outcome.session.userId) {
+        wanted = remembered;
+        latestMain = outcome.session;
+        await reenter('boot');
+      } else {
+        if (remembered) want(null);
+        commit(outcome.session);
+      }
+    } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     // A definite refusal at boot: retrying cannot help, so the visitor goes to sign-in rather than an endless Retry.
     else if (outcome.kind === 'refused') signOut(null);
     else set({ session: null, restoring: false, restoreFailed: true, notice: null });
@@ -399,6 +512,15 @@ export function createSessionController(
     },
     commit,
     clear,
+    /**
+     * A request on this token came back 401. A tab acting as a sub-account asks for it again (its session may have just
+     * been rotated); any other tab is signed out, as before.
+     */
+    unauthorized(requestToken: string | undefined) {
+      if (!requestToken || state.session?.accessToken !== requestToken) return;
+      if (state.session.subAccountId && wanted) void reenter('keep');
+      else clear();
+    },
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
       active = true;
@@ -413,6 +535,8 @@ export function createSessionController(
     stop() {
       active = false;
       disarm();
+      if (reentryTimer !== undefined) clearTimeout(reentryTimer);
+      reentryTimer = undefined;
       if (channel) {
         channel.onmessage = null;
         channel.close();
@@ -437,45 +561,27 @@ export function createSessionController(
     retryLogout: serverLogout,
     /** Act as one of the person's own sub-accounts in this tab. Only from the main account; a refusal changes nothing. */
     async enterSubAccount(subAccountId: string): Promise<ApiResult<Session>> {
-      const superseded: ApiResult<Session> = {
-        ok: false,
-        reason: 'aborted',
-        message: 'This tab’s sign-in changed while switching. Nothing was switched; try again.',
-      };
-      let current = state.session;
-      if (!current || current.subAccountId) {
+      const current = state.session;
+      if (!current || current.subAccountId || wanted) {
         return { ok: false, reason: 'forbidden', message: 'Switch back to the main account first.', code: 'auth.sub_account_denied' };
       }
-      let started = epoch;
-      let result = await askSubAccount(current, subAccountId);
-      if (!result.ok && result.reason === 'unauthorized') {
-        // This tab's main token may be on a session another tab already rotated: refresh from the cookie, ask once more.
-        if (epoch !== started) return superseded;
-        const outcome = await refresher.refresh();
-        if (epoch !== started) return superseded;
-        if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
-        if (outcome.kind !== 'session') return result;
-        commit(outcome.session);
-        tell({ type: 'session', session: outcome.session });
-        current = state.session!;
-        started = epoch;
-        result = await askSubAccount(current, subAccountId);
-      }
-      if (!result.ok) return result;
-      if (epoch !== started || state.session?.accessToken !== current.accessToken) return superseded;
-      commit(result.data);
-      return result;
+      want({ userId: current.userId, subAccountId });
+      latestMain = current;
+      return reenter('enter');
     },
-    /** Back to the main account: a refresh from the cookie, which always answers for the main account. */
+    /**
+     * Back to the main account: a refresh from the cookie, which always answers for the main account. If it gets no
+     * answer the tab stays as it is (still the sub-account) and says so.
+     */
     async leaveSubAccount(): Promise<RefreshOutcome> {
-      // Anything already on its way back as the sub-account (a re-entry after a refresh) is dropped from here on.
-      epoch += 1;
-      const started = epoch;
       const outcome = await refresher.refresh();
-      if (epoch !== started) return outcome;
-      if (outcome.kind === 'session') {
-        commit(outcome.session);
+      const current = state.session;
+      // Signed out meanwhile: a late answer never brings the session back.
+      if (!current) return outcome;
+      if (outcome.kind === 'session' && outcome.session.userId === current.userId) {
         tell({ type: 'session', session: outcome.session });
+        want(null);
+        adopt(sessionSchema.parse(outcome.session));
       } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
       return outcome;
     },
