@@ -59,6 +59,7 @@ import {
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
+import { stepUpAgain, stepUpProblem, type StepUpHow } from './send-step-up';
 import { PAY_SENT_EVENT } from './recent-model';
 import { termsVerdict, useSendTerms, type TermsVerdict } from './send-terms';
 import {
@@ -482,10 +483,9 @@ function SendForm({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const inFlight = useRef<object | null>(null);
-  // The fresh confirmation step: open when the bank's money-out rule asked for one on this review. Once asked, every
-  // later review on this screen asks before its first send, so no refused call is needed to learn the rule again.
+  // The fresh confirmation step: open when the bank's money-out rule asked for one on this review. Every review asks
+  // the bank first, so a rule switched off is followed at once and a refused call moves nothing.
   const [stepUp, setStepUp] = useState<{ code: string; problem: string | null; checking: StepUpHow | null } | null>(null);
-  const stepUpAsked = useRef(false);
   const checking = useRef(false);
   const [receipt, setReceipt] = useState<Receipt | null>(() => lastReceipt.get(key) ?? null);
 
@@ -554,6 +554,8 @@ function SendForm({
   /** Confirms it's this person for exactly this send, then sends it with the single-use approval. */
   async function confirmStepUp(how: StepUpHow) {
     if (!review || !stepUp || checking.current || inFlight.current) return;
+    // An unsettled send blocks this one before a confirmation is spent on it.
+    if (pay.guard.status(key) || bankPending) return refreshGuard();
     const code = stepUp.code.trim();
     if (how === 'code' && !/^\d{6}$/.test(code)) return setStepUp({ ...stepUp, problem: payCopy.t('Code short') });
     checking.current = true;
@@ -577,8 +579,6 @@ function SendForm({
   async function confirm(stepUpApprovalId?: string) {
     if (!review || inFlight.current || checking.current) return;
     if (pay.guard.status(key) || bankPending) return refreshGuard();
-    // The bank asked for a fresh confirmation before: ask for it first rather than send a call it will refuse.
-    if (!stepUpApprovalId && stepUpAsked.current) return setStepUp({ code: '', problem: null, checking: null });
     const action = {};
     inFlight.current = action;
     setBusy(true);
@@ -634,17 +634,14 @@ function SendForm({
       setReview(null);
       return;
     }
-    if (outcome.code && STEP_UP_AGAIN.has(outcome.code)) {
-      // The owner's rule asks for a fresh confirmation (or the one given can't be used): nothing was sent. The same
-      // review, with the same transfer id, waits for it.
-      stepUpAsked.current = true;
-      setStepUp({
-        code: '',
-        checking: null,
-        problem: stepUpApprovalId ? payCopy.t('Confirm again') : null,
-      });
+    if (stepUpAgain(outcome.code)) {
+      // The owner's rule asks for a fresh confirmation (or the one given was spent or ran out): nothing was sent. The
+      // same review, with the same transfer id, waits for it.
+      setStepUp({ code: '', checking: null, problem: stepUpApprovalId ? payCopy.t('Confirm again') : null });
       return;
     }
+    // Any other answer is final for this review (a mismatch included: confirming again would bind the same fields).
+    setStepUp(null);
     setFailure(failureText(outcome, review.source, review.recipient.handle));
     // Funds may have moved on while the review was open: read them again.
     reload();
@@ -1103,7 +1100,7 @@ function SendForm({
                     type="button"
                     variant="ghost"
                     size={40}
-                    disabled={stepUp.checking !== null || busy}
+                    disabled={stepUp.checking !== null || busy || waiting}
                     onClick={() => void confirmStepUp('passkey')}
                   >
                     {stepUp.checking === 'passkey' ? payCopy.t('Checking') : payCopy.t('Confirm with a passkey')}
@@ -1248,26 +1245,6 @@ function PayeeLine({ who, locale, testId = 'recipient-found' }: { who: Payee; lo
       <Check size={16} className="pay-found__check" aria-hidden="true" />
     </span>
   );
-}
-
-type StepUpHow = 'code' | 'passkey';
-
-/** The bank's answers that mean "confirm it's you (again)": nothing was sent, and the same review can carry on. */
-const STEP_UP_AGAIN = new Set(['bank.step_up_required', 'bank.step_up_used', 'bank.step_up_mismatch']);
-
-/** Why a confirmation did not go through, in plain words. Nothing was sent in any of these cases. */
-function stepUpProblem(result: Extract<ApiResult<unknown>, { ok: false }>): string {
-  switch (result.code) {
-    case 'auth.mfa_invalid':
-      return payCopy.t('Code refused');
-    case 'stepUp.no_passkey':
-    case 'auth.webauthn_not_enrolled':
-      return payCopy.t('No passkey');
-    case 'auth.webauthn_invalid':
-      return payCopy.t('Passkey failed');
-  }
-  if (result.status === 429) return payCopy.t('Too many tries');
-  return payCopy.t('Confirm failed');
 }
 
 /** A refused payment in plain words. Only called for answers that are definitive: nothing moved. */

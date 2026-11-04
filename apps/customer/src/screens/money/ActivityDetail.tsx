@@ -58,14 +58,13 @@ function RefundPointer({ item, copy }: { item: ActivityItem; copy: Copy }) {
       </p>
     );
   const sent = item.kind === 'transfer_out';
-  const href = sent
-    ? `/pay/request?${new URLSearchParams({ to: handle, amount: item.amount, asset: item.asset }).toString()}`
-    : requestPath({ to: handle, amount: item.amount, asset: item.asset });
+  // The sender's way back is a payment request they share with the other person; the recipient's is Send, filled in.
+  const href = sent ? '/pay/request' : requestPath({ to: handle, amount: item.amount, asset: item.asset });
   return (
     <p className="money-detail__note" data-testid="money-refund">
       {copy.t(sent ? 'Refund sent note' : 'Refund received note', { handle })}{' '}
       <a href={href} data-testid="money-refund-link">
-        {copy.t(sent ? 'Refund sent link' : 'Refund received link', { handle })}
+        {sent ? copy.t('Refund sent link') : copy.t('Refund received link', { handle })}
       </a>
     </p>
   );

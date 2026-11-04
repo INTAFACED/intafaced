@@ -82,6 +82,9 @@ const messages = {
   'Code refused': 'That code didn’t match, so nothing was sent. Check your authenticator app and try again.',
   'No passkey': 'No passkey is saved on this account. Enter a code instead.',
   'Passkey failed': 'The browser could not read your passkey. Try again, or enter a code.',
+  'No second factor':
+    'Sending to another person needs a code from an authenticator app or a passkey, and this account has neither. Add one in Security, then send. Nothing was sent.',
+  'Cannot confirm here': 'This session can’t confirm a payment to another person. Sign in as yourself to send. Nothing was sent.',
   'Confirm failed': 'We couldn’t confirm it’s you, so nothing was sent. Try again.',
   'Confirm again': 'That confirmation can’t be used for this payment. Nothing was sent. Confirm again.',
   // Receipt

@@ -498,8 +498,8 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
     {
       signIn: () => signInA(page),
       note: `This payment is complete and can’t be cancelled. To get it back, ask @${recipient.handle} to send you a refund.`,
-      link: `Request a refund from @${recipient.handle}`,
-      href: `/pay/request?to=${recipient.handle}&amount=${AMOUNT}&asset=USDT`,
+      link: 'Make a payment request',
+      href: '/pay/request',
     },
     {
       signIn: () => signIn(page, recipient),
