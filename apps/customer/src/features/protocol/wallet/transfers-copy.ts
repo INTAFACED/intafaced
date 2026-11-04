@@ -82,7 +82,7 @@ const en = {
   activityFailed: 'Failed',
   activityReplaced: 'Replaced by {hash}',
   activityDropped: 'Dropped by the network',
-  activityUnread: 'Sent; the network has not answered for it yet',
+  activityUnread: 'Sent; the network gave no answer for it on this read',
   activityOtherNonce: 'Your wallet sent this at another nonce ({got}, not {want}), so it does not replace the first one; both may happen.',
   activitySpam: 'Spam',
   activityFinal: 'Final. A completed transfer cannot be canceled or revoked; send a new transaction instead.',
