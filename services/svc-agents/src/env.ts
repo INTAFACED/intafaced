@@ -263,6 +263,13 @@ const schema = serviceEnvSchema
        * template; `blank` is always offered, so `blank` alone offers only "Start blank". An unknown id stops the boot.
        */
       AGENTS_OWN_TEMPLATES: blankAsAbsent(z.string().optional()),
+      /**
+       * The owner's managed baseline for own agents' tools (AG-guardrails-02): a JSON object of tool class (own_data,
+       * market_data, draft_write, live_write) to the loosest standing choice allowed (hand_off, ask_before,
+       * act_on_request, act_without_asking). Blank, or a class left out, refuses that class's calls and any rule that
+       * would loosen it with agents.baseline_value_unset. A malformed value stops the boot.
+       */
+      AGENTS_POLICY_BASELINE: blankAsAbsent(z.string().optional()),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

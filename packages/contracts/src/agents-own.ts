@@ -44,6 +44,8 @@ export const ownAgentToolSchema = z.object({
   name: z.string(),
   module: z.string(),
   movesMoney: z.boolean(),
+  /** The class of data the tool touches (AG-guardrails-01); null for a money tool, which is never attached. */
+  dataClass: z.enum(['own_data', 'market_data', 'draft_write', 'live_write']).nullable().default(null),
   // Defaults keep an older service's catalogue readable: its tools read as shape not declared.
   shape: ownAgentToolShapeSchema.nullable().default(null),
   refusals: z.array(z.string()).default([]),
@@ -136,3 +138,56 @@ export const ownAgentUsageDaySchema = z.object({
   assetId: z.string(),
 });
 export type OwnAgentUsageDay = z.infer<typeof ownAgentUsageDaySchema>;
+
+/** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
+export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
+export type OwnAgentDataClass = (typeof OWN_AGENT_DATA_CLASSES)[number];
+
+/** A standing rule's choice, strictest first (AG-guardrails-02). */
+export const OWN_AGENT_RULE_CHOICES = ['hand_off', 'ask_before', 'act_on_request', 'act_without_asking'] as const;
+export type OwnAgentRuleChoice = (typeof OWN_AGENT_RULE_CHOICES)[number];
+
+/** `own.rules.list` / `own.rules.save`: the person's standing rule for one tool of their agent. */
+export const ownAgentRuleSchema = z.object({
+  id: z.string().uuid(),
+  tool: z.string(),
+  choice: z.enum(OWN_AGENT_RULE_CHOICES),
+  updatedAt: z.string(),
+});
+export type OwnAgentRule = z.infer<typeof ownAgentRuleSchema>;
+
+/** `own.consents.*`: the person's consent to one class of tools for one agent; a withdrawn one keeps its revoke time. */
+export const ownAgentConsentSchema = z.object({
+  dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
+  state: z.enum(['granted', 'withdrawn']),
+  grantedAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+export type OwnAgentConsent = z.infer<typeof ownAgentConsentSchema>;
+
+/** A tool call a rule held for the person: the tool has not run (the request AG-approvals-01 decides). */
+export const ownAgentApprovalRequestSchema = z.object({
+  id: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  tool: z.string(),
+  input: z.record(z.string(), z.string()),
+  status: z.literal('waiting'),
+  ruleId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+});
+export type OwnAgentApprovalRequest = z.infer<typeof ownAgentApprovalRequestSchema>;
+
+/**
+ * `own.tool.try`: one tool call of the person's own agent in its session. `ran` is the tool's answer as its door gave
+ * it; `waiting` is an approval request and the tool has not run. A refusal answers with its code as the error message.
+ */
+export const ownAgentToolCallSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('ran'), tool: z.string(), dataClass: z.enum(OWN_AGENT_DATA_CLASSES), result: z.unknown() }),
+  z.object({
+    outcome: z.literal('waiting'),
+    tool: z.string(),
+    dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
+    request: ownAgentApprovalRequestSchema,
+  }),
+]);
+export type OwnAgentToolCall = z.infer<typeof ownAgentToolCallSchema>;

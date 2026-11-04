@@ -21,10 +21,18 @@ import type { SupportDataToolRefuseReason } from '../support-agent/data-tools.js
  * declared input and output (AG-tools-01), copied from the route that serves it, and `refusals` the reasons that route
  * can answer instead; null is a tool whose shape is not declared, which a person's agent cannot attach.
  */
+/**
+ * The class of data a tool touches (AG-guardrails-01): the person's own data, market data, a draft the person still
+ * sends, or a live write that acts in their name. The first use of a class asks the person's consent.
+ */
+export type OwnDataClass = 'own_data' | 'market_data' | 'draft_write' | 'live_write';
+
 export type OwnTool = {
   readonly name: string;
   readonly module: string;
   readonly movesMoney: boolean;
+  /** Null for a money tool, which is never attached and so never used. */
+  readonly dataClass: OwnDataClass | null;
   readonly shape: Readonly<OwnAgentToolShape> | null;
   readonly refusals: readonly string[];
 };
@@ -59,10 +67,11 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // router.ts support desk data tools (kbQuery); support-agent/data-tools.ts searchKb
     name: 'support.kb.search',
+    dataClass: 'own_data',
     module: 'support',
     movesMoney: false,
     shape: {
-      input: { kbQuery: 'text, up to 200 characters' },
+      input: { kbQuery: 'text, up to 200 characters', limit: 'whole number from 1 to 500, the page size' },
       output: { articles: 'list of { articleKey, titleKey, bodyKey }' },
     },
     refusals: [...support('no_live_kb', 'kb_empty', 'empty_results', 'incomplete_article'), 'agents.kb_search_limit_unset'],
@@ -70,6 +79,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // support-agent/data-tools.ts readTicket
     name: 'support.ticket.read',
+    dataClass: 'own_data',
     module: 'support',
     movesMoney: false,
     shape: {
@@ -81,6 +91,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // support-agent/data-tools.ts readAccount: never a balance
     name: 'identity.account.read',
+    dataClass: 'own_data',
     module: 'identity',
     movesMoney: false,
     shape: {
@@ -92,6 +103,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // navigator/data-tools.ts quote
     name: 'trade.quote',
+    dataClass: 'market_data',
     module: 'trade',
     movesMoney: false,
     shape: {
@@ -103,6 +115,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // navigator and scanner data-tools.ts listMarkets
     name: 'trade.markets.list',
+    dataClass: 'market_data',
     module: 'trade',
     movesMoney: false,
     shape: {
@@ -114,6 +127,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // scanner/data-tools.ts ticker
     name: 'trade.ticker',
+    dataClass: 'market_data',
     module: 'trade',
     movesMoney: false,
     shape: {
@@ -125,6 +139,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   {
     // scanner/data-tools.ts bookTop
     name: 'trade.book.top',
+    dataClass: 'market_data',
     module: 'trade',
     movesMoney: false,
     shape: {
@@ -136,6 +151,7 @@ const READ_TOOLS: readonly OwnTool[] = [
   // An in-process runner tool of the merchant watch (merchant/session-run.ts), with no route and so no declared shape.
   {
     name: 'pay.metrics.read',
+    dataClass: 'own_data',
     module: 'pay',
     movesMoney: false,
     shape: null,
@@ -143,13 +159,40 @@ const READ_TOOLS: readonly OwnTool[] = [
   },
 ];
 
-/** Offered so the refusal has a reason to show; `ledger.transfer` is how a person asks for one. */
-const MONEY_TOOLS: readonly OwnTool[] = [
-  { name: 'ledger.transfer', module: 'ledger', movesMoney: true, shape: null, refusals: [] },
-  ...FLEET_HARD_MONEY_WRITE_TOOLS.map((name) => ({ name, module: name.split('.')[0]!, movesMoney: true, shape: null, refusals: [] })),
+/**
+ * Tools that act in the person's name without moving value. Sending a comment on the person's own support ticket is a
+ * live write: no rule may let it act without asking (ENGINE AP-7). Its door to the support desk is the approval flow's
+ * (AG-approvals-01): until that is built, an admitted call refuses `agents.tool_not_wired` and sends nothing.
+ */
+const WRITE_TOOLS: readonly OwnTool[] = [
+  {
+    // support-agent/guardrail.ts declares it; support-agent/comment-draft.ts shapes its payload
+    name: 'support.ticket.comment',
+    dataClass: 'live_write',
+    module: 'support',
+    movesMoney: false,
+    shape: {
+      input: { ticketId: 'text, up to 120 characters', body: 'text, up to 4000 characters' },
+      output: { ticketId: 'text', commented: 'yes' },
+    },
+    refusals: ['agents.consent_required', 'agents.rule_hand_off', 'agents.baseline_value_unset', 'agents.tool_not_wired'],
+  },
 ];
 
-export const OWN_TOOLS: readonly OwnTool[] = [...READ_TOOLS, ...MONEY_TOOLS];
+/** Offered so the refusal has a reason to show; `ledger.transfer` is how a person asks for one. */
+const MONEY_TOOLS: readonly OwnTool[] = [
+  { name: 'ledger.transfer', module: 'ledger', movesMoney: true, dataClass: null, shape: null, refusals: [] },
+  ...FLEET_HARD_MONEY_WRITE_TOOLS.map((name) => ({
+    name,
+    module: name.split('.')[0]!,
+    movesMoney: true,
+    dataClass: null,
+    shape: null,
+    refusals: [],
+  })),
+];
+
+export const OWN_TOOLS: readonly OwnTool[] = [...READ_TOOLS, ...WRITE_TOOLS, ...MONEY_TOOLS];
 
 export const OWN_TEMPLATES = {
   'service-starter': { tools: ['support.kb.search', 'support.ticket.read', 'identity.account.read'] },
@@ -211,7 +254,16 @@ export type OwnRefusalCode =
   | 'agents.spend.above_agent_cap'
   | 'agents.spend.per_call_above_session'
   | 'agents.usage.limit_invalid'
-  | 'agents.usage.alert_above_limit';
+  | 'agents.usage.alert_above_limit'
+  | 'agents.tool_not_declared'
+  | 'agents.tool_not_wired'
+  | 'agents.consent_required'
+  | 'agents.consent_not_granted'
+  | 'agents.rule_invalid'
+  | 'agents.rule_hand_off'
+  | 'agents.baseline_value_unset'
+  | 'agents.baseline_loosen_refused'
+  | 'agents.request_id_replay';
 
 export class OwnAgentRefusal extends Error {
   constructor(
