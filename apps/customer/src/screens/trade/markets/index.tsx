@@ -27,6 +27,7 @@ import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
 import { TopCards, TopCardsSkeleton } from './TopCards';
+import { TradeAccess } from './TradeAccess';
 import { anyListed, entriesFor, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
 import {
   applyAddress,
@@ -340,6 +341,7 @@ function Frame({ children, meta }: { children: ReactNode; meta: ReactNode }) {
         <h1>{t('Markets')}</h1>
         {meta}
       </header>
+      <TradeAccess />
       {children}
     </div>
   );

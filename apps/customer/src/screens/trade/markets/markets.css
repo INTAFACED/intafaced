@@ -211,6 +211,19 @@
     color: var(--if-fg-2);
     font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
+  .mkt-access {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--if-space-2) var(--if-space-3);
+    margin-block-end: var(--if-space-3);
+    color: var(--if-fg);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+  }
+  .mkt-access__link {
+    color: var(--if-accent-text);
+    font-weight: 600;
+  }
 
   /* Table */
   .mkt-table {
