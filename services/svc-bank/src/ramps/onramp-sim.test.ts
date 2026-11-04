@@ -31,6 +31,26 @@ describe('the add-money rate stand-in', () => {
     expect(await sim.quotes.quote({ assetId: 'BTC', amount: '1', method: 'bank_transfer', country: 'NL' })).toBeNull();
   });
 
+  it("a line may hold its price for its own seconds instead of the catalogue's", async () => {
+    const at = new Date('2026-11-04T09:00:00.000Z');
+    const sim = onrampSim(
+      parseOnrampSim(
+        JSON.stringify({
+          label: 'TEST add-money stand-in',
+          quoteValidSeconds: 20,
+          quotes: [LINE, { ...LINE, method: 'pay_by_bank', quoteValidSeconds: 600 }],
+        }),
+      )!,
+      () => at,
+    );
+    const ask = { assetId: 'USDT', amount: '20', country: 'NL' } as const;
+    expect((await sim.quotes.quote({ ...ask, method: 'bank_transfer' }))?.expiresAt).toEqual(new Date(at.getTime() + 20_000));
+    expect((await sim.quotes.quote({ ...ask, method: 'pay_by_bank' }))?.expiresAt).toEqual(new Date(at.getTime() + 600_000));
+    expect(
+      parseOnrampSim(JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [{ ...LINE, quoteValidSeconds: 0 }] })),
+    ).toBeNull();
+  });
+
   it('refuses to start outside dev or test, or under NODE_ENV=production', () => {
     for (const env of [{}, { APP_ENV: 'production' }, { APP_ENV: 'dev', NODE_ENV: 'production' }]) {
       expect(() => onrampStandInFor('ramp-sim', CATALOGUE, env)).toThrow(OnrampSimRefusedError);

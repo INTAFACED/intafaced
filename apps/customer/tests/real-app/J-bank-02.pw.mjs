@@ -1,18 +1,20 @@
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-bank-02, in the running app (docs/roadmap/journeys.json): I add money to my bank balance. One test per step, titled
-// "J-bank-02 #<n>", run in order on one TEST account funded with TEST 50 USDT. The stack connects no payment partner and
-// no rate source (BANK_RAMP_MODE none), so this run proves the journey's other ending: every way to pay names the rail it
-// needs, a request is kept refused, and nothing is charged or added. Balances are read through the person's own bank API.
-// #6 links a bank account, which asks for a fresh confirmation, so it sets up an authenticator app first; every later
-// sign-in through the API and in the browser then sends the next code. #4 asks from NL, the one ask the stack's TEST rate
-// stand-in prices (BANK_ONRAMP_RATES=ramp-sim, a TEST price that holds 20 seconds and opens no payment), and lets the
-// price run out. Not here: the live credit (it needs a TEST payment partner). #8 runs on the stack's TEST plan, which has
-// no overdraft, so it proves the refusal.
+// "J-bank-02 #<n>", run in order on one TEST account funded with TEST 50 USDT. The stack connects no real payment partner
+// (BANK_RAMP_MODE none), so from DE every way to pay names the rail it needs and a request is kept refused (#1, #2).
+// Balances are read through the person's own bank API. #6 links a bank account, which asks for a fresh confirmation, so
+// it sets up an authenticator app first; every later sign-in through the API and in the browser then sends the next code.
+// #4 asks from NL, which the stack's TEST rate stand-in prices (BANK_ONRAMP_RATES=ramp-sim; its bank-transfer price
+// holds 20 seconds), and lets the price run out. #3 and #5 pay by bank from NL through the stack's TEST pay-in stand-in
+// (BANK_ONRAMP_PARTNER=payin-sim, which takes no money): it answers with its own TEST payment page, where the payer
+// approves and is sent back, and its signed "paid" call, made here as the partner would, credits through the deposit
+// recipe. They pay as a second TEST person, who starts with nothing, so the first person's 50 USDT stays as #4 to #8
+// read it. #8 runs on the stack's TEST plan, which has no overdraft, so it proves the refusal.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const WAYS = [
@@ -28,6 +30,40 @@ function person() {
   const { who } = run.read();
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
   return who;
+}
+
+function payer() {
+  const { payer: who } = run.read();
+  if (!who) throw new Error(`${J} #3 made no paying account, so this step has no one to act as`);
+  return who;
+}
+
+let jobCtx;
+const stackCtx = () =>
+  (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+
+/** One call of the TEST pay-in partner's signed job door, as the partner would make it: its status and its answer. */
+async function partnerCall(what, body) {
+  const ctx = await stackCtx();
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payin-sim/${what}`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  return { status: res.status, answer: await res.json().catch(() => null) };
+}
+
+/** The partner says a payment was paid; anything but a 200 fails the step with the partner's answer. */
+async function partnerPaid(body) {
+  const { status, answer } = await partnerCall('paid', body);
+  if (status !== 200) throw new Error(`payin-sim/paid refused: ${status} ${JSON.stringify(answer).slice(0, 300)}`);
+  return answer;
 }
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
@@ -87,6 +123,53 @@ async function usdt(who) {
   const res = await (await bank(who)).query('spaces.list', { limit: 50 });
   if (!res.ok) throw new Error(`spaces.list refused: ${res.status}`);
   return res.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT')?.balance;
+}
+
+/** The payer's USDT balance in units, a person with no USDT space yet holding none. */
+async function usdtUnits(who) {
+  return toUnits((await usdt(who)) ?? '0');
+}
+
+async function request(who, requestId) {
+  const res = await (await bank(who)).query('addMoney.request', { requestId });
+  if (!res.ok) throw new Error(`addMoney.request refused: ${res.status}`);
+  return res.data;
+}
+
+/**
+ * Ask for the ways to pay `amount` USDT from NL, and the pay-by-bank quote the bank answered the page with: the price the
+ * row shows is the one the request is asked on.
+ */
+async function payByBankFromNL(page, amount) {
+  await page.goto('/bank/ramps/new');
+  await page.getByLabel('Add to').selectOption('USDT');
+  await page.getByLabel('Amount').fill(amount);
+  await page.getByLabel('Country you pay from').fill('NL');
+  const answered = page.waitForResponse((res) => res.url().includes('/api/bank/trpc/addMoney.methods') && res.status() === 200);
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  const methods = (await (await answered).json()).result.data.methods;
+  const quote = methods.find((m) => m.method === 'pay_by_bank')?.quote;
+  if (!quote) throw new Error(`no pay-by-bank price from NL: ${JSON.stringify(methods)}`);
+  const row = page.getByTestId('method-pay_by_bank');
+  await expect(row).toContainText('TEST price from a stand-in');
+  await expect(row).toContainText('TEST payment page from a stand-in');
+  return { quote, row };
+}
+
+/** Ask for the chosen way to pay and follow the redirect to the page the partner answered with. */
+async function askAndGoToPage(page, who) {
+  const confirm = await ask(page, 'pay_by_bank');
+  await expect(confirm).toContainText('approve the payment, then come back here');
+  const { url } = await stackCtx();
+  const partnerPage = `${url('bank')}/test/payin-sim/pay/`;
+  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  await page.waitForURL((at) => at.href.startsWith(partnerPage));
+  const [asked] = await requests(who);
+  // The page is the one in the provider's response, kept on the request: nothing built it from an id.
+  expect(asked).toMatchObject({ method: 'pay_by_bank', status: 'opened', onramp: { partnerRail: 'payin-sim' } });
+  expect(page.url()).toBe(asked.onramp.hostedUrl);
+  await expect(page.getByTestId('payin-sim-label')).toContainText(/^TEST\b/);
+  return asked;
 }
 
 async function requests(who) {
@@ -166,18 +249,55 @@ test(`${J} #2 picks bank transfer: the ownership rule, the rail.bank notice, and
   expect(await usdt(who)).toBe('50');
 });
 
-test(`${J} #3 picks pay by bank: no partner page to go to, the request kept refused, and the person stays here`, async ({ page }) => {
-  const who = person();
+test(`${J} #3 picks pay by bank: sent to the provider's page its response named, back here pending, then credited once`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = await signUp(page, 'jb2pay');
+  await verify(page, who);
+  run.reset({ ...run.read(), payer: who });
   await signIn(page, who);
-  await waysToPay(page);
-  const confirm = await ask(page, 'pay_by_bank');
-  await expect(confirm).toContainText('approve the payment, then come back here');
-  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
-  await expect(page.getByTestId('add-money-refused')).toContainText('rail.bank');
-  await expect(page.getByRole('link', { name: 'Go to the payment page' })).toHaveCount(0);
-  await expect(page).toHaveURL(/\/bank\/ramps\/new$/);
-  expect((await requests(who)).map((r) => r.method)).toEqual(['pay_by_bank', 'bank_transfer']);
-  expect(await usdt(who)).toBe('50');
+  const before = await usdtUnits(who);
+
+  const { quote, row } = await payByBankFromNL(page, '20');
+  // The stand-in's TEST price: 20 USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR.
+  await expect(row).toContainText(/You pay: 41(\.0+)? EUR/);
+  await expect(row.getByTestId('method-receive')).toHaveText('You receive: 20 USDT');
+  const asked = await askAndGoToPage(page, who);
+  expect(asked.onramp.quoteId).toBe(quote.quoteId);
+  await expect(page.getByTestId('payin-sim-amount')).toHaveText(`Pay ${quote.payAmount} EUR to add 20 USDT`);
+  expect(await usdtUnits(who)).toBe(before);
+
+  // The payer approves on the provider's page and is sent back here, to this request.
+  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.waitForURL(`${ORIGIN}/bank/ramps/new?request=${asked.requestId}`);
+  const tracker = page.getByTestId('add-money-tracker');
+  await expect(tracker).toHaveAttribute('data-status', 'pending');
+  await expect(tracker).toContainText('Pending: you approved it, the money is on its way');
+  await expect(tracker.locator('[data-step=credited]')).toHaveAttribute('data-state', 'todo');
+  await expect(page.getByTestId('tracker-credited')).toHaveCount(0);
+  // Pending adds nothing.
+  expect(await request(who, asked.requestId)).toMatchObject({ status: 'pending', creditedAt: null, creditedAmount: null });
+  expect(await usdtUnits(who)).toBe(before);
+
+  // The provider says the money arrived: the page, still open, turns to credited on its own.
+  const paid = await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+  expect(paid).toMatchObject({ requestId: asked.requestId, status: 'credited', creditedAmount: '20' });
+  await expect(tracker).toHaveAttribute('data-status', 'credited');
+  await expect(tracker.locator('[data-step=credited]')).toHaveAttribute('data-state', 'done');
+  await expect(page.getByTestId('tracker-credited')).toHaveText('Credited: 20 USDT');
+  expect(await usdtUnits(who)).toBe(before + toUnits('20'));
+
+  // Once: the provider saying paid again is the same credit, and nothing more is added.
+  const again = await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+  expect(again).toEqual(paid);
+  await page.reload();
+  await expect(tracker).toHaveAttribute('data-status', 'credited');
+  await expect(page.getByTestId('tracker-credited')).toHaveText('Credited: 20 USDT');
+  expect(await usdtUnits(who)).toBe(before + toUnits('20'));
+  const kept = await requests(who);
+  expect(kept).toHaveLength(1);
+  expect(kept[0]).toMatchObject({ requestId: asked.requestId, status: 'credited', creditedAmount: '20' });
 });
 
 test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept, charged or added`, async ({ page }) => {
@@ -206,7 +326,7 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(refused).toContainText('The price ran out');
   await expect(refused).toContainText('nothing was asked for, kept or charged');
   await expect(refused).toContainText('bank.onramp_quote_expired');
-  expect((await requests(who)).map((r) => r.method)).toEqual(['pay_by_bank', 'bank_transfer']);
+  expect((await requests(who)).map((r) => r.method)).toEqual(['bank_transfer']);
   expect(await usdt(who)).toBe('50');
   // Asking for the ways to pay again gives a fresh price, never the one that ran out.
   await page.getByRole('button', { name: 'See ways to pay' }).click();
@@ -214,20 +334,66 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(row).not.toContainText(`Price holds until: ${holds}`);
 });
 
-test(`${J} #5 watches the requests: each with its amount and where it stands, and the balance untouched`, async ({ page }) => {
-  const who = person();
+test(`${J} #5 pays and watches the order: the tracker from created to credited, and the amount is the quote's receive amount exactly`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = payer();
   await signIn(page, who);
-  await page.goto('/bank/ramps/new');
-  const rows = page.getByTestId('add-money-request');
-  await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText('Pay by bank');
-  await expect(rows.nth(1)).toContainText('Bank transfer');
-  for (const n of [0, 1]) {
-    await expect(rows.nth(n)).toContainText('20 USDT');
-    await expect(rows.nth(n)).toContainText('Refused: rail.bank is switched off');
-    await expect(rows.nth(n)).toContainText('bank.fiat_ramp_socket');
+  const before = await usdtUnits(who);
+
+  // An amount with decimals, so "exactly" has something to lose: the quote's receive amount is the bank's own string.
+  const { quote, row } = await payByBankFromNL(page, '12.345678');
+  expect(quote).toMatchObject({ assetId: 'USDT', amount: '12.345678', payCurrency: 'EUR' });
+  await expect(row.getByTestId('method-receive')).toHaveText(`You receive: ${quote.amount} USDT`);
+  const asked = await askAndGoToPage(page, who);
+  expect(asked.onramp).toMatchObject({ quoteId: quote.quoteId, amount: quote.amount, payAmount: quote.payAmount });
+  await expect(page.getByTestId('payin-sim-amount')).toHaveText(`Pay ${quote.payAmount} EUR to add ${quote.amount} USDT`);
+  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.waitForURL(`${ORIGIN}/bank/ramps/new?request=${asked.requestId}`);
+
+  // The tracker: created, sent to the payment page and pending, each with when; credited not yet.
+  const tracker = page.getByTestId('add-money-tracker');
+  const steps = tracker.getByTestId('tracker-step');
+  await expect(tracker).toHaveAttribute('data-status', 'pending');
+  await expect(steps).toHaveCount(4);
+  const names = ['Created', 'Sent to the payment page', 'Pending', 'Credited'];
+  for (const [n, name] of names.entries()) await expect(steps.nth(n)).toContainText(name);
+  for (const n of [0, 1, 2]) {
+    await expect(steps.nth(n)).toHaveAttribute('data-state', 'done');
+    await expect(steps.nth(n)).not.toContainText('Not yet');
   }
-  expect(await usdt(who)).toBe('50');
+  await expect(steps.nth(3)).toHaveAttribute('data-state', 'todo');
+  await expect(steps.nth(3)).toContainText('Not yet');
+  await expect(page.getByTestId('tracker-receive')).toHaveText(`You receive: ${quote.amount} USDT`);
+
+  // A "paid" for any other amount than the payment opened credits nothing.
+  const short = fromUnits(toUnits(quote.payAmount) - 1n);
+  const wrong = await partnerCall('paid', { requestId: asked.requestId, paidAmount: short, payCurrency: 'EUR' });
+  expect(wrong).toMatchObject({ status: 400, answer: { code: 'bank.onramp_paid_mismatch' } });
+  expect(await usdtUnits(who)).toBe(before);
+
+  // Paid: the tracker reaches credited on its own, with the quote's receive amount exactly.
+  await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+  await expect(tracker).toHaveAttribute('data-status', 'credited');
+  for (const n of [0, 1, 2, 3]) {
+    await expect(steps.nth(n)).toHaveAttribute('data-state', 'done');
+    await expect(steps.nth(n)).not.toContainText('Not yet');
+  }
+  await expect(tracker).toContainText('Credited');
+  await expect(page.getByTestId('tracker-credited')).toHaveText(`Credited: ${quote.amount} USDT`);
+  const done = await request(who, asked.requestId);
+  expect(done.creditedAmount).toBe(quote.amount);
+  // Each step happened after the one before it.
+  const at = [done.createdAt, done.openedAt, done.pendingAt, done.creditedAt].map((t) => Date.parse(t));
+  expect(at.every((t, n) => Number.isFinite(t) && (n === 0 || t >= at[n - 1]))).toBe(true);
+  // The balance moved by the receive amount, to the last unit.
+  expect((await usdtUnits(who)) - before).toBe(toUnits(quote.amount));
+  // The request list says the same.
+  const listed = page.getByTestId('add-money-request').first();
+  await expect(listed).toContainText('Pay by bank');
+  await expect(listed).toContainText(`${quote.amount} USDT`);
+  await expect(listed).toContainText('Credited');
 });
 
 test(`${J} #6 links an external bank account: listed unverified with rail.bank, and it cannot be used`, async ({ page }) => {
@@ -310,8 +476,8 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   await expect(rules).toContainText('Available: money shown here is already in your balance.');
   await expect(rules).toContainText('Returned: if a payment is sent back, it is taken out of your balance once');
   await expect(rules).toContainText('Refused: a refused request to add money adds nothing.');
-  // The refusals themselves stay listed with their reasons, and the balance is still 50.
-  await expect(page.getByTestId('add-money-request')).toHaveCount(2);
+  // The refusal itself stays listed with its reason, and the balance is still 50.
+  await expect(page.getByTestId('add-money-request')).toHaveCount(1);
   await expect(page.getByTestId('add-money-request').first()).toContainText('bank.fiat_ramp_socket');
 
   const api = await bank(who);

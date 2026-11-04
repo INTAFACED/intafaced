@@ -148,8 +148,13 @@
     },
     "BANK_ONRAMP_SIM_JSON": {
       "service": "bank",
-      "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}]}",
-      "note": "The add-money rate stand-in's catalogue: one made-up price (bank transfer from NL, USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR) that holds for 20 seconds, so a journey can see a price, wait it out and be refused. It opens no payment and credits nothing. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
+      "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}, {\"country\": \"NL\", \"method\": \"pay_by_bank\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your bank approves\", \"quoteValidSeconds\": 600}]}",
+      "note": "The add-money rate stand-in's catalogue: two made-up prices from NL, USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR. The bank-transfer one holds for 20 seconds, so a journey can see a price, wait it out and be refused (J-bank-02 #4); the pay-by-bank one holds for 10 minutes, so a journey can pay it through the pay-in stand-in (J-bank-02 #3, #5). It opens no payment and credits nothing itself. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
+    },
+    "BANK_PAYIN_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST pay-in stand-in for the local stack: not a partner, takes no money\", \"methods\": [\"pay_by_bank\"]}",
+      "note": "The add-money pay-in stand-in's catalogue: it opens a TEST payment page for pay by bank only, where the payer approves and is sent back. It takes no money: saying paid is its signed job call, which only a test makes, and the credit arrives from its own TEST rail boundary through the deposit recipe. Loaded only with BANK_ONRAMP_PARTNER=payin-sim."
     },
     "BANK_PAYOUT_SIM_JSON": {
       "service": "bank",

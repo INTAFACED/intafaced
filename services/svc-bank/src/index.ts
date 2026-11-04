@@ -25,6 +25,8 @@ import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
+import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
+import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
@@ -132,7 +134,15 @@ const bus = await JetStreamEventBus.connect({
 });
 
 const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
+/** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+const onrampPartner = onrampPartnerFor(
+  env.BANK_ONRAMP_PARTNER,
+  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+);
+
 const bank = createBankServices(sql, ledger, history, {
+  onrampPartner,
   nativeAssetId: env.TOKEN_ASSET_ID,
   // Recovery claims (RC-identity-08): identity says which accounts a heir may claim and whether a claim's signatures
   // count. No IDENTITY_URL refuses every claim with `bank.recovery_unavailable`, never "claimable".
@@ -697,6 +707,14 @@ jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOu
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
+/**
+ * The pay-in partner's side of add money (J-bank-02 #3, #5): it says a payment it opened was paid, and the bank credits
+ * the quote's receive amount once. A signed job door, never a customer or a staff session: with no partner wired it
+ * refuses `bank.fiat_ramp_socket`. On the stack only the TEST stand-in (`payin-sim`) answers, and its page (mounted only
+ * with it) is where the payer approves.
+ */
+jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

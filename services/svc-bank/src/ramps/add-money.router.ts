@@ -5,8 +5,8 @@ import { ONRAMP_METHODS } from './customer-ports.js';
 
 /**
  * `bank.addMoney.methods/start/requests` (BK-xfer-04, BK-xfer-05, J-bank-02). The ways to pay in with their quotes, and the
- * customer's add-money requests, kept whether the rail opens them or refuses them. Nothing here posts to the ledger
- * (`./add-money.ts`).
+ * customer's add-money requests, kept whether the rail opens them or refuses them, with where each stands. Nothing here
+ * posts to the ledger: only the partner's signed "paid" call credits (`./add-money.ts`).
  */
 
 const amount = z
@@ -40,6 +40,9 @@ const onramp = z.object({
   onrampId: z.string(),
   quoteId: z.string(),
   method: z.enum(ONRAMP_METHODS),
+  /** What the person receives, in `assetId`: the quote's receive amount. */
+  assetId: z.string(),
+  amount: z.string(),
   payAmount: z.string(),
   fee: z.string(),
   payCurrency: z.string(),
@@ -56,10 +59,14 @@ const request = z.object({
   method: z.enum(ONRAMP_METHODS),
   country: z.string(),
   rail,
-  status: z.enum(['opening', 'refused', 'opened']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited']),
   refusalCode: z.string().nullable(),
   onramp: onramp.nullable(),
   createdAt: z.string(),
+  openedAt: z.string().nullable(),
+  pendingAt: z.string().nullable(),
+  creditedAt: z.string().nullable(),
+  creditedAmount: z.string().nullable(),
 });
 
 export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {
@@ -76,6 +83,7 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
               quote: quote.nullable(),
               blocker: z.string().nullable(),
               standIn: z.string().nullable(),
+              payStandIn: z.string().nullable(),
             }),
           ),
         }),
@@ -104,5 +112,11 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
       .input(z.object({ limit: z.number().int().min(1).max(50) }).strict())
       .output(z.array(request))
       .query(({ ctx, input }) => guard(async () => bank.addMoney.list(ctx.principal.userId, input.limit))),
+
+    /** One of the customer's own requests, for the tracker from created to credited. */
+    request: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ requestId: z.string().guid() }).strict())
+      .output(request)
+      .query(({ ctx, input }) => guard(async () => bank.addMoney.request(ctx.principal.userId, input.requestId))),
   });
 }

@@ -273,7 +273,7 @@ export async function createOnramp(
       'bank.fiat_ramp_socket',
     );
   }
-  const stored = normaliseInstruction(input.method, instruction);
+  const stored = normaliseInstruction(input.method, instruction, deps.payments.loopbackPages === true);
 
   const inserted = await transaction(deps.sql, async (tx) => {
     const again = await tx<QuoteRow[]>`
@@ -610,6 +610,7 @@ function sameOnramp(row: CustomerOnrampRow, userId: string, quoteId: string): Cu
 function normaliseInstruction(
   method: OnrampMethod,
   instruction: OnrampPaymentInstruction,
+  loopbackPages = false,
 ): {
   partnerRail: string;
   hostedUrl: string | null;
@@ -644,10 +645,21 @@ function normaliseInstruction(
     };
   }
   const hostedUrl = instruction.hostedUrl?.trim() ?? '';
-  if (!hostedUrl.startsWith('https://') || hostedUrl.length > 2000 || /\s/.test(hostedUrl)) {
+  const secure = hostedUrl.startsWith('https://') || (loopbackPages && isLoopbackHttp(hostedUrl));
+  if (!secure || hostedUrl.length > 2000 || /\s/.test(hostedUrl)) {
     throw new BankError('The partner did not return an https hosted payment URL', 'bank.onramp_instruction_missing');
   }
   return { partnerRail, hostedUrl, bankReference: null, bankAccountName: null, bankAccountRef: null };
+}
+
+/** An http page on this machine, which only the local stack's TEST pay-in stand-in may name. */
+function isLoopbackHttp(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]');
+  } catch {
+    return false;
+  }
 }
 
 function toQuote(row: QuoteRow): OnrampQuoteView {

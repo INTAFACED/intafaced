@@ -12,7 +12,8 @@ import { ONRAMP_METHODS, type OnrampMethod, type OnrampQuoteSource } from './cus
  * stand-in: it answers quotes from a catalogue someone typed (`BANK_ONRAMP_SIM_JSON`, labelled TEST in the bank's test
  * profile), for the countries, ways to pay and assets it lists and nothing else, so a quote can be shown, accepted and
  * run out. It is a rate source only. It opens no payment, takes no money and credits nothing: an accepted quote still
- * ends `bank.fiat_ramp_socket`, because no partner exists to pay. Outside its list every ask takes the ordinary path and
+ * ends `bank.fiat_ramp_socket` unless a partner opens the payment (on the stack, only the TEST pay-in stand-in
+ * `payin-sim`, for the ways to pay its own catalogue lists: `ramps/payin-sim.ts`). Outside its list every ask takes the ordinary path and
  * refuses as before. Chosen in a process whose raw `APP_ENV` is not exactly `dev` or `test`, or with
  * `NODE_ENV=production`, the service refuses to start, and so it does over a blank or unreadable catalogue.
  */
@@ -36,6 +37,8 @@ const catalogueShape = z
             rate: decimal,
             fee: decimal,
             deliveryEstimate: z.string().trim().min(1).max(140).nullable(),
+            /** How long this line's price holds, when it is not the catalogue's own `quoteValidSeconds`. */
+            quoteValidSeconds: z.number().int().min(1).max(3600).optional(),
           })
           .strict(),
       )
@@ -92,7 +95,7 @@ export function onrampSim(catalogue: OnrampSimCatalogue, now: () => Date = () =>
           fee: hit.fee,
           rate: hit.rate,
           payCurrency: hit.payCurrency,
-          expiresAt: new Date(now().getTime() + catalogue.quoteValidSeconds * 1000),
+          expiresAt: new Date(now().getTime() + (hit.quoteValidSeconds ?? catalogue.quoteValidSeconds) * 1000),
           deliveryEstimate: hit.deliveryEstimate,
         };
       },

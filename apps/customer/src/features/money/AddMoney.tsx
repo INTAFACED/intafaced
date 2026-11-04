@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
@@ -13,13 +13,25 @@ import './bank-depth.css';
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
  * and the request itself. A way to pay with no partner says which rail it needs and why; asking anyway keeps the request,
- * refused, in the list below, and nothing is charged or added. Every figure is the service's own string.
+ * refused, in the list below, and nothing is charged or added. A way to pay a partner opens as a hosted page sends the
+ * person to the page the partner answered with; coming back (`?request=<id>`), the tracker follows that request from
+ * created to credited, reading the bank until it is credited. Every figure is the service's own string.
  */
 
 type Ask = { assetId: string; amount: string; country: string };
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const EXPIRED = 'bank.onramp_quote_expired';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** How often the tracker reads the bank while a request is still on its way. */
+const TRACK_EVERY_MS = 2_000;
+const STEPS = ['created', 'opened', 'pending', 'credited'] as const;
+const STEP_KEYS = {
+  created: 'step_created',
+  opened: 'step_opened',
+  pending: 'step_pending',
+  credited: 'step_credited',
+} as const;
 
 const METHOD_KEYS = {
   bank_transfer: 'method_bank_transfer',
@@ -49,11 +61,21 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
         {t('youPay')}: {quote ? funds(quote.payAmount, quote.payCurrency) : t('notSet')}
       </span>
       {quote && (
+        <span className="money-caption" data-testid="method-receive">
+          {t('youReceive')}: {funds(quote.amount, quote.assetId)}
+        </span>
+      )}
+      {quote && (
         <span className="money-caption">
           {t('priceUntil')}: {date(quote.expiresAt, true)}
         </span>
       )}
-      {row.standIn && <small className="muted">{t('standIn', { label: row.standIn })}</small>}
+      {row.standIn && (
+        <small className="muted">
+          {row.payStandIn ? t('standInPriced', { label: row.standIn }) : t('standIn', { label: row.standIn })}
+        </small>
+      )}
+      {row.quote && row.payStandIn && <small className="muted">{t('payStandIn', { label: row.payStandIn })}</small>}
       {row.blocker && (
         <small className="muted">
           {t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
@@ -120,8 +142,86 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
   );
 }
 
+/** When the request reached each step, or null while it has not. */
+function reachedAt(request: AddMoneyRequest, step: (typeof STEPS)[number]): string | null {
+  if (step === 'created') return request.createdAt;
+  if (step === 'opened') return request.openedAt;
+  if (step === 'pending') return request.pendingAt;
+  return request.creditedAt;
+}
+
+/** One request from created to credited, read from the bank until it is credited or refused. */
+function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () => void }) {
+  const { t } = addMoneyCopy.useCopy();
+  const { api } = useSession();
+  const [request, setRequest] = useState<AddMoneyRequest | null>(null);
+  const [failure, setFailure] = useState<Refusal | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
+      const result = await api.query('bank', 'addMoney.request', { requestId }, addMoneyRequestSchema);
+      if (stopped) return;
+      if (result.ok) {
+        setRequest(result.data);
+        setFailure(null);
+        if (result.data.status === 'credited' || result.data.status === 'refused') {
+          onSettled();
+          return;
+        }
+      } else {
+        setFailure(result);
+      }
+      timer = setTimeout(() => void read(), TRACK_EVERY_MS);
+    };
+    void read();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // onSettled is the parent's refresh; following a new request is what restarts the reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, requestId]);
+  return (
+    <DepthPanel title={t('trackerTitle')} lead={t('trackerLead')}>
+      {failure && !request ? (
+        <Failure result={failure} />
+      ) : !request ? (
+        <Loading />
+      ) : (
+        <div className="bd-stack" data-testid="add-money-tracker" data-status={request.status}>
+          <p className="money-caption">
+            <strong>{t(METHOD_KEYS[request.method])}</strong> · <StatusWord request={request} />
+          </p>
+          <ol className="bd-stack">
+            {STEPS.map((step) => {
+              const at = reachedAt(request, step);
+              return (
+                <li key={step} data-testid="tracker-step" data-step={step} data-state={at ? 'done' : 'todo'}>
+                  <strong>{t(STEP_KEYS[step])}</strong> <small className="muted">{at ? date(at, true) : t('stepNotYet')}</small>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="money-caption" data-testid="tracker-receive">
+            {t('trackerAmount')}: <span dir="ltr">{funds(request.onramp?.amount ?? request.amount, request.assetId)}</span>
+          </p>
+          {request.creditedAmount && (
+            <p data-testid="tracker-credited">
+              <span dir="ltr">{t('creditedAmount', { amount: funds(request.creditedAmount, request.assetId) })}</span>
+            </p>
+          )}
+          {failure && <Failure result={failure} />}
+        </div>
+      )}
+    </DepthPanel>
+  );
+}
+
 function StatusWord({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
+  if (request.status === 'credited') return <>{t('status_credited')}</>;
+  if (request.status === 'pending') return <>{t('status_pending')}</>;
   if (request.status === 'opened') return <>{t('status_opened')}</>;
   if (request.status === 'opening') return <>{t('status_opening')}</>;
   return <>{request.refusalCode === EXPIRED ? t('status_expired') : t('status_refused', { rail: request.rail })}</>;
@@ -178,6 +278,12 @@ export function AddMoney() {
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<AddMoneyRequest | Refusal | null>(null);
   const [revision, setRevision] = useState(0);
+  // The request the person came back to from the payment page, or the one they just opened.
+  const [followed, setFollowed] = useState<string | null>(() => {
+    const id = new URLSearchParams(window.location.search).get('request');
+    return id && UUID.test(id) ? id : null;
+  });
+  const [redirecting, setRedirecting] = useState(false);
   const ways = useBankRead('addMoney.methods', ask, ask !== null);
 
   const asset = assetId || assets[0] || '';
@@ -215,6 +321,13 @@ export function AddMoney() {
     );
     setBusy(false);
     setOutcome(result.ok ? result.data : result);
+    // A hosted way to pay goes on to the page the partner answered with; the person comes back here to the tracker.
+    const page = result.ok && result.data.status === 'opened' ? result.data.onramp?.hostedUrl : null;
+    if (result.ok && result.data.status === 'opened') setFollowed(result.data.requestId);
+    if (page) {
+      setRedirecting(true);
+      window.location.assign(page);
+    }
     // A final answer closes this request, so asking again is a new one. A failure keeps the id, so a retry is the same request.
     if (result.ok && result.data.status !== 'opening') setRequestId(crypto.randomUUID());
     setRevision((n) => n + 1);
@@ -300,14 +413,16 @@ export function AddMoney() {
             {option.method === 'pay_by_bank' && <p>{t('redirect')}</p>}
             {(option.method === 'card' || option.method === 'wallet_pay') && <p>{t('hostedCard')}</p>}
             <div className="actions">
-              <Button onClick={() => void start()} disabled={busy}>
-                {busy ? t('working') : t('ask')}
+              <Button onClick={() => void start()} disabled={busy || redirecting}>
+                {redirecting ? t('redirecting') : busy ? t('working') : t('ask')}
               </Button>
             </div>
             {outcome && <Answer outcome={outcome} />}
           </div>
         </DepthPanel>
       )}
+
+      {followed && <Tracker key={followed} requestId={followed} onSettled={() => setRevision((n) => n + 1)} />}
 
       {/* A new request reads both lists again. */}
       <IncomingPayments key={`in-${revision}`} />

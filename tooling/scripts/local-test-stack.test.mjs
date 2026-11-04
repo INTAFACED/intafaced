@@ -431,11 +431,16 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
+  assert.equal(bank.env.BANK_ONRAMP_PARTNER, 'payin-sim');
+  // The pay-in stand-in's page is svc-bank's own address, and it sends the payer back to the customer app's add-money room.
+  assert.match(bank.env.BANK_PAYIN_SIM_PAGE_URL, /^http:\/\/127\.0\.0\.1:\d+$/);
+  assert.match(bank.env.BANK_PAYIN_SIM_RETURN_URL, /^http:\/\/127\.0\.0\.1:\d+\/bank\/ramps\/new$/);
   assert.match(bank.env.BANK_PAYOUT_SIM_RECORDS_DIR, /\/test-rail-records$/);
   assert.equal(bank.env.BANK_DD_SCHEME, 'dd-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
     'BANK_ONRAMP_SIM_JSON',
+    'BANK_PAYIN_SIM_JSON',
     'BANK_PAYOUT_SIM_JSON',
     'BANK_DD_SIM_JSON',
     'BANK_SEND_FIELD_RULES_JSON',
@@ -447,6 +452,7 @@ const script = resolve(here, 'local-test-stack.mjs');
     assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
   }
   assert.match(JSON.parse(profile.BANK_GLOBAL_SIM_JSON.value).label, /^TEST\b/);
+  assert.match(JSON.parse(profile.BANK_PAYIN_SIM_JSON.value).label, /^TEST\b/);
   console.log('local-test-stack: the global-send stand-in and its TEST catalogue come from the bank profile');
 }
 

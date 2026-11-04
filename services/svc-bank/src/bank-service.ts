@@ -13,6 +13,7 @@ import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
 import { CashOutService } from './cash-out/cash-out.js';
 import type { CashOutPartner } from './cash-out/payout-sim.js';
+import type { OnrampPartner } from './ramps/payin-sim.js';
 import { RailSendService } from './rail-sends/rail-sends.js';
 import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
@@ -146,6 +147,8 @@ export interface BankServiceOptions {
   receiptSecret?: string;
   /** Who pays out cash-outs to bank accounts. Unset: every cash-out is kept refused `bank.fiat_ramp_socket`. */
   cashOutPartner?: CashOutPartner | null;
+  /** Who opens and says paid an add-money pay-in (J-bank-02 #3, #5). The TEST stand-in is the only one; unset refuses by name. */
+  onrampPartner?: OnrampPartner | null;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -356,9 +359,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const assetRegistry = options.assetRegistry ?? null;
   const ramps = new RampService(sql, ledger, {
     ...options.ramps,
+    onrampPayments: options.ramps?.onrampPayments ?? options.onrampPartner?.payments ?? null,
     withdrawNetworks: options.ramps?.withdrawNetworks ?? (assetRegistry ? withdrawNetworksFrom(assetRegistry) : null),
   });
-  const addMoney = new AddMoneyService(sql, ramps);
+  // The pay-in partner opens hosted payments (as the ramps' payment port) and says each was paid; unset everywhere but a
+  // dev or test stack with the TEST stand-in chosen.
+  const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
     // Resolved as RampService resolves them: a value passed in wins, otherwise the live env.
