@@ -108,12 +108,15 @@ const RETRY_AFTER_CODES = new Set([
   'kyc.attempts_exhausted',
   'identity.self_freeze_lift_too_soon',
   'identity.resend_too_soon',
+  'auth.email_confirm_resend_too_soon',
+  'auth.email_confirm_code_locked',
 ]);
 
 /**
  * `retryAfterSeconds` of a refusal in `RETRY_AFTER_CODES` (`auth.too_many_attempts`, `auth.email_confirm_rate_limited`,
  * `kyc.attempts_exhausted`, `identity.self_freeze_lift_too_soon`, `identity.resend_too_soon` from both the sign-up and
- * the code sign-in resend), so a client can show "try again in N minutes".
+ * the code sign-in resend, `auth.email_confirm_resend_too_soon` and `auth.email_confirm_code_locked` from the Account
+ * email confirmation), so a client can show "try again in N minutes" or "in N s".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
   if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {

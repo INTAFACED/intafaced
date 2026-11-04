@@ -46,12 +46,20 @@ export function ConfirmEmail() {
     else setRefusal(answer);
   }
 
-  const dead = !token || refusal?.code === 'auth.email_confirm_invalid';
+  // A link that ran out and one already used are named apart; a missing or unknown token is the general dead link.
+  const dead: 'expired' | 'used' | 'dead' | null =
+    refusal?.code === 'auth.email_confirm_expired'
+      ? 'expired'
+      : refusal?.code === 'auth.email_confirm_used'
+        ? 'used'
+        : !token || refusal?.code === 'auth.email_confirm_invalid'
+          ? 'dead'
+          : null;
   return (
     <div className="pub-page">
       <header className="pub-heading">
         <p className="eyebrow">{t('eyebrow')}</p>
-        <h1>{done ? t('doneTitle') : dead ? t('deadTitle') : t('title')}</h1>
+        <h1>{done ? t('doneTitle') : dead ? t(`${dead}Title`) : t('title')}</h1>
       </header>
       {done ? (
         <p role="status">
@@ -62,7 +70,7 @@ export function ConfirmEmail() {
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
-          <p>{t('deadBody')}</p>
+          <p>{t(`${dead}Body`)}</p>
           <a className="text-link" href="/uc/account">
             {t('toAccount')}
           </a>
