@@ -124,6 +124,24 @@ const en = {
   feeLoading: 'Reading the network fee levels…',
   feeFact: 'Network fee',
   feeFactValue: '{level}: at most {max} gwei per gas, {priority} gwei priority',
+  payIn: 'Pay the network fee in',
+  payInNative: 'ETH (the network’s own currency)',
+  feeInToken: 'Network fee {charge} {token} at the oracle rate plus a {markup}% markup',
+  feeInTokenBasis:
+    'Covers up to {gas} ETH of gas ({limit} gas at most {perGas} gwei per gas), sent and paid in ETH by the fee relay. Oracle rate: 1 {token} = {rate} ETH, as of {asOf}.',
+  feeInTokenReading: 'Reading the network fee in {token}…',
+  payInRefused_not_allowlisted:
+    '{token} cannot pay the network fee: it is not on the list of tokens that can. You pay in the network’s own currency (ETH) instead.',
+  payInRefused_oracle_stale:
+    '{token} cannot pay the network fee: its oracle price is stale. You pay in the network’s own currency (ETH) instead.',
+  payInRefused_oracle_unread:
+    '{token} cannot pay the network fee: its oracle gives no price. You pay in the network’s own currency (ETH) instead.',
+  payInRefused_relay_unset:
+    'Paying the network fee in a token is not set up on this network. You pay in the network’s own currency (ETH) instead.',
+  payInRefused_unread: 'The network fee in {token} could not be read just now. You pay in the network’s own currency (ETH) instead.',
+  feeTokenPlanRefused: 'The swap could not be prepared with the fee in {token}. Nothing was signed. Refresh the quote.',
+  signRejected: 'You cancelled. Nothing was signed in full and nothing was sent.',
+  relayRefused: 'The fee relay did not take the swap, so nothing was sent. What you signed expires unused. Get a new quote.',
 } as const;
 
 export const swapCopy = defineCopy('customer.protocol.swap', en);

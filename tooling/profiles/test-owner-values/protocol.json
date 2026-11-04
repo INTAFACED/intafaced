@@ -80,6 +80,21 @@
       "service": "protocol",
       "value": "TEST:300",
       "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
+    },
+    "PROTOCOL_FEE_RELAY_ADDRESS": {
+      "service": "protocol",
+      "value": "(the seeded TEST chain's FeeTokenRelay address)",
+      "note": "TEST network-fee relay on the local TEST chain (RC-dex-protocol-02): prices a fee-token swap from the fail-closed TEST oracle plus its published TEST markup (5%). Blank in production refuses protocol.fee_relay_unset."
+    },
+    "PROTOCOL_FEE_RELAY_URL": {
+      "service": "protocol",
+      "value": "http://127.0.0.1:14535/relay",
+      "note": "The TEST relayer stand-in local-test-chain.mjs serves: it sends a signed fee-token swap and pays its gas in TEST ETH. Blank in production refuses protocol.fee_relay_unset."
+    },
+    "PROTOCOL_FEE_RELAY_GAS_LIMIT": {
+      "service": "protocol",
+      "value": "400000",
+      "note": "TEST gas a relayed fee-token swap is priced for and sent with. Blank in production refuses protocol.fee_relay_unset."
     }
   }
 }

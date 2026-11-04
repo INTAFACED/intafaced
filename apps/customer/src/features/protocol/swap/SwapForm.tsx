@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatAsOf } from '@intafaced/ui';
 import {
   PRICE_SETTINGS_UNSET,
+  type ProtocolFeeSwapOrder,
   type ProtocolPoolQuote,
   type ProtocolRouteOptions,
   type ProtocolSwapPool,
@@ -21,7 +22,8 @@ import { shortContract, tokenLabel, toBaseUnits } from '../wallet/transfer';
 import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
-import { chosenFee, feeFields, toGwei, type FeeChoice } from './fee';
+import { chosenFee, feeFields, toGwei, type ChosenFee, type FeeChoice } from './fee';
+import { NATIVE, payInRefusal, payInTokens, type TokenFee } from './fee-token';
 import { feeRefusal, NetworkFee } from './NetworkFee';
 import { RouteOptions } from './RouteOptions';
 import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
@@ -38,6 +40,8 @@ type Track = {
   received?: bigint;
   feeWei?: bigint;
   reason?: string;
+  /** Set when the fee was paid in a token through the fee relay: the charge the person signed for, in that token. */
+  feeIn?: { charge: bigint; token: ProtocolSwapToken };
 };
 interface Receipt {
   status?: string;
@@ -92,6 +96,11 @@ export function SwapForm() {
   const [needsQuote, setNeedsQuote] = useState(false);
   const [feeChoice, setFeeChoice] = useState<FeeChoice>('normal');
   const [customFee, setCustomFee] = useState('');
+  // Paying the fee in a token (RC-dex-protocol-02): the choice, its fee as the relay prices it, and why a token was refused.
+  const [payIn, setPayIn] = useState<string>(NATIVE);
+  const [tokenFee, setTokenFee] = useState<TokenFee>({ status: 'idle' });
+  const [payInProblem, setPayInProblem] = useState<string | null>(null);
+  const feeTokens = useResource((signal) => api.feeTokens(signal), 'swap:fee-tokens');
   const [routes, setRoutes] = useState<ProtocolRouteOptions | null>(null);
   const [routesOpen, setRoutesOpen] = useState(false);
   const [excluded, setExcluded] = useState<string[]>([]);
@@ -159,6 +168,34 @@ export function SwapForm() {
   const feeRead = fees.resource.status === 'ready' ? fees.resource.data : null;
   const fee = feeRead ? chosenFee(feeRead, feeChoice, customFee) : null;
   const feeAlert = feeRefusal(feeRead, fee, customFee, language);
+  const payTokens = payInTokens(tokens, feeTokens.resource.status === 'ready' ? feeTokens.resource.data.tokens : []);
+  const payToken = payIn === NATIVE ? null : (payTokens.find((token) => token.address.toLowerCase() === payIn.toLowerCase()) ?? null);
+  /** A token the relay will not take puts the fee back on native currency, and says why in a sentence. */
+  const refusePayIn = (token: ProtocolSwapToken, code: string | undefined) => {
+    setPayIn(NATIVE);
+    setTokenFee({ status: 'idle' });
+    setPayInProblem(t(`payInRefused_${payInRefusal(code)}`, { token: token.name }));
+  };
+  const choosePayIn = (value: string) => {
+    setPayInProblem(null);
+    setPayIn(value);
+  };
+  // The fee in the chosen token, priced by the relay at the most per gas of the chosen level; read again with the levels.
+  const maxFeeKey = fee?.ok ? fee.maxFeePerGas.toString() : '';
+  useEffect(() => {
+    if (!payToken || !maxFeeKey) return setTokenFee({ status: 'idle' });
+    const token = payToken;
+    setTokenFee((shown) => (shown.status === 'ready' && shown.token.address === token.address ? shown : { status: 'reading', token }));
+    const controller = new AbortController();
+    void api.feeQuote({ feeToken: token.address, maxFeePerGasWei: maxFeeKey }, controller.signal).then((read) => {
+      if (controller.signal.aborted) return;
+      if (read.ok) setTokenFee({ status: 'ready', token, quote: read.data });
+      else refusePayIn(token, read.code);
+    });
+    return () => controller.abort();
+    // Read again when the token or the per-gas fee changes; the token object is rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, payToken?.address, maxFeeKey]);
 
   const choose = (next: SwapMode) => {
     setMode(next);
@@ -208,7 +245,9 @@ export function SwapForm() {
                                   ? t('feeLoading')
                                   : !fee.ok
                                     ? (feeAlert ?? t('feeCustomNeeded'))
-                                    : null;
+                                    : payToken && tokenFee.status !== 'ready'
+                                      ? t('feeInTokenReading', { token: payToken.name })
+                                      : null;
   const following = track?.state === 'submitted' || track?.state === 'confirming';
   const canSwap = reason === null && !busy && !following;
 
@@ -234,6 +273,7 @@ export function SwapForm() {
     if (!feesNow.ok) return setProblem(t('feeUnread'));
     const feeNow = chosenFee(feesNow.data, feeChoice, customFee);
     if (!feeNow.ok) return setProblem(feeRefusal(feesNow.data, feeNow, customFee, language) ?? t('feeCustomNeeded'));
+    if (payToken) return sendWithTokenFee(from, min, inToken, outToken, owner, payToken, feeNow);
     const feeRequest = feeFields(feeNow);
     const [approval, call] = await Promise.all([
       api.checkApproval({ owner, token: inToken.address, spender: from.pool.pool, amount: from.amountIn.toString() }),
@@ -294,6 +334,72 @@ export function SwapForm() {
       return setProblem(`${result.message}${earlier}`);
     }
     setTrack({ ...base, hash: result.hashes[result.hashes.length - 1]!, state: 'submitted' });
+  };
+
+  /**
+   * The swap with its network fee paid in `feeToken` (RC-dex-protocol-02): the service checks the minimum against a fresh
+   * read and prices the fee through the relay; the person signs a permit for each token the relay takes and the order,
+   * and sends nothing. The relay's sender submits it and pays the gas in native currency. The fee line shows the quote
+   * that was signed.
+   */
+  const sendWithTokenFee = async (
+    from: Quote,
+    min: bigint,
+    inToken: ProtocolSwapToken,
+    outToken: ProtocolSwapToken,
+    owner: string,
+    feeToken: ProtocolSwapToken,
+    feeNow: Extract<ChosenFee, { ok: true }>,
+  ) => {
+    const plan = await api.prepareFeeSwap({
+      owner,
+      pool: from.pool.pool,
+      tokenIn: inToken.address,
+      amountIn: from.amountIn.toString(),
+      minAmountOut: min.toString(),
+      feeToken: feeToken.address,
+      maxFeePerGasWei: feeNow.maxFeePerGas.toString(),
+    });
+    if (!plan.ok) {
+      if (payInRefusal(plan.code) !== 'unread') return refusePayIn(feeToken, plan.code);
+      return setProblem(
+        plan.code === 'protocol.swap_min_out_below_bound' ? t('minimumBelow') : t('feeTokenPlanRefused', { token: feeToken.name }),
+      );
+    }
+    setTokenFee({ status: 'ready', token: feeToken, quote: plan.data.quote });
+    const signatures: string[] = [];
+    for (const typedData of [...plan.data.permits, plan.data.order]) {
+      const signed = await wallet.sign({ kind: 'typedData', typedData });
+      if (signed.status === 'rejected') return setProblem(t('signRejected'));
+      if (signed.status !== 'signed') return setProblem(signed.status === 'failed' ? signed.message : t('signRejected'));
+      signatures.push(signed.signature);
+    }
+    const sent = await api.relayFeeSwap({
+      order: plan.data.order.message as unknown as ProtocolFeeSwapOrder,
+      signature: signatures[signatures.length - 1]!,
+      permits: plan.data.permits.map((permit, index) => ({
+        token: permit.domain.verifyingContract,
+        value: permit.message.value ?? '0',
+        deadline: permit.message.deadline ?? '0',
+        signature: signatures[index]!,
+      })),
+      maxFeePerGasWei: feeNow.maxFeePerGas.toString(),
+      maxPriorityFeePerGasWei: feeNow.maxPriorityFeePerGas.toString(),
+    });
+    if (!sent.ok) {
+      if (payInRefusal(sent.code) !== 'unread') return refusePayIn(feeToken, sent.code);
+      return setProblem(t('relayRefused'));
+    }
+    setTrack({
+      hash: sent.data.hash,
+      state: 'submitted',
+      amountIn: from.amountIn,
+      minOut: min,
+      tokenIn: inToken,
+      tokenOut: outToken,
+      pool: from.pool.pool,
+      feeIn: { charge: BigInt(plan.data.quote.charge), token: feeToken },
+    });
   };
 
   const startSwap = async () => {
@@ -530,6 +636,14 @@ export function SwapForm() {
             custom={customFee}
             onCustom={setCustomFee}
             refusal={feeAlert}
+            payIn={{
+              value: payIn,
+              tokens: payTokens,
+              label: (token) => tokenLabel(token, payTokens),
+              onChange: choosePayIn,
+              fee: tokenFee,
+              refusal: payInProblem,
+            }}
           />
           <Button type="submit" disabled={!canSwap}>
             {t('swap')}
@@ -593,11 +707,17 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           <div>
             <dt>{t('networkFee')}</dt>
             <dd className="numeric">
-              {track.feeWei !== undefined
-                ? `${formatUnits(track.feeWei, 18, 9)} ETH`
-                : track.state === 'failed'
+              {track.feeIn && track.received !== undefined
+                ? `${formatUnits(track.feeIn.charge, track.feeIn.token.decimals, track.feeIn.token.decimals)} ${track.feeIn.token.name}`
+                : track.feeIn && track.state === 'failed'
                   ? t('noFeeNotMined')
-                  : t('notMined')}
+                  : track.feeIn
+                    ? t('notMined')
+                    : track.feeWei !== undefined
+                      ? `${formatUnits(track.feeWei, 18, 9)} ETH`
+                      : track.state === 'failed'
+                        ? t('noFeeNotMined')
+                        : t('notMined')}
             </dd>
           </div>
         </dl>

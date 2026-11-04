@@ -32,6 +32,11 @@ import {
   PRICE_SETTINGS_UNSET,
   protocolSwapSettingsOutputSchema,
   protocolSwapFeesOutputSchema,
+  protocolFeeQuoteOutputSchema,
+  protocolFeeSwapPlanOutputSchema,
+  protocolFeeSwapSubmitInputSchema,
+  protocolFeeSwapSubmitOutputSchema,
+  protocolFeeTokensOutputSchema,
   protocolAllowancesOutputSchema,
   SWAP_SETTINGS_UNSET,
 } from '@intafaced/contracts';
@@ -39,7 +44,7 @@ import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
 import type { ProtocolChain } from './chain/client.js';
-import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, isZeroAddress } from './chain/availability.js';
+import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
 import { chainIdentityReader, type ChainIdentityReader } from './chain/identity.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
@@ -60,6 +65,15 @@ import { pairsReader } from './amm/pairs.js';
 import { listAllowances } from './amm/allowances.js';
 import { blockBalances, routeOptions } from './amm/routes.js';
 import { feeLevels, requireFeeCapWei, SwapFeeError } from './amm/fee-levels.js';
+import {
+  planFeeSwap,
+  quoteFee,
+  readFeeTokens,
+  relayFeeSwap,
+  requireFeeRelay,
+  type FeeRelayChain,
+  type FeeRelaySetting,
+} from './amm/fee-relay.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
@@ -406,6 +420,17 @@ function toTrpcError(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Protocol request failed', cause: err });
 }
 
+/** Posts a signed fee-token swap to the relayer as JSON; 10 s at most, so a silent relayer refuses instead of hanging. */
+async function postJson(url: string, body: unknown): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
 export interface ProtocolRouterDeps {
   chain: ProtocolChain;
   /** The process's one chain identity reader (`chain/identity.ts`); built from `chain` when absent. */
@@ -427,6 +452,13 @@ export interface ProtocolRouterDeps {
   swapConfirmations?: () => number | null;
   /** `PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI`, the fee cap. Null or absent: `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`. */
   swapFeeCapWei?: () => bigint | null;
+  /**
+   * `PROTOCOL_FEE_RELAY_ADDRESS`, `_URL` and `_GAS_LIMIT` (RC-dex-protocol-02). Null or absent: paying the network fee in
+   * a token refuses `protocol.fee_relay_unset`.
+   */
+  feeRelay?: () => FeeRelaySetting | null;
+  /** How a signed fee-token swap is posted to the relayer; `fetch` with a timeout when absent. */
+  postRelay?: (url: string, body: unknown) => Promise<{ status: number; body: unknown }>;
   /** `PROTOCOL_PRICE_USD_TOKENS` and `PROTOCOL_PRICE_MIN_RESERVE_USD`. Null or absent: `amm.prices` refuses. */
   priceSetting?: () => PriceSetting | null;
   /** `PROTOCOL_TOKENS_QUOTE_TOKEN`: what the token pages state prices in. Null or absent: `tokens.*` refuses. */
@@ -511,6 +543,23 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const chainIdentity: ChainIdentityReader = deps.chainIdentity ?? chainIdentityReader(chain);
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain, chainIdentity));
   const routeBalances = blockBalances(chain);
+  /** The fee relay's reads go to the same node as every other chain read. */
+  const feeChain = (): FeeRelayChain => chain.client as unknown as FeeRelayChain;
+  /** A refusal already shaped keeps its code; a chain failure is classified (unreachable, absent contract) by name. */
+  const feeRelayError = (err: unknown): TRPCError =>
+    err instanceof TRPCError || err instanceof SwapFeeError || err instanceof SwapSlippageError || err instanceof PoolTokenError
+      ? toTrpcError(err)
+      : toTrpcError(classifyChainError(err, 'amm.feeRelay', chain.config.rpcUrl));
+  /** The most per gas a person may offer: refused above the owner's cap, never lowered to it. */
+  const withinFeeCap = (maxFee: bigint): bigint => {
+    const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
+    if (maxFee > cap)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `protocol.swap_fee_over_cap: ${maxFee} wei per gas is above the owner's fee cap of ${cap}.`,
+      });
+    return maxFee;
+  };
 
   // amm.prices is public: one block's time is read once and shared, like the pairs read it sits on.
   let blockTime: { block: string; at: Promise<Date> } | null = null;
@@ -1506,6 +1555,106 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             return feeLevels(await chain.gasPrice(setting, deps.now?.() ?? new Date()), cap);
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The tokens that may pay a swap's network fee (RC-dex-protocol-02): every token the relay lists, with whether it is
+       * allowlisted today, the relay's published markup and the gas a relayed swap is priced for. Blank settings refuse
+       * `protocol.fee_relay_unset`.
+       */
+      feeTokens: publicJurisdictionProcedure('protocol', 'protocol')
+        .output(protocolFeeTokensOutputSchema)
+        .query(async () => {
+          const setting = requireFeeRelay(deps.feeRelay?.());
+          try {
+            return await readFeeTokens(feeChain(), setting);
+          } catch (err) {
+            throw feeRelayError(err);
+          }
+        }),
+
+      /**
+       * What the gas of a relayed swap costs in `feeToken` at the most per gas the person chose (one of the fee levels, or
+       * a custom fee within the cap), priced by the relay contract from the oracle mark plus its published markup. A token
+       * off the allowlist, or a stale or missing oracle mark, refuses by name: the person pays in native currency.
+       */
+      feeQuote: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(z.object({ feeToken: addressSchema, maxFeePerGasWei: z.string().regex(/^[1-9][0-9]{0,77}$/) }))
+        .output(protocolFeeQuoteOutputSchema)
+        .query(async ({ input }) => {
+          const setting = requireFeeRelay(deps.feeRelay?.());
+          try {
+            const maxFee = withinFeeCap(BigInt(input.maxFeePerGasWei));
+            return await quoteFee(feeChain(), setting, toChecksum(input.feeToken), maxFee);
+          } catch (err) {
+            throw feeRelayError(err);
+          }
+        }),
+
+      /**
+       * A swap whose network fee is paid in `feeToken`: the pool is read again and the minimum checked against the owner's
+       * slippage ceiling, as for `buildSwapExactIn`; then the quote, a permit per token the relay pulls, and the FeeSwap
+       * order the person signs. Both expire after the owner's quote lifetime.
+       */
+      prepareFeeSwap: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            owner: addressSchema,
+            pool: addressSchema,
+            tokenIn: addressSchema,
+            amountIn: z.string().regex(/^[1-9][0-9]{0,77}$/),
+            minAmountOut: z.string().regex(/^[1-9][0-9]{0,77}$/),
+            feeToken: addressSchema,
+            maxFeePerGasWei: z.string().regex(/^[1-9][0-9]{0,77}$/),
+          }),
+        )
+        .output(protocolFeeSwapPlanOutputSchema)
+        .query(async ({ input }) => {
+          const setting = requireFeeRelay(deps.feeRelay?.());
+          try {
+            const slippageBps = requireSwapSlippageBps(deps.swapSlippageBps());
+            const lifetime = deps.swapQuoteTtlSeconds?.() ?? null;
+            if (lifetime === null)
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `${SWAP_SETTINGS_UNSET}: PROTOCOL_SWAP_QUOTE_TTL_SECONDS is an owner setting; refuse rather than invent how long a signed order lives.`,
+              });
+            const maxFee = withinFeeCap(BigInt(input.maxFeePerGasWei));
+            const pool = input.pool as Address;
+            const tokenIn = toChecksum(input.tokenIn);
+            const amountIn = BigInt(input.amountIn);
+            const minAmountOut = BigInt(input.minAmountOut);
+            const quoted = await freshPoolQuote(chain, pool, tokenIn, amountIn);
+            assertMinAmountOut(minAmountOut, quoted.amountOut, slippageBps);
+            return await planFeeSwap(
+              feeChain(),
+              setting,
+              chain.config.chainId,
+              { owner: toChecksum(input.owner), pool, tokenIn, amountIn, minAmountOut, feeToken: toChecksum(input.feeToken) },
+              maxFee,
+              lifetime,
+            );
+          } catch (err) {
+            throw feeRelayError(err);
+          }
+        }),
+
+      /**
+       * Hands a signed fee-token swap to the relayer once it checks out: the signature is the owner's, the per-gas fee is
+       * within the cap and matches the gas signed for, the relay prices the fee at no more than the signed charge, and the
+       * call succeeds against the chain now. The relayer sends it and pays the gas; the answer is its hash.
+       */
+      relayFeeSwap: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolFeeSwapSubmitInputSchema)
+        .output(protocolFeeSwapSubmitOutputSchema)
+        .mutation(async ({ input }) => {
+          const setting = requireFeeRelay(deps.feeRelay?.());
+          try {
+            const cap = requireFeeCapWei(deps.swapFeeCapWei?.());
+            return await relayFeeSwap(feeChain(), setting, chain.config.chainId, input, cap, deps.postRelay ?? postJson);
+          } catch (err) {
+            throw feeRelayError(err);
           }
         }),
 

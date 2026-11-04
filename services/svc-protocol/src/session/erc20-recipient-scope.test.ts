@@ -303,6 +303,9 @@ describe('every function with an address input in the compiled contracts is clas
     'DeployerReputation.registerLock(address)': 'permissionless public registry; reads the beneficiary from the lock, moves nothing',
     'DeployerReputation.registerVesting(address)': 'permissionless public registry; reads the beneficiary from the vesting, moves nothing',
     'FailClosedOracle.report(address,uint256)': 'reporter-gated price feed; moves no funds',
+    'FeeTokenRelay.setFeeToken(address,bool)': 'operator-gated fee token allowlist; moves no funds',
+    'FeeTokenRelay.swap((address,address,address,uint256,uint256,address,uint256,uint256,uint256,uint256),bytes,(address,uint256,uint256,uint8,bytes32,bytes32)[])':
+      "moves only the order owner's tokens under that owner's own EIP-712 signature and permits: the output goes to the signed owner and the fee to the caller who paid the gas; the caller's own assets never move",
     'IsolatedLendingMarket.liquidate(address,uint256)':
       'seized collateral is paid to msg.sender (the account); the borrower argument only picks whom to liquidate',
     'MerchantAccept.pay(address,uint256,bytes32)':

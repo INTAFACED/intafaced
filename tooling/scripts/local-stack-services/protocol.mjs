@@ -12,7 +12,11 @@
 // (src/deployments/sepolia-deploy-env.ts). The account factories stay the zero default (not deployed), so their paths
 // refuse by name. INDEXER_URL and DEX_URL stay unset (not started here): the blockers say "not connected". DATABASE_URL
 // is this stack's svc_protocol role; protocol is in SCHEMAS, so db:migrate runs before the process listens.
+// PROTOCOL_FEE_RELAY_*: the TEST network-fee relay (RC-dex-protocol-02) the seed deployed, the TEST relayer stand-in
+// local-test-chain.mjs serves, and the gas a relayed swap is priced for. With no chain all three stay blank and paying
+// the fee in a token refuses protocol.fee_relay_unset.
 import { createHash } from 'node:crypto';
+import { RELAY_URL } from '../local-test-chain.mjs';
 
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
@@ -54,6 +58,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_GAS_PERCENTILES: '10,50,90',
       PROTOCOL_GAS_HISTORY_BLOCKS: '20',
       PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: '100000000000',
+      // LOCAL TEST only, labelled in the same file: the seeded fee relay, its TEST relayer and the gas a relayed swap is
+      // priced for. Production stays blank and paying the fee in a token refuses protocol.fee_relay_unset.
+      ...(chain?.feeRelay
+        ? { PROTOCOL_FEE_RELAY_ADDRESS: chain.feeRelay, PROTOCOL_FEE_RELAY_URL: RELAY_URL, PROTOCOL_FEE_RELAY_GAS_LIMIT: '400000' }
+        : {}),
       // LOCAL TEST only, labelled in the same file: the token pages state prices in TEST Token B. Production stays
       // blank and the token pages refuse protocol.tokens_quote_unset. With no chain there is nothing to price.
       ...(chain ? { PROTOCOL_TOKENS_QUOTE_TOKEN: '0x00000000000000000000000000000000000b0b00' } : {}),

@@ -3,6 +3,7 @@ import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
 import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
 import { parseSwapSlippageBps } from './amm/slippage.js';
 import { parseFeeCapWei } from './amm/fee-levels.js';
+import { parseRelayGasLimit } from './amm/fee-relay.js';
 
 /** A whole number of 0 or more, or null when blank or anything else. Never coerces blank to 0. */
 function parseWhole(raw: string): number | null {
@@ -168,6 +169,15 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * `amm.feeLevels` refuses `protocol.swap_fee_cap_unset`, so no level is offered and Swap stays off.
      */
     PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
+    /**
+     * Paying a swap's network fee in a token (RC-dex-protocol-02): the FeeTokenRelay contract, the relayer URL a signed
+     * order is handed to (it sends it and pays the gas; this service holds no key), and the gas a relayed swap is priced
+     * for and sent with. NO DEFAULTS: any one blank and `amm.feeTokens`, `amm.feeQuote` and the fee swap refuse
+     * `protocol.fee_relay_unset`, and the person pays the fee in native currency.
+     */
+    PROTOCOL_FEE_RELAY_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_FEE_RELAY_URL: blankIsUnset(z.string().url().optional()),
+    PROTOCOL_FEE_RELAY_GAS_LIMIT: z.string().default('').transform(parseRelayGasLimit),
     /**
      * The reference tokens a USD price is read against, each counted as one US dollar (D-swap-11): comma-separated
      * addresses on PROTOCOL_CHAIN_ID. NO DEFAULT: blank refuses `protocol.price_settings_unset`.
