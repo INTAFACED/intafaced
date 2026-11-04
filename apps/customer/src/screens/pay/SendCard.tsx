@@ -18,6 +18,7 @@ import {
   contactsFrom,
   createPersonalPayApi,
   dec,
+  fetchSavedRecipients,
   fmtAmount,
   fractionDigits,
   isHiddenPath,
@@ -56,7 +57,7 @@ import { personalCopy } from './personal-copy';
 import { copyText } from './share';
 import { PAY_SENT_EVENT } from './recent-model';
 import { termsVerdict, useSendTerms, type TermsVerdict } from './send-terms';
-import { checkAmount, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
+import { checkAmount, lookalikeOf, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
 import type { IdentityState } from './identity-state';
 import type { z } from 'zod';
 
@@ -65,19 +66,34 @@ const SUPPORT_HREF = '/support';
 /** "Available" shows what the customer holds, never more (rounded down), like Money does. */
 const BALANCE_PLACES = 8;
 
+/**
+ * Who the customer is about to pay. `handle` is null in Account ID mode: the service could not tell us who they are.
+ * `name` is the name on their profile and `memberSince` the month they joined (`YYYY-MM`), when the lookup said so.
+ * `member` is true when the service itself confirmed a member behind the handle or pay code.
+ */
+type Payee = { userId: string; handle: string | null; name: string | null; memberSince: string | null; member: boolean };
+const payee = (userId: string, handle: string | null, more: Partial<Omit<Payee, 'userId' | 'handle'>> = {}): Payee => ({
+  userId,
+  handle,
+  name: more.name ?? null,
+  memberSince: more.memberSince ?? null,
+  member: more.member ?? false,
+});
+
 type Recipient =
   | { kind: 'idle' }
   | { kind: 'checking' }
-  /** `handle` is null in Account ID mode: the service could not tell us who they are. */
-  | { kind: 'found'; userId: string; handle: string | null }
+  | ({ kind: 'found' } & Payee)
   /** `retry`: the answer says nothing about the person (busy or failed), so asking again is fine. */
   | { kind: 'problem'; text: string; retry?: boolean };
 
 type Review = {
   input: z.infer<typeof sendInput>;
   source: Source;
-  recipient: { userId: string; handle: string | null };
+  recipient: Payee;
   firstTime: boolean;
+  /** The saved recipient this handle looks like, when it does: the caution stays on the review too. */
+  lookalike: string | null;
   note: string | null;
   /** The published fee and what is left of today after this payment, as the service quoted them for this amount. */
   terms: Extract<TermsVerdict, { kind: 'ok' }>;
@@ -192,6 +208,15 @@ function SendForm({
   const [remembered, rememberAgain] = useReducer((n: number) => n + 1, 0);
   const contacts = useMemo(() => contactsFrom(readSent(userId)), [userId, remembered]);
   const toast = useToast();
+  // The people this customer saved to pay again: a looked-up handle is checked against them (J-pay-01 #2).
+  const [saved, setSaved] = useState<{ kind: 'loading' } | { kind: 'ok'; handles: string[] } | { kind: 'failed' }>({ kind: 'loading' });
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSavedRecipients(api, controller.signal).then((outcome) => {
+      if (!controller.signal.aborted) setSaved(outcome);
+    });
+    return () => controller.abort();
+  }, [api, userId]);
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -210,7 +235,7 @@ function SendForm({
       const id = parseAccountId(raw);
       if (id === null) return setRecipient({ kind: 'problem', text: payCopy.t('Bad account ID') });
       if (id === userId.toLowerCase()) return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
-      return setRecipient({ kind: 'found', userId: id, handle: null });
+      return setRecipient({ kind: 'found', ...payee(id, null) });
     }
     const handle = cleanHandle(raw);
     if (handle === null) return setRecipient({ kind: 'problem', text: payCopy.t('Bad handle') });
@@ -225,7 +250,10 @@ function SendForm({
       case 'found':
         if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
           return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
-        return setRecipient({ kind: 'found', userId: outcome.userId, handle: outcome.handle });
+        return setRecipient({
+          kind: 'found',
+          ...payee(outcome.userId, outcome.handle, { name: outcome.name, memberSince: outcome.memberSince, member: true }),
+        });
       case 'notFound':
         return setRecipient({ kind: 'problem', text: payCopy.t('Handle not found', { handle }) });
       case 'rateLimited':
@@ -260,7 +288,7 @@ function SendForm({
         if (outcome.self || outcome.userId.toLowerCase() === userId.toLowerCase())
           return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
         setTo(byHandle ? outcome.handle : outcome.userId);
-        return setRecipient({ kind: 'found', userId: outcome.userId, handle: byHandle ? outcome.handle : null });
+        return setRecipient({ kind: 'found', ...payee(outcome.userId, byHandle ? outcome.handle : null, { member: true }) });
       case 'invalid':
         return setRecipient({ kind: 'problem', text: personal.t('qrInvalid') });
       case 'payeeUnavailable':
@@ -285,7 +313,7 @@ function SendForm({
       return;
     }
     setTo(contact.handle ?? contact.userId);
-    setRecipient({ kind: 'found', userId: contact.userId, handle: byHandle ? contact.handle : null });
+    setRecipient({ kind: 'found', ...payee(contact.userId, byHandle ? contact.handle : null) });
   }
 
   async function paste() {
@@ -335,7 +363,7 @@ function SendForm({
         setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
       } else {
         setTo(prefill.to);
-        setRecipient({ kind: 'found', userId: prefill.to, handle: null });
+        setRecipient({ kind: 'found', ...payee(prefill.to, null) });
       }
     } else {
       setTo('');
@@ -433,6 +461,11 @@ function SendForm({
   const inFlight = useRef<object | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(() => lastReceipt.get(key) ?? null);
 
+  // A handle that looks like someone saved is flagged before Review and again on it. It is a caution, not a block.
+  const lookalike =
+    recipient.kind === 'found' && recipient.handle && saved.kind === 'ok' ? lookalikeOf(recipient.handle, saved.handles) : null;
+  const savedUnchecked = recipient.kind === 'found' && recipient.handle !== null && saved.kind === 'failed';
+
   // Enter looks the person up when nothing has been asked yet, or when the last try failed or was rationed.
   const retryable = recipient.kind === 'idle' || (recipient.kind === 'problem' && recipient.retry === true);
 
@@ -466,8 +499,9 @@ function SendForm({
     setReview({
       input: parsed.data,
       source,
-      recipient: { userId: recipient.userId, handle: recipient.handle },
+      recipient: payee(recipient.userId, recipient.handle, recipient),
       firstTime: !sentBefore(userId, recipient.userId),
+      lookalike,
       note,
       terms: verdict,
     });
@@ -731,13 +765,18 @@ function SendForm({
           {recipient.kind === 'checking' ? (
             <span className="pay-muted">{payCopy.t('Checking handle')}</span>
           ) : recipient.kind === 'found' ? (
-            <span className="pay-found" data-testid="recipient-found">
-              <span className="pay-avatar" aria-hidden="true">
-                {(recipient.handle ?? '#').slice(0, 1).toUpperCase()}
-              </span>
-              <span className="pay-found__name">{recipient.handle ? `@${recipient.handle}` : payCopy.t('Account ID ready')}</span>
-              <Check size={16} className="pay-found__check" aria-hidden="true" />
-            </span>
+            <>
+              <PayeeLine who={recipient} locale={personal.requestedLocale} />
+              {lookalike ? (
+                <span className="pay-problem" role="alert" data-testid="pay-lookalike">
+                  {payCopy.t('Looks like saved', { handle: recipient.handle ?? '', saved: lookalike })}
+                </span>
+              ) : savedUnchecked ? (
+                <span className="pay-muted" data-testid="pay-saved-unchecked">
+                  {payCopy.t('Saved not checked')}
+                </span>
+              ) : null}
+            </>
           ) : recipient.kind === 'problem' ? (
             <span className="pay-problem" role="alert">
               {recipient.text}
@@ -846,6 +885,27 @@ function SendForm({
         <span className="pay-hint">{personal.t('noteHint')}</span>
       </div>
 
+      {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
+        <dl className="pay-dialog__rows" data-testid="pay-summary">
+          <div>
+            <dt>{payCopy.t('You send')}</dt>
+            <dd data-testid="pay-summary-amount">
+              {fmtAmount(str(typedAmount), { places: 18 })} {source.asset}
+            </dd>
+          </div>
+          <div>
+            <dt>{payCopy.t('From')}</dt>
+            <dd data-testid="pay-summary-source">{labelFrom(source)}</dd>
+          </div>
+          {cleanNote(memo) ? (
+            <div>
+              <dt>{personal.t('noteRow')}</dt>
+              <dd data-testid="pay-summary-note">{cleanNote(memo)}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
+
       <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="pay-review">
         {reason !== null && !waiting ? reason : payCopy.t('Review')}
       </Button>
@@ -867,18 +927,22 @@ function SendForm({
                 <AlertDialogDescription>{payCopy.t('Arrives instantly')}</AlertDialogDescription>
               </AlertDialogHeader>
               <dl className="pay-dialog__rows">
-                <div>
+                <div data-testid="pay-review-to">
                   <dt>{payCopy.t('To')}</dt>
                   <dd className={review.recipient.handle ? undefined : 'pay-mono'}>
-                    {review.recipient.handle ? `@${review.recipient.handle}` : review.recipient.userId}
+                    {review.recipient.handle ? (
+                      <PayeeLine who={review.recipient} locale={personal.requestedLocale} testId="pay-review-payee" />
+                    ) : (
+                      review.recipient.userId
+                    )}
                   </dd>
                 </div>
-                <div>
+                <div data-testid="pay-review-from">
                   <dt>{payCopy.t('From')}</dt>
                   <dd>{labelFrom(review.source)}</dd>
                 </div>
                 {review.note ? (
-                  <div>
+                  <div data-testid="pay-review-note">
                     <dt>{personal.t('noteRow')}</dt>
                     <dd>{review.note}</dd>
                   </div>
@@ -891,22 +955,37 @@ function SendForm({
                       : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
                   </dd>
                 </div>
+                <div data-testid="pay-review-allowance">
+                  <dt>{payCopy.t('Today’s allowance')}</dt>
+                  <dd>
+                    {payCopy.t('{left} of {daily} {asset} left', {
+                      left: fmtAmount(review.terms.left, { places: 18 }),
+                      daily: fmtAmount(review.terms.daily, { places: 18 }),
+                      asset: review.source.asset,
+                    })}
+                  </dd>
+                </div>
                 <div data-testid="pay-review-left">
                   <dt>{personal.t('termsLeftRow')}</dt>
                   <dd>
                     {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
                   </dd>
                 </div>
-                <div data-strong="">
+                <div data-strong="" data-testid="pay-review-amount">
                   <dt>{payCopy.t('Amount')}</dt>
                   <dd>
                     {reviewAmount} {review.source.asset}
                   </dd>
                 </div>
               </dl>
+              {review.lookalike && review.recipient.handle ? (
+                <p className="pay-dialog__first" role="alert" data-testid="pay-review-lookalike">
+                  {payCopy.t('Looks like saved', { handle: review.recipient.handle, saved: review.lookalike })}
+                </p>
+              ) : null}
               {firstTimeText ? (
                 <p className="pay-dialog__first" data-testid="pay-first-time">
-                  {firstTimeText}
+                  {firstTimeText} {payCopy.t('No test payment')}
                 </p>
               ) : null}
               {failure ? (
@@ -991,8 +1070,51 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
 }
 
 const labelOf = (row: Source) => (row.name ? `${row.asset} · ${row.name}` : row.asset);
+/** The space the money leaves, by the name the bank keeps for it ("Main" for the main space). */
 const labelFrom = (row: Source) =>
-  row.name ? payCopy.t('Your {asset} in {name}', { asset: row.asset, name: row.name }) : payCopy.t('Your {asset}', { asset: row.asset });
+  row.space
+    ? payCopy.t('Your {asset}, {name} space', { asset: row.asset, name: row.space })
+    : payCopy.t('Your {asset}', { asset: row.asset });
+
+/** "Nov 2026" for `2026-11`, in the reader's language. Null when the month is not one. */
+function memberMonth(month: string | null, locale: string): string | null {
+  const match = month ? /^(\d{4})-(\d{2})$/.exec(month) : null;
+  if (!match) return null;
+  const at = Date.UTC(Number(match[1]), Number(match[2]) - 1, 1);
+  try {
+    return new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
+  } catch {
+    return new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
+  }
+}
+
+/** The person being paid: the name on their profile, their handle, and a member badge when the service confirmed one. */
+function PayeeLine({ who, locale, testId = 'recipient-found' }: { who: Payee; locale: string; testId?: string }) {
+  const since = memberMonth(who.memberSince, locale);
+  return (
+    <span className="pay-found" data-testid={testId}>
+      <span className="pay-avatar" aria-hidden="true">
+        {(who.name ?? who.handle ?? '#').slice(0, 1).toUpperCase()}
+      </span>
+      {who.handle ? (
+        <span className="pay-found__who">
+          <span className="pay-found__name" data-testid="recipient-name">
+            {who.name ?? payCopy.t('No name shared')}
+          </span>
+          <span className="pay-found__handle" data-testid="recipient-handle">{`@${who.handle}`}</span>
+        </span>
+      ) : (
+        <span className="pay-found__name">{payCopy.t('Account ID ready')}</span>
+      )}
+      {who.member ? (
+        <span className="pay-found__badge" data-testid="recipient-member">
+          {since ? payCopy.t('Member since {month}', { month: since }) : payCopy.t('Member')}
+        </span>
+      ) : null}
+      <Check size={16} className="pay-found__check" aria-hidden="true" />
+    </span>
+  );
+}
 
 /** A refused payment in plain words. Only called for answers that are definitive: nothing moved. */
 function failureText(outcome: Extract<ApiResult<unknown>, { ok: false }>, source: Source, handle: string | null): string {

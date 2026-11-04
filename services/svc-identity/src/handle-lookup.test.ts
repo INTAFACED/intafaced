@@ -41,9 +41,9 @@ async function ctx(opts: { anonymous?: boolean; userId?: string; apiKeyId?: stri
 }
 
 const users = new Map([
-  ['luffy', { userId: FRIEND, handle: 'Luffy', discoverable: true }],
-  ['me_self', { userId: ME, handle: 'Me_Self', discoverable: true }],
-  ['hidden_one', { userId: HIDDEN, handle: 'Hidden_One', discoverable: false }],
+  ['luffy', { userId: FRIEND, handle: 'Luffy', discoverable: true, name: 'Monkey D. Luffy', memberSince: '2026-03' }],
+  ['me_self', { userId: ME, handle: 'Me_Self', discoverable: true, name: null, memberSince: '2025-12' }],
+  ['hidden_one', { userId: HIDDEN, handle: 'Hidden_One', discoverable: false, name: 'Hidden', memberSince: '2026-01' }],
 ]);
 
 function setup(limiter?: HandleLookupLimiter) {
@@ -74,12 +74,12 @@ describe('identity.users.resolveHandle', () => {
     expect(findActiveByHandle).not.toHaveBeenCalled();
   });
 
-  it('resolves an exact handle and returns exactly userId, handle, self', async () => {
+  it('resolves an exact handle and returns exactly userId, handle, self, their chosen name and the month they joined', async () => {
     const { router } = setup();
     const api = router.createCaller(await ctx());
     const hit = await api.users.resolveHandle({ handle: 'Luffy' });
-    expect(hit).toEqual({ found: true, userId: FRIEND, handle: 'Luffy', self: false });
-    expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'self', 'userId']);
+    expect(hit).toEqual({ found: true, userId: FRIEND, handle: 'Luffy', self: false, name: 'Monkey D. Luffy', memberSince: '2026-03' });
+    expect(Object.keys(hit).sort()).toEqual(['found', 'handle', 'memberSince', 'name', 'self', 'userId']);
   });
 
   it('accepts the leading @ the UI shows and ignores surrounding space', async () => {
@@ -97,6 +97,8 @@ describe('identity.users.resolveHandle', () => {
       userId: ME,
       handle: 'Me_Self',
       self: true,
+      name: null,
+      memberSince: '2025-12',
     });
   });
 
@@ -112,6 +114,8 @@ describe('identity.users.resolveHandle', () => {
       userId: HIDDEN,
       handle: 'Hidden_One',
       self: true,
+      name: 'Hidden',
+      memberSince: '2026-01',
     });
   });
 

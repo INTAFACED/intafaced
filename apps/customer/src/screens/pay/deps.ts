@@ -41,6 +41,7 @@ export { fractionDigits } from '../../data/decimal';
 export {
   fetchMe,
   fetchMyPayQr,
+  fetchSavedRecipients,
   PAY_QR_KEY_UNSET,
   resolveHandle,
   resolvePayQr,
@@ -49,6 +50,7 @@ export {
   type PayQrOutcome,
   type PayQrResolveOutcome,
   type ResolveOutcome,
+  type SavedRecipientsOutcome,
 } from '../../data/identity';
 export {
   changeHandle,

@@ -185,6 +185,38 @@
   .pay-found__check {
     color: var(--if-up-text);
   }
+  .pay-found__who {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .pay-found__handle {
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .pay-found__badge {
+    padding-inline: var(--if-space-2);
+    border-radius: var(--if-r-pill);
+    background: var(--if-field);
+    font: 500 var(--if-text-xs)/var(--if-leading-sm) var(--if-font-ui);
+    color: var(--if-fg-2);
+    white-space: nowrap;
+  }
+  .pay-rooms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--if-space-2);
+    margin-block-start: var(--if-space-4);
+  }
+  .pay-rooms__title {
+    flex-basis: 100%;
+    margin: 0;
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .pay-rooms a {
+    text-decoration: none;
+  }
   .pay-chip {
     display: inline-flex;
     align-items: center;

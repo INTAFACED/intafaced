@@ -21,6 +21,7 @@ describe('termsVerdict', () => {
       kind: 'ok',
       fee: '0',
       perTransfer: '1000',
+      daily: '5000',
       left: '4900',
       leftAfter: '4875',
     });

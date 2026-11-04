@@ -3,7 +3,18 @@ import './personal.css';
 import '../trade/buy/buy.css';
 import { useMemo } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
-import { Button, navigate, parseRequestSearch, PersonalRoom, personalRoomFor, Tabs, TabsList, TabsTab, useSession } from './deps';
+import {
+  Button,
+  isHiddenPath,
+  navigate,
+  parseRequestSearch,
+  PersonalRoom,
+  personalRoomFor,
+  Tabs,
+  TabsList,
+  TabsTab,
+  useSession,
+} from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { useIdentity } from './identity-state';
@@ -13,6 +24,25 @@ import { RequestCard } from './RequestCard';
 import { BillsCard } from './BillsCard';
 import { GlobalCard } from './GlobalCard';
 import { RecentPanel } from './RecentPanel';
+import { rooms, roomTitle } from '../../app/navigation';
+
+/**
+ * The other personal Pay rooms (J-pay-01 #1), read from the one route table so a new room is listed where it is routed.
+ * Send itself and Pay's own address are the page this list sits on; a parameter room, a business room and a hidden one
+ * are not listed.
+ */
+export const payRooms = () =>
+  rooms.filter(
+    (room) =>
+      room.area === 'pay' &&
+      room.screen === 'pay' &&
+      !room.business &&
+      !room.hidden &&
+      !room.path.includes(':') &&
+      room.path !== '/pay' &&
+      room.path !== '/pay/send' &&
+      !isHiddenPath(room.path),
+  );
 
 type Tab = 'send' | 'receive' | 'request' | 'bills' | 'global';
 const ROUTES: Record<Tab, string> = {
@@ -104,6 +134,14 @@ function PayTabs({ path, search }: ScreenProps) {
               </Button>
             </div>
           )}
+          <nav className="pay-rooms" aria-label={t('Pay rooms')} data-testid="pay-rooms">
+            <p className="pay-rooms__title">{t('Pay rooms')}</p>
+            {payRooms().map((room) => (
+              <a key={room.path} className="pay-chip" href={room.path}>
+                {roomTitle(room)}
+              </a>
+            ))}
+          </nav>
         </section>
       </div>
     </div>

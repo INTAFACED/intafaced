@@ -26,7 +26,7 @@ export type SendTerms =
 export type TermsVerdict =
   | { kind: 'none' }
   | { kind: 'checking' }
-  | { kind: 'ok'; fee: string; perTransfer: string; left: string; leftAfter: string }
+  | { kind: 'ok'; fee: string; perTransfer: string; daily: string; left: string; leftAfter: string }
   | { kind: 'unset' }
   | { kind: 'feeUnwired' }
   | { kind: 'overPayment'; limit: string }
@@ -83,6 +83,7 @@ export function termsVerdict(terms: SendTerms, amount: string | null): TermsVerd
     kind: 'ok',
     fee: quote.fee,
     perTransfer: quote.perTransferLimit,
+    daily: quote.dailyLimit,
     left: formatAmount(left),
     leftAfter: formatAmount(after > 0n ? after : 0n),
   };
