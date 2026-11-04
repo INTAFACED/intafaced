@@ -19,7 +19,7 @@ import {
   toUserBinding,
 } from '../step-up/money-out-fields.js';
 import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
-import { heldRefusal } from '../transfers/send-review.js';
+import { heldRefusal, isHeldSend } from '../transfers/send-review.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -266,7 +266,7 @@ export function createTransfersRouter(c: BankRouterContext) {
             });
           // The owner's send review holds it (PP-send-request-10): nothing moved, so it is answered as a typed refusal that
           // names the review; `transfers.held` reads its state and reason class. A retry with the same id answers the same.
-          if (result.status !== 'posted') throw heldRefusal(result);
+          if (isHeldSend(result)) throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
             amount: result.amount,

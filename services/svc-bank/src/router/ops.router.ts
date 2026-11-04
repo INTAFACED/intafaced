@@ -89,13 +89,20 @@ export function createOpsRouter(c: BankRouterContext) {
       .output(z.array(heldSendOutput.extend({ fromUserId: z.string(), toUserId: z.string() })))
       .query(async ({ input }) => guard(async () => bank.personalPay.heldForReview(input?.limit ?? 50))),
     /**
-     * Release a held send: it is sent now under its own transfer id through the normal send path, which checks the
-     * terms, the balance and the recipient as of now and posts once. A refusal leaves it held. A repeat is safe.
+     * Release a held send, four-eyes: one operator proposes `bank.release_held_send` for this transfer id at identity, the
+     * other approves, and this door consumes that approval. The send then goes through the normal send path under its own
+     * transfer id, which checks the terms, the balance and the recipient as of now and posts once. A refusal puts it back
+     * in review. A repeat after a crash resumes it.
      */
     releaseHeldSend: scopedProcedure('admin:treasury')
-      .input(z.object({ transferId: z.string().min(8).max(64) }))
+      .input(z.object({ transferId: z.string().min(8).max(64), ...actionApprovalFields }))
       .output(heldSendOutput)
-      .mutation(async ({ ctx, input }) => guard(async () => bank.personalPay.releaseHeld(input.transferId, ctx.principal.userId))),
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const confirmOperatorId = await consumeOpsApproval(input, 'bank.release_held_send', { transferId: input.transferId });
+          return bank.personalPay.releaseHeld(input.transferId, confirmOperatorId);
+        }),
+      ),
     /** Reject a held send. Nothing was taken while it waited, so nothing moves. A repeat is safe. */
     rejectHeldSend: scopedProcedure('admin:treasury')
       .input(z.object({ transferId: z.string().min(8).max(64) }))

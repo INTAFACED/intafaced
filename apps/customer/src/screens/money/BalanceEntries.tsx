@@ -48,7 +48,13 @@ function Row({
       </td>
       <td data-testid="entry-state">{row.state === 'completed' ? copy.t('Completed') : '—'}</td>
       <td data-testid="entry-fee">
-        {row.fee == null ? copy.t('Entries fee unknown') : feeIsZero(row.fee) ? copy.t('No fee') : `${fmtAmount(row.fee)} ${asset}`}
+        {row.fee == null ? (
+          copy.t('Entries fee unknown')
+        ) : feeIsZero(row.fee) ? (
+          copy.t('No fee')
+        ) : (
+          <Amount value={`${fmtAmount(row.fee)} ${asset}`} hidden={hidden} />
+        )}
       </td>
     </tr>
   );

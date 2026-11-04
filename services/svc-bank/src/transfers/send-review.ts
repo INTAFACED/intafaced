@@ -58,7 +58,8 @@ export function reviewReason(rule: SendReviewRule | null | undefined, assetId: s
   return amount > line ? 'amount_over_review_line' : null;
 }
 
-export type HeldSendStatus = 'in_review' | 'released' | 'rejected';
+/** `releasing` is an operator's release under way: the sender still reads it as in review. */
+export type HeldSendStatus = 'in_review' | 'releasing' | 'released' | 'rejected';
 
 export interface SendReviewRow {
   transfer_id: string;
@@ -89,7 +90,7 @@ export const SEND_REVIEW_COLS = `
 /** A send the review rule holds, as its sender reads it. Never the rule's line, never who decided. */
 export interface HeldSendView {
   readonly transferId: string;
-  readonly status: HeldSendStatus;
+  readonly status: Exclude<HeldSendStatus, 'releasing'>;
   readonly reasonClass: SendReviewReason;
   readonly amount: string;
   readonly assetId: string;
@@ -106,7 +107,7 @@ export interface HeldSendView {
 export function heldSendView(row: SendReviewRow): HeldSendView {
   return {
     transferId: row.transfer_id,
-    status: row.status,
+    status: row.status === 'releasing' ? 'in_review' : row.status,
     reasonClass: row.reason_class,
     amount: formatAmount(parseAmount(row.amount)),
     assetId: row.asset_id,
@@ -160,4 +161,9 @@ export function heldRefusal(view: HeldSendView): BankError {
         `Payment ${view.transferId} is in review before it is sent; nothing has moved (bank.personal_send_in_review)`,
         'bank.personal_send_in_review',
       );
+}
+
+/** A send's answer is a held send (the review rule holds it), not a posted one. */
+export function isHeldSend(result: object): result is HeldSendView {
+  return 'reasonClass' in result;
 }

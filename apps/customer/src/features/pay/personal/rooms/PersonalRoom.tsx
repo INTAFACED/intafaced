@@ -197,8 +197,7 @@ function HeldStatus({ held }: { held: HeldSend }) {
   const { t } = roomsCopy.useCopy();
   const { timeZone } = usePreferences();
   const state = held.status === 'in_review' ? t('heldInReview') : held.status === 'rejected' ? t('heldRejected') : t('heldReleased');
-  const reasonKey = `heldReason_${held.reasonClass}`;
-  const reason = reasonKey === 'heldReason_amount_over_review_line' ? t('heldReason_amount_over_review_line') : t('heldReasonOther');
+  const reason = held.reasonClass === 'amount_over_review_line' ? t('heldReason_amount_over_review_line') : t('heldReasonOther');
   return (
     <>
       <p className="pay-banner" role="status" data-testid="payment-status" data-status={held.status}>
@@ -230,57 +229,66 @@ function PaymentRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
-  // A send the review holds is not in the ledger's activity: the bank's own record of it is read first.
-  const [held, setHeld] = useState<HeldSend | null>(null);
+  // A send the review holds is not in the ledger's activity: the bank's own record of it is read first. Not found means
+  // it was never held, and the activity is read; any other failure says so, never "not in your activity".
+  const [held, setHeld] = useState<{ state: 'loading' } | { state: 'none' } | { state: 'failed' } | { state: 'held'; data: HeldSend }>({
+    state: 'loading',
+  });
+  const [heldTry, retryHeld] = useState(0);
   useEffect(() => {
-    setHeld(null);
-    if (!id) return;
+    if (!id) return setHeld({ state: 'none' });
+    setHeld({ state: 'loading' });
     const controller = new AbortController();
     void fetchHeldSend(api, id, controller.signal).then((result) => {
-      if (!controller.signal.aborted && result.ok && result.data.status !== 'released') setHeld(result.data);
+      if (controller.signal.aborted) return;
+      if (result.ok) setHeld({ state: 'held', data: result.data });
+      else setHeld(result.code === 'bank.held_send_not_found' ? { state: 'none' } : { state: 'failed' });
     });
     return () => controller.abort();
-  }, [api, id, userId]);
+  }, [api, id, userId, heldTry]);
   const source = useMemo(() => createActivityFeed(api, { pageSize: 50 }), [api, userId]);
   const feed = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const item = feed.status === 'ready' && id ? (feed.data.items.find((row) => row.id === id || row.txId === id) ?? null) : null;
-  const body = held ? (
-    <HeldStatus held={held} />
-  ) : feed.status === 'loading' ? (
-    <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
-  ) : feed.status === 'refused' ? (
-    (() => {
-      const words = refusalCopy(feed.code);
-      return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
-    })()
-  ) : feed.status === 'error' ? (
-    <StateBlock kind="error" title={t('paymentFailed')} onRetry={feed.retry} retryLabel={t('tryAgain')} />
-  ) : item ? (
-    <>
-      <Rows
-        rows={[
-          [
-            t('requestAmount'),
-            <span lang="zxx">{`${item.direction === 'out' ? '−' : '+'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}</span>,
-          ],
-          [t('requestMade'), <span lang="zxx">{stamp(item.postedAt, timeZone, Date.now())}</span>],
-          [t('linkFrom'), item.counterparty ? `@${item.counterparty.handle}` : t('notSet')],
-          [t('reference'), <span lang="zxx">{item.txId}</span>],
-        ]}
+  const body =
+    held.state === 'held' ? (
+      <HeldStatus held={held.data} />
+    ) : held.state === 'failed' ? (
+      <StateBlock kind="error" title={t('paymentFailed')} onRetry={() => retryHeld((n) => n + 1)} retryLabel={t('tryAgain')} />
+    ) : held.state === 'loading' || feed.status === 'loading' ? (
+      <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
+    ) : feed.status === 'refused' ? (
+      (() => {
+        const words = refusalCopy(feed.code);
+        return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+      })()
+    ) : feed.status === 'error' ? (
+      <StateBlock kind="error" title={t('paymentFailed')} onRetry={feed.retry} retryLabel={t('tryAgain')} />
+    ) : item ? (
+      <>
+        <Rows
+          rows={[
+            [
+              t('requestAmount'),
+              <span lang="zxx">{`${item.direction === 'out' ? '−' : '+'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}</span>,
+            ],
+            [t('requestMade'), <span lang="zxx">{stamp(item.postedAt, timeZone, Date.now())}</span>],
+            [t('linkFrom'), item.counterparty ? `@${item.counterparty.handle}` : t('notSet')],
+            [t('reference'), <span lang="zxx">{item.txId}</span>],
+          ]}
+        />
+        <Button variant="secondary" size={40} nativeButton={false} render={<a href={`/money/activity/${encodeURIComponent(item.id)}`} />}>
+          {t('paymentReceipt')}
+        </Button>
+        <p className="pay-hint">{t('paymentReceiptNote')}</p>
+      </>
+    ) : (
+      <StateBlock
+        kind="empty"
+        title={t('paymentMissingTitle')}
+        body={t('paymentMissingBody')}
+        action={{ label: t('paymentActivity'), href: '/money/activity?tab=transfers' }}
       />
-      <Button variant="secondary" size={40} nativeButton={false} render={<a href={`/money/activity/${encodeURIComponent(item.id)}`} />}>
-        {t('paymentReceipt')}
-      </Button>
-      <p className="pay-hint">{t('paymentReceiptNote')}</p>
-    </>
-  ) : (
-    <StateBlock
-      kind="empty"
-      title={t('paymentMissingTitle')}
-      body={t('paymentMissingBody')}
-      action={{ label: t('paymentActivity'), href: '/money/activity?tab=transfers' }}
-    />
-  );
+    );
   return (
     <Frame title={t('paymentTitle')} line={t('paymentLine')}>
       {body}

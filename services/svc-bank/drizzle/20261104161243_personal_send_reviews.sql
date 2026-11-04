@@ -25,9 +25,11 @@ CREATE TABLE IF NOT EXISTS "bank"."personal_send_reviews" (
   CONSTRAINT "personal_send_reviews_id_ck" CHECK (length(btrim("transfer_id")) BETWEEN 8 AND 64),
   CONSTRAINT "personal_send_reviews_amount_ck" CHECK ("amount" > 0),
   CONSTRAINT "personal_send_reviews_reason_ck" CHECK ("reason_class" IN ('amount_over_review_line')),
-  CONSTRAINT "personal_send_reviews_status_ck" CHECK ("status" IN ('in_review', 'released', 'rejected')),
+  -- `releasing`: an operator's release is under way (claimed before the send posts, so a reject cannot land on it).
+  CONSTRAINT "personal_send_reviews_status_ck" CHECK ("status" IN ('in_review', 'releasing', 'released', 'rejected')),
   CONSTRAINT "personal_send_reviews_decided_ck" CHECK (
     ("status" = 'in_review' AND "decided_at" IS NULL AND "decided_by" IS NULL AND "ledger_tx_id" IS NULL)
+    OR ("status" = 'releasing' AND "decided_at" IS NULL AND "decided_by" IS NOT NULL AND "ledger_tx_id" IS NULL)
     OR ("status" = 'rejected' AND "decided_at" IS NOT NULL AND "decided_by" IS NOT NULL AND "ledger_tx_id" IS NULL)
     OR ("status" = 'released' AND "decided_at" IS NOT NULL AND "decided_by" IS NOT NULL AND "ledger_tx_id" IS NOT NULL)
   )
@@ -38,4 +40,4 @@ CREATE INDEX IF NOT EXISTS "personal_send_reviews_from_idx"
 
 CREATE INDEX IF NOT EXISTS "personal_send_reviews_open_idx"
   ON "bank"."personal_send_reviews" ("created_at")
-  WHERE "status" = 'in_review';
+  WHERE "status" IN ('in_review', 'releasing');

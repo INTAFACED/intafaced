@@ -25,10 +25,5 @@ export type HeldSend = z.infer<typeof heldSendSchema>;
 export const fetchHeldSend = (api: ApiClient, transferId: string, signal?: AbortSignal): Promise<ApiResult<HeldSend>> =>
   api.query('bank', 'transfers.held', { transferId }, heldSendSchema, { signal });
 
-/** The transfer id a held-send refusal names ("Payment <id> is in review…"), or null. */
-export function heldTransferId(message: string | undefined): string | null {
-  return /Payment (\S{8,64}) is in review/.exec(message ?? '')?.[1] ?? null;
-}
-
 /** Where a held send's status is read. */
 export const heldSendHref = (transferId: string): string => `/pay/history/${encodeURIComponent(transferId)}`;
