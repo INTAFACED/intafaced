@@ -352,8 +352,7 @@ export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: 
   const now = deps.now();
   const since = new Date(now.getTime() - rate.windowSeconds * 1000);
 
-  type Outcome =
-    { kind: 'confirmed' | 'already' | 'unknown' | 'expired' | 'used' | 'wrong' } | { kind: 'held'; retryAfterSeconds: number };
+  type Outcome = { kind: 'confirmed' | 'already' | 'unknown' | 'expired' | 'used' | 'wrong' } | { kind: 'held'; retryAfterSeconds: number };
   const result = await transaction(
     deps.sql,
     async (tx): Promise<Outcome> => {
