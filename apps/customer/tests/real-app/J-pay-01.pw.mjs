@@ -636,7 +636,7 @@ test(`${J} #8 either person opens the balance page: the balance on screen equals
     await expect(page.getByText(new RegExp(`(^|\\s)${ledger.replace('.', '\\.')}\\s*USDT`)).first()).toBeVisible();
     // The balance page for USDT: the bank's check of every entry against the ledger's balance, and that balance.
     await page.goto('/money/balance/USDT');
-    const check = page.getByText(/^All \d+ entries add up to your balance: /);
+    const check = page.getByRole('status').filter({ hasText: /All \d+ entries add up to your balance: / });
     await expect(check).toBeVisible();
     const onScreen = (await check.innerText()).match(/your balance: ([\d,.]+) USDT\.$/)?.[1];
     expect(onScreen, 'the balance line names a figure').toBeTruthy();
