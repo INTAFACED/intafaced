@@ -271,20 +271,19 @@ export type OwnAgentEvalStart = z.infer<typeof ownAgentEvalStartSchema>;
 
 /**
  * DRY RUNS AND TEST RUNS (AG-spend-04, AG-testing-01). A dry run checks one call of one of the agent's tools the way a
- * real call is checked (the tool declared on the agent and its input, that it moves no value, the person's consent for
- * its class, the owner's baseline, the person's rule, the caps that let a session open, and the tool's door) and says
- * what the call would do. Nothing runs and nothing is billed: no session is opened, and no ledger entry, intent or
+ * real call in a new session of the agent is checked (the caps that let the session open, the tool declared on the
+ * agent, that it moves no value, the person's consent for its class, the owner's baseline, the person's rule, and the
+ * tool's door) and says what the call would do. Nothing runs and nothing is billed: no session is opened, and no ledger entry, intent or
  * reservation is made. A dry run is a test run, labelled TEST and listed apart from live runs; live analytics leave test
  * runs out unless the person includes them.
  */
 export const OWN_AGENT_DRY_RUN_CHECKS = [
+  'caps_set',
   'tool_declared',
-  'input_declared',
   'moves_no_value',
   'consent',
   'baseline',
   'rule',
-  'caps_set',
   'door_wired',
 ] as const;
 export type OwnAgentDryRunCheckName = (typeof OWN_AGENT_DRY_RUN_CHECKS)[number];

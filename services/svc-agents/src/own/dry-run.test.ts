@@ -65,9 +65,11 @@ const BASELINE = {
   live_write: 'act_on_request',
 } as const;
 const KB = { tool: 'support.kb.search', input: { kbQuery: 'TEST question', limit: '5' } };
-const ALL_PASSED = ['tool_declared', 'input_declared', 'moves_no_value', 'consent', 'baseline', 'rule', 'caps_set', 'door_wired'].map(
-  (check) => ({ check, passed: true, code: null }),
-);
+const ALL_PASSED = ['caps_set', 'tool_declared', 'moves_no_value', 'consent', 'baseline', 'rule', 'door_wired'].map((check) => ({
+  check,
+  passed: true,
+  code: null,
+}));
 
 const available = await postgresAvailable(URL);
 
@@ -187,21 +189,21 @@ if (!available) {
       expect(await person.own.testRuns({ id, limit: 50 })).toEqual([dry]);
     });
 
-    it('reports each check that fails with the code a real call would get, and the effect is that refusal', async () => {
+    it('reports each check that fails with the code a real call would get; the effect is the first, the caps a session needs', async () => {
       const { person } = people();
       const id = await draft(person, { capped: false });
+      // A field the tool does not declare is not a check: a real call passes only the declared ones to the door.
       const dry = await person.own.dryRun({ id, requestId: 'dry:fail:0001', tool: KB.tool, input: { kbQuery: 'TEST', page: '2' } });
       expect(dry.checks).toEqual([
+        { check: 'caps_set', passed: false, code: 'agents.spend.cap_unset' },
         { check: 'tool_declared', passed: true, code: null },
-        { check: 'input_declared', passed: false, code: 'agents.tool_input_undeclared' },
         { check: 'moves_no_value', passed: true, code: null },
         { check: 'consent', passed: false, code: 'agents.consent_required' },
         { check: 'baseline', passed: true, code: null },
         { check: 'rule', passed: true, code: null },
-        { check: 'caps_set', passed: false, code: 'agents.spend.cap_unset' },
         { check: 'door_wired', passed: true, code: null },
       ]);
-      expect(dry.effect).toEqual({ kind: 'refused', tool: KB.tool, code: 'agents.tool_input_undeclared' });
+      expect(dry.effect).toEqual({ kind: 'refused', tool: KB.tool, code: 'agents.spend.cap_unset' });
       await untouched();
     });
 
@@ -244,14 +246,20 @@ if (!available) {
       await untouched();
     });
 
-    it('a tool the agent does not carry, or one that moves money, stops at the first check', async () => {
+    it('a tool the agent does not carry, or one that moves money, stops there and is refused not declared', async () => {
       const { person } = people();
       const id = await draft(person);
-      for (const tool of ['trade.quote', 'ledger.transfer', 'no.such.tool']) {
+      const caps = { check: 'caps_set', passed: true, code: null };
+      const undeclared = { check: 'tool_declared', passed: false, code: 'agents.tool_not_declared' };
+      for (const tool of ['trade.quote', 'no.such.tool']) {
         const dry = await person.own.dryRun({ id, requestId: `dry:undeclared:${tool}`, tool, input: {} });
-        expect(dry.checks).toEqual([{ check: 'tool_declared', passed: false, code: 'agents.tool_not_declared' }]);
+        expect(dry.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: true, code: null }]);
         expect(dry.effect).toEqual({ kind: 'refused', tool, code: 'agents.tool_not_declared' });
       }
+      // A money tool is never on an agent, and the dry run names why as well.
+      const money = await person.own.dryRun({ id, requestId: 'dry:undeclared:ledger.transfer', tool: 'ledger.transfer', input: {} });
+      expect(money.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }]);
+      expect(money.effect).toEqual({ kind: 'refused', tool: 'ledger.transfer', code: 'agents.tool_not_declared' });
       await untouched();
     });
 

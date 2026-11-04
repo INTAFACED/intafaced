@@ -25,7 +25,7 @@ const CATALOGUE = {
   ],
 } as OwnAgentCatalogue;
 
-const ALL = ['tool_declared', 'input_declared', 'moves_no_value', 'consent', 'baseline', 'rule', 'caps_set', 'door_wired'] as const;
+const ALL = ['caps_set', 'tool_declared', 'moves_no_value', 'consent', 'baseline', 'rule', 'door_wired'] as const;
 const dryRun = (requestId: string, input: Record<string, string>): OwnAgentTestRun => ({
   id: '33333333-3333-4333-8333-333333333333',
   requestId,
@@ -113,12 +113,12 @@ describe('the dry run on the Test page (J-agents-04 #3)', () => {
     const dry = await vi.waitFor(() => host.querySelector<HTMLElement>('[aria-label="Dry run"]')!);
     expect(dryRuns().at(-1)).toMatchObject({ id: AGENT.id, tool: 'support.kb.search', input: { kbQuery: 'TEST question', limit: '5' } });
     const passed = [...dry.querySelectorAll('[aria-label="Checks passed"] li')].map((li) => li.textContent);
-    expect(passed).toHaveLength(8);
-    expect(passed[0]).toBe('The agent carries this tool');
+    expect(passed).toHaveLength(7);
+    expect(passed[0]).toBe('Your spending caps for this agent are set');
     expect(dry.querySelector('[aria-label="Checks not passed"]')).toBeNull();
     // The input in words by field name, whatever order it came back in.
     expect(dry.querySelector('[data-testid="dry-effect"]')!.textContent).toBe(
-      'Would run “Search help articles” once in a session of this agent, with kbQuery: TEST question; limit: 5: it reads support data and moves no value.',
+      'Would run “Search help articles” once in a new session of this agent, with kbQuery: TEST question; limit: 5: it reads support data and moves no value.',
     );
     expect(dry.querySelector('[data-testid="dry-cost"]')!.textContent).toBe('0 USDT');
     expect(dry.textContent).toContain('No entry, intent or reservation was made.');
@@ -127,6 +127,7 @@ describe('the dry run on the Test page (J-agents-04 #3)', () => {
   it('names a failing check with its code, and the effect is that refusal', async () => {
     const host = await mount(<TestPanel agent={AGENT} />, 'Dry run one call');
     await click(button(host, 'Dry run one call'));
+    expect(dryRuns().at(-1)).toMatchObject({ tool: 'support.kb.search', input: {} });
     const dry = await vi.waitFor(() => host.querySelector<HTMLElement>('[aria-label="Dry run"]')!);
     expect(dry.querySelector('[aria-label="Checks not passed"]')!.textContent).toBe(
       'You allowed this kind of tool agents.consent_required',
@@ -148,6 +149,19 @@ describe('the dry run on the Test page (J-agents-04 #3)', () => {
     await type(field(host, 'kbQuery'), 'TEST other');
     await click(button(host, 'Dry run one call'));
     await vi.waitFor(() => expect(dryRuns().at(-1)!.requestId).not.toBe(lost!.requestId));
+  });
+});
+
+describe('the tool a dry run sends', () => {
+  it('is one the agent carries now, never one it no longer carries', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<TestPanel agent={{ ...AGENT, tools: ['support.ticket.read', 'support.kb.search'] }} />));
+    await vi.waitFor(() => expect(host.textContent).toContain('Dry run one call'));
+    await act(async () => root.render(<TestPanel agent={AGENT} />));
+    await click(button(host, 'Dry run one call'));
+    await vi.waitFor(() => expect(dryRuns().at(-1)).toMatchObject({ tool: 'support.kb.search' }));
   });
 });
 

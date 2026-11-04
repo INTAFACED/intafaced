@@ -8,7 +8,7 @@ import type {
 } from '@intafaced/contracts/agents-own';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
-import { RULE_CHOICES, OwnConsentStore, OwnRuleStore, type PolicyBaseline, type RuleChoice } from './guardrails.js';
+import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
 
 /**
@@ -29,36 +29,30 @@ export type DryRunOutcome = { readonly checks: OwnAgentDryRunCheck[]; readonly e
 const passed = (check: OwnAgentDryRunCheck['check']): OwnAgentDryRunCheck => ({ check, passed: true, code: null });
 const failed = (check: OwnAgentDryRunCheck['check'], code: string): OwnAgentDryRunCheck => ({ check, passed: false, code });
 
-/** The stricter of two standing choices: the earlier in RULE_CHOICES, which lists them strictest first. */
-const stricter = (a: RuleChoice, b: RuleChoice): RuleChoice => (RULE_CHOICES.indexOf(a) <= RULE_CHOICES.indexOf(b) ? a : b);
-
 /**
- * Every check a real call of `tool` with `input` would meet, in the order it meets them, and the would-be effect. A
- * tool the agent does not carry stops at the first check: nothing after it has a class to check. Otherwise every check
- * is evaluated, and the effect is refused with the first failing check's code, or what the call would do.
+ * Every check a real call of `tool` would meet, in the order it meets them, and the would-be effect. The caps come
+ * first, as the session a real call runs in cannot open without them. A tool the agent does not carry, or one that moves
+ * money, stops there: nothing after it has a class to check. Otherwise every check is evaluated, and the effect is
+ * refused with the first failing check's code, or what the call would do in a new session of the agent.
  */
 export async function dryRunToolCall(
   sql: Sql,
   baseline: PolicyBaseline,
   input: { ownerId: string; agent: DryRunAgent; tool: string; input: Readonly<Record<string, string>> },
 ): Promise<DryRunOutcome> {
+  const caps = await readOwnCaps(sql, input.ownerId, input.agent.id);
+  const checks: OwnAgentDryRunCheck[] = [caps ? passed('caps_set') : failed('caps_set', 'agents.spend.cap_unset')];
+  const refusedAt = (): DryRunOutcome => {
+    const first = checks.find((check) => !check.passed)!;
+    return { checks, effect: { kind: 'refused', tool: input.tool, code: first.code! } };
+  };
   const entry = OWN_TOOLS.find((tool) => tool.name === input.tool);
-  // As the session's guardrail grants it: on the agent, with a declared shape and a class, and never a money tool.
-  if (!entry || !input.agent.tools.includes(input.tool) || entry.shape === null || entry.dataClass === null) {
-    return {
-      checks: [failed('tool_declared', 'agents.tool_not_declared')],
-      effect: { kind: 'refused', tool: input.tool, code: 'agents.tool_not_declared' },
-    };
-  }
-  const { dataClass, module, shape } = entry;
-  const checks: OwnAgentDryRunCheck[] = [passed('tool_declared')];
-  const declared = Object.keys(shape.input);
-  checks.push(
-    Object.keys(input.input).every((field) => declared.includes(field))
-      ? passed('input_declared')
-      : failed('input_declared', 'agents.tool_input_undeclared'),
-  );
-  checks.push(entry.movesMoney ? failed('moves_no_value', 'agents.own.money_tool') : passed('moves_no_value'));
+  // As a new session's guardrail grants it (ownGuardrail): on the agent, with a declared shape and a class.
+  const declared = entry && input.agent.tools.includes(input.tool) && entry.shape !== null && entry.dataClass !== null;
+  checks.push(declared ? passed('tool_declared') : failed('tool_declared', 'agents.tool_not_declared'));
+  checks.push(entry?.movesMoney ? failed('moves_no_value', 'agents.own.money_tool') : passed('moves_no_value'));
+  if (!declared || entry.movesMoney || entry.dataClass === null || entry.shape === null) return refusedAt();
+  const { dataClass, module } = entry;
   const consented = await new OwnConsentStore(sql).granted(input.ownerId, input.agent.id, dataClass);
   checks.push(consented ? passed('consent') : failed('consent', 'agents.consent_required'));
   const required = baseline[dataClass];
@@ -69,13 +63,10 @@ export async function dryRunToolCall(
     choice = rule ? stricter(rule.choice, required) : required;
     checks.push(choice === 'hand_off' ? failed('rule', 'agents.rule_hand_off') : passed('rule'));
   }
-  const caps = await readOwnCaps(sql, input.ownerId, input.agent.id);
-  checks.push(caps ? passed('caps_set') : failed('caps_set', 'agents.spend.cap_unset'));
   const asks = choice === 'ask_before';
   // A call a rule holds for approval runs nothing yet, so its door is not met; one that would run meets it.
   if (!asks) checks.push(OWN_TOOL_DOORS.has(input.tool) ? passed('door_wired') : failed('door_wired', 'agents.tool_not_wired'));
-  const first = checks.find((check) => !check.passed);
-  if (first) return { checks, effect: { kind: 'refused', tool: input.tool, code: first.code! } };
+  if (checks.some((check) => !check.passed)) return refusedAt();
   return { checks, effect: { kind: asks ? 'ask' : 'run', tool: input.tool, module, dataClass, input: { ...input.input } } };
 }
 

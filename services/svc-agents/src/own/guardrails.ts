@@ -25,7 +25,8 @@ export type RuleChoice = (typeof RULE_CHOICES)[number];
 export const DATA_CLASSES = OWN_AGENT_DATA_CLASSES;
 
 const looseness = (choice: RuleChoice): number => RULE_CHOICES.indexOf(choice);
-const stricter = (a: RuleChoice, b: RuleChoice): RuleChoice => (looseness(a) <= looseness(b) ? a : b);
+/** The stricter of two standing choices. */
+export const stricter = (a: RuleChoice, b: RuleChoice): RuleChoice => (looseness(a) <= looseness(b) ? a : b);
 
 /** The owner's baseline: per class, the loosest choice allowed. A class missing from it is blank. */
 export type PolicyBaseline = Readonly<Partial<Record<OwnDataClass, RuleChoice>>>;

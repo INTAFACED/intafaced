@@ -73,7 +73,7 @@ function Effect({ effect, checks }: { effect: OwnAgentDryRunEffect; checks: read
 }
 
 /** The Test page's Test panel: a dry run of one call of one of the agent's tools. */
-export function TestPanel({ agent, onTestRun }: { agent: OwnAgent; onTestRun?: () => void }) {
+export function TestPanel({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
@@ -81,7 +81,9 @@ export function TestPanel({ agent, onTestRun }: { agent: OwnAgent; onTestRun?: (
     (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
     'own-catalogue',
   );
-  const [tool, setTool] = useState(agent.tools[0] ?? '');
+  const [picked, setTool] = useState(agent.tools[0] ?? '');
+  // A tool the agent no longer carries is never sent: the first it carries now stands in for it.
+  const tool = agent.tools.includes(picked) ? picked : (agent.tools[0] ?? '');
   const [args, setArgs] = useState<Record<string, string>>({});
   const [dry, setDry] = useState<OwnAgentTestRun | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -112,7 +114,6 @@ export function TestPanel({ agent, onTestRun }: { agent: OwnAgent; onTestRun?: (
     if (res.ok || refusalCode(res)) keys.current.pending = null;
     if (!res.ok) return setRefused(res);
     setDry(res.data);
-    onTestRun?.();
   }
 
   const passed = dry?.checks.filter((check) => check.passed) ?? [];

@@ -26,13 +26,12 @@ const pages = (page) => page.getByRole('group', { name: 'Agent pages' });
 
 /** The checks a real call of one of the agent's tools meets, in order, as the dry run words them. */
 const CHECKS = {
+  caps_set: 'Your spending caps for this agent are set',
   tool_declared: 'The agent carries this tool',
-  input_declared: 'Every input is one the tool declares',
   moves_no_value: 'The tool moves no value',
   consent: 'You allowed this kind of tool',
   baseline: 'The platform’s baseline covers this kind of tool',
   rule: 'Your rules let the call go ahead',
-  caps_set: 'Your spending caps for this agent are set',
   door_wired: 'The tool’s connection is built',
 };
 /** The one call #3 dry runs: the help search the service starter carries, with its two declared inputs. */
@@ -135,7 +134,7 @@ test(`${J} #3 submits a dry run of one tool call: the checks it passed and the w
   // The would-be effect: the one read it would run, with its input, and that it moves nothing; never billed.
   await expect(dry.getByRole('term').filter({ hasText: 'Would-be effect' })).toBeVisible();
   await expect(dry.getByTestId('dry-effect')).toHaveText(
-    `Would run “${CALL.words}” once in a session of this agent, with kbQuery: TEST question; limit: 5: it reads support data and moves no value.`,
+    `Would run “${CALL.words}” once in a new session of this agent, with kbQuery: TEST question; limit: 5: it reads support data and moves no value.`,
   );
   await expect(dry.getByTestId('dry-cost')).toHaveText('0 USDT');
   await expect(dry).toContainText('No entry, intent or reservation was made.');
