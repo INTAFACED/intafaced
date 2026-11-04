@@ -273,7 +273,15 @@ export type OwnRefusalCode =
   | 'agents.rule_hand_off'
   | 'agents.baseline_value_unset'
   | 'agents.baseline_loosen_refused'
-  | 'agents.request_id_replay';
+  | 'agents.request_id_replay'
+  | 'agents.eval.cases_empty'
+  | 'agents.eval.too_many_cases'
+  | 'agents.eval.case_blank'
+  | 'agents.eval.case_too_long'
+  | 'agents.eval.repeats_unset'
+  | 'agents.eval.repeats_invalid'
+  | 'agents.eval.threshold_unset'
+  | 'agents.eval.threshold_invalid';
 
 export class OwnAgentRefusal extends Error {
   constructor(

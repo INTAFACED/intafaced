@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { createPublicClient, decodeEventLog, http, parseAbi } from 'viem';
+import { createPublicClient, decodeEventLog, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
@@ -14,7 +14,8 @@ import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun,
 //   Manual modes, prices, slippage, route options, fee levels and the swap status (D-swap-01 to -06, -10, -11) is not
 //   built, so every step stops at the first of those controls;
 // - the stack has no TEST chain, router or pool, so the quote, approve and sign steps (#3 to #9) have nothing to call;
-// - #11 (paying the network fee in a TEST stable token, RC-dex-protocol-02) has no paymaster on the stack.
+// - #11 (paying the network fee in a TEST stable token, RC-dex-protocol-02) runs on the stack's TEST fee relay: the seed's
+//   FeeTokenRelay with the fail-closed oracle, and local-test-chain.mjs's TEST relayer, which sends and pays the gas.
 const J = 'J-dex-protocol-02';
 const dex = dexRun(J);
 
@@ -36,6 +37,38 @@ const poolAbi = parseAbi([
 ]);
 const factoryAbi = parseAbi(['function allPoolsLength() view returns (uint256)', 'function allPools(uint256) view returns (address)']);
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+/** The fee relay and its oracle (RC-dex-protocol-02), read straight from the chain. */
+const relayAbi = parseAbi([
+  'function oracle() view returns (address)',
+  'function markupBps() view returns (uint16)',
+  'function allowlisted(address token) view returns (bool)',
+  'event FeeCharged(address indexed owner, address indexed relayer, address indexed feeToken, uint256 gasWei, uint256 markWad, uint16 markupBps, uint256 charge)',
+]);
+const oracleAbi = parseAbi([
+  'function getMark(address asset) view returns (uint256 priceWad, uint64 updatedAt)',
+  'error Stale()',
+  'error MissingReport()',
+  'error Disagreement()',
+]);
+const erc20Abi = parseAbi(['function balanceOf(address owner) view returns (uint256)']);
+/** The stack's TEST stable tokens (services/svc-protocol/scripts/seed-test-chain.ts): TEST USD pays fees, TEST EUR's oracle is stale. */
+const TEST_USD = { address: '0x000000000000000000000000000000000000d011', decimals: 6 };
+const TEST_EUR = '0x00000000000000000000000000000000000e0e00';
+/** Native gas `gasWei` in TEST USD base units at the oracle mark (wei per whole token) plus `markupBps`, rounded up. */
+function chargeFor(gasWei, markWad, markupBps) {
+  const numerator = gasWei * 10n ** BigInt(TEST_USD.decimals) * (10_000n + BigInt(markupBps));
+  const denominator = markWad * 10_000n;
+  return (numerator + denominator - 1n) / denominator;
+}
+/** Basis points as the fee line writes a percentage: 500 is "5", 125 is "1.25". */
+const percent = (bps) =>
+  `${Math.trunc(bps / 100)}${
+    bps % 100
+      ? `.${String(bps % 100)
+          .padStart(2, '0')
+          .replace(/0+$/, '')}`
+      : ''
+  }`;
 
 /** Every factory pool trading `a` against `b`, from the chain; refuses by name on a stack with no TEST chain. */
 async function poolsOf(a, b) {
@@ -356,13 +389,169 @@ test(`${J} #10 opens the approvals list and revokes the allowance: spender and a
   await expect(row).toHaveCount(0, { timeout: 60_000 });
 });
 
-test(`${J} #11 swaps from a wallet with only a TEST stable token, paying the fee in that token: oracle rate plus markup; off-list or stale oracle pays native`, async ({
+test(`${J} #11 swaps from a wallet holding only TEST USD and no native currency, paying the fee in TEST USD at the oracle rate plus the published markup; an off-list token or a stale oracle is refused and the fee is paid in native currency instead`, async ({
   page,
+  browser,
 }) => {
-  await openSwap(page);
+  // The relay, its oracle and its published markup, read from the chain the way svc-protocol reads it, never through the service.
+  expect(existsSync(chainRecordPath()), 'this stack runs a TEST chain (LOCAL_STACK_ANVIL_BIN)').toBe(true);
+  const record = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  expect(record.feeRelay, 'the TEST chain was seeded with a fee relay').toMatch(/^0x[0-9a-fA-F]{40}$/);
+  const relay = record.feeRelay;
+  const oracle = await chain.readContract({ address: relay, abi: relayAbi, functionName: 'oracle' });
+  const markupBps = Number(await chain.readContract({ address: relay, abi: relayAbi, functionName: 'markupBps' }));
+  const balanceOf = (token, who) => chain.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [who] });
+
+  // A new wallet that holds only TEST USD: no TEST ETH, no TEST Token A or B.
+  const stable = dexRun(`${J}-stable`);
+  stable.start({}, { funding: 'stable' });
+  const owner = privateKeyToAccount(stable.key()).address;
+  expect(await chain.getBalance({ address: owner })).toBe(0n);
+  const usdBefore = await balanceOf(TEST_USD.address, owner);
+  expect(usdBefore).toBeGreaterThan(0n);
+  for (const token of [TOKEN_A, TOKEN_B]) expect(await balanceOf(token.address, owner)).toBe(0n);
+
+  const wallet = await connectWallet(page, stable);
+  await page.goto('/dex');
+  await expect(swap(page)).toBeVisible(UNBUILT);
+  await tokenIn(page).selectOption({ label: 'TEST USD' });
+  await tokenOut(page).selectOption({ label: 'TEST Token A' });
+  await amountIn(page).fill('10');
   const pay = swap(page).getByRole('combobox', { name: 'Pay the network fee in' });
   await pay.selectOption({ label: 'TEST USD' }, UNBUILT);
-  await expect(swap(page).getByTestId('fee-line')).toHaveText(/^Network fee [\d.]+ TEST USD at the oracle rate plus a [\d.]+ ?% markup$/);
-  await pay.selectOption({ label: 'TEST Token B' });
-  await expect(swap(page).getByRole('alert')).toContainText('This token cannot pay the network fee. Pay in the network’s own currency.');
+  const feeLine = swap(page).getByTestId('fee-line');
+  // The fee line names the token charge, the oracle rate and the markup the relay publishes on the chain.
+  await expect(feeLine).toHaveText(new RegExp(`^Network fee [\\d.]+ TEST USD at the oracle rate plus a ${percent(markupBps)}% markup$`));
+  await expect(swapButton(page)).toBeEnabled();
+  // The charge on the line is the gas it covers at the oracle's own mark for TEST USD, plus the markup, rounded up.
+  const [markNow] = await chain.readContract({ address: oracle, abi: oracleAbi, functionName: 'getMark', args: [TEST_USD.address] });
+  const basis = swap(page).getByTestId('fee-token-basis');
+  await expect(basis).toContainText(`Oracle rate: 1 TEST USD = ${shown(markNow, 18, 18)} ETH`);
+  const lineCharge = /^Network fee ([\d.]+) TEST USD/.exec((await feeLine.textContent()) ?? '')?.[1];
+  const gasCovered = /^Covers up to ([\d.]+) ETH of gas/.exec((await basis.textContent()) ?? '')?.[1];
+  expect(lineCharge && gasCovered, 'the fee line names the charge and the gas it covers').toBeTruthy();
+  expect(lineCharge).toBe(shown(chargeFor(parseUnits(gasCovered, 18), markNow, markupBps), TEST_USD.decimals, TEST_USD.decimals));
+
+  // Swap: the new wallet accepts the representation once, then signs a permit and the order. It sends nothing itself.
+  await swapButton(page).click();
+  await acceptRepresentation(page);
+  const typed = () => wallet.requests.filter((request) => request.method === 'eth_signTypedData_v4').length;
+  const signedBefore = typed();
+  for (const n of [1, 2]) {
+    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect.poll(typed).toBe(signedBefore + n);
+  }
+  const card = page.getByRole('region', { name: 'Swap status' });
+  await expect(card.getByRole('status')).toHaveText('Filled', { timeout: 60_000 });
+  const fact = (term) => card.getByRole('term').filter({ hasText: term }).locator('xpath=following-sibling::dd[1]');
+  await expect(fact('You paid')).toHaveText('10 TEST USD');
+  await expect(fact('Network fee')).toHaveText(/^[\d.]+ TEST USD$/);
+  const charged = /^([\d.]+) TEST USD$/.exec((await fact('Network fee').textContent()) ?? '')?.[1];
+
+  // The chain: the relayer sent the swap and paid its gas in TEST ETH; the relay charged the person in TEST USD.
+  const hash = /\/chain\/tx\/(0x[0-9a-f]{64})$/.exec(
+    (await card.getByRole('link', { name: 'Swap event' }).getAttribute('href')) ?? '',
+  )?.[1];
+  expect(hash, 'the Swap event link names the transaction').toBeTruthy();
+  const receipt = await chain.getTransactionReceipt({ hash });
+  expect(receipt.status).toBe('success');
+  expect(same(receipt.from, record.feeRelayer), 'sent by the fee relayer, not by the person').toBe(true);
+  const fees = receipt.logs.flatMap((log) => {
+    if (!same(log.address, relay)) return [];
+    try {
+      return [decodeEventLog({ abi: relayAbi, eventName: 'FeeCharged', data: log.data, topics: log.topics }).args];
+    } catch {
+      return [];
+    }
+  });
+  expect(fees, 'exactly one fee charged in the transaction').toHaveLength(1);
+  const [fee] = fees;
+  expect(same(fee.owner, owner) && same(fee.feeToken, TEST_USD.address) && same(fee.relayer, record.feeRelayer)).toBe(true);
+  // At the oracle rate: the relay used the oracle's own mark for TEST USD at that block, plus the markup it publishes.
+  const [markWad] = await chain.readContract({
+    address: oracle,
+    abi: oracleAbi,
+    functionName: 'getMark',
+    args: [TEST_USD.address],
+    blockNumber: receipt.blockNumber,
+  });
+  expect(fee.markWad).toBe(markWad);
+  expect(Number(fee.markupBps)).toBe(markupBps);
+  expect(fee.charge).toBe(chargeFor(fee.gasWei, markWad, markupBps));
+  // The card's fee is what the chain charged.
+  expect(shown(fee.charge, TEST_USD.decimals, TEST_USD.decimals)).toBe(charged);
+  // The gas the relayer paid is within the gas the person was charged for.
+  expect(receipt.gasUsed * receipt.effectiveGasPrice <= fee.gasWei).toBe(true);
+  // The swap: one pool Swap event, 10 TEST USD in, TEST Token A out to the person's own wallet.
+  const swaps = receipt.logs.flatMap((log) => {
+    try {
+      return [{ pool: log.address, ...decodeEventLog({ abi: poolAbi, eventName: 'Swap', data: log.data, topics: log.topics }).args }];
+    } catch {
+      return [];
+    }
+  });
+  expect(swaps).toHaveLength(1);
+  const [swapped] = swaps;
+  expect(same(swapped.to, owner)).toBe(true);
+  const usdIs0 = same(await chain.readContract({ address: swapped.pool, abi: poolAbi, functionName: 'token0' }), TEST_USD.address);
+  expect(usdIs0 ? swapped.amount0In : swapped.amount1In).toBe(10n * 10n ** BigInt(TEST_USD.decimals));
+  const gotA = usdIs0 ? swapped.amount1Out : swapped.amount0Out;
+  // Balances: still no native currency; TEST USD down by exactly the swap and the charge; the TEST Token A received.
+  expect(await chain.getBalance({ address: owner })).toBe(0n);
+  expect(await balanceOf(TEST_USD.address, owner)).toBe(usdBefore - 10n * 10n ** BigInt(TEST_USD.decimals) - fee.charge);
+  expect(await balanceOf(TOKEN_A.address, owner)).toBe(gotA);
+  expect(wallet.sends, 'the person sent no transaction').toHaveLength(0);
+
+  // An off-list token and a stale oracle: the run's wallet (TEST ETH, Token A and B) chooses each, is refused by name,
+  // and the fee goes back to native currency; then it swaps and pays the fee in TEST ETH from its own wallet.
+  expect(await chain.readContract({ address: relay, abi: relayAbi, functionName: 'allowlisted', args: [TOKEN_B.address] })).toBe(false);
+  expect(await chain.readContract({ address: relay, abi: relayAbi, functionName: 'allowlisted', args: [TEST_EUR] })).toBe(true);
+  await expect(chain.readContract({ address: oracle, abi: oracleAbi, functionName: 'getMark', args: [TEST_EUR] })).rejects.toThrow(/Stale/);
+  const other = await browser.newContext();
+  try {
+    const native = await other.newPage();
+    const nativeWallet = await connectWallet(native, dex, { tokens: [TOKEN_A, TOKEN_B] });
+    const person = privateKeyToAccount(dex.key()).address;
+    await native.goto('/dex');
+    await quoteAB(native, '1');
+    const payNative = swap(native).getByRole('combobox', { name: 'Pay the network fee in' });
+    const nativeChosen = async () => {
+      await expect(payNative).toHaveValue('native');
+      await expect(payNative.locator('option:checked')).toHaveText('ETH (the network’s own currency)');
+      await expect(swap(native).getByTestId('fee-line')).toHaveText('You pay the network fee');
+    };
+    await payNative.selectOption({ label: 'TEST Token B' });
+    await expect(swap(native).getByRole('alert')).toHaveText(
+      'TEST Token B cannot pay the network fee: it is not on the list of tokens that can. You pay in the network’s own currency (ETH) instead.',
+    );
+    await nativeChosen();
+    await payNative.selectOption({ label: 'TEST EUR' });
+    await expect(swap(native).getByRole('alert')).toHaveText(
+      'TEST EUR cannot pay the network fee: its oracle price is stale. You pay in the network’s own currency (ETH) instead.',
+    );
+    await nativeChosen();
+    const ethBefore = await chain.getBalance({ address: person });
+    await swapButton(native).click();
+    const representation = native.locator('[data-panel="representation"]');
+    await expect(representation.or(native.getByRole('button', { name: 'Continue in wallet' })).first()).toBeVisible();
+    if (await representation.isVisible()) await acceptRepresentation(native);
+    await native.getByRole('button', { name: 'Continue in wallet' }).click();
+    const nativeCard = native.getByRole('region', { name: 'Swap status' });
+    await expect(nativeCard.getByRole('status')).toHaveText('Filled', { timeout: 60_000 });
+    const nativeHash = /\/chain\/tx\/(0x[0-9a-f]{64})$/.exec(
+      (await nativeCard.getByRole('link', { name: 'Swap event' }).getAttribute('href')) ?? '',
+    )?.[1];
+    const nativeReceipt = await chain.getTransactionReceipt({ hash: nativeHash });
+    // Sent by the person's own wallet, and the fee on the card is the gas it paid in TEST ETH.
+    expect(same(nativeReceipt.from, person)).toBe(true);
+    expect(nativeWallet.sends.length).toBeGreaterThan(0);
+    expect(nativeReceipt.logs.some((log) => same(log.address, relay))).toBe(false);
+    const gasPaid = nativeReceipt.gasUsed * nativeReceipt.effectiveGasPrice;
+    await expect(nativeCard.getByRole('term').filter({ hasText: 'Network fee' }).locator('xpath=following-sibling::dd[1]')).toHaveText(
+      `${shown(gasPaid, 18, 9)} ETH`,
+    );
+    expect(await chain.getBalance({ address: person })).toBeLessThan(ethBefore);
+  } finally {
+    await other.close();
+  }
 });

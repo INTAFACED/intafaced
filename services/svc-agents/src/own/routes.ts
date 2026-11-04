@@ -6,6 +6,9 @@ import {
   OWN_AGENT_RULE_CHOICES,
   ownAgentApprovalRequestSchema,
   ownAgentConsentSchema,
+  ownAgentEvalRunSchema,
+  ownAgentEvalsSchema,
+  ownAgentEvalStartSchema,
   ownAgentRuleSchema,
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
@@ -39,6 +42,7 @@ import {
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
+import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
 import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
@@ -327,6 +331,42 @@ export function ownRouter(
           return new OwnApprovalRequestStore(sqlOf(sql)).list(ctx.principal.userId, agent.id, input.limit);
         });
       }),
+
+    /**
+     * The agent's test set and evaluations (AG-testing-02). A start runs every case `repeats` times on the test engine:
+     * no model is called, nothing is billed and nothing reaches the ledger; every result is labelled TEST. A blank
+     * threshold refuses `agents.eval.threshold_unset` and a blank repeats count `agents.eval.repeats_unset`, and nothing
+     * is run or stored. The same request id again is the same run.
+     */
+    evals: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ limit: z.number().int().min(1).max(50) }))
+        .output(ownAgentEvalsSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const evals = new OwnEvalStore(sqlOf(sql));
+            const [testSet, latest, runs] = await Promise.all([
+              evals.testSet(ctx.principal.userId, agent.id),
+              evals.latest(ctx.principal.userId, agent.id),
+              evals.runs(ctx.principal.userId, agent.id, input.limit),
+            ]);
+            return { testSet, latest, runs };
+          });
+        }),
+      start: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentEvalStartSchema)
+        .output(ownAgentEvalRunSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const request = checkEvalRequest(input);
+            return new OwnEvalStore(sqlOf(sql)).start(ctx.principal.userId, agent.id, input.requestId, request);
+          });
+        }),
+    }),
 
     tool: router({
       /**

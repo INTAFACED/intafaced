@@ -370,6 +370,31 @@ describe('committed paymaster artefacts match the Solidity in this tree', () => 
   });
 });
 
+describe('committed fee relay artefacts match the Solidity in this tree (RC-dex-protocol-02)', () => {
+  const feeRelay = (SUITES as Suite[]).find((s) => s.name === 'fee-relay');
+
+  it('compiles FeeTokenRelay in its own suite', () => {
+    expect(feeRelay?.expect).toBe('compiles');
+    const artefact = loadArtifact('FeeTokenRelay');
+    expect(artefact.contractName).toBe('FeeTokenRelay');
+    expect(artefact.suite).toBe('fee-relay');
+    expect(artefact.bytecode.length).toBeGreaterThan(2);
+  });
+
+  it('records a sourceHash that still matches the .sol files on disk', () => {
+    expect(loadArtifact('FeeTokenRelay').sourceHash).toBe(computeSourceHash(suiteSources(feeRelay, collectSources())));
+  });
+
+  it('exposes the allowlist and the swap, and no path for the operator to move a person’s tokens', () => {
+    const names = loadArtifact('FeeTokenRelay')
+      .abi.filter((entry) => entry.type === 'function')
+      .map((entry) => ('name' in entry ? entry.name : ''));
+    for (const forbidden of ['pause', 'withdraw', 'sweep', 'execute', 'upgradeTo', 'transferFrom'])
+      expect(names, `FeeTokenRelay must not expose ${forbidden}()`).not.toContain(forbidden);
+    for (const required of ['setFeeToken', 'quoteCharge', 'swap', 'markupBps', 'feeTokens', 'nonces']) expect(names).toContain(required);
+  });
+});
+
 describe('committed RWA artefacts match the Solidity in this tree', () => {
   const rwa = (SUITES as Suite[]).find((s) => s.name === 'rwa');
 

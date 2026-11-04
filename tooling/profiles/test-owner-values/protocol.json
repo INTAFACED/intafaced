@@ -80,6 +80,16 @@
       "service": "protocol",
       "value": "TEST:300",
       "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
+    },
+    "PROTOCOL_FEE_RELAY_URL": {
+      "service": "protocol",
+      "value": "http://127.0.0.1:14535/relay",
+      "note": "The TEST relayer stand-in local-test-chain.mjs serves: it sends a signed fee-token swap and pays its gas in TEST ETH. The relay contract's address (PROTOCOL_FEE_RELAY_ADDRESS) comes from the seeded TEST chain, like the pool factory. Blank in production refuses protocol.fee_relay_unset."
+    },
+    "PROTOCOL_FEE_RELAY_GAS_LIMIT": {
+      "service": "protocol",
+      "value": "400000",
+      "note": "TEST gas a relayed fee-token swap is priced for and sent with. Blank in production refuses protocol.fee_relay_unset."
     }
   }
 }

@@ -157,6 +157,14 @@ export const appRouter = createProtocolRouter({
   swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
   swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
   swapFeeCapWei: () => env.PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI,
+  feeRelay: () =>
+    !isZeroAddress(env.PROTOCOL_FEE_RELAY_ADDRESS) && env.PROTOCOL_FEE_RELAY_URL && env.PROTOCOL_FEE_RELAY_GAS_LIMIT !== null
+      ? {
+          relay: env.PROTOCOL_FEE_RELAY_ADDRESS as `0x${string}`,
+          url: env.PROTOCOL_FEE_RELAY_URL,
+          gasLimit: env.PROTOCOL_FEE_RELAY_GAS_LIMIT,
+        }
+      : null,
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null
       ? { usdTokens: env.PROTOCOL_PRICE_USD_TOKENS, minReserveUsd: env.PROTOCOL_PRICE_MIN_RESERVE_USD }

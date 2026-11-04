@@ -241,3 +241,112 @@ export const protocolRouteOptionsOutputSchema = z
   })
   .strict();
 export type ProtocolRouteOptions = z.infer<typeof protocolRouteOptionsOutputSchema>;
+
+/**
+ * Paying a swap's network fee in a token the person holds (RC-dex-protocol-02). A relay contract prices the fee from a
+ * fail-closed oracle plus a markup it publishes; the person signs a permit and the order, and a relayer sends it and
+ * pays the gas in native currency. A blank relay setting refuses `protocol.fee_relay_unset`; a token the relay has not
+ * allowlisted, or whose oracle mark is stale or unreadable, refuses by name and the person pays in native currency.
+ */
+export const FEE_RELAY_UNSET = 'protocol.fee_relay_unset' as const;
+export const FEE_TOKEN_NOT_ALLOWLISTED = 'protocol.fee_token_not_allowlisted' as const;
+export const FEE_TOKEN_ORACLE_STALE = 'protocol.fee_token_oracle_stale' as const;
+export const FEE_TOKEN_ORACLE_UNREAD = 'protocol.fee_token_oracle_unread' as const;
+/** The token gives no EIP-712 permit domain (eip712Domain or version), so no permit can be signed for it. */
+export const FEE_TOKEN_PERMIT_UNREAD = 'protocol.fee_token_permit_unread' as const;
+export const FEE_CHARGE_ABOVE_SIGNED = 'protocol.fee_charge_above_signed' as const;
+export const FEE_SWAP_SIGNATURE_INVALID = 'protocol.fee_swap_signature_invalid' as const;
+export const FEE_RELAY_REFUSED = 'protocol.fee_relay_refused' as const;
+
+/** One token the relay lists, and whether it may pay today. */
+export const protocolFeeTokenSchema = z
+  .object({ address, name: z.string(), symbol: z.string(), decimals: z.number().int().min(0).max(36), allowlisted: z.boolean() })
+  .strict();
+export type ProtocolFeeToken = z.infer<typeof protocolFeeTokenSchema>;
+
+/** `protocol.amm.feeTokens`: the relay, its published markup, the gas a relayed swap is priced for, and its tokens. */
+export const protocolFeeTokensOutputSchema = z
+  .object({
+    relay: address,
+    markupBps: z.number().int().min(0).max(10_000),
+    gasLimit: units,
+    tokens: z.array(protocolFeeTokenSchema),
+  })
+  .strict();
+export type ProtocolFeeTokens = z.infer<typeof protocolFeeTokensOutputSchema>;
+
+/**
+ * `protocol.amm.feeQuote`: what the gas costs in `feeToken`, as the relay contract prices it at `blockNumber`:
+ * `gasWei` = `gasLimit` × `maxFeePerGasWei` (native), charged at the oracle mark (`markWad`, native wei per whole token,
+ * as of `markAsOf`) plus `markupBps`, rounded up. `charge` is in the token's base units.
+ */
+export const protocolFeeQuoteOutputSchema = z
+  .object({
+    relay: address,
+    feeToken: address,
+    gasLimit: units,
+    maxFeePerGasWei: units,
+    gasWei: units,
+    markWad: units,
+    markAsOf: z.string().datetime(),
+    markupBps: z.number().int().min(0).max(10_000),
+    charge: units,
+    blockNumber: units,
+  })
+  .strict();
+export type ProtocolFeeQuote = z.infer<typeof protocolFeeQuoteOutputSchema>;
+
+/** EIP-712 typed data as `eth_signTypedData_v4` takes it. Amounts are decimal strings. */
+export const protocolTypedDataSchema = z
+  .object({
+    types: z.record(z.string(), z.array(z.object({ name: z.string(), type: z.string() }).strict())),
+    primaryType: z.string(),
+    domain: z.object({ name: z.string(), version: z.string(), chainId: z.number().int().positive(), verifyingContract: address }).strict(),
+    message: z.record(z.string(), z.string()),
+  })
+  .strict();
+export type ProtocolTypedData = z.infer<typeof protocolTypedDataSchema>;
+
+/** `protocol.amm.prepareFeeSwap`: the quote, then what the person signs: each token's permit, then the order. */
+export const protocolFeeSwapPlanOutputSchema = z
+  .object({
+    quote: protocolFeeQuoteOutputSchema,
+    permits: z.array(protocolTypedDataSchema),
+    order: protocolTypedDataSchema,
+  })
+  .strict();
+export type ProtocolFeeSwapPlan = z.infer<typeof protocolFeeSwapPlanOutputSchema>;
+
+const signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);
+
+/** The order's fields as the person signed them. */
+export const protocolFeeSwapOrderSchema = z
+  .object({
+    owner: address,
+    pool: address,
+    tokenIn: address,
+    amountIn: units,
+    minAmountOut: units,
+    feeToken: address,
+    gasWei: units,
+    maxCharge: units,
+    nonce: units,
+    deadline: units,
+  })
+  .strict();
+export type ProtocolFeeSwapOrder = z.infer<typeof protocolFeeSwapOrderSchema>;
+
+/** `protocol.amm.relayFeeSwap` input: the signed order and permits, and the per-gas fee the relayer sends with. */
+export const protocolFeeSwapSubmitInputSchema = z
+  .object({
+    order: protocolFeeSwapOrderSchema,
+    signature,
+    permits: z.array(z.object({ token: address, value: units, deadline: units, signature }).strict()).max(2),
+    maxFeePerGasWei: units,
+    maxPriorityFeePerGasWei: units,
+  })
+  .strict();
+export type ProtocolFeeSwapSubmitInput = z.infer<typeof protocolFeeSwapSubmitInputSchema>;
+
+export const protocolFeeSwapSubmitOutputSchema = z.object({ hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/), relayer: address }).strict();
+export type ProtocolFeeSwapSubmit = z.infer<typeof protocolFeeSwapSubmitOutputSchema>;

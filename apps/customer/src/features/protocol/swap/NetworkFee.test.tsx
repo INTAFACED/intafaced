@@ -105,4 +105,80 @@ describe('Network fee', () => {
     await act(async () => radios()[3]!.click());
     expect(onChoice).toHaveBeenCalledWith('custom');
   });
+
+  it('shows the fee in a token at the oracle rate plus the published markup, with what it covers', async () => {
+    const usd = { address: '0x000000000000000000000000000000000000d011', name: 'TEST USD', symbol: 'TESTUSD', decimals: 6 };
+    await act(async () => {
+      root.render(
+        <NetworkFee
+          fees={{ status: 'ready', data: FEES }}
+          retry={vi.fn()}
+          choice="normal"
+          onChoice={vi.fn()}
+          custom=""
+          onCustom={vi.fn()}
+          refusal={null}
+          payIn={{
+            value: usd.address,
+            tokens: [usd],
+            label: (token) => token.name,
+            onChange: vi.fn(),
+            refusal: null,
+            // TEST figures: 400,000 gas at 2.001 gwei, 1 TEST USD = 0.0004 ETH, 5% markup.
+            fee: {
+              status: 'ready',
+              token: usd,
+              quote: {
+                relay: '0x9d4454b023096f34b160d6b654540c56a1f81688',
+                feeToken: usd.address,
+                gasLimit: '400000',
+                maxFeePerGasWei: '2001000000',
+                gasWei: '800400000000000',
+                markWad: '400000000000000',
+                markAsOf: '2026-10-29T12:00:00.000Z',
+                markupBps: 500,
+                charge: '2101050',
+                blockNumber: '10',
+              },
+            },
+          }}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="fee-line"]')?.textContent).toBe(
+      'Network fee 2.10105 TEST USD at the oracle rate plus a 5% markup',
+    );
+    expect(host.querySelector('[data-testid="fee-token-basis"]')?.textContent).toContain('1 TEST USD = 0.0004 ETH');
+    expect(host.querySelector('[data-testid="fee-token-basis"]')?.textContent).toContain('400000 gas at most 2.001 gwei per gas');
+    expect([...host.querySelectorAll('select option')].map((option) => option.textContent)).toEqual([
+      'ETH (the network’s own currency)',
+      'TEST USD',
+    ]);
+  });
+
+  it('says why a token was refused and shows the native fee line', async () => {
+    await act(async () => {
+      root.render(
+        <NetworkFee
+          fees={{ status: 'ready', data: FEES }}
+          retry={vi.fn()}
+          choice="normal"
+          onChoice={vi.fn()}
+          custom=""
+          onCustom={vi.fn()}
+          refusal={null}
+          payIn={{
+            value: 'native',
+            tokens: [],
+            label: (token) => token.name,
+            onChange: vi.fn(),
+            refusal: 'TEST EUR cannot pay the network fee: its oracle price is stale. You pay in the network’s own currency (ETH) instead.',
+            fee: { status: 'idle' },
+          }}
+        />,
+      );
+    });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('its oracle price is stale');
+    expect(host.querySelector('[data-testid="fee-line"]')?.textContent).toBe('You pay the network fee');
+  });
 });

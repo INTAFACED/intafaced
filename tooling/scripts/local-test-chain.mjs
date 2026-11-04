@@ -15,6 +15,12 @@
 //   node tooling/scripts/local-test-chain.mjs gate open|closed  a journey's switch (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs gate open|closed second   the same for the second network's gate alone
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
+//   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
+//
+// `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
+// signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
+// TEST relayer (an impersonated address on this anvil, holding TEST ETH), and answers the hash. It signs nothing itself
+// and sends nothing else: the relay contract checks the person's signature and prices the fee.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -29,8 +35,12 @@ const PROTOCOL_DIR = path.join(REPO, 'services', 'svc-protocol');
 /** The app's network id (apps/customer/src/features/protocol/wallet/eip1193.ts APP_CHAIN_ID). */
 export const TEST_CHAIN_ID = 84532;
 /** Every port the chains hold, the second network's included, so the stack's in-use check covers them all. */
-export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGate: 14533, secondAnvil: 14534 };
+export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGate: 14533, secondAnvil: 14534, relay: 14535 };
 export const GATE_URL = `http://${HOST}:${CHAIN_PORTS.gate}`;
+/** The TEST network-fee relayer's submit URL (svc-protocol's PROTOCOL_FEE_RELAY_URL on the stack). */
+export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
+/** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
+export const RELAY_SWAP_SELECTOR = '0xff292559';
 /**
  * A second LOCAL TEST network (chain id 31337, "Local test chain"), so the explorer's search has two networks to look a
  * hash up on (J-dex-protocol-09 #10). Nothing is seeded on it; it has its own gate, which a journey may shut alone.
@@ -150,6 +160,7 @@ function serve() {
       );
     })
     .listen(CHAIN_PORTS.control, HOST);
+  http.createServer((req, res) => void relay(req, res)).listen(CHAIN_PORTS.relay, HOST);
   // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
   Promise.all([gate.open(), second.open()]).catch((err) => {
     console.error(`a TEST chain gate could not open: ${err.message}`);
@@ -182,6 +193,69 @@ function serve() {
     });
 }
 
+/** One JSON-RPC call to this stack's anvil, straight to its port (the relayer has its own connection, not the gate). */
+async function anvilRpc(method, params) {
+  const res = await fetch(`http://${HOST}:${CHAIN_PORTS.anvil}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const answer = await res.json();
+  if (answer.error) throw new Error(answer.error.message ?? JSON.stringify(answer.error));
+  return answer.result;
+}
+
+const HEX = /^0x[0-9a-fA-F]*$/;
+
+/**
+ * POST /relay {to, data, gas, maxFeePerGas, maxPriorityFeePerGas} (hex): sent from the seeded TEST relayer when `to` is
+ * the seeded fee relay and `data` calls its swap(); anything else is refused by name. Answers {hash} or {error}.
+ */
+async function relay(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  if (req.method !== 'POST' || new URL(req.url, `http://${HOST}`).pathname !== '/relay')
+    return answer(404, { error: 'relay.not_found: POST /relay only' });
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 64_000) return answer(413, { error: 'relay.too_large' });
+  }
+  let call;
+  try {
+    call = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'relay.bad_json' });
+  }
+  const record = fs.existsSync(chainRecordPath()) ? JSON.parse(fs.readFileSync(chainRecordPath(), 'utf8')) : null;
+  if (!record?.feeRelay || !record?.feeRelayer) return answer(503, { error: 'relay.unseeded: the TEST chain has no fee relay yet' });
+  if (typeof call?.to !== 'string' || call.to.toLowerCase() !== record.feeRelay.toLowerCase())
+    return answer(400, { error: 'relay.wrong_target: only the seeded fee relay is called' });
+  if (typeof call.data !== 'string' || !HEX.test(call.data) || !call.data.toLowerCase().startsWith(RELAY_SWAP_SELECTOR))
+    return answer(400, { error: 'relay.wrong_call: only the fee relay swap() is sent' });
+  for (const field of ['gas', 'maxFeePerGas', 'maxPriorityFeePerGas'])
+    if (typeof call[field] !== 'string' || !HEX.test(call[field])) return answer(400, { error: `relay.bad_${field}` });
+  try {
+    const hash = await anvilRpc('eth_sendTransaction', [
+      {
+        from: record.feeRelayer,
+        to: record.feeRelay,
+        data: call.data,
+        gas: call.gas,
+        maxFeePerGas: call.maxFeePerGas,
+        maxPriorityFeePerGas: call.maxPriorityFeePerGas,
+      },
+    ]);
+    return answer(200, { hash, relayer: record.feeRelayer });
+  } catch (err) {
+    return answer(502, { error: `relay.send_failed: ${err.message}` });
+  }
+}
+
 async function cmdGate(state, network) {
   if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
   const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
@@ -189,8 +263,9 @@ async function cmdGate(state, network) {
   console.log(JSON.stringify(answer ?? { chain: 'absent', gate: 'closed' }));
 }
 
-async function cmdFund(address) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '')) throw new Error('usage: fund <0x address>');
+async function cmdFund(address, kind) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -200,7 +275,7 @@ async function cmdFund(address) {
     console.error('local-test-chain.gate_closed: the TEST chain gate is closed; open it before funding');
     process.exit(1);
   }
-  const r = runSeedScript(['fund', address]);
+  const r = runSeedScript(['fund', address, ...(kind ? [kind] : [])]);
   console.log(r.output);
   if (r.status !== 0) process.exit(1);
 }
@@ -211,9 +286,9 @@ if (runningAsCli) {
   if (command === 'serve') serve();
   else if (command === 'status') console.log(JSON.stringify(await chainStatus()));
   else if (command === 'gate') await cmdGate(arg, extra);
-  else if (command === 'fund') await cmdFund(arg);
+  else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address>');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable]');
     process.exit(2);
   }
 }
