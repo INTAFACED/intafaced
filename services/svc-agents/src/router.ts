@@ -65,7 +65,7 @@ import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from 
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
-import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
+import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
 import { OWN_RUN_TASK, ownRouter } from './own/routes.js';
 import type { OwnTemplate } from './own/catalog.js';
@@ -406,10 +406,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     return { engine, metered: routeIsMetered(meteringEnabled, route.price) };
   }
 
-  /** The engine the deployment runs a person's own agent's live runs on: its run task's route, or unknown without one. */
+  /**
+   * The engine the deployment runs a person's own agent's live runs on: the route the gateway resolves its run task to
+   * (its own, or the table's fallback), or unknown when none serves it.
+   */
   function ownLiveEngine(): RouteEngine {
-    const route = gateway.routingTable.routes.find((row) => row.task === OWN_RUN_TASK);
-    return route ? routeEngine(route).engine : 'unknown';
+    try {
+      return routeEngine(resolveRoute(gateway.routingTable, OWN_RUN_TASK)).engine;
+    } catch {
+      return 'unknown';
+    }
   }
 
   function agentEngine(tasks: readonly string[]): { engine: RouteEngine; metered: boolean } {

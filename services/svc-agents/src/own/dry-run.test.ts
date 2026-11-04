@@ -93,11 +93,13 @@ if (!available) {
   const liveEngine = () =>
     new UpstreamModelProvider({ id: 'primary', baseUrl: 'http://127.0.0.1:9', apiKey: 'TEST', models: { 'reasoning-md': 'TEST-model' } });
 
-  function people(baseline: Record<string, string> = BASELINE, engine: 'sandbox' | 'live' = 'sandbox') {
+  function people(baseline: Record<string, string> = BASELINE, engine: 'sandbox' | 'live' = 'sandbox', { fallback = false } = {}) {
+    const task = fallback ? 'general.chat' : OWN_RUN_TASK;
     const table = parseRoutingTable({
+      ...(fallback ? { fallbackTask: task } : {}),
       routes: [
         {
-          task: OWN_RUN_TASK,
+          task,
           providerId: 'primary',
           model: 'reasoning-md',
           maxOutputTokens: 2048,
@@ -336,6 +338,19 @@ if (!available) {
         const { sessionId } = await person.own.session.open({ id });
         await expect(person.own.run({ id, sessionId, requestId: 'live:run:0002', ask: 'TEST question' })).rejects.toBeTruthy();
         expect(fetched).toHaveBeenCalled();
+      } finally {
+        fetched.mockRestore();
+      }
+    });
+
+    it("names the live engine of the route the gateway serves the run task by, the table's fallback included", async () => {
+      const fetched = vi.spyOn(globalThis, 'fetch');
+      try {
+        const { person } = people(BASELINE, 'live', { fallback: true });
+        const id = await draft(person);
+        const run = await person.own.testRun({ id, requestId: 'test:fallback:0001', ask: 'TEST question' });
+        expect(run).toMatchObject({ engine: 'test', liveEngine: 'live', reply: 'TEST reply: TEST question' });
+        expect(fetched).not.toHaveBeenCalled();
       } finally {
         fetched.mockRestore();
       }

@@ -8,7 +8,7 @@ import { TabList } from '../protocol/tokens/TabList';
 import { Read, Select } from './common';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
-import { agentTestRunsCopy, hasMoneyToolWords } from './agent-test-runs-copy';
+import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
 import {
   ownAgentAnalyticsSchema,
   ownAgentCatalogueSchema,
@@ -32,15 +32,13 @@ type Words = ReturnType<typeof agentTestRunsCopy.useCopy>['t'];
 const REFUSAL_REASONS: ReadonlySet<Failed['reason']> = new Set(['error', 'forbidden', 'not_mounted']);
 const refusalCode = (failed: Failed): string | null =>
   REFUSAL_REASONS.has(failed.reason) && /^agents\.[a-z_.]+$/.test(failed.message) ? failed.message : null;
-const WORDED = ['agents.request_id_replay', 'agents.own.not_found', 'agents.test.ask_blank', 'agents.test.tool_moves_no_value'] as const;
-type WordedKey = `code_${(typeof WORDED)[number] extends infer C ? (C extends string ? Replace<C> : never) : never}`;
-type Replace<S extends string> = S extends `${infer A}.${infer B}` ? `${A}_${Replace<B>}` : S;
 
 function Answer({ failed }: { failed: Failed }) {
   const { t } = agentTestRunsCopy.useCopy();
   const code = refusalCode(failed);
   if (!code) return <Failure result={failed} />;
-  const words = (WORDED as readonly string[]).includes(code) ? t(`code_${code.replaceAll('.', '_')}` as WordedKey) : t('code_other');
+  const key = `code_${code.replaceAll('.', '_')}`;
+  const words = hasTestRunsWords(key) ? t(key) : t('code_other');
   return (
     <p role="alert">
       {words} <code lang="zxx">{code}</code>
@@ -55,15 +53,17 @@ const inputWords = (t: Words, input: Readonly<Record<string, string>>) => {
 };
 
 const slug = (tool: string) => tool.replaceAll('.', '_');
-/** A tool that moves value, by its words on the Test panel, or by its own name when the panel has none. */
-const moneyWords = (t: Words, tool: string) => {
-  const key = `money_${slug(tool)}`;
-  return hasMoneyToolWords(key) ? t(key) : tool;
+/**
+ * A tool that moves value in the Test panel's words: its name (`money`) or what it would do (`would`), or the tool's own
+ * name when the panel has no words for it.
+ */
+const moneyToolWords = (t: Words, kind: 'money' | 'would', tool: string) => {
+  const key = `${kind}_${slug(tool)}`;
+  return hasTestRunsWords(key) ? t(key) : tool;
 };
-const wouldWords = (t: Words, tool: string) => {
-  const key = `would_${slug(tool)}`;
-  return hasMoneyToolWords(key) ? t(key) : tool;
-};
+/** A question as the run list shows it: at most one line of it. */
+const ASK_SHOWN = 80;
+const shortAsk = (ask: string) => (ask.length > ASK_SHOWN ? `${ask.slice(0, ASK_SHOWN - 1)}…` : ask);
 
 /** What the call would do, in words; a refusal names the first check that failed, with its code beside it. */
 function Effect({ effect, checks }: { effect: OwnAgentDryRunEffect; checks: readonly OwnAgentDryRunCheck[] }) {
@@ -77,7 +77,8 @@ function Effect({ effect, checks }: { effect: OwnAgentDryRunEffect; checks: read
       </>
     );
   }
-  if (effect.kind === 'would_move') return <>{t('effect_would_move', { would: wouldWords(t, effect.tool), module: effect.module })}</>;
+  if (effect.kind === 'would_move')
+    return <>{t('effect_would_move', { would: moneyToolWords(t, 'would', effect.tool), module: effect.module })}</>;
   const params = { tool: toolWords(tools, effect.tool), input: inputWords(t, effect.input), module: effect.module };
   if (effect.kind === 'ask') return <>{t('effect_ask', params)}</>;
   const reads = effect.dataClass === 'own_data' || effect.dataClass === 'market_data';
@@ -85,27 +86,30 @@ function Effect({ effect, checks }: { effect: OwnAgentDryRunEffect; checks: read
 }
 
 /**
- * Each press is its own request: a business key from this visit and a count. One whose answer was lost keeps its key, so
- * pressing again is the same request and never a second run; any edit makes the next press a new one.
+ * Each press is its own request: a business key from this visit and a count. One whose answer was lost keeps its key while
+ * the request is the same (`what`), so pressing again is the same request and never a second run; any other request
+ * (an edit, another tool) gets a new key.
  */
 function usePressKeys(prefix: string, agentId: string) {
-  const keys = useRef({ visit: Date.now().toString(36), presses: 0, pending: null as string | null });
+  const keys = useRef({ visit: Date.now().toString(36), presses: 0, pending: null as { key: string; what: string } | null });
   return {
-    edited: () => {
-      keys.current.pending = null;
-    },
-    next: () => {
-      if (!keys.current.pending) {
+    next: (what: string) => {
+      if (keys.current.pending?.what !== what) {
         keys.current.presses += 1;
-        keys.current.pending = `${prefix}:${agentId}:${keys.current.visit}:${keys.current.presses}`;
+        keys.current.pending = { key: `${prefix}:${agentId}:${keys.current.visit}:${keys.current.presses}`, what };
       }
-      return keys.current.pending;
+      return keys.current.pending.key;
     },
     /** The answer came (or was a refusal by name): the next press is a new request. */
     settled: () => {
       keys.current.pending = null;
     },
   };
+}
+type Catalogue = ReturnType<typeof useCatalogue>;
+function useCatalogue() {
+  const api = useApi();
+  return useResource((signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }), 'own-catalogue');
 }
 
 /**
@@ -115,12 +119,13 @@ function usePressKeys(prefix: string, agentId: string) {
  */
 export function TestPanel({ agent }: { agent: OwnAgent }) {
   const { t } = agentTestRunsCopy.useCopy();
+  const catalogue = useCatalogue();
   return (
     <Panel title={t('testTitle')} role="region" aria-label={t('testTitle')}>
       <p className="muted">{t('testIntro')}</p>
       <EngineRun agent={agent} />
-      <MoveTest agent={agent} />
-      <DryRun agent={agent} />
+      <MoveTest agent={agent} catalogue={catalogue} />
+      <DryRun agent={agent} catalogue={catalogue} />
     </Panel>
   );
 }
@@ -139,7 +144,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setRan(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId: keys.next(), ask }, ownAgentTestRunSchema);
+    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId: keys.next(ask), ask }, ownAgentTestRunSchema);
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -150,15 +155,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     <>
       <h3>{t('runTitle')}</h3>
       <p className="muted">{t('runIntro')}</p>
-      <Field
-        label={t('ask')}
-        value={ask}
-        maxLength={4000}
-        onChange={(event) => {
-          keys.edited();
-          setAsk(event.target.value);
-        }}
-      />
+      <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
       <Button disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
@@ -202,13 +199,9 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
 }
 
 /** A tool that moves value, tested: what it would do, and that nothing was sent to the ledger. */
-function MoveTest({ agent }: { agent: OwnAgent }) {
+function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
   const [picked, setPicked] = useState('');
   const [tested, setTested] = useState<Extract<OwnAgentTestRun, { kind: 'tool_test' }> | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -219,7 +212,7 @@ function MoveTest({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setTested(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.toolTest', { id: agent.id, requestId: keys.next(), tool }, ownAgentTestRunSchema);
+    const res = await api.mutate('agents', 'own.toolTest', { id: agent.id, requestId: keys.next(tool), tool }, ownAgentTestRunSchema);
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -239,11 +232,8 @@ function MoveTest({ agent }: { agent: OwnAgent }) {
               <Select
                 label={t('moveTool')}
                 value={tool}
-                onChange={(value) => {
-                  keys.edited();
-                  setPicked(value);
-                }}
-                options={money.map((name) => ({ value: name, label: moneyWords(t, name) }))}
+                onChange={setPicked}
+                options={money.map((name) => ({ value: name, label: moneyToolWords(t, 'money', name) }))}
               />
               <Button disabled={busy || !tool} onClick={() => void testTool(tool)}>
                 {t('moveTest')}
@@ -285,14 +275,10 @@ function MoveTest({ agent }: { agent: OwnAgent }) {
 }
 
 /** A dry run of one call of one of the agent's tools. */
-function DryRun({ agent }: { agent: OwnAgent }) {
+function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
   const [picked, setTool] = useState(agent.tools[0] ?? '');
   // A tool the agent no longer carries is never sent: the first it carries now stands in for it.
   const tool = agent.tools.includes(picked) ? picked : (agent.tools[0] ?? '');
@@ -300,30 +286,17 @@ function DryRun({ agent }: { agent: OwnAgent }) {
   const [dry, setDry] = useState<Extract<OwnAgentTestRun, { kind: 'dry_run' }> | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
-  // Each press is its own dry run: a business key from this visit and a count. One whose answer was lost keeps its key,
-  // so pressing again is the same request and never a second dry run; any edit makes the next press a new one.
-  const keys = useRef({ visit: Date.now().toString(36), presses: 0, pending: null as string | null });
-  const edited = () => {
-    keys.current.pending = null;
-  };
+  const keys = usePressKeys('own-dry', agent.id);
 
   async function dryRun() {
     setBusy(true);
     setDry(null);
     setRefused(null);
-    if (!keys.current.pending) {
-      keys.current.presses += 1;
-      keys.current.pending = `own-dry:${agent.id}:${keys.current.visit}:${keys.current.presses}`;
-    }
     const input = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== ''));
-    const res = await api.mutate(
-      'agents',
-      'own.dryRun',
-      { id: agent.id, requestId: keys.current.pending, tool, input },
-      ownAgentTestRunSchema,
-    );
+    const requestId = keys.next(JSON.stringify([tool, Object.entries(input).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]));
+    const res = await api.mutate('agents', 'own.dryRun', { id: agent.id, requestId, tool, input }, ownAgentTestRunSchema);
     setBusy(false);
-    if (res.ok || refusalCode(res)) keys.current.pending = null;
+    if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
     if (res.data.kind === 'dry_run') setDry(res.data);
   }
@@ -343,7 +316,6 @@ function DryRun({ agent }: { agent: OwnAgent }) {
                 label={t('tool')}
                 value={tool}
                 onChange={(value) => {
-                  edited();
                   setTool(value);
                   setArgs({});
                 }}
@@ -357,7 +329,6 @@ function DryRun({ agent }: { agent: OwnAgent }) {
                   value={args[field] ?? ''}
                   maxLength={4000}
                   onChange={(event) => {
-                    edited();
                     setArgs((current) => ({ ...current, [field]: event.target.value }));
                   }}
                 />
@@ -450,14 +421,18 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
           <>
             <DataTable
               label={t('testRunsTitle')}
-              headers={[t('colWhen'), t('colKind'), t('colTool'), t('colEffect'), t('colCost'), t('colLabel')]}
+              headers={[t('colWhen'), t('colKind'), t('colTested'), t('colEffect'), t('colCost'), t('colLabel')]}
             >
               {rows.map((row) => (
                 <tr key={row.id} data-run-id={row.id}>
                   <td>{new Date(row.createdAt).toLocaleString()}</td>
                   <td>{t(`kind_${row.kind}`)}</td>
                   <td>
-                    {row.kind === 'engine_run' ? row.ask : row.kind === 'tool_test' ? moneyWords(t, row.tool) : toolWords(tools, row.tool)}
+                    {row.kind === 'engine_run'
+                      ? shortAsk(row.ask)
+                      : row.kind === 'tool_test'
+                        ? moneyToolWords(t, 'money', row.tool)
+                        : toolWords(tools, row.tool)}
                   </td>
                   <td>{t(row.kind === 'engine_run' ? 'outcome_answered' : `outcome_${row.effect.kind}`)}</td>
                   <td data-testid="test-run-cost">

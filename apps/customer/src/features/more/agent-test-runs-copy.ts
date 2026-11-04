@@ -37,6 +37,7 @@ const en = {
   colWhen: 'When',
   colKind: 'Kind',
   colTool: 'Tool',
+  colTested: 'What was tested',
   colEffect: 'Would-be effect',
   colCost: 'Cost',
   colLabel: 'Label',
@@ -56,7 +57,7 @@ const en = {
   statCost: 'Spent',
   testLeftOut: 'Test runs are left out.',
   analyticsParked: 'Date ranges, outcomes over time, tool use and the timed step view are not built (AG-analytics-01).',
-  code_agents_request_id_replay: 'That request id already made another dry run; this one was not made.',
+  code_agents_request_id_replay: 'That request id already made another test run; this one was not made.',
   code_agents_own_not_found: 'This agent is not one of yours.',
   runTitle: 'Run a test',
   runIntro:
@@ -94,6 +95,7 @@ const en = {
   outcome_would_move: 'Would move value',
   outcome_answered: 'Answered on the test engine',
   code_agents_test_ask_blank: 'Write a question for the agent first.',
+  code_agents_own_text_invalid: 'The text holds a character that cannot be stored; remove it and try again.',
   code_agents_test_tool_moves_no_value: 'That tool moves no value; dry run it below instead.',
   money_ledger_transfer: 'Transfer funds',
   would_ledger_transfer: 'Would transfer funds',
@@ -166,6 +168,7 @@ const es = {
   colWhen: 'Cuándo',
   colKind: 'Tipo',
   colTool: 'Herramienta',
+  colTested: 'Qué se probó',
   colEffect: 'Efecto previsto',
   colCost: 'Coste',
   colLabel: 'Etiqueta',
@@ -186,7 +189,7 @@ const es = {
   testLeftOut: 'Las ejecuciones de prueba quedan fuera.',
   analyticsParked:
     'Los rangos de fechas, los resultados en el tiempo, el uso de herramientas y la vista de pasos con tiempos no están construidos (AG-analytics-01).',
-  code_agents_request_id_replay: 'Ese identificador de solicitud ya hizo otra simulación; esta no se hizo.',
+  code_agents_request_id_replay: 'Ese identificador de solicitud ya hizo otra ejecución de prueba; esta no se hizo.',
   code_agents_own_not_found: 'Este agente no es tuyo.',
   runTitle: 'Ejecutar una prueba',
   runIntro:
@@ -224,6 +227,7 @@ const es = {
   outcome_would_move: 'Movería valor',
   outcome_answered: 'Respondida en el motor de prueba',
   code_agents_test_ask_blank: 'Escribe primero una pregunta para el agente.',
+  code_agents_own_text_invalid: 'El texto contiene un carácter que no se puede guardar; quítalo y vuelve a intentarlo.',
   code_agents_test_tool_moves_no_value: 'Esa herramienta no mueve valor; simúlala abajo.',
   money_ledger_transfer: 'Transferir fondos',
   would_ledger_transfer: 'Transferiría fondos',
@@ -297,6 +301,7 @@ const fr = {
   colWhen: 'Quand',
   colKind: 'Type',
   colTool: 'Outil',
+  colTested: 'Ce qui a été testé',
   colEffect: 'Effet prévu',
   colCost: 'Coût',
   colLabel: 'Étiquette',
@@ -318,7 +323,7 @@ const fr = {
   testLeftOut: 'Les exécutions de test sont laissées de côté.',
   analyticsParked:
     'Les plages de dates, les résultats dans le temps, l’usage des outils et la vue minutée des étapes ne sont pas construits (AG-analytics-01).',
-  code_agents_request_id_replay: 'Cet identifiant de requête a déjà fait une autre simulation ; celle-ci n’a pas été faite.',
+  code_agents_request_id_replay: 'Cet identifiant de requête a déjà fait une autre exécution de test ; celle-ci n’a pas été faite.',
   code_agents_own_not_found: 'Cet agent n’est pas le vôtre.',
   runTitle: 'Lancer un test',
   runIntro:
@@ -356,6 +361,7 @@ const fr = {
   outcome_would_move: 'Déplacerait de la valeur',
   outcome_answered: 'Répondu par le moteur de test',
   code_agents_test_ask_blank: 'Écrivez d’abord une question pour l’agent.',
+  code_agents_own_text_invalid: 'Le texte contient un caractère qui ne peut pas être enregistré ; retirez-le et réessayez.',
   code_agents_test_tool_moves_no_value: 'Cet outil ne déplace aucune valeur ; simulez-le plus bas.',
   money_ledger_transfer: 'Transférer des fonds',
   would_ledger_transfer: 'Transférerait des fonds',
@@ -394,7 +400,7 @@ const fr = {
 
 export const agentTestRunsCopy = defineCopy('more.agents.test-runs', en, { es, fr });
 
-type MoneyKey = Extract<keyof typeof en, `money_${string}` | `would_${string}`>;
-/** True when the Test panel has words for this key of a tool that moves value. */
-export const hasMoneyToolWords = (key: string): key is MoneyKey =>
-  (key.startsWith('money_') || key.startsWith('would_')) && Object.hasOwn(en, key);
+type WordKey = Extract<keyof typeof en, `money_${string}` | `would_${string}` | `code_${string}`>;
+/** True when the Test panel has words for this key: a tool that moves value, or a refusal code it words. */
+export const hasTestRunsWords = (key: string): key is WordKey =>
+  (key.startsWith('money_') || key.startsWith('would_') || key.startsWith('code_')) && Object.hasOwn(en, key);

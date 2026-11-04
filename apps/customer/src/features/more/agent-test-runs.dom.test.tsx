@@ -178,6 +178,44 @@ describe('a run on the test engine (J-agents-04 #1)', () => {
   });
 });
 
+describe('the request id a test press sends', () => {
+  const sent = (procedure: string) => calls.filter((call) => call.procedure === procedure).map((call) => call.input);
+  it('a lost run is sent again with the same request id; another question gets a new one', async () => {
+    const host = await mount(<TestPanel agent={AGENT} />, 'Run a test');
+    await type(field(host, 'Ask the agent'), 'TEST one');
+    loseNext = true;
+    await click(button(host, 'Run a test'));
+    await click(button(host, 'Run a test'));
+    await vi.waitFor(() => expect(host.querySelector('[aria-label="Engine run"]')).not.toBeNull());
+    const [lost, again] = sent('own.testRun').slice(-2);
+    expect(again!.requestId).toBe(lost!.requestId);
+    await type(field(host, 'Ask the agent'), 'TEST two');
+    await click(button(host, 'Run a test'));
+    await vi.waitFor(() => expect(sent('own.testRun').at(-1)!.ask).toBe('TEST two'));
+    expect(sent('own.testRun').at(-1)!.requestId).not.toBe(lost!.requestId);
+  });
+
+  it('a lost tool test is sent again with the same request id; another tool gets a new one', async () => {
+    const host = await mount(<TestPanel agent={AGENT} />, 'Test the action');
+    loseNext = true;
+    await click(button(host, 'Test the action'));
+    await click(button(host, 'Test the action'));
+    await vi.waitFor(() => expect(host.querySelector('[aria-label="Would do"]')).not.toBeNull());
+    const [lost, again] = sent('own.toolTest').slice(-2);
+    expect(again).toEqual(lost);
+    const select = [...host.querySelectorAll('label')]
+      .find((l) => l.textContent?.startsWith('Action that moves value'))!
+      .querySelector('select')!;
+    await act(async () => {
+      select.value = 'trade.place';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click(button(host, 'Test the action'));
+    await vi.waitFor(() => expect(sent('own.toolTest').at(-1)!.tool).toBe('trade.place'));
+    expect(sent('own.toolTest').at(-1)!.requestId).not.toBe(lost!.requestId);
+  });
+});
+
 describe('a test of a tool that would move value (J-agents-04 #2)', () => {
   it('offers only the tools that move value, and shows what one would do and that nothing was sent to the ledger', async () => {
     const host = await mount(<TestPanel agent={AGENT} />, 'Test the action');
