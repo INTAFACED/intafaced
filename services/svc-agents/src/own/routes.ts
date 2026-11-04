@@ -11,6 +11,9 @@ import {
   ownAgentEvalStartSchema,
   ownAgentAnalyticsSchema,
   ownAgentDryRunStartSchema,
+  ownAgentTestRunStartSchema,
+  ownAgentToolTestStartSchema,
+  type OwnAgentLiveEngine,
   ownAgentHoldsSchema,
   ownAgentTestRunSchema,
   ownAgentRuleSchema,
@@ -116,6 +119,8 @@ function runError(err: unknown): never {
 export interface OwnRunDeps {
   readonly runtime: AgentRuntime;
   readonly feeAssetId: string;
+  /** The engine this deployment runs the agent's live runs (`own.run`) on, read at each call from the wired adapter. */
+  readonly liveEngine?: () => OwnAgentLiveEngine;
 }
 
 /** A refusal reaches the person as its code, which the Agents room words; anything else is a fault. */
@@ -391,6 +396,42 @@ export function ownRouter(
           return new OwnTestRunStore(sqlOf(sql), feeAssetId).dryRun(ctx.principal.userId, agent.id, input.requestId, call, () =>
             dryRunToolCall(sqlOf(sql), tooling.baseline, { ownerId: ctx.principal.userId, agent, ...call }),
           );
+        });
+      }),
+
+    /**
+     * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1): mode test, cost 0, the reply and
+     * every log row labelled TEST. The test engine answers whatever engine this deployment runs live runs on, which the
+     * run keeps beside it: no provider is called, no session is opened, and no reservation, usage row or ledger call is
+     * made. The same request id again is that run.
+     */
+    testRun: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentTestRunStartSchema)
+      .output(ownAgentTestRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId, liveEngine } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          const engine = liveEngine ? liveEngine() : 'unknown';
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine);
+        });
+      }),
+
+    /**
+     * A tool that moves value, tested (AG-testing-01; J-agents-04 #2): what a call of it would do, and that a real call by
+     * the person's own agent is refused `agents.own.money_tool`. Nothing is sent: no ledger call, no session, no
+     * reservation and no intent. The same request id again is that test.
+     */
+    toolTest: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentToolTestStartSchema)
+      .output(ownAgentTestRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).toolTest(ctx.principal.userId, agent.id, input.requestId, input.tool);
         });
       }),
 

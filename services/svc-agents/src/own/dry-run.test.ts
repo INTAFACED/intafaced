@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
@@ -12,6 +12,7 @@ import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
 import { UsageMeter } from '../metering/meter.js';
 import { MockModelProvider } from '../providers/mock.js';
+import { UpstreamModelProvider } from '../providers/upstream.js';
 import { createAgentsRouter } from '../router.js';
 import { AgentRuntime } from '../runtime.js';
 import { UserSpendStore } from '../spend/store.js';
@@ -85,10 +86,14 @@ if (!available) {
   });
   await assertTestDatabase(sql, 'svc-agents');
   let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
-  let provider: MockModelProvider;
+  let provider: MockModelProvider | UpstreamModelProvider;
   let ledger: MemoryLedger;
 
-  function people(baseline: Record<string, string> = BASELINE) {
+  /** A deployment whose live engine is a connected model: one nobody answers at, so any call to it would fail. */
+  const liveEngine = () =>
+    new UpstreamModelProvider({ id: 'primary', baseUrl: 'http://127.0.0.1:9', apiKey: 'TEST', models: { 'reasoning-md': 'TEST-model' } });
+
+  function people(baseline: Record<string, string> = BASELINE, engine: 'sandbox' | 'live' = 'sandbox') {
     const table = parseRoutingTable({
       routes: [
         {
@@ -100,7 +105,7 @@ if (!available) {
         },
       ],
     });
-    provider = new MockModelProvider({ id: 'primary' });
+    provider = engine === 'live' ? liveEngine() : new MockModelProvider({ id: 'primary' });
     ledger = new MemoryLedger();
     const gateway = new ModelGateway([provider], table);
     const meter = new UsageMeter(sql, ledger, { assetId: 'USDT', windowMinutes: 60 });
@@ -143,7 +148,7 @@ if (!available) {
       expect(await count(table), table).toBe(0);
     expect(await count('own_agent_approval_requests')).toBe(0);
     expect(ledger.journal()).toEqual([]);
-    expect(provider.callCount).toBe(0);
+    if (provider instanceof MockModelProvider) expect(provider.callCount).toBe(0);
   };
 
   beforeAll(async () => {
@@ -284,6 +289,113 @@ if (!available) {
       await expect(other.own.testRuns({ id, limit: 50 })).rejects.toMatchObject({ message: 'agents.own.not_found' });
       await expect(other.own.holds({ id })).rejects.toMatchObject({ message: 'agents.own.not_found' });
       await expect(other.own.analytics({ id })).rejects.toMatchObject({ message: 'agents.own.not_found' });
+      expect(await count('own_agent_test_runs')).toBe(0);
+    });
+  });
+
+  describe('a test run on the test engine (J-agents-04 #1)', () => {
+    it('answers on the test engine: mode test, cost 0, the reply and every log row TEST; no session, reservation, usage row or ledger call', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      const run = await person.own.testRun({ id, requestId: 'test:run:0001', ask: 'TEST question' });
+      expect(run).toMatchObject({
+        kind: 'engine_run',
+        mode: 'test',
+        engine: 'test',
+        liveEngine: 'sandbox',
+        ask: 'TEST question',
+        reply: 'TEST reply: TEST question',
+        cost: '0',
+        assetId: 'USDT',
+        label: 'TEST',
+      });
+      expect(run.kind === 'engine_run' && run.log).toEqual([
+        { step: 'asked', text: 'TEST question', label: 'TEST' },
+        { step: 'answered', text: 'TEST reply: TEST question', label: 'TEST' },
+        { step: 'billed', text: '0 USDT', label: 'TEST' },
+      ]);
+      await untouched();
+      expect(await person.own.holds({ id })).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+      expect(await person.own.usage({ id, limit: 50 })).toEqual([]);
+      expect(await person.own.runs({ id, limit: 50 })).toEqual([]);
+      expect(await person.own.testRuns({ id, limit: 50 })).toEqual([run]);
+      // A test run is a test run in analytics too: left out by default.
+      expect(await person.own.analytics({ id })).toMatchObject({ runs: 0, testRuns: null, cost: '0' });
+    });
+
+    it('on a live-engine deployment the test still uses the test engine and the live engine is never asked', async () => {
+      const fetched = vi.spyOn(globalThis, 'fetch');
+      try {
+        const { person } = people(BASELINE, 'live');
+        const id = await draft(person);
+        const run = await person.own.testRun({ id, requestId: 'test:live:0001', ask: 'TEST question' });
+        expect(run).toMatchObject({ engine: 'test', liveEngine: 'live', reply: 'TEST reply: TEST question', cost: '0', label: 'TEST' });
+        expect(fetched).not.toHaveBeenCalled();
+        await untouched();
+        // The same deployment's live run does go to the live engine, which nobody answers: the test did not.
+        const { sessionId } = await person.own.session.open({ id });
+        await expect(person.own.run({ id, sessionId, requestId: 'live:run:0002', ask: 'TEST question' })).rejects.toBeTruthy();
+        expect(fetched).toHaveBeenCalled();
+      } finally {
+        fetched.mockRestore();
+      }
+    });
+
+    it('a blank question is refused by name and nothing is stored; the same request id again is that run, another is refused', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      await expect(person.own.testRun({ id, requestId: 'test:blank:0001', ask: '  ' })).rejects.toMatchObject({
+        message: 'agents.test.ask_blank',
+      });
+      expect(await count('own_agent_test_runs')).toBe(0);
+      const body = { id, requestId: 'test:same:0001', ask: 'TEST question' };
+      const [first, second] = await Promise.all([person.own.testRun(body), person.own.testRun(body)]);
+      expect(second).toEqual(first);
+      await expect(person.own.testRun({ ...body, ask: 'other' })).rejects.toMatchObject({ message: 'agents.request_id_replay' });
+      await expect(person.own.dryRun({ id, requestId: body.requestId, ...KB })).rejects.toMatchObject({
+        message: 'agents.request_id_replay',
+      });
+      expect(await count('own_agent_test_runs')).toBe(1);
+    });
+  });
+
+  describe('a test of a tool that would move value (J-agents-04 #2)', () => {
+    it('reports what it would do and that a real call is refused; no ledger call, session, reservation or intent', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      const tested = await person.own.toolTest({ id, requestId: 'tool:place:0001', tool: 'trade.place' });
+      expect(tested).toMatchObject({ kind: 'tool_test', tool: 'trade.place', input: {}, cost: '0', label: 'TEST', mode: 'test' });
+      expect(tested.kind === 'tool_test' && tested.effect).toEqual({ kind: 'would_move', tool: 'trade.place', module: 'trade', input: {} });
+      expect(tested.kind === 'tool_test' && tested.checks).toEqual([
+        { check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' },
+      ]);
+      await untouched();
+      expect(await person.own.holds({ id })).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+      expect(await person.own.testRuns({ id, limit: 50 })).toEqual([tested]);
+    });
+
+    it('a tool that moves no value, or none offered, is refused by name and nothing is stored', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      await expect(person.own.toolTest({ id, requestId: 'tool:kb:0001', tool: 'support.kb.search' })).rejects.toMatchObject({
+        message: 'agents.test.tool_moves_no_value',
+      });
+      await expect(person.own.toolTest({ id, requestId: 'tool:none:0001', tool: 'no.such.tool' })).rejects.toMatchObject({
+        message: 'agents.tool_not_declared',
+      });
+      expect(await count('own_agent_test_runs')).toBe(0);
+      await untouched();
+    });
+
+    it("keeps one person's test runs and tool tests from another", async () => {
+      const { person, other } = people();
+      const id = await draft(person);
+      await expect(other.own.testRun({ id, requestId: 'test:other:0001', ask: 'TEST' })).rejects.toMatchObject({
+        message: 'agents.own.not_found',
+      });
+      await expect(other.own.toolTest({ id, requestId: 'tool:other:0001', tool: 'trade.place' })).rejects.toMatchObject({
+        message: 'agents.own.not_found',
+      });
       expect(await count('own_agent_test_runs')).toBe(0);
     });
   });
