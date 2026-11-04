@@ -170,6 +170,8 @@ test(`${J} #2 uses a connector class for the first time: the consent card appear
   const answer = tryTool(page).getByRole('region', { name: 'Tool answer' });
   await expect(answer).toContainText('Ran Search help articles.');
   await expect(answer.getByTestId('tool-answer')).toContainText('"tool": "support.kb.search"');
+  await expect(answer.getByTestId('tool-answer')).toContainText('"status": "ok"');
+  await expect(answer.getByTestId('tool-answer')).toContainText('"articleKey": "kb-');
   await expect(consentCard(page)).toHaveCount(0);
 
   // Revoking withdraws it: the Permissions page says so, svc-agents holds it withdrawn, and the next call is refused again.
