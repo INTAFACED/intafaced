@@ -70,10 +70,7 @@ const en = {
     'This agent has no token of its own: agent identity is not built (AG-identity-01), so it can only act inside a session you open.',
   parked_Sharing: 'Only you can see or change this agent. Co-owners are not built (AG-builder-03).',
   page_Rules: 'Rules',
-  parked_Rules: 'Rules that need your approval before an agent acts are not built (AG-approvals-01), so this agent has none.',
   page_Permissions: 'Permissions',
-  parked_Permissions:
-    'The permission mode and connector consent are not built (AG-guardrails-01), so this draft grants nothing beyond its tools.',
   page_Memory: 'Memory',
   parked_Memory: 'Agent memory is not built (AG-builder-02), so this agent keeps nothing between sessions.',
   page_Privacy: 'Privacy',
@@ -259,11 +256,7 @@ const es = {
     'Este agente no tiene un token propio: la identidad de agentes no está construida (AG-identity-01), así que solo puede actuar dentro de una sesión que abras.',
   parked_Sharing: 'Solo tú puedes ver o cambiar este agente. Los copropietarios no están construidos (AG-builder-03).',
   page_Rules: 'Reglas',
-  parked_Rules:
-    'Las reglas que piden tu aprobación antes de que un agente actúe no están construidas (AG-approvals-01), así que este agente no tiene ninguna.',
   page_Permissions: 'Permisos',
-  parked_Permissions:
-    'El modo de permisos y el consentimiento de conectores no están construidos (AG-guardrails-01), así que este borrador no concede nada más que sus herramientas.',
   page_Memory: 'Memoria',
   parked_Memory: 'La memoria del agente no está construida (AG-builder-02), así que este agente no guarda nada entre sesiones.',
   page_Privacy: 'Privacidad',
@@ -460,11 +453,7 @@ const fr = {
     'Cet agent n’a pas de jeton propre : l’identité des agents n’est pas construite (AG-identity-01), il ne peut donc agir que dans une session que vous ouvrez.',
   parked_Sharing: 'Vous seul pouvez voir ou modifier cet agent. Les copropriétaires ne sont pas construits (AG-builder-03).',
   page_Rules: 'Règles',
-  parked_Rules:
-    'Les règles qui demandent votre accord avant qu’un agent agisse ne sont pas construites (AG-approvals-01) ; cet agent n’en a donc aucune.',
   page_Permissions: 'Autorisations',
-  parked_Permissions:
-    'Le mode d’autorisation et le consentement aux connecteurs ne sont pas construits (AG-guardrails-01) ; ce brouillon n’accorde rien au-delà de ses outils.',
   page_Memory: 'Mémoire',
   parked_Memory: 'La mémoire de l’agent n’est pas construite (AG-builder-02) ; cet agent ne garde rien d’une session à l’autre.',
   page_Privacy: 'Confidentialité',

@@ -1,6 +1,13 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
+  forwardedPrincipalHeaders,
+  OWN_AGENT_DATA_CLASSES,
+  OWN_AGENT_RULE_CHOICES,
+  ownAgentApprovalRequestSchema,
+  ownAgentConsentSchema,
+  ownAgentRuleSchema,
+  ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
   ownAgentRunResultSchema,
@@ -16,14 +23,26 @@ import {
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
+import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
-import { OWN_AGENTS_MAX, OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal, type OwnTemplate } from './catalog.js';
+import {
+  OWN_AGENTS_MAX,
+  OWN_TEMPLATE_IDS,
+  OWN_TEMPLATES,
+  OWN_TOOL_DOORS,
+  OWN_TOOLS,
+  OwnAgentRefusal,
+  type OwnTemplate,
+} from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
+import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
+import { invokeSupportDataTool } from '../support-agent/data-tools.js';
+import type { SupportDeskPort } from '../support-agent/desk-port.js';
+import type { SupportTierLaw } from '../support-agent/tier-gate.js';
 
 /** The task every run of a person's own agent is routed and priced as. */
 export const OWN_RUN_TASK = 'own.run';
@@ -37,6 +56,8 @@ const OWN_MAX_OUTPUT_TOKENS = 2048;
  * The guardrail an own agent's session is bound to: its saved tools, read only, in their modules; the one run task;
  * and the agent's own cap per session as the ceiling. The person's caps for it are held at every run, as they stand.
  */
+const writes = (tool: { dataClass: string | null }) => tool.dataClass === 'live_write' || tool.dataClass === 'draft_write';
+
 export function ownGuardrail(agent: OwnAgentView): Guardrail {
   // A tool with no declared shape is never granted, even on a draft saved before shapes were declared.
   const tools = OWN_TOOLS.filter((tool) => !tool.movesMoney && tool.shape !== null && agent.tools.includes(tool.name));
@@ -45,7 +66,15 @@ export function ownGuardrail(agent: OwnAgentView): Guardrail {
     version: agent.version,
     capacityMode: 'research_only',
     scopes: [],
-    tools: tools.map((tool) => ({ name: tool.name, module: tool.module, mode: 'read', requiresApproval: false })),
+    // A write tool is granted as a write; whether a call of it asks first is the person's rules and the owner's baseline.
+    tools: tools.map((tool) => ({
+      name: tool.name,
+      module: tool.module,
+      mode: writes(tool) ? 'write' : 'read',
+      // A write never runs at the runtime unapproved, whatever reaches it: the rules decide when to ask, and only an
+      // approved request may pass this.
+      requiresApproval: writes(tool),
+    })),
     limits: {
       maxActionsPerSession: OWN_MAX_ACTIONS,
       maxOutputTokensPerCall: OWN_MAX_OUTPUT_TOKENS,
@@ -114,6 +143,31 @@ function owner(run: OwnRunDeps | undefined): { overageGrace: string | null; asse
 
 const idInput = z.object({ id: z.string().min(1).max(64) });
 
+/**
+ * What the own agent's tool gates and doors need: the owner's baseline (blank refuses), and the doors of the tools
+ * that are wired. Today that is the support desk's help search, read with the person's own forwarded principal.
+ */
+export interface OwnToolDeps {
+  readonly baseline: PolicyBaseline;
+  readonly supportDesk?: SupportDeskPort | null;
+  readonly supportTierLaw?: SupportTierLaw | null;
+}
+const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
+
+/** A whole number as the person typed it, or undefined so the door refuses it as unset rather than guessing one. */
+/** A tool's door answered with its own refusal reason; nothing was read. */
+class DoorRefusal extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = 'DoorRefusal';
+  }
+}
+
+function wholeNumber(text: string | undefined): number | undefined {
+  const value = text?.trim() ?? '';
+  return /^[0-9]{1,6}$/.test(value) ? Number(value) : undefined;
+}
+
 /** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
 async function ownedOwnSession(sql: Sql | undefined, runtime: AgentRuntime, userId: string, agentId: string, sessionId: string) {
   const agent = await guard(() => storeOf(sql).get(userId, agentId));
@@ -129,7 +183,12 @@ async function ownedOwnSession(sql: Sql | undefined, runtime: AgentRuntime, user
  * signed-in person; a delegated token can neither build nor read their drafts,
  * whose instructions are theirs alone. Building moves no value.
  */
-export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps, templates: readonly OwnTemplate[] = OWN_TEMPLATE_IDS) {
+export function ownRouter(
+  sql: Sql | undefined,
+  run?: OwnRunDeps,
+  templates: readonly OwnTemplate[] = OWN_TEMPLATE_IDS,
+  tooling: OwnToolDeps = NO_TOOL_DEPS,
+) {
   return router({
     /** The templates and the tools a draft may be given, with the ones that move money marked so they can be refused. */
     catalogue: scopedProcedure('agents:read', { module: 'agents' })
@@ -190,6 +249,167 @@ export function ownRouter(sql: Sql | undefined, run?: OwnRunDeps, templates: rea
         assertPersonSetsLimits(ctx.principal);
         return guard(() => storeOf(sql).list(ctx.principal.userId, input.limit));
       }),
+
+    /**
+     * The person's standing rules for this agent (AG-guardrails-02): one per tool, which only narrow. A rule that lets a
+     * live-write tool act without asking is refused `agents.rule_invalid`; one looser than the owner's baseline is
+     * refused `agents.baseline_loosen_refused`, and nothing is stored for either.
+     */
+    rules: router({
+      list: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(z.array(ownAgentRuleSchema))
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnRuleStore(sqlOf(sql)).list(ctx.principal.userId, agent.id);
+          });
+        }),
+      save: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ tool: z.string().min(1).max(120), choice: z.enum(OWN_AGENT_RULE_CHOICES) }))
+        .output(ownAgentRuleSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            checkRule(tooling.baseline, agent.tools, input.tool, input.choice);
+            return new OwnRuleStore(sqlOf(sql)).save(ctx.principal.userId, agent.id, input.tool, input.choice);
+          });
+        }),
+    }),
+
+    /**
+     * The person's consent to each class of tools this agent uses (AG-guardrails-01). Until a class is granted every
+     * call of it is refused `agents.consent_required`; revoking withdraws it for the next call.
+     */
+    consents: router({
+      list: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(z.array(ownAgentConsentSchema))
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnConsentStore(sqlOf(sql)).list(ctx.principal.userId, agent.id);
+          });
+        }),
+      grant: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ dataClass: z.enum(OWN_AGENT_DATA_CLASSES) }))
+        .output(ownAgentConsentSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnConsentStore(sqlOf(sql)).grant(ctx.principal.userId, agent.id, input.dataClass);
+          });
+        }),
+      revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ dataClass: z.enum(OWN_AGENT_DATA_CLASSES) }))
+        .output(ownAgentConsentSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnConsentStore(sqlOf(sql)).revoke(ctx.principal.userId, agent.id, input.dataClass);
+          });
+        }),
+    }),
+
+    /** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
+    approvals: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentApprovalRequestSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnApprovalRequestStore(sqlOf(sql)).list(ctx.principal.userId, agent.id, input.limit);
+        });
+      }),
+
+    tool: router({
+      /**
+       * One call of one of the agent's tools in its open session: consent for the tool's class, then the owner's
+       * baseline, then the person's rule, then the session's own guardrail. A call a rule asks about is stored as an
+       * approval request, once per request id, and the tool does not run. A tool with no door refuses
+       * `agents.tool_not_wired` and runs nothing.
+       */
+      try: executeProcedure()
+        .input(
+          idInput.extend({
+            sessionId: z.string().uuid(),
+            requestId: z.string().min(8).max(200),
+            tool: z.string().min(1).max(120),
+            input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+          }),
+        )
+        .output(ownAgentToolCallSchema)
+        .mutation(async ({ ctx, input }) => {
+          const { runtime } = runDepsOf(run);
+          const { agent, session } = await ownedOwnSession(sql, runtime, ctx.principal.userId, input.id, input.sessionId);
+          const requests = new OwnApprovalRequestStore(sqlOf(sql));
+          // A request id already held for the person is that request, whatever the rules say now: never a second call.
+          const held = await guard(() => requests.find(ctx.principal.userId, session.id, input.requestId, input.tool, input.input));
+          if (held) return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: held.request };
+          const gate = await guard(() =>
+            gateToolCall(sqlOf(sql), tooling.baseline, {
+              ownerId: ctx.principal.userId,
+              agentId: agent.id,
+              agentTools: agent.tools,
+              tool: input.tool,
+            }),
+          );
+          if (gate.kind === 'ask') {
+            // The session's own guardrail first, as for a call that runs: open, inside its action limit, and the tool
+            // declared when the session opened. Only the approval itself is left out: that is what this request asks.
+            const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: input.tool, approved: true });
+            if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
+            const request = await guard(() =>
+              requests.hold({
+                ownerId: ctx.principal.userId,
+                agentId: agent.id,
+                sessionId: session.id,
+                requestId: input.requestId,
+                tool: input.tool,
+                args: input.input,
+                ruleId: gate.ruleId,
+              }),
+            );
+            return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request };
+          }
+          // A tool with no door runs nothing; the catalogue names this refusal for every such tool.
+          if (!OWN_TOOL_DOORS.has(input.tool)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.tool_not_wired' });
+          const desk = tooling.supportDesk ?? null;
+          try {
+            // A retried read runs the read again and is recorded again: it moves nothing and holds nothing.
+            const acted = await runtime.act({
+              sessionId: session.id,
+              tool: input.tool,
+              execute: async () => {
+                const result = await invokeSupportDataTool({
+                  tool: input.tool,
+                  plane: desk ? 'live' : 'dark',
+                  requesterUserId: ctx.principal.userId,
+                  tierLaw: tooling.supportTierLaw ?? null,
+                  userTier: ctx.principal.tier,
+                  desk,
+                  deskHeaders: forwardedPrincipalHeaders(ctx),
+                  kbQuery: input.input.kbQuery ?? null,
+                  ...(wholeNumber(input.input.limit) === undefined ? {} : { kbSearchLimit: wholeNumber(input.input.limit) }),
+                });
+                // The door's own refusal is a refusal, recorded as a failed call, never an answer that ran.
+                if (result.status === 'refuse') throw new DoorRefusal(result.reason);
+                return result;
+              },
+            });
+            return { outcome: 'ran' as const, tool: input.tool, dataClass: gate.dataClass, result: acted.result };
+          } catch (err) {
+            if (err instanceof DoorRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${err.reason}` });
+            return runError(err);
+          }
+        }),
+    }),
 
     /** The soft alert and monthly hard limit the person set for this agent (J-agents-02). */
     usageLimits: ownUsageLimitsRouter(sql, run),

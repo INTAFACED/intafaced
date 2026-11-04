@@ -24,6 +24,7 @@ import {
 } from '@intafaced/contracts/agents-own';
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
+import { PermissionsPage, RulesPage, TryTool } from './AgentGuardrails';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -481,14 +482,25 @@ export function OwnAgentPage({ id }: { id: string }) {
                 <Sessions agent={agent} session={session} onRun={countRun} />
               </>
             ) : page === 'Test' ? (
-              <Sessions agent={agent} session={session} twice />
+              <>
+                <Sessions agent={agent} session={session} twice />
+                <TryTool agent={agent} session={session} />
+              </>
+            ) : page === 'Rules' ? (
+              <RulesPage agent={agent} />
+            ) : page === 'Permissions' ? (
+              <PermissionsPage agent={agent} />
             ) : page === 'Runs' ? (
               <Runs agent={agent} />
             ) : page === 'Usage' ? (
               <Usage agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
-                <p role="note">{t(`parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage'>}`)}</p>
+                <p role="note">
+                  {t(
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions'>}`,
+                  )}
+                </p>
               </Panel>
             )}
           </div>

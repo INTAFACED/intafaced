@@ -69,6 +69,7 @@ import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type Ro
 import { spendRouter } from './spend/routes.js';
 import { ownRouter } from './own/routes.js';
 import type { OwnTemplate } from './own/catalog.js';
+import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
@@ -349,6 +350,8 @@ export interface AgentsRouterDeps {
   readonly tierLaws?: TierLaws;
   /** The own-agent templates offered (`AGENTS_OWN_TEMPLATES`, AG-catalogue-02). Absent offers every built-in one. */
   readonly ownTemplates?: readonly OwnTemplate[];
+  /** The owner's managed baseline for own agents' tools (AG-guardrails-02); absent is blank and refuses. */
+  readonly policyBaseline?: PolicyBaseline;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -4013,7 +4016,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     spend: spendRouter(sql),
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
-    own: ownRouter(sql, { runtime, feeAssetId }, deps.ownTemplates),
+    own: ownRouter(sql, { runtime, feeAssetId }, deps.ownTemplates, {
+      baseline: deps.policyBaseline ?? {},
+      supportDesk: supportDesk ?? null,
+      supportTierLaw: tierLaws.support,
+    }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
