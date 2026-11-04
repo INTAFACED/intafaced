@@ -16,9 +16,10 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 test.describe.configure({ mode: 'default' });
 
 function people() {
-  const { sender, recipient, saved, lookalike } = run.read();
-  if (!sender || !recipient || !saved || !lookalike) throw new Error(`${J} #1 made no accounts, so this step has no one to act as`);
-  return { sender, recipient, saved, lookalike };
+  const { sender, recipient, saved, lookalike, prober } = run.read();
+  if (!sender || !recipient || !saved || !lookalike || !prober)
+    throw new Error(`${J} #1 made no accounts, so this step has no one to act as`);
+  return { sender, recipient, saved, lookalike, prober };
 }
 
 /** Types a handle in To and leaves the field, which is when Send looks it up. */
@@ -71,12 +72,13 @@ async function mainSpace(sender) {
 const joinedThisMonth = () =>
   `Member since ${new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date())}`;
 
-/** A fresh TEST account with exactly this handle, signed up in the browser; signed out after. */
-async function signUpAs(page, handle) {
+/** A fresh TEST account with exactly this handle, signed up in the browser (and verified when asked); signed out after. */
+async function signUpAs(page, handle, { verified = false } = {}) {
   const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
   await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
-  await signOutBrowser(page.context());
+  if (verified) await verify(page, who);
+  else await signOutBrowser(page.context());
   return who;
 }
 
@@ -117,10 +119,11 @@ const OTHER_ROOMS = [
 
 test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, with the other personal rooms listed`, async ({ page }) => {
   // The start: two verified members; B has named their profile; A holds TEST 100 USDT and a little TEST BTC in the
-  // ledger, and has saved @<saved> as a recipient. @<lookalike> is another member whose handle imitates the saved one.
+  // ledger, and has saved @<saved> as a recipient. @<lookalike> is another member whose handle imitates the saved one;
+  // it holds TEST 1 USDT, so its own Send room has a To field when it is the one that runs out of lookups in #2.
   const tag = Date.now().toString(36);
   const saved = await signUpAs(page, `jpcleo${tag}`);
-  const lookalike = await signUpAs(page, `jpc1eo${tag}`);
+  const lookalike = await signUpAs(page, `jpc1eo${tag}`, { verified: true });
   const recipient = await signUp(page, 'jpb');
   await verify(page, recipient);
   const b = await api(recipient);
@@ -132,6 +135,7 @@ test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, wi
   await verify(page, sender);
   expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
   expect(fund(sender.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect(fund(lookalike.email, 'USDT', '1').tx).toBeTruthy();
   const a = await api(sender);
   await trpc(a, 'POST', 'identity/trpc/recipients.add', {
     handle: saved.handle,
@@ -144,6 +148,7 @@ test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, wi
     recipient,
     saved: saved.handle,
     lookalike: lookalike.handle,
+    prober: lookalike,
     before: { sender: await usdt(sender), recipient: await usdt(recipient) },
   });
   expect(run.read().before).toEqual({ sender: '100', recipient: '0' });
@@ -169,7 +174,7 @@ test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, wi
 test(`${J} #2 types a handle in To and sees who it is, or a plain answer, and a look-alike of a saved recipient is flagged`, async ({
   page,
 }) => {
-  const { sender, recipient, saved, lookalike } = people();
+  const { sender, recipient, saved, lookalike, prober } = people();
   await signIn(page, sender);
   await page.goto('/pay');
   const status = page.getByTestId('to-status');
@@ -204,9 +209,11 @@ test(`${J} #2 types a handle in To and sees who it is, or a plain answer, and a 
   await expect(page.getByTestId('pay-dialog')).toHaveCount(0);
   await signOutBrowser(page.context());
 
-  // Too many lookups: B spends their lookup budget (30 a minute) through their own session, then types a handle.
-  const b = await api(recipient);
-  const ask = () => b.get(`/api/identity/trpc/users.resolveHandle?input=${encodeURIComponent(JSON.stringify({ handle: sender.handle }))}`);
+  // Too many lookups: a member (the look-alike account, not A, whose lookups the next steps need) spends their lookup
+  // budget (30 a minute) through their own session, then types a handle in their own Send room.
+  const own = await api(prober);
+  const ask = () =>
+    own.get(`/api/identity/trpc/users.resolveHandle?input=${encodeURIComponent(JSON.stringify({ handle: sender.handle }))}`);
   let refused = null;
   for (let i = 0; i < 40 && !refused; i++) {
     const res = await ask();
@@ -214,7 +221,7 @@ test(`${J} #2 types a handle in To and sees who it is, or a plain answer, and a 
     else expect(res.status).toBe(200);
   }
   expect(refused, 'identity never refused a lookup within 40 asks').not.toBeNull();
-  await signIn(page, recipient);
+  await signIn(page, prober);
   await page.goto('/pay');
   await lookUp(page, sender.handle);
   await expect(status).toContainText('Too many lookups. Wait a minute, then try again.');
