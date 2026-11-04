@@ -210,21 +210,30 @@ async function depositReleased(page, browser, client, who, amount, label) {
     const rows = holds.locator('tbody > tr', { hasText: 'USDT' }).filter({ has: founder.getByRole('button', { name: /^(Open|Close)$/ }) });
     await expect(rows.first()).toBeVisible();
     const detail = holds.getByTestId('row-detail');
-    const seen = [];
-    let found = false;
-    for (let i = 0, n = await rows.count(); i < n && !found; i += 1) {
+    /** Opens row `i` (a click before the console is ready to answer it opens nothing, so it is clicked until open). */
+    const openRow = async (i) => {
       const toggle = rows.nth(i).getByRole('button', { name: /^(Open|Close)$/ });
-      // A click before the console is ready to answer it opens nothing, so it is clicked again until the row is open.
       await expect(async () => {
         if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
         await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 });
       }).toPass({ timeout: 30_000 });
       await expect(detail).toHaveCount(1);
-      const text = await detail.innerText();
-      seen.push(text.replace(/\s+/g, ' ').slice(0, 200));
-      found = text.includes(tx);
+      return detail.innerText();
+    };
+    const seen = [];
+    const matches = [];
+    const n = await rows.count();
+    for (let i = 0; i < n; i += 1) {
+      const text = await openRow(i);
+      seen.push(text.replace(/\s+/g, ' '));
+      if (text.includes(tx)) matches.push(i);
     }
-    expect(found, `no USDT hold names ${tx}: ${JSON.stringify(seen)}`).toBe(true);
+    // Exactly one hold names this transaction, and it holds this deposit's amount.
+    expect(matches, `USDT holds naming ${tx}: ${JSON.stringify(seen)}`).toHaveLength(1);
+    await openRow(matches[0]);
+    const holdAmount = detail.locator('.dk-kv-row', { has: founder.locator('dt', { hasText: /^Amount$/ }) }).locator('dd');
+    await expect(holdAmount).toHaveCount(1);
+    expect(shownUnits(await holdAmount.innerText())).toBe(toUnits(amount));
     const review = detail.getByTestId('deposit-travel-rule-review');
     await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
     await review.getByRole('button', { name: 'Release and credit once' }).click();
@@ -715,12 +724,14 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   const orderRow = page.locator('tr', { has: page.locator(`a[href="/trade/orders/${encodeURIComponent(id)}"]`) });
   await expect(orderRow).toHaveCount(1);
   const orderHeads = (await orderRow.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
-  const orderCells = (await orderRow.locator('td').allInnerTexts()).map((c) => c.trim());
-  // The Status cell holds the status tag (and a link to the order's changes beside it): the tag reads Filled.
   const statusAt = orderHeads.indexOf('Status');
   expect(statusAt, orderHeads.join(' | ')).toBeGreaterThanOrEqual(0);
-  await expect(orderRow.locator('td').nth(statusAt).getByText('Filled', { exact: true })).toBeVisible();
-  expect(orderCells[statusAt]).not.toMatch(/Open|Partly|Cancel/i);
+  // The Status cell holds one status tag (a link to the order's changes sits beside it): filled, reading Filled.
+  const tag = orderRow.locator('td').nth(statusAt).locator('[data-slot=status-tag]');
+  await expect(tag).toHaveCount(1);
+  await expect(tag).toHaveAttribute('data-status', 'filled');
+  await expect(tag).toHaveText('Filled');
+  const orderCells = (await orderRow.locator('td').allInnerTexts()).map((c) => c.trim());
   expect(shownUnits(orderCells[orderHeads.indexOf('Filled')])).toBe(toUnits(amount));
   await page.locator('[role=tab]', { hasText: 'Trade history' }).click();
   // Each fill's row shows its price, amount, fee amount and asset, the fee rate and the maker role.
