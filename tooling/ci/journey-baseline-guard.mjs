@@ -8,13 +8,13 @@
  *      baseline's `run` must name a run of real-app-journeys.yml on main that completed and was not cancelled or
  *      skipped, with the run number, id and commit GitHub has for it, and no older than the run the base names.
  *   2. A step that has passed on main is never added as `unbuilt`. An entry the PR adds as `unbuilt`, or turns into
- *      `unbuilt`, is refused when the step passed in any finished run on main the guard reads: the run the base names,
- *      the run the PR names, and every finished, uncancelled run on main between them. The one exception is the
+ *      `unbuilt`, is refused when the step passed in any finished run on main the guard reads: every finished,
+ *      uncancelled run on main from the run the base names to the newest, whatever run the PR names. The one exception is the
  *      runbook's "test ahead of code": an entry that names `strengthenedBy` (a full sha), `blocker`, `lane` and
- *      `lastPassedRun`, plus `priorTestProof` when that commit changes product code, may stand when every pass the
- *      guard sees came from a run whose commit does not contain `strengthenedBy`.
+ *      `lastPassedRun`, plus `priorTestProof` when that commit changes product code, may stand when `strengthenedBy` is
+ *      on main and every pass the guard sees came from a run whose commit does not contain it.
  *   3. Only a pass on main takes a step off. An entry the PR removes must have passed in a run the guard reads after the
- *      base's run, or be gone from docs/roadmap/journeys.json (a retired step; journeys.json is a gate file, so that is
+ *      base's run (to the PR's run, or to the newest when the PR also adds an unbuilt entry), or be gone from docs/roadmap/journeys.json (a retired step; journeys.json is a gate file, so that is
  *      a reviewed change too).
  *
  * WHY THIS EXISTS
@@ -91,7 +91,7 @@ export function namedRunProblem(run, meta) {
  *   base, head   the baseline on main and in the PR (parsed)
  *   live         liveSteps() of the PR's journeys.json
  *   headRunMeta  GitHub's run object for head.run.id (only read when the PR changes `run`)
- *   runs         the finished, uncancelled runs on main from base.run.number to head.run.number, oldest first:
+ *   runs         the finished, uncancelled runs on main in runRange(base, head), oldest first:
  *                [{ number, id, head_sha }]
  *   reports      Map<run number, Map<step, 'passed'|'failed'|'skipped'> | null>  (null: the report is gone)
  *   contains     (sha, runNumber) => true | false | undefined: does that run's commit contain sha?
@@ -157,7 +157,10 @@ export function judgeBaselineChange({
       // every pass would read as "before the stricter test" and any green step could be listed.
       const isOnMain = onMain(c);
       if (isOnMain === undefined) no(`${what} after commit ${c.slice(0, 7)}, but whether it is on main couldn't be read`, step);
-      else if (!isOnMain) no(`${what} after commit ${c.slice(0, 7)}, which is not on main`, step);
+      else if (!isOnMain) {
+        no(`${what} after commit ${c.slice(0, 7)}, which is not on main`, step);
+        continue; // refused already; its passes would read as "before the stricter test" anyway
+      }
       const missing = ['blocker', 'lane', 'lastPassedRun'].filter((k) => e[k] === undefined || e[k] === '');
       if (missing.length) no(`${what} after a stricter test, without ${missing.join(', ')}`, step);
       const files = commitFiles(c);

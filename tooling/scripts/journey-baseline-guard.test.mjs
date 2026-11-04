@@ -198,7 +198,13 @@ test('an unbuilt entry added with the run unchanged is judged against every run 
   assert.equal(range.to, Infinity);
   // A step that failed in the named run but passed in a later run on main is refused.
   const later = new Map([...reports, [11, states({ ...Object.fromEntries(reports.get(11)), 'J-x-01#4': 'passed' })]]);
-  const r = judgeBaselineChange({ base, head: { run: base.run, steps: [...base.steps, unbuilt('J-x-01#4')] }, live, runs, reports: later });
+  const added = { run: base.run, steps: [...base.steps, unbuilt('J-x-01#4')] };
+  const inRange = (h) => runs.filter((x) => x.number >= runRange(base, h).from && x.number <= runRange(base, h).to);
+  assert.deepEqual(
+    inRange(added).map((x) => x.number),
+    [10, 11, 12],
+  );
+  const r = judgeBaselineChange({ base, head: added, live, runs: inRange(added), reports: later });
   assert.equal(r.ok, false);
   assert.match(r.problems[0].why, /passed on main in run 11/);
   // A change that adds nothing as unbuilt reads only from the base's run to the head's.
