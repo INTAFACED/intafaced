@@ -52,6 +52,8 @@ export interface PasswordResetMail {
     readonly code: string;
     readonly expiresAt: Date;
     readonly purpose?: MailPurpose;
+    /** The six-digit code beside the link, on the email-confirmation mail only. A secret, like `code`. */
+    readonly pin?: string;
     /** The username, for the recovery mail only. */
     readonly handle?: string;
     /** The account the mail is about, when the sender knows it and the address may no longer name it. */

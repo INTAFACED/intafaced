@@ -103,7 +103,9 @@ function localMailBody(message: LocalMailMessage): string {
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
         : `completePasswordReset?code=${encodeURIComponent(message.code)}`;
-  return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=${link}\n`;
+  // The confirmation mail carries a six-digit code to type on Account beside its link.
+  const pin = purpose === 'email-confirm' && message.pin ? ` code=${message.pin.replace(/\D/g, '')}` : '';
+  return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()}${pin} link=${link}\n`;
 }
 
 export function createLocalOutboxMail(filePath: string): PasswordResetMail {

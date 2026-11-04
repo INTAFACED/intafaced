@@ -9,7 +9,14 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
-import { hashesEqual, isEmailConfirmed, publishedEmailConfirmRate, publishedEmailConfirmTtlSeconds } from './email-confirmation.js';
+import {
+  hashesEqual,
+  isEmailConfirmed,
+  publishedEmailConfirmCodeAttempts,
+  publishedEmailConfirmRate,
+  publishedEmailConfirmResendSeconds,
+  publishedEmailConfirmTtlSeconds,
+} from './email-confirmation.js';
 import { selectOnboardingUser } from './onboarding-user.js';
 import { hashToken } from './passwords.js';
 import { totp } from './totp.js';
@@ -18,13 +25,16 @@ import { createIdentityRouter } from '../router.js';
 import { RankService } from '../rank/rank-service.js';
 
 /**
- * Email confirmation. 900 seconds and a budget of 2 are fixtures in this file,
- * not owner-published law.
+ * Email confirmation. 900 seconds, a budget of 2, a 30-second interval and three wrong codes are fixtures in this
+ * file, not owner-published law.
  */
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@127.0.0.1:15491/intafaced_test';
 const PASSWORD = 'correct horse battery staple';
 const TTL = 900;
+const RESEND = 30;
+/** The interval, the wrong-code limit and the flow key: TEST values every wiring below starts from. */
+const WIRED = { resendSeconds: RESEND, codeMaxAttempts: 3, subjectKey: 'a-test-flow-subject-key-for-email-confirm-codes' };
 const T0 = Date.parse('2026-10-17T03:00:00.000Z');
 const NO_FACTOR = { mfa: false, privileged: false } as const;
 
@@ -36,6 +46,17 @@ function totpNext(secret: string): string {
 }
 
 describe('email confirmation publication', () => {
+  it('does not invent an interval or a wrong-code limit', () => {
+    expect(publishedEmailConfirmResendSeconds(undefined)).toBeUndefined();
+    expect(publishedEmailConfirmResendSeconds(0)).toBeUndefined();
+    expect(publishedEmailConfirmResendSeconds(3_601)).toBeUndefined();
+    expect(publishedEmailConfirmResendSeconds(RESEND)).toBe(RESEND);
+    expect(publishedEmailConfirmCodeAttempts(undefined)).toBeUndefined();
+    expect(publishedEmailConfirmCodeAttempts(0)).toBeUndefined();
+    expect(publishedEmailConfirmCodeAttempts(11)).toBeUndefined();
+    expect(publishedEmailConfirmCodeAttempts(3)).toBe(3);
+  });
+
   it('does not invent a lifetime or a rate budget', () => {
     expect(publishedEmailConfirmTtlSeconds(undefined)).toBeUndefined();
     expect(publishedEmailConfirmTtlSeconds(0)).toBeUndefined();
@@ -100,11 +121,11 @@ if (!available) {
   auth.useLogger({ warn: (obj, msg) => void warnings.push({ obj, msg }) });
   const router = createIdentityRouter(auth, rank, { registrationOpen: true, actionApprovals: stubActionApprovals() });
 
-  const sent: Array<{ email: string; code: string; expiresAt: Date; purpose?: string }> = [];
+  const sent: Array<{ email: string; code: string; pin?: string; expiresAt: Date; purpose?: string }> = [];
   let failSend = false;
   let nowMs = T0;
   const mail = {
-    async send(message: { email: string; code: string; expiresAt: Date; purpose?: string }) {
+    async send(message: { email: string; code: string; pin?: string; expiresAt: Date; purpose?: string }) {
       sent.push(message);
       if (failSend) throw new Error('mail transport lost the reply');
     },
@@ -141,7 +162,7 @@ if (!available) {
     sent.length = 0;
     failSend = false;
     nowMs = T0;
-    auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 5, rateWindowSeconds: 3600 });
+    auth.useEmailConfirmation({ ...WIRED, mail, ttlSeconds: TTL, rateMax: 5, rateWindowSeconds: 3600 });
     auth.useEmailConfirmationClock(() => new Date(nowMs));
     await db.truncateAll();
     await rank.seedTiers();
@@ -201,7 +222,7 @@ if (!available) {
       expect(names).not.toContain('link');
     });
 
-    it('refuses an expired, reused, rebound, or other-user token the same way', async () => {
+    it('names an expired or used link, and refuses a rebound or unknown token the same way', async () => {
       const user = await register();
       const other = await register();
       const api = await asUser(user.accessToken);
@@ -210,18 +231,20 @@ if (!available) {
 
       nowMs = T0 + (TTL + 1) * 1000;
       const expired = await refusal(api.auth.confirmEmail({ token }));
-      expect(expired).toMatchObject({ trpc: 'BAD_REQUEST', code: 'auth.email_confirm_invalid' });
+      expect(expired).toMatchObject({ trpc: 'BAD_REQUEST', code: 'auth.email_confirm_expired' });
       expect(await verifiedAt(user.userId)).toBeNull();
       expect(JSON.stringify(expired)).not.toContain(token);
 
-      nowMs = T0;
       sent.length = 0;
       await api.auth.requestEmailConfirmation();
       const live = sent[0]!.code;
       await api.auth.confirmEmail({ token: live });
       const again = await refusal(api.auth.confirmEmail({ token: live }));
-      expect(again.code).toBe('auth.email_confirm_invalid');
+      expect(again).toMatchObject({ trpc: 'BAD_REQUEST', code: 'auth.email_confirm_used' });
+      expect(JSON.stringify(again)).not.toContain(live);
       expect(await verifiedAt(other.userId)).toBeNull();
+      const unknown = await refusal(api.auth.confirmEmail({ token: 'not-a-real-token' }));
+      expect(unknown.code).toBe('auth.email_confirm_invalid');
 
       sent.length = 0;
       const fresh = await register();
@@ -254,6 +277,7 @@ if (!available) {
       expect(await verifiedAt(user.userId)).toBeNull();
 
       sent.length = 0;
+      nowMs = T0 + RESEND * 1000;
       await api.auth.requestEmailConfirmation();
       const rebound = sent[0]!.code;
       await db.sql`UPDATE users SET email = ${'again-' + user.email} WHERE id = ${user.userId}`;
@@ -271,14 +295,16 @@ if (!available) {
 
     it('rate-limits a signed-in caller and does not mail past the budget', async () => {
       const user = await register();
-      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 3600 });
+      auth.useEmailConfirmation({ ...WIRED, mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 3600 });
       const api = await asUser(user.accessToken);
       await api.auth.requestEmailConfirmation();
+      nowMs = T0 + 60_000;
       await api.auth.requestEmailConfirmation();
+      nowMs = T0 + 120_000;
       const limited = await refusal(api.auth.requestEmailConfirmation());
       expect(limited).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_rate_limited' });
       // The wait is the time until the oldest request leaves the hour.
-      expect(limited.retryAfterSeconds).toBe(3600);
+      expect(limited.retryAfterSeconds).toBe(3480);
       expect(sent).toHaveLength(2);
       const proofs = await db.sql<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM email_confirmation_proofs WHERE user_id = ${user.userId}
@@ -288,13 +314,13 @@ if (!available) {
 
     it('says the real wait after the owner lowers the budget: until enough requests leave the window', async () => {
       const user = await register();
-      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 3, rateWindowSeconds: 3600 });
+      auth.useEmailConfirmation({ ...WIRED, mail, ttlSeconds: TTL, rateMax: 3, rateWindowSeconds: 3600 });
       const api = await asUser(user.accessToken);
       for (const offset of [0, 100, 200]) {
         nowMs = T0 + offset * 1000;
         await api.auth.requestEmailConfirmation();
       }
-      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 3600 });
+      auth.useEmailConfirmation({ ...WIRED, mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 3600 });
       const limited = await refusal(api.auth.requestEmailConfirmation());
       // Two of three must leave before one more fits: the request at +100 s leaves at +3700 s, 3500 s from now.
       expect(limited).toMatchObject({ code: 'auth.email_confirm_rate_limited', retryAfterSeconds: 3500 });
@@ -303,18 +329,26 @@ if (!available) {
       await expect(api.auth.requestEmailConfirmation()).resolves.toEqual({ accepted: true });
     });
 
-    it('refuses when mail, lifetime, or the rate budget is unpublished, for every caller the same way', async () => {
+    it('names switched-off mail, and refuses an unpublished number or key for every caller the same way', async () => {
       const user = await register();
       const api = await asUser(user.accessToken);
-      auth.useEmailConfirmation({ mail: undefined, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 60 });
+      auth.useEmailConfirmation({ ...WIRED, mail: undefined, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 60 });
       const noMail = await refusal(api.auth.requestEmailConfirmation());
-      auth.useEmailConfirmation({ mail, ttlSeconds: undefined, rateMax: 2, rateWindowSeconds: 60 });
-      const noTtl = await refusal(api.auth.requestEmailConfirmation());
-      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: undefined, rateWindowSeconds: 60 });
-      const noRate = await refusal(api.auth.requestEmailConfirmation());
-      expect(noMail.code).toBe('auth.email_confirm_unwired');
-      expect(noTtl.code).toBe(noMail.code);
-      expect(noRate.code).toBe(noMail.code);
+      expect(noMail).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'vendor.email' });
+      const noMailCode = await refusal(api.auth.confirmEmailCode({ code: '123456' }));
+      expect(noMailCode.code).toBe('vendor.email');
+      const unwired = [];
+      for (const over of [
+        { ttlSeconds: undefined },
+        { rateMax: undefined },
+        { resendSeconds: undefined },
+        { codeMaxAttempts: undefined },
+        { subjectKey: undefined },
+      ]) {
+        auth.useEmailConfirmation({ ...WIRED, mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 60, ...over });
+        unwired.push((await refusal(api.auth.requestEmailConfirmation())).code);
+      }
+      expect(unwired).toEqual(Array(5).fill('auth.email_confirm_unwired'));
       expect(sent).toHaveLength(0);
       const proofs = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM email_confirmation_proofs`;
       expect(proofs[0]!.n).toBe(0);
@@ -326,6 +360,7 @@ if (!available) {
       await api.auth.requestEmailConfirmation();
       await api.auth.confirmEmail({ token: sent[0]!.code });
       sent.length = 0;
+      nowMs = T0 + RESEND * 1000;
       const again = await api.auth.requestEmailConfirmation();
       expect(again).toEqual({ accepted: true });
       expect(sent).toHaveLength(0);
@@ -396,6 +431,70 @@ if (!available) {
       } finally {
         auth.useOwnerPayScopeSource(null);
       }
+    });
+
+    it('refuses a second mail before the interval with the seconds left, and sends nothing', async () => {
+      const user = await register();
+      const api = await asUser(user.accessToken);
+      await api.auth.requestEmailConfirmation();
+      nowMs = T0 + 12_000;
+      const soon = await refusal(api.auth.requestEmailConfirmation());
+      expect(soon).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_resend_too_soon', retryAfterSeconds: 18 });
+      expect(sent).toHaveLength(1);
+      // A refusal is not a request: the interval still runs from the first mail.
+      nowMs = T0 + RESEND * 1000;
+      await expect(api.auth.requestEmailConfirmation()).resolves.toEqual({ accepted: true });
+      expect(sent).toHaveLength(2);
+    });
+
+    it('confirms with the six-digit code from the mail, stored only as a keyed hash', async () => {
+      const user = await register();
+      const api = await asUser(user.accessToken);
+      await api.auth.requestEmailConfirmation();
+      const pin = sent[0]!.pin!;
+      expect(pin).toMatch(/^\d{6}$/);
+      const stored = await db.sql<Array<{ pin_hash: string | null }>>`
+        SELECT pin_hash FROM email_confirmation_proofs WHERE user_id = ${user.userId}
+      `;
+      expect(stored[0]!.pin_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(stored)).not.toContain(pin);
+
+      await expect(api.auth.confirmEmailCode({ code: pin })).resolves.toEqual({ confirmed: true });
+      expect(await verifiedAt(user.userId)).not.toBeNull();
+      expect((await api.me()).emailVerified).toBe(true);
+      // The code spent the proof: its link no longer confirms, and says it was used.
+      const link = await refusal(api.auth.confirmEmail({ token: sent[0]!.code }));
+      expect(link.code).toBe('auth.email_confirm_used');
+      expect(JSON.stringify(warnings)).not.toContain(pin);
+    });
+
+    it('counts wrong codes and spends the code at the limit; a code that ran out is named', async () => {
+      const user = await register();
+      const api = await asUser(user.accessToken);
+      await api.auth.requestEmailConfirmation();
+      const pin = sent[0]!.pin!;
+      const wrong = pin === '000000' ? '111111' : '000000';
+      const first = await refusal(api.auth.confirmEmailCode({ code: wrong }));
+      expect(first).toMatchObject({ trpc: 'BAD_REQUEST', code: 'auth.email_confirm_code_invalid' });
+      await refusal(api.auth.confirmEmailCode({ code: wrong }));
+      const third = await refusal(api.auth.confirmEmailCode({ code: wrong }));
+      expect(third).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_code_locked' });
+      // Spent: the right code and the link are both refused, and nothing is confirmed.
+      expect((await refusal(api.auth.confirmEmailCode({ code: pin }))).code).toBe('auth.email_confirm_code_locked');
+      expect((await refusal(api.auth.confirmEmail({ token: sent[0]!.code }))).code).toBe('auth.email_confirm_used');
+      expect(await verifiedAt(user.userId)).toBeNull();
+
+      // A new mail: only its code counts, and once it runs out it is refused by name.
+      nowMs = T0 + RESEND * 1000;
+      await api.auth.requestEmailConfirmation();
+      const next = sent[1]!.pin!;
+      nowMs = T0 + (RESEND + TTL + 1) * 1000;
+      expect((await refusal(api.auth.confirmEmailCode({ code: next }))).code).toBe('auth.email_confirm_expired');
+      expect(await verifiedAt(user.userId)).toBeNull();
+      const reasons = await db.sql<Array<{ reason: string }>>`
+        SELECT reason FROM email_confirmation_audit WHERE user_id = ${user.userId} AND event = 'refused' ORDER BY created_at
+      `;
+      expect(reasons.map((r) => r.reason)).toEqual(expect.arrayContaining(['wrong_code', 'code_locked', 'expired']));
     });
 
     it('refuses an API key', async () => {

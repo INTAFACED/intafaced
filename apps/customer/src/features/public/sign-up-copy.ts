@@ -23,6 +23,10 @@ const messages = {
   password: 'Password',
   passwordRule:
     'At least 12 characters and at most 72 bytes, not one character repeated, and not your handle or email. A long phrase you use nowhere else is best.',
+  screeningUnset:
+    'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
+  useEmail: 'Use email instead',
+  usePhone: 'Use phone instead',
   country: 'Country you live in',
   countryPick: 'Choose a country',
   nationality: 'Nationality (optional)',
@@ -62,8 +66,10 @@ const messages = {
   'auth.password_breached': 'That password is known from a data breach. Choose a different one.',
   'auth.handle_taken': 'That handle is taken. Choose another.',
   'auth.email_taken': 'That email already has an account. Sign in instead.',
-  'vendor.email': 'Email delivery is switched off in this build, so a sign-up code cannot be sent.',
-  'vendor.sms': 'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
+  'vendor.email':
+    'Email delivery is switched off in this build, so a sign-up code cannot be sent. Nothing was switched to another channel: pick one yourself.',
+  'vendor.sms':
+    'Phone sign-up needs a text-message provider, which is not connected in this build. Nothing was sent by any other channel: use email instead.',
 } as const;
 
 export const signUpCopy = defineCopy('public-sign-up', messages);

@@ -381,6 +381,10 @@ export const emailConfirmationProofs = identity.table(
     expiresAt: tstz('expires_at').notNull(),
     consumedAt: tstz('consumed_at'),
     createdAt: createdAt(),
+    /** The six-digit code beside the link, as an HMAC under the flow key. Null on proofs made before the code. */
+    pinHash: text('pin_hash'),
+    /** Wrong codes typed for this proof. At the owner's limit the proof is spent. */
+    pinAttempts: integer('pin_attempts').notNull().default(0),
   },
   (t) => [
     uniqueIndex('email_confirmation_proofs_code_hash_idx').on(t.codeHash),

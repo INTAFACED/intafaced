@@ -50,6 +50,7 @@ import {
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
+import { breachedPasswordScreening } from './auth/passwords.js';
 import { LoginCodeError } from './auth/login-code.js';
 import { TrustedDeviceError } from './auth/trusted-devices.js';
 import { trustedDeviceTrpcError } from './trusted-devices-router.js';
@@ -556,10 +557,20 @@ export function toTrpcError(err: unknown): TRPCError {
       // Same sentence for a wrong, expired, spent, or rebound link.
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.email_confirm_unwired':
-      // No mail port, no published lifetime, or no published rate budget.
+      // No published lifetime, rate budget, interval, wrong-code limit or flow key.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'vendor.email':
+      // No mail transport: the page names the switched-off vendor.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'auth.email_confirm_rate_limited':
+    case 'auth.email_confirm_resend_too_soon':
+    case 'auth.email_confirm_code_locked':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.email_confirm_expired':
+    case 'auth.email_confirm_used':
+    case 'auth.email_confirm_code_invalid':
+      // A link or code the person holds: its state is named, never the account.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.payee_email_unconfirmed':
     case 'auth.payee_phone_unverified':
     case 'auth.payee_phone_unset':
@@ -1395,6 +1406,14 @@ export function createIdentityRouter(
         }),
 
       /**
+       * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
+       * breached-password list is set. `unset` means new passwords are not screened, and the page says so.
+       */
+      signUpPasswordScreening: publicProcedure
+        .output(z.object({ breachedList: z.enum(['on', 'unset']) }))
+        .query(() => ({ breachedList: breachedPasswordScreening() })),
+
+      /**
        * Sign-up, step 1 (I-signin-sessions-18, I-kyc-compliance-06). Eligibility first (age, country,
        * nationality), then the password, then a six-digit code by email. Answers the same for a new address
        * and one that already has an account, and opens no session. Phone sign-up needs an SMS provider and
@@ -1981,8 +2000,34 @@ export function createIdentityRouter(
       }),
 
       /**
-       * Email confirmation, step 2. The token is the proof. A wrong, expired,
-       * spent, or rebound token is the same refusal and does not name an account.
+       * Email confirmation by the six-digit code from the same mail, typed by the signed-in person on Account (J-identity-01
+       * #7). Only the newest mailed code counts; wrong codes are counted against the owner's limit.
+       */
+      confirmEmailCode: protectedProcedure
+        .input(
+          z.object({
+            code: z
+              .string()
+              .trim()
+              .regex(/^\d{6}$/),
+          }),
+        )
+        .output(z.object({ confirmed: z.literal(true) }))
+        .mutation(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
+          }
+          try {
+            await auth.confirmEmailCode({ userId: ctx.principal.userId, code: input.code });
+            return { confirmed: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Email confirmation, step 2. The token is the proof. A link that ran out or was already used is refused by name
+       * (the 256-bit token names no account); a wrong or rebound token is one refusal.
        */
       confirmEmail: publicProcedure
         .input(z.object({ token: z.string().trim().min(1).max(500) }))

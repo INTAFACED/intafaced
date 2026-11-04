@@ -16,6 +16,9 @@ export type SignUpAccepted = z.infer<typeof signUpAcceptedSchema>;
 /** `auth.signUpConfirm`: the first session, and which account type was chosen so business accounts go to verification. */
 export const signUpConfirmedSchema = sessionSchema.extend({ accountType: z.enum(['individual', 'business']) });
 
+/** `auth.signUpPasswordScreening`: whether the owner's breached-password list is set. */
+export const passwordScreeningSchema = z.object({ breachedList: z.enum(['on', 'unset']) });
+
 export const ACCOUNT_TYPES = ['individual', 'business'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 export type Channel = 'email' | 'phone';

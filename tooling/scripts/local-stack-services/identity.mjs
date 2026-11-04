@@ -84,6 +84,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
+    // LOCAL TEST ONLY, not owner decisions: another confirmation mail after 10 s (short, so a journey can see the early
+    // refusal and still send five in an hour), and five wrong codes spend a mailed code (J-identity-01 #7).
+    IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: '10',
+    IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: '5',
     // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
     // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
     // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
@@ -106,7 +110,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
     // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
     IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
-    IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE'),
+    // `LOCAL_STACK_IDENTITY_BREACH_LIST=off` on a start or restart leaves the breached-password list unset, as a build
+    // without one runs, so the sign-up page's "the screening list is not set" can be seen (J-identity-01 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_BREACH_LIST === 'off'
+      ? {}
+      : { IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE') }),
     IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: testValue('IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS'),
     IDENTITY_PASSWORD_RESET_REQUEST_MAX: testValue('IDENTITY_PASSWORD_RESET_REQUEST_MAX'),
     IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS'),

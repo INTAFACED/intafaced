@@ -10,8 +10,8 @@ import {
   mailedCodes,
   mailedConfirmLinks,
   nextMailedCode,
+  restartWith,
   signOutBrowser,
-  signUpInBrowser,
   stackFile,
   tool,
 } from './stack.mjs';
@@ -34,14 +34,49 @@ function person() {
   return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
 }
 
-async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', password = who.password } = {}) {
+async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', password = who.password, accountType = 'Personal' } = {}) {
   await page.goto('/register');
+  // The person picks the account type and the channel, as the row says, rather than leaving the page's first choice.
+  await page.getByRole('radio', { name: new RegExp(`^${accountType}\\b`) }).check();
+  await page.getByRole('radio', { name: 'Email' }).check();
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(password);
   await page.getByLabel('Country you live in').selectOption(country);
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
+}
+
+/** The same details with the phone picked as the channel. */
+async function phoneDetails(page, who, phone) {
+  await page.goto('/register');
+  await page.getByRole('radio', { name: /^Personal\b/ }).check();
+  await page.getByRole('radio', { name: 'Phone' }).check();
+  await page.getByLabel('Phone number, international format (+…)').fill(phone);
+  await page.getByLabel('Handle').fill(who.handle);
+  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByLabel('Date of birth').fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account' }).click();
+}
+
+/** The LOCAL-TEST outbox as it is now, and the whole lines it gained since `first` (other journeys mail meanwhile). */
+const outbox = () => (existsSync(stackFile('email-outbox.log')) ? readFileSync(stackFile('email-outbox.log'), 'utf8') : '');
+async function gainedSince(page, first) {
+  // Identity writes a queued mail to the file just after the request's commit; give it time to land, then read until
+  // the file ends on a whole line.
+  await page.waitForTimeout(3_000);
+  let after = '';
+  await expect
+    .poll(() => {
+      after = outbox();
+      return after === '' || after.endsWith('\n');
+    })
+    .toBe(true);
+  const before = first.lastIndexOf('\n') + 1;
+  // The file only grows: what was there before is still there.
+  expect(after.startsWith(first.slice(0, before)), 'the outbox kept what it held before').toBe(true);
+  return after.slice(before).split('\n').filter(Boolean);
 }
 
 /** identity's own sign-up step 1, sent as the page sends it: the status and the typed code of a refusal. */
@@ -62,7 +97,13 @@ async function signUpStart(who, fields = {}) {
   });
   const body = await res.json();
   const data = body.error?.data;
-  return { status: res.status, result: body.result?.data, code: data?.intafacedCode ?? data?.cause?.code ?? data?.code, data };
+  return {
+    status: res.status,
+    result: body.result?.data,
+    code: data?.intafacedCode ?? data?.cause?.code ?? data?.code,
+    message: body.error?.message,
+    data,
+  };
 }
 
 /** Identity restarted with sign-up published as closed, or back on the stack's TEST "open". */
@@ -103,7 +144,10 @@ async function noAccount(who) {
 
 const notice = (page) => page.getByRole('alert');
 
-test(`${J} #1 fills the form; an under-age date or a closed country is refused in plain words and nothing is made`, async ({ page }) => {
+test(`${J} #1 fills the form with channel, country, birth date and account type; under-age, blocked or unlisted country and closed sign-up are refused in plain words and nothing is made`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const who = person();
   run.reset({ account: who });
 
@@ -116,43 +160,42 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
   await expect(notice(page)).toContainText('cannot open accounts for this country');
   await noAccount(who);
 
-  // A country that is not on the list at all is refused by its own code, before anything else is checked (the page's
-  // list cannot send one, so it goes as the page would send it).
-  expect((await signUpStart(who, { country: 'XQ' })).code).toBe('identity.country_invalid');
+  // A country that is not on the list at all is refused by its own code and in plain words, and nothing is made. The
+  // page's list holds only real countries, so this is a page whose list is out of date: it offers one more code (XQ),
+  // the person picks it, and the page shows identity's refusal in words.
+  const unlisted = await signUpStart(who, { country: 'XQ' });
+  expect(unlisted.status).toBe(400);
+  expect(unlisted.code).toBe('identity.country_invalid');
+  expect(unlisted.message).toBe('Choose the country you live in from the list.');
+  await page.goto('/register');
+  await page.getByRole('radio', { name: /^Personal\b/ }).check();
+  await page.getByRole('radio', { name: 'Email' }).check();
+  await page.getByLabel('Email address').fill(who.email);
+  await page.getByLabel('Handle').fill(who.handle);
+  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Country you live in').evaluate((select) => {
+    const stale = document.createElement('option');
+    stale.value = 'XQ';
+    stale.textContent = 'XQ (a country no longer listed)';
+    select.append(stale);
+  });
+  await page.getByLabel('Country you live in').selectOption('XQ');
+  await page.getByLabel('Date of birth').fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(notice(page)).toContainText('Choose the country you live in, and your nationality if you give one, from the list.');
+  await expect(notice(page)).toContainText('identity.country_invalid');
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
   await noAccount(who);
 
   // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
   // no code mailed anywhere. The outbox is the whole stack's, and other journeys mail their own codes meanwhile (run
   // 1130), so only the whole lines it gained are read, and none of them may name this sign-up.
   const phone = '+491701234567';
-  const outbox = () => (existsSync(stackFile('email-outbox.log')) ? readFileSync(stackFile('email-outbox.log'), 'utf8') : '');
   const first = outbox();
-  // Up to the last whole line: another journey's mail may be half written now.
-  const before = first.lastIndexOf('\n') + 1;
-  await page.goto('/register');
-  await page.getByRole('radio', { name: 'Phone' }).check();
-  await page.getByLabel('Phone number, international format (+…)').fill(phone);
-  await page.getByLabel('Handle').fill(who.handle);
-  await page.getByLabel('Password').fill(who.password);
-  await page.getByLabel('Country you live in').selectOption('DE');
-  await page.getByLabel('Date of birth').fill('1990-05-01');
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(notice(page)).toContainText(
-    'Phone sign-up needs a text-message provider, which is not connected in this build. Use email instead.',
-  );
-  // Identity writes a queued mail to the file just after the request's commit; give it time to land, then read until
-  // the file ends on a whole line.
-  await page.waitForTimeout(3_000);
-  let after = '';
-  await expect
-    .poll(() => {
-      after = outbox();
-      return after === '' || after.endsWith('\n');
-    })
-    .toBe(true);
-  // The file only grows: what was there before is still there.
-  expect(after.startsWith(first.slice(0, before)), 'the outbox kept what it held before').toBe(true);
-  const gained = after.slice(before).split('\n').filter(Boolean);
+  await phoneDetails(page, who, phone);
+  await expect(notice(page)).toContainText('Phone sign-up needs a text-message provider, which is not connected in this build.');
+  await expect(notice(page)).toContainText('vendor.sms');
+  const gained = await gainedSince(page, first);
   expect(gained.filter((line) => line.includes(who.handle) || line.includes(phone.slice(1)))).toEqual([]);
   await noAccount(who);
 
@@ -166,22 +209,30 @@ test(`${J} #1 fills the form; an under-age date or a closed country is refused i
     registration(true);
   }
 
-  // A good record goes on to the code step; still no account until the code is entered.
-  await details(page, who);
+  // A good record, with its account type picked, goes on to the code step; still no account until the code is entered.
+  await details(page, who, { accountType: 'Personal' });
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await noAccount(who);
 });
 
 test(`${J} #1 a Business account type signs up the same way and goes on to business verification after the code`, async ({ page }) => {
   const who = person();
-  await signUpInBrowser(page, who, { accountType: 'business' });
+  await details(page, who, { accountType: 'Business' });
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await page.getByLabel('Code from the email').fill(await nextMailedCode(who.email));
+  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
   await expect(page).toHaveURL(/\/identbusiness/);
 });
 
-test(`${J} #2 a too-short password is refused with the rule in words before any account exists`, async ({ page }) => {
+test(`${J} #2 a too-short or breached password is refused with the rule in words before any account exists; an unset screening list is named`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const who = person();
   await page.goto('/register');
   await expect(page.getByText('At least 12 characters')).toBeVisible();
+  // The stack's TEST breach list is set, so the page says nothing about it being unset.
+  await expect(page.getByText('screening list is not set')).toHaveCount(0);
   await details(page, who, { password: 'short9' });
   await expect(notice(page)).toContainText('at least 12 characters');
   expect(mailedCodes(who.email)).toHaveLength(0);
@@ -190,6 +241,27 @@ test(`${J} #2 a too-short password is refused with the rule in words before any 
   await expect(notice(page)).toContainText('That password is known from a data breach. Choose a different one.');
   expect(mailedCodes(who.email)).toHaveLength(0);
   await noAccount(who);
+
+  // With the owner's breached-password list not set (identity restarted without it), the page says it is not set,
+  // beside the password rule, before anything is typed.
+  restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', false);
+  try {
+    await expect
+      .poll(
+        async () => {
+          await page.goto('/register');
+          return page.getByRole('status').filter({ hasText: 'screening list is not set' }).count();
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(1);
+    await expect(page.getByRole('status').filter({ hasText: 'screening list is not set' })).toHaveText(
+      'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
+    );
+    await expect(page.getByText('At least 12 characters')).toBeVisible();
+  } finally {
+    restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', true);
+  }
 });
 
 test(`${J} #3 a social or wallet sign-in button says it needs an outside provider that is switched off, with the code`, async ({
@@ -207,7 +279,10 @@ test(`${J} #3 a social or wallet sign-in button says it needs an outside provide
   }
 });
 
-test(`${J} #4 "check your email" reads the same for a known address, and an early resend says the seconds left`, async ({ page }) => {
+test(`${J} #4 "check your email" reads the same for a known address, an early resend says the seconds left, and a failed channel is not switched: the person picks another`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
   const who = run.read().account;
   // The account made in #5 does not exist yet, so use a second TEST person who signs up fully first.
   const known = person();
@@ -226,7 +301,35 @@ test(`${J} #4 "check your email" reads the same for a known address, and an earl
   await expect(page.getByRole('button', { name: 'Send a new code' })).toBeDisabled();
   await expect(page.getByText(/You can ask for a new code in \d+ s\./)).toBeVisible();
 
-  // With email switched off, the notice names it and no code is mailed; nothing switches to another channel by itself.
+  // A channel that fails is not switched for another by itself; the person picks another. Phone sign-up fails here (no
+  // text-message provider): the notice names it, Phone stays picked, nothing is sent by any channel, and no account is
+  // made. The person then picks Email themself, and only then is a code mailed.
+  const switcher = person();
+  const phone = '+491701234568';
+  const first = outbox();
+  await phoneDetails(page, switcher, phone);
+  await expect(notice(page)).toContainText('Phone sign-up needs a text-message provider, which is not connected in this build.');
+  await expect(notice(page)).toContainText('Nothing was sent by any other channel');
+  await expect(page.getByRole('radio', { name: 'Phone' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Email' })).not.toBeChecked();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  const gained = await gainedSince(page, first);
+  expect(gained.filter((line) => line.includes(switcher.handle) || line.includes(phone.slice(1)))).toEqual([]);
+  expect(mailedCodes(switcher.email)).toHaveLength(0);
+  await noAccount(switcher);
+  await notice(page).getByRole('button', { name: 'Use email instead' }).click();
+  await expect(page.getByRole('radio', { name: 'Email' })).toBeChecked();
+  await page.getByLabel('Email address').fill(switcher.email);
+  await page.getByLabel('Handle').fill(switcher.handle);
+  await page.getByLabel('Password').fill(switcher.password);
+  await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByLabel('Date of birth').fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await expect.poll(() => mailedCodes(switcher.email).length, { timeout: 20_000 }).toBe(1);
+
+  // With email switched off, the notice names it and no code is mailed; Email stays picked, nothing goes by phone, and
+  // the person is offered the other channel to pick.
   const offline = person();
   mail(false);
   try {
@@ -234,6 +337,9 @@ test(`${J} #4 "check your email" reads the same for a known address, and an earl
     await expect(notice(page)).toContainText('Email delivery is switched off in this build, so a sign-up code cannot be sent.', {
       timeout: 15_000,
     });
+    await expect(notice(page)).toContainText('vendor.email');
+    await expect(page.getByRole('radio', { name: 'Email' })).toBeChecked();
+    await expect(notice(page).getByRole('button', { name: 'Use phone instead' })).toBeVisible();
     await expect(page.getByLabel('Code from the email')).toHaveCount(0);
     expect(mailedCodes(offline.email)).toHaveLength(0);
     await noAccount(offline);
@@ -314,7 +420,10 @@ async function nextLink(email, seen) {
   }
 }
 
-test(`${J} #7 and #6 Account shows "verify your email", sends a link, and the opened link shows the email verified; opened again it is used`, async ({
+/** The stack's TEST interval between two confirmation mails (tooling/scripts/local-stack-services/identity.mjs). */
+const CONFIRM_RESEND_SECONDS = 10;
+
+test(`${J} #7 Account shows "verify your email", sends a code and the person types it: the email shows verified; an early resend says the seconds left`, async ({
   page,
 }) => {
   const who = await unprovedAccount();
@@ -324,28 +433,103 @@ test(`${J} #7 and #6 Account shows "verify your email", sends a link, and the op
   await expect(banner).toBeVisible();
 
   await banner.getByRole('button', { name: 'Send confirmation email' }).click();
-  await expect(banner.getByRole('status')).toContainText('a confirmation link is on its way');
-  // The person opens the link exactly as mailed.
-  const link = await nextLink(who.email, 0);
-  const token = new URL(link, 'http://x').searchParams.get('token');
-  expect(link).toMatch(/^\/confirm-email\?token=/);
-  await page.goto(link);
-  // Opening the page spends nothing; the person presses Confirm. The token leaves the address bar.
-  await expect(page).toHaveURL(/\/confirm-email$/);
-  await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+  await expect(banner.getByRole('status')).toContainText('a confirmation code is on its way');
+  const pin = await nextMailedCode(who.email, 0, 20_000, 'email-confirm');
+  expect(pin).toMatch(/^\d{6}$/);
 
-  await page.goto('/uc/account');
+  // Asking again before the interval is refused with the seconds left, and nothing more is mailed.
+  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  const early = banner.getByRole('alert');
+  await expect(early).toContainText(/You can ask for a new one in \d+ s\./);
+  await expect(early).toContainText('auth.email_confirm_resend_too_soon');
+  const left = Number(/in (\d+) s\./.exec(await early.innerText())?.[1]);
+  expect(left).toBeGreaterThan(0);
+  expect(left).toBeLessThanOrEqual(CONFIRM_RESEND_SECONDS);
+  await page.waitForTimeout(1_500);
+  expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(1);
+
+  // A wrong code is refused in words; the code from the mail proves the address.
+  await banner.getByLabel('Code from the email').fill(pin === '000000' ? '111111' : '000000');
+  await banner.getByRole('button', { name: 'Confirm code' }).click();
+  await expect(banner.getByRole('alert')).toContainText('That code is not right.');
+  await banner.getByLabel('Code from the email').fill(pin);
+  await banner.getByRole('button', { name: 'Confirm code' }).click();
   await expect(page.getByText('Your email address is verified.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Verify your email address' })).toHaveCount(0);
 
-  // Step 6 on the same link, now used: a page that names it and the next step, never the token.
-  await page.goto(link);
+  // Read again from the service: still verified, no banner.
+  await page.reload();
+  await expect(page.getByText('Your email address is verified.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Verify your email address' })).toHaveCount(0);
+});
+
+test(`${J} #7 with email delivery switched off, sending the code from Account says so by name and nothing is sent`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const who = await unprovedAccount();
+  mail(false);
+  try {
+    await signIn(page, who);
+    await page.goto('/uc/account');
+    const banner = page.getByRole('region', { name: 'Verify your email address' });
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+    const off = banner.getByRole('alert');
+    await expect(off).toContainText('Email delivery is switched off in this build, so a confirmation code cannot be sent.');
+    await expect(off).toContainText('vendor.email');
+    await expect(banner.getByLabel('Code from the email')).toHaveCount(0);
+    expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(0);
+  } finally {
+    mail(true);
+  }
+});
+
+test(`${J} #6 an old link from a mail shows "link expired" and a used one "link used", each with the next step and no raw code`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const who = await unprovedAccount();
+  await signIn(page, who);
+  // The hosted page for a link that cannot be used: its own name, the next step, and no token or code anywhere.
+  const deadPage = async (heading, token) => {
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('open Account and send a new one');
+    await expect(alert.getByRole('link', { name: 'Go to Account' })).toHaveAttribute('href', '/uc/account');
+    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
+    await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
+    expect(await page.content()).not.toContain(token);
+  };
+
+  // An old link: mailed, then left until it ran out (the stack's TEST fixture moves its times back).
+  await page.goto('/uc/account');
+  await page.getByRole('region', { name: 'Verify your email address' }).getByRole('button', { name: 'Send confirmation email' }).click();
+  const old = await nextLink(who.email, 0);
+  const oldToken = new URL(old, 'http://x').searchParams.get('token');
+  expect(old).toMatch(/^\/confirm-email\?token=/);
+  expect(tool('local-test-stack.mjs', 'expire-email-confirmations', who.email)).toContain('1 open email confirmation link(s)');
+  await page.goto(old);
+  // Opening the page spends nothing; the person presses Confirm. The token leaves the address bar.
+  await expect(page).toHaveURL(/\/confirm-email$/);
+  const expired = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.confirmEmail'));
   await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText('send a new one');
-  await expect(page.getByRole('link', { name: 'Go to Account' })).toBeVisible();
-  expect(await page.content()).not.toContain(token);
+  const expiredBody = await (await expired).json();
+  expect(expiredBody.error?.data?.intafacedCode ?? expiredBody.error?.data?.cause?.code).toBe('auth.email_confirm_expired');
+  await deadPage('This link has expired', oldToken);
+  await expect(page.getByRole('alert')).toContainText('runs out after a while');
+
+  // A used link: a new one (after the interval), used once to verify, then opened again from the same mail.
+  await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
+  await page.goto('/uc/account');
+  await page.getByRole('region', { name: 'Verify your email address' }).getByRole('button', { name: 'Send confirmation email' }).click();
+  const fresh = await nextLink(who.email, 1);
+  const freshToken = new URL(fresh, 'http://x').searchParams.get('token');
+  await page.goto(fresh);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+  await page.goto(fresh);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await deadPage('This link was already used', freshToken);
+  await expect(page.getByRole('alert')).toContainText('works once');
 });
 
 test(`${J} #6 a confirmation link with no token or a wrong one is a page with the next step, not an error code`, async ({ page }) => {
@@ -373,14 +557,19 @@ test(`${J} #6 a confirmation link with no token or a wrong one is a page with th
 test(`${J} #7b asking for more confirmation emails than the hour allows says how long to wait, and nothing more is sent`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const who = await unprovedAccount();
   await signIn(page, who);
   await page.goto('/uc/account');
   const banner = page.getByRole('region', { name: 'Verify your email address' });
   for (let i = 0; i < 5; i++) {
+    // Each ask waits out the interval between two mails, so only the hourly budget refuses the sixth.
+    if (i > 0) await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
     await banner.getByRole('button', { name: 'Send confirmation email' }).click();
     await expect(banner.getByRole('status')).toContainText('on its way');
+    await expect(banner.getByRole('alert')).toHaveCount(0);
   }
+  await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
   await expect.poll(() => mailedConfirmLinks(who.email).length).toBe(5);
   await banner.getByRole('button', { name: 'Send confirmation email' }).click();
   await expect(banner.getByRole('alert')).toContainText(/You can ask again in \d+ min\./);
@@ -388,7 +577,7 @@ test(`${J} #7b asking for more confirmation emails than the hour allows says how
   expect(mailedConfirmLinks(who.email)).toHaveLength(5);
 });
 
-test(`${J} #7 a new sign-up code asked for before the interval is refused with the seconds left, and nothing more is sent`, async () => {
+test(`${J} #4 a new sign-up code asked for before the interval is refused by identity itself with the seconds left, and nothing more is sent`, async () => {
   const who = person();
   const started = await signUpStart(who);
   expect(started.status, JSON.stringify(started.data)).toBe(200);
