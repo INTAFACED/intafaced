@@ -42,6 +42,7 @@ import { parseAccountTerms, type AccountTerms } from './account-home/account-ter
 import { CurrencyService } from './account-home/currencies.js';
 import { ProfileService } from './account-home/profile.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
+import type { SendReviewRule } from './transfers/send-review.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
 import type { PersonalTransferNotices } from './transfers/transfer-notices.js';
@@ -137,6 +138,8 @@ export interface BankServices {
 }
 
 export interface BankServiceOptions {
+  /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
+  sendReviewRule?: SendReviewRule | null;
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
   payeeCoolingHours?: string;
   /** `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`: how close to its next run a standing order may still be edited. Blank refuses. */
@@ -307,6 +310,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transferNotices: options.transferNotices,
     onCreditPosted: (credit) => sorter.sortCredit(credit),
     securityLock: options.ramps?.securityLock,
+    reviewRule: options.sendReviewRule ?? null,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -319,6 +323,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
+    transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
     assets: options.portfolio?.assets ?? options.assetRegistry ?? null,
   });
   const activityRecords = new ActivityRecordService(sql);

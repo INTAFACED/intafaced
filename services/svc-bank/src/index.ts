@@ -23,6 +23,7 @@ import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
+import { parseSendReviewRule } from './transfers/send-review.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
@@ -142,6 +143,7 @@ const onrampPartner = onrampPartnerFor(
 );
 
 const bank = createBankServices(sql, ledger, history, {
+  sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   onrampPartner,
   nativeAssetId: env.TOKEN_ASSET_ID,
   // Recovery claims (RC-identity-08): identity says which accounts a heir may claim and whether a claim's signatures

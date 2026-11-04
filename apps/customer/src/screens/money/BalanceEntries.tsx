@@ -3,7 +3,7 @@ import { Amount, Button, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock 
 import { moneyCopy } from './copy';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
-import { assetFromPath, balanceEntriesHref, accountFromSearch, signedOf, type BalanceEntryRow } from './balance-entries-model';
+import { assetFromPath, balanceEntriesHref, accountFromSearch, feeIsZero, signedOf, type BalanceEntryRow } from './balance-entries-model';
 import { useBalanceEntries } from './balance-entries-source';
 import { useNamedAccounts } from './portfolio-source';
 import { SetAside } from './SetAside';
@@ -18,7 +18,9 @@ function Row({
   hidden,
   zone,
   names,
+  asset,
 }: {
+  asset: string;
   row: BalanceEntryRow;
   hidden: boolean;
   zone: ReturnType<typeof usePreferences>['timeZone'];
@@ -43,6 +45,10 @@ function Row({
       </td>
       <td>
         <code className="money-code">{row.txId}</code>
+      </td>
+      <td data-testid="entry-state">{row.state === 'completed' ? copy.t('Completed') : '—'}</td>
+      <td data-testid="entry-fee">
+        {row.fee == null ? copy.t('Entries fee unknown') : feeIsZero(row.fee) ? copy.t('No fee') : `${fmtAmount(row.fee)} ${asset}`}
       </td>
     </tr>
   );
@@ -131,6 +137,8 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
                   {t('Entries column amount')}
                 </th>
                 <th scope="col">{t('Entries column reference')}</th>
+                <th scope="col">{t('Entries column state')}</th>
+                <th scope="col">{t('Entries column fee')}</th>
               </tr>
             </thead>
             <tbody>
@@ -141,6 +149,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
                   hidden={hideBalances}
                   zone={timeZone}
                   names={names}
+                  asset={asset}
                 />
               ))}
             </tbody>

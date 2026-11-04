@@ -12,12 +12,24 @@ vi.mock('../../../../shared/preferences', async (original) => {
 const world = vi.hoisted(() => ({
   userId: 'u1' as string | null,
   feed: { status: 'loading' } as unknown,
+  // The bank's answer to `transfers.held` (PP-send-request-10): by default no held send has this id.
+  held: null as unknown,
+  asked: [] as Array<{ procedure: string; input: unknown }>,
+  // One client for the whole file, as the session gives one: a new object each render would re-run every read.
+  api: {
+    query: async (_module: string, procedure: string, input: unknown) => {
+      world.asked.push({ procedure, input });
+      return (
+        world.held ?? { ok: false, reason: 'error', status: 404, code: 'bank.held_send_not_found', message: 'No held payment with that id' }
+      );
+    },
+  },
 }));
 vi.mock('../../../session/session', () => ({
   useSession: () => ({
     userId: world.userId,
     session: world.userId ? { accessToken: 'x', expiresAt: '2099-01-01T00:00:00Z', userId: world.userId } : null,
-    api: {},
+    api: world.api,
   }),
 }));
 vi.mock('../../../../data', async (original) => {
@@ -40,6 +52,8 @@ beforeEach(() => {
   document.body.append(host);
   world.userId = 'u1';
   world.feed = { status: 'loading' };
+  world.held = null;
+  world.asked = [];
   localStorage.clear();
   history.replaceState(null, '', '/pay');
 });
@@ -220,6 +234,50 @@ describe('personal Pay rooms render', () => {
     await open('/pay/history/t1');
     expect(host.textContent).toContain('We could not load this payment.');
     expect(host.textContent).not.toContain('Not set');
+  });
+
+  it('reads a send the review holds as In review with its reason class, before the activity (J-pay-01 #6)', async () => {
+    world.feed = { status: 'ready', data: { items: [], hasMore: false, loadingMore: false, moreFailed: false, loadMore: () => undefined } };
+    world.held = {
+      ok: true,
+      data: {
+        transferId: 'held-send-1',
+        status: 'in_review',
+        reasonClass: 'amount_over_review_line',
+        amount: '60',
+        assetId: 'USDT',
+        note: null,
+        reference: null,
+        requestId: null,
+        toHandle: 'test_friend',
+        ledgerTxId: null,
+        createdAt: '2026-11-04T10:00:00.000Z',
+        decidedAt: null,
+      },
+    };
+    await open('/pay/history/held-send-1');
+    expect(world.asked).toEqual([{ procedure: 'transfers.held', input: { transferId: 'held-send-1' } }]);
+    const status = host.querySelector('[data-testid="payment-status"]');
+    expect(status?.textContent).toBe('In review');
+    expect(status?.getAttribute('data-status')).toBe('in_review');
+    expect(host.querySelector('[data-testid="payment-review-reason"]')?.textContent).toBe(
+      'Large payment check: payments above a set amount are checked before they are sent.',
+    );
+    expect(host.textContent).toContain('60 USDT');
+    expect(host.textContent).toContain('@test_friend');
+    expect(host.textContent).not.toContain('This payment is not in your latest activity');
+    // A send the review rejected says nothing was sent.
+    act(() => root?.unmount());
+    root = null;
+    world.held = {
+      ok: true,
+      data: { ...(world.held as { data: object }).data, status: 'rejected', decidedAt: '2026-11-04T11:00:00.000Z' },
+    };
+    await open('/pay/history/held-send-1');
+    expect(host.querySelector('[data-testid="payment-status"]')?.textContent).toBe('Not sent');
+    expect(host.querySelector('[data-testid="payment-held-note"]')?.textContent).toBe(
+      'The check did not pass, so nothing was sent and nothing left your account.',
+    );
   });
 
   it('covers every room in the table', () => {

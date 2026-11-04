@@ -27,7 +27,7 @@ import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
-import { amountString, actionApprovalFields, signedAmountString } from './shared.js';
+import { amountString, actionApprovalFields, heldSendOutput, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
 import { accrualBoundary, accrualDate } from '../earn/interest.js';
 import type { BankRouterContext } from './context.js';
@@ -80,6 +80,27 @@ export function createOpsRouter(c: BankRouterContext) {
         const view = fraudPreview();
         return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
       }),
+    /**
+     * Personal sends the owner's review rule holds (PP-send-request-10), oldest first. Each is the customer's own
+     * instruction; nothing was taken while it waits.
+     */
+    heldSends: scopedProcedure('admin:treasury')
+      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).optional())
+      .output(z.array(heldSendOutput.extend({ fromUserId: z.string(), toUserId: z.string() })))
+      .query(async ({ input }) => guard(async () => bank.personalPay.heldForReview(input?.limit ?? 50))),
+    /**
+     * Release a held send: it is sent now under its own transfer id through the normal send path, which checks the
+     * terms, the balance and the recipient as of now and posts once. A refusal leaves it held. A repeat is safe.
+     */
+    releaseHeldSend: scopedProcedure('admin:treasury')
+      .input(z.object({ transferId: z.string().min(8).max(64) }))
+      .output(heldSendOutput)
+      .mutation(async ({ ctx, input }) => guard(async () => bank.personalPay.releaseHeld(input.transferId, ctx.principal.userId))),
+    /** Reject a held send. Nothing was taken while it waited, so nothing moves. A repeat is safe. */
+    rejectHeldSend: scopedProcedure('admin:treasury')
+      .input(z.object({ transferId: z.string().min(8).max(64) }))
+      .output(heldSendOutput)
+      .mutation(async ({ ctx, input }) => guard(async () => bank.personalPay.rejectHeld(input.transferId, ctx.principal.userId))),
     /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
     fraudPreviewAction: scopedProcedure('admin:treasury')
       .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))

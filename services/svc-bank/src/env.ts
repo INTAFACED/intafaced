@@ -295,6 +295,13 @@ const schema = serviceEnvSchema
       BANK_STEP_UP_MONEY_OUT: z.enum(['off', 'required']).default('off'),
 
       /**
+       * PERSONAL SEND REVIEW (PP-send-request-10): the owner's review line per asset, `{"USDT":"500"}`. A send to another
+       * person above its asset's line is held for a review before any money moves; the person reads "In review" and the
+       * reason class. Unset means no review rule is published and no send is held. A malformed value refuses boot.
+       */
+      BANK_PERSONAL_SEND_REVIEW_JSON: z.string().optional(),
+
+      /**
        * Owner-set offramp cooling window in hours (PTX-M17-R03).
        *
        * No default. Blank / unset / non-integer / negative → offramp refuses

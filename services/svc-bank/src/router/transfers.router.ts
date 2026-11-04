@@ -18,7 +18,8 @@ import {
   scheduleToUserBinding,
   toUserBinding,
 } from '../step-up/money-out-fields.js';
-import { amountString, gateDestination, hideDestinationDetail, stepUpApprovalField } from './shared.js';
+import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
+import { heldRefusal } from '../transfers/send-review.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -263,6 +264,9 @@ export function createTransfersRouter(c: BankRouterContext) {
               if (from.kind !== 'primary') throw err;
               throw await bank.spendFigures.refusal(err, ctx.principal.userId, from.assetId);
             });
+          // The owner's send review holds it (PP-send-request-10): nothing moved, so it is answered as a typed refusal that
+          // names the review; `transfers.held` reads its state and reason class. A retry with the same id answers the same.
+          if (result.status !== 'posted') throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
             amount: result.amount,
@@ -272,6 +276,15 @@ export function createTransfersRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * The sender's own send that the review holds (PP-send-request-10): In review with its reason class, or how the review
+     * ended. Nobody else can read it, and a stranger gets the same not-found as a missing id.
+     */
+    held: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ transferId: z.string().min(8).max(64) }))
+      .output(heldSendOutput)
+      .query(async ({ ctx, input }) => guard(async () => bank.personalPay.heldSend(ctx.principal.userId, input.transferId))),
 
     /** Receipt for one personal send. Parties only. A stranger gets the same not-found as a missing id. */
     get: scopedProcedure('bank:read', { module: 'bank' })

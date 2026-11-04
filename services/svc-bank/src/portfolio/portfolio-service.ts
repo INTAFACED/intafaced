@@ -211,6 +211,8 @@ export function httpTickerSource(options: { baseUrl: string; fetchImpl?: typeof 
 }
 
 export interface PortfolioServiceOptions {
+  /** Personal sends' fees, by ledger transaction. Unset, or a failed read: every entry's fee is null (unknown). */
+  transferFees?: TransferFeeReads;
   /** Unset = no price counterparty: any user who holds a priced asset gets `bank.prices_unavailable`. */
   tickers?: TickerSource;
   /** svc-ledger `historyPage`, read only. Unset = `balanceEntries` refuses `ActivityUnavailableError`. */
@@ -249,6 +251,18 @@ export interface BalanceEntry {
   readonly direction: 'debit' | 'credit';
   readonly amount: string;
   readonly postedAt: string;
+  /** Every entry here is posted to the ledger, so its state is completed; a send still in review is never an entry. */
+  readonly state: 'completed';
+  /**
+   * The fee this movement charged, where the bank knows it: a personal send's (J-pay-01 #8). Null for any other entry,
+   * whose fee this read does not know; never a guessed zero.
+   */
+  readonly fee: string | null;
+}
+
+/** The fee each of the user's own personal sends charged, by ledger transaction id. */
+export interface TransferFeeReads {
+  feesFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
 }
 
 export interface BalanceEntriesPage {
@@ -273,6 +287,7 @@ export class PortfolioService {
   private readonly closes: CloseSeriesSource | undefined;
   private readonly assets: AssetRegistryReads | null;
   private readonly now: () => Date;
+  private readonly transferFees: TransferFeeReads | undefined;
 
   constructor(
     private readonly ledger: Pick<LedgerClient, 'balances'>,
@@ -285,6 +300,7 @@ export class PortfolioService {
     this.closes = options.closes;
     this.assets = options.assets ?? null;
     this.now = options.now ?? (() => new Date());
+    this.transferFees = options.transferFees;
   }
 
   /**
@@ -557,6 +573,14 @@ export class PortfolioService {
     });
     const slice = all.slice(skip, skip + limit);
     const shown = skip + slice.length;
+    let fees: ReadonlyMap<string, string> = new Map();
+    if (this.transferFees && slice.length > 0) {
+      try {
+        fees = await this.transferFees.feesFor(userId, [...new Set(slice.map((e) => e.txId))]);
+      } catch {
+        // A fee that cannot be read is unknown (null), never a zero; the entries and their check stand.
+      }
+    }
     return {
       assetId,
       entries: slice.map((e) => ({
@@ -567,6 +591,8 @@ export class PortfolioService {
         direction: e.direction,
         amount: e.amount,
         postedAt: e.postedAt.toISOString(),
+        state: 'completed' as const,
+        fee: fees.get(e.txId) ?? null,
       })),
       nextCursor: shown < all.length ? String(shown) : null,
       sumCheck: { ok: true, entriesSum: formatAmount(entriesSum), balance: formatAmount(balance), entryCount: all.length },

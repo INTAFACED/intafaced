@@ -9,6 +9,7 @@ import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requ
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
+import { fetchHeldSend, type HeldSend } from '../../held-send';
 
 /** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
@@ -191,49 +192,95 @@ function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | n
   );
 }
 
+/** A send the owner's review holds, as its sender reads it: its state, the reason class, and what it would send. */
+function HeldStatus({ held }: { held: HeldSend }) {
+  const { t } = roomsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  const state = held.status === 'in_review' ? t('heldInReview') : held.status === 'rejected' ? t('heldRejected') : t('heldReleased');
+  const reasonKey = `heldReason_${held.reasonClass}`;
+  const reason = reasonKey === 'heldReason_amount_over_review_line' ? t('heldReason_amount_over_review_line') : t('heldReasonOther');
+  return (
+    <>
+      <p className="pay-banner" role="status" data-testid="payment-status" data-status={held.status}>
+        {state}
+      </p>
+      <Rows
+        rows={[
+          [t('heldStatusRow'), <span data-testid="payment-status-word">{state}</span>],
+          [
+            t('heldReasonRow'),
+            <span data-testid="payment-review-reason" data-reason={held.reasonClass}>
+              {reason}
+            </span>,
+          ],
+          [t('requestAmount'), <span lang="zxx">{`${fmtAmount(held.amount, { places: 18 })} ${held.assetId}`}</span>],
+          [t('heldTo'), held.toHandle ? `@${held.toHandle}` : t('notSet')],
+          [t('requestMade'), <span lang="zxx">{stamp(held.createdAt, timeZone, Date.now())}</span>],
+          [t('reference'), <span lang="zxx">{held.transferId}</span>],
+        ]}
+      />
+      <p className="pay-hint" data-testid="payment-held-note">
+        {held.status === 'in_review' ? t('heldNote') : held.status === 'rejected' ? t('heldRejectedNote') : t('heldReleasedNote')}
+      </p>
+    </>
+  );
+}
+
 function PaymentRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
+  // A send the review holds is not in the ledger's activity: the bank's own record of it is read first.
+  const [held, setHeld] = useState<HeldSend | null>(null);
+  useEffect(() => {
+    setHeld(null);
+    if (!id) return;
+    const controller = new AbortController();
+    void fetchHeldSend(api, id, controller.signal).then((result) => {
+      if (!controller.signal.aborted && result.ok && result.data.status !== 'released') setHeld(result.data);
+    });
+    return () => controller.abort();
+  }, [api, id, userId]);
   const source = useMemo(() => createActivityFeed(api, { pageSize: 50 }), [api, userId]);
   const feed = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const item = feed.status === 'ready' && id ? (feed.data.items.find((row) => row.id === id || row.txId === id) ?? null) : null;
-  const body =
-    feed.status === 'loading' ? (
-      <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
-    ) : feed.status === 'refused' ? (
-      (() => {
-        const words = refusalCopy(feed.code);
-        return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
-      })()
-    ) : feed.status === 'error' ? (
-      <StateBlock kind="error" title={t('paymentFailed')} onRetry={feed.retry} retryLabel={t('tryAgain')} />
-    ) : item ? (
-      <>
-        <Rows
-          rows={[
-            [
-              t('requestAmount'),
-              <span lang="zxx">{`${item.direction === 'out' ? '−' : '+'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}</span>,
-            ],
-            [t('requestMade'), <span lang="zxx">{stamp(item.postedAt, timeZone, Date.now())}</span>],
-            [t('linkFrom'), item.counterparty ? `@${item.counterparty.handle}` : t('notSet')],
-            [t('reference'), <span lang="zxx">{item.txId}</span>],
-          ]}
-        />
-        <Button variant="secondary" size={40} nativeButton={false} render={<a href={`/money/activity/${encodeURIComponent(item.id)}`} />}>
-          {t('paymentReceipt')}
-        </Button>
-        <p className="pay-hint">{t('paymentReceiptNote')}</p>
-      </>
-    ) : (
-      <StateBlock
-        kind="empty"
-        title={t('paymentMissingTitle')}
-        body={t('paymentMissingBody')}
-        action={{ label: t('paymentActivity'), href: '/money/activity?tab=transfers' }}
+  const body = held ? (
+    <HeldStatus held={held} />
+  ) : feed.status === 'loading' ? (
+    <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
+  ) : feed.status === 'refused' ? (
+    (() => {
+      const words = refusalCopy(feed.code);
+      return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    })()
+  ) : feed.status === 'error' ? (
+    <StateBlock kind="error" title={t('paymentFailed')} onRetry={feed.retry} retryLabel={t('tryAgain')} />
+  ) : item ? (
+    <>
+      <Rows
+        rows={[
+          [
+            t('requestAmount'),
+            <span lang="zxx">{`${item.direction === 'out' ? '−' : '+'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}</span>,
+          ],
+          [t('requestMade'), <span lang="zxx">{stamp(item.postedAt, timeZone, Date.now())}</span>],
+          [t('linkFrom'), item.counterparty ? `@${item.counterparty.handle}` : t('notSet')],
+          [t('reference'), <span lang="zxx">{item.txId}</span>],
+        ]}
       />
-    );
+      <Button variant="secondary" size={40} nativeButton={false} render={<a href={`/money/activity/${encodeURIComponent(item.id)}`} />}>
+        {t('paymentReceipt')}
+      </Button>
+      <p className="pay-hint">{t('paymentReceiptNote')}</p>
+    </>
+  ) : (
+    <StateBlock
+      kind="empty"
+      title={t('paymentMissingTitle')}
+      body={t('paymentMissingBody')}
+      action={{ label: t('paymentActivity'), href: '/money/activity?tab=transfers' }}
+    />
+  );
   return (
     <Frame title={t('paymentTitle')} line={t('paymentLine')}>
       {body}
