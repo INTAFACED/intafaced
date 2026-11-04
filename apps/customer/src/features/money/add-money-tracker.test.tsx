@@ -46,7 +46,7 @@ describe('the add-money tracker', () => {
     const html = renderToStaticMarkup(<TrackerSteps request={request()} />);
     expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:todo']);
     expect(html).toContain('Pending: you approved it, the money is on its way');
-    expect(html).toContain('Not yet');
+    expect(html).toContain('Waiting');
     expect(html).toContain('You receive: <span dir="ltr">12.345678 USDT</span>');
     expect(html).not.toContain('tracker-credited');
   });
@@ -56,7 +56,7 @@ describe('the add-money tracker', () => {
       <TrackerSteps request={request({ status: 'credited', creditedAt: '2026-11-04T10:01:00.000Z', creditedAmount: '12.345678' })} />,
     );
     expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:done']);
-    expect(html).not.toContain('Not yet');
+    expect(html).not.toContain('Waiting');
     expect(html).toContain('Credited: 12.345678 USDT');
   });
 
@@ -74,7 +74,7 @@ describe('the add-money tracker', () => {
     );
     expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:skipped', 'credited:done']);
     expect(html).toContain('Not reported by the partner');
-    expect(html).not.toContain('Not yet');
+    expect(html).not.toContain('Waiting');
   });
 
   it('reads the new states, and refuses a credited amount that is a number', () => {

@@ -355,7 +355,7 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   await page.getByRole('button', { name: 'Approve payment' }).click();
   await page.waitForURL(`${ORIGIN}/bank/ramps/new?request=${asked.requestId}`);
 
-  // The tracker: created, sent to the payment page and pending, each with when; credited not yet.
+  // The tracker: created, sent to the payment page and pending, each with when; credited still waiting.
   const tracker = page.getByTestId('add-money-tracker');
   const steps = tracker.getByTestId('tracker-step');
   await expect(tracker).toHaveAttribute('data-status', 'pending');
@@ -364,10 +364,10 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   for (const [n, name] of names.entries()) await expect(steps.nth(n)).toContainText(name);
   for (const n of [0, 1, 2]) {
     await expect(steps.nth(n)).toHaveAttribute('data-state', 'done');
-    await expect(steps.nth(n)).not.toContainText('Not yet');
+    await expect(steps.nth(n)).not.toContainText('Waiting');
   }
   await expect(steps.nth(3)).toHaveAttribute('data-state', 'todo');
-  await expect(steps.nth(3)).toContainText('Not yet');
+  await expect(steps.nth(3)).toContainText('Waiting');
   await expect(page.getByTestId('tracker-receive')).toHaveText(`You receive: ${quote.amount} USDT`);
 
   // A "paid" for any other amount than the payment opened credits nothing.
@@ -381,7 +381,7 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   await expect(tracker).toHaveAttribute('data-status', 'credited');
   for (const n of [0, 1, 2, 3]) {
     await expect(steps.nth(n)).toHaveAttribute('data-state', 'done');
-    await expect(steps.nth(n)).not.toContainText('Not yet');
+    await expect(steps.nth(n)).not.toContainText('Waiting');
   }
   await expect(tracker).toContainText('Credited');
   await expect(page.getByTestId('tracker-credited')).toHaveText(`Credited: ${quote.amount} USDT`);

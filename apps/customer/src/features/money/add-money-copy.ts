@@ -64,7 +64,7 @@ const en = {
   step_opened: 'Sent to the payment page',
   step_pending: 'Pending',
   step_credited: 'Credited',
-  stepNotYet: 'Not yet',
+  stepNotYet: 'Waiting',
   stepSkipped: 'Not reported by the partner',
   creditedAmount: 'Credited: {amount}',
 } as const;
@@ -135,7 +135,7 @@ const es: Record<keyof typeof en, string> = {
   step_opened: 'Enviado a la página de pago',
   step_pending: 'Pendiente',
   step_credited: 'Abonado',
-  stepNotYet: 'Todavía no',
+  stepNotYet: 'En espera',
   stepSkipped: 'El socio no lo informó',
   creditedAmount: 'Abonado: {amount}',
 };
@@ -206,7 +206,7 @@ const fr: Record<keyof typeof en, string> = {
   step_opened: 'Envoyé à la page de paiement',
   step_pending: 'En attente',
   step_credited: 'Crédité',
-  stepNotYet: 'Pas encore',
+  stepNotYet: 'À venir',
   stepSkipped: 'Non signalé par le partenaire',
   creditedAmount: 'Crédité : {amount}',
 };
