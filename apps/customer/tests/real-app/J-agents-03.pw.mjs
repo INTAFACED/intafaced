@@ -1,18 +1,18 @@
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, openAgents, openOwnAgent } from './agents.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { api, signOutBrowser, tool } from './stack.mjs';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { EDGE, ORIGIN, ROOT, api, json, restartWith, signOutBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
 
 // J-agents-03, in the running app (docs/roadmap/journeys.json): create my own agent from a template, protect it and
 // publish it. One test per step, titled "J-agents-03 #<n>", run in order on one verified TEST account, starting on
 // /agents/new. Creating an agent moves no money. The assistant-drafting panel waits on the owner's model choice
 // (owner.decision) while the rest of the builder works. The draft each step leaves is read back from svc-agents
 // (own.* through Edge), not only from the page.
-// A clause the product cannot run yet stays red in a test of its own, named by that clause:
-// - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
-// The identity page is not built either (AG-identity-01), so #5 fails at its first missing part, quickly (UNBUILT).
-// Not covered yet: #5's frozen-owner clause (freezing this run's account would stop #6 to #8) and its blank-lifetime
-// clause (it depends on the owner value the stack publishes); both join #5 with the identity page.
+// #5's blank token lifetime and #6's unset model choice are the stack's TEST owner values switched off for one restart
+// of svc-agents (restartWith), then back on. #5's frozen owner is a staff freeze of this run's account, lifted in the
+// same step (staffFreeze, staffRestore), so #6 to #8 act as the same person.
 const J = 'J-agents-03';
 const agents = agentsRun(J);
 
@@ -23,6 +23,20 @@ const RENAMED = 'TEST renamed agent';
 const DESCRIPTION = 'TEST: answer questions about my orders and never move money.';
 /** The fields own.save takes, as svc-agents holds them. */
 const pick = ({ id, name, instructions, tools, perSessionCap }) => ({ id, name, instructions, tools, perSessionCap });
+
+/** The stack's TEST lifetime of an agent's token, in minutes (tooling/profiles/test-owner-values/agents.json). */
+const TOKEN_LIFETIME_MINUTES = Number(
+  JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/agents.json'), 'utf8')).values
+    .AGENTS_OWN_TOKEN_LIFETIME_MINUTES.value,
+);
+
+/** A call the agent makes with its own token: through Edge, with no person's session. */
+const agentCall = (token) =>
+  fetch(`${EDGE}/api/agents/trpc/own.identity.agentCall`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  }).then(json);
 
 const main = (page) => page.getByRole('main');
 const builder = (page) => main(page).getByRole('form', { name: 'Agent builder' });
@@ -272,69 +286,168 @@ test(`${J} #4 sets the cap and attaches tools: each attached tool shows its stor
   expect(await ownRead('get', { id: draft.id })).toEqual(draft);
 });
 
-test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke fails the next call; a frozen owner fails it too`, async ({
+test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's own token; a revoke makes the next call fail; a blank token lifetime refuses; a frozen owner makes the token fail too`, async ({
   page,
 }) => {
+  test.setTimeout(300_000);
+  const agent = await ownAgent();
+  const ownerId = (await api(agents.account())).userId;
+  const identityOf = () => ownRead('identity.get', { id: agent.id });
+  const identity = () => main(page).getByRole('region', { name: 'Agent identity' });
+  const facts = () => identity().getByTestId('agent-token-facts');
+
+  // A blank token lifetime refuses: svc-agents restarted with no lifetime set issues nothing, and says why.
+  const before = await identityOf();
+  restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', false);
+  try {
+    await openOwnAgent(page, agents, 'Identity');
+    await identity()
+      .getByRole('button', { name: /^Issue (a new )?token$/ })
+      .click();
+    const refused = identity().getByRole('alert');
+    await expect(refused.locator('code')).toHaveText('agents.identity.lifetime_unset');
+    await expect(refused).toContainText('the owner has not set how long an agent’s token lasts. Nothing was issued.');
+    await expect(identity().getByTestId('agent-token')).toHaveCount(0);
+    expect(await identityOf()).toEqual(before);
+  } finally {
+    restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', true);
+  }
+
+  // With the lifetime set, the agent's own token: its owner, its scopes (the agent's tools) and its expiry, as
+  // svc-agents holds them. The token itself is shown once.
   await openOwnAgent(page, agents, 'Identity');
-  const identity = main(page).getByRole('region', { name: 'Agent identity' });
-  for (const term of ['Owner', 'Scopes', 'Expires']) await expect(identity.getByRole('term').filter({ hasText: term })).toBeVisible();
-  await identity.getByRole('button', { name: 'Revoke token' }).click();
-  await expect(identity.getByRole('status')).toContainText('Revoked. The agent’s next call will fail.');
+  await identity()
+    .getByRole('button', { name: /^Issue (a new )?token$/ })
+    .click();
+  const secret = await identity().getByTestId('agent-token').innerText();
+  expect(secret).toMatch(/^agt_/);
+  const { token } = await identityOf();
+  expect(token).toMatchObject({ agentId: agent.id, ownerId, scopes: agent.tools, revokedAt: null, state: 'active' });
+  expect(agent.tools.length).toBeGreaterThan(0);
+  expect(Date.parse(token.expiresAt) - Date.parse(token.issuedAt)).toBe(TOKEN_LIFETIME_MINUTES * 60_000);
+  for (const term of ['Owner', 'Scopes', 'Expires']) await expect(facts().getByRole('term').filter({ hasText: term })).toBeVisible();
+  await expect(facts().getByTestId('token-owner')).toHaveText(ownerId);
+  await expect(facts().getByRole('list', { name: 'Scopes' }).getByRole('listitem')).toHaveText(token.scopes);
+  await expect(facts().getByTestId('token-expires')).toHaveAttribute('datetime', token.expiresAt);
+  await expect(facts().getByTestId('token-state')).toHaveText('Active');
+
+  // The agent's call with its own token answers who it acts as.
+  const caller = { agentId: agent.id, ownerId, scopes: token.scopes, expiresAt: token.expiresAt };
+  let call = await agentCall(secret);
+  expect(call.status, JSON.stringify(call.body).slice(0, 300)).toBe(200);
+  expect(call.body.result.data).toEqual(caller);
+
+  // A frozen owner makes the token fail too; lifted, the same token answers again.
+  const frozen = await staffFreeze(agents.account());
+  expect(frozen).toBe(ownerId);
+  try {
+    call = await agentCall(secret);
+    expect(call.status).toBe(403);
+    expect(call.body.error.message).toBe('agents.identity.owner_frozen');
+  } finally {
+    await staffRestore(frozen);
+  }
+  call = await agentCall(secret);
+  expect(call.status, JSON.stringify(call.body).slice(0, 300)).toBe(200);
+  expect(call.body.result.data).toEqual(caller);
+
+  // A revoke makes the next call fail.
+  await openOwnAgent(page, agents, 'Identity');
+  await identity().getByRole('button', { name: 'Revoke token' }).click();
+  await expect(identity().getByRole('status')).toContainText('Revoked. The agent’s next call will fail.');
+  await expect(facts().getByTestId('token-state')).toHaveText('Revoked');
+  expect((await identityOf()).token).toMatchObject({ ...caller, state: 'revoked' });
+  call = await agentCall(secret);
+  expect(call.status).toBe(401);
+  expect(call.body.error.message).toBe('agents.identity.token_revoked');
 });
 
 test(`${J} #6 asks the assistant to draft an agent: with the model unset the owner-decision notice and the builder still works; nothing saved until accepted`, async ({
   page,
 }) => {
-  await openBuilder(page);
-  const before = await ownAgents();
-  const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
-  const description = assistant.getByRole('textbox', { name: 'Describe the agent in plain words' });
-  await description.fill(DESCRIPTION);
-  await expect(description).toHaveValue(DESCRIPTION);
-  await expect(assistant.getByRole('note').locator('code')).toHaveText('owner.decision');
-  await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeDisabled();
-  // The panel drafted and saved nothing.
-  expect(await ownAgents()).toEqual(before);
-  // The rest of the builder still works without it: a blank draft is made, held by svc-agents, and edits save.
-  await main(page).getByRole('region', { name: 'Templates' }).getByRole('button', { name: 'Start blank' }).click();
-  const id = await builder(page).getByTestId('draft-id').innerText();
-  const after = await ownAgents();
-  expect(after.map((row) => row.id)).toEqual([id, ...before.map((row) => row.id)]);
-  expect(after[0]).toMatchObject({ template: 'blank', tools: [], state: 'draft' });
-  await builder(page).getByRole('textbox', { name: /^Name/ }).fill('TEST blank draft');
-  await builder(page).getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
-  expect(await ownRead('get', { id })).toMatchObject({ name: 'TEST blank draft', template: 'blank' });
+  test.setTimeout(240_000);
+  // svc-agents restarted with no model chosen for the assistant (the owner's decision), then the stack's TEST engine back.
+  restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', false);
+  try {
+    await openBuilder(page);
+    const before = await ownAgents();
+    const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
+    const description = assistant.getByRole('textbox', { name: 'Describe the agent in plain words' });
+    await description.fill(DESCRIPTION);
+    await expect(description).toHaveValue(DESCRIPTION);
+    await expect(assistant.getByRole('note')).toContainText('Drafting with the assistant waits on the owner’s choice of model.');
+    await expect(assistant.getByRole('note').locator('code')).toHaveText('owner.decision');
+    await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeDisabled();
+    // svc-agents refuses a draft on its own too, and drafts and saves nothing.
+    const direct = await (await api(agents.account())).post('/api/agents/trpc/own.assistant.draft', { description: DESCRIPTION });
+    expect(direct.status).toBe(412);
+    expect(direct.body.error.message).toBe('owner.decision');
+    expect(await ownAgents()).toEqual(before);
+    // The rest of the builder still works without it: a blank draft is made, held by svc-agents, and edits save.
+    await main(page).getByRole('region', { name: 'Templates' }).getByRole('button', { name: 'Start blank' }).click();
+    const id = await builder(page).getByTestId('draft-id').innerText();
+    const after = await ownAgents();
+    expect(after.map((row) => row.id)).toEqual([id, ...before.map((row) => row.id)]);
+    expect(after[0]).toMatchObject({ template: 'blank', tools: [], state: 'draft' });
+    await builder(page).getByRole('textbox', { name: /^Name/ }).fill('TEST blank draft');
+    await builder(page).getByRole('button', { name: 'Save draft' }).click();
+    await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
+    expect(await ownRead('get', { id })).toMatchObject({ name: 'TEST blank draft', template: 'blank' });
+  } finally {
+    restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', true);
+  }
 });
 
 test(`${J} #6 once the model choice is set a draft appears whose tools passed the validator; nothing is saved until accepted`, async ({
   page,
 }) => {
-  // The assistant waits on the owner's choice of model (owner.decision): red, by name, until the owner makes it. No
-  // model setting exists yet to set here; when it lands, this test sets it and restores it blank in a try/finally.
+  // The stack's model choice is its TEST engine, which drafts by rule and calls no model.
   await openBuilder(page);
   const before = await ownAgents();
   const { tools: catalogue } = await ownRead('catalogue');
   const assistant = main(page).getByRole('region', { name: 'Draft with the assistant' });
-  await assistant.getByRole('textbox', { name: 'Describe the agent in plain words' }).fill(DESCRIPTION);
-  await expect(assistant.getByRole('button', { name: 'Draft it' })).toBeEnabled(UNBUILT);
+  const proposal = assistant.getByRole('region', { name: 'Proposed draft' });
+  const describe = assistant.getByRole('textbox', { name: 'Describe the agent in plain words' });
+  await expect(assistant).toContainText('TEST engine: it drafts by rule from your words and calls no model.');
+  await expect(assistant.getByRole('note')).toHaveCount(0);
+
+  // A tool the validator refuses never reaches the draft: asked for one that moves money, the draft leaves it out with
+  // the validator's code.
+  await describe.fill('TEST: answer questions and transfer my funds.');
   await assistant.getByRole('button', { name: 'Draft it' }).click();
-  // A draft appears; each of its tools is one the validator admits: in the catalogue, and none moves money.
-  const proposedTools = assistant.getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code');
+  const leftOut = proposal.getByRole('list', { name: 'Left out by the check' }).getByRole('listitem');
+  await expect(leftOut).toHaveText(['ledger.transfer · agents.own.money_tool']);
+  await expect(proposal.getByRole('list', { name: 'Tools' }).getByRole('listitem')).toHaveText(['support.kb.search']);
+  expect(await ownAgents()).toEqual(before);
+
+  await describe.fill(DESCRIPTION);
+  await assistant.getByRole('button', { name: 'Draft it' }).click();
+  // A draft appears; each of its tools is one the validator admits: in the catalogue, with a declared shape, and none
+  // moves money.
+  const proposedTools = proposal.getByRole('list', { name: 'Tools' }).getByRole('listitem').locator('code');
   await expect(proposedTools.first()).toBeVisible();
+  await expect(proposal.getByRole('list', { name: 'Left out by the check' })).toHaveCount(0);
   const proposed = await proposedTools.allInnerTexts();
   expect(proposed.length).toBeGreaterThan(0);
-  for (const name of proposed) expect(catalogue.find((tool) => tool.name === name)).toMatchObject({ movesMoney: false });
+  for (const name of proposed) {
+    const entry = catalogue.find((tool) => tool.name === name);
+    expect(entry, name).toMatchObject({ movesMoney: false });
+    expect(entry.shape, `${name} has a declared shape`).toBeTruthy();
+  }
+  const name = await proposal.getByTestId('proposal-name').innerText();
   // Nothing is saved until it is accepted.
+  await expect(proposal).toContainText('Nothing is saved until you accept it.');
   expect(await ownAgents()).toEqual(before);
-  await assistant.getByRole('button', { name: 'Accept' }).click();
+  await proposal.getByRole('button', { name: 'Accept' }).click();
+  await page.waitForURL(/\/agents\/[0-9a-f-]{36}$/);
   const after = await ownAgents();
   expect(after).toHaveLength(before.length + 1);
-  expect(after[0]).toMatchObject({ tools: proposed, state: 'draft' });
+  expect(after[0]).toMatchObject({ name, tools: proposed, state: 'draft' });
+  expect(page.url()).toMatch(new RegExp(`/agents/${after[0].id}$`));
   // svc-agents' own validator held it: read back, the accepted draft carries exactly those tools and no money tool.
   const accepted = await ownRead('get', { id: after[0].id });
   expect(accepted.tools).toEqual(proposed);
-  expect(accepted.tools.filter((name) => catalogue.find((tool) => tool.name === name)?.movesMoney !== false)).toEqual([]);
+  expect(accepted.tools.filter((tool) => catalogue.find((entry) => entry.name === tool)?.movesMoney !== false)).toEqual([]);
 });
 
 test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 is immutable; the edit is a draft; republish moves one surface and running sessions keep their version; a surface the policy forbids is blocked with the reason`, async ({
