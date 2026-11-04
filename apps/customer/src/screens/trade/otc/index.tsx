@@ -36,6 +36,8 @@ function Room({ linkedId }: { linkedId: string | null }) {
   const [providers, setProviders] = useState<string[]>([]);
   // The providers each quote asked, so a re-price asks the same ones whatever the form shows now.
   const [askedBy, setAskedBy] = useState<Readonly<Record<string, string[]>>>({});
+  // The settlement name each quote's request gave (CB-otc-08), so a re-price is checked against the verified name again.
+  const [namedBy, setNamedBy] = useState<Readonly<Record<string, string>>>({});
   const listed = makers.status === 'ready' ? makers.data.makers.map((m) => m.id).join('\n') : null;
   // A provider the owner took off the list leaves the pick: it has no box left to untick.
   useEffect(() => {
@@ -106,8 +108,9 @@ function Room({ linkedId }: { linkedId: string | null }) {
             makers={makers}
             picked={providers}
             onPick={setProviders}
-            onQuote={(quote, asked) => {
+            onQuote={(quote, asked, settlementName) => {
               setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
+              if (settlementName) setNamedBy((all) => ({ ...all, [quote.quoteId]: settlementName }));
               setKept(book.adopt(quote));
               setSelected(quote.quoteId);
               setTab('quotes');
@@ -159,10 +162,13 @@ function Room({ linkedId }: { linkedId: string | null }) {
                   readAt={entry.readAt}
                   now={now}
                   providers={askedBy[entry.quote.quoteId] ?? providers}
+                  settlementName={namedBy[entry.quote.quoteId]}
                   onCheck={check}
                   onQuote={(quote, options) => {
                     const asked = options?.asked;
                     if (asked) setAskedBy((all) => ({ ...all, [quote.quoteId]: asked }));
+                    const named = options?.settlementName;
+                    if (named) setNamedBy((all) => ({ ...all, [quote.quoteId]: named }));
                     const kept = book.adopt(quote);
                     if (options?.select) {
                       setKept(kept);

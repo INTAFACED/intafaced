@@ -59,6 +59,7 @@ import {
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
+import { settlementNameOf, UNWIRED_SETTLEMENT_NAME_CHECK, type OtcSettlementNameCheck } from './settlement-name.js';
 
 export interface OtcDeskServiceOptions {
   accountAdmission?: TradingAdmissionPort;
@@ -79,6 +80,11 @@ export interface OtcDeskServiceOptions {
   store?: OtcQuoteStore;
   /** Owner provider directory (CB-otc-01). Absent → "No providers set" and requests refuse. */
   makerDirectory?: OtcMakerDirectory;
+  /**
+   * CB-otc-08's name match: identity's own-name check for a settlement name a request gives. Absent: every request that
+   * names a settlement account refuses `trade.otc_name_unverifiable`, and the desk status says the check is not wired.
+   */
+  settlementNames?: OtcSettlementNameCheck;
   now?: () => Date;
 }
 
@@ -114,6 +120,7 @@ export class OtcDeskService {
   private readonly liveObservationFeed: boolean;
   private readonly midFeedWiring: OtcMidFeedWiringStatus | null;
   private readonly makerDirectory: OtcMakerDirectory;
+  private readonly settlementNames: OtcSettlementNameCheck | null;
   private readonly now: () => Date;
 
   constructor(
@@ -131,6 +138,7 @@ export class OtcDeskService {
     this.store = options.store ?? new MemoryOtcQuoteStore();
     this.makerDirectory = options.makerDirectory ?? UNPUBLISHED_OTC_MAKER_DIRECTORY;
     this.convertBounds = options.convertBounds ?? NO_OTC_CONVERT_BOUNDS;
+    this.settlementNames = options.settlementNames ?? null;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -156,6 +164,11 @@ export class OtcDeskService {
       assets: this.law.published === true ? (this.law.assets ?? null) : null,
       /** CB-otc-08: the lowest verification tier the desk prices for; null when the owner left it blank. */
       minTier: this.law.published === true ? (this.law.minTier ?? null) : null,
+      /**
+       * CB-otc-08: true when a settlement name a request gives is checked against the verified name by identity before
+       * anything is priced; false when that check is not wired, and then every request naming a settlement account refuses.
+       */
+      settlementNameMatch: this.settlementNames !== null,
       /** SOCKET §13 — platform settle real; maker route refuse-closed. */
       makerRouting: otcMakerRoutingStatus(),
       /** SOCKET §13 — boot map age-gates unless venue observation source is installed. */
@@ -219,11 +232,19 @@ export class OtcDeskService {
       makerId?: string;
       /** The providers a desk request asks (CB-otc-01): picked from the owner's list, at most its cap. */
       makerIds?: readonly string[];
+      /** CB-otc-08: the holder of the account the trade settles to, when the request names one. Checked, never kept. */
+      settlementName?: string;
     },
     options: { desk: boolean } = { desk: true },
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     assertDeskLevel(law, principal);
+    // CB-otc-08's name match, right after the level and before any minimum, stake read or price lookup: a settlement
+    // account in another name than the verified one is refused with nothing priced, recorded or held.
+    const settlementName = settlementNameOf(input.settlementName);
+    if (settlementName !== null) {
+      await (this.settlementNames ?? UNWIRED_SETTLEMENT_NAME_CHECK).assertOwnName(principal.userId, settlementName);
+    }
     const qty = parseRequiredOtcSize(input.qty);
 
     // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
@@ -495,7 +516,15 @@ export class OtcDeskService {
    */
   async rfqQuote(
     principal: Principal,
-    input: { side: OtcSide; baseAsset: string; quoteAsset: string; qty: string; makerId?: string; makerIds?: readonly string[] },
+    input: {
+      side: OtcSide;
+      baseAsset: string;
+      quoteAsset: string;
+      qty: string;
+      makerId?: string;
+      makerIds?: readonly string[];
+      settlementName?: string;
+    },
   ) {
     try {
       const quoted = await this.quote(principal, input);

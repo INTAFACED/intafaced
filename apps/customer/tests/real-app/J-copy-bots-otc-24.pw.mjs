@@ -3,16 +3,16 @@ import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { api, fromUnits, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { verifiedName } from './p2p.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
 // large trade and settle it. One test per step, titled "J-copy-bots-otc-24 #<n>". The trader is a TEST account on the
 // local stack, verified and funded with TEST USDT through the real ledger; accept binds the quoted price and size,
 // settle posts once and expiry moves nothing, which the steps check against the ledger balance.
 // The region-block clause of #1 has no test: the journey row defers it ("the blocked-region banner and refusal are
-// DEFERRED until launch prep (owner decision 2026-10-27 ...; CB-otc-21's region clause)"). The settlement name-match
-// clause of #3 stays in the row (money safety) but has nothing to match yet: OTC settles only to the trader's own ledger
-// account, so there is no outside settlement account (CB-otc-08's bank name-match needs a fiat settlement leg to a linked
-// bank account). The level gate of #3 is built; the name match has its own test, red by name with that blocker.
+// DEFERRED until launch prep (owner decision 2026-10-27 ...; CB-otc-21's region clause)"). #3 has a test per clause:
+// an account below the desk's level, and a request whose settlement account holder is not the trader's verified legal
+// name (CB-otc-08's name match, checked by identity's own-name door before anything is priced).
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
 // window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
@@ -126,12 +126,13 @@ async function pickProviders(page, names, options) {
  * Asks for a price on `quantity` BTC against USDT from the providers named (the house desk unless told otherwise) on
  * the open room and returns the service's refusal code.
  */
-async function askRefused(page, quantity, providers = [HOUSE]) {
+async function askRefused(page, quantity, providers = [HOUSE], { settlementName } = {}) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
   await request(page).getByRole('combobox', { name: 'Pair' }).click();
   await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
   await pickProviders(page, providers);
+  if (settlementName !== undefined) await settlementHolder(page).fill(settlementName);
   await page.getByRole('button', { name: 'Request price' }).click();
   return [await (await answer).json()].flat()[0].error?.data?.cause?.code;
 }
@@ -158,26 +159,8 @@ async function stake(who, client, amount) {
   await expect.poll(() => stakedOf(client)).toBe(amount);
 }
 
-/**
- * Why #3's name match cannot be proved yet. OTC settles only to the trader's own ledger account (svc-trade
- * otc/settle.ts), so no settlement account in another name can exist. Once a fiat settlement leg to a linked bank
- * account is built, the helpers below name and remove such an account and #3 proves the refusal.
- */
-const NAME_MATCH_BLOCKER =
-  "OTC settles only to the trader's own ledger account; there is no outside settlement account to match (CB-otc-08's bank name-match needs a fiat settlement leg to a linked bank account)";
-
-/**
- * Names a settlement account for the trader whose holder name differs from its verified name, and returns the service's
- * own record of it ({ id, holderName, verifiedName }). Not built, so this fails by its blocker: NAME_MATCH_BLOCKER.
- */
-async function nameOtherSettlementAccount(who) {
-  throw new Error(`no settlement account can be named for ${who.handle}: ${NAME_MATCH_BLOCKER}`);
-}
-
-/** Removes the settlement account named by nameOtherSettlementAccount, so the steps after #3 are not refused by it. */
-async function removeSettlementAccount(who, account) {
-  throw new Error(`settlement account ${account.id} of ${who.handle} cannot be removed: ${NAME_MATCH_BLOCKER}`);
-}
+/** The request form's settlement account holder field (CB-otc-08's name match). */
+const settlementHolder = (page) => request(page).getByRole('textbox', { name: 'Settlement account holder' });
 
 async function openOtc(page) {
   await signIn(page, run.read().who);
@@ -435,39 +418,54 @@ test(`${J} #3 level unpublished: even a verified account is refused trade.otc_le
   expect((await deskStatus(me)).minTier).toBe('full');
 });
 
-test(`${J} #3 settlement name match (BLOCKED: no outside settlement account exists): a settlement account in another name is refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async ({
+test(`${J} #3 settlement name other than the verified name: refused trade.otc_name_mismatch, no quote is priced, nothing kept`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
-  const me = await api(run.read().who);
+  const who = run.read().who;
+  const me = await api(who);
+  // The service's own statement that a request's settlement name is checked against the verified name.
   const status = await deskStatus(me);
-  // The service's own statement that a request checks the settlement account holder against the verified name.
-  expect(status, `the desk publishes no settlement name check (settlementNameMatch): ${NAME_MATCH_BLOCKER}`).toHaveProperty(
-    'settlementNameMatch',
-  );
   expect(status.settlementNameMatch).toBe(true);
 
-  // A settlement account in a name other than the trader's verified one, both names as the service records them.
-  const account = await nameOtherSettlementAccount(run.read().who);
-  expect(account.holderName).toBeTruthy();
-  expect(account.verifiedName).toBeTruthy();
-  expect(account.holderName).not.toBe(account.verifiedName);
-  try {
-    const before = await me.balances();
-    const quotes = await listedQuotes(me);
-    await openOtc(page);
-    // A size and provider the house desk prices for the verified trader in #6, so only the name can refuse it.
-    expect(await askRefused(page, '0.5')).toBe('trade.otc_name_mismatch');
-    await expect(page.getByText('trade.otc_name_mismatch')).toBeVisible();
-    await expect(page.getByText(account.holderName, { exact: false })).toBeVisible();
-    await expect(card(page)).toHaveCount(0);
+  // The trader's verified TEST legal name, recorded through identity's two-person details review; and another name.
+  const verified = await verifiedName(me, who);
+  const other = `TEST Other ${who.handle}`;
+  expect(other).not.toBe(verified);
 
-    // Re-read after the refusal: no quote was recorded and nothing moved or was held.
-    expect(await listedQuotes(me)).toEqual(quotes);
-    expect(await me.balances()).toEqual(before);
-  } finally {
-    await removeSettlementAccount(run.read().who, account);
-  }
+  const before = await me.balances();
+  const quotes = await listedQuotes(me);
+  await openOtc(page);
+  // The field says what it is checked against before anything is typed.
+  await expect(request(page).getByText('A name you give must be your verified legal name', { exact: false })).toBeVisible();
+  // A size and provider the house desk prices for this trader (below), so only the name can refuse it.
+  expect(await askRefused(page, '0.5', [HOUSE], { settlementName: other })).toBe('trade.otc_name_mismatch');
+  await expect(page.getByText('trade.otc_name_mismatch')).toBeVisible();
+  // The name refused is the one given, still in the field to correct.
+  await expect(settlementHolder(page)).toHaveValue(other);
+  await expect(page.getByText('Settlement name doesn’t match')).toBeVisible();
+  await expect(
+    page.getByText('The settlement account must be in your verified legal name, and the name you gave doesn’t match it.', { exact: false }),
+  ).toBeVisible();
+  // No quote is priced: no card on the screen, no quote in the service's record, and nothing moved or was held.
+  await expect(card(page)).toHaveCount(0);
+  expect(await listedQuotes(me)).toEqual(quotes);
+  expect(await me.balances()).toEqual(before);
+
+  // The same request in the verified name is priced, so the refusal above was the name and nothing else.
+  await settlementHolder(page).fill(verified);
+  const priced = page.waitForResponse((res) => res.url().includes('rfq.quote'));
+  await page.getByRole('button', { name: 'Request price' }).click();
+  expect((await priced).status()).toBe(200);
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).getByTestId('phase-line')).toContainText('firm');
+  const after = await listedQuotes(me);
+  expect(after.length).toBe(quotes.length + 1);
+  const quoteId = after.find((row) => !quotes.some((q) => q.quoteId === row.quoteId))?.quoteId;
+  expect(quoteId).toBeTruthy();
+  // Let it go, so the steps after #3 start from no open quote; expiring moves nothing.
+  expect((await me.post('/api/trade/trpc/rfq.expire', { quoteId })).status).toBe(200);
+  expect(await me.balances()).toEqual(before);
 });
 
 test(`${J} #4 size under the published minimum: refused trade.rfq_below_minimum, the message carries that minimum`, async ({ page }) => {

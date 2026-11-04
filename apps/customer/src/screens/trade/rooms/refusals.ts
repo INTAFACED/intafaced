@@ -58,6 +58,22 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no provider list, so a request cannot be sent. Nothing was priced or held.',
   },
   'trade.otc_provider_required': { title: 'Pick a provider', body: 'Pick at least one provider to ask. Nothing was priced or held.' },
+  'trade.otc_name_mismatch': {
+    title: 'Settlement name doesn’t match',
+    body: 'The settlement account must be in your verified legal name, and the name you gave doesn’t match it. Nothing was priced or held.',
+  },
+  'trade.otc_name_unverified': {
+    title: 'Legal name not verified',
+    body: 'Your account has no verified legal name, so a settlement name can’t be checked. Nothing was priced or held.',
+  },
+  'trade.otc_name_unverifiable': {
+    title: 'Settlement name couldn’t be checked',
+    body: 'The desk couldn’t check the settlement name against your verified name, so it priced nothing. Nothing was held.',
+  },
+  'trade.otc_name_invalid': {
+    title: 'Settlement name too long',
+    body: 'A settlement name is at most 200 characters. Nothing was priced or held.',
+  },
   'trade.otc_level_unset': {
     title: 'Verification level not set',
     body: 'The desk has no verification level set, so a request cannot be sent. Nothing was priced or held.',

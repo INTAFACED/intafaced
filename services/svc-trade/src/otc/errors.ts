@@ -37,6 +37,11 @@ export type OtcErrorCode =
   | 'trade.otc_asset_unlisted'
   | 'trade.otc_level_unset'
   | 'trade.otc_level_insufficient'
+  /** CB-otc-08's name match: the settlement account holder named is not the verified name, or cannot be checked. */
+  | 'trade.otc_name_mismatch'
+  | 'trade.otc_name_unverified'
+  | 'trade.otc_name_unverifiable'
+  | 'trade.otc_name_invalid'
   | 'trade.otc_provider_spread_unset'
   | 'trade.rfq_other_quote_accepted'
   /** NotConnected (allowlisted blocker class): a provider routed to an outside venue the platform has no feed for. */

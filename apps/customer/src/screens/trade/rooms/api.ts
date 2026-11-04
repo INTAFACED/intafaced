@@ -88,6 +88,8 @@ export const deskStatusSchema = z.object({
   assets: z.array(z.string()).nullable().optional(),
   /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
   minTier: z.string().nullable().optional(),
+  /** CB-otc-08: true when a settlement name a request gives is checked against the verified name before any price. */
+  settlementNameMatch: z.boolean().optional(),
   makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
   midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
 });
@@ -270,8 +272,16 @@ export function createRoomApi(api: ApiClient) {
     otcConvertBounds: (signal?: AbortSignal) => api.query('trade', 'otc.convertBounds', undefined, convertBoundsSchema, { signal }),
     otcConvertQuote: (input: { flow: 'convert'; side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string }) =>
       api.mutate('trade', 'otc.convertQuote', input, otcConvertQuoteSchema),
-    rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
-      api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
+    rfqQuote: (input: {
+      side: 'buy' | 'sell';
+      baseAsset: string;
+      quoteAsset: string;
+      qty: string;
+      makerIds: string[];
+      makerId?: string;
+      /** CB-otc-08: the settlement account holder; the desk refuses a name other than the verified one. */
+      settlementName?: string;
+    }) => api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
     rfqBoard: (window: { from: string; to: string; limit: number }, signal?: AbortSignal) =>
       api.query('trade', 'rfq.board', window, rfqBoardSchema, { signal }),

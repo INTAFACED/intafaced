@@ -509,7 +509,11 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.otc_not_owner':
       case 'trade.otc_stake_gate':
       case 'trade.otc_level_insufficient':
+      case 'trade.otc_name_mismatch':
+      case 'trade.otc_name_unverified':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'trade.otc_name_unverifiable':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
       case 'trade.otc_desk_law_blank':
       case 'trade.otc_settle_refused':
       case 'trade.otc_stake_unavailable':
@@ -1310,6 +1314,8 @@ export function createTradeRouter(
               makerId: z.string().min(1).max(120).optional(),
               /** CB-otc-01: the providers this request asks, from `otc.makers.list`; the owner's cap is checked in the desk. */
               makerIds: z.array(z.string().max(120)).max(50).optional(),
+              /** CB-otc-08: the holder of the account the trade settles to; checked against the verified name, never kept. */
+              settlementName: z.string().max(200).optional(),
             })
             .strict(),
         )
@@ -1323,6 +1329,7 @@ export function createTradeRouter(
               qty: input.qty,
               makerId: input.makerId,
               makerIds: input.makerIds,
+              settlementName: input.settlementName,
             });
           }),
         ),

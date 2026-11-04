@@ -55,8 +55,8 @@ interface Props {
   /** The providers picked; the room keeps the pick so a re-price asks the same ones. */
   picked: string[];
   onPick: (picked: string[]) => void;
-  /** A quote that matches what was asked for. */
-  onQuote: (quote: RfqQuote, providers: string[]) => void;
+  /** A quote that matches what was asked for, with the providers asked and the settlement name given (if any). */
+  onQuote: (quote: RfqQuote, providers: string[], settlementName: string | undefined) => void;
 }
 
 /** Ask for a firm price. There is no price field: the desk names the price (and the form says so). */
@@ -65,10 +65,12 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
   const [pair, setPair] = useState('');
   const [side, setSide] = useState<Side>('buy');
   const [qty, setQty] = useState('');
+  // CB-otc-08: the holder of the account the trade settles to, when the person names one; the desk checks it.
+  const [holder, setHolder] = useState('');
   const [mismatch, setMismatch] = useState(false);
   // One nonce per intent: sending the same request again reuses it, changing anything starts a new one.
   const nonce = useRef(newNonce());
-  const intent = `${pair}|${side}|${qty}|${picked.join(',')}`;
+  const intent = `${pair}|${side}|${qty}|${picked.join(',')}|${holder.trim()}`;
   const lastIntent = useRef(intent);
   if (lastIntent.current !== intent) {
     lastIntent.current = intent;
@@ -97,18 +99,27 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
     if (block !== null || !chosen) return;
     setMismatch(false);
     const asked = picked;
+    const settlementName = holder.trim() === '' ? undefined : holder.trim();
     const result = await writer.run({
       kind: 'rfq',
       id: nonce.current,
       symbol: noteSymbol('request', chosen.symbol),
       // The pick goes as chosen, even empty or over the cap: the desk refuses it by name, and the form never guesses one.
-      call: () => api.rfqQuote({ side, baseAsset: chosen.base, quoteAsset: chosen.quote, qty, makerIds: asked }),
+      call: () =>
+        api.rfqQuote({
+          side,
+          baseAsset: chosen.base,
+          quoteAsset: chosen.quote,
+          qty,
+          makerIds: asked,
+          ...(settlementName ? { settlementName } : {}),
+        }),
     });
     if (result.kind !== 'done') return;
     const q = result.data;
     const matches = q.baseAsset === chosen.base && q.quoteAsset === chosen.quote && q.side === side && compareDecimals(q.qty, qty) === 0;
     setMismatch(!matches);
-    if (matches) onQuote(q, asked);
+    if (matches) onQuote(q, asked, settlementName);
   }
 
   return (
@@ -188,6 +199,16 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
               </>
             ) : null}
           </fieldset>
+          <Field
+            label={t('Settlement name')}
+            hint={
+              desk.status === 'ready' && desk.data.settlementNameMatch === false
+                ? t('Settlement name unwired hint')
+                : t('Settlement name hint')
+            }
+          >
+            <Input value={holder} onValueChange={setHolder} maxLength={200} autoComplete="name" />
+          </Field>
           <p className="m-0 text-xs text-fg-2">{t('Desk names the price')}</p>
           <Button variant="primary" size={40} loading={writer.busy} disabled={block !== null} onClick={() => void submit()}>
             {t('Request price')}

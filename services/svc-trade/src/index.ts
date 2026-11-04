@@ -29,6 +29,7 @@ import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createEmailProofClient } from './spot/email-proof.js';
+import { createIdentitySettlementNameCheck } from './otc/settlement-name.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
@@ -359,6 +360,10 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
   emailProof,
+  // CB-otc-08's name match asks identity's own-name door; a blank IDENTITY_URL leaves it unwired, which refuses.
+  ...(env.IDENTITY_URL?.trim()
+    ? { settlementNames: createIdentitySettlementNameCheck(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s) }
+    : {}),
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
