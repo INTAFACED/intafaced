@@ -172,6 +172,18 @@ describe('a desk request naming a settlement account in another name prices noth
     expect(asked).toEqual([]);
   });
 
+  it('a request the desk refuses on its own (an unlisted asset, no provider) never asks identity', async () => {
+    const asked: string[] = [];
+    const { svc } = desk(identity(asked));
+    await expect(svc.rfqQuote(trader, { ...req, baseAsset: 'ETH', settlementName: 'TEST Someone Else' })).rejects.toMatchObject({
+      code: 'trade.otc_asset_unlisted',
+    });
+    await expect(svc.rfqQuote(trader, { ...req, makerIds: [], settlementName: 'TEST Someone Else' })).rejects.toMatchObject({
+      code: 'trade.otc_provider_required',
+    });
+    expect(asked).toEqual([]);
+  });
+
   it('with no identity wired, a request naming an account refuses trade.otc_name_unverifiable and records nothing', async () => {
     const { svc, store, counts } = desk();
     await expect(svc.rfqQuote(trader, { ...req, settlementName: VERIFIED })).rejects.toMatchObject({

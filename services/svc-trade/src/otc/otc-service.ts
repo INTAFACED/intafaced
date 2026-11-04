@@ -239,12 +239,7 @@ export class OtcDeskService {
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     assertDeskLevel(law, principal);
-    // CB-otc-08's name match, right after the level and before any minimum, stake read or price lookup: a settlement
-    // account in another name than the verified one is refused with nothing priced, recorded or held.
     const settlementName = settlementNameOf(input.settlementName);
-    if (settlementName !== null) {
-      await (this.settlementNames ?? UNWIRED_SETTLEMENT_NAME_CHECK).assertOwnName(principal.userId, settlementName);
-    }
     const qty = parseRequiredOtcSize(input.qty);
 
     // CB-otc-07: a desk request in a quote asset with no published minimum refuses on the law alone, before any stake
@@ -296,6 +291,12 @@ export class OtcDeskService {
       if (!asked.includes(quotingMaker)) {
         throw new OtcError(`Provider ${quotingMaker} is not one of the providers asked`, 'trade.otc_provider_unknown');
       }
+    }
+
+    // CB-otc-08's name match, after every local refusal and before any stake read or price lookup: a settlement account
+    // in another name than the verified one is refused with nothing priced, recorded or held.
+    if (settlementName !== null) {
+      await (this.settlementNames ?? UNWIRED_SETTLEMENT_NAME_CHECK).assertOwnName(principal.userId, settlementName);
     }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
