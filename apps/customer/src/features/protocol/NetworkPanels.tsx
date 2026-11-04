@@ -6,6 +6,7 @@ import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { createProtocolApi, type Deployments, type ProtocolApi } from './api';
 import { protocolCopy as copy } from './copy';
+import { ContractLookup } from './contracts/ContractPage';
 import { discoverWallets, toHexChainId, type DiscoveredWallet } from './wallet/eip1193';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -206,7 +207,9 @@ function ContractsTable({ chainId, t }: { chainId: number; t: Translate }) {
       ) : (
         contracts.map((contract) => (
           <tr key={contract.address}>
-            <td>{contract.name}</td>
+            <td>
+              <a href={`/protocol/contracts/${contract.address}`}>{contract.name}</a>
+            </td>
             <td>{contract.suite}</td>
             <td className="numeric">
               {contract.explorerUrl ? <ExternalLink url={contract.explorerUrl} label={contract.address} /> : contract.address}
@@ -224,6 +227,7 @@ export function ContractsPanel({ chain, t }: { chain: ChainRef; t: Translate }) 
   return (
     <Panel title={t('contractsTitle')}>
       <p className="muted">{t('contractsNote')}</p>
+      <ContractLookup />
       {chain.status === 'ready' ? <ContractsTable chainId={chain.chainId} t={t} /> : <ChainPending chain={chain} t={t} />}
     </Panel>
   );

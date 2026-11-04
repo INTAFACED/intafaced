@@ -286,6 +286,10 @@
       "types": "./dist/protocol-listing.d.ts",
       "default": "./dist/protocol-listing.js"
     },
+    "./protocol-contract-source": {
+      "types": "./dist/protocol-contract-source.d.ts",
+      "default": "./dist/protocol-contract-source.js"
+    },
     "./ledger-reconciliation": {
       "types": "./dist/ledger-reconciliation.d.ts",
       "default": "./dist/ledger-reconciliation.js"

@@ -334,6 +334,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/chain/audit': { template: 'reading' },
   '/protocol': { template: 'monitor' },
   '/protocol/contracts': { template: 'record-list' },
+  '/protocol/contracts/:address': { template: 'monitor' },
   '/protocol/rails': { template: 'monitor' },
   '/protocol/audit': { template: 'reading' },
   '/chain/*': 'fallback',

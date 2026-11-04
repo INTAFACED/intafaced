@@ -3,7 +3,17 @@ import { signIn, signUp } from './desk.mjs';
 import { EDGE, ORIGIN, api, signOutBrowser, tool } from './stack.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { readFileSync } from 'node:fs';
-import { createPublicClient, createWalletClient, encodeFunctionData, formatUnits, getAddress, http, parseAbi } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  encodeAbiParameters,
+  encodeFunctionData,
+  formatUnits,
+  getAddress,
+  http,
+  parseAbi,
+  parseAbiParameters,
+} from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { TOKEN_A, TOKEN_B, acceptRepresentation, fundOnTestChain, testChain } from './dex.mjs';
 import { chainRecordPath } from '../../../../tooling/scripts/local-test-chain.mjs';
@@ -600,21 +610,175 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
   await expect(main(page)).toContainText('not a pool');
 });
 
+/** EIP-1167 minimal proxy creation code for `implementation`: the standard 45-byte runtime, delegating every call. */
+const minimalProxyDeploy = (implementation) =>
+  `0x3d602d80600a3d3981f3363d3d373d3d3d363d73${implementation.slice(2).toLowerCase()}5af43d82803e903d91602b57fd5bf3`;
+
+/**
+ * TEST token's creation code with one byte of its runtime's metadata hash changed: the same program, as a source that
+ * differs only in its text (comments, names) compiles to. The runtime, and its CBOR metadata tail, end the creation code.
+ */
+function similarTokenBytecode() {
+  const code = Buffer.from(TEST_TOKEN.bytecode.slice(2), 'hex');
+  const tail = code.length - 2 - code.readUInt16BE(code.length - 2);
+  code[tail + 12] ^= 0xff;
+  return `0x${code.toString('hex')}`;
+}
+
 test(`${J} #8 opens a contract's source status and the Read tab: exact, similar or unverified with the reason; a proxy reads through its implementation; a Write asks the wallet`, async ({
   page,
 }) => {
-  await page.goto('/protocol/contracts');
-  const contract = page.getByRole('table').getByRole('link', { name: /^0x/ }).first();
-  await expect(contract).toBeVisible(UNBUILT);
-  await contract.click();
-  await expect(page.getByTestId('contract-source-status')).toHaveText(/Exact match|Similar match|Unverified: .+/, UNBUILT);
-  await page.getByRole('tab', { name: 'Read' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Read' })).toBeVisible();
-  if (await page.getByTestId('contract-implementation').count()) {
-    await expect(page.getByTestId('contract-implementation')).toContainText(/Implementation 0x/);
-  }
+  test.setTimeout(180_000);
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no contract can be deployed').toBe('running');
+  const viemChain = {
+    id: chain.chainId,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const deployer = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(deployer.address);
+  const wallet = createWalletClient({ account: deployer, chain: viemChain, transport: http(chain.gateUrl) });
+  const deployed = async (request) => {
+    const hash = await wallet.sendTransaction(request);
+    const receipt = await reader.waitForTransactionReceipt({ hash });
+    expect(receipt.status).toBe('success');
+    return getAddress(receipt.contractAddress);
+  };
+  const mined = async (request) => {
+    const hash = await wallet.writeContract({ ...request, gas: 200_000n });
+    expect((await reader.waitForTransactionReceipt({ hash })).status).toBe('success');
+  };
+  // This step's own contracts, deployed from a fresh TEST key: the TEST token from its committed build (exact), the same
+  // build with its metadata hash changed (similar), code no committed source compiles to (unverified), and an EIP-1167
+  // proxy in front of the exact one. The proxy keeps its own storage: 7 minted through it, 1000 straight to the
+  // implementation, so a Read that answers 7 read the proxy through the implementation's interface.
+  const tokenArgs = encodeAbiParameters(parseAbiParameters('string, string, uint8'), ['TEST Exact', 'TEXACT', 18]);
+  const exact = await deployed({ data: `${TEST_TOKEN.bytecode}${tokenArgs.slice(2)}` });
+  const similar = await deployed({ data: `${similarTokenBytecode()}${tokenArgs.slice(2)}` });
+  const unverified = await deployed({ data: FORWARDER_DEPLOY });
+  const proxy = await deployed({ data: minimalProxyDeploy(exact) });
+  const holder = getAddress(privateKeyToAccount(generatePrivateKey()).address);
+  await mined({ address: proxy, abi: TEST_TOKEN.abi, functionName: 'mint', args: [holder, 7n] });
+  await mined({ address: exact, abi: TEST_TOKEN.abi, functionName: 'mint', args: [holder, 1000n] });
+
+  // The person's TEST wallet, connected to the TEST chain: it signs and sends what the page asks, and keeps a record.
+  const person = await installTestWallet(page, { chainId: chain.chainId, rpcUrl: chain.gateUrl });
+  fundOnTestChain(person.address);
+
+  const status = page.getByTestId('contract-source-status');
+  const reason = page.getByTestId('contract-source-reason');
+  const built = `TestToken (test/TestToken.sol, solc ${TEST_TOKEN.solcVersion})`;
+  /** Opens a contract from the Contracts tab's lookup, as a person pastes its address there. */
+  const open = async (address) => {
+    await page.goto('/protocol/contracts');
+    await page.getByRole('textbox', { name: 'Contract address' }).fill(address, UNBUILT);
+    await page.getByRole('button', { name: 'Open contract' }).click();
+    await expect(page).toHaveURL(new RegExp(`/protocol/contracts/${address}$`, 'i'));
+    await expect(main(page).getByRole('heading', { level: 1 })).toHaveText(new RegExp(`^Contract ${address}$`, 'i'));
+  };
+  const readTab = async () => {
+    await page.getByRole('tab', { name: 'Read' }).click();
+    return page.getByRole('tabpanel', { name: 'Read' });
+  };
+
+  // "Exact": the code on chain is the committed build, named with its file and compiler, and the reason.
+  await open(exact);
+  await expect(status).toHaveText(`Exact match: ${built}`);
+  await expect(reason).toHaveText('The code on chain is this build byte for byte, apart from the values its constructor set.');
+  await expect(page.getByText(TEST_TOKEN.sourceHash)).toBeVisible();
+
+  // "similar": the same build but for its metadata hash, and why that is only similar.
+  await open(similar);
+  await expect(status).toHaveText(`Similar match: ${built}`);
+  await expect(reason).toHaveText(
+    'The code on chain is this build except for its metadata hash: the same program, compiled from a source written differently (comments, names or layout).',
+  );
+
+  // "unverified with the reason": code no source on file compiles to, and an address with no code at all. With no known
+  // interface, Read refuses by name rather than offering a guessed one.
+  await open(unverified);
+  await expect(status).toHaveText('Unverified: no source on file compiles to this code');
+  await expect(reason).toHaveText(
+    'None of the sources this platform compiled produces this code, so its source and its interface are unknown.',
+  );
+  await expect((await readTab()).getByTestId('contract-no-interface')).toHaveText(
+    'Read and Write need the contract’s interface, and it is unknown: Unverified: no source on file compiles to this code.',
+  );
+  await expect((await readTab()).getByRole('form')).toHaveCount(0);
+  await open(ADDRESS);
+  await expect(status).toHaveText('Unverified: there is no contract code at this address on this network');
+  await expect(reason).toHaveText('Nothing is deployed here, so there is no source to match and no interface to call.');
+
+  // "a proxy shows its implementation": the clone's own code is no build; its implementation is named, and is exact.
+  await open(proxy);
+  await expect(status).toHaveText('Unverified: no source on file compiles to this code');
+  const implementation = page.getByTestId('contract-implementation');
+  await expect(implementation).toHaveText(`Implementation ${exact} (EIP-1167 minimal proxy)`);
+  await expect(implementation).toHaveAttribute('data-address', exact.toLowerCase());
+  await expect(page.getByTestId('contract-implementation-source')).toHaveText(`Implementation source: Exact match: ${built}`);
+
+  // "Read uses the implementation interface": the Read tab's functions are exactly the implementation's reads, and a
+  // read answers from the proxy's own storage at the block the page names, checked against the chain at that block.
+  const read = await readTab();
+  await expect(read.getByTestId('contract-interface')).toHaveText(
+    "Functions from TestToken, the implementation's interface, called at this proxy's address.",
+  );
+  const sig = (fn) => `${fn.name}(${fn.inputs.map((input) => input.type).join(',')})`;
+  const reads = TEST_TOKEN.abi.filter((fn) => fn.type === 'function' && ['view', 'pure'].includes(fn.stateMutability)).map(sig);
+  expect(reads.length).toBeGreaterThan(0);
+  await expect(read.getByRole('form')).toHaveCount(reads.length);
+  expect((await read.getByRole('form').evaluateAll((forms) => forms.map((form) => form.getAttribute('aria-label')))).sort()).toEqual(
+    [...reads].sort(),
+  );
+  const balanceOf = read.getByRole('form', { name: 'balanceOf(address)' });
+  const readBalance = async () => {
+    await balanceOf.getByRole('textbox').fill(holder);
+    await balanceOf.getByRole('button', { name: 'Query' }).click();
+    const result = balanceOf.getByTestId('contract-read-result');
+    await expect(result).toBeVisible();
+    const block = BigInt(await result.getAttribute('data-block'));
+    const onChain = await reader.readContract({
+      address: proxy,
+      abi: TEST_TOKEN.abi,
+      functionName: 'balanceOf',
+      args: [holder],
+      blockNumber: block,
+    });
+    await expect(result.getByTestId('contract-read-value')).toHaveText(onChain.toString());
+    return onChain;
+  };
+  expect(await readBalance()).toBe(7n);
+
+  // "a Write call asks the wallet": not connected, Write says to connect one. Connected, Write builds the call and the
+  // wallet is asked to send it, to the proxy's address with the implementation's mint encoded; nothing is sent without it.
   await page.getByRole('tab', { name: 'Write' }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Write' })).toContainText(/Connect a wallet/);
+  const write = page.getByRole('tabpanel', { name: 'Write' });
+  await expect(write.getByTestId('contract-write-connect')).toHaveText(
+    'Connect a wallet to write. A Write call is signed and sent by your own wallet, never by this platform. Connect a wallet',
+  );
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.goto(`/protocol/contracts/${proxy}`);
+  await page.getByRole('tab', { name: 'Write' }).click();
+  const mint = write.getByRole('form', { name: 'mint(address,uint256)' });
+  await mint.getByRole('textbox', { name: 'to (address)' }).fill(holder);
+  await mint.getByRole('textbox', { name: 'amount (uint256)' }).fill('5');
+  const sendsBefore = person.sends.length;
+  await mint.getByRole('button', { name: 'Write' }).click();
+  // a fresh wallet accepts the representation once before its first signing action, then the plain-words sheet
+  await acceptRepresentation(page);
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(mint.getByTestId('contract-write-result')).toHaveText(/^Mined in block \d+: 0x[0-9a-f]{64}\.$/, { timeout: 30_000 });
+  const asked = person.sends.slice(sendsBefore).filter((send) => send.method === 'eth_sendTransaction');
+  expect(asked).toHaveLength(1);
+  expect(asked[0].params[0].to.toLowerCase()).toBe(proxy.toLowerCase());
+  expect(asked[0].params[0].data).toBe(encodeFunctionData({ abi: TEST_TOKEN.abi, functionName: 'mint', args: [holder, 5n] }));
+  // what the wallet sent reached the proxy: Read now answers 12 from it
+  await page.getByRole('tab', { name: 'Read' }).click();
+  expect(await readBalance()).toBe(12n);
 });
 
 test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third share, and a protocol fee request with the policy blank refuses`, async ({

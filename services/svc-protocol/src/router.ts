@@ -77,6 +77,7 @@ import {
 } from './amm/fee-relay.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
@@ -553,6 +554,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const chainIdentity: ChainIdentityReader = deps.chainIdentity ?? chainIdentityReader(chain);
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain, chainIdentity));
   const routeBalances = blockBalances(chain);
+  let contracts: ContractChain | null = null;
   /** The fee relay's reads go to the same node as every other chain read. */
   const feeChain = (): FeeRelayChain => chain.client as unknown as FeeRelayChain;
   /** A refusal already shaped keeps its code; a chain failure is classified (unreachable, absent contract) by name. */
@@ -1436,6 +1438,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
      * Permissionless quotes and unsigned calldata only. The platform never
      * holds LP keys and never posts to the ledger here.
      */
+    /**
+     * A contract's source status, proxy and Read/Write tabs (D-explorer-06): matched against this service's own committed
+     * builds; Read is an eth_call at one block, Write builds the call the person's wallet signs.
+     */
+    contract: createContractSourceRouter({ chain: () => (contracts ??= contractChain(chain)), toTrpcError }),
+
     tokens: createTokensRouter({
       chain: tokenLogsChain(
         chain,

@@ -41,6 +41,8 @@ export interface Web3Route {
   tokens?: 'list' | 'detail';
   /** One pool's page by its contract address (D-explorer-05). */
   pool?: 'detail';
+  /** One contract's page by its address: source status, proxy, Read and Write (D-explorer-06). */
+  contract?: true;
   /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
   explorer?: 'address' | 'watchlist' | 'block' | 'tx';
   /** The shape the route's parameter must have; anything else is answered not found without a lookup. */
@@ -91,6 +93,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/chain/audit', room: 'chain', tab: 'audit' },
   { path: '/protocol', room: 'protocol', tab: 'overview' },
   { path: '/protocol/contracts', room: 'protocol', tab: 'contracts' },
+  { path: '/protocol/contracts/:address', room: 'protocol', contract: true, param: { name: 'address', shape: ADDRESS_SHAPE } },
   { path: '/protocol/rails', room: 'protocol', tab: 'rails' },
   { path: '/protocol/audit', room: 'protocol', tab: 'audit' },
 ];
