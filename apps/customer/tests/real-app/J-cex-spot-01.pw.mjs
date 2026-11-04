@@ -63,7 +63,9 @@ function asShownUsd(value) {
   const abs = units < 0n ? -units : units;
   const one = toUnits('1');
   const unit = one / 10n ** (abs < one ? 4n : 2n);
-  const rounded = (abs / unit + ((abs % unit) * 2n >= unit ? 1n : 0n)) * unit;
+  let rounded = (abs / unit + ((abs % unit) * 2n >= unit ? 1n : 0n)) * unit;
+  // A non-zero figure that rounds to nothing reads "<$0.0001", which shownUnits reads as 0.0001.
+  if (rounded === 0n && abs !== 0n) rounded = unit;
   return units < 0n ? -rounded : rounded;
 }
 
@@ -142,20 +144,20 @@ const TOP_UP = '7000';
 async function deskEqualsLedger(page, client, assets) {
   await page.locator('[role=tab]', { hasText: /^Assets$/ }).click();
   const table = page.getByTestId('dk-table');
+  // The desk refreshes its balances on its own; it is read again until it shows the ledger, which nothing moves meanwhile.
   const ledger = await client.balances();
-  for (const asset of assets) {
-    await expect(table.locator('tr', { has: page.locator('td', { hasText: new RegExp(`^${asset}$`) }) })).toHaveCount(1);
-    const heads = (await table.locator('th').allInnerTexts()).map((h) => h.trim());
-    const cells = (
-      await table
-        .locator('tr', { has: page.locator('td', { hasText: new RegExp(`^${asset}$`) }) })
-        .locator('td')
-        .allInnerTexts()
-    ).map((c) => c.trim());
-    expect(shownUnits(cells[heads.indexOf('Available')]), `${asset}: ${heads.join(' | ')}`).toBe(wireUnits(ledger[asset].free));
-    expect(shownUnits(cells[heads.indexOf('In orders')]), asset).toBe(wireUnits(ledger[asset].used));
-    expect(shownUnits(cells[heads.indexOf('Total')]), asset).toBe(wireUnits(ledger[asset].total));
-  }
+  await expect(async () => {
+    for (const asset of assets) {
+      const row = table.locator('tr', { has: page.locator('td', { hasText: new RegExp(`^${asset}$`) }) });
+      await expect(row).toHaveCount(1, { timeout: 2_000 });
+      const heads = (await table.locator('th').allInnerTexts()).map((h) => h.trim());
+      const cells = (await row.locator('td').allInnerTexts()).map((c) => c.trim());
+      expect(shownUnits(cells[heads.indexOf('Available')]), `${asset}: ${heads.join(' | ')}`).toBe(wireUnits(ledger[asset].free));
+      expect(shownUnits(cells[heads.indexOf('In orders')]), asset).toBe(wireUnits(ledger[asset].used));
+      expect(shownUnits(cells[heads.indexOf('Total')]), asset).toBe(wireUnits(ledger[asset].total));
+    }
+  }).toPass({ timeout: 20_000 });
+  expect(await client.balances()).toEqual(ledger);
   return ledger;
 }
 
@@ -667,7 +669,7 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   // Every fill is another TEST trader's crossing sell: the other trader's own fills hold, for each, a taker sell at the
   // same price, amount and moment (each of its fills used once).
   const { status: theirsRead, body: theirs } = await other.get(
-    `/api/v1/account/trades?symbol=BTC%2FUSDT&limit=200&since=${Math.max(0, Number(order.timestamp) - 1_000)}`,
+    `/api/v1/account/trades?symbol=BTC%2FUSDT&limit=500&since=${Math.min(...fills.map((f) => Number(f.timestamp))) - 1_000}`,
   );
   expect(theirsRead, JSON.stringify(theirs).slice(0, 300)).toBe(200);
   const crossings = theirs.filter((t) => t.side === 'sell' && t.takerOrMaker === 'taker');
@@ -724,7 +726,9 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
     const fee = feeOf(cells);
     expect(fee, cells.join(' | ')).toBeTruthy();
     expect(shownUnits(fee)).toBe(wireUnits(f.fee.cost));
-    expect(toUnits(/([\d.]+)%/.exec(fee)[1])).toBe(asPercent(f.fee.rate));
+    const shownRate = /([−-]?[\d.]+)%/.exec(fee)?.[1];
+    expect(shownRate, `the fee cell names its rate: ${fee}`).toBeTruthy();
+    expect(toUnits(shownRate.replace('−', '-'))).toBe(asPercent(f.fee.rate));
   }
 });
 
@@ -800,6 +804,12 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   const buys = mine.filter((t) => t.side === 'buy');
   expect(buys.length).toBeGreaterThan(0);
   expect(mine.filter((t) => t.side === 'sell')).toHaveLength(0);
+  // Each buy's fee came out of the coins it received (BTC), so what left the account for the coins is its cost alone,
+  // which is what svc-tax books as a lot's cost (the quote leg paid out of the order's hold).
+  expect(
+    buys.every((t) => t.fee?.currency === 'BTC'),
+    JSON.stringify(buys.map((t) => t.fee)),
+  ).toBe(true);
   const paid = buys.reduce((sum, t) => sum + wireUnits(t.cost), 0n);
   const btc = toUnits((await client.balances()).BTC?.total ?? '0');
 
@@ -847,16 +857,19 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   await expect.poll(async () => toUnits((await client.balances()).BTC?.total ?? '0'), { timeout: 20_000 }).toBeLessThan(toUnits('0.00001'));
 
   // After the sale: the realised result shows, as svc-tax works it out, labelled as an indicator.
+  // svc-tax books the sale's fills one by one, so its figure is read once every fill is in: a realised sum, and BTC lots
+  // whose remaining amount is what the ledger still holds.
+  const left = toUnits((await client.balances()).BTC?.total ?? '0');
   let after;
   await expect
     .poll(
       async () => {
         after = await lotBook();
-        return after.book.realizedUsd;
+        return after.book.realizedUsd !== null && after.lots.reduce((sum, lot) => sum + wireUnits(lot.remaining), 0n) === left;
       },
       { timeout: 30_000 },
     )
-    .not.toBeNull();
+    .toBe(true);
   await page.goto('/money/pnl');
   await expect(main.getByTestId('money-label').filter({ hasText: 'Realised' }).first()).toBeVisible();
   const realised = main.locator('[data-testid=money-total][data-figure=realised]');
