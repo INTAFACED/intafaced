@@ -93,7 +93,12 @@ jobs:
       - name: Verdict
         run: node tooling/ci/ci-review.mjs judge "$RUNNER_TEMP/review"
 
+      # Best effort, after the verdict: the seal counts a pass only in a job that concluded success, so this step's own
+      # failure must not void a PASS. (Failure it prevents: a review that finishes while the seal is already polling
+      # waits here up to 4 minutes for the seal, which waits for this job; the step threw, the job ended failure, and the
+      # PASS was lost until a fresh review. Found by /code-review on #7132, finding 1.)
       - name: Re-run a red seal on this head
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/ci-review.mjs rerun-seal
