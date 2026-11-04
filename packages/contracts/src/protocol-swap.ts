@@ -252,6 +252,8 @@ export const FEE_RELAY_UNSET = 'protocol.fee_relay_unset' as const;
 export const FEE_TOKEN_NOT_ALLOWLISTED = 'protocol.fee_token_not_allowlisted' as const;
 export const FEE_TOKEN_ORACLE_STALE = 'protocol.fee_token_oracle_stale' as const;
 export const FEE_TOKEN_ORACLE_UNREAD = 'protocol.fee_token_oracle_unread' as const;
+/** The token gives no EIP-712 permit domain (eip712Domain or version), so no permit can be signed for it. */
+export const FEE_TOKEN_PERMIT_UNREAD = 'protocol.fee_token_permit_unread' as const;
 export const FEE_CHARGE_ABOVE_SIGNED = 'protocol.fee_charge_above_signed' as const;
 export const FEE_SWAP_SIGNATURE_INVALID = 'protocol.fee_swap_signature_invalid' as const;
 export const FEE_RELAY_REFUSED = 'protocol.fee_relay_refused' as const;

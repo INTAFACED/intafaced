@@ -7,6 +7,7 @@ import {
   FEE_TOKEN_NOT_ALLOWLISTED,
   FEE_TOKEN_ORACLE_STALE,
   FEE_TOKEN_ORACLE_UNREAD,
+  FEE_TOKEN_PERMIT_UNREAD,
   type ProtocolFeeQuote,
   type ProtocolFeeSwapOrder,
   type ProtocolFeeSwapPlan,
@@ -60,6 +61,8 @@ export const FEE_RELAY_ABI = parseAbi([
 ]);
 
 const TOKEN_ABI = parseAbi([
+  'function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)',
+  'function version() view returns (string)',
   'function name() view returns (string)',
   'function symbol() view returns (string)',
   'function decimals() view returns (uint8)',
@@ -99,7 +102,7 @@ export interface FeeRelayChain {
     args?: readonly unknown[];
     blockNumber?: bigint;
   }): Promise<unknown>;
-  call(args: { to: Address; data: Hex; blockNumber?: bigint }): Promise<unknown>;
+  call(args: { account?: Address; to: Address; data: Hex; blockNumber?: bigint }): Promise<unknown>;
   getBlockNumber(): Promise<bigint>;
   getBlock(args: { blockNumber: bigint }): Promise<{ timestamp: bigint }>;
 }
@@ -169,12 +172,16 @@ export async function quoteFee(
   const gasWei = setting.gasLimit * maxFeePerGasWei;
   const at = { address: setting.relay, abi: FEE_RELAY_ABI, blockNumber };
   let priced: [bigint, bigint, bigint];
+  let markup: number;
   try {
-    priced = (await chain.readContract({ ...at, functionName: 'quoteCharge', args: [feeToken, gasWei] })) as [bigint, bigint, bigint];
+    [priced, markup] = (await Promise.all([
+      chain.readContract({ ...at, functionName: 'quoteCharge', args: [feeToken, gasWei] }),
+      chain.readContract({ ...at, functionName: 'markupBps' }),
+    ])) as [[bigint, bigint, bigint], number];
   } catch (err) {
     throw feeTokenRefusal(err, feeToken) ?? err;
   }
-  const markupBps = Number(await chain.readContract({ ...at, functionName: 'markupBps' }));
+  const markupBps = Number(markup);
   const [charge, markWad, updatedAt] = priced;
   return {
     relay: getAddress(setting.relay),
@@ -251,6 +258,39 @@ export function permitAmounts(order: Pick<ProtocolFeeSwapOrder, 'tokenIn' | 'amo
 }
 
 /**
+ * A token's own EIP-712 permit domain: its `eip712Domain()` (EIP-5267), else its `name()` and `version()`. A token that
+ * answers neither refuses by name: a permit signed against a guessed version would never verify.
+ */
+async function permitDomain(chain: FeeRelayChain, token: Address, chainId: number, blockNumber: bigint) {
+  const at = { address: token, abi: TOKEN_ABI, blockNumber };
+  try {
+    const [, name, version, domainChain, verifying] = (await chain.readContract({ ...at, functionName: 'eip712Domain' })) as [
+      Hex,
+      string,
+      string,
+      bigint,
+      Address,
+    ];
+    if (Number(domainChain) === chainId && verifying.toLowerCase() === token.toLowerCase())
+      return { name, version, chainId, verifyingContract: getAddress(token) };
+  } catch {
+    // No EIP-5267: fall back to name() and version().
+  }
+  try {
+    const [name, version] = (await Promise.all([
+      chain.readContract({ ...at, functionName: 'name' }),
+      chain.readContract({ ...at, functionName: 'version' }),
+    ])) as [string, string];
+    return { name, version, chainId, verifyingContract: getAddress(token) };
+  } catch {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `${FEE_TOKEN_PERMIT_UNREAD}: ${token} gives no EIP-712 permit domain (eip712Domain or version), so no permit can be signed for it.`,
+    });
+  }
+}
+
+/**
  * The quote, then what the person signs: a permit for each token the relay pulls (EIP-2612, read from the token's own
  * name and nonce) and the FeeSwap order, which binds the pool, the minimum, the fee token, the gas and the exact charge.
  * Both expire at `deadline` (chain seconds).
@@ -265,15 +305,11 @@ export async function planFeeSwap(
 ): Promise<ProtocolFeeSwapPlan> {
   const quote = await quoteFee(chain, setting, swap.feeToken, maxFeePerGasWei);
   const blockNumber = BigInt(quote.blockNumber);
-  const { timestamp } = await chain.getBlock({ blockNumber });
+  const [{ timestamp }, nonce] = (await Promise.all([
+    chain.getBlock({ blockNumber }),
+    chain.readContract({ address: setting.relay, abi: FEE_RELAY_ABI, functionName: 'nonces', args: [swap.owner], blockNumber }),
+  ])) as [{ timestamp: bigint }, bigint];
   const deadline = (timestamp + BigInt(lifetimeSeconds)).toString();
-  const nonce = (await chain.readContract({
-    address: setting.relay,
-    abi: FEE_RELAY_ABI,
-    functionName: 'nonces',
-    args: [swap.owner],
-    blockNumber,
-  })) as bigint;
   const order: ProtocolFeeSwapOrder = {
     owner: getAddress(swap.owner),
     pool: getAddress(swap.pool),
@@ -288,14 +324,14 @@ export async function planFeeSwap(
   };
   const permits = await Promise.all(
     permitAmounts(order).map(async ({ token, value }) => {
-      const [name, tokenNonce] = (await Promise.all([
-        chain.readContract({ address: token, abi: TOKEN_ABI, functionName: 'name', blockNumber }),
+      const [domain, tokenNonce] = (await Promise.all([
+        permitDomain(chain, token, chainId, blockNumber),
         chain.readContract({ address: token, abi: TOKEN_ABI, functionName: 'nonces', args: [swap.owner], blockNumber }),
-      ])) as [string, bigint];
+      ])) as [Awaited<ReturnType<typeof permitDomain>>, bigint];
       return {
         types: { EIP712Domain: DOMAIN_FIELDS, Permit: PERMIT_FIELDS },
         primaryType: 'Permit',
-        domain: { name, version: '1', chainId, verifyingContract: token },
+        domain,
         message: {
           owner: order.owner,
           spender: getAddress(setting.relay),
@@ -405,7 +441,10 @@ export async function relayFeeSwap(
     });
   const data = encodeRelaySwap(input);
   try {
-    await chain.call({ to: setting.relay, data });
+    // Tried as if the relay contract itself sent it: a real token refuses a fee paid to the zero address (an eth_call's
+    // default sender), and the relayer's own address is not known here. The fee then goes to the relay, which a token
+    // accepts like any holder; every pull, permit and the swap run as they will.
+    await chain.call({ account: setting.relay, to: setting.relay, data });
   } catch (err) {
     const refusal = feeTokenRefusal(err, order.feeToken as Address);
     if (refusal) throw refusal;

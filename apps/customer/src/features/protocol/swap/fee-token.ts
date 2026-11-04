@@ -40,3 +40,26 @@ export function payInTokens(pairTokens: readonly ProtocolSwapToken[], relayToken
     return true;
   });
 }
+
+/** keccak256("FeeCharged(address,address,address,uint256,uint256,uint16,uint256)"): the fee relay's charge event. */
+export const FEE_CHARGED_TOPIC = '0x18d3fa3126c9b3ea120bc9a6df860b3edf1b12d4b2abdc8778eb9a7773084df0';
+
+/**
+ * What the fee relay actually charged `owner` in a mined swap, from its FeeCharged event (the last of its four data
+ * words), or null when the receipt has none. The contract may take less than the signed most; this is what was taken.
+ */
+export function chargedIn(
+  logs: ReadonlyArray<{ address: string; topics: readonly string[]; data: string }>,
+  relay: string,
+  owner: string,
+): bigint | null {
+  const who = `0x${owner.slice(2).toLowerCase().padStart(64, '0')}`;
+  const event = logs.find(
+    (log) =>
+      log.address.toLowerCase() === relay.toLowerCase() &&
+      log.topics[0]?.toLowerCase() === FEE_CHARGED_TOPIC &&
+      log.topics[1]?.toLowerCase() === who &&
+      log.data.length === 2 + 64 * 4,
+  );
+  return event ? BigInt(`0x${event.data.slice(2 + 64 * 3)}`) : null;
+}

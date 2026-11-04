@@ -23,7 +23,7 @@ import { useWallet } from '../wallet/WalletProvider';
 import { swapCopy } from './copy';
 import { keepMode, readMode, type SwapMode } from './mode';
 import { chosenFee, feeFields, toGwei, type ChosenFee, type FeeChoice } from './fee';
-import { NATIVE, payInRefusal, payInTokens, type TokenFee } from './fee-token';
+import { chargedIn, NATIVE, payInRefusal, payInTokens, type TokenFee } from './fee-token';
 import { feeRefusal, NetworkFee } from './NetworkFee';
 import { RouteOptions } from './RouteOptions';
 import { bpsToPercent, formatUnits, formatUsd, minimumOut, percentToBps, poolsFor, receivedIn } from './swap-math';
@@ -40,8 +40,11 @@ type Track = {
   received?: bigint;
   feeWei?: bigint;
   reason?: string;
-  /** Set when the fee was paid in a token through the fee relay: the charge the person signed for, in that token. */
-  feeIn?: { charge: bigint; token: ProtocolSwapToken };
+  /**
+   * Set when the fee is paid in a token through the fee relay: the most the person signed for, the relay that charges
+   * it, and once mined what it actually took (its FeeCharged event).
+   */
+  feeIn?: { signed: bigint; relay: string; charged?: bigint; token: ProtocolSwapToken };
 };
 interface Receipt {
   status?: string;
@@ -398,7 +401,7 @@ export function SwapForm() {
       tokenIn: inToken,
       tokenOut: outToken,
       pool: from.pool.pool,
-      feeIn: { charge: BigInt(plan.data.quote.charge), token: feeToken },
+      feeIn: { signed: BigInt(plan.data.quote.charge), relay: plan.data.quote.relay, token: feeToken },
     });
   };
 
@@ -450,11 +453,13 @@ export function SwapForm() {
         const head = (await wallet.read('eth_blockNumber', [])) as string | null;
         const deep = head ? BigInt(head) - BigInt(receipt.blockNumber) >= BigInt(setting.confirmations) : false;
         if (stopped) return;
+        const charged = current.feeIn ? chargedIn(receipt.logs ?? [], current.feeIn.relay, owner) : null;
         setTrack({
           ...current,
           state: deep ? 'filled' : 'confirming',
           received: receivedIn(receipt.logs ?? [], current.tokenOut.address, owner),
           feeWei,
+          ...(current.feeIn && charged !== null ? { feeIn: { ...current.feeIn, charged } } : {}),
         });
       })();
     }, 500);
@@ -675,6 +680,21 @@ export function SwapForm() {
   );
 }
 
+/**
+ * The card's network fee: in TEST ETH from the receipt when the person's wallet paid it; in the fee token when the fee
+ * relay did, as its FeeCharged event says it took. A relayed swap that reverted took no fee: the whole call undid itself.
+ */
+function feeShown(track: Track, t: ReturnType<typeof swapCopy.forLocale>['t']): string {
+  if (track.feeIn) {
+    if (track.feeIn.charged !== undefined)
+      return `${formatUnits(track.feeIn.charged, track.feeIn.token.decimals, track.feeIn.token.decimals)} ${track.feeIn.token.name}`;
+    if (track.state === 'failed') return track.feeWei !== undefined ? t('feeNoneReverted') : t('noFeeNotMined');
+    return t('notMined');
+  }
+  if (track.feeWei !== undefined) return `${formatUnits(track.feeWei, 18, 9)} ETH`;
+  return track.state === 'failed' ? t('noFeeNotMined') : t('notMined');
+}
+
 function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => void }) {
   const { language } = usePreferences();
   const { t } = swapCopy.forLocale(language);
@@ -706,19 +726,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('networkFee')}</dt>
-            <dd className="numeric">
-              {track.feeIn && track.received !== undefined
-                ? `${formatUnits(track.feeIn.charge, track.feeIn.token.decimals, track.feeIn.token.decimals)} ${track.feeIn.token.name}`
-                : track.feeIn && track.state === 'failed'
-                  ? t('noFeeNotMined')
-                  : track.feeIn
-                    ? t('notMined')
-                    : track.feeWei !== undefined
-                      ? `${formatUnits(track.feeWei, 18, 9)} ETH`
-                      : track.state === 'failed'
-                        ? t('noFeeNotMined')
-                        : t('notMined')}
-            </dd>
+            <dd className="numeric">{feeShown(track, t)}</dd>
           </div>
         </dl>
         {track.hash && (

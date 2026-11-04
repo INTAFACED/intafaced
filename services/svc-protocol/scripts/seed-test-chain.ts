@@ -123,6 +123,9 @@ async function reportMark({ publicClient, walletClient }: Clients, oracle: Addre
       abi,
       functionName: 'report',
       args: [token, mark],
+      // A fixed limit, not an estimate: estimated in one block, a report can be mined in the next, where writing the new
+      // timestamp costs more than the estimate allowed (seen: OutOfGas on a re-seed). 100,000 covers both writes.
+      gas: 100_000n,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') throw new Error(`oracle report failed: ${hash}`);

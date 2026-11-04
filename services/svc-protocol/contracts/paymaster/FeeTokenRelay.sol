@@ -179,7 +179,7 @@ contract FeeTokenRelay {
         emit FeeCharged(order.owner, msg.sender, order.feeToken, order.gasWei, markWad, markupBps, charge);
 
         _pull(order.tokenIn, order.owner, address(this), order.amountIn);
-        if (!IFeeRelayToken(order.tokenIn).approve(order.pool, order.amountIn)) revert TransferFailed();
+        _approve(order.tokenIn, order.pool, order.amountIn);
         amountOut = IFeeRelayPool(order.pool).swapExactIn(order.tokenIn, order.amountIn, order.minAmountOut, order.owner);
         emit RelayedSwap(order.owner, order.pool, order.tokenIn, order.amountIn, amountOut);
         _locked = 1;
@@ -192,11 +192,19 @@ contract FeeTokenRelay {
         if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
     }
 
+    /// approve() for tokens that return a bool and for those that return nothing; the pool pulls exactly this, back to 0.
+    function _approve(address token, address spender, uint256 amount) private {
+        (bool ok, bytes memory data) = token.call(abi.encodeWithSelector(IFeeRelayToken.approve.selector, spender, amount));
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
+    }
+
     function _recover(bytes32 digest, bytes calldata signature) private pure returns (address signer) {
         if (signature.length != 65) revert BadSignature();
         bytes32 r = bytes32(signature[0:32]);
         bytes32 s = bytes32(signature[32:64]);
         uint8 v = uint8(signature[64]);
+        // Some signers give the recovery id as 0 or 1 rather than 27 or 28; both name the same signature.
+        if (v < 27) v += 27;
         if (uint256(s) > HALF_N || (v != 27 && v != 28)) revert BadSignature();
         signer = ecrecover(digest, v, r, s);
         if (signer == address(0)) revert BadSignature();

@@ -194,7 +194,9 @@ describeOnChain('FeeTokenRelay: a stable-only wallet swaps and pays the fee in t
       } as never);
     };
     const permitSignature = await sign(plan.permits[0]!);
-    const orderSignature = await sign(plan.order);
+    // The order's recovery id given as 0 or 1, as some signers give it: the service and the contract both take it.
+    const signedOrder = await sign(plan.order);
+    const orderSignature = `${signedOrder.slice(0, 130)}${signedOrder.endsWith('1b') ? '00' : '01'}` as Hex;
     const order = plan.order.message as never;
     const input = {
       order,

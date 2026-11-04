@@ -65,6 +65,7 @@ const en = {
   rejectedAfter: 'You cancelled the rest of the steps.',
   earlierSent: 'Already sent before that, and not undone: {hashes}.',
   noFeeNotMined: 'None: the swap was not mined',
+  feeNoneReverted: 'None: the swap reverted on the network, so the fee relay took nothing from you',
   youGet: 'You receive about',
   quoteLife: 'Quote',
   refreshesIn: 'Refreshes in {seconds} s',
