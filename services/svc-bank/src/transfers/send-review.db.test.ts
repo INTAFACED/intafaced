@@ -285,6 +285,49 @@ describe('personal send review: a held send moves nothing until it is released (
     expect(await available(BOB)).toBe('0');
   });
 
+  it('no other door pays another person above the line: a transfer to their space and a scheduled send refuse, nothing moves', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const bobs = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    const door = { code: 'PRECONDITION_FAILED', message: expect.stringContaining('bank.personal_send_review_door') };
+    await expect(
+      ada.transfers.create({ transferId: 'door-create-1', fromSpaceId: from.id, toSpaceId: bobs.id, amount: '60' }),
+    ).rejects.toMatchObject(door);
+    await expect(
+      ada.transfers.scheduleToUser({
+        scheduleId: '55555555-5555-4555-8555-555555555555',
+        fromSpaceId: from.id,
+        toUserId: BOB,
+        amount: '60',
+        cadence: 'once',
+        startsAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    ).rejects.toMatchObject(door);
+    // An unknown destination counts as another person's.
+    await expect(
+      ada.transfers.create({
+        transferId: 'door-create-2',
+        fromSpaceId: from.id,
+        toSpaceId: '66666666-6666-4666-8666-666666666666',
+        amount: '60',
+      }),
+    ).rejects.toMatchObject(door);
+    expect(await available(ADA)).toBe('100');
+    expect(await available(BOB)).toBe('0');
+    // At the line, the same doors are open as before.
+    await expect(
+      ada.transfers.scheduleToUser({
+        scheduleId: '77777777-7777-4777-8777-777777777777',
+        fromSpaceId: from.id,
+        toUserId: BOB,
+        amount: '50',
+        cadence: 'once',
+        startsAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    ).resolves.toBeTruthy();
+  });
+
   it('the balance page names each personal send’s fee and state; other entries’ fee stays unknown', async () => {
     await ready();
     const ada = await caller(ADA, ['bank:read', 'bank:write']);

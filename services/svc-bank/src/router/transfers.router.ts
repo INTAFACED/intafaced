@@ -10,6 +10,7 @@ import {
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
+import { BankError } from '../errors.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
 import {
   createTransferBinding,
@@ -25,6 +26,29 @@ import type { BankRouterContext } from './context.js';
 
 export function createTransfersRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
+  /**
+   * The owner's send review (PP-send-request-10) holds a send to another person above its line, and only Send
+   * (`toUser`) can hold one. Every other door that pays another person (a transfer to their space, a standing or
+   * one-off order, an edit of its amount) refuses above the line, so none of them is a way around the review. An
+   * unknown destination counts as another person's, as for the step-up.
+   */
+  async function refuseOverReviewLine(
+    callerId: string,
+    assetId: string,
+    amount: string,
+    to: { readonly userId: string } | { readonly spaceId: string },
+  ) {
+    if (!bank.personalPay.overReviewLine(assetId, parseAmount(amount))) return;
+    if ('userId' in to && to.userId === callerId) return;
+    if ('spaceId' in to) {
+      const space = await bank.spaces.find(to.spaceId);
+      if (space !== null && space.userId === callerId) return;
+    }
+    throw new BankError(
+      'A payment to another person above the review line goes through Send, where it is reviewed (bank.personal_send_review_door)',
+      'bank.personal_send_review_door',
+    );
+  }
   return router({
     /**
      * The caller's own transfer history: money sent to or received from another person, and moves between their own
@@ -150,6 +174,7 @@ export function createTransfersRouter(c: BankRouterContext) {
            */
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { spaceId: input.toSpaceId });
 
           // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
           // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
@@ -367,6 +392,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { userId: input.toUserId });
           // Approval happens at creation, and again for an edit of the amount or end (updateSchedule). The payee
           // never changes, and the order runs without a session, so execution, pause and resume need none (cancel
           // and pause are protective).
@@ -423,6 +449,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           // another user is the same product feature on a timer.
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
+          await refuseOverReviewLine(ctx.principal.userId, from.assetId, input.amount, { spaceId: input.toSpaceId });
 
           // A standing order to another person is approved at creation; an unknown destination counts as foreign.
           if (stepUpEnforced) {
@@ -560,6 +587,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           // Ownership before the write, as `cancel` does.
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
+          await refuseOverReviewLine(ctx.principal.userId, schedule.assetId, input.amount, { spaceId: schedule.toSpaceId });
           if (stepUpEnforced) {
             const to = await bank.spaces.find(schedule.toSpaceId);
             if (to === null || to.userId !== ctx.principal.userId) {

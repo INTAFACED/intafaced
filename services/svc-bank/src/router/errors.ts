@@ -221,6 +221,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.personal_transfer_conflict': 'CONFLICT',
   'bank.held_send_not_found': 'NOT_FOUND',
   'bank.personal_send_in_review': 'PRECONDITION_FAILED',
+  'bank.personal_send_review_door': 'PRECONDITION_FAILED',
   'bank.personal_send_rejected': 'PRECONDITION_FAILED',
   'bank.held_send_decided': 'CONFLICT',
   'bank.personal_request_conflict': 'CONFLICT',

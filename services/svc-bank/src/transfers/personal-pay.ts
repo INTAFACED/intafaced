@@ -710,6 +710,11 @@ export class PersonalPayService {
     return heldSendView(row);
   }
 
+  /** True when the owner's review rule would hold a send of this size: only `send` can hold one for a review. */
+  overReviewLine(assetId: string, amount: Amount): boolean {
+    return reviewReason(this.options.reviewRule, assetId, amount) !== null;
+  }
+
   private async reviewRow(transferId: string): Promise<SendReviewRow | null> {
     const [row] = await this.sql<SendReviewRow[]>`
       SELECT ${this.sql.unsafe(SEND_REVIEW_COLS)} FROM bank.personal_send_reviews WHERE transfer_id = ${transferId}
