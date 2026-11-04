@@ -17,7 +17,9 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  encodeAbiParameters,
   http,
+  keccak256,
   parseUnits,
   toHex,
   getAddress,
@@ -37,7 +39,35 @@ export const TEST_TOKENS = {
   THIN: { address: '0x00000000000000000000000000000000000071a0', name: 'TEST Thin', symbol: 'TESTTHIN', decimals: 18 },
   /** The TEST stand-in for a dollar stable token: the stack's reference for USD prices (PROTOCOL_PRICE_USD_TOKENS). */
   USD: { address: '0x000000000000000000000000000000000000d011', name: 'TEST USD', symbol: 'TESTUSD', decimals: 6 },
+  /**
+   * A second TEST stable token, allowlisted to pay network fees but with an oracle mark that is stale on purpose
+   * (J-dex-protocol-02 #11): it trades in no pool, so it is never offered to swap, only to pay a fee and be refused.
+   */
+  EUR: { address: '0x00000000000000000000000000000000000e0e00', name: 'TEST EUR', symbol: 'TESTEUR', decimals: 6 },
 } as const;
+/**
+ * The TEST network-fee relay's parts (RC-dex-protocol-02, J-dex-protocol-02 #11). The relayer submits a person's signed
+ * swap and pays its gas in TEST ETH; the two oracle reporters push the fee tokens' marks. All three are addresses with
+ * no key, impersonated on this anvil only (anvil_impersonateAccount), so nothing can sign for them anywhere else.
+ */
+export const TEST_FEE_RELAYER: Address = '0x0000000000000000000000000000000000fee5e1';
+export const TEST_ORACLE_REPORTERS: readonly [Address, Address] = [
+  '0x00000000000000000000000000000000000a7e0a',
+  '0x00000000000000000000000000000000000a7e0b',
+];
+/**
+ * TEST oracle marks, native wei per whole token (1 TEST USD = 0.0004 TEST ETH; 1 TEST EUR = 0.00044 TEST ETH). Labelled
+ * TEST: illustrative magnitudes for a stand-in chain, never a live rate.
+ */
+export const TEST_FEE_MARKS = { USD: 400_000_000_000_000n, EUR: 440_000_000_000_000n } as const;
+/** TEST oracle settings: a mark older than a day is stale; the two reporters may differ by at most 1%. */
+export const TEST_ORACLE_STALENESS_SECONDS = 86_400;
+const TEST_ORACLE_MAX_DISAGREEMENT_BPS = 100;
+/** The TEST relay's published markup on the oracle rate: 5% (500 bps), immutable in the deployed relay. */
+export const TEST_FEE_MARKUP_BPS = 500;
+/** What `fund <address> stable` gives: TEST USD only, and no TEST ETH. */
+const STABLE_ONLY_FUNDING = '100';
+
 /** J-dex-protocol-04's "contract address on the TEST chain": any code there makes it a contract. */
 export const TEST_CONTRACT: Address = '0x0000000000000000000000000000000000c0ffee';
 
@@ -80,18 +110,75 @@ async function mineOnInterval(publicClient: ReturnType<typeof clients>['publicCl
   await publicClient.request({ method: 'evm_setIntervalMining', params: [1] } as never);
 }
 
+type Clients = ReturnType<typeof clients>;
+
+/** Both TEST reporters push `mark` for `token`, so the fail-closed oracle has two fresh, agreeing reports. */
+async function reportMark({ publicClient, walletClient }: Clients, oracle: Address, token: Address, mark: bigint) {
+  const abi = artifact('FailClosedOracle').abi;
+  for (const reporter of TEST_ORACLE_REPORTERS) {
+    const hash = await walletClient.writeContract({
+      account: reporter,
+      chain: walletClient.chain,
+      address: oracle,
+      abi,
+      functionName: 'report',
+      args: [token, mark],
+      // A fixed limit, not an estimate: estimated in one block, a report can be mined in the next, where writing the new
+      // timestamp costs more than the estimate allowed (seen: OutOfGas on a re-seed). 100,000 covers both writes.
+      gas: 100_000n,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`oracle report failed: ${hash}`);
+  }
+}
+
+/**
+ * Makes TEST EUR's two reports stale: their `updatedAt` is set to an hour past the staleness bound before the latest
+ * block, written into the oracle's storage on this anvil (feedA is slot 0, feedB slot 1; a Report's `updatedAt` is the
+ * word after its price). Then checks the oracle itself now refuses the mark as Stale, so the seed never claims a stale
+ * feed the contract would still price.
+ */
+async function makeMarkStale({ publicClient }: Clients, oracle: Address, token: Address) {
+  const block = await publicClient.getBlock();
+  const old = block.timestamp - BigInt(TEST_ORACLE_STALENESS_SECONDS) - 3600n;
+  for (const slot of [0n, 1n]) {
+    const base = BigInt(keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [token, slot])));
+    await publicClient.request({
+      method: 'anvil_setStorageAt',
+      params: [oracle, toHex(base + 1n, { size: 32 }), toHex(old, { size: 32 })],
+    } as never);
+  }
+  const abi = artifact('FailClosedOracle').abi;
+  const refused = await publicClient.readContract({ address: oracle, abi, functionName: 'getMark', args: [token] }).then(
+    () => null,
+    (err: Error) => err.message,
+  );
+  if (!refused || !/Stale/.test(refused)) throw new Error(`TEST EUR's oracle mark should read Stale, got: ${refused ?? 'a price'}`);
+}
+
+/** TEST ETH for the impersonated relayer and reporters, so they can pay gas on this anvil. */
+async function impersonate({ publicClient }: Clients, addresses: readonly Address[]) {
+  for (const address of addresses) {
+    await publicClient.request({ method: 'anvil_impersonateAccount', params: [address] } as never);
+    await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('1000', 18))] } as never);
+  }
+}
+
 async function seed(out: string) {
   const { publicClient, walletClient, account } = clients();
   const version = await assertStandIn(publicClient);
   await publicClient.request({ method: 'evm_setAutomine', params: [true] } as never);
   // Seeded already (the chain kept running across a stack restart): the record still names what is on the node.
   if (existsSync(out)) {
-    const record = JSON.parse(readFileSync(out, 'utf8')) as { factory: Address; tokens: typeof TEST_TOKENS };
-    const [factoryCode, tokenCode] = await Promise.all([
+    const record = JSON.parse(readFileSync(out, 'utf8')) as { factory: Address; oracle?: Address; tokens: typeof TEST_TOKENS };
+    const [factoryCode, tokenCode, oracleCode] = await Promise.all([
       publicClient.getCode({ address: record.factory }),
       publicClient.getCode({ address: TEST_TOKENS.USD.address }),
+      record.oracle ? publicClient.getCode({ address: record.oracle }) : Promise.resolve(undefined),
     ]);
-    if (factoryCode && factoryCode !== '0x' && tokenCode && tokenCode !== '0x') {
+    if (factoryCode && factoryCode !== '0x' && tokenCode && tokenCode !== '0x' && oracleCode && oracleCode !== '0x') {
+      // The live fee token's mark is pushed again, so a chain that outlived the staleness bound still prices it.
+      await reportMark(clients(), record.oracle!, TEST_TOKENS.USD.address, TEST_FEE_MARKS.USD);
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -124,7 +211,7 @@ async function seed(out: string) {
   const router = await deploy('SovereignRouter');
   const factoryAbi = artifact('PoolFactory').abi;
   const poolAbi = artifact('ConstantProductPool').abi;
-  const { A, B, THIN, USD } = TEST_TOKENS;
+  const { A, B, THIN, USD, EUR } = TEST_TOKENS;
   const pools = [
     // Two A/B pools, one better: deeper reserves and the lower fee win any quote.
     { label: 'TEST A/B deep 0.30%', a: A, b: B, feeBps: 30, amountA: '1000000', amountB: '1000000' },
@@ -194,6 +281,30 @@ async function seed(out: string) {
     }
     seeded.push({ label: p.label, pool, feeBps: p.feeBps, token0, token1: getAddress(token1) });
   }
+  // The network-fee relay (RC-dex-protocol-02): a fail-closed oracle with two TEST reporters, TEST USD freshly marked
+  // and TEST EUR marked then made stale, and the relay with its published TEST markup and both tokens allowlisted.
+  const all = clients();
+  await impersonate(all, [TEST_FEE_RELAYER, ...TEST_ORACLE_REPORTERS]);
+  const oracle = await deploy('FailClosedOracle', [
+    TEST_ORACLE_REPORTERS[0],
+    TEST_ORACLE_REPORTERS[1],
+    TEST_ORACLE_STALENESS_SECONDS,
+    TEST_ORACLE_MAX_DISAGREEMENT_BPS,
+  ]);
+  await reportMark(all, oracle, EUR.address, TEST_FEE_MARKS.EUR);
+  await makeMarkStale(all, oracle, EUR.address);
+  await reportMark(all, oracle, USD.address, TEST_FEE_MARKS.USD);
+  const feeRelay = await deploy('FeeTokenRelay', [oracle, account.address, TEST_FEE_MARKUP_BPS]);
+  for (const t of [USD, EUR])
+    await send(
+      await walletClient.writeContract({
+        address: feeRelay,
+        abi: artifact('FeeTokenRelay').abi,
+        functionName: 'setFeeToken',
+        args: [t.address, true],
+      }),
+    );
+
   const record = {
     node: version,
     chainId,
@@ -203,11 +314,15 @@ async function seed(out: string) {
     factory,
     router,
     pools: seeded,
+    oracle,
+    feeRelay,
+    feeRelayer: TEST_FEE_RELAYER,
+    feeMarkupBps: TEST_FEE_MARKUP_BPS,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
   await mineOnInterval(publicClient);
-  console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools`);
+  console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
 }
 
 /** TEST funding for one TEST wallet: TEST ETH for gas, and TEST Token A and B. Anyone may mint a TestToken. */
@@ -228,7 +343,26 @@ async function fund(address: Address) {
   console.log(`funded ${address}: 10 TEST ETH, 10000 ${TEST_TOKENS.A.name}, 10000 ${TEST_TOKENS.B.name}`);
 }
 
-const [command, arg] = process.argv.slice(2);
+/**
+ * TEST funding for a wallet that holds only a stable token (J-dex-protocol-02 #11): TEST USD and nothing else, its TEST
+ * ETH set to zero, so any gas it needs must be paid some other way.
+ */
+async function fundStable(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, '0x0'] } as never);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.USD.address,
+    abi: artifact('TestToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(STABLE_ONLY_FUNDING, TEST_TOKENS.USD.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: ${STABLE_ONLY_FUNDING} ${TEST_TOKENS.USD.name} only, no TEST ETH`);
+}
+
+const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
-else if (command === 'fund' && arg) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address>');
+else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
+else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable]');

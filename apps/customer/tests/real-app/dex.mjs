@@ -35,9 +35,12 @@ export function testChain() {
   return JSON.parse(tool('local-test-chain.mjs', 'status'));
 }
 
-/** Funds `address` on the TEST chain (TEST ETH for gas, 10,000 TEST Token A and B); refuses by name with no chain. */
-export function fundOnTestChain(address) {
-  return tool('local-test-chain.mjs', 'fund', address);
+/**
+ * Funds `address` on the TEST chain (TEST ETH for gas, 10,000 TEST Token A and B); refuses by name with no chain.
+ * `stable` funds 100 TEST USD only and sets its TEST ETH to zero (J-dex-protocol-02 #11).
+ */
+export function fundOnTestChain(address, kind) {
+  return kind ? tool('local-test-chain.mjs', 'fund', address, kind) : tool('local-test-chain.mjs', 'fund', address);
 }
 
 /** One journey run's state, with one TEST wallet key kept for every step of the run. */
@@ -48,10 +51,13 @@ export function dexRun(journey) {
   return {
     run,
     onChain,
-    /** Starts the run again with a new TEST wallet key (each journey's first step), funded when it runs on the TEST chain. */
-    start(extra = {}) {
+    /**
+     * Starts the run again with a new TEST wallet key (each journey's first step), funded when it runs on the TEST chain;
+     * `{ funding: 'stable' }` gives it TEST USD only and no TEST ETH.
+     */
+    start(extra = {}, { funding } = {}) {
       const walletKey = testWalletKey();
-      if (onChain) fundOnTestChain(privateKeyToAccount(walletKey).address);
+      if (onChain) fundOnTestChain(privateKeyToAccount(walletKey).address, funding);
       return run.reset({ walletKey, ...extra });
     },
     /** The run's TEST wallet key, made on first use when no earlier step started the run. */

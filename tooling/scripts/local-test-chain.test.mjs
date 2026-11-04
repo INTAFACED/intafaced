@@ -11,6 +11,7 @@ import {
   anvilBin,
   CHAIN_PORTS,
   GATE_URL,
+  RELAY_URL,
   SECOND_CHAIN_ID,
   SECOND_CHAIN_PORTS,
   SECOND_GATE_URL,
@@ -63,6 +64,25 @@ test('svc-protocol keeps UNUSED and the zero factory when the stack runs no TEST
   }
 });
 
+test('svc-protocol pays fees in a token only through the seeded TEST fee relay and its TEST relayer', () => {
+  const env = (testChain) => protocol(ctx(testChain)).env();
+  for (const name of ['PROTOCOL_FEE_RELAY_ADDRESS', 'PROTOCOL_FEE_RELAY_URL', 'PROTOCOL_FEE_RELAY_GAS_LIMIT']) {
+    assert.equal(name in env(() => null), false, `${name} stays blank with no chain`);
+    assert.equal(
+      name in env(() => ({ rpcUrl: GATE_URL, factory: '0x1', router: '0x2', feeRelay: null })),
+      false,
+      `${name} blank before the relay is seeded`,
+    );
+  }
+  const relay = '0x9d4454b023096f34b160d6b654540c56a1f81688';
+  const seeded = env(() => ({ rpcUrl: GATE_URL, factory: '0x1', router: '0x2', feeRelay: relay }));
+  assert.equal(seeded.PROTOCOL_FEE_RELAY_ADDRESS, relay);
+  assert.equal(seeded.PROTOCOL_FEE_RELAY_URL, RELAY_URL);
+  assert.equal(new URL(RELAY_URL).hostname, '127.0.0.1');
+  assert.equal(new URL(RELAY_URL).port, String(CHAIN_PORTS.relay));
+  assert.match(seeded.PROTOCOL_FEE_RELAY_GAS_LIMIT, /^[1-9]\d*$/);
+});
+
 test('svc-protocol reads the TEST chain through its gate, with the seeded factory', () => {
   const factory = '0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9';
   const env = protocol(ctx(() => ({ rpcUrl: GATE_URL, factory, router: '0x1' }))).env();
@@ -97,6 +117,7 @@ test('with no TEST chain: status says absent, gate is a no-op, fund refuses by n
   assert.equal(fund.status, 1);
   assert.match(fund.stderr, /local-test-chain\.no_chain/);
   assert.equal(run('fund', 'not-an-address').status, 1);
+  assert.equal(run('fund', '0x52908400098527886E0F7030069857D2E4169EE7', 'everything').status, 1, 'only `stable` names another funding');
   assert.equal(run('gate', 'ajar').status, 1);
   assert.equal(run('gate', 'closed', 'third').status, 1, 'only the second network has a gate of its own');
 });

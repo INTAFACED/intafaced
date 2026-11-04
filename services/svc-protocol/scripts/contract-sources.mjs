@@ -300,6 +300,16 @@ export const SUITES = [
     sources: ['paymaster/ScopedPaymaster.sol', 'interfaces/IPaymaster.sol', 'interfaces/IAccount.sol'],
   },
   {
+    name: 'fee-relay',
+    expect: 'compiles',
+    /**
+     * RC-dex-protocol-02 — a swap whose network fee is paid in a token the person holds: signed permit and order, fee
+     * priced from the fail-closed oracle plus the published markup. Own suite so the paymaster or oracle suites do not
+     * stale this bytecode (it only reads the oracle's interface).
+     */
+    sources: ['paymaster/FeeTokenRelay.sol', 'oracle/IPriceOracle.sol'],
+  },
+  {
     name: 'rwa',
     expect: 'compiles',
     /**

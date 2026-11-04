@@ -69,6 +69,8 @@ export type ArtifactName =
   | 'FairLaunch'
   | 'UserElectedRecovery'
   | 'ScopedPaymaster'
+  | 'FeeTokenRelay'
+  | 'TestToken'
   | 'RwaRegistry'
   | 'CardPull';
 

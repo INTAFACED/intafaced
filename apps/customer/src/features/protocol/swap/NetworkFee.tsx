@@ -1,10 +1,23 @@
-import type { ProtocolSwapFees } from '@intafaced/contracts/protocol-swap';
+import { useId } from 'react';
+import type { ProtocolSwapFees, ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
 import { formatAsOf } from '@intafaced/ui';
 import { Failure, Field } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import type { Resource } from '../../../shared/resource';
 import { swapCopy } from './copy';
 import { FEE_LEVELS, toGwei, type ChosenFee, type FeeChoice } from './fee';
+import { NATIVE, type TokenFee } from './fee-token';
+import { bpsToPercent, formatUnits } from './swap-math';
+
+/** Paying the fee in a token (RC-dex-protocol-02): the choice, the tokens offered, the token's fee and why one was refused. */
+export interface PayIn {
+  value: string;
+  tokens: readonly ProtocolSwapToken[];
+  label: (token: ProtocolSwapToken) => string;
+  onChange: (value: string) => void;
+  fee: TokenFee;
+  refusal: string | null;
+}
 
 /** Why the chosen fee cannot be used, in a sentence, or null. A blank custom fee is not an alert, only a reason. */
 export function feeRefusal(
@@ -33,6 +46,7 @@ export function NetworkFee({
   custom,
   onCustom,
   refusal,
+  payIn,
 }: {
   fees: Resource<ProtocolSwapFees>;
   retry: () => void;
@@ -41,9 +55,12 @@ export function NetworkFee({
   custom: string;
   onCustom: (text: string) => void;
   refusal: string | null;
+  payIn?: PayIn;
 }) {
   const { language } = usePreferences();
   const { t } = swapCopy.forLocale(language);
+  const payInId = useId();
+  const tokenFee = payIn && payIn.value !== NATIVE ? payIn.fee : null;
   const ready = fees.status === 'ready' ? fees.data : null;
   const time = ready ? (formatAsOf(ready.asOf, { locale: language, now: Date.now() }) ?? ready.asOf) : '';
   return (
@@ -87,7 +104,45 @@ export function NetworkFee({
       {fees.status === 'failed' && <Failure result={fees.failure} retry={retry} />}
       {ready && <p className="muted">{t('feeFrom', { blocks: String(ready.blocks), asOf: time })}</p>}
       {refusal && <p role="alert">{refusal}</p>}
-      {ready && <p data-testid="fee-line">{ready.sponsored ? t('feeSponsored') : t('feePaid')}</p>}
+      {payIn && (
+        <label className="field">
+          <span id={payInId}>{t('payIn')}</span>
+          <select value={payIn.value} onChange={(event) => payIn.onChange(event.target.value)} aria-labelledby={payInId}>
+            <option value={NATIVE}>{t('payInNative')}</option>
+            {payIn.tokens.map((token) => (
+              <option key={token.address} value={token.address}>
+                {payIn.label(token)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {payIn?.refusal && <p role="alert">{payIn.refusal}</p>}
+      {tokenFee?.status === 'ready' ? (
+        <>
+          <p className="numeric" data-testid="fee-line">
+            {t('feeInToken', {
+              charge: formatUnits(BigInt(tokenFee.quote.charge), tokenFee.token.decimals, tokenFee.token.decimals),
+              token: tokenFee.token.name,
+              markup: bpsToPercent(tokenFee.quote.markupBps),
+            })}
+          </p>
+          <p className="muted numeric" data-testid="fee-token-basis">
+            {t('feeInTokenBasis', {
+              gas: formatUnits(BigInt(tokenFee.quote.gasWei), 18, 18),
+              limit: tokenFee.quote.gasLimit,
+              perGas: toGwei(BigInt(tokenFee.quote.maxFeePerGasWei)),
+              token: tokenFee.token.name,
+              rate: formatUnits(BigInt(tokenFee.quote.markWad), 18, 18),
+              asOf: formatAsOf(tokenFee.quote.markAsOf, { locale: language, now: Date.now() }) ?? tokenFee.quote.markAsOf,
+            })}
+          </p>
+        </>
+      ) : tokenFee?.status === 'reading' ? (
+        <p data-testid="fee-line">{t('feeInTokenReading', { token: tokenFee.token.name })}</p>
+      ) : (
+        ready && <p data-testid="fee-line">{ready.sponsored ? t('feeSponsored') : t('feePaid')}</p>
+      )}
     </div>
   );
 }

@@ -21,6 +21,11 @@ import {
 import {
   protocolAllowancesOutputSchema,
   protocolApprovalCheckOutputSchema,
+  protocolFeeQuoteOutputSchema,
+  protocolFeeSwapPlanOutputSchema,
+  protocolFeeSwapSubmitOutputSchema,
+  protocolFeeTokensOutputSchema,
+  type ProtocolFeeSwapSubmitInput,
   protocolPoolQuoteOutputSchema,
   protocolRouteOptionsOutputSchema,
   protocolSwapFeesOutputSchema,
@@ -128,6 +133,27 @@ export function createProtocolApi(api: ApiClient) {
       api.query('protocol', 'amm.buildSwapExactIn', input, protocolUnsignedCallSchema, { signal }),
     /** Slow, Normal and Fast network fees from the last blocks, with the owner's fee cap; a blank setting refuses. */
     feeLevels: (signal?: AbortSignal) => api.query('protocol', 'amm.feeLevels', undefined, protocolSwapFeesOutputSchema, { signal }),
+    /** The tokens the fee relay lists, its published markup and the gas a relayed swap is priced for; blank refuses. */
+    feeTokens: (signal?: AbortSignal) => api.query('protocol', 'amm.feeTokens', undefined, protocolFeeTokensOutputSchema, { signal }),
+    /** The network fee in `feeToken` at the most per gas chosen, priced by the relay; off-list or stale refuses by name. */
+    feeQuote: (input: { feeToken: string; maxFeePerGasWei: string }, signal?: AbortSignal) =>
+      api.query('protocol', 'amm.feeQuote', input, protocolFeeQuoteOutputSchema, { signal }),
+    /** What the person signs to swap with the fee in a token: a permit per token and the order, with the quote. */
+    prepareFeeSwap: (
+      input: {
+        owner: string;
+        pool: string;
+        tokenIn: string;
+        amountIn: string;
+        minAmountOut: string;
+        feeToken: string;
+        maxFeePerGasWei: string;
+      },
+      signal?: AbortSignal,
+    ) => api.query('protocol', 'amm.prepareFeeSwap', input, protocolFeeSwapPlanOutputSchema, { signal }),
+    /** Hands the signed order to the fee relay, which sends it and pays the gas; answers the transaction hash. */
+    relayFeeSwap: (input: ProtocolFeeSwapSubmitInput) =>
+      api.mutate('protocol', 'amm.relayFeeSwap', input, protocolFeeSwapSubmitOutputSchema),
     /** The live allowances `owner` has given for the tokens the network's pools trade, read from the chain at one block. */
     allowances: (owner: string, signal?: AbortSignal) =>
       api.query('protocol', 'amm.allowances', { owner }, protocolAllowancesOutputSchema, { signal }),
