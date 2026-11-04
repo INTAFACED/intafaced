@@ -7,7 +7,13 @@ export function SessionNotice() {
   const { t } = shellCopy.useCopy();
   const { notice, session } = useSession();
   if (session?.subAccountId) return <SubaccountBar />;
-  if (!notice || session) return null;
+  if (notice === 'subaccount_ended' && session)
+    return (
+      <p className="tb-note" role="alert">
+        {t('This tab is back on your main account: the sub-account could not be confirmed again. Use it again from Account.')}
+      </p>
+    );
+  if (!notice || session || notice === 'subaccount_ended') return null;
   return (
     <p className="tb-note" role="status">
       {notice === 'reused'
@@ -30,7 +36,7 @@ function SubaccountBar() {
   return (
     <section className="tb-note" role="region" aria-label={t('Sub-account in use')}>
       <p>
-        {t('You are using sub-account {label} in this tab.', { label: session?.subAccountLabel ?? session?.subAccountId ?? '' })}{' '}
+        {t('You are using sub-account {label} in this tab.', { label: session?.subAccountLabel || session?.subAccountId || '' })}{' '}
         <span lang="zxx">{session?.subAccountId}</span>
       </p>
       <button type="button" className="text-link" disabled={state === 'busy'} onClick={() => void leave()}>

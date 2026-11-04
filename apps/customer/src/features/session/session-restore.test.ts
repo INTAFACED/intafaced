@@ -640,18 +640,48 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
     b.controller.stop();
   });
 
-  it('a silent refresh keeps acting as the sub-account, and returns to the main account if it is refused now', async () => {
+  it('a silent refresh keeps acting as the sub-account; a refusal or no answer returns to main and says so', async () => {
     const { controller, enter, posted } = build((n) => ok(session('main' + n, 60_000)));
     await controller.start();
     await controller.enterSubAccount(SUB);
     await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
     expect(controller.getState().session).toMatchObject({ accessToken: 'sub-of-main2', subAccountId: SUB });
+    expect(controller.getState().notice).toBeNull();
     // Other tabs on the main account get the rotated main token only.
     expect(posted).toEqual([{ type: 'session', session: expect.objectContaining({ accessToken: 'main2' }) }]);
 
     enter.mockResolvedValueOnce({ ok: false, reason: 'forbidden', message: 'revoked', code: 'auth.sub_account_revoked' } as never);
     await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
     expect(controller.getState().session?.accessToken).toBe('main3');
+    expect(controller.getState().session?.subAccountId).toBeUndefined();
+    expect(controller.getState().notice).toBe('subaccount_ended');
+    controller.stop();
+
+    const lost = build((n) => ok(session('main' + n, 60_000)));
+    await lost.controller.start();
+    await lost.controller.enterSubAccount(SUB);
+    lost.enter.mockRejectedValueOnce(new Error('network'));
+    await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
+    expect(lost.controller.getState()).toMatchObject({ session: { accessToken: 'main2' }, notice: 'subaccount_ended' });
+    lost.controller.stop();
+  });
+
+  it('switching back during a re-entry wins: the late sub-account answer is dropped', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const enter = vi.fn(async (main: { accessToken: string }) => {
+      if (main.accessToken !== 'main1') await gate;
+      return { ok: true as const, data: subSession(`sub-of-${main.accessToken}`) };
+    });
+    const { controller } = build((n) => ok(session('main' + n, 60_000)), enter);
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
+    const leaving = controller.leaveSubAccount();
+    release();
+    await leaving;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'main3' });
     expect(controller.getState().session?.subAccountId).toBeUndefined();
     controller.stop();
   });
@@ -668,8 +698,9 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
     controller.stop();
   });
 
-  it('a tab acting as a sub-account does not take another tab main token', async () => {
+  it('on another tab rotation, a tab acting as a sub-account asks for it again on the new main token', async () => {
     let deliver!: (data: unknown) => void;
+    const enter = vi.fn(async (main: { accessToken: string }) => ({ ok: true as const, data: subSession(`sub-of-${main.accessToken}`) }));
     const controller = createSessionController({
       refresher: createSessionRefresher({ fetch: fakeFetch(() => ok(session('main'))).fetcher, locks: null, retryDelayMs: 0 }),
       openChannel: () => {
@@ -677,12 +708,49 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
         deliver = (data) => channel.onmessage?.({ data });
         return channel;
       },
-      enterSubAccount: async () => ({ ok: true as const, data: subSession('sub') }),
+      enterSubAccount: enter,
     });
     await controller.start();
     await controller.enterSubAccount(SUB);
+    deliver({ type: 'session', session: { ...subSession('someone-else-sub', 1_800_000) } });
+    expect(controller.getState().session?.accessToken).toBe('sub-of-main');
     deliver({ type: 'session', session: session('other-tab-main', 1_800_000) });
-    expect(controller.getState().session?.accessToken).toBe('sub');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(enter).toHaveBeenLastCalledWith(expect.objectContaining({ accessToken: 'other-tab-main' }), SUB);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'sub-of-other-tab-main', subAccountId: SUB });
+    controller.stop();
+  });
+
+  it('entering on a token another tab already rotated refreshes from the cookie and asks once more', async () => {
+    const enter = vi.fn(async (main: { accessToken: string }) =>
+      main.accessToken === 'stale'
+        ? { ok: false as const, reason: 'unauthorized' as const, message: 'session', code: 'auth.session_invalid' }
+        : { ok: true as const, data: subSession(`sub-of-${main.accessToken}`) },
+    );
+    const { controller, calls } = build(() => ok(session('fresh')), enter as never);
+    controller.commit(session('stale'));
+    await controller.start();
+    const result = await controller.enterSubAccount(SUB);
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'sub-of-fresh', subAccountId: SUB });
+    controller.stop();
+  });
+
+  it('says so when the sign-in changed while switching, instead of reporting a switch that did not happen', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const enter = vi.fn(async () => {
+      await gate;
+      return { ok: true as const, data: subSession('sub') };
+    });
+    const { controller } = build(() => ok(session('main')), enter);
+    await controller.start();
+    const entering = controller.enterSubAccount(SUB);
+    controller.commit(session('typed-again'));
+    release();
+    expect(await entering).toMatchObject({ ok: false, reason: 'aborted' });
+    expect(controller.getState().session?.accessToken).toBe('typed-again');
     controller.stop();
   });
 });
