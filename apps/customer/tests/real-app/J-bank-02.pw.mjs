@@ -572,7 +572,7 @@ test(`${J} #8 pays another person more than the bank holds on a plan that allows
   await dialog.getByRole('button', { name: 'Review' }).click();
   // Refused at the review with the shortfall and the plan's rule; no code is asked for and nothing is sent.
   await expect(dialog).toContainText(
-    `This is 10 USDT more than this space holds (50 USDT). ${rule} Reference: bank.overdraft_switched_off`,
+    `The amount exceeds the available quantity in this space. This is 10 USDT more than this space holds (50 USDT). ${rule} Reference: bank.overdraft_switched_off`,
   );
   await expect(dialog.getByTestId('step-up-confirm')).toHaveCount(0);
   expect(sent).toEqual([]);

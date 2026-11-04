@@ -95,9 +95,12 @@ describe('the transfer review uses the plan rule only for an amount above the ba
   const draft = (from: Space, amount: string) => ({ transferId: 'review-reference', fromSpaceId: from.id, toUserId: 'someone', amount });
   const rule = () => 'THE PLAN RULE';
 
-  it('over the balance: the plan rule; within it: no refusal; without a rule: the plain message', () => {
+  it('over the balance: the plain refusal, then the plan rule; within it: no refusal; without a rule: the plain message', () => {
     const from = space();
-    expect(validateTransfer([from], draft(from, '60'), rule)).toBe('THE PLAN RULE');
+    // The plain sentence stays first and whole (J-wallet-07 #2 reads it by name); the rule follows it.
+    expect(validateTransfer([from], draft(from, '60'), rule)).toBe(
+      'The amount exceeds the available quantity in this space. THE PLAN RULE',
+    );
     expect(validateTransfer([from], draft(from, '50'), rule)).toBeNull();
     expect(validateTransfer([from], draft(from, '60'))).toContain('exceeds the available');
     expect(validateTransfer([from], draft(from, '60'), () => null)).toContain('exceeds the available');
@@ -105,6 +108,8 @@ describe('the transfer review uses the plan rule only for an amount above the ba
 
   it('a locked space is refused for being locked first, never for the overdraft', () => {
     const from = space({ lockedUntil: new Date(Date.now() + 86_400_000).toISOString() });
-    expect(validateTransfer([from], draft(from, '60'), rule)).not.toBe('THE PLAN RULE');
+    const locked = validateTransfer([from], draft(from, '60'), rule);
+    expect(locked).not.toContain('THE PLAN RULE');
+    expect(locked).not.toContain('exceeds the available');
   });
 });
