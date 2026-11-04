@@ -583,3 +583,106 @@ describe('logout request', () => {
     expect(headers(calls[0]!).authorization).toBeUndefined();
   });
 });
+
+describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const SUB = '33333333-3333-4333-8333-333333333333';
+  const subSession = (token: string, expiresInMs = 900_000) => ({
+    ...session(token, expiresInMs),
+    subAccountId: SUB,
+    subAccountLabel: 'desk',
+  });
+  function build(
+    answer: (n: number) => Response,
+    enter = vi.fn(async (main: { accessToken: string }) => ({ ok: true as const, data: subSession(`sub-of-${main.accessToken}`) })),
+  ) {
+    const net = fakeFetch((_call, n) => answer(n));
+    const posted: unknown[] = [];
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: net.fetcher, locks: null, retryDelayMs: 0 }),
+      logout: vi.fn(async () => ({ ok: true as const, data: { ok: true as const } })),
+      openChannel: () => ({ onmessage: null, postMessage: (m) => void posted.push(m), close: () => undefined }),
+      enterSubAccount: enter,
+    });
+    return { ...net, controller, enter, posted };
+  }
+
+  it('enters from the main account with its token, and never shares the sub-account token with other tabs', async () => {
+    const { controller, enter, posted } = build(() => ok(session('main')));
+    await controller.start();
+    const result = await controller.enterSubAccount(SUB);
+    expect(result.ok).toBe(true);
+    expect(enter).toHaveBeenCalledWith(expect.objectContaining({ accessToken: 'main' }), SUB);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'sub-of-main', subAccountId: SUB, subAccountLabel: 'desk' });
+    expect(JSON.stringify(posted)).not.toContain('sub-of-');
+    controller.stop();
+  });
+
+  it('a refusal changes nothing, and a second switch needs the main account first', async () => {
+    const refused = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'forbidden' as const,
+      message: 'no',
+      code: 'auth.sub_account_revoked',
+    }));
+    const a = build(() => ok(session('main')), refused as never);
+    await a.controller.start();
+    expect(await a.controller.enterSubAccount(SUB)).toMatchObject({ ok: false, code: 'auth.sub_account_revoked' });
+    expect(a.controller.getState().session?.accessToken).toBe('main');
+    a.controller.stop();
+
+    const b = build(() => ok(session('main')));
+    await b.controller.start();
+    await b.controller.enterSubAccount(SUB);
+    expect(await b.controller.enterSubAccount(SUB)).toMatchObject({ ok: false, code: 'auth.sub_account_denied' });
+    expect(b.enter).toHaveBeenCalledTimes(1);
+    b.controller.stop();
+  });
+
+  it('a silent refresh keeps acting as the sub-account, and returns to the main account if it is refused now', async () => {
+    const { controller, enter, posted } = build((n) => ok(session('main' + n, 60_000)));
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'sub-of-main2', subAccountId: SUB });
+    // Other tabs on the main account get the rotated main token only.
+    expect(posted).toEqual([{ type: 'session', session: expect.objectContaining({ accessToken: 'main2' }) }]);
+
+    enter.mockResolvedValueOnce({ ok: false, reason: 'forbidden', message: 'revoked', code: 'auth.sub_account_revoked' } as never);
+    await vi.advanceTimersByTimeAsync(900_000 - 30_000 + 1_000);
+    expect(controller.getState().session?.accessToken).toBe('main3');
+    expect(controller.getState().session?.subAccountId).toBeUndefined();
+    controller.stop();
+  });
+
+  it('switching back is a refresh from the cookie, which answers for the main account', async () => {
+    const { controller, calls } = build((n) => ok(session('main' + n)));
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    const outcome = await controller.leaveSubAccount();
+    expect(outcome.kind).toBe('session');
+    expect(calls).toHaveLength(2);
+    expect(controller.getState().session).toMatchObject({ accessToken: 'main2' });
+    expect(controller.getState().session?.subAccountId).toBeUndefined();
+    controller.stop();
+  });
+
+  it('a tab acting as a sub-account does not take another tab main token', async () => {
+    let deliver!: (data: unknown) => void;
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: fakeFetch(() => ok(session('main'))).fetcher, locks: null, retryDelayMs: 0 }),
+      openChannel: () => {
+        const channel: ChannelLike = { onmessage: null, postMessage: () => undefined, close: () => undefined };
+        deliver = (data) => channel.onmessage?.({ data });
+        return channel;
+      },
+      enterSubAccount: async () => ({ ok: true as const, data: subSession('sub') }),
+    });
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    deliver({ type: 'session', session: session('other-tab-main', 1_800_000) });
+    expect(controller.getState().session?.accessToken).toBe('sub');
+    controller.stop();
+  });
+});

@@ -278,8 +278,10 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(page.getByText('You aren’t following anyone')).toBeVisible();
   expect((await (await api(unverified)).balances()).USDT).toMatchObject({ free: '1000', used: '0' });
 
-  // A blank country list refuses every follow, a verified person's too, and writes nothing.
+  // A blank country list refuses every follow, a verified person's too, and writes nothing. Funded first, so the
+  // wizard's own free-balance check passes and the press reaches the service.
   const follower = state('follower');
+  fund(follower.email, 'USDT', '1000');
   const me = await api(follower);
   const followsBefore = await myFollows(me);
   try {
@@ -306,13 +308,64 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
     await expect(page.getByText('Copy desk closed')).toBeVisible();
     await expect(page.getByText('Copy desk open')).toHaveCount(0);
+    // The wizard checks the same gate when Start copying is pressed: refused by name, and nothing is followed.
+    const closed = await openWizardAtLimits(page);
+    await fillLimits(closed, { perOrder: '50', total: '200', fixed: '20' });
+    await closed.getByRole('button', { name: 'Next' }).click();
+    const blankAnswer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+    await closed.getByRole('button', { name: 'Start copying' }).click();
+    expect((await blankAnswer).status()).toBe(412);
+    await expect(closed.getByRole('alert').filter({ hasText: 'Copy trading isn’t open for your country' })).toBeVisible();
+    await expect(closed.getByText('Reference trade.copy_jurisdiction_blank')).toBeVisible();
+    await page.keyboard.press('Escape');
+    expect(await myFollows(await api(follower)), 'no follow was started from the wizard under a blank country list').toEqual(followsBefore);
   } finally {
     await copyCountries('set');
   }
 
-  // A sub-account is refused (trade.copy_subaccount_refused). No sign-in in the product yet issues a sub-account session,
-  // so this clause cannot be shown in the running app: the step fails here by name until one exists.
-  throw new Error('BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app');
+  // A sub-account is refused: the verified follower creates one of their own sub-accounts in the account room and uses
+  // it in this tab, and the same press of Start copying is refused by name, as that sub-account, and writes nothing.
+  await signIn(page, follower);
+  await page.goto('/uc/account');
+  const subLabel = `Copy ${state('tag')}`;
+  const create = page.getByTestId('subaccounts__create');
+  await create.getByLabel('Label').fill(subLabel);
+  await create.getByRole('button', { name: 'Review subaccount' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create subaccount' }).click();
+  await expect(page.getByTestId('subaccounts__request').last()).toContainText('The service created the original strategy subaccount.');
+  const row = page.locator('li.subaccounts__row').filter({ has: page.getByText(subLabel, { exact: true }) });
+  const use = row.getByRole('button', { name: /^Use sub-account / });
+  await expect(use).toBeEnabled();
+  const subAccountId = (await use.getAttribute('aria-label')).replace('Use sub-account ', '').toLowerCase();
+  await use.click();
+  const inUse = page.getByRole('region', { name: 'Sub-account in use' });
+  await expect(inUse).toContainText(`You are using sub-account ${subLabel} in this tab.`);
+  await expect(inUse).toContainText(subAccountId);
+
+  const mainBefore = (await (await api(follower)).balances()).USDT;
+  const asSub = await openWizardAtLimits(page);
+  await expect(inUse, 'the wizard is opened as the sub-account').toBeVisible();
+  await fillLimits(asSub, { perOrder: '50', total: '200', fixed: '20' });
+  await asSub.getByRole('button', { name: 'Next' }).click();
+  const subAnswer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+  await asSub.getByRole('button', { name: 'Start copying' }).click();
+  const subRes = await subAnswer;
+  // The press went out as the sub-account: its token names the sub-account the person chose.
+  const bearer = (await subRes.request().headerValue('authorization'))?.replace(/^Bearer /, '') ?? '';
+  const claims = JSON.parse(Buffer.from(bearer.split('.')[1] ?? '', 'base64url').toString('utf8') || '{}');
+  expect(claims.sub_account, 'the Start copying request carries the sub-account').toBe(subAccountId);
+  expect(subRes.status()).toBe(403);
+  await expect(asSub.getByRole('alert').filter({ hasText: 'Sub-accounts can’t copy' })).toBeVisible();
+  await expect(asSub.getByText('Reference trade.copy_subaccount_refused')).toBeVisible();
+
+  // Nothing was written: no follow on the account, and the free balance is untouched.
+  await page.keyboard.press('Escape');
+  expect(await myFollows(await api(follower)), 'no follow was started by the sub-account').toEqual(followsBefore);
+  expect((await (await api(follower)).balances()).USDT, 'nothing was set aside').toEqual(mainBefore);
+
+  // Back to the main account in the same tab.
+  await inUse.getByRole('button', { name: 'Switch back to the main account' }).click();
+  await expect(inUse).toHaveCount(0);
 });
 
 /** Restart trade with the copy country list blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */

@@ -10,6 +10,12 @@ export const sessionSchema = z.object({
   accessToken: z.string().min(1),
   expiresAt: z.string().datetime({ offset: true }),
   userId: z.string().guid(),
+  /**
+   * Set while this tab acts as one of the person's own sub-accounts (`auth.subAccountSession`). The refresh cookie stays
+   * the main account's: a refresh answers for the main account, and the controller asks for the sub-account again.
+   */
+  subAccountId: z.string().guid().optional(),
+  subAccountLabel: z.string().optional(),
 });
 export type Session = z.infer<typeof sessionSchema>;
 
@@ -133,6 +139,27 @@ export function createSessionRefresher(
 }
 export type SessionRefresher = ReturnType<typeof createSessionRefresher>;
 
+const subAccountSessionReply = z.object({
+  accessToken: z.string().min(1),
+  expiresAt: z.string().datetime({ offset: true }),
+  userId: z.string().guid(),
+  subAccountId: z.string().guid(),
+  label: z.string(),
+});
+
+/** `auth.subAccountSession` on the main account's token: a token for this tab only, never stored or shared. */
+export async function requestSubAccountSession(
+  main: Session,
+  subAccountId: string,
+  options: { fetch?: typeof fetch } = {},
+): Promise<ApiResult<Session>> {
+  const api = createApiClient({ token: () => main.accessToken, ...(options.fetch ? { fetch: options.fetch } : {}) });
+  const result = await api.mutate('identity', 'auth.subAccountSession', { subAccountId }, subAccountSessionReply);
+  if (!result.ok) return result;
+  const { label, ...rest } = result.data;
+  return { ok: true, data: { ...rest, subAccountLabel: label } };
+}
+
 /** Ask the server to end this browser's session. The cookie rides along (credentials included) and the reply clears it. */
 export function requestLogout(options: { fetch?: typeof fetch } = {}) {
   return createApiClient({ credentials: 'include', ...(options.fetch ? { fetch: options.fetch } : {}) }).mutate(
@@ -190,8 +217,11 @@ export function createSessionController(
     logout?: () => Promise<ApiResult<{ ok: true }>>;
     now?: () => number;
     openChannel?: () => ChannelLike | null;
+    /** Ask for a sub-account token on the given main-account session (`auth.subAccountSession`). */
+    enterSubAccount?: (main: Session, subAccountId: string) => Promise<ApiResult<Session>>;
   } = {},
 ) {
+  const askSubAccount = options.enterSubAccount ?? requestSubAccountSession;
   const refresher = options.refresher ?? createSessionRefresher();
   const logoutRequest = options.logout ?? (() => requestLogout());
   const now = options.now ?? Date.now;
@@ -238,8 +268,14 @@ export function createSessionController(
     const outcome = await refresher.refresh();
     if (epoch !== started || state.session?.accessToken !== forSession.accessToken) return;
     if (outcome.kind === 'session') {
-      commit(outcome.session);
+      // Other tabs on the main account take the rotated main token; this tab keeps acting as its sub-account when it
+      // was, or returns to the main account if the sub-account is refused now (revoked, frozen).
       tell({ type: 'session', session: outcome.session });
+      if (forSession.subAccountId) {
+        const again = await askSubAccount(outcome.session, forSession.subAccountId);
+        if (epoch !== started) return;
+        commit(again.ok ? again.data : outcome.session);
+      } else commit(outcome.session);
     } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     else {
       // 'unavailable' and 'refused' alike: keep the session; a mid-session 400/404 is likelier a deploy than a sign-out.
@@ -272,7 +308,13 @@ export function createSessionController(
     const current = state.session;
     if (!current) return;
     if (message.data.type === 'logout') signOut(null);
-    else if (message.data.session.userId === current.userId && Date.parse(message.data.session.expiresAt) > Date.parse(current.expiresAt))
+    else if (
+      message.data.session.userId === current.userId &&
+      // A tab acting as a sub-account never takes another tab's token, and no tab takes a sub-account token.
+      !current.subAccountId &&
+      !message.data.session.subAccountId &&
+      Date.parse(message.data.session.expiresAt) > Date.parse(current.expiresAt)
+    )
       adopt(message.data.session);
   }
   async function bootRefresh() {
@@ -336,6 +378,28 @@ export function createSessionController(
     },
     /** After a logout the server did not confirm: ask again. The cookie is still valid until this succeeds. */
     retryLogout: serverLogout,
+    /** Act as one of the person's own sub-accounts in this tab. Only from the main account; a refusal changes nothing. */
+    async enterSubAccount(subAccountId: string): Promise<ApiResult<Session>> {
+      const current = state.session;
+      if (!current || current.subAccountId) {
+        return { ok: false, reason: 'forbidden', message: 'Switch back to the main account first.', code: 'auth.sub_account_denied' };
+      }
+      const started = epoch;
+      const result = await askSubAccount(current, subAccountId);
+      if (result.ok && epoch === started && state.session?.accessToken === current.accessToken) commit(result.data);
+      return result;
+    },
+    /** Back to the main account: a refresh from the cookie, which always answers for the main account. */
+    async leaveSubAccount(): Promise<RefreshOutcome> {
+      const started = epoch;
+      const outcome = await refresher.refresh();
+      if (epoch !== started) return outcome;
+      if (outcome.kind === 'session') {
+        commit(outcome.session);
+        tell({ type: 'session', session: outcome.session });
+      } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
+      return outcome;
+    },
   };
 }
 export type SessionController = ReturnType<typeof createSessionController>;

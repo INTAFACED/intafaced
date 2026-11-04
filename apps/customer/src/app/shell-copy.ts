@@ -1,6 +1,10 @@
 import { defineCopy } from '../shared/i18n';
 
 const messages = {
+  'Sub-account in use': 'Sub-account in use',
+  'You are using sub-account {label} in this tab.': 'You are using sub-account {label} in this tab.',
+  'Switch back to the main account': 'Switch back to the main account',
+  'The main account could not be reached. Try again.': 'The main account could not be reached. Try again.',
   'Skip to content': 'Skip to content',
   'Customer doors': 'Customer doors',
   'One account.': 'One account.',
