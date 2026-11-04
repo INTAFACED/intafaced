@@ -78,6 +78,9 @@ jobs:
     name: Doctrine gates
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
+    permissions:
+      contents: read
+      actions: read # the journey baseline guard downloads the journeys runs' reports on main
     steps:
       # fetch-depth: 0 — the value-gate step at the end of this job needs
       # `origin/main` and ten ancestor subjects. The default is 1, which gives
@@ -138,6 +141,25 @@ jobs:
           done
           node "$RUNNER_TEMP/test-diff-guard.mjs"
 
+      # The journeys baseline's rules (docs/runbooks/regression-issue-state.md), from main like the guard above: a step
+      # that passed on main is never added as unbuilt, only a pass on main takes a step off, and the file is rewritten
+      # only from a finished run on main it names (tooling/ci/journey-baseline-guard.mjs). It does nothing when the PR
+      # leaves the baseline alone; otherwise it reads the reports of the runs on main between the two runs named, a
+      # minute or two. Main's copy runs in a worktree of main, so its imports are main's too. Falls back to the PR copy
+      # only while main has none (the PR that introduces it). It runs when the guards above fail too.
+      - name: Journey baseline guard (rules from main)
+        if: github.event_name == 'pull_request' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          guard=tooling/ci/journey-baseline-guard.mjs
+          if git cat-file -e "origin/main:$guard" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/main" origin/main
+            guard="$RUNNER_TEMP/main/$guard"
+          fi
+          node "$guard" --repo "$REPO" --base-ref origin/main
+
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
       # main are not judged. Owner decision 2026-10-26 (redesign plan v2, lane B0). It runs when the guard above fails
@@ -185,6 +207,7 @@ jobs:
       - run: node tooling/ci/review-signoff.mjs --self-test
       - run: node tooling/ci/main-trust.mjs --self-test
       - run: node tooling/ci/post-merge-trust.mjs --self-test
+      - run: node --test tooling/ci/journey-verdict.test.mjs
       - run: node tooling/ci/bisect-main.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
@@ -466,13 +489,12 @@ jobs:
   merge-seal:
     name: CI merge seal
     runs-on: ubuntu-latest
-    # healthy run: seconds; up to 20 minutes when it waits for the independent review (tooling/ci/review-marker.mjs)
+    # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
     if: always()
     permissions:
       contents: read
-      statuses: read # the `Independent review` status
-      issues: read # the review comment itself, so the seal does not wait for the sign-off runner
+      actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review
     needs: [changes, gates, format, build, test-full]
     steps:
@@ -489,7 +511,7 @@ jobs:
         run: node tooling/ci/ci-affected.mjs --seal
       # On a pull request: its head. On a merge queue's commit (merge_group): every pull request in the group, each on its
       # own head, without waiting, since the queue only took pull requests whose seal had passed.
-      - name: Require the independent review sign-off
+      - name: Require the CI review on this exact head
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

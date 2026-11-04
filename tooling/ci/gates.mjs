@@ -321,6 +321,10 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'journey-verdict.mjs':
+    "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
+  'journey-verdict.test.mjs':
+    'the tests of journey-verdict.mjs (node --test), run in the `changes` job of ci.yml and before each verdict in real-app-journeys.yml.',
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
   'bisect-main.mjs':
@@ -331,6 +335,8 @@ export const NOT_GATES = {
     'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/main-trust.mjs --self-test` checks the decision table and parser.',
   'post-merge-trust.mjs':
     'runs from main-trust.yml after Order-path CX-8, Customer Money browser checks, Real-app journeys or PR checks (the Dependency audit) finish on main: re-runs a whole-run check that broke after a green once, then opens one issue naming the commits since the last green; for journeys, opens one issue per journey whose step passed, then failed on two runs in a row, and prints newly passing and newly broken steps. It only writes issues. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/post-merge-trust.mjs --self-test` checks the decision table and the report comparison and is wired in the `changes` job of ci.yml.',
+  'journey-baseline-guard.mjs':
+    'PR-only guard: needs the PR’s docs/runbooks/journey-baseline.json against origin/main and the reports of the journeys runs on main between the two runs they name, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a step that passed on main added as unbuilt, a step taken off without a pass on main, and a rewrite from a run that is not a finished run on main (docs/runbooks/regression-issue-state.md). Its tests are tooling/scripts/journey-baseline-guard.test.mjs, which the tooling tests run.',
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. It covers unit tests, the browser journeys and harnesses (`*.pw.mjs`) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
@@ -339,8 +345,12 @@ export const NOT_GATES = {
     'runs from review-signoff.yml on a review comment or a push to a pull request: posts the `Independent review` status for a listed reviewer, carries it across a clean rebase. Needs a GitHub token and an event payload, so a laptop verify has no input. `node tooling/ci/review-signoff.mjs --self-test` runs the policy on fixtures and is wired in the `changes` job of ci.yml.',
   'why-red.mjs':
     'not a check: a read-only helper that prints why a PR head is not green (failing checks, their error annotations, and whether the seal only waits for the independent review), so agents do not read whole job logs. It needs a GitHub token and a PR, so a laptop verify cannot run it; `node tooling/ci/why-red.mjs --self-test` runs in the `changes` job.',
+  'ci-review.mjs':
+    "runs only inside ci-review.yml (the CI review job, AGENTS.md item 8): reads one PR head's diff through the API, asks the pinned reviewer CLI with no tools, and turns its answer into the job's `Verdict` step. Needs the event payload, a GitHub token and the review key, so a laptop verify has no input; `tooling/ci/ci-review.test.mjs` tests its answer reader and the seal's verdict reader.",
+  'ci-review.test.mjs':
+    'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed money PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not). tooling-tests.mjs runs it with every other tooling test.',
   'review-marker.mjs':
-    "merge-seal step: for a money, security or gate-file change, needs the success status `Independent review` on the PR head, which review-signoff.yml posts for a listed reviewer's `Independent review: PASS <head sha>` comment, or that comment itself (read here so the seal does not wait for the sign-off runner); a PASS naming a session on the PR's session-trailer commit lines (AGENTS.md item 8) counts in neither. Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the status reader, the comment matcher and which changes need the review.",
+    "merge-seal step: for a money, security or gate-file change, needs the `CI review` job (ci-review.yml, a pull_request_target run of the default branch's copy) to have passed its `Verdict` step on the PR's exact head, read from the Actions API; a FAIL on that head stands, and no comment or status counts. Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` and `tooling/ci/ci-review.test.mjs` check the verdict reader and which changes need the review.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',

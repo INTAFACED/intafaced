@@ -1,31 +1,35 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request is sealed only when the commit status `Independent review` is a success on its
- * current head. That status is posted by .github/workflows/review-signoff.yml (tooling/ci/review-signoff.mjs) when a
- * listed reviewer (tooling/ci/reviewers.json) comments `Independent review: PASS <full head sha>`, or when the same
- * patch is carried across a clean rebase. A comment by anyone else, or for another sha, creates no status.
+ * Merge-seal step: a pull request that changes money, security, gate-file or look-baseline paths is sealed only when
+ * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head.
  *
  *   node tooling/ci/review-marker.mjs --self-test
- *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name node tooling/ci/review-marker.mjs
+ *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
  *
- * The sign-off workflow re-runs a failed seal after it posts the status, so nobody re-runs it by hand. The seal also
- * waits up to REVIEW_WAIT_MS for the review before it fails. Measured 2026-10-22/23: 106 of about 146 red first
- * attempts of PR CI runs were only this step, and 44 of 74 such reviews landed within 20 minutes of the red. Each red
- * wakes the author's thread, which then reads it; waiting turns most of them into one green. Same requirement, later
- * verdict: a head without the review still fails.
+ * What counts (ciReviewVerdict), read from GitHub's Actions API, never from a comment or a status: a workflow run of
+ * exactly REVIEW_WORKFLOW, started by `pull_request_target` (so GitHub ran the default branch's copy of the file and
+ * of its brief, whatever the pull request changes), whose head is this exact sha, with a job named REVIEW_JOB whose
+ * step VERDICT_STEP concluded success. A comment (`Independent review: PASS <sha>`, from any login, the shared one
+ * included), a commit status of any name, a check run created through the API, a run of a branch's copy of the file
+ * (event `pull_request` or `workflow_dispatch`) and a verdict on another head count for nothing. A FAIL stands for its
+ * head and for every head with the same code: when any attempt of any such run on this head, or on any other head on
+ * any branch whose commit has the same tree, failed its VERDICT_STEP, nothing else counts. So re-running the
+ * job, reopening the pull request or pushing an empty or message-only commit can't ask again until it passes; a head
+ * that changes the code is reviewed afresh. (Failure it prevents: #7078 merged 12 minutes before its review, OWNER 154
+ * (a); and a PASS comment from the one login every agent shares said nothing about who reviewed.)
  *
- * The seal also accepts the comment itself: a PASS for this exact head by a login listed in reviewers.json on the
- * default branch (never the pull request's copy). The sign-off workflow can wait 30 minutes for a runner when the
- * free plan's 20 concurrent jobs are taken, while this job already holds one; reading the comment here keeps the review
- * off that queue. The meaning is unchanged: a listed reviewer, the exact head, the same line format.
+ * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review job re-runs a red seal on its head
+ * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
+ * review still fails.
  *
  * Only money, security, gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
- * 2026-10-26: a builder never approves its own picture; test-diff-guard.mjs also wants the room named). Every other pull request is sealed
- * on its checks alone; the automated code review AGENTS.md asks for before a pull request opens is not checked here.
- * On a merge queue's commit (`merge_group`) the same rule is applied to every pull request in the group, each against its
- * own head, without waiting (sealMergeGroup).
+ * 2026-10-26). Every other pull request is sealed on its checks alone. On a merge queue's commit (`merge_group`) the
+ * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
+ *
+ * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
+ * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -144,6 +148,104 @@ export function commentSignoff({ comments, authorSessions = null, ...who }) {
 
 export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 
+/** The one workflow, job and step whose result seals a head (AGENTS.md item 8). */
+export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
+export const REVIEW_JOB = 'CI review';
+export const VERDICT_STEP = 'Verdict';
+/** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
+export const REVIEW_BASE = 'main';
+const SHA40 = /^[0-9a-f]{40}$/;
+
+/**
+ * The CI review's verdict on head `sha`, from GitHub's Actions API. `runs` are the workflow runs listed for
+ * REVIEW_WORKFLOW at this head; `attempts(run)` gives, for one run, the jobs of each of its attempts (arrays of
+ * GitHub's job objects with `steps`). `runs` may also hold runs on other heads (any branch), and `tree(sha)`
+ * gives a commit's tree sha (one GET per head): a FAIL on another head with the same tree stands here too, so an empty
+ * commit can't ask again. Pure apart from `attempts` and `tree`, so the self-test and ci-review.test.mjs run offline.
+ * `base` is the pull request's base now: anything but REVIEW_BASE is no verdict. A passing run counts only when its
+ * `pull_requests` names a pull request into REVIEW_BASE (`number`, when given, must be this one): a PASS reviewed
+ * against a side branch saw only the diff from that branch, so retargeting the pull request to main can't carry it.
+ * A FAIL stands whatever its base.
+ * Returns { ok, state, why }: state is `pass`, `fail` (a FAIL verdict stands for this head), `pending` or `none`.
+ */
+export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number }) {
+  const want = String(sha ?? '').toLowerCase();
+  if (!SHA40.test(want)) return { ok: false, state: 'none', why: `"${sha}" is not a full head sha` };
+  if (base !== REVIEW_BASE)
+    return {
+      ok: false,
+      state: 'none',
+      why: `the pull request's base is ${base ?? 'unknown'}, not ${REVIEW_BASE}: only a pull request into ${REVIEW_BASE} is sealed`,
+    };
+  const intoMain = (r) =>
+    (r?.pull_requests ?? []).some((p) => p?.base?.ref === REVIEW_BASE && (number == null || Number(p?.number) === Number(number)));
+  const headOf = (r) => String(r?.head_sha ?? '').toLowerCase();
+  const ours = (runs ?? []).filter((r) => r?.path === REVIEW_WORKFLOW && r?.event === 'pull_request_target');
+  const own = ours.filter((r) => headOf(r) === want);
+  const others = ours.filter((r) => SHA40.test(headOf(r)) && headOf(r) !== want);
+  // A FAIL on another head with the same code (the same tree) stands for this head too. Fails closed: without a tree
+  // reader, runs on other heads are no verdict, never ignored.
+  if (others.length > 0) {
+    if (typeof tree !== 'function')
+      return {
+        ok: false,
+        state: 'none',
+        why: `${others.length} CI review run(s) on other heads, and no tree reader to tell whether they reviewed the same code`,
+      };
+    const mine = await tree(want);
+    for (const run of others) {
+      const theirs = headOf(run);
+      const listed = String(run?.head_commit?.tree_id ?? '').toLowerCase();
+      if (!mine || (SHA40.test(listed) ? listed : await tree(theirs)) !== mine) continue;
+      for (const [i, jobs] of (await attempts(run)).entries()) {
+        for (const job of (jobs ?? []).filter((j) => j?.name === REVIEW_JOB)) {
+          if (String(job.head_sha ?? theirs).toLowerCase() !== theirs) continue;
+          if ((job.steps ?? []).find((s) => s?.name === VERDICT_STEP)?.conclusion === 'failure')
+            return {
+              ok: false,
+              state: 'fail',
+              why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${theirs}, which has the same tree (${mine}) as ${want}; a FAIL stands for the same code, so push a fix that changes it`,
+            };
+        }
+      }
+    }
+  }
+  const ignored = (runs ?? []).length - own.length;
+  if (own.length === 0)
+    return {
+      ok: false,
+      state: 'none',
+      why: `no ${REVIEW_WORKFLOW} run started by pull_request_target on ${want}${ignored ? ` (${ignored} other run(s) ignored)` : ''}`,
+    };
+  let passedIn = null;
+  let pending = false;
+  for (const run of own) {
+    for (const [i, jobs] of (await attempts(run)).entries()) {
+      for (const job of (jobs ?? []).filter((j) => j?.name === REVIEW_JOB)) {
+        if (String(job.head_sha ?? want).toLowerCase() !== want) continue;
+        const step = (job.steps ?? []).find((s) => s?.name === VERDICT_STEP);
+        if (step?.conclusion === 'failure')
+          return {
+            ok: false,
+            state: 'fail',
+            why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
+          };
+        if (!intoMain(run)) continue; // reviewed against another base: neither a pass nor pending here
+        if (job.status !== 'completed') pending = true;
+        else if (job.conclusion === 'success' && step?.conclusion === 'success') passedIn ??= `run ${run.id} attempt ${i + 1}`;
+      }
+    }
+  }
+  if (passedIn) return { ok: true, state: 'pass', why: `CI review passed on ${want} (${passedIn})` };
+  return pending
+    ? { ok: false, state: 'pending', why: `the CI review on ${want} is still running` }
+    : {
+        ok: false,
+        state: 'none',
+        why: `no CI review on ${want} passed its ${VERDICT_STEP} step (it did not finish, or failed before a verdict; re-run it)`,
+      };
+}
+
 /**
  * Security code by path: the services AGENTS.md names, ledger-client and auth, config (freeze authority, sanctions
  * screening, the money kill switch, production posture) and db (columns, migrations), the workflows, what changes the
@@ -231,26 +333,27 @@ export function groupPulls(commits, headRef) {
 }
 
 /**
- * One look for the sign-off of a pull request's head, the same for its own seal and for the merge queue's: the
- * `Independent review` status, then a listed reviewer's PASS comment for this head that passes the session rule. `who`
- * is { sha, author, reviewers, requireDistinctFromAuthor }; `sessions.value` keeps the author sessions once read whole,
- * so a waiting seal reads them once. Returns { ok, via, refused }.
+ * One look for the review of a pull request's head, the same for its own seal and for the merge queue's: the CI
+ * review's verdict on that exact head (ciReviewVerdict). `io.reviewRuns(sha, branch)` lists REVIEW_WORKFLOW's runs at
+ * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
+ * Returns { ok, state, why }.
  */
-export async function lookForSignoff({ number, who, io, sessions = {} }) {
-  if (hasSignoff(await io.statuses(who.sha))) return { ok: true, via: 'status', refused: [] };
-  if (!number) return { ok: false, via: null, refused: [] };
-  const comments = (await io.comments(number)).filter((c) => markerFits(c, who));
-  // Read only when a PASS comment fits; an unreadable list (null) is read again on the next look.
-  if (comments.length > 0 && !(sessions.value instanceof Set)) sessions.value = await io.authorSessions(number, who.sha);
-  const verdict = commentSignoff({ comments, authorSessions: sessions.value ?? null, ...who });
-  return { ok: verdict.ok, via: 'comment', refused: verdict.refused };
+export async function lookForSignoff({ sha, io, branch, base, number }) {
+  return ciReviewVerdict({
+    sha,
+    base,
+    number,
+    runs: await io.reviewRuns(sha, branch),
+    attempts: (run) => io.attempts(run),
+    tree: io.tree && ((s) => io.tree(s)),
+  });
 }
 
 /**
- * The seal on a merge queue's commit (`merge_group`). The commit is new, so no review status sits on it; what was
+ * The seal on a merge queue's commit (`merge_group`). The commit is new, so no review ran on it; what was
  * reviewed is each queued pull request's own head. Every pull request in the group is held to the rule its own seal
- * applied (reviewReason): one that needs the independent review must carry it for its current head, as a status or a
- * listed reviewer's PASS comment, or the group fails. Nothing waits: the queue only takes a pull request whose required
+ * applied (reviewReason): one that needs the independent review must carry a passing CI review for its current head,
+ * or the group fails. Nothing waits: the queue only takes a pull request whose required
  * checks passed (the seal included), so a missing review here means something changed, and waiting would stall the
  * queue. `io` reads GitHub (injected so the self-test runs offline); `dryRun` also reads pull requests already closed.
  * Returns { ok, lines }.
@@ -289,15 +392,13 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
       lines.push(`#${n} (${sha}): independent review not required`);
       continue;
     }
-    const who = { sha, author: pull?.user?.login, ...(await io.config()) };
-    const verdict = await lookForSignoff({ number: n, who, io });
+    const verdict = await lookForSignoff({ sha, io, branch: pull?.head?.ref, base: pull?.base?.ref, number: n });
     if (verdict.ok) {
-      lines.push(`#${n} (${sha}): ${reason}; review sign-off ${verdict.via} found`);
+      lines.push(`#${n} (${sha}): ${reason}; ${verdict.why}`);
       continue;
     }
     ok = false;
-    const why = verdict.refused.at(-1)?.reason;
-    lines.push(`#${n} (${sha}): ${reason}; no independent review for this head${why ? ` (a PASS did not count: ${why})` : ''}`);
+    lines.push(`#${n} (${sha}): ${reason}; no passing CI review for this head (${verdict.why})`);
   }
   return { ok, lines };
 }
@@ -498,6 +599,21 @@ async function selfTest() {
   console.log('review-marker self-test ok');
 }
 
+/** A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion. */
+export function reviewJob(sha, verdict = 'success', { status = 'completed' } = {}) {
+  const done = status === 'completed';
+  return {
+    name: REVIEW_JOB,
+    head_sha: sha,
+    status,
+    conclusion: done ? (verdict === 'success' ? 'success' : 'failure') : null,
+    steps: [
+      { name: 'Review', status, conclusion: done ? 'success' : null },
+      { name: VERDICT_STEP, status, conclusion: done ? verdict : null },
+    ],
+  };
+}
+
 /** The merge queue seal, offline: a fake GitHub per case. */
 async function mergeGroupSelfTest(reviewers, manifests) {
   const fail = (what) => {
@@ -519,37 +635,55 @@ async function mergeGroupSelfTest(reviewers, manifests) {
   if (groupPulls([], ref(1)) !== null) fail('an empty group');
 
   const shaOf = (n) => String(n).padStart(40, 'c');
-  const passFor = (n, session = 'session_R1') => ({
-    user: { login: reviewers[0] },
-    body: `Independent review: PASS ${shaOf(n)}\nReviewer session: ${session}`,
-  });
-  // 1: docs only. 2: money (svc-pay), PASS comment by another session. 3: security (.github), sign-off status.
-  // 4: money with no review. 5: money whose only PASS names the author's own session. 6: closed.
+  const reviewed = (n, verdict = 'success', base = REVIEW_BASE) => [
+    {
+      id: 900 + n,
+      path: REVIEW_WORKFLOW,
+      event: 'pull_request_target',
+      head_sha: shaOf(n),
+      pull_requests: [{ number: n, base: { ref: base } }],
+      jobs: [[reviewJob(shaOf(n), verdict)]],
+    },
+  ];
+  // 1: docs only. 2: money (svc-pay), CI review passed. 3: security (.github), CI review passed.
+  // 4: money with no review. 5: money with only a PASS comment and an `Independent review` status from the shared
+  // login. 6: closed. 7: money whose CI review said FAIL.
   const world = {
     1: { files: ['docs/x.md'] },
-    2: { files: ['services/svc-pay/src/a.ts'], comments: [passFor(2)] },
-    3: { files: ['.github/workflows/ci.yml'], statuses: [{ context: STATUS_CONTEXT, state: 'success' }] },
+    2: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(2) },
+    3: { files: ['.github/workflows/ci.yml'], runs: reviewed(3) },
     4: { files: ['services/svc-pay/src/a.ts'] },
-    5: { files: ['services/svc-pay/src/a.ts'], comments: [passFor(5, 'session_A1')], sessions: new Set(['session_A1']) },
+    5: {
+      files: ['services/svc-pay/src/a.ts'],
+      comments: [{ user: { login: reviewers[0] }, body: `Independent review: PASS ${shaOf(5)}\nReviewer session: session_R1` }],
+      statuses: [{ context: STATUS_CONTEXT, state: 'success' }],
+    },
     6: { files: ['docs/x.md'], state: 'closed' },
+    7: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(7, 'failure') },
+    8: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(8, 'success', 'side/b') },
   };
   const io = {
-    pull: async (n) => ({ state: world[n].state ?? 'open', head: { sha: shaOf(n) }, user: { login: 'author' } }),
+    pull: async (n) => ({
+      state: world[n].state ?? 'open',
+      head: { sha: shaOf(n) },
+      base: { ref: REVIEW_BASE },
+      user: { login: 'author' },
+    }),
     files: async (n) => world[n].files,
     manifests: async () => manifests,
-    statuses: async (sha) => world[Number(sha.replace(/^c+/, ''))].statuses ?? [],
-    config: async () => ({ reviewers, requireDistinctFromAuthor: false }),
-    comments: async (n) => world[n].comments ?? [],
-    authorSessions: async (n) => world[n].sessions ?? new Set(),
+    reviewRuns: async (sha) => world[Number(sha.replace(/^c+/, ''))].runs ?? [],
+    attempts: async (run) => run.jobs,
   };
   const group = async (numbers, opts = {}) =>
     sealMergeGroup({ commits: numbers.map((n) => sq(`t${n}`, n)), headRef: ref(numbers.at(-1)), io, ...opts });
   const cases = [
-    [[1, 2, 3], true, 'docs, a reviewed money PR and a signed-off security PR'],
+    [[1, 2, 3], true, 'docs, a reviewed money PR and a reviewed security PR'],
     [[1, 4], false, 'a money PR with no review never merges through the queue'],
     [[4, 1], false, 'nor when it is not the last in the group'],
-    [[2, 5], false, "a PASS naming the author's own session does not count in the queue either"],
+    [[2, 5], false, 'a PASS comment and status from the shared login count for nothing in the queue either'],
+    [[2, 7], false, 'a FAIL verdict holds in the queue'],
     [[6], false, 'a closed pull request is no queue entry'],
+    [[8], false, 'a PASS reviewed against a side branch counts for nothing in the queue'],
   ];
   for (const [numbers, want, what] of cases) {
     const got = await group(numbers);
@@ -575,17 +709,6 @@ async function get(url, init) {
     .slice(1)
     .join('\n\n');
   return { ok: status >= 200 && status < 300, status, json: async () => JSON.parse(body) };
-}
-
-async function readStatuses(repo, sha, token) {
-  const res = await get(`https://api.github.com/repos/${repo}/commits/${sha}/statuses?per_page=100`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
-  });
-  if (!res.ok) {
-    console.error(`::error::could not read commit statuses (HTTP ${res.status}); sealing fails closed`);
-    process.exit(1);
-  }
-  return res.json();
 }
 
 /** GET a GitHub API path; any failure ends the seal (fail closed), except a 404 when `missingOk` (then null). */
@@ -633,45 +756,6 @@ async function readManifests(repo, files, refs, token) {
   return out;
 }
 
-/** The reviewer list comes from the default branch, so a pull request cannot add itself to it. */
-async function readReviewConfig(repo, token) {
-  const { default_branch: ref } = await api(`/repos/${repo}`, token);
-  const file = await api(`/repos/${repo}/contents/tooling/ci/reviewers.json?ref=${encodeURIComponent(ref)}`, token);
-  const c = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
-  return {
-    reviewers: (c.reviewers ?? []).map((l) => String(l).toLowerCase()),
-    requireDistinctFromAuthor: c.requireDistinctFromAuthor === true,
-  };
-}
-
-async function readComments(repo, number, token) {
-  const all = [];
-  for (let page = 1; page <= 10; page++) {
-    const batch = await api(`/repos/${repo}/issues/${number}/comments?per_page=100&page=${page}`, token);
-    all.push(...batch);
-    if (batch.length < 100) break;
-  }
-  return all;
-}
-
-/**
- * The sessions on the pull request's session-trailer commit lines for this head (sessionsForHead), or null when the
- * commits cannot be read whole: then no PASS comment counts here (a status from the sign-off workflow still does).
- */
-async function readAuthorSessions(repo, number, sha, token) {
-  const commits = [];
-  for (let page = 1; page <= 3; page++) {
-    const res = await get(`https://api.github.com/repos/${repo}/pulls/${number}/commits?per_page=100&page=${page}`, {
-      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
-    });
-    if (!res.ok) return null;
-    const batch = await res.json();
-    commits.push(...batch);
-    if (batch.length < 100) break;
-  }
-  return sessionsForHead(commits, sha);
-}
-
 /** The commits between a merge group's base and head, oldest first (at most 250: groupPulls refuses the cap). */
 async function readGroupCommits(repo, base, head, token) {
   const out = [];
@@ -684,21 +768,73 @@ async function readGroupCommits(repo, base, head, token) {
 }
 
 /**
+ * REVIEW_WORKFLOW's runs at this head, every event (ciReviewVerdict keeps only pull_request_target's), its
+ * pull_request_target runs on the pull request's branch, and its pull_request_target runs on every branch, so a FAIL
+ * on the same tree is seen even when the change is pushed again as a new branch and pull request. Each list is read
+ * whole or the seal fails: a list cut short (GitHub returns at most 1,000 runs for a filtered list) throws, never
+ * passes as a partial one. `get` is the API reader (tests pass their own).
+ */
+export async function readReviewRuns(repo, sha, token, branch, get = api) {
+  const file = REVIEW_WORKFLOW.split('/').pop();
+  const queries = [
+    `head_sha=${sha}`,
+    ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : []),
+    'event=pull_request_target',
+  ];
+  const out = new Map();
+  for (const q of queries) {
+    let read = 0,
+      total = 0;
+    for (let page = 1; ; page++) {
+      if (page > 10) throw new Error(`${file} runs (${q}): more than 1,000, not read whole; the seal fails closed`);
+      const r = await get(`/repos/${repo}/actions/workflows/${file}/runs?${q}&per_page=100&page=${page}`, token, { missingOk: true });
+      const batch = r?.workflow_runs ?? [];
+      if (!Array.isArray(batch)) throw new Error(`${file} runs (${q}): not a list; the seal fails closed`);
+      total = Math.max(total, Number(r?.total_count) || 0);
+      read += batch.length;
+      for (const run of batch) out.set(run.id, run);
+      if (batch.length < 100) break;
+    }
+    if (read < total) throw new Error(`${file} runs (${q}): ${read} of ${total} read, not whole; the seal fails closed`);
+  }
+  return [...out.values()];
+}
+
+/** A commit's tree sha (one GET per head, kept for the seal's later polls). Any failure ends the seal (fail closed). */
+const trees = new Map();
+async function readTree(repo, sha, token) {
+  if (!trees.has(sha)) {
+    const t = String((await api(`/repos/${repo}/git/commits/${sha}`, token))?.tree?.sha ?? '');
+    if (!SHA40.test(t)) throw new Error(`the tree of ${sha} could not be read`);
+    trees.set(sha, t);
+  }
+  return trees.get(sha);
+}
+
+/** The jobs of every attempt of one run, oldest attempt first, so a FAIL in an earlier attempt is seen. */
+async function readAttempts(repo, run, token) {
+  const out = [];
+  for (let n = 1; n <= Math.max(1, Number(run.run_attempt) || 1); n++) {
+    const r = await api(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs?per_page=100`, token);
+    out.push(r?.jobs ?? []);
+  }
+  return out;
+}
+
+/**
  * `merge_group`: MERGE_GROUP_BASE_SHA, MERGE_GROUP_HEAD_SHA and MERGE_GROUP_HEAD_REF from the event. The dry run reads the
  * same way for any two commits of main and a queue branch name, and reads closed pull requests too:
  *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> --via-gh
  */
 async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   const { default_branch: branch } = await api(`/repos/${repo}`, token);
-  let config;
   const io = {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
     files: (n, sha) => readChangedFiles(repo, n, sha, token),
     manifests: (files, sha) => readManifests(repo, files, [branch, sha, head], token),
-    statuses: (sha) => readStatuses(repo, sha, token),
-    config: async () => (config ??= await readReviewConfig(repo, token)),
-    comments: (n) => readComments(repo, n, token),
-    authorSessions: (n, sha) => readAuthorSessions(repo, n, sha, token),
+    reviewRuns: (sha, branch) => readReviewRuns(repo, sha, token, branch),
+    attempts: (run) => readAttempts(repo, run, token),
+    tree: (sha) => readTree(repo, sha, token),
   };
   const commits = await readGroupCommits(repo, base, head, token);
   const { ok, lines } = await sealMergeGroup({ commits, headRef, io, dryRun });
@@ -706,7 +842,7 @@ async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   for (const l of lines) console.log(`  ${l}`);
   if (!ok) {
     console.error(
-      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry it for its own head (AGENTS.md item 8).`,
+      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry a passing CI review for its own head (AGENTS.md item 8).`,
     );
     process.exit(1);
   }
@@ -734,12 +870,23 @@ async function main() {
     }
     return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: false });
   }
-  const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER, PR_AUTHOR } = process.env;
+  const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER } = process.env;
   if (!GH_TOKEN || !HEAD_SHA || !REPO) {
     console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
     process.exit(1);
   }
   let reason = 'not a pull request';
+  // The pull request's branch, so a FAIL on an earlier head with the same tree is read too, and its base now. A pull
+  // request into any branch but main is never sealed, so a green seal can't sit on a head that is later pointed at
+  // main (the seal doesn't re-run on a retarget; the CI review does, and re-runs a red seal when it passes).
+  const pull = PR_NUMBER ? await api(`/repos/${REPO}/pulls/${PR_NUMBER}`, GH_TOKEN) : null;
+  const branch = String(pull?.head?.ref ?? '') || undefined;
+  if (PR_NUMBER && pull?.base?.ref !== REVIEW_BASE) {
+    console.error(
+      `::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`,
+    );
+    process.exit(1);
+  }
   if (PR_NUMBER) {
     const { default_branch: base } = await api(`/repos/${REPO}`, GH_TOKEN);
     const files = await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
@@ -750,35 +897,27 @@ async function main() {
     }
     console.log(`independent review required (${reason})`);
   }
-  const config = PR_NUMBER ? await readReviewConfig(REPO, GH_TOKEN) : null;
-  const refusals = [];
-  const sessions = {}; // the PR's sessions once read whole (see lookForSignoff)
-  const told = new Set();
   const io = {
-    statuses: (sha) => readStatuses(REPO, sha, GH_TOKEN),
-    comments: (n) => readComments(REPO, n, GH_TOKEN),
-    authorSessions: (n, sha) => readAuthorSessions(REPO, n, sha, GH_TOKEN),
+    reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
+    attempts: (run) => readAttempts(REPO, run, GH_TOKEN),
+    tree: (sha) => readTree(REPO, sha, GH_TOKEN),
   };
-  const who = { sha: HEAD_SHA, author: PR_AUTHOR, ...config };
   const deadline = Date.now() + REVIEW_WAIT_MS;
+  let verdict;
   for (let attempt = 1; ; attempt++) {
-    const verdict = await lookForSignoff({ number: PR_NUMBER, who, io, sessions });
+    verdict = await lookForSignoff({ sha: HEAD_SHA, io, base: PR_NUMBER ? pull?.base?.ref : REVIEW_BASE, number: PR_NUMBER || undefined });
     if (verdict.ok) {
-      console.log(`review sign-off ${verdict.via} found for ${HEAD_SHA}`);
+      console.log(verdict.why);
       return;
     }
-    for (const r of verdict.refused.filter((x) => !told.has(x.id))) {
-      told.add(r.id);
-      refusals.push(r.reason);
-      console.log(`a PASS for ${HEAD_SHA} does not count: ${r.reason}`);
-    }
-    if (Date.now() + REVIEW_POLL_MS > deadline) break;
+    // A FAIL stands for this head and for its code: waiting can't change it.
+    if (verdict.state === 'fail' || Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
-      console.log(`no review sign-off yet; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
+      console.log(`${verdict.why}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
     await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
   console.error(
-    `::error title=Review sign-off missing::No success status "${STATUS_CONTEXT}" on ${HEAD_SHA}. This change needs one (${reason}). Get an independent review of this exact head; a listed reviewer comments "Independent review: PASS ${HEAD_SHA}" and the status follows (see AGENTS.md).${refusals.length ? ` A PASS here did not count: ${refusals.at(-1)}.` : ''}`,
+    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md item 8); a comment or a status counts for nothing.`,
   );
   process.exit(1);
 }

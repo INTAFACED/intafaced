@@ -1,8 +1,15 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
 # in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, and on
 # workflow_dispatch, never on pull requests, and is not a required check. Main trust's post-merge job compares its
-# steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue; the run goes
-# red and the summary shows the scoreboard from `roadmap.mjs --progress --results`.
+# steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue, and the summary
+# shows the scoreboard from `roadmap.mjs --progress --results`.
+#
+# The run's conclusion is its verdict against the list of steps not built yet (docs/runbooks/journey-baseline.json, read
+# by docs/runbooks/regression-issue-state.md's rules; tooling/ci/journey-verdict.mjs): green when only listed steps fail
+# by those rules, red when any other step fails, a step that passed in the baseline's run is skipped or missing, a shard
+# sent no report, a shard was red for any reason but its journeys, or an input the verdict needs can't be read.
+# (Failure it prevents: the run ran every written step, built or not, so it was red on every run from 23 Oct 21:09 UTC,
+# run 40024672126, whether or not anything broke; a red that never turns green says nothing.)
 #
 # The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
@@ -423,9 +430,18 @@ jobs:
           code=0
           pnpm exec playwright test --config "$config" --trace off "${split[@]}" || code=$?
           # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
-          # it opens the time-limit issue that says to split the shards further.
+          # it opens the time-limit issue that says to split the shards further. The shard stays red (Main trust reads
+          # the limit from a red job's annotations).
           if jq -e '[.errors[]?.message // ""] | any(test("Timed out waiting [0-9.]+s for the"))' "$JOURNEY_REPORT" >/dev/null 2>&1; then
             echo "::error::this shard's journeys reached their time limit ($((JOURNEY_GLOBAL_TIMEOUT_MS / 60000)) minutes); the journeys it did not reach count as not run"
+            exit "$code"
+          fi
+          # Journeys that failed (exit 1, a report, no run-level error) are judged by the run's verdict against the list
+          # in the Real-app journeys job, not here, so a shard is red only when something other than a journey failed:
+          # Playwright's own error, no report, or any other exit code.
+          if [ "$code" -eq 1 ] && jq -e '((.errors // []) | length) == 0 and (.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+            echo "::notice::$(jq '.stats.unexpected' "$JOURNEY_REPORT") journey test(s) failed in this shard; the run's verdict judges them against docs/runbooks/journey-baseline.json"
+            exit 0
           fi
           exit "$code"
 
@@ -459,7 +475,8 @@ jobs:
         run: node tooling/scripts/local-test-stack.mjs stop || true
 
   # Merges the shards into one report: the scoreboard in the summary, and the `real-app-journeys` artifact with
-  # report.json that Main trust's post-merge job compares run to run. Red when any shard was red.
+  # report.json that Main trust's post-merge job compares run to run. Its conclusion is the run's verdict: red when any
+  # shard was red or sent no report, or when the verdict against the list is red.
   scoreboard:
     name: Real-app journeys
     needs: [plan, journeys]
@@ -468,7 +485,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      actions: read # to download this run's shard artifacts
+      actions: read # to download this run's shard artifacts, and the reports the verdict reads
+      issues: read # the verdict reads the state line of each regression issue the baseline names
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -527,8 +545,35 @@ jobs:
           path: ${{ runner.temp }}/journeys/report.json
           if-no-files-found: warn
 
-      - name: Red when a shard was red
-        if: needs.journeys.result != 'success'
+      # A shard is red only when something other than its journeys failed (its setup, the stack, the time limit, the
+      # Content-Security-Policy check); a shard that sent no report ran nothing the verdict could judge.
+      - name: Red when a shard was red or sent no report
+        if: always()
+        env:
+          SHARDS_RESULT: ${{ needs.journeys.result }}
+          SHARD_COUNT: ${{ needs.plan.outputs.count || 8 }}
         run: |
-          echo "::error::at least one journeys shard did not pass (${{ needs.journeys.result }}); see the shard jobs and the scoreboard"
-          exit 1
+          red=0
+          if [ "$SHARDS_RESULT" != success ]; then
+            echo "::error::at least one journeys shard was red for a reason other than its journeys ($SHARDS_RESULT); see the shard jobs"
+            red=1
+          fi
+          found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' 2>/dev/null | wc -l)
+          if [ "$found" -lt "$SHARD_COUNT" ]; then
+            echo "::error::$((SHARD_COUNT - found)) of $SHARD_COUNT shards sent no report, so their journeys count as not run"
+            red=1
+          fi
+          exit "$red"
+
+      # The verdict (tooling/ci/journey-verdict.mjs): every failing step must be on the list by the runbook's rules, and
+      # nothing that passed in the baseline's run may be skipped or missing. It reads the baseline's named run's report,
+      # every finished run on main since (a pass there means the step was built) and the regression issues, GET only; an
+      # input it can't read is red. On a targeted run it judges only the files the run named.
+      - name: Verdict tests
+        if: always()
+        run: node --test tooling/ci/journey-verdict.test.mjs
+      - name: Verdict against the list of steps not built yet
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch

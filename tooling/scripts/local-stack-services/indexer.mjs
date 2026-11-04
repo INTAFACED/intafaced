@@ -3,8 +3,10 @@
 // every block, transaction and log it sees in its own schema. It holds no key and posts nothing.
 // INDEXER_VENUE_ADDRESS: the TEST chain carries no order-book venue, so the indexer follows the seeded TEST router
 // (a contract with code, so its per-pass eth_getCode check holds); no router log matches the venue's events, so the
-// order-book tables stay empty and say nothing. With no anvil there is no chain: the RPC is UNUSED and the venue is the
-// zero address, so the indexer runs and reports the chain unreachable (indexer.venue_unset) instead of inventing one.
+// order-book tables stay empty and say nothing. With no anvil there is no chain, and the stack does not start the
+// indexer (local-test-stack.mjs absentWhy): svc-indexer refuses the zero venue address at boot (indexer.venue_unset,
+// EvmChainSource), which used to fail the whole start on a machine without anvil (3 Nov). The stack never invents a
+// chain or a venue for it; the explorer reads answer as a service that did not answer, and the health table says why.
 // The other settings are the labelled LOCAL TEST values in tooling/profiles/test-owner-values/indexer.json. Production
 // stays blank: the explorer list refuses indexer.explorer_list_limit_unset and a dropped hash indexer.tx_drop_window_unset.
 import { SECOND_CHAIN_ID, SECOND_GATE_URL } from '../local-test-chain.mjs';

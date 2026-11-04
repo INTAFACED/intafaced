@@ -1169,3 +1169,34 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   console.log('local-test-stack: a service restarted onto a new build, or for a new chain, is migrated first');
 }
+
+// 24. With no TEST chain (no anvil on the machine) the stack leaves the indexer out instead of failing the whole start
+// on its indexer.venue_unset refusal (project-state LANE-4-GROUND-TRUTH.md, section 5, 3 Nov); with a chain it starts
+// it as before, so CI, where every shard brings anvil, starts the same services.
+{
+  const { absentWhy, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const chain = { rpcUrl: 'http://127.0.0.1:14530', factory: '0x1', router: '0x2', usdToken: null };
+  assert.match(String(absentWhy('indexer', null)), /no TEST chain/);
+  assert.equal(absentWhy('indexer', chain), null, 'with a chain the indexer starts');
+  for (const { name } of localTestServiceEnvs())
+    if (name !== 'indexer') {
+      assert.equal(absentWhy(name, null), null, `${name} starts with or without a chain`);
+      assert.equal(absentWhy(name, chain), null);
+    }
+  // Without a chain the indexer's env still names the zero venue it refuses, never an invented one.
+  const ix = localTestServiceEnvs().find((d) => d.name === 'indexer').env;
+  assert.equal(ix.INDEXER_VENUE_ADDRESS, '0x0000000000000000000000000000000000000000');
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  // The start filters by it before the start order is worked out, so Edge never waits for a service that won't start.
+  assert.match(
+    source,
+    /async function startServices\(all\) \{\s*const chain = testChain\(\);\s*const defs = all\.filter\(\(d\) => \{\s*const why = absentWhy\(d\.name, chain\);/,
+  );
+  // An absent service doesn't fail the start, but a service that is DOWN still does.
+  assert.match(source, /const absent = r\.status !== 200 \? absentWhy\(n, chain\) : null;/);
+  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
+  assert.equal(/^(ok|absent)\b/.test('DOWN (0)'), false);
+  // `restart <service>` is a stop and a full start, so it takes the same path.
+  assert.match(source, /await cmdStop\(names\);\s*await cmdStart\(\[\]\);/);
+  console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
+}

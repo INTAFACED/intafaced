@@ -13,7 +13,8 @@
  *                                      naming the last green run and the commits since, if one is within 100 runs
  *   green                              close that check's issue when this commit includes every red it names
  *
- * Real-app journeys (per journey step; most journeys do not pass yet, so the job is red either way):
+ * Real-app journeys (per journey step; the run's own conclusion is its verdict against the baseline of steps not built
+ * yet, tooling/ci/journey-verdict.mjs, and this job compares steps whatever that verdict is):
  *   The run is compared with the two finished runs before it. A step that passed two runs ago and failed in both the
  *   run before and this one is broken for real (the next run is the re-run, at no extra cost): open (or comment on)
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
