@@ -4032,6 +4032,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       baseline: deps.policyBaseline ?? {},
       supportDesk: supportDesk ?? null,
       supportTierLaw: tierLaws.support,
+      // A co-owner is read from identity's account projection, the same S2S read the support desk port makes.
+      accounts: supportDesk ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

@@ -82,7 +82,8 @@ export const ownAgentLimitsSchema = z.object({
 export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
 
 /** `own.session.open`: a session of the person's own agent, bound to its tools and caps as they stood at open. */
-export const ownAgentSessionSchema = z.object({ sessionId: z.string().uuid(), agentId: z.string() });
+/** `version` is the agent version the session runs on, kept for its whole life whatever is edited or republished. */
+export const ownAgentSessionSchema = z.object({ sessionId: z.string().uuid(), agentId: z.string(), version: z.number().int().positive() });
 export type OwnAgentSession = z.infer<typeof ownAgentSessionSchema>;
 
 /** `own.run`: one admitted run. A refused run answers with its refusal code as the error message instead. */
@@ -439,3 +440,68 @@ export const ownAgentAnalyticsSchema = z.object({
   assetId: z.string(),
 });
 export type OwnAgentAnalytics = z.infer<typeof ownAgentAnalyticsSchema>;
+
+/**
+ * PUBLISHING AND SHARING (AG-builder-03). A published version is immutable: an edit after it is the next version, a
+ * draft. Each surface carries one published version; publishing moves only the surfaces chosen, and a session keeps
+ * the version it opened on. A surface the policy forbids for a person's agent is listed with its reason and refused.
+ */
+export const OWN_AGENT_SURFACES = ['my_agents', 'chat', 'public_catalogue'] as const;
+export type OwnAgentSurface = (typeof OWN_AGENT_SURFACES)[number];
+
+/** One published version, as it was published; nothing changes it after. */
+export const ownAgentVersionSchema = z.object({
+  version: z.number().int().positive(),
+  name: z.string(),
+  instructions: z.string(),
+  tools: z.array(z.string()),
+  perSessionCap: z.string().nullable(),
+  publishedAt: z.string(),
+});
+export type OwnAgentVersion = z.infer<typeof ownAgentVersionSchema>;
+
+/** A surface, whether the policy lets this agent on it (and why not), and the version it carries (null: none). */
+export const ownAgentSurfaceSchema = z.object({
+  surface: z.enum(OWN_AGENT_SURFACES),
+  allowed: z.boolean(),
+  /** The refusal code when the policy forbids it, which the surface words as its reason. */
+  forbiddenCode: z.string().nullable(),
+  version: z.number().int().positive().nullable(),
+});
+export type OwnAgentSurfaceState = z.infer<typeof ownAgentSurfaceSchema>;
+
+/** `own.publication`: the agent's published versions (oldest first), its surfaces and its open sessions' versions. */
+export const ownAgentPublicationSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int().positive(),
+  state: z.enum(OWN_AGENT_STATES),
+  versions: z.array(ownAgentVersionSchema),
+  surfaces: z.array(ownAgentSurfaceSchema),
+  openSessions: z.array(z.object({ sessionId: z.string().uuid(), version: z.number().int().positive() })),
+});
+export type OwnAgentPublication = z.infer<typeof ownAgentPublicationSchema>;
+
+/** `own.publish`: the chosen surfaces, at least one. */
+export const ownAgentPublishSchema = z.object({
+  id: z.string().min(1).max(64),
+  surfaces: z.array(z.string().min(1).max(64)).min(1).max(OWN_AGENT_SURFACES.length),
+});
+
+/** A co-owner is one person, by account id. A group, team or business is refused `agents.own.co_owner_group`. */
+export const ownAgentCoOwnerSchema = z.object({ userId: z.string(), addedAt: z.string() });
+export type OwnAgentCoOwner = z.infer<typeof ownAgentCoOwnerSchema>;
+
+/** `own.sharedWithMe`: another person's agent this person co-owns, read only. */
+export const ownAgentSharedSchema = z.object({
+  id: z.string().uuid(),
+  ownerId: z.string(),
+  name: z.string(),
+  version: z.number().int().positive(),
+  state: z.enum(OWN_AGENT_STATES),
+});
+export type OwnAgentShared = z.infer<typeof ownAgentSharedSchema>;
+
+/** `own.delete`: only with the person's typed confirmation; a deleted draft cannot be brought back. */
+export const OWN_AGENT_DELETE_CONFIRMATION = 'delete for good' as const;
+export const ownAgentDeleteSchema = z.object({ id: z.string().min(1).max(64), confirm: z.string().max(64) });
+export const ownAgentDeletedSchema = z.object({ id: z.string().uuid(), deleted: z.literal(true) });
