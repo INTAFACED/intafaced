@@ -150,6 +150,36 @@ function reachedAt(request: AddMoneyRequest, step: (typeof STEPS)[number]): stri
   return request.creditedAt;
 }
 
+/** Where one request stands, step by step, with when each happened and what was credited. */
+export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
+  const { t } = addMoneyCopy.useCopy();
+  return (
+    <>
+      <p className="money-caption">
+        <strong>{t(METHOD_KEYS[request.method])}</strong> · <StatusWord request={request} />
+      </p>
+      <ol className="bd-stack">
+        {STEPS.map((step) => {
+          const at = reachedAt(request, step);
+          return (
+            <li key={step} data-testid="tracker-step" data-step={step} data-state={at ? 'done' : 'todo'}>
+              <strong>{t(STEP_KEYS[step])}</strong> <small className="muted">{at ? date(at, true) : t('stepNotYet')}</small>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="money-caption" data-testid="tracker-receive">
+        {t('trackerAmount')}: <span dir="ltr">{funds(request.onramp?.amount ?? request.amount, request.assetId)}</span>
+      </p>
+      {request.creditedAmount && (
+        <p data-testid="tracker-credited">
+          <span dir="ltr">{t('creditedAmount', { amount: funds(request.creditedAmount, request.assetId) })}</span>
+        </p>
+      )}
+    </>
+  );
+}
+
 /** One request from created to credited, read from the bank until it is credited or refused. */
 function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () => void }) {
   const { t } = addMoneyCopy.useCopy();
@@ -190,27 +220,7 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
         <Loading />
       ) : (
         <div className="bd-stack" data-testid="add-money-tracker" data-status={request.status}>
-          <p className="money-caption">
-            <strong>{t(METHOD_KEYS[request.method])}</strong> · <StatusWord request={request} />
-          </p>
-          <ol className="bd-stack">
-            {STEPS.map((step) => {
-              const at = reachedAt(request, step);
-              return (
-                <li key={step} data-testid="tracker-step" data-step={step} data-state={at ? 'done' : 'todo'}>
-                  <strong>{t(STEP_KEYS[step])}</strong> <small className="muted">{at ? date(at, true) : t('stepNotYet')}</small>
-                </li>
-              );
-            })}
-          </ol>
-          <p className="money-caption" data-testid="tracker-receive">
-            {t('trackerAmount')}: <span dir="ltr">{funds(request.onramp?.amount ?? request.amount, request.assetId)}</span>
-          </p>
-          {request.creditedAmount && (
-            <p data-testid="tracker-credited">
-              <span dir="ltr">{t('creditedAmount', { amount: funds(request.creditedAmount, request.assetId) })}</span>
-            </p>
-          )}
+          <TrackerSteps request={request} />
           {failure && <Failure result={failure} />}
         </div>
       )}
