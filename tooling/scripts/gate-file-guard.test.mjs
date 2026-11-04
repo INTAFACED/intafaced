@@ -56,6 +56,11 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('tooling/scripts/gate-gh.mjs'));
   assert.ok(touched('tooling/scripts/main-auto-revert.mjs'));
   assert.ok(touched('tooling/scripts/gate-file-guard.mjs'));
+  // The journeys run's list and its steps (the factory's setup step 2): the baseline guard enforces the list's rules.
+  assert.ok(touched('docs/runbooks/journey-baseline.json'));
+  assert.ok(touched('docs/roadmap/journeys.json'));
+  assert.ok(!touched('docs/runbooks/journey-baseline-proof/J-agents-03-6.txt'));
+  assert.ok(!touched('docs/roadmap/slices.json'));
 });
 
 test('gate files: ordinary files are not gate files', () => {
