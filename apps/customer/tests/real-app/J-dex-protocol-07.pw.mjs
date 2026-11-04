@@ -291,8 +291,8 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
   await expect(asOfLine.locator('time')).toHaveAttribute('datetime', isoTime(now));
   await expect(panel).not.toContainText('No brief today.');
   const day = new Date(now * 1000).toISOString().slice(0, 10);
-  const brief = panel.getByRole('article', { name: `Brief for ${day}` });
-  await expect(brief.getByRole('heading', { name: `Brief for ${day}` })).toBeVisible();
+  const brief = panel.getByRole('article', { name: `Brief for ${day} (UTC)` });
+  await expect(brief.getByRole('heading', { name: `Brief for ${day} (UTC)`, exact: true })).toBeVisible();
 
   // The 24-hour list at the same block: the tokens the pages list, and the figures the brief's lines must repeat.
   const list = await service(page.request, 'tokens.list', { window: '24h' });
@@ -322,7 +322,11 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
 
   // Each named token is the one the 24-hour list ranks first at the same block, with the list's own figure.
   const byAddress = (a, b) => (a.token.address.toLowerCase() < b.token.address.toLowerCase() ? -1 : 1);
-  const priced = list.tokens.filter((t) => t.growthBps !== null);
+  // The quote token is the unit the others are priced in, so the brief ranks every other token and says so.
+  const ranked = list.tokens.filter((t) => !same(t.token.address, list.quote.address));
+  expect(ranked.length).toBe(list.tokens.length - 1);
+  await expect(brief).toContainText(`${list.quote.symbol}, the unit prices are stated in, is not ranked.`);
+  const priced = ranked.filter((t) => t.growthBps !== null);
   const up = priced.filter((t) => t.growthBps > 0).sort((a, b) => b.growthBps - a.growthBps || byAddress(a, b))[0];
   const down = priced.filter((t) => t.growthBps < 0).sort((a, b) => a.growthBps - b.growthBps || byAddress(a, b))[0];
   expect(up ?? down, 'the TEST swaps moved a price over 24 hours, so a rise or a fall is named').toBeTruthy();
@@ -344,7 +348,7 @@ test(`${J} #3 opens the market brief and the stablecoin screener: a brief or "No
     await expect(line).toHaveText(`${verb}: ${label(row)}, ${percent(row.growthBps)} over 24 hours.`);
     await expect(line.getByRole('link')).toHaveAttribute('href', `/dex/tokens/${row.token.address}`);
   }
-  const top = list.tokens
+  const top = ranked
     .filter((t) => t.trades > 0 && t.price !== null)
     .sort((a, b) => {
       const va = toUnits(a.volume);

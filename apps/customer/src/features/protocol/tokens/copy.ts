@@ -48,7 +48,7 @@ const en = {
     'Growth = (price now − price at the start of the window) ÷ price at the start of the window. A price is the quote token per token from the reserves of the deepest pool that pairs it with the quote token, or through one other token that does; the same pool is used at both ends. Tokens with no such pool have no price and are not ranked. Trending lists the rest from the highest growth down.',
   noBrief: 'No brief today.',
   noBriefBody: 'Nothing traded in these pools in the 24 hours to block {block}, so there is nothing to write about.',
-  briefTitle: 'Brief for {day}',
+  briefTitle: 'Brief for {day} (UTC)',
   briefWindow: 'The 24 hours to block {block} ({time}). Every line is a figure of the 24-hour token list at that block.',
   briefTrades: '{trades} trade(s) in {pools} pool(s).',
   briefGainer: 'Biggest rise: {token}, {growth} over 24 hours.',
@@ -58,7 +58,8 @@ const en = {
   briefMostTraded: 'Most traded: {token}, {volume} {symbol} over {trades} trade(s).',
   briefNoMostTraded: 'No traded token has a price to value its volume.',
   briefNew: 'New listings: {count}.',
-  briefSources: 'Sources: Trending and Top traded over 24 hours, and New listings, at the same block.',
+  briefSources:
+    'Sources: Trending and Top traded over 24 hours, and New listings, at the same block. {symbol}, the unit prices are stated in, is not ranked.',
   stablecoinsUnset: 'The stablecoin list is not set, so no stablecoin is screened.',
   stablecoinsCode: 'Refused: {code}',
   tableLeaderboard: 'Leaderboard',

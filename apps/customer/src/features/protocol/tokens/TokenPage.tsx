@@ -343,7 +343,7 @@ type ProtocolApi = ReturnType<typeof createProtocolApi>;
  * their code; a token the reliability filter leaves out says why. Never a guess or a carried-over figure.
  */
 function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: TokensTranslate }) {
-  const { resource } = useResource((signal) => api.tokenPrices(signal), `tokens:usd:${address.toLowerCase()}`);
+  const { resource, reload } = useResource((signal) => api.tokenPrices(signal), 'tokens:usd');
   if (resource.status === 'loading') return <span className="muted">{t('usdReading')}</span>;
   if (resource.status === 'failed')
     return resource.failure.code === PRICE_SETTINGS_UNSET ? (
@@ -351,7 +351,7 @@ function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: T
         {t('notAvailable')}: {t('usdBlocked', { code: PRICE_SETTINGS_UNSET })}
       </span>
     ) : (
-      <span>{t('usdUnread')}</span>
+      <Failure result={resource.failure} retry={reload} />
     );
   const { prices, asOf, blockNumber } = resource.data;
   const found = prices.find((entry) => entry.address.toLowerCase() === address.toLowerCase());

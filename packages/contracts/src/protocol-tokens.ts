@@ -184,11 +184,11 @@ export const tokensBriefOutputSchema = z
         trades: z.number().int().positive(),
         /** Pools with at least one of those swaps. */
         pools: z.number().int().positive(),
-        /** The highest 24-hour growth above zero; null when no token rose. */
+        /** The highest 24-hour growth above zero, the quote token left out; null when no token rose. */
         topGainer: briefMoverSchema.nullable(),
-        /** The lowest 24-hour growth below zero; null when no token fell. */
+        /** The lowest 24-hour growth below zero, the quote token left out; null when no token fell. */
         topLoser: briefMoverSchema.nullable(),
-        /** The highest 24-hour volume in the quote token; null when no traded token has a price to value it. */
+        /** The highest 24-hour volume in the quote token, the quote token itself left out; null with no priced traded token. */
         mostTraded: briefTradedSchema.nullable(),
         /** Tokens whose first pool was created in the window, newest first. */
         newListings: z.array(tokenBasicsSchema),

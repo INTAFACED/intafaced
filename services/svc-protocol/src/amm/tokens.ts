@@ -484,6 +484,7 @@ const DAY_SECONDS = TOKEN_WINDOW_SECONDS['24h'];
  * The market brief (D-portfolio-wallet-06): what the factory's pools did in the 24 hours to the head block, each line one
  * figure of the 24-hour token list at the same block, so the brief and the list can never disagree. Nothing traded in the
  * window: no brief. A line with nothing to name stays null; a tie is broken by address so the same block reads the same.
+ * `day` is the head block's date in UTC, and the screen says so.
  */
 export function marketBrief(snap: MarketSnapshot, quote: TokenBasics): TokensBrief {
   const since = snap.asOf - DAY_SECONDS;
@@ -498,16 +499,16 @@ export function marketBrief(snap: MarketSnapshot, quote: TokenBasics): TokensBri
   if (recent.length === 0) return { ...head, brief: null };
   const rows = tokensList(snap, quote, '24h').tokens;
   const byAddress = (a: TokenListRow, b: TokenListRow) => (lower(a.token.address) < lower(b.token.address) ? -1 : 1);
-  const growing = rows.filter((r) => r.growthBps !== null);
+  // The quote token is the unit the others are priced in: its price never moves against itself, and its volume is its leg
+  // of every swap in every pool it is in, so it is not ranked against the tokens it prices.
+  const ranked = rows.filter((r) => !same(r.token.address, quote.address));
+  const growing = ranked.filter((r) => r.growthBps !== null);
   const up = growing.filter((r) => r.growthBps! > 0).sort((a, b) => b.growthBps! - a.growthBps! || byAddress(a, b))[0];
   const down = growing.filter((r) => r.growthBps! < 0).sort((a, b) => a.growthBps! - b.growthBps! || byAddress(a, b))[0];
-  const traded = rows
+  const traded = ranked
     .filter((r) => r.trades > 0 && r.price !== null)
-    .sort((a, b) => {
-      const va = parseUnits(a.volume, PLACES);
-      const vb = parseUnits(b.volume, PLACES);
-      return va === vb ? b.trades - a.trades || byAddress(a, b) : va > vb ? -1 : 1;
-    })[0];
+    .map((r) => ({ r, volume: parseUnits(r.volume, PLACES) }))
+    .sort((a, b) => (a.volume === b.volume ? b.r.trades - a.r.trades || byAddress(a.r, b.r) : a.volume > b.volume ? -1 : 1))[0]?.r;
   const mover = (r: TokenListRow | undefined) => (r ? { token: r.token, lookalikeOf: r.lookalikeOf, growthBps: r.growthBps! } : null);
   return {
     ...head,

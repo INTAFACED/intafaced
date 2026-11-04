@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Address, Hex } from 'viem';
+import { parseUnits, type Address, type Hex } from 'viem';
 import {
   ORGANIC_SCORE_UNSET,
   TOKENS_HOLDERS_INCONSISTENT,
@@ -342,6 +342,10 @@ describe('marketBrief', () => {
       [LOOK, A, B].filter((t) => row(t.address).listedAt > NOW - 86_400).sort((x, y) => row(y.address).listedAt - row(x.address).listedAt),
     );
     expect(brief.brief!.newListings[0]).toEqual(LOOK);
+    // B is the quote token: it traded in every swap, and is still never ranked against the tokens it prices.
+    expect(row(B.address).trades).toBeGreaterThan(0);
+    const named = [brief.brief!.topGainer, brief.brief!.topLoser, brief.brief!.mostTraded].map((line) => line?.token.address);
+    expect(named).not.toContain(B.address);
   });
 
   it('writes no brief when no swap falls in the 24 hours to the head block, and counts a swap only after the window opens', () => {
@@ -353,6 +357,17 @@ describe('marketBrief', () => {
     const edge = { ...late, swaps: [...late.swaps, swap(39, 200_000 - 86_400, W1, 'buy', 1n * E6, 3n * E18)] };
     expect(marketBrief(one, B).brief?.trades).toBe(1);
     expect(marketBrief(edge, B).brief).toBeNull();
+  });
+
+  it('never names the quote token, even when its volume is the highest in the list', () => {
+    const snap = snapshot();
+    // One TEST buy paying far more B than the A it takes is worth: B's leg now outweighs every other token's volume.
+    snap.swaps = [...snap.swaps, swap(35, NOW - 10, W4, 'buy', 1n * E6, 1_000_000n * E18)];
+    const list = tokensList(snap, B, '24h').tokens;
+    const volume = (address: string) => parseUnits(list.find((t) => t.token.address === address)!.volume, 18);
+    expect(volume(B.address) > volume(A.address)).toBe(true);
+    expect(volume(B.address) > volume(LOOK.address)).toBe(true);
+    expect(marketBrief(snap, B).brief!.mostTraded!.token).toEqual(A);
   });
 
   it('names the biggest fall and leaves the gainer null when no token rose', () => {

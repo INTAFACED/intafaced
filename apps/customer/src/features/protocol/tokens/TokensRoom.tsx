@@ -206,46 +206,48 @@ function BriefToken({ token, lookalikeOf, t }: { token: TokenBasics; lookalikeOf
   );
 }
 
+/** A brief line with the named token spliced in as a link where the copy's `{token}` sits. */
+function withToken(text: string, mover: { token: TokenBasics; lookalikeOf: TokenListRow['lookalikeOf'] }, t: TokensTranslate) {
+  const [before = '', after = ''] = text.split(TOKEN_SLOT);
+  return (
+    <>
+      {before}
+      <BriefToken token={mover.token} lookalikeOf={mover.lookalikeOf} t={t} />
+      {after}
+    </>
+  );
+}
+const TOKEN_SLOT = '\u0000';
+
 function BriefLines({ brief, quote, t }: { brief: Brief; quote: TokensBrief['quote']; t: TokensTranslate }) {
   const { topGainer, topLoser, mostTraded, newListings } = brief;
-  const named = (key: 'briefGainer' | 'briefLoser', mover: NonNullable<Brief['topGainer']>) => {
-    const [before, after] = t(key, { token: '\u0000', growth: percentFromBps(mover.growthBps) }).split('\u0000');
-    return (
-      <>
-        {before}
-        <BriefToken token={mover.token} lookalikeOf={mover.lookalikeOf} t={t} />
-        {after}
-      </>
-    );
-  };
   return (
     <ul className="tokens-plain">
       <li data-testid="brief-trades" data-trades={brief.trades} data-pools={brief.pools}>
         {t('briefTrades', { trades: String(brief.trades), pools: String(brief.pools) })}
       </li>
       <li data-testid="brief-gainer" data-token={topGainer?.token.address ?? ''} data-bps={topGainer?.growthBps ?? ''}>
-        {topGainer ? named('briefGainer', topGainer) : t('briefNoGainer')}
+        {topGainer
+          ? withToken(t('briefGainer', { token: TOKEN_SLOT, growth: percentFromBps(topGainer.growthBps) }), topGainer, t)
+          : t('briefNoGainer')}
       </li>
       <li data-testid="brief-loser" data-token={topLoser?.token.address ?? ''} data-bps={topLoser?.growthBps ?? ''}>
-        {topLoser ? named('briefLoser', topLoser) : t('briefNoLoser')}
+        {topLoser
+          ? withToken(t('briefLoser', { token: TOKEN_SLOT, growth: percentFromBps(topLoser.growthBps) }), topLoser, t)
+          : t('briefNoLoser')}
       </li>
       <li data-testid="brief-most-traded" data-token={mostTraded?.token.address ?? ''} data-volume={mostTraded?.volume ?? ''}>
         {mostTraded
-          ? (() => {
-              const [before, after] = t('briefMostTraded', {
-                token: '\u0000',
+          ? withToken(
+              t('briefMostTraded', {
+                token: TOKEN_SLOT,
                 volume: mostTraded.volume,
                 symbol: quote.symbol || t('noSymbol'),
                 trades: String(mostTraded.trades),
-              }).split('\u0000');
-              return (
-                <>
-                  {before}
-                  <BriefToken token={mostTraded.token} lookalikeOf={mostTraded.lookalikeOf} t={t} />
-                  {after}
-                </>
-              );
-            })()
+              }),
+              mostTraded,
+              t,
+            )
           : t('briefNoMostTraded')}
       </li>
       <li data-testid="brief-new" data-count={newListings.length}>
@@ -295,7 +297,7 @@ function MarketBrief({ t }: { t: TokensTranslate }) {
       <h3>{t('briefTitle', { day })}</h3>
       {asOfLine}
       <BriefLines brief={brief} quote={quote} t={t} />
-      <p className="muted">{t('briefSources')}</p>
+      <p className="muted">{t('briefSources', { symbol: quote.symbol || t('noSymbol') })}</p>
     </article>
   );
 }
