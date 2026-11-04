@@ -596,6 +596,7 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
   function build(
     answer: (n: number) => Response,
     enter = vi.fn(async (main: { accessToken: string }) => ({ ok: true as const, data: subSession(`sub-of-${main.accessToken}`) })),
+    remembered: { value: string | null } = { value: null },
   ) {
     const net = fakeFetch((_call, n) => answer(n));
     const posted: unknown[] = [];
@@ -604,9 +605,56 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
       logout: vi.fn(async () => ({ ok: true as const, data: { ok: true as const } })),
       openChannel: () => ({ onmessage: null, postMessage: (m) => void posted.push(m), close: () => undefined }),
       enterSubAccount: enter,
+      tabMemory: { read: () => remembered.value, write: (id) => void (remembered.value = id) },
     });
-    return { ...net, controller, enter, posted };
+    return { ...net, controller, enter, posted, remembered };
   }
+
+  it('a reload keeps acting as the sub-account: the tab remembers its id (never a token) and asks again at boot', async () => {
+    const tab = { value: null as string | null };
+    const first = build((n) => ok(session('main' + n)), undefined, tab);
+    await first.controller.start();
+    await first.controller.enterSubAccount(SUB);
+    expect(tab.value).toBe(SUB);
+    first.controller.stop();
+
+    const reloaded = build((n) => ok(session('after-reload' + n)), undefined, tab);
+    await reloaded.controller.start();
+    expect(reloaded.controller.getState()).toMatchObject({
+      restoring: false,
+      session: { accessToken: 'sub-of-after-reload1', subAccountId: SUB },
+      notice: null,
+    });
+    expect(reloaded.enter).toHaveBeenCalledWith(expect.objectContaining({ accessToken: 'after-reload1' }), SUB);
+    reloaded.controller.stop();
+  });
+
+  it('switching back, signing out, or a refused re-entry at boot forgets the sub-account', async () => {
+    const tab = { value: null as string | null };
+    const a = build((n) => ok(session('main' + n)), undefined, tab);
+    await a.controller.start();
+    await a.controller.enterSubAccount(SUB);
+    await a.controller.leaveSubAccount();
+    expect(tab.value).toBeNull();
+    await a.controller.enterSubAccount(SUB);
+    await a.controller.logout();
+    expect(tab.value).toBeNull();
+    a.controller.stop();
+
+    tab.value = SUB;
+    const refused = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'forbidden' as const,
+      message: 'no',
+      code: 'auth.sub_account_revoked',
+    }));
+    const b = build((n) => ok(session('main' + n)), refused as never, tab);
+    await b.controller.start();
+    expect(b.controller.getState()).toMatchObject({ session: { accessToken: 'main1' }, notice: 'subaccount_ended' });
+    expect(b.controller.getState().session?.subAccountId).toBeUndefined();
+    expect(tab.value).toBeNull();
+    b.controller.stop();
+  });
 
   it('enters from the main account with its token, and never shares the sub-account token with other tabs', async () => {
     const { controller, enter, posted } = build(() => ok(session('main')));

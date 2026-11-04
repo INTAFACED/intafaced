@@ -200,6 +200,34 @@ function browserChannel(): ChannelLike | null {
   }
 }
 
+/**
+ * Which sub-account this tab acts as, so a reload keeps acting as it: the id only, in this tab's sessionStorage, never a
+ * token. At boot the controller asks identity for the sub-account again on the main-account token.
+ */
+export type TabMemory = { read: () => string | null; write: (subAccountId: string | null) => void };
+const TAB_SUBACCOUNT_KEY = 'ifc-subaccount';
+function browserTabMemory(): TabMemory {
+  return {
+    read() {
+      try {
+        const value = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(TAB_SUBACCOUNT_KEY);
+        return value && z.string().guid().safeParse(value).success ? value : null;
+      } catch {
+        return null;
+      }
+    },
+    write(subAccountId) {
+      try {
+        if (typeof sessionStorage === 'undefined') return;
+        if (subAccountId) sessionStorage.setItem(TAB_SUBACCOUNT_KEY, subAccountId);
+        else if (sessionStorage.getItem(TAB_SUBACCOUNT_KEY) !== null) sessionStorage.removeItem(TAB_SUBACCOUNT_KEY);
+      } catch {
+        // Storage blocked: the tab still acts as the sub-account until it reloads.
+      }
+    },
+  };
+}
+
 /** Refresh this long before the access token expires. */
 const REFRESH_LEAD_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
@@ -222,8 +250,10 @@ export function createSessionController(
     openChannel?: () => ChannelLike | null;
     /** Ask for a sub-account token on the given main-account session (`auth.subAccountSession`). */
     enterSubAccount?: (main: Session, subAccountId: string) => Promise<ApiResult<Session>>;
+    tabMemory?: TabMemory;
   } = {},
 ) {
+  const memory = options.tabMemory ?? browserTabMemory();
   const askSubAccount = options.enterSubAccount ?? requestSubAccountSession;
   const refresher = options.refresher ?? createSessionRefresher();
   const logoutRequest = options.logout ?? (() => requestLogout());
@@ -306,6 +336,7 @@ export function createSessionController(
     set({ ...state, notice: 'subaccount_ended' });
   }
   function adopt(value: Session) {
+    memory.write(value.subAccountId ?? null);
     epoch += 1;
     failures = 0;
     set({ session: value, restoring: false, restoreFailed: false, notice: null });
@@ -315,6 +346,7 @@ export function createSessionController(
     adopt(sessionSchema.parse(value));
   }
   function signOut(notice: SessionNotice | null) {
+    memory.write(null);
     epoch += 1;
     failures = 0;
     disarm();
@@ -345,7 +377,10 @@ export function createSessionController(
     const started = epoch;
     const outcome = await refresher.refresh();
     if (epoch !== started || state.session) return;
-    if (outcome.kind === 'session') commit(outcome.session);
+    const remembered = outcome.kind === 'session' ? memory.read() : null;
+    // A reload of a tab that acted as a sub-account: ask for it again on the main token before the rooms paint.
+    if (outcome.kind === 'session' && remembered) await reenter(outcome.session, remembered, started);
+    else if (outcome.kind === 'session') commit(outcome.session);
     else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     // A definite refusal at boot: retrying cannot help, so the visitor goes to sign-in rather than an endless Retry.
     else if (outcome.kind === 'refused') signOut(null);
