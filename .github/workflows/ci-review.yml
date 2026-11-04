@@ -69,6 +69,9 @@ jobs:
           name: ${{ steps.index.outputs.name }}
           path: ${{ runner.temp }}/index/index.json
           if-no-files-found: error
+          # Kept for the repository's retention setting (the default, which is also its longest); an earlier attempt's
+          # index is replaced only once it has expired.
+          overwrite: ${{ steps.index.outputs.expired == 'true' }}
 
       - name: Read the diff
         env:

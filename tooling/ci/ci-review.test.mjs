@@ -12,6 +12,7 @@ import {
   sealMergeGroup,
   readReviewRuns,
   reviewIndexName,
+  REVIEW_BORN,
   REVIEW_INDEX_SINCE,
   REVIEW_WORKFLOW,
   STATUS_CONTEXT,
@@ -300,9 +301,137 @@ test('the tree index only points: a planted or stale entry adds no verdict', asy
     trees: { [NEXT]: TREE },
   });
   const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', 'feat-2', api.get);
-  assert.deepEqual(runs.map((r) => r.id).sort(), [3, 4, 5]);
+  assert.deepEqual(
+    runs.map((r) => r.id).sort(),
+    [3, 5],
+    'the planted run of another workflow is dropped; the run on other code is left for the verdict to weigh',
+  );
   const v = await ciReviewVerdict({ sha: NEXT, base: 'main', number: 7, runs, attempts: async (r) => r.jobs, tree: async () => TREE });
   assert.deepEqual([v.ok, v.state], [true, 'pass'], v.why);
+});
+
+test('the window before the index is read in time slices past 1,000, whole or not at all', async () => {
+  // 1,250 pull_request_target runs before REVIEW_INDEX_SINCE (a busy week before the index merged): one list can't hold
+  // them, so the reader halves the window until each slice can, and the FAIL on another branch with this tree is found.
+  const born = Date.parse(REVIEW_BORN);
+  const crowd = Array.from({ length: 1250 }, (_, i) =>
+    run({
+      id: 1000 + i,
+      head_sha: (1000 + i).toString(16).padStart(40, '0'),
+      created_at: new Date(born + i * 400_000).toISOString(),
+      head_commit: { tree_id: 'f'.repeat(40) },
+    }),
+  );
+  const failed = run({
+    id: 9,
+    head_sha: OLDER,
+    created_at: new Date(born + 3600_000).toISOString(),
+    head_commit: { tree_id: TREE },
+    jobs: [[reviewJob(OLDER, 'failure')]],
+  });
+  const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
+  const all = [...crowd, failed];
+  const sliced = (drop = 0) => {
+    const asked = [];
+    const get = async (path) => {
+      asked.push(path);
+      const [p, qs = ''] = path.split('?');
+      if (p.includes('/git/commits/')) return { tree: { sha: TREE } };
+      if (p.endsWith('/actions/artifacts')) return { total_count: 0, artifacts: [] };
+      const params = new URLSearchParams(qs);
+      const n = Number(params.get('page'));
+      const created = params.get('created');
+      let list = [];
+      if (params.get('head_sha') === NEXT) list = [mine];
+      else if (created?.startsWith('<')) list = all.filter((r) => Date.parse(r.created_at) < Date.parse(created.slice(1)));
+      else if (created?.includes('..')) {
+        const [a, b] = created.split('..').map(Date.parse);
+        list = all.filter((r) => Date.parse(r.created_at) >= a && Date.parse(r.created_at) <= b + 999).slice(drop);
+      }
+      return { total_count: list.length, workflow_runs: list.slice((n - 1) * 100, n * 100) };
+    };
+    return { get, asked };
+  };
+  const api = sliced();
+  const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, api.get);
+  assert.equal(runs.length, 1252);
+  const v = await ciReviewVerdict({
+    sha: NEXT,
+    base: 'main',
+    runs,
+    attempts: async (r) => r.jobs,
+    tree: async (s) => (s === NEXT || s === OLDER ? TREE : 'f'.repeat(40)),
+  });
+  assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
+  // Read once per seal: a second poll with the same reader doesn't read the window again.
+  const before = api.asked.length;
+  await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, api.get);
+  assert.equal(api.asked.length - before, 2, 'a later poll reads the head and the tree index, and nothing of the window');
+  // Slices that don't add up to the single list's count fail closed.
+  await assert.rejects(readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, sliced(1).get), /read in slices, 1251 listed/);
+});
+
+test('the tree index fails closed past 1,000 entries, keeps pointing when expired, and reads a planted run once', async () => {
+  const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
+  const sameCode = run({ id: 6, head_sha: OLDER, head_commit: { tree_id: TREE }, jobs: [[reviewJob(OLDER, 'failure')]] });
+  const forged = run({ id: 4, path: '.github/workflows/forged.yml', event: 'push', head_sha: OLDER });
+  const name = reviewIndexName(TREE);
+  const lists = { [`head_sha=${NEXT}`]: [mine] };
+  // An expired entry still names its run, so the FAIL on the same code stands.
+  const expired = fakeApi({
+    lists,
+    artifacts: { [name]: [{ name, expired: true, workflow_run: { id: 6 } }] },
+    byId: { 6: sameCode },
+    trees: { [NEXT]: TREE },
+  });
+  const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, expired.get);
+  const v = await ciReviewVerdict({ sha: NEXT, base: 'main', runs, attempts: async (r) => r.jobs, tree: async () => TREE });
+  assert.deepEqual([v.ok, v.state], [false, 'fail'], v.why);
+  // A planted entry from another workflow is read once per seal, not on every poll.
+  const planted = fakeApi({
+    lists,
+    artifacts: { [name]: [{ name, workflow_run: { id: 4 } }] },
+    byId: { 4: forged },
+    trees: { [NEXT]: TREE },
+  });
+  for (let poll = 0; poll < 3; poll++) await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, planted.get);
+  assert.equal(planted.asked.filter((p) => p.endsWith('/actions/runs/4')).length, 1);
+  // More than 1,000 entries for one tree (a flood of planted artifacts) can't be read whole: that seal fails closed.
+  const flood = Array.from({ length: 1001 }, (_, i) => ({ name, workflow_run: { id: 5000 + i } }));
+  await assert.rejects(
+    readReviewRuns(
+      'INTAFACED/intafaced',
+      NEXT,
+      't',
+      undefined,
+      fakeApi({ lists, artifacts: { [name]: flood }, trees: { [NEXT]: TREE } }).get,
+    ),
+    /tree index .*more than 1,000/,
+  );
+});
+
+test('the named limit: a run after REVIEW_INDEX_SINCE with no index artifact is in no list', async () => {
+  // The index must be live (this change merged) before REVIEW_INDEX_SINCE: a run created after it on another branch,
+  // without an index artifact, is not read. This test pins that limit so a change to it is seen.
+  const late = run({
+    id: 8,
+    head_sha: OLDER,
+    created_at: '2026-11-12T00:00:00Z',
+    head_commit: { tree_id: TREE },
+    jobs: [[reviewJob(OLDER, 'failure')]],
+  });
+  const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
+  const api = fakeApi({
+    lists: { [`head_sha=${NEXT}`]: [mine], 'event=pull_request_target': [late, mine] },
+    byId: { 8: late },
+    trees: { [NEXT]: TREE },
+  });
+  const runs = await readReviewRuns('INTAFACED/intafaced', NEXT, 't', undefined, api.get);
+  assert.deepEqual(
+    runs.map((r) => r.id),
+    [3],
+  );
+  assert.ok(Date.parse(REVIEW_INDEX_SINCE) > Date.parse(REVIEW_BORN));
 });
 
 test('the review job indexes its head before it reviews, and a re-run keeps the first index', async () => {
@@ -315,7 +444,8 @@ test('the review job indexes its head before it reviews, and a re-run keeps the 
   assert.match(step, /if: steps\.index\.outputs\.exists != 'true'/);
   assert.match(step, /name: \$\{\{ steps\.index\.outputs\.name \}\}/);
   assert.match(step, /if-no-files-found: error/);
-  assert.doesNotMatch(step, /continue-on-error|overwrite/);
+  assert.match(step, /overwrite: \$\{\{ steps\.index\.outputs\.expired == 'true' \}\}/);
+  assert.doesNotMatch(step, /continue-on-error/);
 });
 
 test("the index step names the head's tree, and keeps an index an earlier attempt uploaded", async () => {
@@ -355,12 +485,14 @@ test("the index step names the head's tree, and keeps an index an earlier attemp
     }
   };
   const fresh = await index();
-  assert.match(fresh.out, new RegExp(`^name=${reviewIndexName(TREE)}\nexists=false\n$`));
+  assert.match(fresh.out, new RegExp(`^name=${reviewIndexName(TREE)}\nexists=false\nexpired=false\n$`));
   assert.ok(fresh.asked.some((u) => u.includes('/actions/runs/99/artifacts?name=')));
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'index', 'index.json'), 'utf8')).tree, TREE);
   const rerun = await index({ earlier: [{ name: reviewIndexName(TREE), expired: false }] });
-  assert.match(rerun.out, /exists=true/);
-  await assert.rejects(index({ tree: 'not-a-tree' }), /no readable tree/);
+  assert.match(rerun.out, /exists=true\nexpired=false/);
+  const lapsed = await index({ earlier: [{ name: reviewIndexName(TREE), expired: true }] });
+  assert.match(lapsed.out, /exists=false\nexpired=true/);
+  await assert.rejects(index({ tree: 'not-a-tree' }), /tree of .* could not be read/);
   await assert.rejects(index({ status: 500 }), /HTTP 500/);
   fs.rmSync(dir, { recursive: true });
 });

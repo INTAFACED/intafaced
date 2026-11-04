@@ -38,7 +38,7 @@ import { BASELINE } from './look-baselines.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
-const REVIEW_POLL_MS = 60_000; // two reads a minute per waiting seal, far under the token's hourly limit
+const REVIEW_POLL_MS = 60_000; // each poll reads the head's and the branch's lists, the tree index and its review runs
 
 /** The comment line the sign-off workflow accepts, on its own line. */
 export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
@@ -163,11 +163,15 @@ const SHA40 = /^[0-9a-f]{40}$/;
 export const REVIEW_INDEX_PREFIX = 'ci-review-tree-';
 export const reviewIndexName = (tree) => `${REVIEW_INDEX_PREFIX}${tree}`;
 /**
- * Runs created before this time may have no index artifact (the index started when it merged), so the seal reads them
- * as one closed list: a fixed, finished set of runs (13 on 4 Nov 2026 at 10:36 UTC), which can never grow past 1,000.
- * Runs from this time on are found by the index alone.
+ * Runs created before REVIEW_INDEX_SINCE may have no index artifact (the index starts when this merges; until then the
+ * default branch's ci-review.yml has no index step), so the seal reads them as a window: every pull_request_target run
+ * created before it, from REVIEW_BORN on (ci-review.yml merged at 06:20 UTC on 4 Nov 2026, #7132; 13 runs by 10:36 UTC).
+ * The window is read in time slices when it holds more than GitHub lists for one filter, so it can never lock the seal,
+ * and it stops growing at REVIEW_INDEX_SINCE. The index must be live by then: this change must merge before it, or the
+ * runs between it and the merge are in neither (named in its pull request).
  */
-export const REVIEW_INDEX_SINCE = '2026-11-09T00:00:00Z';
+export const REVIEW_BORN = '2026-11-04T00:00:00Z';
+export const REVIEW_INDEX_SINCE = '2026-11-11T00:00:00Z';
 
 /**
  * The CI review's verdict on head `sha`, from GitHub's Actions API. `runs` are the workflow runs listed for
@@ -780,6 +784,21 @@ async function readGroupCommits(repo, base, head, token) {
   return out;
 }
 
+/** What a seal process keeps between polls, per API reader: trees, the closed window, and index runs of other workflows. */
+const caches = new WeakMap();
+const cacheFor = (get) => {
+  if (!caches.has(get)) caches.set(get, { trees: new Map(), window: new Map(), foreign: new Map() });
+  return caches.get(get);
+};
+
+/** A list GitHub can't give whole under one filter (more than 1,000), with the count it reported. */
+class TooMany extends Error {
+  constructor(what, total) {
+    super(`${what}: more than 1,000 listed${total ? ` (${total})` : ''}, not whole; the seal fails closed`);
+    this.total = total;
+  }
+}
+
 /**
  * The runs the verdict needs, each list read whole or the seal fails (a list cut short, or more than GitHub lists for a
  * filter, throws; it never passes as a partial one). `get` is the API reader (tests pass their own).
@@ -787,25 +806,27 @@ async function readGroupCommits(repo, base, head, token) {
  *   2. Its pull_request_target runs on the pull request's branch: an empty commit after a FAIL.
  *   3. The runs the tree index names for this head's tree, on any head and any branch: the same code pushed again as a
  *      new branch and pull request. One keyed read (the artifacts named reviewIndexName(tree)), then each named run
- *      not already listed.
- *   4. Its pull_request_target runs created before REVIEW_INDEX_SINCE, which may have no index: a closed list.
+ *      not already listed. The index only points: ciReviewVerdict checks each run's workflow, event, tree and attempts.
+ *   4. Its pull_request_target runs created before REVIEW_INDEX_SINCE, which may have no index: a window that stops
+ *      growing then, read once per seal and in time slices if it ever holds more than 1,000.
  * Nothing reads every run of the workflow, so the seal keeps working however many runs the repository has (before,
- * a fourth list of every pull_request_target run failed every seal closed once it passed 1,000; #7132 finding 2).
- * Every list is keyed to this head, its branch, its tree or a finished window, so each stays small.
+ * a list of every pull_request_target run failed every seal closed once it passed 1,000; #7132 finding 2).
  */
 export async function readReviewRuns(repo, sha, token, branch, get = api) {
   const file = REVIEW_WORKFLOW.split('/').pop();
+  const cache = cacheFor(get);
   const out = new Map();
   // One filtered list, every page, whole or throw. `key` names the list in the result (`workflow_runs`, `artifacts`).
   const whole = async (what, path, key, opts) => {
     const all = [];
     let total = 0;
     for (let page = 1; ; page++) {
-      if (page > 10) throw new Error(`${what}: more than 1,000, not read whole; the seal fails closed`);
+      if (page > 10) throw new TooMany(what, total);
       const r = await get(`${path}&per_page=100&page=${page}`, token, opts);
       const batch = r?.[key] ?? [];
       if (!Array.isArray(batch)) throw new Error(`${what}: not a list; the seal fails closed`);
       total = Math.max(total, Number(r?.total_count) || 0);
+      if (total > 1000) throw new TooMany(what, total);
       all.push(...batch);
       if (batch.length < 100) break;
     }
@@ -813,39 +834,71 @@ export async function readReviewRuns(repo, sha, token, branch, get = api) {
     return all;
   };
   const runs = (q) =>
-    whole(`${file} runs (${q})`, `/repos/${repo}/actions/workflows/${file}/runs?${q}`, 'workflow_runs', { missingOk: true });
-  const queries = [
-    `head_sha=${sha}`,
-    ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : []),
-    `event=pull_request_target&created=${encodeURIComponent(`<${REVIEW_INDEX_SINCE}`)}`,
-  ];
-  for (const q of queries) for (const run of await runs(q)) out.set(run.id, run);
-  const tree = await readTree(repo, sha, token, get);
-  const name = reviewIndexName(tree);
-  const index = await whole(`the tree index ${name}`, `/repos/${repo}/actions/artifacts?name=${name}`, 'artifacts');
-  for (const a of index) {
-    if (a?.name !== name) continue;
+    whole(`${file} runs (${decodeURIComponent(q)})`, `/repos/${repo}/actions/workflows/${file}/runs?${q}`, 'workflow_runs', {
+      missingOk: true,
+    });
+  for (const q of [`head_sha=${sha}`, ...(branch ? [`event=pull_request_target&branch=${encodeURIComponent(branch)}`] : [])])
+    for (const run of await runs(q)) out.set(run.id, run);
+
+  if (!cache.window.has(repo)) cache.window.set(repo, await readWindow(runs));
+  for (const run of cache.window.get(repo)) out.set(run.id, run);
+
+  const name = reviewIndexName(await readTree(repo, sha, token, get));
+  for (const a of await whole(`the tree index ${name}`, `/repos/${repo}/actions/artifacts?name=${name}`, 'artifacts')) {
     const id = a?.workflow_run?.id;
-    if (!Number.isSafeInteger(id) || out.has(id)) continue;
-    // A run the index names but GitHub no longer has (deleted) holds no verdict; ciReviewVerdict checks the rest: the
-    // workflow file, the event, the head's tree and each attempt's Verdict step. So a planted artifact of the same name
-    // from another workflow, or naming a run on other code, counts for nothing.
+    if (a?.name !== name || !Number.isSafeInteger(id) || out.has(id)) continue;
+    if (cache.foreign.has(id)) continue;
+    // A run the index names but GitHub no longer has (deleted) holds no verdict. A run of another workflow or event (an
+    // artifact of the same name planted by any other run) never changes, so it is read once per seal, not every poll.
     const run = await get(`/repos/${repo}/actions/runs/${id}`, token, { missingOk: true });
-    if (run?.id === id) out.set(id, run);
+    if (run?.id !== id) continue;
+    if (run.path !== REVIEW_WORKFLOW || run.event !== 'pull_request_target') cache.foreign.set(id, true);
+    else out.set(id, run);
   }
   return [...out.values()];
 }
 
 /**
- * A commit's tree sha (one GET per head, kept for the seal's later polls). Any failure ends the seal (fail closed).
- * `get` is the API reader; a test's own reader is never cached.
+ * The window (readReviewRuns list 4): pull_request_target runs created before REVIEW_INDEX_SINCE. One list when GitHub
+ * can give it whole; otherwise halves of [REVIEW_BORN, REVIEW_INDEX_SINCE), each read whole or halved again, and the
+ * runs read must number exactly what the single list reported, or the seal fails closed.
  */
-const trees = new Map();
+async function readWindow(runs) {
+  const at = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  try {
+    return await runs(`event=pull_request_target&created=${encodeURIComponent(`<${REVIEW_INDEX_SINCE}`)}`);
+  } catch (e) {
+    if (!(e instanceof TooMany)) throw e;
+    const found = new Map();
+    const slice = async (from, to) => {
+      try {
+        for (const run of await runs(`event=pull_request_target&created=${encodeURIComponent(`${at(from)}..${at(to)}`)}`))
+          found.set(run.id, run);
+      } catch (inner) {
+        if (!(inner instanceof TooMany) || to - from < 2000) throw inner;
+        const mid = from + Math.floor((to - from) / 2000) * 1000;
+        await slice(from, mid);
+        await slice(mid + 1000, to);
+      }
+    };
+    await slice(Date.parse(REVIEW_BORN), Date.parse(REVIEW_INDEX_SINCE) - 1000);
+    if (!e.total || found.size !== e.total)
+      throw new Error(
+        `the window before ${REVIEW_INDEX_SINCE}: ${found.size} runs read in slices, ${e.total} listed; the seal fails closed`,
+      );
+    return [...found.values()];
+  }
+}
+
+/**
+ * A commit's tree sha (one GET per head per reader, kept for the seal's later polls). Any failure ends the seal (fail
+ * closed). ci-review.mjs names the tree index with this same reader, so the name written and the name read agree.
+ */
 export async function readTree(repo, sha, token, get = api) {
-  if (get !== api || !trees.has(sha)) {
+  const { trees } = cacheFor(get);
+  if (!trees.has(sha)) {
     const t = String((await get(`/repos/${repo}/git/commits/${sha}`, token))?.tree?.sha ?? '');
     if (!SHA40.test(t)) throw new Error(`the tree of ${sha} could not be read; the seal fails closed`);
-    if (get !== api) return t;
     trees.set(sha, t);
   }
   return trees.get(sha);
