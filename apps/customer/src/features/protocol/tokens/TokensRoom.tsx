@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import type { TokenListRow, TokensLeaderboard } from '@intafaced/contracts/protocol-tokens';
+import type { TokenBasics, TokenListRow, TokensBrief, TokensLeaderboard } from '@intafaced/contracts/protocol-tokens';
 import { navigate } from '../../../app/location';
 import { DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
@@ -24,8 +24,6 @@ const TABS: readonly TokensTab[] = ['trending', 'top', 'new', 'brief', 'stableco
 export const STABLECOINS_UNSET = 'indexer.stablecoins_unset';
 /** A tokenized stock is listed only with a recorded licence hash; with none recorded the screener names the `licence` blocker. */
 export const STOCKS_BLOCKER = 'licence';
-/** No market data source exists on the platform, so no brief is written. */
-export const BRIEF_BLOCKER = 'market_data';
 
 type ListTab = 'trending' | 'top' | 'new';
 
@@ -197,6 +195,113 @@ function TokenList({
   );
 }
 
+type Brief = NonNullable<TokensBrief['brief']>;
+
+/** A token the brief names, linked to its page; a lookalike is masked the way the lists mask it. */
+function BriefToken({ token, lookalikeOf, t }: { token: TokenBasics; lookalikeOf: TokenListRow['lookalikeOf']; t: TokensTranslate }) {
+  return (
+    <a href={`/dex/tokens/${token.address}`} title={token.address}>
+      {lookalikeOf ? t('symbolMasked', { name: lookalikeOf.name }) : token.symbol || token.name || shortAddress(token.address)}
+    </a>
+  );
+}
+
+/** A brief line with the named token spliced in as a link where the copy's `{token}` sits. */
+function withToken(text: string, mover: { token: TokenBasics; lookalikeOf: TokenListRow['lookalikeOf'] }, t: TokensTranslate) {
+  const [before = '', after = ''] = text.split(TOKEN_SLOT);
+  return (
+    <>
+      {before}
+      <BriefToken token={mover.token} lookalikeOf={mover.lookalikeOf} t={t} />
+      {after}
+    </>
+  );
+}
+const TOKEN_SLOT = '\u0000';
+
+function BriefLines({ brief, quote, t }: { brief: Brief; quote: TokensBrief['quote']; t: TokensTranslate }) {
+  const { topGainer, topLoser, mostTraded, newListings } = brief;
+  return (
+    <ul className="tokens-plain">
+      <li data-testid="brief-trades" data-trades={brief.trades} data-pools={brief.pools}>
+        {t('briefTrades', { trades: String(brief.trades), pools: String(brief.pools) })}
+      </li>
+      <li data-testid="brief-gainer" data-token={topGainer?.token.address ?? ''} data-bps={topGainer?.growthBps ?? ''}>
+        {topGainer
+          ? withToken(t('briefGainer', { token: TOKEN_SLOT, growth: percentFromBps(topGainer.growthBps) }), topGainer, t)
+          : t('briefNoGainer')}
+      </li>
+      <li data-testid="brief-loser" data-token={topLoser?.token.address ?? ''} data-bps={topLoser?.growthBps ?? ''}>
+        {topLoser
+          ? withToken(t('briefLoser', { token: TOKEN_SLOT, growth: percentFromBps(topLoser.growthBps) }), topLoser, t)
+          : t('briefNoLoser')}
+      </li>
+      <li data-testid="brief-most-traded" data-token={mostTraded?.token.address ?? ''} data-volume={mostTraded?.volume ?? ''}>
+        {mostTraded
+          ? withToken(
+              t('briefMostTraded', {
+                token: TOKEN_SLOT,
+                volume: mostTraded.volume,
+                symbol: quote.symbol || t('noSymbol'),
+                trades: String(mostTraded.trades),
+              }),
+              mostTraded,
+              t,
+            )
+          : t('briefNoMostTraded')}
+      </li>
+      <li data-testid="brief-new" data-count={newListings.length}>
+        {t('briefNew', { count: String(newListings.length) })}
+        {newListings.length > 0 && (
+          <ul className="tokens-plain">
+            {newListings.map((token) => (
+              <li key={token.address} data-token={token.address}>
+                <a href={`/dex/tokens/${token.address}`}>{token.name || t('noName')}</a>{' '}
+                <span className="muted">{token.symbol || t('noSymbol')}</span>{' '}
+                <span className="muted tokens-address">{shortAddress(token.address)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
+    </ul>
+  );
+}
+
+/**
+ * The market brief (D-portfolio-wallet-06): written by svc-protocol from the factory's pools over the 24 hours to the head
+ * block, each line a figure of the 24-hour token list at that block. With no swap in those hours: "No brief today".
+ */
+function MarketBrief({ t }: { t: TokensTranslate }) {
+  const protocol = useProtocol();
+  const { resource, reload } = useResource((signal) => protocol.tokensBrief(signal), 'tokens:brief');
+  if (resource.status === 'loading') return <p className="muted">{t('reading')}</p>;
+  if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
+  const { brief, blockNumber, asOf, day, quote } = resource.data;
+  const asOfLine = (
+    <p className="muted" data-testid="brief-as-of" data-block={blockNumber}>
+      <time dateTime={isoTime(asOf)}>
+        {t('briefWindow', { block: blockNumber, time: clockTime(asOf * 1000, currentPreferences().timeZone) })}
+      </time>
+    </p>
+  );
+  if (!brief)
+    return (
+      <div role="status">
+        {asOfLine}
+        <EmptyState title={t('noBrief')}>{t('noBriefBody', { block: blockNumber })}</EmptyState>
+      </div>
+    );
+  return (
+    <article aria-label={t('briefTitle', { day })} data-testid="market-brief" data-day={day}>
+      <h3>{t('briefTitle', { day })}</h3>
+      {asOfLine}
+      <BriefLines brief={brief} quote={quote} t={t} />
+      <p className="muted">{t('briefSources', { symbol: quote.symbol || t('noSymbol') })}</p>
+    </article>
+  );
+}
+
 type BoardRow = TokensLeaderboard['rows'][number];
 
 function WalletTrades({ row, quote, t }: { row: BoardRow; quote: TokensLeaderboard['quote']; t: TokensTranslate }) {
@@ -285,12 +390,7 @@ export function TokensRoom() {
   const listed = tab === 'trending' || tab === 'top' || tab === 'new';
   let body: ReactNode;
   if (listed) body = <TokenList tab={tab} span={span} query={query} onQuery={setQuery} t={t} />;
-  else if (tab === 'brief')
-    body = (
-      <div role="status" data-code={BRIEF_BLOCKER}>
-        <EmptyState title={t('noBrief')}>{t('noBriefBody')}</EmptyState>
-      </div>
-    );
+  else if (tab === 'brief') body = <MarketBrief t={t} />;
   else if (tab === 'stablecoins')
     body = (
       <div role="status" data-code={STABLECOINS_UNSET}>
