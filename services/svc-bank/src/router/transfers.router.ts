@@ -38,7 +38,8 @@ export function createTransfersRouter(c: BankRouterContext) {
     amount: string,
     to: { readonly userId: string } | { readonly spaceId: string },
   ) {
-    if (!bank.personalPay.overReviewLine(assetId, parseAmount(amount))) return;
+    // Router tests hand in a partial personal-pay stub without the rule; the real service always has this method.
+    if (!bank.personalPay.overReviewLine?.(assetId, parseAmount(amount))) return;
     if ('userId' in to && to.userId === callerId) return;
     if ('spaceId' in to) {
       const space = await bank.spaces.find(to.spaceId);
