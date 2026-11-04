@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { Button, Field, Input } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
@@ -21,6 +21,7 @@ const mineSchema = z.object({
   displayName: z.string(),
   submittedAt: z.string(),
   reason: z.string().nullable(),
+  reapplyAfter: z.string().nullable(),
 });
 type Mine = z.infer<typeof mineSchema>;
 
@@ -41,6 +42,8 @@ function applyRefusal(failure: Failed, t: T): Refusal {
     return { variant: 'refused', title: t('leadingTitle'), body: t('leadingBody'), reference };
   if (code === 'trade.copy_lead_name_invalid') return { variant: 'refused', title: t('nameTitle'), body: t('nameBody'), reference };
   if (code === 'trade.copy_lead_reapply_wait_unset') return { variant: 'refused', title: t('waitTitle'), body: t('waitBody'), reference };
+  if (code === 'trade.copy_lead_reapply_wait')
+    return { variant: 'refused', title: t('waitRunningTitle'), body: t('waitRunningBody'), reference };
   return {
     variant: failure.reason === 'unreachable' || failure.reason === 'uncertain' ? 'unreachable' : 'refused',
     title: t('refusedTitle'),
@@ -67,8 +70,19 @@ export function LeadApplyRoom() {
   const nameId = useId();
 
   const current = sent ?? (mine.resource.status === 'ready' ? mine.resource.data : null);
-  // After a rejection the wait before applying again is the platform's to set and is unset, so only a first application is offered.
-  const canApply = !current;
+  // After a rejection, applying again opens once the platform's wait has passed from the decision; with the wait unset
+  // it never opens, so only a first application is offered.
+  const reapplyAfter = current?.state === 'disapproved' ? current.reapplyAfter : null;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!reapplyAfter) return;
+    const left = Date.parse(reapplyAfter) - Date.now();
+    if (left <= 0) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(left + 250, 2_147_000_000));
+    return () => clearTimeout(timer);
+  }, [reapplyAfter]);
+  const waitOver = reapplyAfter !== null && Date.parse(reapplyAfter) <= Math.max(clock, Date.now());
+  const canApply = !current || waitOver;
 
   async function apply(e: FormEvent) {
     e.preventDefault();
@@ -108,8 +122,8 @@ export function LeadApplyRoom() {
         },
       };
     if (refusal) return { kind: 'ready', partial: { missing: refusal } };
-    // After a rejection, applying again waits on the platform's waiting period, which is not set: refused by name.
-    if (current?.state === 'disapproved')
+    // After a rejection with the platform's waiting period unset, applying again is refused by name.
+    if (current?.state === 'disapproved' && current.reapplyAfter === null)
       return {
         kind: 'ready',
         partial: {
@@ -117,7 +131,7 @@ export function LeadApplyRoom() {
         },
       };
     return { kind: 'ready' };
-  }, [userId, mine.resource, refusal, current?.state, t]);
+  }, [userId, mine.resource, refusal, current?.state, current?.reapplyAfter, t]);
 
   return (
     <FlowTemplate
@@ -136,6 +150,14 @@ export function LeadApplyRoom() {
             </p>
           ) : null}
           {current?.state === 'disapproved' ? <p>{t('rejected', { name: current.displayName, reason: current.reason ?? '' })}</p> : null}
+          {reapplyAfter ? (
+            <p>
+              {waitOver ? t('reapplyOpen') : t('reapplyAfter')}{' '}
+              <time dateTime={reapplyAfter} data-testid="reapply-after">
+                {new Date(reapplyAfter).toLocaleString()}
+              </time>
+            </p>
+          ) : null}
           {canApply ? (
             <form aria-label={t('title')} onSubmit={(e) => void apply(e)}>
               <Field label={t('nameLabel')} hint={t('nameHint')}>

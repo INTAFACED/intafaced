@@ -38,7 +38,7 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
-import { LeadDesk } from './copy/lead-applications.js';
+import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -553,7 +553,13 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
-  new LeadDesk({ sql, approvals: tradeOpsApprovals, directory: leaderDirectory, now: () => new Date() }),
+  new LeadDesk({
+    sql,
+    approvals: tradeOpsApprovals,
+    directory: leaderDirectory,
+    now: () => new Date(),
+    reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
+  }),
   grid,
 );
 export type AppRouter = typeof appRouter;

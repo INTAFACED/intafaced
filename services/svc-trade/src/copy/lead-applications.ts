@@ -6,8 +6,9 @@
  * `trade.copy_lead_criteria_unset`) and a second founder: the first files identity's action approval
  * `trade.copy_lead_approve`, bound to the application, its display name and the criteria in force, and the second
  * approves it there and confirms here, which consumes it once and lists the applicant through the operator leader
- * directory (a self-reported record, nothing computed). A rejection names its reason. Suspending a listed lead is the
- * directory's own `setLeaderState`, audited there.
+ * directory (a self-reported record, nothing computed). A rejection names its reason, and the applicant may apply again
+ * once the owner's wait has passed from the decision (TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS; unset refuses
+ * `trade.copy_lead_reapply_wait_unset`). Suspending a listed lead is the directory's own `setLeaderState`, audited there.
  *
  * Nothing here moves money or imports a ledger write. Criteria are shown to the founders, not enforced: the applicant's
  * own track record is not measured yet, so the desk says so instead of inventing one.
@@ -48,6 +49,11 @@ export interface MyLeadApplication {
   readonly displayName: string;
   readonly submittedAt: string;
   readonly reason: string | null;
+  /**
+   * When a disapproved applicant may apply again: the decision's time plus the owner's wait. Null on any other state,
+   * and on a disapproved one while the owner's wait is unset (applying again then refuses by the unset code).
+   */
+  readonly reapplyAfter: string | null;
 }
 
 export interface LeadApplicationView {
@@ -93,6 +99,25 @@ export interface LeadDeskDeps {
   readonly approvals: ApprovalBook;
   readonly directory: LeaderDirectory;
   readonly now: () => Date;
+  /**
+   * The owner's wait, in seconds, between a rejection and a new application from the same person
+   * (TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS). Null or omitted: unset, and every new application after a rejection refuses
+   * `trade.copy_lead_reapply_wait_unset`. Blank never means no wait.
+   */
+  readonly reapplyWaitSeconds?: number | null;
+}
+
+/** The largest wait the owner may set: one year. */
+export const LEAD_REAPPLY_WAIT_MAX_SECONDS = 366 * 24 * 60 * 60;
+
+/** The owner's re-apply wait from its env value: blank is unset (null); anything but whole seconds 0..one year throws. */
+export function parseLeadReapplyWait(raw: string | undefined): number | null {
+  const value = (raw ?? '').trim();
+  if (!value) return null;
+  if (!/^\d+$/.test(value) || Number(value) > LEAD_REAPPLY_WAIT_MAX_SECONDS) {
+    throw new Error(`TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS must be whole seconds, 0 to ${LEAD_REAPPLY_WAIT_MAX_SECONDS}, or blank`);
+  }
+  return Number(value);
 }
 
 interface ApplicationRow {
@@ -144,7 +169,13 @@ function view(row: ApplicationRow): LeadApplicationView {
   };
 }
 
-function mine(row: ApplicationRow): MyLeadApplication {
+/** When a rejected application's applicant may apply again, or null while the owner's wait is unset. */
+function reapplyAt(row: ApplicationRow, waitSeconds: number | null): Date | null {
+  if (row.status !== 'rejected' || waitSeconds === null || !row.decided_at) return null;
+  return new Date(row.decided_at.getTime() + waitSeconds * 1000);
+}
+
+function mine(row: ApplicationRow, waitSeconds: number | null): MyLeadApplication {
   return {
     applicationId: row.id,
     state:
@@ -158,6 +189,7 @@ function mine(row: ApplicationRow): MyLeadApplication {
     displayName: row.display_name,
     submittedAt: row.created_at.toISOString(),
     reason: row.status === 'rejected' ? row.reason : null,
+    reapplyAfter: reapplyAt(row, waitSeconds)?.toISOString() ?? null,
   };
 }
 
@@ -172,18 +204,27 @@ function displayNameOf(value: string): string {
 const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export class LeadDesk {
-  constructor(private readonly deps: LeadDeskDeps) {}
+  private readonly waitSeconds: number | null;
+
+  constructor(private readonly deps: LeadDeskDeps) {
+    const wait = deps.reapplyWaitSeconds ?? null;
+    if (wait !== null && (!Number.isInteger(wait) || wait < 0 || wait > LEAD_REAPPLY_WAIT_MAX_SECONDS)) {
+      throw new Error(`The lead re-apply wait must be whole seconds, 0 to ${LEAD_REAPPLY_WAIT_MAX_SECONDS}`);
+    }
+    this.waitSeconds = wait;
+  }
 
   /** The applicant's newest application, or null. */
   async mine(principal: Principal): Promise<MyLeadApplication | null> {
     const [row] = await this.deps.sql<ApplicationRow[]>`
       SELECT * FROM trade.copy_lead_applications WHERE user_id = ${principal.userId} ORDER BY created_at DESC, id DESC LIMIT 1`;
-    return row ? mine(row) : null;
+    return row ? mine(row, this.waitSeconds) : null;
   }
 
   /**
    * Apply to lead. An open application answers itself when the name is the same and refuses when it is not; an
-   * approved one refuses; after a rejection a new application waits on the owner's re-apply wait, which is unset.
+   * approved one refuses; after a rejection a new application waits on the owner's re-apply wait from the decision:
+   * unset refuses `trade.copy_lead_reapply_wait_unset`, still running refuses `trade.copy_lead_reapply_wait`.
    */
   async apply(principal: Principal, input: { displayName: string }): Promise<MyLeadApplication> {
     const displayName = displayNameOf(input.displayName);
@@ -197,22 +238,27 @@ export class LeadDesk {
         if (latest.display_name !== displayName) {
           throw new CopyError('An application is already waiting under another name', 'trade.copy_lead_application_open');
         }
-        return mine(latest);
+        return mine(latest, this.waitSeconds);
       }
       if (latest?.status === 'approved') throw new CopyError('You already lead', 'trade.copy_lead_already_leading');
       // A person already in the leader directory (listed, suspended or delisted there) is not listed again by an
       // application: an approval would overwrite that record and could undo a suspension.
       if (await this.inDirectory(tx, userId)) throw new CopyError('You already lead', 'trade.copy_lead_already_leading');
-      // How long a rejected person waits before applying again is the owner's to set, and it is not set: blank refuses.
-      if (latest?.status === 'rejected') {
-        throw new CopyError('The wait before applying again is not set by the platform', 'trade.copy_lead_reapply_wait_unset');
-      }
       const now = this.deps.now();
+      // How long a rejected person waits before applying again is the owner's to set: blank refuses, and so does a
+      // wait that has not yet passed since the decision.
+      if (latest?.status === 'rejected') {
+        const opens = reapplyAt(latest, this.waitSeconds);
+        if (!opens) throw new CopyError('The wait before applying again is not set by the platform', 'trade.copy_lead_reapply_wait_unset');
+        if (now.getTime() < opens.getTime()) {
+          throw new CopyError(`You may apply again after ${opens.toISOString()}`, 'trade.copy_lead_reapply_wait');
+        }
+      }
       const [row] = await tx<ApplicationRow[]>`
         INSERT INTO trade.copy_lead_applications (id, user_id, display_name, status, created_at, updated_at)
         VALUES (${randomUUID()}, ${userId}, ${displayName}, 'pending', ${now.toISOString()}, ${now.toISOString()})
         RETURNING *`;
-      return mine(row!);
+      return mine(row!, this.waitSeconds);
     });
   }
 

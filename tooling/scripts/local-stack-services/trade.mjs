@@ -131,6 +131,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
       process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION === 'blank' ? '' : testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
+    TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
     // (trade.bots_verification_level_not_set, algo/bots-verification.ts), which a unit test keeps proving.
     // `LOCAL_STACK_TRADE_BOTS_LEVEL=blank` on a restart leaves it blank, so J-copy-bots-otc-14 #2 sees every bot refused.

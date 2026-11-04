@@ -11,7 +11,7 @@ import { ALICE, BOB, openTradeDatabase } from '../spot/__tests__/saga-trade-fixt
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { sqlLeaderDirectory } from './leader-directory.js';
-import { COPY_LEAD_APPROVE_ACTION, LeadDesk, leadApprovalPayload } from './lead-applications.js';
+import { COPY_LEAD_APPROVE_ACTION, LeadDesk, leadApprovalPayload, parseLeadReapplyWait } from './lead-applications.js';
 
 const FOUNDER_A = '33333333-3333-4333-8333-333333333333';
 const FOUNDER_B = '44444444-4444-4444-8444-444444444444';
@@ -42,10 +42,10 @@ beforeEach(async () => {
 let tick = Date.parse('2026-10-29T00:00:00.000Z');
 const now = () => new Date((tick += 1_000));
 
-function harness() {
+function harness(reapplyWaitSeconds: number | null = null) {
   const approvals = new MemoryApprovalBook();
   const directory = sqlLeaderDirectory(sql(), { now, feeShareLaw: { published: false } });
-  return { approvals, desk: new LeadDesk({ sql: sql(), approvals, directory, now }) };
+  return { approvals, desk: new LeadDesk({ sql: sql(), approvals, directory, now, reapplyWaitSeconds }) };
 }
 
 /** Founder A files identity's approval and records it; founder B approves it there. */
@@ -284,7 +284,48 @@ describe('lead applications', () => {
     await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead a' })).rejects.toMatchObject({
       code: 'trade.copy_lead_reapply_wait_unset',
     });
-    expect(await desk.mine(customer(ALICE))).toMatchObject({ applicationId: a.applicationId, state: 'disapproved' });
+    expect(await desk.mine(customer(ALICE))).toMatchObject({ applicationId: a.applicationId, state: 'disapproved', reapplyAfter: null });
+  });
+
+  it("with the owner's wait set: applying again is refused until the wait has passed from the decision, then is a new application", async () => {
+    const { desk } = harness(30);
+    const a = await desk.apply(customer(ALICE), { displayName: 'TEST lead a' });
+    await desk.reject(founder(FOUNDER_A), { applicationId: a.applicationId, reason: 'TEST: track record too short' });
+    const [decision] = (await desk.audit(reader())).filter((r) => r.key === `copy.ops.decide:${a.applicationId}:reject`);
+    const decided = await desk.mine(customer(ALICE));
+    // The applicant reads the reason and the time the wait ends: the decision plus the owner's 30 seconds.
+    expect(decided).toMatchObject({ state: 'disapproved', reason: 'TEST: track record too short' });
+    expect(Date.parse(decided!.reapplyAfter!) - Date.parse(decision!.at)).toBe(30_000);
+    // Inside the wait: refused by the wait's code, naming when it ends, and nothing is written.
+    await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead a again' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_reapply_wait',
+      message: `You may apply again after ${decided!.reapplyAfter}`,
+    });
+    expect(await desk.mine(customer(ALICE))).toEqual(decided);
+    expect((await desk.queue(reader())).applications).toEqual([]);
+    // The clock reaches the end of the wait: a new application, waiting in the queue; the rejected one keeps its reason.
+    tick = Date.parse(decided!.reapplyAfter!) - 1_000;
+    const again = await desk.apply(customer(ALICE), { displayName: 'TEST lead a again' });
+    expect(again).toMatchObject({ state: 'submitted', displayName: 'TEST lead a again', reason: null, reapplyAfter: null });
+    expect(again.applicationId).not.toBe(a.applicationId);
+    expect((await desk.queue(reader())).applications.map((x) => [x.id, x.status])).toEqual([[again.applicationId, 'pending']]);
+    // The same submit again answers the open application; it is not a third row.
+    expect(await desk.apply(customer(ALICE), { displayName: 'TEST lead a again' })).toEqual(again);
+    const rows = await sql()<Array<{ status: string; reason: string | null }>>`
+      SELECT status, reason FROM trade.copy_lead_applications WHERE user_id = ${ALICE} ORDER BY created_at`;
+    expect(rows).toEqual([
+      { status: 'rejected', reason: 'TEST: track record too short' },
+      { status: 'pending', reason: null },
+    ]);
+  });
+
+  it("reads the owner's wait: blank is unset, whole seconds up to a year are set, anything else stops the boot", () => {
+    expect(parseLeadReapplyWait(undefined)).toBeNull();
+    expect(parseLeadReapplyWait('  ')).toBeNull();
+    expect(parseLeadReapplyWait('0')).toBe(0);
+    expect(parseLeadReapplyWait('604800')).toBe(604_800);
+    for (const bad of ['-1', '1.5', '7d', String(366 * 24 * 60 * 60 + 1)]) expect(() => parseLeadReapplyWait(bad)).toThrow();
+    expect(() => harness(-5)).toThrow();
   });
 
   it('refuses an unknown application id by name', async () => {

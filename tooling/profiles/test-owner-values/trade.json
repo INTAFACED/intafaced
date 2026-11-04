@@ -66,6 +66,11 @@
       "value": "full",
       "note": "TEST verification level for copying: full, the level the journeys verify to, so an unverified account is refused."
     },
+    "TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS": {
+      "service": "trade",
+      "value": "45",
+      "note": "TEST wait of 45 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
+    },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",

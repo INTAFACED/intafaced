@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState, signOutBrowser } from './stack.mjs';
@@ -13,6 +14,12 @@ import { tableIn, bodyRows } from './tables.mjs';
 const J = 'J-copy-bots-otc-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
+/** The owner's wait before a rejected applicant may apply again, as the stack's TEST profile sets it, in milliseconds. */
+const REAPPLY_WAIT_MS =
+  Number(
+    JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8')).values
+      .TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value,
+  ) * 1000;
 
 test.describe.configure({ mode: 'default' });
 
@@ -174,7 +181,9 @@ async function mineOf(who) {
   return res.body?.result?.data ?? null;
 }
 
-test(`${J} #4 rejects with a reason: the applicant sees it, and applying again is refused by the wait's code`, async ({ page }) => {
+test(`${J} #4 rejects with a reason: the applicant sees it and when the owner's wait ends; applying inside the wait is refused`, async ({
+  page,
+}) => {
   await openDesk(page);
   const waiting = applicationOf(await readDesk(page), state('reject'));
   expect(waiting?.status, 'the second applicant waits in the queue').toBe('pending');
@@ -192,35 +201,58 @@ test(`${J} #4 rejects with a reason: the applicant sees it, and applying again i
   // once, under the decision's business key, with the reason.
   const desk = await readDesk(page);
   expect(applicationOf(desk, state('reject'))).toBeUndefined();
-  expect(desk.audit.filter((r) => r.key === `copy.ops.decide:${waiting.id}:reject`)).toEqual([
-    expect.objectContaining({ action: 'copy_lead.reject', subject: waiting.id, reason }),
-  ]);
+  const decision = desk.audit.filter((r) => r.key === `copy.ops.decide:${waiting.id}:reject`);
+  expect(decision).toEqual([expect.objectContaining({ action: 'copy_lead.reject', subject: waiting.id, reason })]);
   await signOutBrowser(page.context());
 
-  // The applicant's application is disapproved with that reason, read from svc-trade, and the room shows it.
+  // The applicant's application is disapproved with that reason, read from svc-trade, and may be resubmitted once the
+  // owner's wait (the stack's TEST value) has passed from the decision.
   const rejectWho = state('rejectWho');
   const decided = await mineOf(rejectWho);
   expect(decided).toMatchObject({ applicationId: waiting.id, state: 'disapproved', reason });
+  expect(Date.parse(decided.reapplyAfter) - Date.parse(decision[0].at), "the wait runs from the decision for the owner's wait").toBe(
+    REAPPLY_WAIT_MS,
+  );
+  run.write({ rejectedId: waiting.id, reapplyAfter: decided.reapplyAfter });
   await signIn(page, rejectWho);
   await page.goto('/copy/lead/apply');
   await expect(page.getByText(reason)).toBeVisible();
-  await expect(page.getByText('waits on a waiting period the platform has not set')).toBeVisible();
-  // svc-trade refuses a new application by the wait's code, and the record is re-read unchanged: no second row.
+  await expect(page.getByText('You may apply again after')).toBeVisible();
+  await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
+  // Inside the wait the room offers no application, and svc-trade refuses one by the wait's code: no second row.
+  expect(Date.now(), 'this check runs inside the wait').toBeLessThan(Date.parse(decided.reapplyAfter));
+  await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
   const applicant = await api(rejectWho);
   const again = await applicant.post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
-  expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait_unset');
+  expect(codeOf(again.body), JSON.stringify(again.body).slice(0, 300)).toBe('trade.copy_lead_reapply_wait');
   expect(await mineOf(rejectWho)).toEqual(decided);
 });
 
-test(`${J} #4 may apply again after the owner's wait`, async () => {
-  // The wait before a rejected applicant may apply again is the owner's (CB-copy-12), and svc-trade has no setting for
-  // it yet, so every re-application is refused by the unset code. Only this clause is red, on svc-trade's own answer.
+test(`${J} #4 may resubmit after the owner's wait: the room opens the application again and it waits in the queue`, async ({ page }) => {
+  test.setTimeout(REAPPLY_WAIT_MS + 120_000);
   const rejectWho = state('rejectWho');
-  const again = await (await api(rejectWho)).post('/api/trade/trpc/copy.applyToLead', { displayName: `${state('reject')} again` });
-  expect(
-    again.body?.result?.data?.state,
-    `UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered ${codeOf(again.body)}`,
-  ).toBe('submitted');
+  const reapplyAfter = state('reapplyAfter');
+  // The real clock runs out the owner's wait.
+  const left = Date.parse(reapplyAfter) - Date.now();
+  if (left > 0) await page.waitForTimeout(left + 1_000);
+  await signIn(page, rejectWho);
+  await page.goto('/copy/lead/apply');
+  await expect(page.getByText(`TEST: track record too short ${state('tag')}`)).toBeVisible();
+  await expect(page.getByText('The waiting period has ended')).toBeVisible();
+  const name = `${state('reject')} again`;
+  await page.getByRole('textbox', { name: 'Display name' }).fill(name);
+  await page.getByRole('button', { name: 'Apply to lead' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Application sent' })).toBeVisible();
+  // svc-trade holds a new application under the new name, separate from the rejected one.
+  const resubmitted = await mineOf(rejectWho);
+  expect(resubmitted).toMatchObject({ state: 'submitted', displayName: name, reason: null, reapplyAfter: null });
+  expect(resubmitted.applicationId).not.toBe(state('rejectedId'));
+  await signOutBrowser(page.context());
+  // The founders see it waiting in their queue, once.
+  await openDesk(page);
+  const queued = (await readDesk(page)).queue.applications.filter((a) => a.displayName === name);
+  expect(queued.map((a) => [a.id, a.status])).toEqual([[resubmitted.applicationId, 'pending']]);
+  await expect(rowOf(queue(page), name)).toHaveCount(1);
 });
 
 test(`${J} #5 suspends a lead: the state changes once, with an audit row showing the reason`, async ({ page }) => {
