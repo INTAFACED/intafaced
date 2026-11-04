@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { checkAmount, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type SpaceRow } from './send-model';
+import {
+  checkAmount,
+  handleSkeleton,
+  lookalikeOf,
+  parseAccountId,
+  rememberRecipient,
+  sentBefore,
+  sourcesFrom,
+  type SpaceRow,
+} from './send-model';
 
 const ID = '1F985D42-852D-4B50-A4D9-BDFA0384027C';
 const space = (over: Partial<SpaceRow>): SpaceRow => ({
@@ -50,6 +59,49 @@ describe('sourcesFrom', () => {
       ['p', null],
       ['n', 'Holiday'],
     ]);
+  });
+  it('keeps every space’s own name for the From line, the main one included', () => {
+    const rows = sourcesFrom([space({ id: 'n', kind: 'named', name: 'Holiday' }), space({ id: 'p', assetId: 'USDT' })], now);
+    expect(rows.map((row) => row.space)).toEqual(['Main', 'Holiday']);
+  });
+  it('lists stablecoins first, even before another asset’s main space (J-pay-01 #3)', () => {
+    const rows = sourcesFrom(
+      [
+        space({ id: 'btc', assetId: 'BTC', balance: '0.01' }),
+        space({ id: 'usd', assetId: 'USD' }),
+        space({ id: 'usdc', assetId: 'USDC', kind: 'named', name: 'Rent' }),
+        space({ id: 'usdt', assetId: 'USDT' }),
+        space({ id: 'aave', assetId: 'AAVE' }),
+      ],
+      now,
+    );
+    expect(rows.map((row) => row.id)).toEqual(['usdt', 'usdc', 'usd', 'aave', 'btc']);
+  });
+});
+
+describe('lookalikeOf', () => {
+  const saved = ['Cleo_Pay', 'maya_test', 'bob'];
+  it('names the saved recipient a handle imitates: misread characters, case and underscores', () => {
+    expect(lookalikeOf('c1eo_pay', saved)).toBe('Cleo_Pay');
+    expect(lookalikeOf('CleoPay', saved)).toBe('Cleo_Pay');
+    expect(lookalikeOf('rnaya_test', saved)).toBe('maya_test');
+    expect(lookalikeOf('maya_te5t', saved)).toBe('maya_test');
+    expect(lookalikeOf('b0b', saved)).toBe('bob');
+  });
+  it('catches one typo from a saved handle of five or more characters', () => {
+    expect(lookalikeOf('maya_tset', saved)).toBe('maya_test');
+    expect(lookalikeOf('maya_tes', saved)).toBe('maya_test');
+    expect(lookalikeOf('maya_testt', saved)).toBe('maya_test');
+    expect(lookalikeOf('bobb', saved)).toBeNull();
+  });
+  it('never flags the saved recipient itself, or a handle that only shares a little', () => {
+    expect(lookalikeOf('@CLEO_PAY', saved)).toBeNull();
+    expect(lookalikeOf('maya_tea_x', saved)).toBeNull();
+    expect(lookalikeOf('someone_else', saved)).toBeNull();
+    expect(lookalikeOf('cleo_pay', [])).toBeNull();
+  });
+  it('reads a handle the way a glance does', () => {
+    expect(handleSkeleton('@Vv_1i0')).toBe('wllo');
   });
 });
 

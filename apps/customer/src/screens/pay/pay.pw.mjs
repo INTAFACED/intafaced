@@ -116,7 +116,9 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page).getByRole('heading')).toHaveText('Send 1 USDT to @maya_test?');
   await expect(dialog(page)).toContainText('It arrives instantly and can’t be undone.');
-  await expect(page.getByTestId('pay-first-time')).toHaveText('You haven’t sent to @maya_test before. Check the handle with them.');
+  await expect(page.getByTestId('pay-first-time')).toHaveText(
+    'You haven’t sent to @maya_test before. Check the handle with them. We never send a test payment for you: only the amount you confirm here moves.',
+  );
   expect(api.to('transfers.toUser')).toHaveLength(0);
   await shotBoth(page, 'send-review');
   await sendButton(page).click();
@@ -214,7 +216,7 @@ test('rate limited and failed lookups say so in plain words', async ({ page }) =
   await open(page);
   await to(page).fill('maya_test');
   await to(page).blur();
-  await expect(page.getByTestId('to-status')).toContainText('You’ve checked a lot of handles. Wait a minute, then try again.');
+  await expect(page.getByTestId('to-status')).toContainText('Too many lookups. Wait a minute, then try again.');
   await shotBoth(page, 'send-rate-limited');
   mode = 'fail';
   await to(page).fill('maya_tes');
@@ -274,7 +276,9 @@ test('fallback: a server without handles gets the Account ID input, and it still
   await review(page).click();
   await expect(dialog(page).getByRole('heading')).toHaveText('Send 1 USDT to this account?');
   await expect(dialog(page)).toContainText(MAYA.userId);
-  await expect(page.getByTestId('pay-first-time')).toHaveText('You haven’t sent to this account before. Check the Account ID with them.');
+  await expect(page.getByTestId('pay-first-time')).toHaveText(
+    'You haven’t sent to this account before. Check the Account ID with them. We never send a test payment for you: only the amount you confirm here moves.',
+  );
   await sendButton(page).click();
   await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 1 USDT');
   expect(api.to('users.resolveHandle')).toHaveLength(0);

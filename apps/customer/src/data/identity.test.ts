@@ -50,8 +50,30 @@ describe('fetchMe', () => {
 describe('resolveHandle', () => {
   it('asks for the exact handle without the @', async () => {
     const { api, urls } = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false }));
-    expect(await resolveHandle(api, '@luffy2')).toEqual({ kind: 'found', userId: ID, handle: 'Luffy2', self: false });
+    expect(await resolveHandle(api, '@luffy2')).toEqual({
+      kind: 'found',
+      userId: ID,
+      handle: 'Luffy2',
+      self: false,
+      name: undefined,
+      memberSince: null,
+    });
     expect(decodeURIComponent(urls[0]!)).toBe('/api/identity/trpc/users.resolveHandle?input={"handle":"luffy2"}');
+  });
+  it('carries the name they chose and the month they joined (J-pay-01 #2), and drops a blank name', async () => {
+    const named = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: ' Monkey ', memberSince: '2026-03' }));
+    expect(await resolveHandle(named.api, 'luffy2')).toEqual({
+      kind: 'found',
+      userId: ID,
+      handle: 'Luffy2',
+      self: false,
+      name: 'Monkey',
+      memberSince: '2026-03',
+    });
+    const blank = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: '  ', memberSince: '2026-03' }));
+    expect(await resolveHandle(blank.api, 'luffy2')).toMatchObject({ name: null });
+    const odd = client(() => trpc({ found: true, userId: ID, handle: 'Luffy2', self: false, name: 'x', memberSince: 'March' }));
+    expect(await resolveHandle(odd.api, 'luffy2')).toEqual({ kind: 'failed' });
   });
   it('reports yourself so the screen can refuse', async () => {
     const { api } = client(() => trpc({ found: true, userId: ID, handle: 'test_friend', self: true }));

@@ -17,10 +17,14 @@ export interface Source {
   asset: string;
   /** The space's own name, shown only for a named space. */
   name: string | null;
+  /** The space's name as the bank keeps it ("Main" for the main space), for "From" lines. */
+  space: string;
   balance: string;
 }
 
-const DOLLAR_COINS = ['USDT', 'USDC', 'USD'];
+/** Stablecoins come first in the picker (J-pay-01 #3), then the dollar itself, then everything else. */
+const STABLECOINS = ['USDT', 'USDC'];
+const assetRank = (asset: string): number => (STABLECOINS.includes(asset) ? 0 : asset === 'USD' ? 1 : 2);
 
 export interface SpaceRow {
   id: string;
@@ -32,8 +36,9 @@ export interface SpaceRow {
 }
 
 /**
- * Held assets with something to send: balance above zero and not time-locked. The main space of an asset comes first,
- * dollar coins before the rest, then by ticker. The first one is what the card starts on. A named space keeps its name so two holdings of one asset can be told apart.
+ * Held assets with something to send: balance above zero and not time-locked. Stablecoins come first, then the dollar,
+ * then the rest; within each, a main space before a named one, then by ticker. The first one is what the card starts on.
+ * A named space keeps its name so two holdings of one asset can be told apart.
  */
 export function sourcesFrom(spaces: readonly SpaceRow[], nowMs: number): Source[] {
   return spaces
@@ -48,11 +53,77 @@ export function sourcesFrom(spaces: readonly SpaceRow[], nowMs: number): Source[
     })
     .sort(
       (a, b) =>
+        assetRank(a.assetId) - assetRank(b.assetId) ||
         Number(b.kind === 'primary') - Number(a.kind === 'primary') ||
-        Number(DOLLAR_COINS.includes(b.assetId)) - Number(DOLLAR_COINS.includes(a.assetId)) ||
         a.assetId.localeCompare(b.assetId),
     )
-    .map((space) => ({ id: space.id, asset: space.assetId, name: space.kind === 'named' ? space.name : null, balance: space.balance }));
+    .map((space) => ({
+      id: space.id,
+      asset: space.assetId,
+      name: space.kind === 'named' ? space.name : null,
+      space: space.name,
+      balance: space.balance,
+    }));
+}
+
+/** How many saved recipients Send reads (the most `identity.recipients.list` answers in one page). */
+export const SAVED_PAGE = 100;
+
+// ── Look-alike handles (J-pay-01 #2) ────────────────────────────────────────────────────────────────────────────
+
+/** Characters people misread for one another in a handle: each is read as the letter it imitates. */
+const MISREAD: Record<string, string> = {
+  '0': 'o',
+  '1': 'l',
+  i: 'l',
+  '5': 's',
+  '2': 'z',
+  '8': 'b',
+  '3': 'e',
+  '4': 'a',
+  '6': 'g',
+  '9': 'g',
+  '7': 't',
+};
+
+/** What a handle looks like at a glance: case, underscores and misread characters (rn for m, vv for w) folded away. */
+export function handleSkeleton(handle: string): string {
+  return [...handle.toLowerCase().replace(/^@/, '').replace(/_/g, '').replace(/rn/g, 'm').replace(/vv/g, 'w')]
+    .map((char) => MISREAD[char] ?? char)
+    .join('');
+}
+
+/** Edits (insert, delete, change, or swap two neighbours) between two strings, stopping once it passes `cap`. */
+function editsWithin(a: string, b: string, cap: number): boolean {
+  if (Math.abs(a.length - b.length) > cap) return false;
+  const rows: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) rows[0]![j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) best = Math.min(best, rows[i - 2]![j - 2]! + 1);
+      rows[i]![j] = best;
+    }
+  }
+  return rows[a.length]![b.length]! <= cap;
+}
+
+/**
+ * The saved recipient a handle imitates, or null. The saved handle itself is never a look-alike of itself. A handle is
+ * flagged when it reads the same at a glance (`handleSkeleton`), or when it is one typo away from a saved one of five or
+ * more characters.
+ */
+export function lookalikeOf(handle: string, saved: readonly string[]): string | null {
+  const typed = handle.replace(/^@/, '').toLowerCase();
+  if (saved.some((row) => row.toLowerCase() === typed)) return null;
+  const shape = handleSkeleton(typed);
+  for (const row of saved) {
+    const theirs = row.toLowerCase();
+    if (handleSkeleton(theirs) === shape) return row;
+    if (typed.length >= 5 && theirs.length >= 5 && editsWithin(typed, theirs, 1)) return row;
+  }
+  return null;
 }
 
 export type AmountCheck = { kind: 'empty' } | { kind: 'zero' } | { kind: 'exceeds' } | { kind: 'ok' };

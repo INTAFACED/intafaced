@@ -2838,13 +2838,34 @@ export class AuthService {
    * same null: the caller must not learn which handles belong to restricted
    * accounts. Returns the stored handle and whether its owner lets people find
    * them by it (PP-send-request-03); the caller hides an undiscoverable one
-   * from everyone but its owner.
+   * from everyone but its owner. Also the name they chose for their profile
+   * (null when there is no profile row) and the month they joined, so the
+   * sender can check who they are about to pay (J-pay-01 #2).
    */
-  async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
-    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
-      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+  async findActiveByHandle(handle: string): Promise<{
+    userId: string;
+    handle: string;
+    discoverable: boolean;
+    name: string | null;
+    memberSince: string;
+  } | null> {
+    const rows = await this.sql<
+      Array<{ id: string; handle: string; handle_discoverable: boolean; display_name: string | null; member_since: string }>
+    >`
+      SELECT u.id, u.handle, u.handle_discoverable, p.display_name,
+             to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS member_since
+        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.handle = ${handle} AND u.status = 'active' LIMIT 1`;
     const row = rows[0];
-    return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
+    return row
+      ? {
+          userId: row.id,
+          handle: row.handle,
+          discoverable: row.handle_discoverable,
+          name: row.display_name,
+          memberSince: row.member_since,
+        }
+      : null;
   }
 
   /**

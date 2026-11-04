@@ -3,7 +3,9 @@
  *
  * Coded against backend PR #4688 (svc-identity), which adds two procedures:
  *   - `identity.me` -> `{ userId, handle }` (the caller's own, no input);
- *   - `identity.users.resolveHandle({ handle })` -> `{ found: true, userId, handle, self }` | `{ found: false }`.
+ *   - `identity.users.resolveHandle({ handle })` -> `{ found: true, userId, handle, self, name, memberSince }` | `{ found: false }`.
+ *     `name` is the name the person chose for their profile (null when none); `memberSince` is the month they joined
+ *     (`YYYY-MM`). A server older than that answer leaves both out, read here as null.
  *     Exact, case-insensitive match only. A caller who looks up too fast gets HTTP 429 with the code
  *     `identity.handle_lookup_rate_limited`; API keys get 403 (a browser session never does).
  *
@@ -28,7 +30,17 @@ export const meSchema = z.object({
 
 export const resolveHandleSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string().min(1), self: z.boolean() }),
+  z.object({
+    found: z.literal(true),
+    userId: z.string().guid(),
+    handle: z.string().min(1),
+    self: z.boolean(),
+    name: z.string().nullish(),
+    memberSince: z
+      .string()
+      .regex(/^\d{4}-\d{2}$/)
+      .nullish(),
+  }),
 ]);
 
 export type MeOutcome =
@@ -38,7 +50,8 @@ export type MeOutcome =
   | { kind: 'failed' };
 
 export type ResolveOutcome =
-  | { kind: 'found'; userId: string; handle: string; self: boolean }
+  /** `name` is undefined when the server does not answer names (older than J-pay-01 #2), null when they have none. */
+  | { kind: 'found'; userId: string; handle: string; self: boolean; name: string | null | undefined; memberSince: string | null }
   | { kind: 'notFound' }
   | { kind: 'rateLimited' }
   /** The server has no `resolveHandle` yet: fall back to the Account ID input. */
@@ -81,7 +94,30 @@ export async function resolveHandle(api: ApiClient, handle: string, signal?: Abo
   if (!result.data.found) return { kind: 'notFound' };
   // The answer must be about the handle we asked for. Anything else is a bad answer, not a person to pay.
   if (result.data.handle.toLowerCase() !== clean.toLowerCase()) return { kind: 'failed' };
-  return { kind: 'found', userId: result.data.userId, handle: result.data.handle, self: result.data.self };
+  const raw = result.data.name;
+  const name = raw === undefined ? undefined : raw?.trim() ? raw.trim() : null;
+  return {
+    kind: 'found',
+    userId: result.data.userId,
+    handle: result.data.handle,
+    self: result.data.self,
+    name,
+    memberSince: result.data.memberSince ?? null,
+  };
+}
+
+// ── Saved recipients (`identity.recipients.list`) ──────────────────────────────────────────────────────────────
+// The people the customer saved to pay again, by handle. Send checks a looked-up handle against them, so a look-alike of
+// someone saved is flagged before anything is sent (J-pay-01 #2).
+
+const savedRecipientsSchema = z.array(z.object({ handle: z.string().min(1), label: z.string(), addedAt: z.string() }));
+
+export type SavedRecipientsOutcome = { kind: 'ok'; handles: string[] } | { kind: 'failed' };
+
+/** The most recently saved recipients' handles, one page of 100. Any failure is `failed`: the screen says it could not check, never "none". */
+export async function fetchSavedRecipients(api: ApiClient, signal?: AbortSignal): Promise<SavedRecipientsOutcome> {
+  const result = await api.query('identity', 'recipients.list', { limit: 100 }, savedRecipientsSchema, { signal });
+  return result.ok ? { kind: 'ok', handles: result.data.map((row) => row.handle) } : { kind: 'failed' };
 }
 
 // ── Signed pay codes (PP-send-request-11) ───────────────────────────────────────────────────────────────────────
