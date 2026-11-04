@@ -88,7 +88,6 @@ const en = {
   page_Analytics: 'Analytics',
   parked_Analytics: 'This agent has never run, so it has no analytics. The analytics view is not built (AG-analytics-01).',
   page_Evaluations: 'Evaluations',
-  parked_Evaluations: 'Test sets and evaluation runs are not built (AG-testing-02), so this agent has no evaluations.',
   publishTitle: 'Publish',
   publish: 'Publish',
   publishParked: 'Nothing blocks this draft, but the publish flow is not built (AG-builder-03), so it stays a draft.',
@@ -277,8 +276,6 @@ const es = {
   parked_Analytics:
     'Este agente nunca se ha ejecutado, así que no tiene analítica. La vista de analítica no está construida (AG-analytics-01).',
   page_Evaluations: 'Evaluaciones',
-  parked_Evaluations:
-    'Los conjuntos de prueba y las evaluaciones no están construidos (AG-testing-02), así que este agente no tiene evaluaciones.',
   publishTitle: 'Publicar',
   publish: 'Publicar',
   publishParked:
@@ -473,7 +470,6 @@ const fr = {
   page_Analytics: 'Analyses',
   parked_Analytics: 'Cet agent n’a jamais tourné ; il n’a aucune analyse. La vue des analyses n’est pas construite (AG-analytics-01).',
   page_Evaluations: 'Évaluations',
-  parked_Evaluations: 'Les jeux de test et les évaluations ne sont pas construits (AG-testing-02) ; cet agent n’a aucune évaluation.',
   publishTitle: 'Publier',
   publish: 'Publier',
   publishParked:

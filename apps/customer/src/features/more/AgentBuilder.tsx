@@ -25,6 +25,7 @@ import {
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, TryTool } from './AgentGuardrails';
+import { EvaluationsPage } from './AgentEvaluations';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -494,11 +495,13 @@ export function OwnAgentPage({ id }: { id: string }) {
               <Runs agent={agent} />
             ) : page === 'Usage' ? (
               <Usage agent={agent} />
+            ) : page === 'Evaluations' ? (
+              <EvaluationsPage agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations'>}`,
                   )}
                 </p>
               </Panel>
