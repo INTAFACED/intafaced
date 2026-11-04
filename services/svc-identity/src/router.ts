@@ -554,7 +554,7 @@ export function toTrpcError(err: unknown): TRPCError {
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.email_confirm_invalid':
-      // Same sentence for a wrong, expired, spent, or rebound link.
+      // A wrong, rebound or code-spent link. An expired or used one is named apart (auth.email_confirm_expired, _used).
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.email_confirm_unwired':
       // No published lifetime, rate budget, interval, wrong-code limit or flow key.

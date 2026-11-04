@@ -148,7 +148,9 @@ export function VerifyEmail() {
       ) : (
         refusal && <Failure result={refusal} />
       )}
-      {sent && (
+      {/* The code field stays, so a code mailed before a reload or a later visit can still be typed; it goes only when
+          no mail can be sent at all. */}
+      {code !== 'vendor.email' && code !== 'auth.email_confirm_unwired' && (
         <form className="verify-email__code" onSubmit={(event) => void enter(event)}>
           <Field
             label={t('code')}

@@ -26,7 +26,6 @@ const messages = {
   screeningUnset:
     'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
   useEmail: 'Use email instead',
-  usePhone: 'Use phone instead',
   country: 'Country you live in',
   countryPick: 'Choose a country',
   nationality: 'Nationality (optional)',

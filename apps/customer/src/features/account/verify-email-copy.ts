@@ -21,7 +21,8 @@ const messages = {
   'auth.email_confirm_resend_too_soon': 'A confirmation email was sent a moment ago. You can ask for a new one in {seconds} s.',
   'auth.email_confirm_resend_too_soon_plain': 'A confirmation email was sent a moment ago. Wait a moment, then ask again.',
   'auth.email_confirm_code_invalid': 'That code is not right. Check the newest email and try again.',
-  'auth.email_confirm_code_locked': 'Too many wrong codes, so that code no longer works. Send a new one.',
+  'auth.email_confirm_code_locked':
+    'Too many wrong codes, so codes are not taken for now. Use the link in the newest email, or send a new one later.',
   'auth.email_confirm_expired': 'That code has run out. Send a new one.',
   'auth.email_confirm_used': 'That code was already used. Send a new one if your address still shows as unverified.',
   'vendor.email': 'Email delivery is switched off in this build, so a confirmation code cannot be sent. Your address stays unverified.',

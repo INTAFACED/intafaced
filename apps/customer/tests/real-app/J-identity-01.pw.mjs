@@ -339,7 +339,9 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
     });
     await expect(notice(page)).toContainText('vendor.email');
     await expect(page.getByRole('radio', { name: 'Email' })).toBeChecked();
-    await expect(notice(page).getByRole('button', { name: 'Use phone instead' })).toBeVisible();
+    await expect(notice(page)).toContainText('Nothing was switched to another channel: pick one yourself.');
+    await expect(page.getByRole('radio', { name: 'Phone' })).toBeEnabled();
+    await expect(page.getByRole('radio', { name: 'Phone' })).not.toBeChecked();
     await expect(page.getByLabel('Code from the email')).toHaveCount(0);
     expect(mailedCodes(offline.email)).toHaveLength(0);
     await noAccount(offline);

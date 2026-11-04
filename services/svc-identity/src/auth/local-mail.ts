@@ -40,7 +40,10 @@ export function openIdentityMail(input: IdentityMailBoot): PasswordResetMail | u
 
 type LocalMailMessage = Parameters<PasswordResetMail['send']>[0];
 
-/** One LOCAL-TEST line. `code` is the secret and is placed only in `link`. */
+/**
+ * One LOCAL-TEST line. `code` is the secret and is placed only in `link`; the confirmation mail's six-digit `pin` (also
+ * a secret) is its `code=` field, as the person would read it.
+ */
 export function localMailLine(message: LocalMailMessage): string {
   // The anti-phishing code goes on the end of the line it rides on; letters and digits only, by its own rule.
   const stamp = message.antiPhishingCode ? ` anti_phishing=${message.antiPhishingCode.replace(/[^A-Za-z0-9]/g, '')}` : '';

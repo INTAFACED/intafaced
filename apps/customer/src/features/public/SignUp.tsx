@@ -324,16 +324,18 @@ export function SignUp() {
         <div id={problemId} className="pub-notice" role="alert">
           <p>{problem}</p>
           {refusal?.code && refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
-          {/* A channel that cannot send is never swapped for another by itself: the person picks the other one. */}
-          {(code === 'vendor.sms' || code === 'vendor.email') && !pending && (
+          {/* A channel that cannot send is never swapped for another by itself: the person picks the other one. Email is
+              offered when phone fails; phone is not offered when email fails, since this build connects no text-message
+              provider, but its choice above stays open. */}
+          {code === 'vendor.sms' && !pending && (
             <Button
               variant="secondary"
               onClick={() => {
-                setChannel(code === 'vendor.sms' ? 'email' : 'phone');
+                setChannel('email');
                 setRefusal(null);
               }}
             >
-              {t(code === 'vendor.sms' ? 'useEmail' : 'usePhone')}
+              {t('useEmail')}
             </Button>
           )}
           {(code === 'identity.signup_code_used' || code === 'auth.email_taken') && (

@@ -481,7 +481,8 @@ if (!available) {
       expect(third).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_code_locked' });
       // Spent: the right code and the link are both refused, and nothing is confirmed.
       expect((await refusal(api.auth.confirmEmailCode({ code: pin }))).code).toBe('auth.email_confirm_code_locked');
-      expect((await refusal(api.auth.confirmEmail({ token: sent[0]!.code }))).code).toBe('auth.email_confirm_used');
+      // The link of a mail spent by wrong codes did not prove anything, so it is not called "used".
+      expect((await refusal(api.auth.confirmEmail({ token: sent[0]!.code }))).code).toBe('auth.email_confirm_invalid');
       expect(await verifiedAt(user.userId)).toBeNull();
 
       // A new mail: only its code counts, and once it runs out it is refused by name.
@@ -495,6 +496,37 @@ if (!available) {
         SELECT reason FROM email_confirmation_audit WHERE user_id = ${user.userId} AND event = 'refused' ORDER BY created_at
       `;
       expect(reasons.map((r) => r.reason)).toEqual(expect.arrayContaining(['wrong_code', 'code_locked', 'expired']));
+    });
+
+    it('takes the code of an earlier live mail, and holds every code once the account used its guesses, whatever mail', async () => {
+      const early = await register();
+      const earlyApi = await asUser(early.accessToken);
+      await earlyApi.auth.requestEmailConfirmation();
+      nowMs = T0 + RESEND * 1000;
+      await earlyApi.auth.requestEmailConfirmation();
+      // The first mail arrived first and is the one the person reads: its code works.
+      await expect(earlyApi.auth.confirmEmailCode({ code: sent[0]!.pin! })).resolves.toEqual({ confirmed: true });
+      expect(await verifiedAt(early.userId)).not.toBeNull();
+
+      nowMs = T0;
+      sent.length = 0;
+      const guesser = await register();
+      const api = await asUser(guesser.accessToken);
+      await api.auth.requestEmailConfirmation();
+      const wrong = (pin: string) => (pin === '000000' ? '111111' : '000000');
+      await refusal(api.auth.confirmEmailCode({ code: wrong(sent[0]!.pin!) }));
+      await refusal(api.auth.confirmEmailCode({ code: wrong(sent[0]!.pin!) }));
+      // A new mail does not give the account new guesses.
+      nowMs = T0 + RESEND * 1000;
+      await api.auth.requestEmailConfirmation();
+      const pin = sent[1]!.pin!;
+      await refusal(api.auth.confirmEmailCode({ code: wrong(pin) }));
+      const held = await refusal(api.auth.confirmEmailCode({ code: pin }));
+      expect(held).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_code_locked', retryAfterSeconds: 3600 - RESEND });
+      expect(await verifiedAt(guesser.userId)).toBeNull();
+      // The newest mail's link still proves the address while codes are held.
+      await api.auth.confirmEmail({ token: sent[1]!.code });
+      expect(await verifiedAt(guesser.userId)).not.toBeNull();
     });
 
     it('refuses an API key', async () => {

@@ -120,6 +120,20 @@ type ProofRow = {
 
 type PinRow = ProofRow & { pin_hash: string | null; pin_attempts: number };
 
+/**
+ * Why a spent proof is spent, read from the account as it is now. Its address is no longer the account's: `mismatch`
+ * (an email change spends open proofs). The address is the account's but unverified: the proof did not prove it, so
+ * wrong codes spent it (`code_locked`). Otherwise it did its work: `reused`.
+ */
+async function spentReason(tx: Sql, proof: ProofRow): Promise<'mismatch' | 'code_locked' | 'reused'> {
+  const owner = await tx<Array<{ email: string; email_verified_at: Date | string | null }>>`
+    SELECT email::text AS email, email_verified_at FROM users WHERE id = ${proof.user_id}
+  `;
+  const account = owner[0];
+  if (!account || !hashesEqual(proof.email_hash, hashToken(normalizeConfirmEmail(account.email)))) return 'mismatch';
+  return isEmailConfirmed(account) ? 'reused' : 'code_locked';
+}
+
 function instant(value: Date | string): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
@@ -269,14 +283,12 @@ export async function confirmEmail(deps: EmailConfirmDeps, input: { token: strin
         return { reason: 'unknown' as const, userId: null };
       }
       if (proof.consumed_at) {
-        // A link spent because the address changed since is not "used": it is for an address this account no longer has.
-        const owner = await tx<Array<{ email: string }>>`SELECT email::text AS email FROM users WHERE id = ${proof.user_id}`;
-        const sameAddress = !!owner[0] && hashesEqual(proof.email_hash, hashToken(normalizeConfirmEmail(owner[0].email)));
+        const spent = await spentReason(tx, proof);
         await tx`
           INSERT INTO email_confirmation_audit (user_id, event, reason, created_at)
-          VALUES (${proof.user_id}, 'refused', ${sameAddress ? 'reused' : 'mismatch'}, ${deps.now()})
+          VALUES (${proof.user_id}, 'refused', ${spent}, ${deps.now()})
         `;
-        return { reason: sameAddress ? ('reused' as const) : ('mismatch' as const), userId: proof.user_id };
+        return { reason: spent, userId: proof.user_id };
       }
       if (!(instant(proof.expires_at) > deps.now().getTime())) {
         await tx`
@@ -316,6 +328,7 @@ export async function confirmEmail(deps: EmailConfirmDeps, input: { token: strin
   );
 
   if (result.reason === 'expired') throw new AuthError(EXPIRED, 'auth.email_confirm_expired');
+  // "Used" only when it did its work: the address it was for is the account's and is verified.
   if (result.reason === 'reused') throw new AuthError(USED, 'auth.email_confirm_used');
   if (result.reason !== 'confirmed' || !result.userId) {
     throw new AuthError(INVALID, 'auth.email_confirm_invalid');
@@ -324,85 +337,113 @@ export async function confirmEmail(deps: EmailConfirmDeps, input: { token: strin
 }
 
 /**
- * The six-digit code from the newest confirmation mail, typed by the signed-in person on Account. Only the newest proof
- * counts. A wrong code is counted; at the owner's limit the proof is spent and a new one must be sent. A code that ran
- * out or was already used is refused by name.
+ * The six-digit code from a confirmation mail, typed by the signed-in person on Account. Any live code of the account
+ * counts (a slow first mail still works after a second was sent). Wrong codes are counted twice over: per mailed code,
+ * where the owner's limit spends that mail (code and link), and per account across all mails inside the owner's rate
+ * window, where the same limit holds every code until enough guesses leave the window. So a new mail never resets the
+ * guessing budget. A code that ran out is refused by name; the mail's link keeps working while codes are held.
  */
 export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: string; code: string }): Promise<{ userId: string }> {
   assertWired(deps);
   const maxAttempts = publishedEmailConfirmCodeAttempts(deps.codeMaxAttempts)!;
+  const rate = publishedEmailConfirmRate(deps.rateMax, deps.rateWindowSeconds)!;
   const subjectKey = deps.subjectKey!;
   const code = input.code.trim();
   const now = deps.now();
+  const since = new Date(now.getTime() - rate.windowSeconds * 1000);
 
+  type Outcome =
+    { kind: 'confirmed' | 'already' | 'unknown' | 'expired' | 'used' | 'locked' | 'wrong' } | { kind: 'held'; retryAfterSeconds: number };
   const result = await transaction(
     deps.sql,
-    async (tx) => {
+    async (tx): Promise<Outcome> => {
       const users = await tx<Array<{ id: string; status: string; email: string; email_verified_at: Date | string | null }>>`
         SELECT id, status, email::text AS email, email_verified_at FROM users WHERE id = ${input.userId} FOR UPDATE
       `;
       const user = users[0];
-      if (!user || user.status !== 'active') return 'unknown' as const;
-      if (isEmailConfirmed(user)) return 'already' as const;
+      if (!user || user.status !== 'active') return { kind: 'unknown' };
+      if (isEmailConfirmed(user)) return { kind: 'already' };
       const proofs = await tx<PinRow[]>`
         SELECT id, user_id, code_hash, email_hash, consumed_at, expires_at, pin_hash, pin_attempts
         FROM email_confirmation_proofs
         WHERE user_id = ${user.id}
         ORDER BY created_at DESC, id DESC
-        LIMIT 1
+        LIMIT 20
         FOR UPDATE
       `;
-      const proof = proofs[0];
       const audit = (event: string, reason: string) => tx`
         INSERT INTO email_confirmation_audit (user_id, event, reason, created_at) VALUES (${user.id}, ${event}, ${reason}, ${now})
       `;
-      if (!proof?.pin_hash) {
+      const live = proofs.filter((p) => p.pin_hash && !p.consumed_at && instant(p.expires_at) > now.getTime());
+      if (live.length === 0) {
         hashesEqual(DUMMY_HASH, pinHash(subjectKey, DUMMY_HASH, code));
-        return 'unknown' as const;
-      }
-      if (proof.consumed_at) {
-        const locked = proof.pin_attempts >= maxAttempts;
-        await audit('refused', locked ? 'code_locked' : 'reused');
-        return locked ? ('locked' as const) : ('reused' as const);
-      }
-      if (!(instant(proof.expires_at) > now.getTime())) {
+        const newest = proofs[0];
+        if (!newest?.pin_hash) return { kind: 'unknown' };
+        if (newest.consumed_at) {
+          // The account is unverified here, so a spent mail was spent by wrong codes or by an address change.
+          const spent = await spentReason(tx, newest);
+          await audit('refused', spent);
+          return { kind: spent === 'code_locked' ? 'locked' : spent === 'reused' ? 'used' : 'unknown' };
+        }
         await audit('refused', 'expired');
-        return 'expired' as const;
+        return { kind: 'expired' };
       }
-      if (!hashesEqual(proof.pin_hash, pinHash(subjectKey, proof.code_hash, code))) {
-        const attempts = proof.pin_attempts + 1;
+
+      // The account's guesses inside the window: at the limit every code is held, whichever mail it came from.
+      const guessed = await tx<Array<{ created_at: Date | string }>>`
+        SELECT created_at FROM email_confirmation_audit
+        WHERE user_id = ${user.id} AND event = 'refused' AND reason = 'wrong_code' AND created_at > ${since}
+        ORDER BY created_at
+      `;
+      if (guessed.length >= maxAttempts) {
+        const freeing = instant(guessed[guessed.length - maxAttempts]!.created_at) + rate.windowSeconds * 1000;
+        return { kind: 'held', retryAfterSeconds: Math.max(1, Math.ceil((freeing - now.getTime()) / 1000)) };
+      }
+
+      // Every live code is compared, so the time taken does not say which mail matched.
+      let match: PinRow | undefined;
+      for (const proof of live) {
+        if (hashesEqual(proof.pin_hash!, pinHash(subjectKey, proof.code_hash, code)) && !match) match = proof;
+      }
+      if (!match) {
+        const newest = live[0]!;
+        const attempts = newest.pin_attempts + 1;
         const dead = attempts >= maxAttempts;
-        // At the limit the proof is spent: neither its code nor its link confirms any more.
+        // At the limit the newest mail is spent: neither its code nor its link confirms any more.
         await tx`
           UPDATE email_confirmation_proofs
           SET pin_attempts = ${attempts}, consumed_at = ${dead ? now : null}
-          WHERE id = ${proof.id}
+          WHERE id = ${newest.id}
         `;
-        await audit('refused', dead ? 'code_locked' : 'wrong_code');
-        return dead ? ('locked' as const) : ('wrong' as const);
+        await audit('refused', 'wrong_code');
+        return { kind: dead ? 'locked' : 'wrong' };
       }
-      await tx`UPDATE email_confirmation_proofs SET consumed_at = ${now} WHERE id = ${proof.id} AND consumed_at IS NULL`;
-      if (!hashesEqual(proof.email_hash, hashToken(normalizeConfirmEmail(user.email)))) {
+      await tx`UPDATE email_confirmation_proofs SET consumed_at = ${now} WHERE id = ${match.id} AND consumed_at IS NULL`;
+      if (!hashesEqual(match.email_hash, hashToken(normalizeConfirmEmail(user.email)))) {
         await audit('refused', 'mismatch');
-        return 'mismatch' as const;
+        return { kind: 'unknown' };
       }
       await tx`UPDATE users SET email_verified_at = ${now}, updated_at = now() WHERE id = ${user.id}`;
       await audit('confirmed', 'confirmed_code');
-      return 'confirmed' as const;
+      return { kind: 'confirmed' };
     },
     { isolation: 'read committed' },
   );
 
-  switch (result) {
+  switch (result.kind) {
     case 'confirmed':
     case 'already':
       return { userId: input.userId };
     case 'expired':
       throw new AuthError(EXPIRED, 'auth.email_confirm_expired');
-    case 'reused':
+    case 'used':
       throw new AuthError(USED, 'auth.email_confirm_used');
     case 'locked':
       throw new AuthError('Too many wrong codes. Send a new code.', 'auth.email_confirm_code_locked');
+    case 'held':
+      throw new AuthError('Too many wrong codes. Use the link in the email, or try a code again later.', 'auth.email_confirm_code_locked', {
+        retryAfterSeconds: result.retryAfterSeconds,
+      });
     case 'wrong':
       throw new AuthError('That code is not right. Check the newest email.', 'auth.email_confirm_code_invalid');
     default:
