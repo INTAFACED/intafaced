@@ -4,6 +4,7 @@
  * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI with no tools. The seal (review-marker.mjs
  * ciReviewVerdict) accepts only this job's `Verdict` step passing on the exact head, in a pull_request_target run.
  *
+ *   node tooling/ci/ci-review.mjs index     <out dir>   the head's tree sha, as the name of this run's tree-index artifact
  *   node tooling/ci/ci-review.mjs diff      <out dir>   the head's diff from the API, and the prompt around it
  *   node tooling/ci/ci-review.mjs read      <out dir>   the reviewer's JSON answer into verdict.json (no verdict: exit 1)
  *   node tooling/ci/ci-review.mjs judge     <out dir>   the Verdict step: exit 1 on FAIL, 0 on PASS
@@ -95,6 +96,40 @@ async function getText(path, accept) {
   return { status: res.status, text };
 }
 
+/**
+ * The tree index (review-marker.mjs reviewIndexName): the head's tree sha, read from the API, written to `<dir>/index.json`
+ * and as the step output `name`, so the next step uploads it as an artifact named by the tree. The seal finds every run
+ * that reviewed the same code by that name, on any branch. It runs before the review: a run that can't index its head
+ * fails before any verdict, so no FAIL goes unindexed.
+ */
+export async function indexHead(dir) {
+  const { GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: path, GITHUB_OUTPUT: output } = process.env;
+  const pull = eventPull(JSON.parse(readFileSync(path, 'utf8')), repo);
+  if (!pull) throw new Error('not a pull_request_target event with a base and head sha');
+  // The seal's own tree reader (review-marker.mjs readTree), so the name written here and the name it reads agree.
+  const { readTree, reviewIndexName } = await import('./review-marker.mjs');
+  const json = async (p) => {
+    const r = await getText(p, 'application/vnd.github+json');
+    if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  const tree = await readTree(repo, pull.head, process.env.GH_TOKEN, json);
+  const name = reviewIndexName(tree);
+  // A re-run attempt finds its run's index already there: it never deletes it (an upload that failed after a delete
+  // would leave an earlier attempt's FAIL unindexed) and never uploads a second of the same name (GitHub refuses that).
+  const runId = process.env.GITHUB_RUN_ID;
+  const earlier = ((await json(`/repos/${repo}/actions/runs/${runId}/artifacts?name=${name}&per_page=100`))?.artifacts ?? []).filter(
+    (a) => a?.name === name,
+  );
+  // An earlier attempt's index that has expired is replaced (the upload step's `overwrite`), so the run stays indexed.
+  const exists = earlier.some((a) => !a?.expired);
+  const expired = !exists && earlier.length > 0;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'index.json'), JSON.stringify({ head: pull.head, tree, pr: pull.number }));
+  if (output) appendFileSync(output, `name=${name}\nexists=${exists}\nexpired=${expired}\n`);
+  console.log(`${pull.head} has tree ${tree}: ${exists ? 'already indexed by an earlier attempt' : 'indexed'} as ${name}`);
+}
+
 async function cmdDiff(dir) {
   const { GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: path } = process.env;
   const pull = eventPull(JSON.parse(readFileSync(path, 'utf8')), repo);
@@ -159,11 +194,12 @@ async function cmdRerunSeal() {
 
 async function main() {
   const [cmd, dir] = process.argv.slice(2);
+  if (cmd === 'index') return indexHead(dir);
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
   if (cmd === 'rerun-seal') return cmdRerunSeal();
-  console.error('usage: ci-review.mjs diff|read|judge <dir> | rerun-seal');
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | rerun-seal');
   process.exit(2);
 }
 
