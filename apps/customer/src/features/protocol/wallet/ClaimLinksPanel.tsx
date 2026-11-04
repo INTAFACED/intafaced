@@ -132,7 +132,9 @@ export function ClaimLinksPanel() {
       });
       if (result.status !== 'sent') {
         setBusy(false);
-        return setProblem(t('linksFailed', { message: result.status === 'rejected' ? tw('sendRejected') : result.message }));
+        const failed = t('linksFailed', { message: result.status === 'rejected' ? tw('sendRejected') : result.message });
+        // The exact approval went out but the lock did not: say so, so the person can revoke it.
+        return setProblem(result.sent.length > 0 ? `${failed} ${t('linksAllowanceLeft', { amount: amount.trim(), token: name })}` : failed);
       }
       for (const hash of result.hashes) recordSent(APP_CHAIN_ID, address, { hash, sentAt: Date.now(), kind: 'other', label: name });
       // The link is shown only once the escrow holds exactly what was asked, for this sender, under this id: a lock that
@@ -148,7 +150,9 @@ export function ClaimLinksPanel() {
         held.data.link.token.address.toLowerCase() !== chosen.address.toLowerCase() ||
         held.data.link.amount !== units.toString()
       )
-        return setProblem(t('linksFailed', { message: mined.status === 'timeout' ? tw('seqNotMined') : tw('seqReverted') }));
+        return setProblem(
+          `${t('linksFailed', { message: mined.status === 'timeout' ? tw('seqNotMined') : tw('seqReverted') })} ${t('linksAllowanceLeft', { amount: amount.trim(), token: name })}`,
+        );
       setCreated({
         url: claimLinkUrl(window.location.origin, id, key),
         amount: amount.trim(),

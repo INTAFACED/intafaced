@@ -44,6 +44,8 @@ const en = {
   linksRefused_escrow_unset: 'Claim links are off in this build: the claim-link escrow is not published for this network.',
   linksRefused_unread: 'Claim links could not be read just now. Nothing was sent.',
   linksFailed: 'Nothing was locked: {message}',
+  linksAllowanceLeft:
+    'Your wallet may still let the claim-link escrow take {amount} {token}. Revoke that approval in your wallet if you do not mean to lock them.',
   claimTitle: 'Claim tokens',
   claimNote:
     'Someone sent you tokens by link. Connect the wallet you want them in, then claim. Claiming pays the network fee from that wallet.',
