@@ -144,8 +144,8 @@ jobs:
       # The journeys baseline's rules (docs/runbooks/regression-issue-state.md), from main like the guard above: a step
       # that passed on main is never added as unbuilt, only a pass on main takes a step off, and the file is rewritten
       # only from a finished run on main it names (tooling/ci/journey-baseline-guard.mjs). It does nothing when the PR
-      # leaves the baseline alone; otherwise it reads the reports of the runs on main between the two runs named, a
-      # minute or two. Main's copy runs in a worktree of main, so its imports are main's too. Falls back to the PR copy
+      # leaves the baseline alone; otherwise it reads the reports of the runs on main from the base's named run (to the
+      # newest when a step is added as unbuilt), a minute or two. Main's copy runs in a worktree of main, so its imports are main's too. Falls back to the PR copy
       # only while main has none (the PR that introduces it). It runs when the guards above fail too.
       - name: Journey baseline guard (rules from main)
         if: github.event_name == 'pull_request' && !cancelled()

@@ -2,7 +2,7 @@
 // failing, on small made-up baselines. Runs in the Doctrine gates' tooling tests (tooling/scripts/tooling-tests.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeBaselineChange, namedRunProblem, liveSteps, isProductCode } from '../ci/journey-baseline-guard.mjs';
+import { judgeBaselineChange, namedRunProblem, liveSteps, isProductCode, runRange, listRuns } from '../ci/journey-baseline-guard.mjs';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -158,7 +158,7 @@ test('test ahead of code: a stricter test may list a step that passed before, ne
   const before12 = (sha, n) => n === 12;
   const r = judge(
     { run: run(12, SHA_B), steps: [strict, unbuilt('J-x-01#2'), unbuilt('J-x-01#3')] },
-    { contains: before12, commitFiles: files },
+    { contains: before12, commitFiles: files, onMain: () => true },
   );
   assert.equal(r.ok, false);
   assert.match(r.problems.at(-1).why, /passed on main in run 12/);
@@ -166,14 +166,14 @@ test('test ahead of code: a stricter test may list a step that passed before, ne
   const reports2 = new Map([...reports, [12, states({ 'J-x-01#1': 'failed', 'J-x-01#2': 'failed', 'J-x-01#3': 'failed' })]]);
   const ok = judge(
     { run: run(12, SHA_B), steps: [strict, unbuilt('J-x-01#2'), unbuilt('J-x-01#3')] },
-    { contains: before12, commitFiles: files, reports: reports2 },
+    { contains: before12, commitFiles: files, reports: reports2, onMain: () => true },
   );
   assert.deepEqual(ok.problems, []);
   // Missing fields, a short sha, a commit that doesn't touch the file, product code with no proof, an unread compare.
   const bad = (e, over = {}) =>
     judge(
       { run: run(12, SHA_B), steps: [e, unbuilt('J-x-01#2'), unbuilt('J-x-01#3')] },
-      { contains: before12, commitFiles: files, reports: reports2, ...over },
+      { contains: before12, commitFiles: files, reports: reports2, onMain: () => true, ...over },
     )
       .problems.map((p) => p.why)
       .join('\n');
@@ -186,6 +186,53 @@ test('test ahead of code: a stricter test may list a step that passed before, ne
   );
   assert.match(bad(strict, { contains: () => undefined }), /couldn't be read/);
   assert.match(bad(strict, { commitFiles: () => undefined }), /files couldn't be read/);
+  // The runbook: the commit must be on main. One only on a branch is in no run, so every pass would read as earlier.
+  assert.match(bad(strict, { onMain: () => false, contains: () => false }), /which is not on main/);
+  assert.match(bad(strict, { onMain: () => undefined }), /whether it is on main couldn't be read/);
+});
+
+test('an unbuilt entry added with the run unchanged is judged against every run to the newest, not the named run alone', () => {
+  const head = { run: base.run, steps: [...base.steps, unbuilt('J-x-01#2b')] };
+  const range = runRange(base, head);
+  assert.equal(range.from, 10);
+  assert.equal(range.to, Infinity);
+  // A step that failed in the named run but passed in a later run on main is refused.
+  const later = new Map([...reports, [11, states({ ...Object.fromEntries(reports.get(11)), 'J-x-01#4': 'passed' })]]);
+  const added = { run: base.run, steps: [...base.steps, unbuilt('J-x-01#4')] };
+  const inRange = (h) => runs.filter((x) => x.number >= runRange(base, h).from && x.number <= runRange(base, h).to);
+  assert.deepEqual(
+    inRange(added).map((x) => x.number),
+    [10, 11, 12],
+  );
+  const r = judgeBaselineChange({ base, head: added, live, runs: inRange(added), reports: later });
+  assert.equal(r.ok, false);
+  assert.match(r.problems[0].why, /passed on main in run 11/);
+  // A change that adds nothing as unbuilt reads only from the base's run to the head's.
+  assert.deepEqual(runRange(base, { run: run(12, SHA_B), steps: [unbuilt('J-x-01#3')] }), { from: 10, to: 12, addsUnbuilt: false });
+});
+
+test('the runs list fails closed when it ends before the base run', () => {
+  const page = (nums) => ({
+    status: 0,
+    stdout: JSON.stringify({
+      workflow_runs: nums.map((n) => ({
+        run_number: n,
+        id: n,
+        head_sha: SHA_A,
+        head_branch: 'main',
+        event: 'schedule',
+        conclusion: 'failure',
+      })),
+    }),
+  });
+  const pages = [page([15, 14, 13]), page([])];
+  const gh = () => pages.shift() ?? page([]);
+  assert.throws(() => listRuns(gh, 'o/r', 10, Infinity), /ended before run 10/);
+  const whole = [page([12, 11, 10, 9])];
+  assert.deepEqual(
+    listRuns(() => whole.shift(), 'o/r', 10, Infinity).map((r) => r.number),
+    [10, 11, 12],
+  );
 });
 
 test('product code matches the runbook definition', () => {
