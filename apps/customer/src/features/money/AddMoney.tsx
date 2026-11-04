@@ -23,8 +23,12 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const EXPIRED = 'bank.onramp_quote_expired';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** How often the tracker reads the bank while a request is still on its way. */
+/** How often the tracker reads the bank while a request is on its way: often at first, then slowly while it waits long. */
 const TRACK_EVERY_MS = 2_000;
+const TRACK_SLOW_MS = 30_000;
+const TRACK_FAST_READS = 150;
+/** A read that fails this many times in a row stops the tracker; the failure stays on screen with a retry. */
+const TRACK_FAILURES = 3;
 const STEPS = ['created', 'opened', 'pending', 'credited'] as const;
 const STEP_KEYS = {
   created: 'step_created',
@@ -142,6 +146,16 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
   );
 }
 
+/**
+ * Each step's state: done with its time; skipped when a later step happened but the partner never reported this one
+ * (it said paid without saying the payer approved), never given a made-up time; or not yet.
+ */
+function stepState(request: AddMoneyRequest, step: (typeof STEPS)[number]): 'done' | 'skipped' | 'todo' {
+  if (reachedAt(request, step)) return 'done';
+  const later = STEPS.slice(STEPS.indexOf(step) + 1);
+  return later.some((next) => reachedAt(request, next)) ? 'skipped' : 'todo';
+}
+
 /** When the request reached each step, or null while it has not. */
 function reachedAt(request: AddMoneyRequest, step: (typeof STEPS)[number]): string | null {
   if (step === 'created') return request.createdAt;
@@ -161,9 +175,11 @@ export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
       <ol className="bd-stack">
         {STEPS.map((step) => {
           const at = reachedAt(request, step);
+          const state = stepState(request, step);
           return (
-            <li key={step} data-testid="tracker-step" data-step={step} data-state={at ? 'done' : 'todo'}>
-              <strong>{t(STEP_KEYS[step])}</strong> <small className="muted">{at ? date(at, true) : t('stepNotYet')}</small>
+            <li key={step} data-testid="tracker-step" data-step={step} data-state={state}>
+              <strong>{t(STEP_KEYS[step])}</strong>{' '}
+              <small className="muted">{at ? date(at, true) : state === 'skipped' ? t('stepSkipped') : t('stepNotYet')}</small>
             </li>
           );
         })}
@@ -186,13 +202,18 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
   const { api } = useSession();
   const [request, setRequest] = useState<AddMoneyRequest | null>(null);
   const [failure, setFailure] = useState<Refusal | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let reads = 0;
+    let failures = 0;
     const read = async () => {
       const result = await api.query('bank', 'addMoney.request', { requestId }, addMoneyRequestSchema);
       if (stopped) return;
+      reads += 1;
       if (result.ok) {
+        failures = 0;
         setRequest(result.data);
         setFailure(null);
         if (result.data.status === 'credited' || result.data.status === 'refused') {
@@ -200,9 +221,12 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
           return;
         }
       } else {
+        failures += 1;
         setFailure(result);
+        // A request that is not yours, or a bank that keeps refusing, is not read again on its own: retry is the person's.
+        if (failures >= TRACK_FAILURES || result.code === 'bank.add_money_request_missing') return;
       }
-      timer = setTimeout(() => void read(), TRACK_EVERY_MS);
+      timer = setTimeout(() => void read(), reads < TRACK_FAST_READS ? TRACK_EVERY_MS : TRACK_SLOW_MS);
     };
     void read();
     return () => {
@@ -211,17 +235,17 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
     };
     // onSettled is the parent's refresh; following a new request is what restarts the reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, requestId]);
+  }, [api, requestId, attempt]);
   return (
     <DepthPanel title={t('trackerTitle')} lead={t('trackerLead')}>
       {failure && !request ? (
-        <Failure result={failure} />
+        <Failure result={failure} retry={() => setAttempt((n) => n + 1)} />
       ) : !request ? (
         <Loading />
       ) : (
         <div className="bd-stack" data-testid="add-money-tracker" data-status={request.status}>
           <TrackerSteps request={request} />
-          {failure && <Failure result={failure} />}
+          {failure && <Failure result={failure} retry={() => setAttempt((n) => n + 1)} />}
         </div>
       )}
     </DepthPanel>
@@ -294,6 +318,14 @@ export function AddMoney() {
     return id && UUID.test(id) ? id : null;
   });
   const [redirecting, setRedirecting] = useState(false);
+  // Back from the payment page with the browser's back button, the page may come back as it was left: ready to ask again.
+  useEffect(() => {
+    const shown = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(false);
+    };
+    window.addEventListener('pageshow', shown);
+    return () => window.removeEventListener('pageshow', shown);
+  }, []);
   const ways = useBankRead('addMoney.methods', ask, ask !== null);
 
   const asset = assetId || assets[0] || '';

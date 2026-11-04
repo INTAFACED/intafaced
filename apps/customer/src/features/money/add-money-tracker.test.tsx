@@ -66,6 +66,17 @@ describe('the add-money tracker', () => {
     expect(html).toContain('Waiting for your payment');
   });
 
+  it('credited without the partner ever saying the payer approved: pending reads as not reported, with no time', () => {
+    const html = renderToStaticMarkup(
+      <TrackerSteps
+        request={request({ status: 'credited', pendingAt: null, creditedAt: '2026-11-04T10:01:00.000Z', creditedAmount: '12.345678' })}
+      />,
+    );
+    expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:skipped', 'credited:done']);
+    expect(html).toContain('Not reported by the partner');
+    expect(html).not.toContain('Not yet');
+  });
+
   it('reads the new states, and refuses a credited amount that is a number', () => {
     expect(
       bankReads['addMoney.request'].parse(request({ status: 'credited', creditedAmount: '20', creditedAt: '2026-11-04T10:01:00.000Z' }))

@@ -64,7 +64,12 @@ export function parsePayinSim(json: string | undefined): PayinSimCatalogue | nul
   return parsed.data;
 }
 
-/** A loopback http(s) base address with no path, query or fragment: the only place a TEST page or return may be. */
+/** Whether a URL's host is this machine. The one list of loopback names the stand-in and the hosted-page check share. */
+export function isLoopbackHost(url: URL): boolean {
+  return url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
+}
+
+/** A loopback http(s) base address with no query or fragment: the only place a TEST page or return may be. */
 function loopbackBase(raw: string | undefined): URL | null {
   if (!raw?.trim()) return null;
   let url: URL;
@@ -73,8 +78,7 @@ function loopbackBase(raw: string | undefined): URL | null {
   } catch {
     return null;
   }
-  const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
-  if (!loopback || (url.protocol !== 'http:' && url.protocol !== 'https:')) return null;
+  if (!isLoopbackHost(url) || (url.protocol !== 'http:' && url.protocol !== 'https:')) return null;
   if (url.search || url.hash || url.username || url.password) return null;
   return url;
 }

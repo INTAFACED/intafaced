@@ -13,7 +13,9 @@
  * money reaches the balance only when the rail pays and the deposit recipe credits it.
  *
  * PAID (J-bank-02 #3, #5). An opened request moves on as the partner says: `pending` once the payer approved the payment
- * on the partner's page (`approved`), and `credited` once the partner says the money arrived (`paid`). Paid is checked
+ * on the partner's page (`approved`), and `credited` once the partner says the money arrived (`paid`). A partner may say
+ * paid without having said the payer approved; the request is then credited with no pending time, never a made-up one,
+ * and the tracker shows that step as not reported. Paid is checked
  * against the payment the partner opened (the same pay amount and currency, or `bank.onramp_paid_mismatch` and nothing
  * is credited), and the credit is the quote's receive amount exactly, through the deposit recipe from the partner's rail
  * boundary under the business key `deposit:<rail>:add-money:<request id>`. If this crashes after the post and before the
@@ -218,21 +220,25 @@ export class AddMoneyService {
    */
   async approved(onrampId: string): Promise<{ request: AddMoneyRequestView; returnUrl: string }> {
     const { partner } = this.wired();
-    const row = await this.partnerRow(partner, onrampId);
-    if (row.status === 'opened') {
-      await this.sql`
-        UPDATE bank.add_money_requests SET status = 'pending', pending_at = now()
-         WHERE id = ${row.id}::uuid AND status = 'opened'
-      `;
-    }
-    return { request: await this.one((await this.row(row.id)) ?? row), returnUrl: partner.returnUrl(row.id) };
+    const { row, onramp } = await this.partnerRow(partner, onrampId);
+    const moved =
+      row.status === 'opened'
+        ? await this.sql<RequestRow[]>`
+            UPDATE bank.add_money_requests SET status = 'pending', pending_at = now()
+             WHERE id = ${row.id}::uuid AND status = 'opened'
+            RETURNING *
+          `
+        : [];
+    // Lost a race to another approve or a paid: read where it stands now.
+    const now = moved[0] ?? (row.status === 'opened' ? await this.row(row.id) : row) ?? row;
+    return { request: this.withOnramp(now, onramp), returnUrl: partner.returnUrl(row.id) };
   }
 
   /** The partner's own read of a payment it opened, for its page. */
   async opened(onrampId: string): Promise<{ request: AddMoneyRequestView; returnUrl: string }> {
     const { partner } = this.wired();
-    const row = await this.partnerRow(partner, onrampId);
-    return { request: await this.one(row), returnUrl: partner.returnUrl(row.id) };
+    const { row, onramp } = await this.partnerRow(partner, onrampId);
+    return { request: this.withOnramp(row, onramp), returnUrl: partner.returnUrl(row.id) };
   }
 
   /**
@@ -241,10 +247,7 @@ export class AddMoneyService {
    */
   async paid(input: { requestId: string; paidAmount: string; payCurrency: string }): Promise<AddMoneyRequestView> {
     const { ledger, partner } = this.wired();
-    const row = await this.partnerRow(partner, input.requestId);
-    const view = await this.one(row);
-    const onramp = view.onramp;
-    if (!onramp) throw new BankError('This request has no payment the partner opened', 'bank.ramp_conflict');
+    const { row, onramp } = await this.partnerRow(partner, input.requestId);
     let paid: bigint;
     try {
       paid = parseAmount(input.paidAmount);
@@ -257,7 +260,7 @@ export class AddMoneyService {
         'bank.onramp_paid_mismatch',
       );
     }
-    if (row.status === 'credited') return view;
+    if (row.status === 'credited') return this.withOnramp(row, onramp);
     // The receive amount is the quote's, which the request was asked on; the two never differ, and if they did nothing moves.
     const receive = parseAmount(onramp.amount);
     if (receive !== parseAmount(row.amount) || onramp.assetId !== row.asset_id) {
@@ -279,19 +282,22 @@ export class AddMoneyService {
        WHERE id = ${row.id}::uuid AND status IN ('opened', 'pending')
       RETURNING *
     `;
-    return this.one(rows[0] ?? (await this.row(row.id)) ?? row);
+    return this.withOnramp(rows[0] ?? (await this.row(row.id)) ?? row, onramp);
   }
 
   private wired(): { ledger: Pick<LedgerClient, 'post'>; partner: OnrampPartner } {
     const partner = this.credit?.partner;
     if (!this.credit || !partner) {
-      throw new BankError('No pay-in partner is connected (socket.psp-partners), so no payment is approved or credited', 'bank.fiat_ramp_socket');
+      throw new BankError(
+        'No pay-in partner is connected (socket.psp-partners), so no payment is approved or credited',
+        'bank.fiat_ramp_socket',
+      );
     }
     return { ledger: this.credit.ledger, partner };
   }
 
-  /** A request this partner opened, past opening and not refused. */
-  private async partnerRow(partner: OnrampPartner, requestId: string): Promise<RequestRow> {
+  /** A request this partner opened, past opening and not refused, with the payment it opened (read once). */
+  private async partnerRow(partner: OnrampPartner, requestId: string): Promise<{ row: RequestRow; onramp: CustomerOnrampView }> {
     const row = await this.row(requestId);
     if (!row) throw new BankError('No add-money request has that id', 'bank.add_money_request_missing');
     if (row.status === 'opening' || row.status === 'refused' || !row.onramp_id) {
@@ -301,7 +307,12 @@ export class AddMoneyService {
     if (!onramp || onramp.partnerRail !== partner.rail) {
       throw new BankError('This payment was not opened by this partner', 'bank.ramp_conflict');
     }
-    return row;
+    return { row, onramp };
+  }
+
+  /** The view of a partner's request from a row and the payment already read with it. */
+  private withOnramp(row: RequestRow, onramp: CustomerOnrampView): AddMoneyRequestView {
+    return view(row, new Map([[onramp.onrampId, onramp]]));
   }
 
   /** The accepted quote, if it is the caller's, on the request's own terms and still live. */
@@ -353,7 +364,7 @@ export class AddMoneyService {
          SET status = ${next.status},
              refusal_code = ${next.status === 'refused' ? next.code : null},
              onramp_id = ${next.status === 'opened' ? next.onrampId : null}::uuid,
-             opened_at = ${next.status === 'opened' ? new Date() : null}
+             opened_at = CASE WHEN ${next.status} = 'opened' THEN now() END
        WHERE id = ${row.id}::uuid AND status = 'opening'
       RETURNING *
     `;

@@ -19,6 +19,8 @@ import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.j
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import type { OnrampStandIn } from './onramp-sim.js';
+import { isLoopbackHost } from './payin-sim.js';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 import { openApprovalLinks, type ApprovalLinkStore } from './address-approval.js';
@@ -652,11 +654,15 @@ function normaliseInstruction(
   return { partnerRail, hostedUrl, bankReference: null, bankAccountName: null, bankAccountRef: null };
 }
 
-/** An http page on this machine, which only the local stack's TEST pay-in stand-in may name. */
+/**
+ * An http page on this machine, which only the local stack's TEST pay-in stand-in may name, and only in a dev or test
+ * process: the port's own flag is not enough on its own, so a live posture never takes an http page whatever a port says.
+ */
 function isLoopbackHttp(raw: string): boolean {
+  if (!isExplicitDevOrTest(process.env.APP_ENV) || process.env.NODE_ENV === 'production') return false;
   try {
     const url = new URL(raw);
-    return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]');
+    return url.protocol === 'http:' && isLoopbackHost(url);
   } catch {
     return false;
   }

@@ -14,6 +14,12 @@ ALTER TABLE "bank"."add_money_requests" ADD COLUMN IF NOT EXISTS "credited_at" t
 ALTER TABLE "bank"."add_money_requests" ADD COLUMN IF NOT EXISTS "credited_amount" numeric(38, 18);
 ALTER TABLE "bank"."add_money_requests" ADD COLUMN IF NOT EXISTS "ledger_tx_id" text;
 
+-- A request that opened before this migration opened when its payment was opened: that time is kept, never a guess.
+UPDATE "bank"."add_money_requests" r
+   SET "opened_at" = o."created_at"
+  FROM "bank"."customer_onramps" o
+ WHERE r."onramp_id" = o."id" AND r."opened_at" IS NULL;
+
 ALTER TABLE "bank"."add_money_requests" DROP CONSTRAINT IF EXISTS "add_money_requests_status_ck";
 ALTER TABLE "bank"."add_money_requests" ADD CONSTRAINT "add_money_requests_status_ck" CHECK (
   ("status" = 'opening' AND "refusal_code" IS NULL AND "onramp_id" IS NULL AND "quote_id" IS NOT NULL)
