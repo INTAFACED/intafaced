@@ -1408,6 +1408,9 @@ export function createIdentityRouter(
       /**
        * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
        * breached-password list is set. `unset` means new passwords are not screened, and the page says so.
+       * Public on purpose: the step's row (docs/roadmap/journeys.json) has the signed-out /register page say when the list
+       * is not set, and product law has a page name a blank setting rather than hide it. It tells nothing about any
+       * account, and a person typing a password is owed it; it says only on or unset, never the list or its size.
        */
       signUpPasswordScreening: publicProcedure
         .output(z.object({ breachedList: z.enum(['on', 'unset']) }))

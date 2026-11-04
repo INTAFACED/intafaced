@@ -219,7 +219,7 @@ function startIdentity(founderPair = null) {
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
-    // SMOKE RIG ONLY: another ask after 10 s, five wrong codes spend a mailed code, and a flow key fresh each run for
+    // SMOKE RIG ONLY: another ask after 10 s, five wrong codes an hour hold the codes, and a flow key fresh each run for
     // the code beside the link.
     IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: '10',
     IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: '5',

@@ -48,7 +48,7 @@ export interface EmailConfirmDeps {
   readonly rateWindowSeconds: number | undefined;
   /** Seconds before another confirmation may be mailed to the same account. */
   readonly resendSeconds: number | undefined;
-  /** Wrong codes allowed per mailed code; at the limit that code (and its link) is spent. */
+  /** Wrong codes allowed per account inside the rate window, across its mails; at the limit codes are held. */
   readonly codeMaxAttempts: number | undefined;
   /** HMAC key for the six-digit code: the flow key the sign-up and recovery codes use. */
   readonly subjectKey: string | undefined;
@@ -122,8 +122,8 @@ type PinRow = ProofRow & { pin_hash: string | null; pin_attempts: number };
 
 /**
  * Why a spent proof is spent, read from the account as it is now. Its address is no longer the account's: `mismatch`
- * (an email change spends open proofs). The address is the account's but unverified: the proof did not prove it, so
- * wrong codes spent it (`code_locked`). Otherwise it did its work: `reused`.
+ * (an email change spends open proofs). The address is the account's but unverified: the proof did not prove it, so it
+ * is not called used (`code_locked`, a dead link). Otherwise it did its work: `reused`.
  */
 async function spentReason(tx: Sql, proof: ProofRow): Promise<'mismatch' | 'code_locked' | 'reused'> {
   const owner = await tx<Array<{ email: string; email_verified_at: Date | string | null }>>`
@@ -337,11 +337,11 @@ export async function confirmEmail(deps: EmailConfirmDeps, input: { token: strin
 }
 
 /**
- * The six-digit code from a confirmation mail, typed by the signed-in person on Account. Any live code of the account
- * counts (a slow first mail still works after a second was sent). Wrong codes are counted twice over: per mailed code,
- * where the owner's limit spends that mail (code and link), and per account across all mails inside the owner's rate
- * window, where the same limit holds every code until enough guesses leave the window. So a new mail never resets the
- * guessing budget. A code that ran out is refused by name; the mail's link keeps working while codes are held.
+ * The six-digit code from the newest confirmation mail, typed by the signed-in person on Account. Only the newest mail's
+ * code counts, so every guess is against one code. Wrong codes are counted per account across all its mails inside the
+ * owner's rate window; at the owner's limit codes are held until enough guesses leave the window, so a new mail never
+ * resets the guessing budget. Wrong codes spend no mail: its link keeps working while codes are held. A code that ran
+ * out is refused by name.
  */
 export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: string; code: string }): Promise<{ userId: string }> {
   assertWired(deps);
@@ -353,7 +353,7 @@ export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: 
   const since = new Date(now.getTime() - rate.windowSeconds * 1000);
 
   type Outcome =
-    { kind: 'confirmed' | 'already' | 'unknown' | 'expired' | 'used' | 'locked' | 'wrong' } | { kind: 'held'; retryAfterSeconds: number };
+    { kind: 'confirmed' | 'already' | 'unknown' | 'expired' | 'used' | 'wrong' } | { kind: 'held'; retryAfterSeconds: number };
   const result = await transaction(
     deps.sql,
     async (tx): Promise<Outcome> => {
@@ -374,50 +374,47 @@ export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: 
       const audit = (event: string, reason: string) => tx`
         INSERT INTO email_confirmation_audit (user_id, event, reason, created_at) VALUES (${user.id}, ${event}, ${reason}, ${now})
       `;
-      const live = proofs.filter((p) => p.pin_hash && !p.consumed_at && instant(p.expires_at) > now.getTime());
-      if (live.length === 0) {
+      // Only the newest mail's code counts, so each guess is against one code.
+      const newest = proofs[0];
+      if (!newest?.pin_hash) {
         hashesEqual(DUMMY_HASH, pinHash(subjectKey, DUMMY_HASH, code));
-        const newest = proofs[0];
-        if (!newest?.pin_hash) return { kind: 'unknown' };
-        if (newest.consumed_at) {
-          // The account is unverified here, so a spent mail was spent by wrong codes or by an address change.
-          const spent = await spentReason(tx, newest);
-          await audit('refused', spent);
-          return { kind: spent === 'code_locked' ? 'locked' : spent === 'reused' ? 'used' : 'unknown' };
-        }
+        return { kind: 'unknown' };
+      }
+      if (newest.consumed_at) {
+        hashesEqual(DUMMY_HASH, pinHash(subjectKey, DUMMY_HASH, code));
+        // The account is unverified here, so its newest mail was spent by an address change, not by use.
+        const spent = await spentReason(tx, newest);
+        await audit('refused', spent);
+        return { kind: spent === 'reused' ? 'used' : 'unknown' };
+      }
+      if (!(instant(newest.expires_at) > now.getTime())) {
+        hashesEqual(DUMMY_HASH, pinHash(subjectKey, DUMMY_HASH, code));
         await audit('refused', 'expired');
         return { kind: 'expired' };
       }
 
-      // The account's guesses inside the window: at the limit every code is held, whichever mail it came from.
+      // The account's wrong guesses inside the window, across all its mails: at the limit codes are held until enough
+      // guesses leave the window. A new mail never resets them. Wrong codes spend no mail, so its link keeps working.
       const guessed = await tx<Array<{ created_at: Date | string }>>`
         SELECT created_at FROM email_confirmation_audit
         WHERE user_id = ${user.id} AND event = 'refused' AND reason = 'wrong_code' AND created_at > ${since}
         ORDER BY created_at
       `;
-      if (guessed.length >= maxAttempts) {
-        const freeing = instant(guessed[guessed.length - maxAttempts]!.created_at) + rate.windowSeconds * 1000;
-        return { kind: 'held', retryAfterSeconds: Math.max(1, Math.ceil((freeing - now.getTime()) / 1000)) };
+      const heldFor = (times: ReadonlyArray<Date | string>) =>
+        Math.max(1, Math.ceil((instant(times[times.length - maxAttempts]!) + rate.windowSeconds * 1000 - now.getTime()) / 1000));
+      const times = guessed.map((g) => g.created_at);
+      if (times.length >= maxAttempts) {
+        hashesEqual(DUMMY_HASH, pinHash(subjectKey, DUMMY_HASH, code));
+        return { kind: 'held', retryAfterSeconds: heldFor(times) };
       }
 
-      // Every live code is compared, so the time taken does not say which mail matched.
-      let match: PinRow | undefined;
-      for (const proof of live) {
-        if (hashesEqual(proof.pin_hash!, pinHash(subjectKey, proof.code_hash, code)) && !match) match = proof;
-      }
-      if (!match) {
-        const newest = live[0]!;
-        const attempts = newest.pin_attempts + 1;
-        const dead = attempts >= maxAttempts;
-        // At the limit the newest mail is spent: neither its code nor its link confirms any more.
-        await tx`
-          UPDATE email_confirmation_proofs
-          SET pin_attempts = ${attempts}, consumed_at = ${dead ? now : null}
-          WHERE id = ${newest.id}
-        `;
+      if (!hashesEqual(newest.pin_hash, pinHash(subjectKey, newest.code_hash, code))) {
+        await tx`UPDATE email_confirmation_proofs SET pin_attempts = pin_attempts + 1 WHERE id = ${newest.id}`;
         await audit('refused', 'wrong_code');
-        return { kind: dead ? 'locked' : 'wrong' };
+        const after = [...times, now];
+        return after.length >= maxAttempts ? { kind: 'held', retryAfterSeconds: heldFor(after) } : { kind: 'wrong' };
       }
+      const match = newest;
       await tx`UPDATE email_confirmation_proofs SET consumed_at = ${now} WHERE id = ${match.id} AND consumed_at IS NULL`;
       if (!hashesEqual(match.email_hash, hashToken(normalizeConfirmEmail(user.email)))) {
         await audit('refused', 'mismatch');
@@ -438,8 +435,6 @@ export async function confirmEmailCode(deps: EmailConfirmDeps, input: { userId: 
       throw new AuthError(EXPIRED, 'auth.email_confirm_expired');
     case 'used':
       throw new AuthError(USED, 'auth.email_confirm_used');
-    case 'locked':
-      throw new AuthError('Too many wrong codes. Send a new code.', 'auth.email_confirm_code_locked');
     case 'held':
       throw new AuthError('Too many wrong codes. Use the link in the email, or try a code again later.', 'auth.email_confirm_code_locked', {
         retryAfterSeconds: result.retryAfterSeconds,

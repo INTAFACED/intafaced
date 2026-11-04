@@ -772,7 +772,7 @@ export class AuthService {
     rateWindowSeconds: number | undefined;
     /** Seconds before another confirmation mail; blank refuses. */
     resendSeconds: number | undefined;
-    /** Wrong codes allowed per mailed code; blank refuses. */
+    /** Wrong codes allowed per account inside the rate window; blank refuses. */
     codeMaxAttempts: number | undefined;
     /** The flow key the six-digit code is keyed with; blank refuses. */
     subjectKey: string | undefined;

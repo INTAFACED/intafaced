@@ -468,7 +468,7 @@ if (!available) {
       expect(JSON.stringify(warnings)).not.toContain(pin);
     });
 
-    it('counts wrong codes and spends the code at the limit; a code that ran out is named', async () => {
+    it('holds codes at the limit with the seconds to wait, spends no mail, and names a code that ran out', async () => {
       const user = await register();
       const api = await asUser(user.accessToken);
       await api.auth.requestEmailConfirmation();
@@ -478,14 +478,17 @@ if (!available) {
       expect(first).toMatchObject({ trpc: 'BAD_REQUEST', code: 'auth.email_confirm_code_invalid' });
       await refusal(api.auth.confirmEmailCode({ code: wrong }));
       const third = await refusal(api.auth.confirmEmailCode({ code: wrong }));
-      expect(third).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_code_locked' });
-      // Spent: the right code and the link are both refused, and nothing is confirmed.
+      // The third wrong code reaches the limit: codes are held until the first guess leaves the hour.
+      expect(third).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_code_locked', retryAfterSeconds: 3600 });
       expect((await refusal(api.auth.confirmEmailCode({ code: pin }))).code).toBe('auth.email_confirm_code_locked');
-      // The link of a mail spent by wrong codes did not prove anything, so it is not called "used".
-      expect((await refusal(api.auth.confirmEmail({ token: sent[0]!.code }))).code).toBe('auth.email_confirm_invalid');
       expect(await verifiedAt(user.userId)).toBeNull();
+      // Wrong codes spent no mail.
+      const open = await db.sql<Array<{ consumed_at: Date | null; pin_attempts: number }>>`
+        SELECT consumed_at, pin_attempts FROM email_confirmation_proofs WHERE user_id = ${user.userId}
+      `;
+      expect(open).toEqual([{ consumed_at: null, pin_attempts: 3 }]);
 
-      // A new mail: only its code counts, and once it runs out it is refused by name.
+      // A new mail, and once it runs out its code is refused by name.
       nowMs = T0 + RESEND * 1000;
       await api.auth.requestEmailConfirmation();
       const next = sent[1]!.pin!;
@@ -495,17 +498,21 @@ if (!available) {
       const reasons = await db.sql<Array<{ reason: string }>>`
         SELECT reason FROM email_confirmation_audit WHERE user_id = ${user.userId} AND event = 'refused' ORDER BY created_at
       `;
-      expect(reasons.map((r) => r.reason)).toEqual(expect.arrayContaining(['wrong_code', 'code_locked', 'expired']));
+      expect(reasons.map((r) => r.reason)).toEqual(['wrong_code', 'wrong_code', 'wrong_code', 'expired']);
     });
 
-    it('takes the code of an earlier live mail, and holds every code once the account used its guesses, whatever mail', async () => {
+    it('takes only the newest mail code, and holds every code once the account used its guesses, whatever mail', async () => {
       const early = await register();
       const earlyApi = await asUser(early.accessToken);
       await earlyApi.auth.requestEmailConfirmation();
       nowMs = T0 + RESEND * 1000;
       await earlyApi.auth.requestEmailConfirmation();
-      // The first mail arrived first and is the one the person reads: its code works.
-      await expect(earlyApi.auth.confirmEmailCode({ code: sent[0]!.pin! })).resolves.toEqual({ confirmed: true });
+      // Each guess is against one code: an earlier mail's code is not taken once a newer mail was sent.
+      if (sent[0]!.pin !== sent[1]!.pin) {
+        expect((await refusal(earlyApi.auth.confirmEmailCode({ code: sent[0]!.pin! }))).code).toBe('auth.email_confirm_code_invalid');
+        expect(await verifiedAt(early.userId)).toBeNull();
+      }
+      await expect(earlyApi.auth.confirmEmailCode({ code: sent[1]!.pin! })).resolves.toEqual({ confirmed: true });
       expect(await verifiedAt(early.userId)).not.toBeNull();
 
       nowMs = T0;

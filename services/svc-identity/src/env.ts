@@ -718,7 +718,8 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(3_600).optional()),
       /**
-       * Owner-published wrong codes allowed per mailed confirmation code; at the limit the code and its link are spent.
+       * Owner-published wrong confirmation codes allowed per account inside the rate window, across its mails; at the
+       * limit codes are held until guesses leave the window (the mail's link keeps working).
        * Blank / unset refuses every request. The ceiling (10) is technical, not a default.
        */
       IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: z.preprocess((v) => {

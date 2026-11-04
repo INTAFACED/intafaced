@@ -85,7 +85,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
     // LOCAL TEST ONLY, not owner decisions: another confirmation mail after 10 s (short, so a journey can see the early
-    // refusal and still send five in an hour), and five wrong codes spend a mailed code (J-identity-01 #7).
+    // refusal and still send five in an hour), and five wrong codes inside the hour hold the codes (J-identity-01 #7).
     IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: '10',
     IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: '5',
     // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
