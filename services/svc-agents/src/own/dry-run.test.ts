@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
@@ -12,9 +12,11 @@ import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
 import { UsageMeter } from '../metering/meter.js';
 import { MockModelProvider } from '../providers/mock.js';
+import { UpstreamModelProvider } from '../providers/upstream.js';
 import { createAgentsRouter } from '../router.js';
 import { AgentRuntime } from '../runtime.js';
 import { UserSpendStore } from '../spend/store.js';
+import type { OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import type { PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
 
@@ -71,6 +73,13 @@ const ALL_PASSED = ['caps_set', 'tool_declared', 'moves_no_value', 'consent', 'b
   code: null,
 }));
 
+/** A dry run's answer, narrowed to its kind: a test run of any other kind fails here. */
+type DryRunView = Extract<OwnAgentTestRun, { kind: 'dry_run' }>;
+const asDry = (run: OwnAgentTestRun): DryRunView => {
+  expect(run.kind).toBe('dry_run');
+  return run as DryRunView;
+};
+
 const available = await postgresAvailable(URL);
 
 if (!available) {
@@ -85,14 +94,20 @@ if (!available) {
   });
   await assertTestDatabase(sql, 'svc-agents');
   let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
-  let provider: MockModelProvider;
+  let provider: MockModelProvider | UpstreamModelProvider;
   let ledger: MemoryLedger;
 
-  function people(baseline: Record<string, string> = BASELINE) {
+  /** A deployment whose live engine is a connected model: one nobody answers at, so any call to it would fail. */
+  const liveEngine = () =>
+    new UpstreamModelProvider({ id: 'primary', baseUrl: 'http://127.0.0.1:9', apiKey: 'TEST', models: { 'reasoning-md': 'TEST-model' } });
+
+  function people(baseline: Record<string, string> = BASELINE, engine: 'sandbox' | 'live' = 'sandbox', { fallback = false } = {}) {
+    const task = fallback ? 'general.chat' : OWN_RUN_TASK;
     const table = parseRoutingTable({
+      ...(fallback ? { fallbackTask: task } : {}),
       routes: [
         {
-          task: OWN_RUN_TASK,
+          task,
           providerId: 'primary',
           model: 'reasoning-md',
           maxOutputTokens: 2048,
@@ -100,7 +115,7 @@ if (!available) {
         },
       ],
     });
-    provider = new MockModelProvider({ id: 'primary' });
+    provider = engine === 'live' ? liveEngine() : new MockModelProvider({ id: 'primary' });
     ledger = new MemoryLedger();
     const gateway = new ModelGateway([provider], table);
     const meter = new UsageMeter(sql, ledger, { assetId: 'USDT', windowMinutes: 60 });
@@ -143,7 +158,7 @@ if (!available) {
       expect(await count(table), table).toBe(0);
     expect(await count('own_agent_approval_requests')).toBe(0);
     expect(ledger.journal()).toEqual([]);
-    expect(provider.callCount).toBe(0);
+    if (provider instanceof MockModelProvider) expect(provider.callCount).toBe(0);
   };
 
   beforeAll(async () => {
@@ -180,7 +195,7 @@ if (!available) {
       const { person } = people();
       const id = await draft(person);
       await person.own.consents.grant({ id, dataClass: 'own_data' });
-      const dry = await person.own.dryRun({ id, requestId: 'dry:all:0001', ...KB });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:all:0001', ...KB }));
       expect(dry).toMatchObject({ kind: 'dry_run', tool: KB.tool, input: KB.input, cost: '0', assetId: 'USDT', label: 'TEST' });
       expect(dry.checks).toEqual(ALL_PASSED);
       expect(dry.effect).toEqual({ kind: 'run', tool: KB.tool, module: 'support', dataClass: 'own_data', input: KB.input });
@@ -193,7 +208,7 @@ if (!available) {
       const { person } = people();
       const id = await draft(person, { capped: false });
       // A field the tool does not declare is not a check: a real call passes only the declared ones to the door.
-      const dry = await person.own.dryRun({ id, requestId: 'dry:fail:0001', tool: KB.tool, input: { kbQuery: 'TEST', page: '2' } });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:fail:0001', tool: KB.tool, input: { kbQuery: 'TEST', page: '2' } }));
       expect(dry.checks).toEqual([
         { check: 'caps_set', passed: false, code: 'agents.spend.cap_unset' },
         { check: 'tool_declared', passed: true, code: null },
@@ -211,7 +226,7 @@ if (!available) {
       const blank = people({}).person;
       const id = await draft(blank);
       await blank.own.consents.grant({ id, dataClass: 'own_data' });
-      const unset = await blank.own.dryRun({ id, requestId: 'dry:blank:0001', ...KB });
+      const unset = asDry(await blank.own.dryRun({ id, requestId: 'dry:blank:0001', ...KB }));
       expect(unset.checks.find((c) => c.check === 'baseline')).toEqual({
         check: 'baseline',
         passed: false,
@@ -222,12 +237,12 @@ if (!available) {
 
       const { person } = people();
       await person.own.rules.save({ id, tool: KB.tool, choice: 'hand_off' });
-      const handed = await person.own.dryRun({ id, requestId: 'dry:hand:0001', ...KB });
+      const handed = asDry(await person.own.dryRun({ id, requestId: 'dry:hand:0001', ...KB }));
       expect(handed.effect).toEqual({ kind: 'refused', tool: KB.tool, code: 'agents.rule_hand_off' });
 
       await person.own.consents.grant({ id, dataClass: 'live_write' });
       const comment = { tool: 'support.ticket.comment', input: { ticketId: 'TEST-ticket', body: 'TEST comment' } };
-      const unwired = await person.own.dryRun({ id, requestId: 'dry:door:0001', ...comment });
+      const unwired = asDry(await person.own.dryRun({ id, requestId: 'dry:door:0001', ...comment }));
       expect(unwired.checks.at(-1)).toEqual({ check: 'door_wired', passed: false, code: 'agents.tool_not_wired' });
       expect(unwired.effect).toEqual({ kind: 'refused', tool: comment.tool, code: 'agents.tool_not_wired' });
       await untouched();
@@ -239,7 +254,7 @@ if (!available) {
       await person.own.consents.grant({ id, dataClass: 'live_write' });
       await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
       const input = { ticketId: 'TEST-ticket', body: 'TEST comment' };
-      const dry = await person.own.dryRun({ id, requestId: 'dry:ask:0001', tool: 'support.ticket.comment', input });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:ask:0001', tool: 'support.ticket.comment', input }));
       expect(dry.checks.map((c) => c.check)).not.toContain('door_wired');
       expect(dry.checks.every((c) => c.passed)).toBe(true);
       expect(dry.effect).toEqual({ kind: 'ask', tool: 'support.ticket.comment', module: 'support', dataClass: 'live_write', input });
@@ -252,12 +267,12 @@ if (!available) {
       const caps = { check: 'caps_set', passed: true, code: null };
       const undeclared = { check: 'tool_declared', passed: false, code: 'agents.tool_not_declared' };
       for (const tool of ['trade.quote', 'no.such.tool']) {
-        const dry = await person.own.dryRun({ id, requestId: `dry:undeclared:${tool}`, tool, input: {} });
+        const dry = asDry(await person.own.dryRun({ id, requestId: `dry:undeclared:${tool}`, tool, input: {} }));
         expect(dry.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: true, code: null }]);
         expect(dry.effect).toEqual({ kind: 'refused', tool, code: 'agents.tool_not_declared' });
       }
       // A money tool is never on an agent, and the dry run names why as well.
-      const money = await person.own.dryRun({ id, requestId: 'dry:undeclared:ledger.transfer', tool: 'ledger.transfer', input: {} });
+      const money = asDry(await person.own.dryRun({ id, requestId: 'dry:undeclared:ledger.transfer', tool: 'ledger.transfer', input: {} }));
       expect(money.checks).toEqual([caps, undeclared, { check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }]);
       expect(money.effect).toEqual({ kind: 'refused', tool: 'ledger.transfer', code: 'agents.tool_not_declared' });
       await untouched();
@@ -288,13 +303,133 @@ if (!available) {
     });
   });
 
+  describe('a test run on the test engine (J-agents-04 #1)', () => {
+    it('answers on the test engine: mode test, cost 0, the reply and every log row TEST; no session, reservation, usage row or ledger call', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      const run = await person.own.testRun({ id, requestId: 'test:run:0001', ask: 'TEST question' });
+      expect(run).toMatchObject({
+        kind: 'engine_run',
+        mode: 'test',
+        engine: 'test',
+        liveEngine: 'sandbox',
+        ask: 'TEST question',
+        reply: 'TEST reply: TEST question',
+        cost: '0',
+        assetId: 'USDT',
+        label: 'TEST',
+      });
+      expect(run.kind === 'engine_run' && run.log).toEqual([
+        { step: 'asked', text: 'TEST question', label: 'TEST' },
+        { step: 'answered', text: 'TEST reply: TEST question', label: 'TEST' },
+        { step: 'billed', text: '0 USDT', label: 'TEST' },
+      ]);
+      await untouched();
+      expect(await person.own.holds({ id })).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+      expect(await person.own.usage({ id, limit: 50 })).toEqual([]);
+      expect(await person.own.runs({ id, limit: 50 })).toEqual([]);
+      expect(await person.own.testRuns({ id, limit: 50 })).toEqual([run]);
+      // A test run is a test run in analytics too: left out by default.
+      expect(await person.own.analytics({ id })).toMatchObject({ runs: 0, testRuns: null, cost: '0' });
+    });
+
+    it('on a live-engine deployment the test still uses the test engine and the live engine is never asked', async () => {
+      const fetched = vi.spyOn(globalThis, 'fetch');
+      try {
+        const { person } = people(BASELINE, 'live');
+        const id = await draft(person);
+        const run = await person.own.testRun({ id, requestId: 'test:live:0001', ask: 'TEST question' });
+        expect(run).toMatchObject({ engine: 'test', liveEngine: 'live', reply: 'TEST reply: TEST question', cost: '0', label: 'TEST' });
+        expect(fetched).not.toHaveBeenCalled();
+        await untouched();
+        // The same deployment's live run does go to the live engine, which nobody answers: the test did not.
+        const { sessionId } = await person.own.session.open({ id });
+        await expect(person.own.run({ id, sessionId, requestId: 'live:run:0002', ask: 'TEST question' })).rejects.toBeTruthy();
+        expect(fetched).toHaveBeenCalled();
+      } finally {
+        fetched.mockRestore();
+      }
+    });
+
+    it("names the live engine of the route the gateway serves the run task by, the table's fallback included", async () => {
+      const fetched = vi.spyOn(globalThis, 'fetch');
+      try {
+        const { person } = people(BASELINE, 'live', { fallback: true });
+        const id = await draft(person);
+        const run = await person.own.testRun({ id, requestId: 'test:fallback:0001', ask: 'TEST question' });
+        expect(run).toMatchObject({ engine: 'test', liveEngine: 'live', reply: 'TEST reply: TEST question' });
+        expect(fetched).not.toHaveBeenCalled();
+      } finally {
+        fetched.mockRestore();
+      }
+    });
+
+    it('a blank question is refused by name and nothing is stored; the same request id again is that run, another is refused', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      await expect(person.own.testRun({ id, requestId: 'test:blank:0001', ask: '  ' })).rejects.toMatchObject({
+        message: 'agents.test.ask_blank',
+      });
+      expect(await count('own_agent_test_runs')).toBe(0);
+      const body = { id, requestId: 'test:same:0001', ask: 'TEST question' };
+      const [first, second] = await Promise.all([person.own.testRun(body), person.own.testRun(body)]);
+      expect(second).toEqual(first);
+      await expect(person.own.testRun({ ...body, ask: 'other' })).rejects.toMatchObject({ message: 'agents.request_id_replay' });
+      await expect(person.own.dryRun({ id, requestId: body.requestId, ...KB })).rejects.toMatchObject({
+        message: 'agents.request_id_replay',
+      });
+      expect(await count('own_agent_test_runs')).toBe(1);
+    });
+  });
+
+  describe('a test of a tool that would move value (J-agents-04 #2)', () => {
+    it('reports what it would do and that a real call is refused; no ledger call, session, reservation or intent', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      const tested = await person.own.toolTest({ id, requestId: 'tool:place:0001', tool: 'trade.place' });
+      expect(tested).toMatchObject({ kind: 'tool_test', tool: 'trade.place', input: {}, cost: '0', label: 'TEST', mode: 'test' });
+      expect(tested.kind === 'tool_test' && tested.effect).toEqual({ kind: 'would_move', tool: 'trade.place', module: 'trade', input: {} });
+      expect(tested.kind === 'tool_test' && tested.checks).toEqual([
+        { check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' },
+      ]);
+      await untouched();
+      expect(await person.own.holds({ id })).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+      expect(await person.own.testRuns({ id, limit: 50 })).toEqual([tested]);
+    });
+
+    it('a tool that moves no value, or none offered, is refused by name and nothing is stored', async () => {
+      const { person } = people();
+      const id = await draft(person);
+      await expect(person.own.toolTest({ id, requestId: 'tool:kb:0001', tool: 'support.kb.search' })).rejects.toMatchObject({
+        message: 'agents.test.tool_moves_no_value',
+      });
+      await expect(person.own.toolTest({ id, requestId: 'tool:none:0001', tool: 'no.such.tool' })).rejects.toMatchObject({
+        message: 'agents.tool_not_declared',
+      });
+      expect(await count('own_agent_test_runs')).toBe(0);
+      await untouched();
+    });
+
+    it("keeps one person's test runs and tool tests from another", async () => {
+      const { person, other } = people();
+      const id = await draft(person);
+      await expect(other.own.testRun({ id, requestId: 'test:other:0001', ask: 'TEST' })).rejects.toMatchObject({
+        message: 'agents.own.not_found',
+      });
+      await expect(other.own.toolTest({ id, requestId: 'tool:other:0001', tool: 'trade.place' })).rejects.toMatchObject({
+        message: 'agents.own.not_found',
+      });
+      expect(await count('own_agent_test_runs')).toBe(0);
+    });
+  });
+
   describe('live and test runs apart (J-agents-04 #4)', () => {
     it('lists test runs apart from live runs; live analytics leave test runs out unless they are included', async () => {
       const { person } = people();
       const id = await draft(person);
       const { sessionId } = await person.own.session.open({ id });
       const ran = await person.own.run({ id, sessionId, requestId: 'live:run:0001', ask: 'TEST question' });
-      const dry = await person.own.dryRun({ id, requestId: 'dry:apart:0001', ...KB });
+      const dry = asDry(await person.own.dryRun({ id, requestId: 'dry:apart:0001', ...KB }));
 
       const live = await person.own.runs({ id, limit: 50 });
       expect(live).toHaveLength(1);

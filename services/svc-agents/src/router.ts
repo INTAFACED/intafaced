@@ -65,9 +65,9 @@ import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from 
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
-import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
+import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
-import { ownRouter } from './own/routes.js';
+import { OWN_RUN_TASK, ownRouter } from './own/routes.js';
 import type { OwnTemplate } from './own/catalog.js';
 import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
@@ -404,6 +404,18 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     const provider = typeof gateway.registeredProvider === 'function' ? gateway.registeredProvider(route.providerId) : undefined;
     const engine = engineOfAdapter(provider);
     return { engine, metered: routeIsMetered(meteringEnabled, route.price) };
+  }
+
+  /**
+   * The engine the deployment runs a person's own agent's live runs on: the route the gateway resolves its run task to
+   * (its own, or the table's fallback), or unknown when none serves it.
+   */
+  function ownLiveEngine(): RouteEngine {
+    try {
+      return routeEngine(resolveRoute(gateway.routingTable, OWN_RUN_TASK)).engine;
+    } catch {
+      return 'unknown';
+    }
   }
 
   function agentEngine(tasks: readonly string[]): { engine: RouteEngine; metered: boolean } {
@@ -4016,7 +4028,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     spend: spendRouter(sql),
 
     /** Agents a person builds for themselves (AG-builder-01). Building moves no value. */
-    own: ownRouter(sql, { runtime, feeAssetId }, deps.ownTemplates, {
+    own: ownRouter(sql, { runtime, feeAssetId, liveEngine: () => ownLiveEngine() }, deps.ownTemplates, {
       baseline: deps.policyBaseline ?? {},
       supportDesk: supportDesk ?? null,
       supportTierLaw: tierLaws.support,

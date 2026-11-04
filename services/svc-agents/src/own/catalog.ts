@@ -281,7 +281,9 @@ export type OwnRefusalCode =
   | 'agents.eval.repeats_unset'
   | 'agents.eval.repeats_invalid'
   | 'agents.eval.threshold_unset'
-  | 'agents.eval.threshold_invalid';
+  | 'agents.eval.threshold_invalid'
+  | 'agents.test.ask_blank'
+  | 'agents.test.tool_moves_no_value';
 
 export class OwnAgentRefusal extends Error {
   constructor(

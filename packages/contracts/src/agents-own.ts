@@ -316,24 +316,91 @@ export const ownAgentDryRunEffectSchema = z.discriminatedUnion('kind', [
     input: z.record(z.string(), z.string()),
   }),
   z.object({ kind: z.literal('refused'), tool: z.string(), code: z.string() }),
+  /**
+   * A tool that moves value, tested (AG-testing-01; J-agents-04 #2): what a call of it would do (`module` is where the
+   * value would move). The test sends nothing: no ledger call is made, and no session, reservation or intent.
+   */
+  z.object({ kind: z.literal('would_move'), tool: z.string(), module: z.string(), input: z.record(z.string(), z.string()) }),
 ]);
 export type OwnAgentDryRunEffect = z.infer<typeof ownAgentDryRunEffectSchema>;
 
-/** One test run of the person's own agent: today a dry run. Never billed (cost 0), labelled TEST. */
-export const ownAgentTestRunSchema = z.object({
+/**
+ * The engine a test run used and the engine this deployment runs the agent's live runs on. A test run always uses the
+ * test engine (`test`: fixed replies from the input alone, no model, never billed), whatever the deployment's live engine
+ * is: `sandbox` is the deterministic stand-in, `live` a connected model, `unknown` neither.
+ */
+export const OWN_AGENT_LIVE_ENGINES = ['sandbox', 'live', 'unknown'] as const;
+export type OwnAgentLiveEngine = (typeof OWN_AGENT_LIVE_ENGINES)[number];
+
+/** One row of a test run's log, in the order it happened; every row is labelled TEST. */
+export const ownAgentTestLogRowSchema = z.object({
+  step: z.enum(['asked', 'answered', 'billed']),
+  text: z.string(),
+  label: z.literal('TEST'),
+});
+export type OwnAgentTestLogRow = z.infer<typeof ownAgentTestLogRowSchema>;
+
+const testRunBase = {
   id: z.string().uuid(),
   requestId: z.string(),
-  kind: z.literal('dry_run'),
-  tool: z.string(),
-  input: z.record(z.string(), z.string()),
-  checks: z.array(ownAgentDryRunCheckSchema),
-  effect: ownAgentDryRunEffectSchema,
+  /** Always `test`: a test run is never a live run. */
+  mode: z.literal('test'),
   cost: z.literal('0'),
   assetId: z.string(),
   label: z.literal('TEST'),
   createdAt: z.string(),
-});
+};
+
+/**
+ * One test run of the person's own agent, never billed (cost 0) and labelled TEST:
+ * - `dry_run`: one call of one of the agent's tools, checked (AG-spend-04);
+ * - `engine_run`: the agent asked once on the test engine, its reply and its log (AG-testing-01; J-agents-04 #1);
+ * - `tool_test`: a tool that moves value, tested: what it would do, with nothing sent (AG-testing-01; J-agents-04 #2).
+ */
+export const ownAgentTestRunSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...testRunBase,
+    kind: z.literal('dry_run'),
+    tool: z.string(),
+    input: z.record(z.string(), z.string()),
+    checks: z.array(ownAgentDryRunCheckSchema),
+    effect: ownAgentDryRunEffectSchema,
+  }),
+  z.object({
+    ...testRunBase,
+    kind: z.literal('tool_test'),
+    tool: z.string(),
+    input: z.record(z.string(), z.string()),
+    checks: z.array(ownAgentDryRunCheckSchema),
+    effect: ownAgentDryRunEffectSchema,
+  }),
+  z.object({
+    ...testRunBase,
+    kind: z.literal('engine_run'),
+    ask: z.string(),
+    reply: z.string(),
+    engine: z.literal('test'),
+    liveEngine: z.enum(OWN_AGENT_LIVE_ENGINES),
+    log: z.array(ownAgentTestLogRowSchema),
+  }),
+]);
 export type OwnAgentTestRun = z.infer<typeof ownAgentTestRunSchema>;
+
+/** `own.testRun` input: one question for the agent, answered on the test engine. The same request id again is that run. */
+export const ownAgentTestRunStartSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(8).max(200),
+  ask: z.string().max(4000),
+});
+export type OwnAgentTestRunStart = z.infer<typeof ownAgentTestRunStartSchema>;
+
+/** `own.toolTest` input: one tool that moves value. The same request id again is that test. */
+export const ownAgentToolTestStartSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(8).max(200),
+  tool: z.string().min(1).max(120),
+});
+export type OwnAgentToolTestStart = z.infer<typeof ownAgentToolTestStartSchema>;
 
 /** `own.dryRun` input: one call of one tool. The same request id again is the same dry run. */
 export const ownAgentDryRunStartSchema = z.object({

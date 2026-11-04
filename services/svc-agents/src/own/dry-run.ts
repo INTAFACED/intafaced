@@ -4,12 +4,15 @@ import type {
   OwnAgentDryRunCheck,
   OwnAgentDryRunEffect,
   OwnAgentHolds,
+  OwnAgentLiveEngine,
+  OwnAgentTestLogRow,
   OwnAgentTestRun,
 } from '@intafaced/contracts/agents-own';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
+import { testEngineReply } from './evaluations.js';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -70,37 +73,102 @@ export async function dryRunToolCall(
   return { checks, effect: { kind: asks ? 'ask' : 'run', tool: input.tool, module, dataClass, input: { ...input.input } } };
 }
 
+type RowKind = OwnAgentTestRun['kind'];
 interface TestRunRow {
   id: string;
   request_id: string;
-  kind: 'dry_run';
-  tool: string;
-  input_json: Record<string, string>;
-  checks_json: OwnAgentDryRunCheck[];
-  effect_json: OwnAgentDryRunEffect;
+  kind: RowKind;
+  tool: string | null;
+  input_json: Record<string, string> | null;
+  checks_json: OwnAgentDryRunCheck[] | null;
+  effect_json: OwnAgentDryRunEffect | null;
+  ask: string | null;
+  reply: string | null;
+  live_engine: OwnAgentLiveEngine | null;
+  log_json: OwnAgentTestLogRow[] | null;
   created_at: Date;
 }
-const TEST_RUN_COLUMNS = 'id, request_id, kind, tool, input_json, checks_json, effect_json, created_at';
+const TEST_RUN_COLUMNS = 'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at';
 
-const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => ({
-  id: row.id,
-  requestId: row.request_id,
-  kind: row.kind,
-  tool: row.tool,
-  input: row.input_json,
-  checks: row.checks_json,
-  effect: row.effect_json,
-  cost: '0',
-  assetId,
-  label: 'TEST',
-  createdAt: row.created_at.toISOString(),
-});
-
-/** The same tool and the same input, whatever order the fields came in. */
-const sameCall = (row: TestRunRow, tool: string, input: Readonly<Record<string, string>>): boolean => {
-  const sorted = (args: Readonly<Record<string, string>>) => JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
-  return row.tool === tool && sorted(row.input_json) === sorted(input);
+const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
+  const base = {
+    id: row.id,
+    requestId: row.request_id,
+    mode: 'test' as const,
+    cost: '0' as const,
+    assetId,
+    label: 'TEST' as const,
+    createdAt: row.created_at.toISOString(),
+  };
+  if (row.kind === 'engine_run') {
+    return {
+      ...base,
+      kind: 'engine_run',
+      ask: row.ask!,
+      reply: row.reply!,
+      engine: 'test',
+      liveEngine: row.live_engine!,
+      log: row.log_json!,
+    };
+  }
+  return { ...base, kind: row.kind, tool: row.tool!, input: row.input_json!, checks: row.checks_json!, effect: row.effect_json! };
 };
+
+/** A sorted copy of one call's input, so the same input in another field order is the same call. */
+const sortedInput = (args: Readonly<Record<string, string>>) => JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
+
+/** What a request is, to tell the same request again from a request id reused for another. */
+type Call = { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>> } | { kind: 'engine_run'; ask: string };
+
+const sameCall = (row: TestRunRow, call: Call): boolean =>
+  row.kind === call.kind &&
+  (call.kind === 'engine_run'
+    ? row.ask === call.ask
+    : row.tool === call.tool && sortedInput(row.input_json ?? {}) === sortedInput(call.input));
+
+/** What a test run stores, beside its key: a dry run or tool test's call and outcome, or an engine run's exchange. */
+type Stored =
+  | { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>>; outcome: DryRunOutcome }
+  | { kind: 'engine_run'; ask: string; reply: string; liveEngine: OwnAgentLiveEngine; log: OwnAgentTestLogRow[] };
+
+/**
+ * A tool that moves value, tested (AG-testing-01; J-agents-04 #2): what a call of it would do, and the check a real call
+ * of it by the person's own agent fails. Pure: it reads nothing and sends nothing, so no ledger call is made and no
+ * session, reservation or intent. A tool that moves no value, or one not offered, is refused by name: a dry run is how
+ * those are tested.
+ */
+export function testValueTool(tool: string): DryRunOutcome {
+  const entry = OWN_TOOLS.find((row) => row.name === tool);
+  if (!entry) throw new OwnAgentRefusal('agents.tool_not_declared', { tool });
+  if (!entry.movesMoney) throw new OwnAgentRefusal('agents.test.tool_moves_no_value', { tool });
+  return {
+    checks: [{ check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }],
+    effect: { kind: 'would_move', tool, module: entry.module, input: {} },
+  };
+}
+
+/**
+ * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1). The test engine answers from the
+ * input alone, whatever engine the deployment runs live runs on (`liveEngine`, kept beside the run): it calls no
+ * provider, opens no session, holds no reservation, writes no usage row and calls no ledger. The reply and every log row
+ * are labelled TEST, and the run costs 0.
+ */
+export function testEngineRun(ask: string, liveEngine: OwnAgentLiveEngine, assetId: string): Extract<Stored, { kind: 'engine_run' }> {
+  if (/\u0000/.test(ask)) throw new OwnAgentRefusal('agents.own.text_invalid');
+  if (!ask.trim()) throw new OwnAgentRefusal('agents.test.ask_blank');
+  const reply = testEngineReply(ask);
+  return {
+    kind: 'engine_run',
+    ask,
+    reply,
+    liveEngine,
+    log: [
+      { step: 'asked', text: ask, label: 'TEST' },
+      { step: 'answered', text: reply, label: 'TEST' },
+      { step: 'billed', text: `0 ${assetId}`, label: 'TEST' },
+    ],
+  };
+}
 
 /** An own agent's test runs. Nothing here is a balance and no value moves. */
 export class OwnTestRunStore {
@@ -120,19 +188,78 @@ export class OwnTestRunStore {
     call: { tool: string; input: Readonly<Record<string, string>> },
     check: () => Promise<DryRunOutcome>,
   ): Promise<OwnAgentTestRun> {
+    return this.once(ownerId, agentId, requestId, { kind: 'dry_run', ...call }, async () => ({
+      kind: 'dry_run',
+      ...call,
+      outcome: await check(),
+    }));
+  }
+
+  /** Stores one tool test, keyed as a dry run is; the same request id again is that test. */
+  async toolTest(ownerId: string, agentId: string, requestId: string, tool: string): Promise<OwnAgentTestRun> {
+    return this.once(ownerId, agentId, requestId, { kind: 'tool_test', tool, input: {} }, async () => ({
+      kind: 'tool_test',
+      tool,
+      input: {},
+      outcome: testValueTool(tool),
+    }));
+  }
+
+  /** Stores one test engine run, keyed as a dry run is; the same request id again is that run, as it was. */
+  async engineRun(
+    ownerId: string,
+    agentId: string,
+    requestId: string,
+    ask: string,
+    liveEngine: OwnAgentLiveEngine,
+  ): Promise<OwnAgentTestRun> {
+    return this.once(ownerId, agentId, requestId, { kind: 'engine_run', ask }, async () => testEngineRun(ask, liveEngine, this.assetId));
+  }
+
+  private async once(
+    ownerId: string,
+    agentId: string,
+    requestId: string,
+    call: Call,
+    make: () => Promise<Stored>,
+  ): Promise<OwnAgentTestRun> {
     const key = `agents:test-run:${agentId}:${requestId}`;
     const stored = await this.find(ownerId, key);
     if (stored) return this.replayed(stored, call);
-    const outcome = await check();
+    const made = await make();
+    const json = <T>(value: T) => (value === null ? null : this.sql.json(value as never));
+    const run =
+      made.kind === 'engine_run'
+        ? {
+            tool: null,
+            input: null,
+            checks: null,
+            effect: null,
+            ask: made.ask,
+            reply: made.reply,
+            liveEngine: made.liveEngine,
+            log: made.log,
+          }
+        : {
+            tool: made.tool,
+            input: { ...made.input },
+            checks: made.outcome.checks.map((entry) => ({ ...entry })),
+            effect: { ...made.outcome.effect },
+            ask: null,
+            reply: null,
+            liveEngine: null,
+            log: null,
+          };
     const inserted = await this.sql<TestRunRow[]>`
       INSERT INTO agents.own_agent_test_runs
-        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, created_at)
-      VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, 'dry_run', ${call.tool}, ${this.sql.json({ ...call.input })},
-              ${this.sql.json(outcome.checks.map((entry) => ({ ...entry })))}, ${this.sql.json({ ...outcome.effect })}, clock_timestamp())
+        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at)
+      VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
+              ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
+              clock_timestamp())
       ON CONFLICT (owner_id, request_key) DO NOTHING
       RETURNING ${this.sql.unsafe(TEST_RUN_COLUMNS)}
     `;
-    // Another dry run under this key committed first: it is this request's, or the key was reused for another call.
+    // Another test run under this key committed first: it is this request's, or the key was reused for another.
     if (!inserted[0]) return this.replayed((await this.find(ownerId, key))!, call);
     return testRunView(inserted[0], this.assetId);
   }
@@ -162,8 +289,8 @@ export class OwnTestRunStore {
     return rows[0] ?? null;
   }
 
-  private replayed(row: TestRunRow, call: { tool: string; input: Readonly<Record<string, string>> }): OwnAgentTestRun {
-    if (!sameCall(row, call.tool, call.input)) throw new OwnAgentRefusal('agents.request_id_replay');
+  private replayed(row: TestRunRow, call: Call): OwnAgentTestRun {
+    if (!sameCall(row, call)) throw new OwnAgentRefusal('agents.request_id_replay');
     return testRunView(row, this.assetId);
   }
 }

@@ -25,6 +25,31 @@ function routingTable() {
   return JSON.stringify({ ...table, routes: [...table.routes, JSON.parse(testValue('AGENTS_COACH_ROUTE'))] });
 }
 
+/**
+ * The engine live runs use. By default the service's deterministic stand-in engine, which /ready and every route report
+ * as "sandbox": no model provider is connected on a test stack and no real inference runs.
+ * `LOCAL_STACK_AGENTS_SANDBOX_ENGINE=off` on a start or restart makes the stack a live-engine deployment instead (J-agents-04
+ * #1): the HTTP model adapter, which every route reports as "live", pointed at a TEST address nothing answers at, with a
+ * TEST key. No model vendor is reached and nothing is spent: every live run fails at the engine, so a test run that
+ * still answers proves it never asked the live engine.
+ */
+function engine(STATE) {
+  if (process.env.LOCAL_STACK_AGENTS_SANDBOX_ENGINE === 'off') {
+    return {
+      AGENTS_PROVIDER: 'upstream',
+      AGENTS_UPSTREAM_BASE_URL: 'http://127.0.0.1:9',
+      AGENTS_UPSTREAM_API_KEY: 'TEST',
+      AGENTS_UPSTREAM_TIMEOUT_MS: '1000',
+    };
+  }
+  return {
+    AGENTS_PROVIDER: 'mock',
+    // While this file exists the stand-in engine parks each completion before it answers, so a journey can read the
+    // service's own record of a run the engine has not answered yet (J-agents-01 #5). Absent, it answers at once.
+    AGENTS_MOCK_HOLD_FILE: path.join(STATE, 'agents-engine.hold'),
+  };
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'agents',
   env: () => ({
@@ -60,11 +85,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION === 'off'
       ? {}
       : { AGENTS_TRANSCRIPT_RETENTION_DAYS: testValue('AGENTS_TRANSCRIPT_RETENTION_DAYS') }),
-    // The service's deterministic stand-in engine, which /ready and every route report as "sandbox": no model
-    // provider is connected on a test stack and no real inference runs.
-    AGENTS_PROVIDER: 'mock',
-    // While this file exists the stand-in engine parks each completion before it answers, so a journey can read the
-    // service's own record of a run the engine has not answered yet (J-agents-01 #5). Absent, it answers at once.
-    AGENTS_MOCK_HOLD_FILE: path.join(STATE, 'agents-engine.hold'),
+    ...engine(STATE),
   }),
 });
