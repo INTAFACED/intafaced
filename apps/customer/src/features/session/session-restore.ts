@@ -237,12 +237,13 @@ function browserTabMemory(): TabMemory {
   };
 }
 
-/** A reply that says nothing about the sub-account (no answer, unreadable): ask again later; never read as a refusal. */
-function noAnswer(result: ApiResult<unknown>): boolean {
+/**
+ * Only identity's own refusal ends a sub-account: a 403, or a typed `auth.*` code (revoked, frozen, not owned, session
+ * gone). Anything else (no answer, unreadable, a 404 or 5xx in a deploy) says nothing about it: ask again later.
+ */
+function refusedByIdentity(result: ApiResult<unknown>): boolean {
   if (result.ok) return false;
-  if (['unreachable', 'invalid_response', 'aborted', 'uncertain'].includes(result.reason)) return true;
-  const status = result.status;
-  return result.reason === 'error' && (status === undefined || status >= 500 || RETRYABLE_4XX.has(status));
+  return result.reason === 'forbidden' || (typeof result.code === 'string' && result.code.startsWith('auth.'));
 }
 
 /** Refresh this long before the access token expires. */
@@ -338,10 +339,11 @@ export function createSessionController(
       failures += 1;
     }
   }
+  /** The tab memory is written only when identity confirms the sub-account (in adopt), and cleared here. */
   function want(choice: TabChoice | null) {
     wanted = choice;
-    memory.write(choice);
     if (!choice) {
+      memory.write(null);
       if (reentryTimer !== undefined) clearTimeout(reentryTimer);
       reentryTimer = undefined;
       reentryFailures = 0;
@@ -409,7 +411,7 @@ export function createSessionController(
           want(null);
           return answer;
         }
-        if (!noAnswer(answer)) {
+        if (refusedByIdentity(answer)) {
           want(null);
           adopt(main, 'subaccount_ended');
           return answer;
@@ -435,15 +437,19 @@ export function createSessionController(
   }
   function adopt(value: Session, notice: SessionNotice | null = null) {
     if (!value.subAccountId) latestMain = value;
+    else if (wanted) memory.write(wanted);
     epoch += 1;
     failures = 0;
     set({ session: value, restoring: false, restoreFailed: false, notice });
     arm();
   }
+  /**
+   * A session handed in from outside (a sign-in, a harness). It wins over anything in flight: a main-account session
+   * forgets the tab's sub-account choice, and a sub-account session becomes the choice, so a refresh keeps it.
+   */
   function commit(value: Session) {
     const session = sessionSchema.parse(value);
-    // A sign-in as someone else forgets this tab's sub-account choice.
-    if (!session.subAccountId && wanted && wanted.userId !== session.userId) want(null);
+    want(session.subAccountId ? { userId: session.userId, subAccountId: session.subAccountId } : null);
     adopt(session);
   }
   function signOut(notice: SessionNotice | null) {
@@ -514,12 +520,13 @@ export function createSessionController(
     clear,
     /**
      * A request on this token came back 401. A tab acting as a sub-account asks for it again (its session may have just
-     * been rotated); any other tab is signed out, as before.
+     * been rotated); any other tab is signed out, as before. While it is already asking, or waiting to ask again, a 401
+     * starts nothing new: the pauses keep growing.
      */
     unauthorized(requestToken: string | undefined) {
       if (!requestToken || state.session?.accessToken !== requestToken) return;
-      if (state.session.subAccountId && wanted) void reenter('keep');
-      else clear();
+      if (!state.session.subAccountId || !wanted) clear();
+      else if (!reentry && reentryTimer === undefined) void reenter('keep');
     },
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
@@ -565,6 +572,8 @@ export function createSessionController(
       if (!current || current.subAccountId || wanted) {
         return { ok: false, reason: 'forbidden', message: 'Switch back to the main account first.', code: 'auth.sub_account_denied' };
       }
+      // An earlier question (for a sub-account just left) is still on its way back: never share its answer.
+      if (reentry) return { ok: false, reason: 'aborted', message: 'The previous switch is still finishing. Try again.' };
       want({ userId: current.userId, subAccountId });
       latestMain = current;
       return reenter('enter');

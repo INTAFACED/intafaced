@@ -49,7 +49,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       createApiClient({
         token: () => accessToken,
-        canWrite: () => controller.getState().session?.accessToken === accessToken,
+        // No write goes out while a tab acting as a sub-account is confirming it again (the bar says so).
+        canWrite: () => {
+          const now = controller.getState();
+          return now.session?.accessToken === accessToken && !now.subAccountWaiting;
+        },
         onUnauthorized: (requestToken) => controller.unauthorized(requestToken),
       }),
     [accessToken, controller],

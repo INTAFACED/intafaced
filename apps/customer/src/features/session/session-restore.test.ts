@@ -871,6 +871,99 @@ describe('acting as a sub-account in this tab (auth.subAccountSession)', () => {
     someoneElse.controller.stop();
   });
 
+  it('remembers the choice only once identity confirms it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { controller, tab } = build(
+      () => ok(session('main')),
+      async (main) => {
+        await gate;
+        return asked(main);
+      },
+    );
+    await controller.start();
+    const entering = controller.enterSubAccount(SUB);
+    expect(tab.value).toBeNull();
+    release();
+    await entering;
+    expect(tab.value).toEqual({ userId: USER, subAccountId: SUB });
+    controller.stop();
+  });
+
+  it('Use while an earlier question is still in flight is refused and leaves no choice behind', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { controller, tab } = build(
+      (n) => ok(session('main' + n, 60_000)),
+      async (main) => {
+        if (main.accessToken === 'main2') await gate;
+        return asked(main);
+      },
+    );
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    await vi.advanceTimersByTimeAsync(SILENT);
+    await controller.leaveSubAccount();
+    expect(await controller.enterSubAccount(SUB)).toMatchObject({ ok: false, reason: 'aborted' });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.getState().session?.subAccountId).toBeUndefined();
+    expect(tab.value).toBeNull();
+    expect((await controller.enterSubAccount(SUB)).ok).toBe(true);
+    controller.stop();
+  });
+
+  it('a sign-in during the boot re-entry wins, and forgets the remembered sub-account', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const tab = { value: { userId: USER, subAccountId: SUB } as Choice };
+    const { controller, ask } = build(
+      () => ok(session('cookie')),
+      async (main) => {
+        await gate;
+        return asked(main);
+      },
+      tab,
+    );
+    const booting = controller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ask).toHaveBeenCalledTimes(1);
+    controller.commit(session('typed-password'));
+    release();
+    await booting;
+    expect(controller.getState().session).toMatchObject({ accessToken: 'typed-password' });
+    expect(controller.getState().session?.subAccountId).toBeUndefined();
+    expect(tab.value).toBeNull();
+    controller.stop();
+  });
+
+  it('a sub-account session handed in from outside stays the sub-account across a refresh', async () => {
+    const { controller } = build((n) => ok(session('main' + n, 60_000)));
+    await controller.start();
+    controller.commit(subSession('harness-sub', 60_000));
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(controller.getState().session).toMatchObject({ subAccountId: SUB, accessToken: 'sub-of-main2' });
+    controller.stop();
+  });
+
+  it('while waiting, 401s start no new question (the pauses keep growing), and a 404 is no answer, not a refusal', async () => {
+    let n = 0;
+    const notMounted = { ok: false as const, reason: 'not_mounted' as const, message: 'deploy', status: 404 };
+    const { controller, ask } = build(
+      (k) => ok(session('main' + k, 60_000)),
+      async (main) => (++n === 1 ? asked(main) : n === 2 ? notMounted : lost),
+    );
+    await controller.start();
+    await controller.enterSubAccount(SUB);
+    await vi.advanceTimersByTimeAsync(SILENT);
+    expect(controller.getState()).toMatchObject({ session: { subAccountId: SUB }, subAccountWaiting: true, notice: null });
+    const asks = ask.mock.calls.length;
+    for (let i = 0; i < 5; i += 1) controller.unauthorized('sub-of-main1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ask).toHaveBeenCalledTimes(asks);
+    controller.stop();
+  });
+
   it('switching back or signing out forgets the sub-account', async () => {
     const { controller, tab } = build((n) => ok(session('main' + n)));
     await controller.start();
