@@ -1,5 +1,5 @@
 import { test, expect } from './journey.mjs';
-import { api, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 import { TEST_UNSUPPORTED_DEPOSIT } from '../../../../tooling/scripts/local-test-gates.mjs';
@@ -227,21 +227,69 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   run.write({ credited: String(before + toUnits('100')), label, tx });
 });
 
+/** The screen's text for an amount (fmtAmount, round down): at most 8 places, no trailing zeros, the whole part grouped. */
+function shown(decimal) {
+  const units = toUnits(decimal);
+  const step = 10n ** 10n;
+  const cut = units === 0n || units >= step ? (units / step) * step : units;
+  const [whole, frac] = fromUnits(cut).split('.');
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${frac ? `.${frac}` : ''}`;
+}
+
 test(`${J} #6 the chain event is delivered three times: one row, one credit, and the balance equals the ledger`, async ({ page }) => {
+  test.setTimeout(120_000);
   const { account: who, address, credited, label, tx } = state();
   if (!credited) throw new Error(`${J} #5 credited nothing, so there is no event to deliver again`);
+  // #5 left the ledger's USDT, in units. This account's USDT came only from #5's 100 USDT credits (one per attempt that
+  // credited), so that says how many credits there were.
+  const held = BigInt(credited);
+  const credits = Number(held / toUnits('100'));
+  expect(held % toUnits('100')).toBe(0n);
+  expect(credits).toBeGreaterThanOrEqual(1);
+
+  // The same chain event, delivered three more times: each delivery is accepted and names the same transaction.
   for (let i = 0; i < 3; i += 1) expect(chainDeposit(address, '100', 6, label)).toBe(tx);
-  const usdt = await ledger(who);
-  expect(String(await usdt())).toBe(credited);
+  const client = await api(who);
+  const ledgerNow = (await client.balances())[ASSET];
+  expect(ledgerNow, `the ledger answered no ${ASSET} balance`).toBeTruthy();
+
+  // One credit: the ledger holds exactly what #5's credit left, nothing more.
+  expect(toUnits(ledgerNow.free)).toBe(held);
+  expect(toUnits(ledgerNow.total)).toBe(held);
+
+  // One row: the bank keeps one deposit record for this transaction, credited once, for 100.
+  const listed = await client.get(`/api/bank/trpc/deposits.list?input=${encodeURIComponent(JSON.stringify({ txId: tx }))}`);
+  expect(listed.status).toBe(200);
+  const same = listed.body?.result?.data;
+  expect(same?.total).toBe(1);
+  expect(same.items).toHaveLength(1);
+  expect(same.items[0].txHash).toBe(tx);
+  expect(same.items[0].status).toBe('credited');
+  expect(toUnits(same.items[0].amount)).toBe(toUnits('100'));
 
   await openDeposit(page, who);
   await expect(recordRow(page, tx)).toHaveCount(1);
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
-  // Your deposits (the ledger's own history, for the chosen asset) shows the credit once.
+  // Your deposits (the ledger's own history, for the chosen asset) shows each credit once.
   await assetPicker(page).selectOption(ASSET);
   const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
-  await expect(history.locator('tbody tr')).toHaveCount(1);
-  await expect(history.locator('tbody tr')).toContainText(`100 ${ASSET}`);
+  await expect(history.locator('tbody tr')).toHaveCount(credits);
+  for (const row of await history.locator('tbody tr').all()) await expect(row).toContainText(`100 ${ASSET}`);
+
+  // The balance the person sees on Money is the ledger's, to the last digit the screen shows.
+  await page.goto('/money');
+  const coin = page.getByTestId('if-money').first().locator(`tr[data-testid="money-row"][data-asset="${ASSET}"]`).first();
+  await expect(coin.getByTestId('money-num__entries')).toHaveText(`${shown(ledgerNow.total)} ${ASSET}`);
+  // Behind it, the ledger's own entries: one money-in entry of 100 per credit, and the bank's sum check says they add up
+  // to that same balance.
+  await coin.getByTestId('money-num__entries').click();
+  await expect(page).toHaveURL(new RegExp(`/money/balance/${ASSET}$`));
+  await expect(page.getByRole('status').filter({ hasText: 'Balance check' })).toContainText(
+    `All ${credits} entries add up to your balance: ${shown(ledgerNow.free)} ${ASSET}.`,
+  );
+  const entries = page.getByTestId('money-table').locator('tbody tr');
+  await expect(entries).toHaveCount(credits);
+  for (const row of await entries.all()) await expect(row).toContainText('+100');
 });
 
 test(`${J} #7 the credit lands in the inbox once, however often the chain delivered it, and opens its deposit room`, async ({ page }) => {
