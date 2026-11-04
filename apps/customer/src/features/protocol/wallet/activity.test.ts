@@ -55,6 +55,9 @@ describe('wallet activity rows (D-portfolio-wallet-03, RC-dex-protocol-01)', () 
     const mined = activityRows([row(9)], sent, [{ hash: hash(8), status: 'unknown', replacingHash: null }], ME, listed, words);
     expect(mined.find((r) => r.hash === hash(8))).toMatchObject({ status: 'replaced', replacedBy: hash(9) });
     expect(mined.find((r) => r.hash === hash(9))).toMatchObject({ status: 'confirmed', mine: true });
+    // The indexer may still call the original pending inside its drop window; the mined replacement wins.
+    const stale = activityRows([row(9)], sent, [{ hash: hash(8), status: 'pending', replacingHash: null }], ME, listed, words);
+    expect(stale.find((r) => r.hash === hash(8))).toMatchObject({ status: 'replaced', replacedBy: hash(9) });
   });
 
   it('says a send the network did not answer for is unread, never dropped or done', () => {

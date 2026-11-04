@@ -81,17 +81,19 @@ export function activityRows(
     const replacement = sent.find((other) => same(other.replaces, record.hash));
     const replacementSeen =
       replacement &&
-      (rows.some((row) => same(row.hash, replacement.hash)) ||
+      (rows.some((row) => same(row.hash, replacement.hash) && (row.status === 'confirmed' || row.status === 'failed')) ||
         ['success', 'failed'].includes(byHash.get(replacement.hash.toLowerCase())?.status ?? ''));
     let status: Status;
     let replacedBy: string | null = null;
-    if (lookup?.status === 'pending') status = 'pending';
-    else if (lookup?.status === 'success') status = 'confirmed';
-    else if (lookup?.status === 'failed') status = 'failed';
-    else if (lookup?.status === 'replaced' || replacementSeen) {
+    if (lookup.status === 'success') status = 'confirmed';
+    else if (lookup.status === 'failed') status = 'failed';
+    // A same-nonce replacement in a block means this one can never be mined, whatever a pending read still says (the
+    // indexer keeps a hash it saw pending as pending until its drop window passes).
+    else if (lookup.status === 'replaced' || replacementSeen) {
       status = 'replaced';
       replacedBy = lookup?.replacingHash ?? replacement?.hash ?? null;
-    } else if (lookup.status === 'dropped') status = 'dropped';
+    } else if (lookup.status === 'pending') status = 'pending';
+    else if (lookup.status === 'dropped') status = 'dropped';
     // The network did not answer for it on this read: said plainly, never guessed as dropped or done.
     else status = 'unread';
     rows.push({
