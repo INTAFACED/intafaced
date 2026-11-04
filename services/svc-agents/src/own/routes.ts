@@ -25,6 +25,12 @@ import {
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
+  ownAgentCoOwnerSchema,
+  ownAgentDeleteSchema,
+  ownAgentDeletedSchema,
+  ownAgentPublicationSchema,
+  ownAgentPublishSchema,
+  ownAgentSharedSchema,
   ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
   router,
@@ -49,6 +55,7 @@ import {
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
+import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirectory } from './publishing.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
 import { dryRunToolCall, ownAgentAnalytics, ownAgentHolds, OwnTestRunStore } from './dry-run.js';
 import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
@@ -165,6 +172,8 @@ export interface OwnToolDeps {
   readonly baseline: PolicyBaseline;
   readonly supportDesk?: SupportDeskPort | null;
   readonly supportTierLaw?: SupportTierLaw | null;
+  /** Identity's account read, which a co-owner must pass as one active person (AG-builder-03); absent refuses. */
+  readonly accounts?: OwnAccountDirectory | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -262,6 +271,110 @@ export function ownRouter(
       .query(({ ctx, input }) => {
         assertPersonSetsLimits(ctx.principal);
         return guard(() => storeOf(sql).list(ctx.principal.userId, input.limit));
+      }),
+
+    /** The agent's published versions, the version each surface carries, and each open session's version (AG-builder-03). */
+    publication: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput)
+      .output(ownAgentPublicationSchema)
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnPublishingStore(sqlOf(sql)).publication(ctx.principal.userId, agent.id, ownSessionAgentId(agent.id));
+        });
+      }),
+
+    /**
+     * Publishes the agent's current version to the chosen surfaces (AG-builder-03; J-agents-03 #7). A finding that blocks
+     * publishing refuses with its code; a surface the policy forbids refuses `agents.own.surface_not_reviewed`. Either
+     * way nothing is published and no surface moves. Only the chosen surfaces move; the rest keep their version.
+     */
+    publish: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentPublishSchema)
+      .output(ownAgentPublicationSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const surfaces = checkSurfaces(input.surfaces);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          const publishing = new OwnPublishingStore(sqlOf(sql));
+          await publishing.publish(ctx.principal.userId, agent.id, surfaces);
+          return publishing.publication(ctx.principal.userId, agent.id, ownSessionAgentId(agent.id));
+        });
+      }),
+
+    /**
+     * The agent's co-owners (AG-builder-03; J-agents-03 #8): each one person, by account id, whom identity reads as an
+     * active account. A group, team or business is refused `agents.own.co_owner_group`; so is the owner themself.
+     */
+    coOwners: router({
+      list: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(z.array(ownAgentCoOwnerSchema))
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnPublishingStore(sqlOf(sql)).coOwners(ctx.principal.userId, agent.id);
+          });
+        }),
+      add: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ coOwner: z.string().max(200) }))
+        .output(z.array(ownAgentCoOwnerSchema))
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const coOwnerId = checkCoOwner(ctx.principal.userId, input.coOwner);
+            const publishing = new OwnPublishingStore(sqlOf(sql));
+            if (await publishing.isGroup(coOwnerId)) throw new OwnAgentRefusal('agents.own.co_owner_group');
+            // One active person, as identity reads them; an account it cannot read is refused, never added on a guess.
+            const read = tooling.accounts ? await tooling.accounts.readAccount(coOwnerId) : { status: 'unread' as const };
+            if (read.status !== 'ok') throw new OwnAgentRefusal('agents.own.co_owner_unread');
+            if (read.account.status !== 'active') throw new OwnAgentRefusal('agents.own.co_owner_inactive');
+            await publishing.addCoOwner(ctx.principal.userId, agent.id, coOwnerId);
+            return publishing.coOwners(ctx.principal.userId, agent.id);
+          });
+        }),
+      remove: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ coOwner: z.string().max(200) }))
+        .output(z.array(ownAgentCoOwnerSchema))
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const publishing = new OwnPublishingStore(sqlOf(sql));
+            await publishing.removeCoOwner(ctx.principal.userId, agent.id, input.coOwner.trim().toLowerCase());
+            return publishing.coOwners(ctx.principal.userId, agent.id);
+          });
+        }),
+    }),
+
+    /** Other people's agents this person co-owns, newest first, read only. */
+    sharedWithMe: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentSharedSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => new OwnPublishingStore(sqlOf(sql)).sharedWith(ctx.principal.userId, input.limit));
+      }),
+
+    /**
+     * Deletes a draft for good (J-agents-03 #8), only with the person's confirmation, sent as `delete for good`; without it the
+     * service refuses `agents.own.delete_unconfirmed` and keeps it. A published agent, or one that has opened a
+     * session, is refused and kept whole.
+     */
+    delete: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentDeleteSchema)
+      .output(ownAgentDeletedSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          await new OwnPublishingStore(sqlOf(sql)).deleteDraft(ctx.principal.userId, agent.id, ownSessionAgentId(agent.id), input.confirm);
+          return { id: agent.id, deleted: true as const };
+        });
       }),
 
     /**
@@ -606,7 +719,16 @@ export function ownRouter(
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             if (!(await readOwnCaps(sqlOf(sql), ctx.principal.userId, agent.id))) throw new OwnAgentRefusal('agents.spend.cap_unset');
             const session = await runtime.openOwnSession({ userId: ctx.principal.userId, guardrail: ownGuardrail(agent) });
-            return { sessionId: session.id, agentId: session.agentId };
+            // The session keeps this version's instructions for its whole life (AG-builder-03); its tools and cap are in
+            // its guardrail already.
+            await new OwnPublishingStore(sqlOf(sql)).pinSession(
+              ctx.principal.userId,
+              agent.id,
+              session.id,
+              session.guardrailVersion,
+              agent.instructions,
+            );
+            return { sessionId: session.id, agentId: session.agentId, version: session.guardrailVersion };
           }),
         ),
 
@@ -645,12 +767,16 @@ export function ownRouter(
       .mutation(async ({ ctx, input }) => {
         const deps = runDepsOf(run);
         const { agent, session } = await ownedOwnSession(sql, deps.runtime, ctx.principal.userId, input.id, input.sessionId);
+        // A session keeps the instructions it opened on (AG-builder-03), whatever was edited or published since. One
+        // opened before sessions were pinned reads the agent as it stands.
+        const pinned = await new OwnPublishingStore(sqlOf(sql)).sessionInstructions(ctx.principal.userId, session.id);
+        const instructions = pinned ?? agent.instructions;
         try {
           const result = await deps.runtime.think({
             sessionId: session.id,
             requestId: input.requestId,
             task: OWN_RUN_TASK,
-            ...(agent.instructions.trim() ? { system: agent.instructions } : {}),
+            ...(instructions.trim() ? { system: instructions } : {}),
             messages: [{ role: 'user', content: input.ask }],
           });
           return {

@@ -1,7 +1,7 @@
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, openAgents, openOwnAgent } from './agents.mjs';
-import { signIn } from './desk.mjs';
-import { api, tool } from './stack.mjs';
+import { signIn, signUp } from './desk.mjs';
+import { api, signOutBrowser, tool } from './stack.mjs';
 
 // J-agents-03, in the running app (docs/roadmap/journeys.json): create my own agent from a template, protect it and
 // publish it. One test per step, titled "J-agents-03 #<n>", run in order on one verified TEST account, starting on
@@ -10,8 +10,7 @@ import { api, tool } from './stack.mjs';
 // (own.* through Edge), not only from the page.
 // A clause the product cannot run yet stays red in a test of its own, named by that clause:
 // - #6 "once set a draft appears ...": the assistant waits on the owner's choice of model (owner.decision).
-// The identity page, publishing to a surface and sharing are not built either (AG-identity-01, AG-builder-03), so #5, #7 and #8 fail
-// at their first missing part, quickly (UNBUILT).
+// The identity page is not built either (AG-identity-01), so #5 fails at its first missing part, quickly (UNBUILT).
 // Not covered yet: #5's frozen-owner clause (freezing this run's account would stop #6 to #8) and its blank-lifetime
 // clause (it depends on the owner value the stack publishes); both join #5 with the identity page.
 const J = 'J-agents-03';
@@ -338,41 +337,180 @@ test(`${J} #6 once the model choice is set a draft appears whose tools passed th
   expect(accepted.tools.filter((name) => catalogue.find((tool) => tool.name === name)?.movesMoney !== false)).toEqual([]);
 });
 
-test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 immutable; the edit is a draft; running sessions keep their version`, async ({
+test(`${J} #7 publishes to a chosen surface, then edits and republishes: version 1 is immutable; the edit is a draft; republish moves one surface and running sessions keep their version; a surface the policy forbids is blocked with the reason`, async ({
   page,
 }) => {
   await openOwnAgent(page, agents, 'Build');
+  const agent = await ownAgent();
+  expect(agent).toMatchObject({ state: 'draft', version: 1, perSessionCap: '1', findings: [] });
+  const surfaces = main(page).getByRole('list', { name: 'Surfaces' });
+  const surface = (name) => surfaces.getByRole('listitem').filter({ hasText: name });
+  const versions = main(page).getByRole('list', { name: 'Published versions' });
+  const carried = (publication) => Object.fromEntries(publication.surfaces.map((row) => [row.surface, row.version]));
+
+  // Publishes to a chosen surface. A surface the policy forbids for a person's agent is offered but blocked, with the reason.
   await main(page).getByRole('button', { name: 'Publish' }).click(UNBUILT);
   const publish = page.getByRole('dialog', { name: 'Publish' });
+  await expect(publish.getByRole('checkbox', { name: 'Public catalogue' })).toBeDisabled();
+  await expect(publish).toContainText(
+    'Not allowed for this agent: The public catalogue lists only agents the platform has reviewed, and an agent you build is not reviewed.',
+  );
+  await expect(publish.locator('code', { hasText: 'agents.own.surface_not_reviewed' })).toBeVisible();
   await publish.getByRole('checkbox', { name: 'My agents' }).check();
   await publish.getByRole('button', { name: 'Publish version 1' }).click();
+  await expect(publish).toBeHidden();
   await expect(main(page).getByTestId('agent-version')).toHaveText('Version 1 · published');
+  await expect(surface('My agents')).toContainText('Version 1');
+  await expect(surface('Chat')).toContainText('Not published');
+  const first = await ownRead('publication', { id: agent.id });
+  expect(first).toMatchObject({ version: 1, state: 'published' });
+  expect(first.versions).toEqual([
+    {
+      version: 1,
+      name: OWN_AGENT,
+      instructions: agent.instructions,
+      tools: agent.tools,
+      perSessionCap: '1',
+      publishedAt: expect.any(String),
+    },
+  ]);
+  expect(carried(first)).toEqual({ my_agents: 1, chat: null, public_catalogue: null });
+  expect(first.surfaces.find((row) => row.surface === 'public_catalogue')).toMatchObject({
+    allowed: false,
+    forbiddenCode: 'agents.own.surface_not_reviewed',
+  });
+  // svc-agents refuses the forbidden surface on its own, by the same code, and nothing is published or moved.
+  const forbidden = await (
+    await api(agents.account())
+  ).post('/api/agents/trpc/own.publish', { id: agent.id, surfaces: ['public_catalogue'] });
+  expect(forbidden.status).toBe(400);
+  expect(forbidden.body.error.message).toBe('agents.own.surface_not_reviewed');
+  expect(await ownRead('publication', { id: agent.id })).toEqual(first);
+
+  // A session runs on version 1 (the person's limits for the agent set first, as Limits asks).
+  const limits = await (
+    await api(agents.account())
+  ).post('/api/agents/trpc/own.limits.set', { id: agent.id, perCall: '0.5', perSession: '1', perPeriod: '5' });
+  expect(limits.status, JSON.stringify(limits.body).slice(0, 300)).toBe(200);
+  const tabs = page.getByRole('group', { name: 'Agent pages' });
+  const sessionPanel = main(page).getByRole('region', { name: 'Session' });
+  await tabs.getByRole('button', { name: 'Limits', exact: true }).click();
+  await sessionPanel.getByRole('button', { name: 'Open a session' }).click();
+  const running = sessionPanel.locator('code').first();
+  await expect(running).toHaveText(/^[0-9a-f-]{36}$/);
+  const runningId = await running.innerText();
+
+  // Edits: version 1 stays as it was published; the edit is version 2, a draft.
+  const EDITED = 'Answer TEST questions, briefly.';
+  await tabs.getByRole('button', { name: 'Build', exact: true }).click();
   await builder(page)
     .getByRole('textbox', { name: /^Instructions/ })
-    .fill('Answer TEST questions, briefly.');
+    .fill(EDITED);
   await builder(page).getByRole('button', { name: 'Save draft' }).click();
+  await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
   await expect(main(page).getByTestId('agent-version')).toHaveText('Version 2 · draft');
+  expect(await ownRead('get', { id: agent.id })).toMatchObject({ version: 2, state: 'draft', instructions: EDITED });
+  await expect(versions.getByRole('listitem')).toHaveCount(1);
+  await expect(versions.getByRole('listitem').getByTestId('version-instructions')).toHaveText(agent.instructions);
+  const edited = await ownRead('publication', { id: agent.id });
+  expect(edited.versions).toEqual(first.versions);
+  expect(carried(edited)).toEqual({ my_agents: 1, chat: null, public_catalogue: null });
+
+  // Republishes to one surface: only Chat moves to version 2; My agents keeps version 1.
   await main(page).getByRole('button', { name: 'Publish' }).click();
-  // A surface the policy forbids for a personal agent is offered but blocked, with the reason.
   await expect(publish.getByRole('checkbox', { name: 'Public catalogue' })).toBeDisabled();
   await expect(publish).toContainText('Not allowed for this agent:');
+  await publish.getByRole('checkbox', { name: 'Chat' }).check();
+  await publish.getByRole('button', { name: 'Publish version 2' }).click();
+  await expect(publish).toBeHidden();
+  await expect(main(page).getByTestId('agent-version')).toHaveText('Version 2 · published');
+  await expect(surface('Chat')).toContainText('Version 2');
+  await expect(surface('My agents')).toContainText('Version 1');
+  const republished = await ownRead('publication', { id: agent.id });
+  expect(carried(republished)).toEqual({ my_agents: 1, chat: 2, public_catalogue: null });
+  // Version 1 is immutable: exactly as first published, beside version 2.
+  expect(republished.versions).toEqual([first.versions[0], expect.objectContaining({ version: 2, instructions: EDITED })]);
+  await expect(versions.getByRole('listitem').getByTestId('version-instructions')).toHaveText([agent.instructions, EDITED]);
+
+  // The running session keeps version 1; a session opened now runs version 2.
+  const openSessions = main(page).getByRole('list', { name: 'Open sessions' });
+  await expect(openSessions.getByRole('listitem').filter({ hasText: runningId })).toContainText('version 1');
+  await tabs.getByRole('button', { name: 'Limits', exact: true }).click();
+  await sessionPanel.getByRole('button', { name: 'Open a session' }).click();
+  await expect(running).not.toHaveText(runningId);
+  const newerId = await running.innerText();
+  expect((await ownRead('publication', { id: agent.id })).openSessions).toEqual([
+    { sessionId: runningId, version: 1 },
+    { sessionId: newerId, version: 2 },
+  ]);
+  await tabs.getByRole('button', { name: 'Build', exact: true }).click();
+  await expect(openSessions.getByRole('listitem').filter({ hasText: runningId })).toContainText('version 1');
+  await expect(openSessions.getByRole('listitem').filter({ hasText: newerId })).toContainText('version 2');
 });
 
 test(`${J} #8 shares the agent with a co-owner and deletes a spare draft: a group as co-owner is refused; deletion asks for an irreversible confirmation`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
+  // The co-owner: a second person, a TEST account of their own.
+  const coOwner = await signUp(page, 'ag03co');
+  const coOwnerId = (await api(coOwner)).userId;
+  const ownerId = (await api(agents.account())).userId;
+  await signOutBrowser(page.context());
+  const agent = await ownAgent();
+
   await openOwnAgent(page, agents, 'Sharing');
   const share = main(page).getByRole('form', { name: 'Co-owners' });
-  await share.getByRole('textbox', { name: /^Add a co-owner/ }).fill('group:TEST-team');
+  const field = share.getByRole('textbox', { name: /^Add a co-owner/ });
+  // A group as co-owner is refused, and nothing is added.
+  await field.fill('group:TEST-team', UNBUILT);
   await share.getByRole('button', { name: 'Add' }).click();
-  await expect(share.getByRole('alert')).toContainText('A group cannot be a co-owner.');
+  const refusal = share.getByRole('alert');
+  await expect(refusal).toContainText('A group cannot be a co-owner.');
+  await expect(refusal.locator('code')).toHaveText('agents.own.co_owner_group');
+  expect(await ownRead('coOwners.list', { id: agent.id })).toEqual([]);
+  // svc-agents refuses a group on its own, by the same code.
+  const group = await (await api(agents.account())).post('/api/agents/trpc/own.coOwners.add', { id: agent.id, coOwner: 'group:TEST-team' });
+  expect(group.status).toBe(400);
+  expect(group.body.error.message).toBe('agents.own.co_owner_group');
+  expect(await ownRead('coOwners.list', { id: agent.id })).toEqual([]);
+  // One person is added as co-owner, and they see the agent shared with them.
+  await field.fill(coOwnerId);
+  await share.getByRole('button', { name: 'Add' }).click();
+  await expect(share.getByRole('status')).toHaveText('Co-owner added.');
+  await expect(share.getByRole('list', { name: 'Current co-owners' }).getByRole('listitem')).toHaveText([new RegExp(coOwnerId)]);
+  expect((await ownRead('coOwners.list', { id: agent.id })).map((row) => row.userId)).toEqual([coOwnerId]);
+  const shared = await (
+    await api(coOwner)
+  ).get(`/api/agents/trpc/own.sharedWithMe?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(shared.status, JSON.stringify(shared.body).slice(0, 300)).toBe(200);
+  expect(shared.body.result.data).toEqual([{ id: agent.id, ownerId, name: OWN_AGENT, version: agent.version, state: agent.state }]);
 
+  // Deletes the spare draft: it asks for an irreversible confirmation first, and nothing is deleted until it is given.
+  const spareRow = (await ownAgents()).filter((row) => row.name === SPARE);
+  expect(spareRow).toHaveLength(1);
+  const spareId = spareRow[0].id;
+  const unconfirmed = await (await api(agents.account())).post('/api/agents/trpc/own.delete', { id: spareId, confirm: '' });
+  expect(unconfirmed.status).toBe(400);
+  expect(unconfirmed.body.error.message).toBe('agents.own.delete_unconfirmed');
+  expect((await ownAgents()).map((row) => row.id)).toContain(spareId);
   await openAgents(page, agents);
   const spare = main(page).getByRole('row').filter({ hasText: SPARE });
   await spare.getByRole('button', { name: 'Delete draft' }).click();
   const confirm = page.getByRole('alertdialog', { name: 'Delete this draft?' });
-  await expect(confirm).toContainText('This cannot be undone.');
+  await expect(confirm).toContainText(`“${SPARE}” is deleted for good, with its settings. This cannot be undone.`);
+  expect((await ownAgents()).map((row) => row.id)).toContain(spareId);
   await confirm.getByRole('button', { name: 'Delete for good' }).click();
+  await expect(confirm).toBeHidden();
   await expect(spare).toHaveCount(0);
+  await expect(main(page).getByText('Draft deleted.')).toBeVisible();
   await expect(main(page).getByRole('link', { name: OWN_AGENT, exact: true })).toBeVisible();
+  // Gone for good in svc-agents; the agent it was spare to is kept.
+  expect((await ownAgents()).map((row) => row.id)).not.toContain(spareId);
+  const gone = await (
+    await api(agents.account())
+  ).get(`/api/agents/trpc/own.get?input=${encodeURIComponent(JSON.stringify({ id: spareId }))}`);
+  expect(gone.status).toBe(404);
+  expect(gone.body.error.message).toBe('agents.own.not_found');
+  expect((await ownAgent()).id).toBe(agent.id);
 });

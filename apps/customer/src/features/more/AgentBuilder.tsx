@@ -3,10 +3,11 @@ import { z } from 'zod';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, Dialog, Failure, Field, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, Dialog, Failure, Field, Panel, Tabs } from '../../shared/ui';
 import { navigate } from '../../app/location';
 import { Read, TextArea } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
+import './agents-session.css';
 import {
   ownAgentCatalogueSchema as catalogueSchema,
   ownAgentLimitsSchema,
@@ -17,7 +18,13 @@ import {
   ownAgentSessionSchema,
   ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
+  ownAgentCoOwnerSchema,
+  ownAgentDeletedSchema,
+  ownAgentPublicationSchema,
+  ownAgentSharedSchema,
+  OWN_AGENT_DELETE_CONFIRMATION,
   type OwnAgent,
+  type OwnAgentPublication,
   type OwnAgentCatalogue,
   type OwnAgentLimits,
   type OwnAgentRunResult,
@@ -72,6 +79,16 @@ const CODE_WORDS = {
   'agents.overage_grace_unset': 'code_overage_grace_unset',
   'agents.overage_grace_exceeded': 'code_overage_grace_exceeded',
   'agents.window_sealed': 'code_window_sealed',
+  'agents.own.surface_not_reviewed': 'code_own_surface_not_reviewed',
+  'agents.own.surface_unknown': 'code_own_surface_unknown',
+  'agents.own.co_owner_group': 'code_own_co_owner_group',
+  'agents.own.co_owner_invalid': 'code_own_co_owner_invalid',
+  'agents.own.co_owner_self': 'code_own_co_owner_self',
+  'agents.own.co_owner_unread': 'code_own_co_owner_unread',
+  'agents.own.co_owner_inactive': 'code_own_co_owner_inactive',
+  'agents.own.delete_unconfirmed': 'code_own_delete_unconfirmed',
+  'agents.own.delete_published': 'code_own_delete_published',
+  'agents.own.delete_has_sessions': 'code_own_delete_has_sessions',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
@@ -474,7 +491,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               <>
                 <Builder key={agent.id} agent={agent} onSaved={setLatest} />
                 <Panel title={t('publishTitle')}>
-                  <Publish agent={agent} />
+                  <Publish agent={agent} onPublished={setLatest} />
                 </Panel>
               </>
             ) : page === 'Limits' ? (
@@ -501,11 +518,13 @@ export function OwnAgentPage({ id }: { id: string }) {
               <Usage agent={agent} />
             ) : page === 'Evaluations' ? (
               <EvaluationsPage agent={agent} />
+            ) : page === 'Sharing' ? (
+              <SharingPage agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing'>}`,
                   )}
                 </p>
               </Panel>
@@ -1004,15 +1023,277 @@ function UsageByDay() {
 }
 
 /** Publishing refuses while the protection check blocks it; the publish flow itself is a later slice and says so. */
-function Publish({ agent }: { agent: OwnAgent }) {
+/**
+ * Publishing (AG-builder-03; J-agents-03 #7): a finding that blocks publishing refuses at once with its code. Otherwise
+ * the person chooses surfaces; one the policy forbids is offered but disabled, with its reason. Only the chosen
+ * surfaces move to this version; the rest keep theirs, and a published version never changes.
+ */
+function Publish({ agent, onPublished }: { agent: OwnAgent; onPublished: (agent: OwnAgent) => void }) {
+  const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const [pressed, setPressed] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [published, setPublished] = useState<OwnAgentPublication | null>(null);
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.publication', { id: agent.id }, ownAgentPublicationSchema, { signal }),
+    `own-publication:${agent.id}:${agent.version}:${agent.state}`,
+  );
   const blocking = agent.findings.find((finding) => finding.blocksPublishing);
+  const current =
+    published && published.version === agent.version && published.state === agent.state
+      ? published
+      : loaded.resource.status === 'ready'
+        ? loaded.resource.data
+        : null;
   return (
     <>
-      <Button onClick={() => setPressed(true)}>{t('publish')}</Button>
-      {pressed ? blocking ? <Refusal code={blocking.code} /> : <p role="note">{t('publishParked')}</p> : null}
+      <Button
+        onClick={() => {
+          setBlocked(Boolean(blocking));
+          setChoosing(!blocking);
+        }}
+      >
+        {t('publish')}
+      </Button>
+      {blocked && blocking ? <Refusal code={blocking.code} /> : null}
+      {published && published.version === agent.version && agent.state === 'published' ? (
+        <p role="status">{t('publishedStatus', { version: String(agent.version) })}</p>
+      ) : null}
+      {choosing ? (
+        <PublishDialog
+          agent={agent}
+          onClose={() => setChoosing(false)}
+          onPublished={(publication) => {
+            setChoosing(false);
+            setPublished(publication);
+            onPublished({ ...agent, version: publication.version, state: publication.state });
+          }}
+        />
+      ) : null}
+      {current ? (
+        <PublicationView publication={current} />
+      ) : (
+        <Read resource={loaded.resource} retry={loaded.reload}>
+          {(publication) => <PublicationView publication={publication} />}
+        </Read>
+      )}
     </>
+  );
+}
+
+function PublishDialog({
+  agent,
+  onClose,
+  onPublished,
+}: {
+  agent: OwnAgent;
+  onClose: () => void;
+  onPublished: (publication: OwnAgentPublication) => void;
+}) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.publication', { id: agent.id }, ownAgentPublicationSchema, { signal }),
+    `own-publication-choose:${agent.id}:${agent.version}:${agent.state}`,
+  );
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function publish() {
+    setBusy(true);
+    setRefused(null);
+    const res = await api.mutate(
+      'agents',
+      'own.publish',
+      { id: agent.id, surfaces: chosen },
+      ownAgentPublicationSchema.refine((row) => row.id === agent.id),
+    );
+    setBusy(false);
+    if (res.ok) onPublished(res.data);
+    else setRefused(res);
+  }
+  return (
+    <Dialog title={t('publishTitle')} onClose={onClose}>
+      <Read resource={loaded.resource} retry={loaded.reload}>
+        {(publication) => (
+          <fieldset>
+            <legend>{t('publishChoose')}</legend>
+            {publication.surfaces.map((surface) => (
+              <div key={surface.surface}>
+                <label className="agent-surface-choice">
+                  <input
+                    type="checkbox"
+                    disabled={!surface.allowed || busy}
+                    checked={chosen.includes(surface.surface)}
+                    onChange={(event) => {
+                      const on = event.target.checked;
+                      setChosen((current) =>
+                        on
+                          ? [...current.filter((name) => name !== surface.surface), surface.surface]
+                          : current.filter((name) => name !== surface.surface),
+                      );
+                    }}
+                  />{' '}
+                  {t(`surface_${surface.surface}`)}
+                </label>{' '}
+                <small className="muted">
+                  {surface.version === null ? t('surfaceNone') : t('surfaceCarries', { version: String(surface.version) })}
+                </small>
+                {!surface.allowed && surface.forbiddenCode ? (
+                  <p className="muted">
+                    {t('surfaceForbidden', { reason: surfaceReason(t, surface.forbiddenCode) })}{' '}
+                    <code lang="zxx">{surface.forbiddenCode}</code>
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </fieldset>
+        )}
+      </Read>
+      {refused ? <Answer failed={refused} /> : null}
+      <Button disabled={busy || chosen.length === 0} onClick={() => void publish()}>
+        {t('publishVersion', { version: String(agent.version) })}
+      </Button>
+    </Dialog>
+  );
+}
+
+/** The words for a surface the policy forbids, from the same catalogue as every refusal. */
+function surfaceReason(t: ReturnType<typeof agentBuilderCopy.useCopy>['t'], code: string): string {
+  const key = wordsKey(code);
+  return key ? t(key) : t('code_other');
+}
+
+/** What is published where, as svc-agents holds it: each surface's version, every published version, open sessions. */
+function PublicationView({ publication }: { publication: OwnAgentPublication }) {
+  const { t } = agentBuilderCopy.useCopy();
+  return (
+    <>
+      <section role="region" aria-label={t('surfacesTitle')}>
+        <h3>{t('surfacesTitle')}</h3>
+        <ul aria-label={t('surfacesTitle')}>
+          {publication.surfaces.map((surface) => (
+            <li key={surface.surface} data-surface={surface.surface}>
+              {t(`surface_${surface.surface}`)} ·{' '}
+              {surface.version === null ? t('surfaceNone') : t('surfaceCarries', { version: String(surface.version) })}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section role="region" aria-label={t('versionsTitle')}>
+        <h3>{t('versionsTitle')}</h3>
+        <p className="muted">{t('versionsNote')}</p>
+        {publication.versions.length ? (
+          <ul aria-label={t('versionsTitle')}>
+            {publication.versions.map((version) => (
+              <li key={version.version}>
+                <strong>{t('surfaceCarries', { version: String(version.version) })}</strong> ·{' '}
+                <time dateTime={version.publishedAt}>{version.publishedAt}</time> ·{' '}
+                <q data-testid="version-instructions">{version.instructions}</q>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">{t('versionsEmpty')}</p>
+        )}
+      </section>
+      <section role="region" aria-label={t('openSessionsTitle')}>
+        <h3>{t('openSessionsTitle')}</h3>
+        <p className="muted">{t('openSessionsNote')}</p>
+        {publication.openSessions.length ? (
+          <ul aria-label={t('openSessionsTitle')}>
+            {publication.openSessions.map((session) => (
+              <li key={session.sessionId}>
+                <code lang="zxx">{session.sessionId}</code> · {t('openSessionVersion', { version: String(session.version) })}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">{t('openSessionsEmpty')}</p>
+        )}
+      </section>
+    </>
+  );
+}
+
+/**
+ * The Sharing page (AG-builder-03; J-agents-03 #8): the agent's co-owners, each one person by account id. A group is
+ * refused by svc-agents with its code, and nothing is added.
+ */
+function SharingPage({ agent }: { agent: OwnAgent }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const loaded = useResource(
+    (signal) => api.query('agents', 'own.coOwners.list', { id: agent.id }, z.array(ownAgentCoOwnerSchema), { signal }),
+    `own-co-owners:${agent.id}`,
+  );
+  const [rows, setRows] = useState<z.infer<typeof ownAgentCoOwnerSchema>[] | null>(null);
+  const [coOwner, setCoOwner] = useState('');
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [added, setAdded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  async function change(procedure: 'own.coOwners.add' | 'own.coOwners.remove', who: string) {
+    setBusy(true);
+    setRefused(null);
+    setAdded(false);
+    const res = await api.mutate('agents', procedure, { id: agent.id, coOwner: who }, z.array(ownAgentCoOwnerSchema));
+    setBusy(false);
+    if (!res.ok) return setRefused(res);
+    setRows(res.data);
+    if (procedure === 'own.coOwners.add') {
+      setAdded(true);
+      setCoOwner('');
+    }
+  }
+  const list = (owners: z.infer<typeof ownAgentCoOwnerSchema>[]) =>
+    owners.length ? (
+      <ul aria-label={t('coOwnersList')}>
+        {owners.map((owner) => (
+          <li key={owner.userId}>
+            <code lang="zxx">{owner.userId}</code>{' '}
+            <Button variant="ghost" disabled={busy} onClick={() => void change('own.coOwners.remove', owner.userId)}>
+              {t('removeCoOwner')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="muted">{t('coOwnersEmpty')}</p>
+    );
+  return (
+    <Panel title={t('coOwnersTitle')}>
+      <form
+        aria-label={t('coOwnersTitle')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void change('own.coOwners.add', coOwner);
+        }}
+      >
+        <p className="muted">{t('coOwnersIntro')}</p>
+        <Field
+          label={t('addCoOwner')}
+          hint={t('addCoOwnerHint')}
+          value={coOwner}
+          maxLength={200}
+          onChange={(event) => {
+            setAdded(false);
+            setCoOwner(event.target.value);
+          }}
+        />
+        <Button type="submit" disabled={busy || !coOwner.trim()}>
+          {t('addCoOwnerButton')}
+        </Button>
+        {refused ? <Answer failed={refused} /> : null}
+        {added ? <p role="status">{t('coOwnerAdded')}</p> : null}
+        {rows ? (
+          list(rows)
+        ) : (
+          <Read resource={loaded.resource} retry={loaded.reload}>
+            {(owners) => list(owners)}
+          </Read>
+        )}
+      </form>
+    </Panel>
   );
 }
 
@@ -1035,30 +1316,113 @@ export function OwnAgentTitle({ id }: { id: string }) {
   return <>{name || t('untitled')}</>;
 }
 
-/** The person's own agents, listed in the Agents room with a way to make one. */
+/**
+ * The person's own agents, listed in the Agents room with a way to make one. A draft can be deleted for good, only
+ * after an irreversible confirmation (J-agents-03 #8). Agents others share with the person are listed apart.
+ */
 export function MadeAgents() {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
-  const mine = useResource((signal) => api.query('agents', 'own.list', { limit: 50 }, z.array(ownAgentSchema), { signal }), 'own-agents');
+  const [reads, setReads] = useState(0);
+  const mine = useResource(
+    (signal) => api.query('agents', 'own.list', { limit: 50 }, z.array(ownAgentSchema), { signal }),
+    `own-agents:${reads}`,
+  );
+  const shared = useResource(
+    (signal) => api.query('agents', 'own.sharedWithMe', { limit: 50 }, z.array(ownAgentSharedSchema), { signal }),
+    'own-agents-shared',
+  );
+  const [deleting, setDeleting] = useState<OwnAgent | null>(null);
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [deleted, setDeleted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  async function remove(agent: OwnAgent) {
+    setBusy(true);
+    setRefused(null);
+    const res = await api.mutate(
+      'agents',
+      'own.delete',
+      { id: agent.id, confirm: OWN_AGENT_DELETE_CONFIRMATION },
+      ownAgentDeletedSchema.refine((row) => row.id === agent.id),
+    );
+    setBusy(false);
+    setDeleting(null);
+    if (!res.ok) return setRefused(res);
+    setDeleted(true);
+    setReads((n) => n + 1);
+  }
   return (
-    <Panel title={t('madeTitle')}>
-      <a className="button button--secondary" href="/agents/new">
-        {t('newAgent')}
-      </a>
-      <Read resource={mine.resource} retry={mine.reload} empty={t('madeEmpty')}>
-        {(rows) => (
-          <ul className="agent-session-list">
-            {rows.map((row) => (
-              <li key={row.id}>
-                <a className="text-link" href={`/agents/${row.id}`}>
-                  {row.name || t('untitled')}
-                </a>{' '}
-                <small>{t(row.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(row.version) })}</small>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Read>
-    </Panel>
+    <>
+      <Panel title={t('madeTitle')}>
+        <a className="button button--secondary" href="/agents/new">
+          {t('newAgent')}
+        </a>
+        <Read resource={mine.resource} retry={mine.reload} empty={t('madeEmpty')}>
+          {(rows) => (
+            <DataTable label={t('madeTitle')} headers={[t('madeName'), t('madeVersion'), t('madeActions')]}>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <a className="text-link" href={`/agents/${row.id}`}>
+                      {row.name || t('untitled')}
+                    </a>
+                  </td>
+                  <td>{t(row.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(row.version) })}</td>
+                  <td>
+                    {/* Only a draft never published can be deleted; one with a published version is kept. */}
+                    {row.state === 'draft' && row.version === 1 ? (
+                      <Button
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => {
+                          setRefused(null);
+                          setDeleted(false);
+                          setDeleting(row);
+                        }}
+                      >
+                        {t('deleteDraft')}
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </DataTable>
+          )}
+        </Read>
+        {deleting ? (
+          <div role="alertdialog" aria-label={t('deleteTitle')} className="depth-memory">
+            <strong>{t('deleteTitle')}</strong>
+            <p>{t('deleteBody', { name: deleting.name || t('untitled') })}</p>
+            <div className="depth-card-actions">
+              <Button disabled={busy} onClick={() => void remove(deleting)}>
+                {t('deleteConfirm')}
+              </Button>
+              <Button variant="ghost" disabled={busy} onClick={() => setDeleting(null)}>
+                {t('deleteCancel')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {refused ? <Answer failed={refused} /> : null}
+        {deleted ? <p role="status">{t('deleted')}</p> : null}
+      </Panel>
+      <Panel title={t('sharedTitle')} role="region" aria-label={t('sharedTitle')}>
+        <Read resource={shared.resource} retry={shared.reload} empty={t('sharedEmpty')}>
+          {(rows) => (
+            <DataTable label={t('sharedTitle')} headers={[t('madeName'), t('madeVersion'), t('sharedOwner')]}>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.name || t('untitled')}</td>
+                  <td>{t(row.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(row.version) })}</td>
+                  <td>
+                    <code lang="zxx">{row.ownerId}</code>
+                  </td>
+                </tr>
+              ))}
+            </DataTable>
+          )}
+        </Read>
+      </Panel>
+    </>
   );
 }

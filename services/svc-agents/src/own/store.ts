@@ -92,12 +92,22 @@ export class OwnAgentStore {
   async save(ownerId: string, id: string, input: DraftInput): Promise<OwnAgentView> {
     const fields = validateDraft(input);
     if (!UUID_RE.test(id)) throw new OwnAgentRefusal('agents.own.not_found');
+    const unchanged = this.sql`(
+      name = ${fields.name}
+      AND instructions = ${fields.instructions}
+      AND tools = ${this.sql.json(fields.tools)}
+      AND per_session_cap IS NOT DISTINCT FROM ${fields.perSessionCap}::numeric
+    )`;
     const rows = await this.sql<Row[]>`
       UPDATE agents.own_agents
          SET name = ${fields.name},
              instructions = ${fields.instructions},
              tools = ${this.sql.json(fields.tools)},
              per_session_cap = ${fields.perSessionCap},
+             -- A published version never changes: an edit after it is the next version, a draft (AG-builder-03). A
+             -- save that changes nothing of a published agent leaves it published, at its version.
+             version = CASE WHEN state = 'published' AND NOT ${unchanged} THEN version + 1 ELSE version END,
+             state = CASE WHEN state = 'published' AND ${unchanged} THEN 'published' ELSE 'draft' END,
              updated_at = now()
        WHERE owner_id = ${ownerId} AND id = ${id}
       RETURNING ${this.sql.unsafe(COLUMNS)}
