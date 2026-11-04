@@ -292,6 +292,61 @@ if (!available) {
     });
   });
 
+  describe('a held call is the session’s and its key’s', () => {
+    it('a closed session holds nothing; a reused request id is that request even after the rule changes, never another call', async () => {
+      const { person } = people();
+      const { id, sessionId } = await agentWithSession(person);
+      await person.own.consents.grant({ id, dataClass: 'live_write' });
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      const args = { ticketId: 'TEST-ticket', body: 'TEST comment' };
+      const first = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
+      // The rule loosened to "act when I say so": the held id still answers with its request, and nothing runs.
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'act_on_request' });
+      expect(await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args })).toEqual(
+        first,
+      );
+      // The same id with other input is not a retry of that call.
+      await expect(
+        person.own.tool.try({
+          id,
+          sessionId,
+          requestId: 'try:comment:1',
+          tool: 'support.ticket.comment',
+          input: { ...args, body: 'TEST other' },
+        }),
+      ).rejects.toMatchObject({ message: 'agents.request_id_replay' });
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      await person.own.session.close({ id, sessionId });
+      await expect(
+        person.own.tool.try({ id, sessionId, requestId: 'try:comment:2', tool: 'support.ticket.comment', input: args }),
+      ).rejects.toMatchObject({ message: 'agents.session_closed' });
+      expect(await requests()).toBe(1);
+    });
+
+    it('the session binds the comment as a write that needs approval, so the runtime never runs it unapproved', async () => {
+      const { person } = people();
+      const { sessionId } = await agentWithSession(person);
+      const session = (
+        await sql<{ guardrail: { tools: { name: string; requiresApproval: boolean }[] } }[]>`
+        SELECT guardrail FROM agents.agent_sessions WHERE id = ${sessionId}
+      `
+      )[0]!;
+      expect(session.guardrail.tools.find((tool) => tool.name === 'support.ticket.comment')).toMatchObject({ requiresApproval: true });
+      expect(session.guardrail.tools.find((tool) => tool.name === 'support.kb.search')).toMatchObject({ requiresApproval: false });
+    });
+
+    it('a help search its door refuses is a refusal, recorded as no read', async () => {
+      const { person } = people();
+      const { id, sessionId } = await agentWithSession(person);
+      await person.own.consents.grant({ id, dataClass: 'own_data' });
+      // No page size: the door refuses rather than invent one.
+      await expect(
+        person.own.tool.try({ id, sessionId, requestId: 'try:kb:9', tool: 'support.kb.search', input: { kbQuery: 'access' } }),
+      ).rejects.toMatchObject({ message: 'agents.tool_refused.kb_search_limit_unset' });
+      expect(await executed('support.kb.search')).toBe(0);
+    });
+  });
+
   describe('connector-class consent (J-agents-05 #2)', () => {
     it('refuses the first use of a class until it is allowed, runs once allowed, and refuses again once revoked', async () => {
       const { person } = people();

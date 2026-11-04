@@ -8,6 +8,14 @@
 
 import { z } from 'zod';
 
+/** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
+export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
+export type OwnAgentDataClass = (typeof OWN_AGENT_DATA_CLASSES)[number];
+
+/** A standing rule's choice, strictest first (AG-guardrails-02). */
+export const OWN_AGENT_RULE_CHOICES = ['hand_off', 'ask_before', 'act_on_request', 'act_without_asking'] as const;
+export type OwnAgentRuleChoice = (typeof OWN_AGENT_RULE_CHOICES)[number];
+
 export const OWN_AGENT_STATES = ['draft', 'published'] as const;
 
 /** Something that stops a draft being published, as a code the surface words. */
@@ -45,7 +53,7 @@ export const ownAgentToolSchema = z.object({
   module: z.string(),
   movesMoney: z.boolean(),
   /** The class of data the tool touches (AG-guardrails-01); null for a money tool, which is never attached. */
-  dataClass: z.enum(['own_data', 'market_data', 'draft_write', 'live_write']).nullable().default(null),
+  dataClass: z.enum(OWN_AGENT_DATA_CLASSES).nullable().default(null),
   // Defaults keep an older service's catalogue readable: its tools read as shape not declared.
   shape: ownAgentToolShapeSchema.nullable().default(null),
   refusals: z.array(z.string()).default([]),
@@ -138,14 +146,6 @@ export const ownAgentUsageDaySchema = z.object({
   assetId: z.string(),
 });
 export type OwnAgentUsageDay = z.infer<typeof ownAgentUsageDaySchema>;
-
-/** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
-export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
-export type OwnAgentDataClass = (typeof OWN_AGENT_DATA_CLASSES)[number];
-
-/** A standing rule's choice, strictest first (AG-guardrails-02). */
-export const OWN_AGENT_RULE_CHOICES = ['hand_off', 'ask_before', 'act_on_request', 'act_without_asking'] as const;
-export type OwnAgentRuleChoice = (typeof OWN_AGENT_RULE_CHOICES)[number];
 
 /** `own.rules.list` / `own.rules.save`: the person's standing rule for one tool of their agent. */
 export const ownAgentRuleSchema = z.object({

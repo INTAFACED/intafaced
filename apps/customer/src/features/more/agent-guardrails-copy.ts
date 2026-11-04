@@ -91,6 +91,7 @@ const en = {
   code_agents_own_not_found: 'This is not one of your agents.',
   code_agents_spend_cap_unset: 'Set this agent’s spending limits first, on the Limits page.',
   code_agents_session_closed: 'That session is closed. Run the test again to open a new one.',
+  code_tool_refused: 'The tool refused this call, so nothing was read.',
   code_other: 'The service refused this.',
 } as const;
 const es = {
@@ -183,6 +184,7 @@ const es = {
   code_agents_own_not_found: 'Este no es uno de tus agentes.',
   code_agents_spend_cap_unset: 'Fija primero los límites de gasto de este agente, en la página Límites.',
   code_agents_session_closed: 'Esa sesión está cerrada. Ejecuta la prueba de nuevo para abrir otra.',
+  code_tool_refused: 'La herramienta rechazó esta llamada, así que no se leyó nada.',
   code_other: 'El servicio rechazó esto.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -275,6 +277,7 @@ const fr = {
   code_agents_own_not_found: 'Ce n’est pas l’un de vos agents.',
   code_agents_spend_cap_unset: 'Fixez d’abord les limites de dépense de cet agent, sur la page Limites.',
   code_agents_session_closed: 'Cette session est fermée. Relancez le test pour en ouvrir une autre.',
+  code_tool_refused: 'L’outil a refusé cet appel ; rien n’a été lu.',
   code_other: 'Le service a refusé.',
 } satisfies Record<keyof typeof en, string>;
 export const agentGuardrailsCopy = defineCopy('more.agents.guardrails', en, { es, fr });

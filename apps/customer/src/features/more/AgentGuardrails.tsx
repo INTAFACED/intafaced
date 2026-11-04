@@ -58,7 +58,11 @@ function Answer({ failed }: { failed: Failed }) {
   const code = refusalCode(failed);
   if (!code) return <Failure result={failed} />;
   const key = `code_${code.replaceAll('.', '_')}`;
-  const words = (CODES as readonly string[]).includes(code) && hasGuardrailWords(key) ? t(key) : t('code_other');
+  const words = code.startsWith('agents.tool_refused.')
+    ? t('code_tool_refused')
+    : (CODES as readonly string[]).includes(code) && hasGuardrailWords(key)
+      ? t(key)
+      : t('code_other');
   return (
     <p role="alert">
       {words} <code lang="zxx">{code}</code>

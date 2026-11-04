@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { OWN_AGENT_DATA_CLASSES, OWN_AGENT_RULE_CHOICES } from '@intafaced/contracts/agents-own';
 import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
 
 /**
@@ -19,9 +20,9 @@ import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
  */
 
 /** Strictest first. A choice later in the list is looser than one earlier. */
-export const RULE_CHOICES = ['hand_off', 'ask_before', 'act_on_request', 'act_without_asking'] as const;
+export const RULE_CHOICES = OWN_AGENT_RULE_CHOICES;
 export type RuleChoice = (typeof RULE_CHOICES)[number];
-export const DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const satisfies readonly OwnDataClass[];
+export const DATA_CLASSES = OWN_AGENT_DATA_CLASSES;
 
 const looseness = (choice: RuleChoice): number => RULE_CHOICES.indexOf(choice);
 const stricter = (a: RuleChoice, b: RuleChoice): RuleChoice => (looseness(a) <= looseness(b) ? a : b);
@@ -235,6 +236,12 @@ interface RequestRow {
   rule_id: string | null;
   created_at: Date;
 }
+/** The stored call is this one: the same tool and exactly the same input. */
+function sameCall(row: RequestRow, tool: string, args: Readonly<Record<string, string>>): boolean {
+  const stored = Object.entries(row.input_json).sort(([a], [b]) => a.localeCompare(b));
+  const asked = Object.entries(args).sort(([a], [b]) => a.localeCompare(b));
+  return row.tool === tool && JSON.stringify(stored) === JSON.stringify(asked);
+}
 const requestView = (row: RequestRow): OwnApprovalRequestView => ({
   id: row.id,
   sessionId: row.session_id,
@@ -275,9 +282,32 @@ export class OwnApprovalRequestStore {
         FROM agents.own_agent_approval_requests WHERE owner_id = ${input.ownerId} AND request_key = ${key}
     `;
     const row = stored[0]!;
-    // The same key for another tool or agent is not a retry of this call.
-    if (row.tool !== input.tool) throw new OwnAgentRefusal('agents.request_id_replay');
+    // The same key for another tool or other input is not a retry of this call.
+    if (!sameCall(row, input.tool, input.args)) throw new OwnAgentRefusal('agents.request_id_replay');
     return requestView(row);
+  }
+
+  /**
+   * The request a call's key already holds, or null. The same key for another tool or other input refuses
+   * `agents.request_id_replay`, so a reused id never stands in for a different call.
+   */
+  async find(
+    ownerId: string,
+    sessionId: string,
+    requestId: string,
+    tool: string,
+    args: Readonly<Record<string, string>>,
+  ): Promise<{ request: OwnApprovalRequestView; dataClass: OwnDataClass } | null> {
+    const rows = await this.sql<RequestRow[]>`
+      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
+        FROM agents.own_agent_approval_requests WHERE owner_id = ${ownerId} AND request_key = ${`agents:approve:${sessionId}:${requestId}`}
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    if (!sameCall(row, tool, args)) throw new OwnAgentRefusal('agents.request_id_replay');
+    const dataClass = OWN_TOOLS.find((entry) => entry.name === row.tool)?.dataClass;
+    if (!dataClass) throw new OwnAgentRefusal('agents.tool_not_declared', { tool: row.tool });
+    return { request: requestView(row), dataClass };
   }
 
   async list(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {

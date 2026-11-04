@@ -1,5 +1,5 @@
 import { MoneyError, parseAmount, formatAmount } from '@intafaced/ledger-client';
-import type { OwnAgentToolShape } from '@intafaced/contracts/agents-own';
+import type { OwnAgentDataClass, OwnAgentToolShape } from '@intafaced/contracts/agents-own';
 import { FLEET_HARD_MONEY_WRITE_TOOLS, PRODUCT_AGENT_IDS } from '../fleet/guardrails.js';
 import type { DataToolRefuseReason } from '../navigator/data-tools.js';
 import type { ScannerDataToolRefuseReason } from '../scanner/data-tools.js';
@@ -17,16 +17,16 @@ import type { SupportDataToolRefuseReason } from '../support-agent/data-tools.js
  */
 
 /**
+ * The class of data a tool touches (AG-guardrails-01): the person's own data, market data, a draft the person still
+ * sends, or a live write that acts in their name. The first use of a class asks the person's consent.
+ */
+export type OwnDataClass = OwnAgentDataClass;
+
+/**
  * `module` is the module a tool reads, shown to the person; a money tool's is never granted. `shape` is the tool's
  * declared input and output (AG-tools-01), copied from the route that serves it, and `refusals` the reasons that route
  * can answer instead; null is a tool whose shape is not declared, which a person's agent cannot attach.
  */
-/**
- * The class of data a tool touches (AG-guardrails-01): the person's own data, market data, a draft the person still
- * sends, or a live write that acts in their name. The first use of a class asks the person's consent.
- */
-export type OwnDataClass = 'own_data' | 'market_data' | 'draft_write' | 'live_write';
-
 export type OwnTool = {
   readonly name: string;
   readonly module: string;
@@ -175,7 +175,7 @@ const WRITE_TOOLS: readonly OwnTool[] = [
       input: { ticketId: 'text, up to 120 characters', body: 'text, up to 4000 characters' },
       output: { ticketId: 'text', commented: 'yes' },
     },
-    refusals: ['agents.consent_required', 'agents.rule_hand_off', 'agents.baseline_value_unset', 'agents.tool_not_wired'],
+    refusals: [],
   },
 ];
 
@@ -192,7 +192,17 @@ const MONEY_TOOLS: readonly OwnTool[] = [
   })),
 ];
 
-export const OWN_TOOLS: readonly OwnTool[] = [...READ_TOOLS, ...WRITE_TOOLS, ...MONEY_TOOLS];
+/** The tools whose door a person's own agent can reach today; every other attachable tool refuses `agents.tool_not_wired`. */
+export const OWN_TOOL_DOORS: ReadonlySet<string> = new Set(['support.kb.search']);
+
+/** What any call of an attachable tool may meet before its door (AG-guardrails-01, -02): consent, the baseline, a rule. */
+const GATE_REFUSALS = ['agents.consent_required', 'agents.baseline_value_unset', 'agents.rule_hand_off'];
+const gated = (tool: OwnTool): OwnTool =>
+  tool.movesMoney || !tool.shape
+    ? tool
+    : { ...tool, refusals: [...GATE_REFUSALS, ...(OWN_TOOL_DOORS.has(tool.name) ? [] : ['agents.tool_not_wired']), ...tool.refusals] };
+
+export const OWN_TOOLS: readonly OwnTool[] = [...[...READ_TOOLS, ...WRITE_TOOLS].map(gated), ...MONEY_TOOLS];
 
 export const OWN_TEMPLATES = {
   'service-starter': { tools: ['support.kb.search', 'support.ticket.read', 'identity.account.read'] },

@@ -23,11 +23,19 @@ import {
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import { parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
+import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
-import { OWN_AGENTS_MAX, OWN_TEMPLATE_IDS, OWN_TEMPLATES, OWN_TOOLS, OwnAgentRefusal, type OwnTemplate } from './catalog.js';
+import {
+  OWN_AGENTS_MAX,
+  OWN_TEMPLATE_IDS,
+  OWN_TEMPLATES,
+  OWN_TOOL_DOORS,
+  OWN_TOOLS,
+  OwnAgentRefusal,
+  type OwnTemplate,
+} from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
@@ -48,6 +56,8 @@ const OWN_MAX_OUTPUT_TOKENS = 2048;
  * The guardrail an own agent's session is bound to: its saved tools, read only, in their modules; the one run task;
  * and the agent's own cap per session as the ceiling. The person's caps for it are held at every run, as they stand.
  */
+const writes = (tool: { dataClass: string | null }) => tool.dataClass === 'live_write' || tool.dataClass === 'draft_write';
+
 export function ownGuardrail(agent: OwnAgentView): Guardrail {
   // A tool with no declared shape is never granted, even on a draft saved before shapes were declared.
   const tools = OWN_TOOLS.filter((tool) => !tool.movesMoney && tool.shape !== null && agent.tools.includes(tool.name));
@@ -60,8 +70,10 @@ export function ownGuardrail(agent: OwnAgentView): Guardrail {
     tools: tools.map((tool) => ({
       name: tool.name,
       module: tool.module,
-      mode: tool.dataClass === 'live_write' || tool.dataClass === 'draft_write' ? 'write' : 'read',
-      requiresApproval: false,
+      mode: writes(tool) ? 'write' : 'read',
+      // A write never runs at the runtime unapproved, whatever reaches it: the rules decide when to ask, and only an
+      // approved request may pass this.
+      requiresApproval: writes(tool),
     })),
     limits: {
       maxActionsPerSession: OWN_MAX_ACTIONS,
@@ -143,6 +155,14 @@ export interface OwnToolDeps {
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
 /** A whole number as the person typed it, or undefined so the door refuses it as unset rather than guessing one. */
+/** A tool's door answered with its own refusal reason; nothing was read. */
+class DoorRefusal extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = 'DoorRefusal';
+  }
+}
+
 function wholeNumber(text: string | undefined): number | undefined {
   const value = text?.trim() ?? '';
   return /^[0-9]{1,6}$/.test(value) ? Number(value) : undefined;
@@ -328,6 +348,10 @@ export function ownRouter(
         .mutation(async ({ ctx, input }) => {
           const { runtime } = runDepsOf(run);
           const { agent, session } = await ownedOwnSession(sql, runtime, ctx.principal.userId, input.id, input.sessionId);
+          const requests = new OwnApprovalRequestStore(sqlOf(sql));
+          // A request id already held for the person is that request, whatever the rules say now: never a second call.
+          const held = await guard(() => requests.find(ctx.principal.userId, session.id, input.requestId, input.tool, input.input));
+          if (held) return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: held.request };
           const gate = await guard(() =>
             gateToolCall(sqlOf(sql), tooling.baseline, {
               ownerId: ctx.principal.userId,
@@ -337,8 +361,12 @@ export function ownRouter(
             }),
           );
           if (gate.kind === 'ask') {
+            // The session's own guardrail first, as for a call that runs: open, inside its action limit, and the tool
+            // declared when the session opened. Only the approval itself is left out: that is what this request asks.
+            const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: input.tool, approved: true });
+            if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
             const request = await guard(() =>
-              new OwnApprovalRequestStore(sqlOf(sql)).hold({
+              requests.hold({
                 ownerId: ctx.principal.userId,
                 agentId: agent.id,
                 sessionId: session.id,
@@ -350,15 +378,16 @@ export function ownRouter(
             );
             return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request };
           }
-          // Only the help search has a door today; any other tool the rules let through runs nothing.
-          if (input.tool !== 'support.kb.search') throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.tool_not_wired' });
+          // A tool with no door runs nothing; the catalogue names this refusal for every such tool.
+          if (!OWN_TOOL_DOORS.has(input.tool)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.tool_not_wired' });
           const desk = tooling.supportDesk ?? null;
           try {
+            // A retried read runs the read again and is recorded again: it moves nothing and holds nothing.
             const acted = await runtime.act({
               sessionId: session.id,
               tool: input.tool,
-              execute: () =>
-                invokeSupportDataTool({
+              execute: async () => {
+                const result = await invokeSupportDataTool({
                   tool: input.tool,
                   plane: desk ? 'live' : 'dark',
                   requesterUserId: ctx.principal.userId,
@@ -368,10 +397,15 @@ export function ownRouter(
                   deskHeaders: forwardedPrincipalHeaders(ctx),
                   kbQuery: input.input.kbQuery ?? null,
                   ...(wholeNumber(input.input.limit) === undefined ? {} : { kbSearchLimit: wholeNumber(input.input.limit) }),
-                }),
+                });
+                // The door's own refusal is a refusal, recorded as a failed call, never an answer that ran.
+                if (result.status === 'refuse') throw new DoorRefusal(result.reason);
+                return result;
+              },
             });
             return { outcome: 'ran' as const, tool: input.tool, dataClass: gate.dataClass, result: acted.result };
           } catch (err) {
+            if (err instanceof DoorRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${err.reason}` });
             return runError(err);
           }
         }),
