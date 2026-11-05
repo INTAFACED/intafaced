@@ -1,3 +1,4 @@
+-- intafaced:destructive — reversal of 20261105174349_own_agent_approval_decisions.sql
 -- Reverses the approval decisions migration: decided requests are removed, as the old status check allows only waiting.
 DROP INDEX IF EXISTS "agents"."own_agent_approval_requests_owner_idx";
 CREATE INDEX IF NOT EXISTS "own_agent_approval_requests_inbox_idx"

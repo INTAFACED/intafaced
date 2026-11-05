@@ -639,6 +639,9 @@ export function ownRouter(
         .input(z.object({ requestId: z.string().uuid() }))
         .output(ownAgentApprovalApprovedSchema)
         .mutation(async ({ ctx, input }) => {
+          // Only the person's own signed-in session decides: never an agent's token, an API key or a sub-account, so an
+          // agent can never approve the call its rule held for the person.
+          assertPersonSetsLimits(ctx.principal);
           const { runtime } = runDepsOf(run);
           const owner = ctx.principal.userId;
           const requests = new OwnApprovalRequestStore(sqlOf(sql));

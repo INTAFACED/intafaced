@@ -54,12 +54,12 @@ const TIER_LAWS = parseTierLaws(
   }),
 );
 
-function callerFor(userId: string) {
+function callerFor(userId: string, scopes: readonly string[] = PERSON) {
   const principal = {
     sub: userId,
     userId,
     sid: '55555555-5555-4555-8555-555555555555',
-    scopes: PERSON,
+    scopes,
     tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
@@ -179,7 +179,12 @@ if (!available) {
       policyBaseline: baseline,
       ownApprovalTtlSeconds: approvalTtlSeconds,
     });
-    return { person: router.createCaller(callerFor(USER)), other: router.createCaller(callerFor(OTHER)) };
+    return {
+      person: router.createCaller(callerFor(USER)),
+      other: router.createCaller(callerFor(OTHER)),
+      /** The same person with execute but without identity:write: not their own signed-in session. */
+      notSession: router.createCaller(callerFor(USER, ['agents:read', 'agents:execute'])),
+    };
   }
   type Person = ReturnType<typeof people>['person'];
 
@@ -408,13 +413,14 @@ if (!available) {
       await expect(person.own.approval.reject({ requestId: fresh.id })).rejects.toMatchObject({ message: 'agents.approval.decided' });
       // An edit names only the tool's declared fields, none blank.
       const other = await held(person, 'try:comment:2');
-      for (const input of [
+      const badEdits: Array<Record<string, string>> = [
         { ...args, amount: '1' },
         { ...args, body: '  ' },
         {},
         { ticketId: TICKET },
         { ...args, ticketId: 'x'.repeat(121) },
-      ]) {
+      ];
+      for (const input of badEdits) {
         await expect(person.own.approval.edit({ requestId: other.request.id, input })).rejects.toMatchObject({
           message: 'agents.approval.input_invalid',
         });
@@ -451,6 +457,15 @@ if (!available) {
       ).rejects.toMatchObject({ message: 'agents.approval.expired' });
       expect(comments).toEqual([]);
       expect(await executed('support.ticket.comment')).toBe(0);
+    });
+
+    it('only the person’s own signed-in session approves: a principal without identity:write is refused and nothing runs', async () => {
+      const { person, notSession } = people();
+      account = 'active';
+      const { request } = await held(person);
+      await expect(notSession.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect((await person.own.inbox({ limit: 10 }))[0]).toMatchObject({ id: request.id, status: 'waiting' });
+      expect(comments).toEqual([]);
     });
 
     it('runs the gates again at approve: a withdrawn consent or a hand-off rule refuses, still waiting, nothing ran', async () => {

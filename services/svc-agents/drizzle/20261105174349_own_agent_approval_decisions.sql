@@ -1,3 +1,4 @@
+-- intafaced:destructive — replaces the status check and the waiting-only inbox index with wider ones; no row is dropped
 -- Deciding an own agent's approval request (AG-approvals-01, J-agents-05 #5 #6). A request waits until its expiry, then
 -- reads expired; the person approves it (the tool runs once, its first result kept; a door that refuses for good ends it
 -- failed with its code), rejects it, or edits it, which replaces it with a new request for the new input. A request held before this migration had no expiry: it is given
