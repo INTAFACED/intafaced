@@ -16,7 +16,7 @@ const messages = {
   'Metrics ratio hint': 'Maintenance margin divided by equity',
   'Metrics exact': 'Exact figures, worked out by the platform from the current mark price.',
   'Metrics no positions': 'No open position, so there is no margin ratio.',
-  'Metrics waiting': 'Not known yet: {fields}.',
+  'Metrics waiting': 'Not known: {fields}.',
   'Metrics mixed':
     'Your positions hold margin in more than one asset, so these figures are not added up across them. Each position shows its own margin and ratio.',
   'Metrics equity not positive': 'Equity is at or below zero, so there is no margin ratio: the position is past its liquidation level.',
