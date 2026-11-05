@@ -195,7 +195,8 @@ const messages = {
   'Waiting for you': 'Waiting for you',
   'Someone not in your contacts': 'Someone not in your contacts',
   '{who} sent you {amount}': '{who} sent you {amount}',
-  'Waiting reason stranger': 'Held because they’re not in your contacts. It’s set aside for you, outside your balance, until you accept or deny it.',
+  'Waiting reason stranger':
+    'Held because they’re not in your contacts. It’s set aside for you, outside your balance, until you accept or deny it.',
   'Waiting goes back {date}': 'If you don’t answer, it goes back to the sender on {date}.',
   Accept: 'Accept',
   Deny: 'Deny',
