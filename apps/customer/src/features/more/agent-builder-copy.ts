@@ -155,6 +155,8 @@ const en = {
   run_executed: 'Admitted',
   run_refused: 'Refused',
   run_failed: 'Failed',
+  run_waiting: 'Waiting for approval',
+  runHeld: '{tool}: the tool has not run.',
   code_window_unpaid:
     'A usage window could not be paid, so the session stays open. Add funds, then close it again: the window is retried on its same charge.',
   code_overage_grace_unset:
@@ -423,6 +425,8 @@ const es = {
   run_executed: 'Admitida',
   run_refused: 'Rechazada',
   run_failed: 'Fallida',
+  run_waiting: 'Esperando aprobación',
+  runHeld: '{tool}: la herramienta no se ha ejecutado.',
   code_window_unpaid:
     'No se pudo pagar una ventana de uso, así que la sesión sigue abierta. Añade fondos y ciérrala otra vez: la ventana se reintenta con su mismo cargo.',
   code_overage_grace_unset:
@@ -696,6 +700,8 @@ const fr = {
   run_executed: 'Admise',
   run_refused: 'Refusée',
   run_failed: 'Échouée',
+  run_waiting: 'En attente d’approbation',
+  runHeld: '{tool} : l’outil n’a pas tourné.',
   code_window_unpaid:
     'Une fenêtre d’usage n’a pas pu être payée, la session reste donc ouverte. Ajoutez des fonds puis fermez-la à nouveau : la fenêtre est retentée sur le même débit.',
   code_overage_grace_unset:

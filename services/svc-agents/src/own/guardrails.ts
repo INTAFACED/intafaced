@@ -311,6 +311,35 @@ export class OwnApprovalRequestStore {
     return { request: requestView(row), dataClass };
   }
 
+  /**
+   * The Approvals inbox (AG-approvals-01): every request still waiting for the person, across all their own agents,
+   * newest first, with the agent each belongs to. Only the person's own rows: the owner is in every condition.
+   */
+  async inbox(ownerId: string, limit: number): Promise<Array<OwnApprovalRequestView & { agentId: string; agentName: string }>> {
+    const rows = await this.sql<Array<RequestRow & { agent_id: string; agent_name: string }>>`
+      SELECT r.id, r.session_id::text, r.tool, r.input_json, r.status, r.rule_id::text, r.created_at,
+             r.agent_id::text, a.name AS agent_name
+        FROM agents.own_agent_approval_requests r
+        JOIN agents.own_agents a ON a.id = r.agent_id AND a.owner_id = r.owner_id
+       WHERE r.owner_id = ${ownerId} AND r.status = 'waiting'
+       ORDER BY r.created_at DESC, r.id
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => ({ ...requestView(row), agentId: row.agent_id, agentName: row.agent_name }));
+  }
+
+  /** The requests of one agent still waiting for the person, newest first: the held calls its Live runs list. */
+  async waiting(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
+    const rows = await this.sql<RequestRow[]>`
+      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
+        FROM agents.own_agent_approval_requests
+       WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND status = 'waiting'
+       ORDER BY created_at DESC, id
+       LIMIT ${limit}
+    `;
+    return rows.map(requestView);
+  }
+
   async list(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
     const rows = await this.sql<RequestRow[]>`
       SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at

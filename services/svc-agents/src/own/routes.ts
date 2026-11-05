@@ -21,7 +21,9 @@ import {
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
   ownAgentRunResultSchema,
+  ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
+  type OwnAgentRunRow,
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
@@ -552,6 +554,18 @@ export function ownRouter(
         }),
     }),
 
+    /**
+     * The Approvals inbox (AG-approvals-01): the calls a rule held for the person across all their own agents, newest
+     * first, each with its agent. None of them has run.
+     */
+    inbox: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentInboxRowSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => new OwnApprovalRequestStore(sqlOf(sql)).inbox(ctx.principal.userId, input.limit));
+      }),
+
     /** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
     approvals: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
@@ -900,7 +914,10 @@ export function ownRouter(
         }
       }),
 
-    /** Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed. */
+    /**
+     * Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed; and each
+     * tool call a rule holds for the person, waiting for approval, which has not run.
+     */
     runs: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
       .output(z.array(ownAgentRunRowSchema))
@@ -928,16 +945,41 @@ export function ownRouter(
              ORDER BY a.occurred_at DESC, a.sequence DESC
              LIMIT ${input.limit}
           `;
-          return rows.map((row) => ({
+          const completions: OwnAgentRunRow[] = rows.map((row) => ({
             sessionId: row.session_id,
             sequence: row.sequence,
             status: row.status,
             task: row.task,
+            tool: null,
+            requestId: null,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
           }));
+          // The tool calls a rule holds for the person (AG-approvals-01): a held call has not run, so it has no action of
+          // its own and cost nothing.
+          const held: OwnAgentRunRow[] = (
+            await new OwnApprovalRequestStore(sqlOf(sql)).waiting(ctx.principal.userId, agent.id, input.limit)
+          ).map((request) => ({
+            sessionId: request.sessionId,
+            sequence: null,
+            status: 'waiting',
+            task: null,
+            tool: request.tool,
+            requestId: request.id,
+            refusalCode: null,
+            cost: '0',
+            assetId: feeAssetId,
+            occurredAt: request.createdAt,
+          }));
+          // Newest first; at one instant a held call (made after the engine call it followed) comes first.
+          return [...completions, ...held]
+            .sort(
+              (a, b) =>
+                b.occurredAt.localeCompare(a.occurredAt) || (a.sequence === null ? -1 : b.sequence === null ? 1 : b.sequence - a.sequence),
+            )
+            .slice(0, input.limit);
         });
       }),
 

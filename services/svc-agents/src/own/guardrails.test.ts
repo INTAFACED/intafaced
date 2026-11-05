@@ -292,6 +292,38 @@ if (!available) {
     });
   });
 
+  describe('a held call on Live runs and in the Approvals inbox (J-agents-05 #3)', () => {
+    it('lists the held comment as a waiting run with no action and no cost, and as the person’s inbox row; the tool never ran', async () => {
+      const { person, other } = people();
+      const { id, sessionId } = await agentWithSession(person);
+      await person.own.consents.grant({ id, dataClass: 'live_write' });
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      expect(await person.own.inbox({ limit: 10 })).toEqual([]);
+      const args = { ticketId: 'TEST-ticket', body: 'TEST comment' };
+      const held = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
+      if (held.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      const runs = await person.own.runs({ id, limit: 10 });
+      expect(runs).toEqual([
+        {
+          sessionId,
+          sequence: null,
+          status: 'waiting',
+          task: null,
+          tool: 'support.ticket.comment',
+          requestId: held.request.id,
+          refusalCode: null,
+          cost: '0',
+          assetId: expect.any(String),
+          occurredAt: held.request.createdAt,
+        },
+      ]);
+      expect(await executed('support.ticket.comment')).toBe(0);
+      expect(await person.own.inbox({ limit: 10 })).toEqual([{ ...held.request, agentId: id, agentName: 'TEST helper' }]);
+      // Another person's inbox never shows it.
+      expect(await other.own.inbox({ limit: 10 })).toEqual([]);
+    });
+  });
+
   describe('a held call is the session’s and its key’s', () => {
     it('a closed session holds nothing; a reused request id is that request even after the rule changes, never another call', async () => {
       const { person } = people();
