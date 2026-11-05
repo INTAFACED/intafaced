@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { JOURNEY_FEE_PARTS_RULE, feePartsArgs, feePartsRequestId } from './local-test-merchant-fee-parts.mjs';
+import { JOURNEY_FEE_PARTS_RULE, feePartsArgs, feePartsPlan, feePartsRequestId } from './local-test-merchant-fee-parts.mjs';
 import { planPricingLayer } from './local-test-merchant-pricing.mjs';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'local-test-merchant-fee-parts.mjs');
@@ -45,4 +45,14 @@ test('a live rule equal to it is a noop; any other is set again from the newest 
   assert.deepEqual(planPricingLayer({ live: [], wanted: [JOURNEY_FEE_PARTS_RULE] }), { kind: 'set', expectedVersion: '0' });
   assert.equal(feePartsRequestId(MERCHANT, '0'), feePartsRequestId(MERCHANT, '0'));
   assert.notEqual(feePartsRequestId(MERCHANT, '0'), feePartsRequestId(MERCHANT, '1'));
+});
+
+test('the merchant layer is set from the merchant profile version, which a tier move bumps', () => {
+  const rule = { ...JOURNEY_FEE_PARTS_RULE, minFee: null, maxFee: null, version: '1' };
+  assert.deepEqual(feePartsPlan({ live: [], profile: { tierId: 'journey-open-1b2c3d4e', version: '2' } }), {
+    kind: 'set',
+    expectedVersion: '2',
+  });
+  assert.deepEqual(feePartsPlan({ live: [rule], profile: { version: '3' } }), { kind: 'exists', version: '3' });
+  assert.deepEqual(feePartsPlan({ live: [], profile: null }), { kind: 'set', expectedVersion: '0' });
 });

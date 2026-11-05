@@ -36,6 +36,17 @@ export function feePartsArgs(argv) {
   return { merchantId: argv[0].toLowerCase() };
 }
 
+/**
+ * Whether the merchant layer must be set, and from which version. svc-pay versions a merchant-layer pricing change by the
+ * merchant's control profile (`founderAdmin.control.merchant.get` version, control/changes.ts pricingVersion), not by its
+ * rules: a tier move bumps it, so the rules' own versions would end the change `conflict`.
+ */
+export function feePartsPlan({ live, profile }) {
+  const same = planPricingLayer({ live, wanted: [JOURNEY_FEE_PARTS_RULE] }).kind === 'exists';
+  const version = String(profile?.version ?? '0');
+  return same ? { kind: 'exists', version } : { kind: 'set', expectedVersion: version };
+}
+
 /** Request ids are business keys: the same change from the same version is the same request. */
 export const feePartsRequestId = (merchantId, expectedVersion) => populateUuid(`journey-fee-parts-${merchantId}-v${expectedVersion}`);
 
@@ -71,7 +82,10 @@ async function main() {
     return data;
   };
   const scope = { layer: 'merchant', scopeId: args.merchantId };
-  const plan = planPricingLayer({ live: await read('founderAdmin.control.pricing.rules', scope), wanted: [JOURNEY_FEE_PARTS_RULE] });
+  const plan = feePartsPlan({
+    live: await read('founderAdmin.control.pricing.rules', scope),
+    profile: await read('founderAdmin.control.merchant.get', { merchantId: args.merchantId }),
+  });
   let outcome = 'exists';
   if (plan.kind === 'set') {
     const target = { scope: 'pricing', change: { kind: 'set_pricing_layer', ...scope, rules: [JOURNEY_FEE_PARTS_RULE] } };
