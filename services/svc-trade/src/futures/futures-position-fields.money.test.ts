@@ -303,6 +303,7 @@ describe('futures position fields', () => {
     const summary = await positions.marginSummary(ALICE);
     expect(row.collateral).toBe('5125.000000000000000001');
     expect(summary.asset).toBe('USDT');
+    expect(summary.positions).toBe(1);
     expect(summary.usedMargin).toBe(row.collateral);
     expect(summary.totalInitialMargin).toBe('5000');
     expect(summary.available).toBe(await available());
@@ -322,6 +323,40 @@ describe('futures position fields', () => {
     expect(dark.marginRatio).toBeNull();
     expect(dark.usedMargin).toBe('5125.000000000000000001');
     expect(dark.missing).toContainEqual({ field: 'maintenanceMargin', code: 'missing_input' });
+  });
+
+  it('positions in two margin assets: the summary adds nothing up across them and names why', async () => {
+    await openSide('summary-usdt', 'long');
+    const usdc = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    await sql`
+      INSERT INTO trade.markets (
+        id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at
+      ) VALUES (
+        ${usdc}, 'BTC/USDC-PERP', 'BTC', 'USDC', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC/USDC-PERP', now()
+      )
+    `;
+    marks.set({ marketId: usdc, price: '50000', quality: 'mid', asOfMs: NOW.getTime() });
+    await ledger.post(
+      recipes.deposit({ userId: ALICE, assetId: 'USDC', amount: amt('100000'), rail: 'test', railRef: `fund-usdc-${randomUUID()}` }),
+    );
+    await positions.open({
+      clientOpenId: 'summary-usdc',
+      userId: ALICE,
+      symbol: 'BTC/USDC-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+      positionMode: 'one_way',
+    });
+    const summary = await positions.marginSummary(ALICE, 'USDT');
+    expect(summary.positions).toBe(2);
+    expect(summary.asset).toBeNull();
+    expect(summary.usedMargin).toBeNull();
+    expect(summary.equity).toBeNull();
+    expect(summary.marginRatio).toBeNull();
+    expect(summary.available).toBeNull();
+    expect(summary.missing).toEqual([{ field: 'asset', code: 'margin_assets_mixed' }]);
   });
 
   it('with no position, the summary reads the free balance of a futures margin asset it is asked for, and nothing else', async () => {

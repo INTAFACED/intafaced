@@ -90,7 +90,7 @@ import {
   requireOwnerHaircutBps,
 } from './haircut-credit.js';
 import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
-import { summarizeMargin, type MarginSummary } from './margin-summary.js';
+import { mixedAssetSummary, summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
@@ -3018,10 +3018,11 @@ export class PositionService {
   }
 
   /**
-   * The account metrics (D-margin-04): every figure from the same marked rows the positions list shows (mark, maintenance
-   * from the ladder, unrealised PnL), so the summary and the rows can't disagree. `asset` names the free balance to read
-   * when no position says which; with positions in one asset that asset wins, and with more than one the free balance is
-   * unknown (null, named). An asset that is not a futures margin asset reads nothing.
+   * The account metrics (D-margin-04): every figure from the rows as the positions list presents them (mark, maintenance
+   * from the ladder, unrealised PnL), worked out the same way. The rows and the free balance are two reads, so a write
+   * landing between them shows in the next poll. `asset` names the free balance to read when no position says which;
+   * with positions in one asset that asset wins, and with more than one nothing is summed (`margin_assets_mixed`). An
+   * asset that is not a futures margin asset reads nothing.
    */
   async marginSummary(userId: string, asset?: string): Promise<MarginSummary> {
     const rows = await this.sql<PositionRow[]>`
@@ -3037,6 +3038,7 @@ export class PositionService {
       haircutBps = null;
     }
     const assets = new Set(rows.map((row) => row.margin_asset));
+    if (assets.size > 1) return mixedAssetSummary(rows.length);
     let marginAsset: string | null = null;
     if (assets.size === 1) marginAsset = [...assets][0]!;
     else if (assets.size === 0 && asset !== undefined && (await this.isFuturesMarginAsset(asset))) marginAsset = asset;

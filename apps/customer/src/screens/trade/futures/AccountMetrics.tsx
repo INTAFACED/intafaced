@@ -6,7 +6,7 @@ import { metricsCopy } from './metrics-copy';
 
 type T = ReturnType<typeof metricsCopy.useCopy>['t'];
 
-/** The inputs a null figure waits for, in words. The haircut belongs to buying power, which this panel doesn't show. */
+/** Why a figure is blank, in words. The haircut belongs to buying power, which this panel doesn't show. */
 export function waitingFor(summary: MarginSummary, t: T): string | null {
   const known: Record<string, string> = {
     available: t('Missing available'),
@@ -32,9 +32,10 @@ export function AccountMetrics({ asset }: { asset: string }) {
       <h2 className="text-sm font-medium text-fg">{t('Metrics heading')}</h2>
       <LoadGate load={summary} thing={t('Metrics thing')}>
         {(s) => {
-          const unit = s.asset ?? asset;
-          const money = (v: string | null) => (v === null ? fmtAmount(null) : `${fmtAmount(v, { places: 18 })} ${unit}`);
-          const flat = s.usedMargin === '0' && s.totalMaintenanceMargin === '0';
+          // A figure is drawn only in the asset the service named; with no asset named there is nothing to draw it in.
+          const money = (v: string | null) =>
+            v === null || s.asset === null ? fmtAmount(null) : `${fmtAmount(v, { places: 18 })} ${s.asset}`;
+          const flat = s.positions === 0;
           const rows: [string, string, string, string][] = [
             ['equity', t('Metrics equity'), t('Metrics equity hint'), money(s.equity)],
             ['available', t('Metrics available'), t('Metrics available hint'), money(s.available)],

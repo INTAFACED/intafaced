@@ -2187,7 +2187,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     try {
       requireScope(principal, 'trade:read');
       const raw = (req.query as Record<string, unknown> | undefined)?.asset;
-      if (raw !== undefined && (typeof raw !== 'string' || !/^[A-Z0-9]{2,12}$/.test(raw))) {
+      if (raw !== undefined && (typeof raw !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(raw))) {
         return reply.code(400).send({ ...badRequest('asset must be an asset code such as USDT', 'trade.bad_request').body });
       }
       return reply.code(200).send(await deps.marginSummary(principal, raw));

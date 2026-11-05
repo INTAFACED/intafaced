@@ -84,6 +84,7 @@ export type Collateral = z.infer<typeof collateralSchema>;
  * list shows. Every figure is an exact decimal or null; `missing` names the input a null figure is waiting for.
  */
 export const marginSummarySchema = z.object({
+  positions: z.number().int(),
   asset: z.string().nullable(),
   available: decimalSchema.nullable(),
   usedMargin: decimalSchema.nullable(),

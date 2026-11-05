@@ -8,6 +8,10 @@ import { collateralCredit } from './haircut-credit.js';
 
 export const MISSING_INPUT = 'missing_input' as const;
 export const HAIRCUT_UNSET_SUMMARY = 'haircut_unset' as const;
+/** Positions in more than one margin asset: no figure adds them up, since that would add different assets. */
+export const MARGIN_ASSETS_MIXED = 'margin_assets_mixed' as const;
+/** Equity at or below zero: the ratio has no meaning there, and the position is past its liquidation level. */
+export const EQUITY_NOT_POSITIVE = 'equity_not_positive' as const;
 
 export interface MarginSummaryPosition {
   readonly initialMargin: string | null;
@@ -18,10 +22,12 @@ export interface MarginSummaryPosition {
 
 export interface MarginSummaryMissing {
   readonly field: string;
-  readonly code: typeof MISSING_INPUT | typeof HAIRCUT_UNSET_SUMMARY;
+  readonly code: typeof MISSING_INPUT | typeof HAIRCUT_UNSET_SUMMARY | typeof MARGIN_ASSETS_MIXED | typeof EQUITY_NOT_POSITIVE;
 }
 
 export interface MarginSummary {
+  /** Open and closing positions the figures cover. */
+  readonly positions: number;
   /** The margin asset every figure is in; null when the positions hold more than one. */
   readonly asset: string | null;
   /** Free balance of `asset` in the ledger, which a new position or a margin top-up draws on. */
@@ -114,6 +120,8 @@ export function summarizeMargin(input: {
       const SCALE = 10n ** 18n;
       const ratio = (maintenance.value * SCALE) / equity.value;
       marginRatio = formatAmount(ratio as Amount);
+    } else {
+      missing.push({ field: 'marginRatio', code: EQUITY_NOT_POSITIVE });
     }
   }
 
@@ -129,6 +137,7 @@ export function summarizeMargin(input: {
   }
 
   return {
+    positions: input.positions.length,
     asset: input.asset ?? null,
     available: input.available,
     usedMargin: used == null ? null : formatAmount(used),
@@ -140,5 +149,23 @@ export function summarizeMargin(input: {
     marginRatio,
     buyingPower,
     missing,
+  };
+}
+
+/** Positions in more than one margin asset: every money figure is null and the reason is named, never a cross-asset sum. */
+export function mixedAssetSummary(positions: number): MarginSummary {
+  return {
+    positions,
+    asset: null,
+    available: null,
+    usedMargin: null,
+    totalInitialMargin: null,
+    totalMaintenanceMargin: null,
+    equity: null,
+    excess: null,
+    deficit: null,
+    marginRatio: null,
+    buyingPower: null,
+    missing: [{ field: 'asset', code: MARGIN_ASSETS_MIXED }],
   };
 }

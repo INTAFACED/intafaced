@@ -70,7 +70,8 @@ function exact(decimal, unit = 'USDT') {
 function exactPct(ratio) {
   const units = toUnits(ratio);
   const step = 10n ** 16n;
-  return `${units / step}.${(units % step).toString().padStart(16, '0')}%`;
+  const whole = (units / step).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${whole}.${(units % step).toString().padStart(16, '0')}%`;
 }
 
 const METRICS = ['equity', 'available', 'used', 'maintenance', 'ratio'];
