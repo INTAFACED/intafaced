@@ -124,6 +124,8 @@ if (!available) {
   /** Every comment the desk was asked for, by its key, and what identity answers for the owner's account. */
   let comments: Array<{ ticketId: string; body: string; clientRequestId: string }>;
   let account: 'active' | 'frozen' | 'unreachable';
+  /** While set, publishing an approval request's notice fails, as a bus outage would. */
+  let busDown: boolean;
 
   const desk: SupportDeskPort = {
     async searchKb(query) {
@@ -162,7 +164,13 @@ if (!available) {
     });
     const gateway = new ModelGateway([new MockModelProvider({ id: 'primary' })], table);
     const meter = new UsageMeter(sql, new MemoryLedger(), { assetId: 'USDT', windowMinutes: 60 });
-    const runtime = new AgentRuntime(sql, gateway, meter, new MemoryEventBus('svc-agents'), {
+    const bus = new MemoryEventBus('svc-agents');
+    const faulty = Object.create(bus) as MemoryEventBus;
+    faulty.publish = (async (name: string, payload: never, opts: never) => {
+      if (busDown && name === 'agentApprovalRequested') throw new Error('TEST bus down');
+      return bus.publish(name as never, payload, opts);
+    }) as MemoryEventBus['publish'];
+    const runtime = new AgentRuntime(sql, gateway, meter, faulty, {
       feeAssetId: 'USDT',
       meteringEnabled: true,
       spend: new UserSpendStore(sql),
@@ -184,6 +192,8 @@ if (!available) {
       other: router.createCaller(callerFor(OTHER)),
       /** The same person with execute but without identity:write: not their own signed-in session. */
       notSession: router.createCaller(callerFor(USER, ['agents:read', 'agents:execute'])),
+      bus,
+      runtime,
     };
   }
   type Person = ReturnType<typeof people>['person'];
@@ -232,6 +242,7 @@ if (!available) {
     searches = [];
     comments = [];
     account = 'unreachable';
+    busDown = false;
   });
 
   afterEach(async () => {
@@ -341,6 +352,77 @@ if (!available) {
       expect(await person.own.inbox({ limit: 10 })).toEqual([{ ...held.request, agentId: id, agentName: 'TEST helper' }]);
       // Another person's inbox never shows it.
       expect(await other.own.inbox({ limit: 10 })).toEqual([]);
+    });
+  });
+
+  describe('the owner is told of a held call (J-agents-05 #4)', () => {
+    const args = { ticketId: 'TEST-ticket', body: 'TEST comment' };
+    const unpublished = async () =>
+      (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.own_agent_approval_requests WHERE published_at IS NULL`)[0]!.n;
+
+    async function ruled(person: Person) {
+      const agent = await agentWithSession(person);
+      await person.own.consents.grant({ id: agent.id, dataClass: 'live_write' });
+      await person.own.rules.save({ id: agent.id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      return agent;
+    }
+
+    it('publishes one notice per held request, on its request: a retried call is no second notice, an edit announces only the new request', async () => {
+      const { person, bus } = people();
+      const { id, sessionId } = await ruled(person);
+      const call = { id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args };
+      const first = await person.own.tool.try(call);
+      if (first.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      await person.own.tool.try(call);
+      const emitted = bus.emitted('agentApprovalRequested');
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]!.idempotencyKey).toBe(`agents.approval.requested:${first.request.id}`);
+      expect(emitted[0]!.payload).toEqual({
+        requestId: first.request.id,
+        userId: USER,
+        agentId: id,
+        sessionId,
+        tool: 'support.ticket.comment',
+        expiresAt: first.request.expiresAt,
+      });
+      // The notice carries no part of what the agent wants to write.
+      expect(JSON.stringify(emitted[0]!.payload)).not.toContain('TEST comment');
+
+      const { request: fresh } = await person.own.approval.edit({ requestId: first.request.id, input: { ...args, body: 'TEST edited' } });
+      await person.own.approval.edit({ requestId: first.request.id, input: { ...args, body: 'TEST edited' } });
+      expect(bus.emitted('agentApprovalRequested').map((e) => e.payload.requestId)).toEqual([first.request.id, fresh.id]);
+      expect(await unpublished()).toBe(0);
+    });
+
+    it('a bus fault never fails the held call: the request waits unannounced and the sweep announces it once', async () => {
+      const { person, bus, runtime } = people();
+      const { id, sessionId } = await ruled(person);
+      busDown = true;
+      const held = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
+      expect(held).toMatchObject({ outcome: 'waiting', request: { status: 'waiting' } });
+      expect(await runtime.publishApprovalRequests()).toBe(0);
+      expect(bus.emitted('agentApprovalRequested')).toHaveLength(0);
+      expect(await unpublished()).toBe(1);
+      busDown = false;
+      // Another person's sweep never announces this person's request.
+      expect(await runtime.publishApprovalRequests(OTHER)).toBe(0);
+      expect(await runtime.publishApprovalRequests()).toBe(1);
+      expect(await runtime.publishApprovalRequests()).toBe(0);
+      expect(bus.emitted('agentApprovalRequested')).toHaveLength(1);
+      expect(await unpublished()).toBe(0);
+    });
+
+    it('a request decided before it could be announced is marked without a notice: nothing is left to approve', async () => {
+      const { person, bus, runtime } = people();
+      const { id, sessionId } = await ruled(person);
+      busDown = true;
+      const held = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
+      if (held.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      await person.own.approval.reject({ requestId: held.request.id });
+      busDown = false;
+      expect(await runtime.publishApprovalRequests()).toBe(0);
+      expect(bus.emitted('agentApprovalRequested')).toHaveLength(0);
+      expect(await unpublished()).toBe(0);
     });
   });
 

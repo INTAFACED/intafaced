@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session/session';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
+import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, DataTable, Dialog, Field, Panel } from '../../shared/ui';
 import { Read } from './common';
 import { Answer, requestStateWords, toolWords, type Failed } from './AgentGuardrails';
@@ -37,6 +38,13 @@ export function AgentApprovals() {
   const [done, setDone] = useState<Done | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [editing, setEditing] = useState<OwnAgentInboxRow | null>(null);
+  // After a decision the inbox is read again: the rows last read stay on screen (their buttons off) until it answers,
+  // so the page never swaps them for a loading state under the decision's own words.
+  const lastRead = useRef<Resource<OwnAgentInboxRow[]> | null>(null);
+  if (inbox.resource.status !== 'loading') lastRead.current = inbox.resource;
+  const rereading = inbox.resource.status === 'loading' && lastRead.current !== null;
+  const shown = rereading ? lastRead.current! : inbox.resource;
+  const locked = busy || rereading;
 
   async function decide<T>(run: () => Promise<{ ok: true; data: T } | Failed>, words: (data: T) => Done) {
     setBusy(true);
@@ -68,6 +76,7 @@ export function AgentApprovals() {
   return (
     <Panel title={t('inboxTitle')}>
       <p className="muted">{t('intro')}</p>
+      <ServiceOffNotice code="vendor.push" action={t('pushAction')} role="note" />
       {done ? <p role="status">{done.words}</p> : null}
       {done?.result !== undefined && done.result !== null ? (
         <div role="region" aria-label={t('firstResult')}>
@@ -75,7 +84,7 @@ export function AgentApprovals() {
         </div>
       ) : null}
       {refused ? <Answer failed={refused} /> : null}
-      <Read resource={inbox.resource} retry={inbox.reload}>
+      <Read resource={shown} retry={inbox.reload}>
         {(rows) => (
           <>
             <DataTable
@@ -121,19 +130,19 @@ export function AgentApprovals() {
                   <td>
                     {row.status === 'waiting' ? (
                       <>
-                        <Button disabled={busy} onClick={() => void approve(row)}>
+                        <Button disabled={locked} onClick={() => void approve(row)}>
                           {t('approve')}
                         </Button>
-                        <Button variant="secondary" disabled={busy} onClick={() => setEditing(row)}>
+                        <Button variant="secondary" disabled={locked} onClick={() => setEditing(row)}>
                           {t('edit')}
                         </Button>
-                        <Button variant="secondary" disabled={busy} onClick={() => void reject(row)}>
+                        <Button variant="secondary" disabled={locked} onClick={() => void reject(row)}>
                           {t('reject')}
                         </Button>
                       </>
                     ) : null}
                     {row.status === 'approved' ? (
-                      <Button variant="secondary" disabled={busy} onClick={() => void approve(row)}>
+                      <Button variant="secondary" disabled={locked} onClick={() => void approve(row)}>
                         {t('approveAgain')}
                       </Button>
                     ) : null}

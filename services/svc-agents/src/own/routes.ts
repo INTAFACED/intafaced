@@ -718,7 +718,10 @@ export function ownRouter(
             const requests = new OwnApprovalRequestStore(sqlOf(sql));
             const stored = await requests.get(ctx.principal.userId, input.requestId);
             checkEditedInput(stored.tool, input.input);
-            return requests.edit(ctx.principal.userId, stored.id, input.input, approvalTtl(tooling.approvalTtlSeconds));
+            const edited = await requests.edit(ctx.principal.userId, stored.id, input.input, approvalTtl(tooling.approvalTtlSeconds));
+            // The new request is announced after its commit; a bus fault here never fails the edit (the sweep sends it).
+            await run?.runtime.publishApprovalRequests(ctx.principal.userId).catch(() => undefined);
+            return edited;
           }, approvalRefused);
         }),
 
@@ -928,6 +931,8 @@ export function ownRouter(
                 ruleId: gate.ruleId,
               }),
             );
+            // The person is told after the request's commit; a bus fault here never fails the call (the sweep sends it).
+            await runtime.publishApprovalRequests(ctx.principal.userId).catch(() => undefined);
             return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request };
           }
           // A tool with no door runs nothing; the catalogue names this refusal for every such tool.

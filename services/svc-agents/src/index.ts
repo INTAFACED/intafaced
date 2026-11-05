@@ -308,9 +308,12 @@ const purgeTranscripts = () =>
 await purgeTranscripts();
 const transcriptPurge = setInterval(() => void purgeTranscripts(), 60 * 60 * 1000);
 transcriptPurge.unref();
-// Publish usage alerts a crash or a bus outage left recorded but unpublished: once now, then each minute.
-const sweepUsageAlerts = (): void =>
+// Publish usage alerts and approval requests a crash or a bus outage left recorded but unpublished: once now, then each
+// minute.
+const sweepUsageAlerts = (): void => {
   void runtime.publishUsageAlerts().catch((err: unknown) => app.log.warn({ err }, 'usage alert sweep failed'));
+  void runtime.publishApprovalRequests().catch((err: unknown) => app.log.warn({ err }, 'approval request sweep failed'));
+};
 sweepUsageAlerts();
 const usageAlertTimer = setInterval(sweepUsageAlerts, 60_000);
 usageAlertTimer.unref();

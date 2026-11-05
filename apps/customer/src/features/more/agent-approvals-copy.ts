@@ -25,6 +25,8 @@ const en = {
   saveEdit: 'Save as a new request',
   cancel: 'Cancel',
   empty: 'No request yet.',
+  pushAction:
+    'Phone notices are not connected, so a held call is not pushed to your phone. Your notifications and this inbox still show it.',
   more: 'Showing {shown} requests: waiting ones first, then the newest. Older decided ones are left out.',
 } as const;
 
@@ -52,6 +54,8 @@ const es = {
   saveEdit: 'Guardar como solicitud nueva',
   cancel: 'Cancelar',
   empty: 'Aún no hay solicitudes.',
+  pushAction:
+    'Los avisos al teléfono no están conectados, así que una llamada retenida no se envía a tu teléfono. Tus notificaciones y esta bandeja la muestran igualmente.',
   more: 'Se muestran {shown} solicitudes: primero las que esperan, luego las más recientes. Se omiten las decididas más antiguas.',
 } satisfies Record<keyof typeof en, string>;
 
@@ -79,6 +83,8 @@ const fr = {
   saveEdit: 'Enregistrer comme nouvelle demande',
   cancel: 'Annuler',
   empty: 'Aucune demande pour l’instant.',
+  pushAction:
+    'Les notifications sur téléphone ne sont pas connectées : un appel retenu n’est pas envoyé sur votre téléphone. Vos notifications et cette boîte le montrent quand même.',
   more: '{shown} demandes affichées : d’abord celles en attente, puis les plus récentes. Les plus anciennes déjà décidées sont omises.',
 } satisfies Record<keyof typeof en, string>;
 
