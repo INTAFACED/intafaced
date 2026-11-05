@@ -722,41 +722,8 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   const { merchantId } = state;
   const owner = await ownerApi(state);
 
-  // The business's own TEST fee: 1.00% + 0.50 USDT, set by one founder and confirmed by another; the founders read it back.
-  const fee = feeInTwoParts(merchantId);
-  expect(fee, JSON.stringify(fee)).toMatchObject({ merchantId, holds: true, rules: 1 });
-
-  // A 100 USDT TEST payment, paid: its stored fee is 1.50, in a 1.00 percentage part and a 0.50 flat part that add up.
-  const paid = await cardPayment(owner, merchantId, {
-    amount: '100.00',
-    reference: `TEST-${state.stamp}-fee-parts`,
-    customerRef: 'TEST-cust-dee',
-    want: 'captured',
-  });
-  const read = await owner.query('payment.get', { paymentId: paid.id });
-  expect(read.status).toBe('captured');
-  expect(units(read.pricingSnapshot.fee)).toBe(units('1.5'));
-  expect(read.pricingSnapshot).toMatchObject({ appliedLayer: 'merchant', feeBps: 100, assetCode: 'USDT' });
-  expect(read.pricingSnapshot.parts.map((p) => [p.kind, units(p.amount)])).toEqual([
-    ['percent', units('1')],
-    ['flat', units('0.5')],
-  ]);
-
-  await signInOwner(page, journey(), `/pay/payments/${paid.id}`);
+  await signInOwner(page, journey(), '/pay/payments');
   const refused = refusedPayCalls(page);
-  const summary = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Summary', level: 2 }) });
-  await expect(summary).toBeVisible();
-  const shown = {
-    fee: await fact(summary, 'Fee').textContent(),
-    percent: await fact(summary, 'Percentage part (1%)').textContent(),
-    flat: await fact(summary, 'Flat part').textContent(),
-  };
-  expect(shown.fee).toMatch(/^1\.50\s*USDT$/);
-  expect(shown.percent).toMatch(/^1\.00\s*USDT$/);
-  expect(shown.flat).toMatch(/^0\.50\s*USDT$/);
-  // The two parts on the page add up to the fee on the page.
-  expect(units(shown.percent) + units(shown.flat)).toBe(units(shown.fee));
-  await expect(page.getByText('The split of this fee was not recorded')).toHaveCount(0);
 
   // A TEST card the issuer declines with a code no catalogue lists (the sandbox's "Unlisted reason" test value): the
   // service keeps only the generic sentence, and the page shows it, never the issuer's own words or code.
@@ -827,5 +794,46 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
     await expect(reasonRows.filter({ hasText: r.code })).toContainText(r.message);
     await expect(reasonRows.filter({ hasText: r.code }).locator('td').last()).toHaveText(String(r.count));
   }
+  // Last, as it waits on the stack: the fee in its parts. svc-pay stores a payment's fee only while its merchant
+  // controls are required; the journey stack runs them off until #7066 (svc-pay merchant controls required on the stack).
+  // The business's own TEST fee: 1.00% + 0.50 USDT, set by one founder and confirmed by another; the founders read it back.
+  const fee = feeInTwoParts(merchantId);
+  expect(fee, JSON.stringify(fee)).toMatchObject({ merchantId, holds: true, rules: 1 });
+
+  // A 100 USDT TEST payment, paid: its stored fee is 1.50, in a 1.00 percentage part and a 0.50 flat part that add up.
+  const paid = await cardPayment(owner, merchantId, {
+    amount: '100.00',
+    reference: `TEST-${state.stamp}-fee-parts`,
+    customerRef: 'TEST-cust-dee',
+    want: 'captured',
+  });
+  const read = await owner.query('payment.get', { paymentId: paid.id });
+  expect(read.status).toBe('captured');
+  expect(
+    read.pricingSnapshot,
+    'BLOCKED merchant_controls_off: svc-pay stores a fee only with PAY_MERCHANT_CONTROLS=required, and the journey stack runs it off until #7066 turns it on',
+  ).not.toBeNull();
+  expect(units(read.pricingSnapshot.fee)).toBe(units('1.5'));
+  expect(read.pricingSnapshot).toMatchObject({ appliedLayer: 'merchant', feeBps: 100, assetCode: 'USDT' });
+  expect(read.pricingSnapshot.parts.map((p) => [p.kind, units(p.amount)])).toEqual([
+    ['percent', units('1')],
+    ['flat', units('0.5')],
+  ]);
+
+  await page.goto(`/pay/payments/${paid.id}`);
+  const summary = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Summary', level: 2 }) });
+  await expect(summary).toBeVisible();
+  const shown = {
+    fee: await fact(summary, 'Fee').textContent(),
+    percent: await fact(summary, 'Percentage part (1%)').textContent(),
+    flat: await fact(summary, 'Flat part').textContent(),
+  };
+  expect(shown.fee).toMatch(/^1\.50\s*USDT$/);
+  expect(shown.percent).toMatch(/^1\.00\s*USDT$/);
+  expect(shown.flat).toMatch(/^0\.50\s*USDT$/);
+  // The two parts on the page add up to the fee on the page.
+  expect(units(shown.percent) + units(shown.flat)).toBe(units(shown.fee));
+  await expect(page.getByText('The split of this fee was not recorded')).toHaveCount(0);
+
   expect(refused).toEqual([]);
 });
