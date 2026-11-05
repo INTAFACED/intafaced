@@ -508,62 +508,6 @@ export const merchantAnalyticsFeesSchema = z
   })
   .strict();
 
-export const merchantAnalyticsDeclinesInputSchema = z
-  .object({ merchantId: payMerchantIdSchema, from: payTimestampSchema, to: payTimestampSchema, assetId: payAssetCodeSchema.optional() })
-  .strict();
-
-/** One decline reason: its catalogue code and sentence (an unknown code is already `pay.failed`), and how many. */
-export const merchantDeclineReasonSchema = z
-  .object({
-    code: z.string().regex(/^[a-z][a-z0-9._]{0,63}$/),
-    message: z.string().min(1).max(200),
-    count: z.number().int().min(1),
-  })
-  .strict();
-
-/**
- * Declines over a window of UTC days, worked out by svc-pay (M-adv-payments-core-02). Payments counted are those made in
- * the window that have finished: succeeded (captured, settled, refunded or disputed) or declined (failed); a payment
- * still open counts in neither; with `assetId`, payments in that asset only. `rate` is declined ÷ finished as a percentage, rounded down to 2 decimal places:
- * `exact` lost nothing, `rounded` did, and `no_payments` (nothing finished) carries no rate, never 0.
- */
-export const merchantAnalyticsDeclinesSchema = z
-  .object({
-    merchantId: payMerchantIdSchema,
-    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    asOf: payTimestampSchema,
-    finishedCount: z.number().int().min(0),
-    succeededCount: z.number().int().min(0),
-    declinedCount: z.number().int().min(0),
-    rate: z
-      .string()
-      .regex(/^\d{1,3}(\.\d{1,2})?$/)
-      .nullable(),
-    rateStatus: z.enum(['exact', 'rounded', 'no_payments']),
-    reasons: z.array(merchantDeclineReasonSchema).max(64),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    const issue = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
-    if (value.succeededCount + value.declinedCount !== value.finishedCount) issue('succeeded and declined must make finished');
-    if (value.reasons.reduce((n, r) => n + r.count, 0) !== value.declinedCount) issue('the reasons must count every decline');
-    if (value.finishedCount === 0) {
-      if (value.rateStatus !== 'no_payments' || value.rate !== null) issue('nothing finished carries no rate');
-      return;
-    }
-    if (value.rate === null || value.rateStatus === 'no_payments') return issue('a finished count carries a rate');
-    const hundredths = (BigInt(value.declinedCount) * 10_000n) / BigInt(value.finishedCount);
-    const frac = String(hundredths % 100n)
-      .padStart(2, '0')
-      .replace(/0+$/, '');
-    const expected = frac ? `${hundredths / 100n}.${frac}` : `${hundredths / 100n}`;
-    if (value.rate !== expected) issue('the rate is not the rounded-down quotient');
-    const exact = (BigInt(value.declinedCount) * 10_000n) % BigInt(value.finishedCount) === 0n;
-    if ((value.rateStatus === 'exact') !== exact) issue('exact means nothing was rounded off');
-  });
-export type MerchantAnalyticsDeclines = z.infer<typeof merchantAnalyticsDeclinesSchema>;
-
 export const merchantCustomerSeriesInputSchema = z
   .object({
     customerRef: z.string().trim().min(1).max(200),

@@ -472,12 +472,6 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
   },
   {
-    path: 'merchantAnalytics.declines',
-    scope: 'pay:read',
-    own: 'ok',
-    input: (i) => ({ merchantId: i.merchantId, from: series.from, to: series.to }),
-  },
-  {
     path: 'merchant.payoutDestinations.list',
     scope: 'pay:read',
     own: 'ok',
@@ -1161,11 +1155,6 @@ export const TREE_PROCS: TreeProc[] = [
     path: 'merchantAnalytics.fees',
     area: 'settlement',
     input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
-  },
-  {
-    path: 'merchantAnalytics.declines',
-    area: 'payment',
-    input: (i) => ({ merchantId: i.merchantId, from: series.from, to: series.to }),
   },
   { path: 'merchant.businessProfile.get', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchant.checkoutSettings.get', area: 'checkout.profile', input: (i) => ({ merchantId: i.merchantId }) },

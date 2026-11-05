@@ -43,17 +43,3 @@ export const feesSchema = z.object({
   conversionCost: z.unknown().nullable().optional(),
 });
 export type FeesPage = z.infer<typeof feesSchema>;
-
-/** merchantAnalytics.declines (packages/contracts/src/merchant-portal.ts): worked out by the service, never here. */
-export const declinesSchema = z.object({
-  from: day,
-  to: day,
-  asOf: z.string(),
-  finishedCount: z.number().int().min(0),
-  succeededCount: z.number().int().min(0),
-  declinedCount: z.number().int().min(0),
-  rate: z.string().nullable(),
-  rateStatus: z.enum(['exact', 'rounded', 'no_payments']),
-  reasons: z.array(z.object({ code: z.string(), message: z.string(), count: z.number().int().min(1) })),
-});
-export type Declines = z.infer<typeof declinesSchema>;

@@ -61,7 +61,6 @@ const calls: Record<string, Call> = {
   reportDelete: (a) => a.reportDelete(ID),
   analyticsVolume: (a) => a.analyticsVolume(q),
   analyticsFees: (a) => a.analyticsFees({ ...q, bucket: 'week' }),
-  analyticsDeclines: (a) => a.analyticsDeclines({ merchantId: q.merchantId, from: q.from, to: q.to }),
 };
 // reportPeople reads the team list, which the shared stand-in answers; analyticsDailySeries reads the shared metrics series.
 const sharedElsewhere = {
