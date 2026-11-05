@@ -69,7 +69,7 @@ import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirecto
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
 import { dryRunToolCall, ownAgentAnalytics, ownAgentHolds, OwnTestRunStore } from './dry-run.js';
 import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
-import { OwnIdentityStore, tokenLifetime } from './identity.js';
+import { assertOwnerActive, OwnIdentityStore, tokenLifetime } from './identity.js';
 import { assistantEngine, draftAgent, OwnerDecisionPending } from './assistant.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
@@ -483,6 +483,7 @@ export function ownRouter(
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             const lifetime = tokenLifetime(tooling.tokenLifetimeMinutes);
+            await assertOwnerActive(ctx.principal.userId, tooling.accounts ?? null);
             return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime);
           });
         }),
