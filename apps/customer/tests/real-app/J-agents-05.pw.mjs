@@ -230,7 +230,7 @@ test(`${J} #3 runs the agent to the gated tool: the tool has not run, the run re
   // The run reads waiting for approval on the agent's Live runs.
   await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click();
   const run = tableIn(main(page), 'Live runs').getByRole('row').nth(1);
-  await expect(run).toContainText('Waiting for approval', UNBUILT);
+  await expect(run).toContainText('Waiting for approval');
   await expect(run).toContainText('Send a comment: the tool has not run.');
 
   // A request row exists in the Approvals inbox: one row for each request svc-agents holds, this one among them.

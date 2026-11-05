@@ -23,6 +23,7 @@ import {
   ownAgentRunResultSchema,
   ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
+  type OwnAgentRunRow,
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
@@ -919,50 +920,60 @@ export function ownRouter(
         return guard(async () => {
           const { feeAssetId } = runDepsOf(run);
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
-          // The engine calls, and the tool calls a rule holds for the person (AG-approvals-01): a held call has not run,
-          // so it has no action of its own and cost nothing.
           const rows = await sqlOf(sql)<
             Array<{
               session_id: string;
-              sequence: number | null;
-              status: 'executed' | 'refused' | 'failed' | 'waiting';
+              sequence: number;
+              status: 'executed' | 'refused' | 'failed';
               task: string | null;
-              tool: string | null;
-              request_id: string | null;
               refusal_code: string | null;
               cost: string;
               occurred_at: Date;
             }>
           >`
-            SELECT * FROM (
-              SELECT a.session_id::text AS session_id, a.sequence, a.status::text AS status, a.task, NULL::text AS tool,
-                     NULL::text AS request_id, a.refusal_code, a.cost::text AS cost, a.occurred_at
-                FROM agents.agent_actions a
-               WHERE a.user_id = ${ctx.principal.userId}
-                 AND a.agent_id = ${ownSessionAgentId(agent.id)}
-                 AND a.kind = 'completion'
-              UNION ALL
-              SELECT r.session_id::text, NULL::int, r.status, NULL::text, r.tool, r.id::text, NULL::text, '0', r.created_at
-                FROM agents.own_agent_approval_requests r
-               WHERE r.owner_id = ${ctx.principal.userId}
-                 AND r.agent_id = ${agent.id}
-                 AND r.status = 'waiting'
-            ) runs
-             ORDER BY occurred_at DESC, sequence DESC NULLS FIRST
+            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at
+              FROM agents.agent_actions a
+             WHERE a.user_id = ${ctx.principal.userId}
+               AND a.agent_id = ${ownSessionAgentId(agent.id)}
+               AND a.kind = 'completion'
+             ORDER BY a.occurred_at DESC, a.sequence DESC
              LIMIT ${input.limit}
           `;
-          return rows.map((row) => ({
+          const completions: OwnAgentRunRow[] = rows.map((row) => ({
             sessionId: row.session_id,
             sequence: row.sequence,
             status: row.status,
             task: row.task,
-            tool: row.tool,
-            requestId: row.request_id,
+            tool: null,
+            requestId: null,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
           }));
+          // The tool calls a rule holds for the person (AG-approvals-01): a held call has not run, so it has no action of
+          // its own and cost nothing.
+          const held: OwnAgentRunRow[] = (
+            await new OwnApprovalRequestStore(sqlOf(sql)).waiting(ctx.principal.userId, agent.id, input.limit)
+          ).map((request) => ({
+            sessionId: request.sessionId,
+            sequence: null,
+            status: 'waiting',
+            task: null,
+            tool: request.tool,
+            requestId: request.id,
+            refusalCode: null,
+            cost: '0',
+            assetId: feeAssetId,
+            occurredAt: request.createdAt,
+          }));
+          // Newest first; at one instant a held call (made after the engine call it followed) comes first.
+          return [...completions, ...held]
+            .sort(
+              (a, b) =>
+                b.occurredAt.localeCompare(a.occurredAt) || (a.sequence === null ? -1 : b.sequence === null ? 1 : b.sequence - a.sequence),
+            )
+            .slice(0, input.limit);
         });
       }),
 

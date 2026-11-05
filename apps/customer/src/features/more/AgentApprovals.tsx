@@ -9,6 +9,8 @@ import { agentApprovalsCopy } from './agent-approvals-copy';
 import { ownAgentInboxRowSchema } from '@intafaced/contracts/agents-own';
 
 const inboxSchema = z.array(ownAgentInboxRowSchema);
+/** Rows shown at once; one more is asked for, so the page can say when older requests are left out. */
+const SHOWN = 100;
 
 /**
  * The Approvals inbox (/agents/approvals, AG-approvals-01): every call of the person's own agents that a rule holds for
@@ -19,7 +21,7 @@ export function AgentApprovals() {
   const api = useApi();
   const { t } = agentApprovalsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
-  const inbox = useResource((signal) => api.query('agents', 'own.inbox', { limit: 100 }, inboxSchema, { signal }), 'own-inbox');
+  const inbox = useResource((signal) => api.query('agents', 'own.inbox', { limit: SHOWN + 1 }, inboxSchema, { signal }), 'own-inbox');
   return (
     <Panel title={t('inboxTitle')}>
       <p className="muted">{t('intro')}</p>
@@ -29,9 +31,16 @@ export function AgentApprovals() {
           <>
             <DataTable
               label={t('inboxTitle')}
-              headers={[t('colWhen'), t('colAgent'), t('colAction'), t('colInput'), t('colState'), t('colDecide')]}
+              headers={[
+                tools('requestWhen'),
+                t('colAgent'),
+                tools('requestAction'),
+                tools('requestInput'),
+                tools('requestState'),
+                t('colDecide'),
+              ]}
             >
-              {rows.map((row) => (
+              {rows.slice(0, SHOWN).map((row) => (
                 <tr key={row.id} data-request-id={row.id}>
                   <td>{new Date(row.createdAt).toLocaleString()}</td>
                   <td>
@@ -58,6 +67,7 @@ export function AgentApprovals() {
                 </tr>
               ))}
             </DataTable>
+            {rows.length > SHOWN ? <p role="status">{t('more', { shown: String(SHOWN) })}</p> : null}
             {rows.length === 0 ? <p className="muted">{t('empty')}</p> : null}
           </>
         )}

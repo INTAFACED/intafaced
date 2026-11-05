@@ -894,12 +894,12 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.requestId ?? `${row.sessionId}:${row.sequence}`}>
+                  <tr key={row.status === 'waiting' ? row.requestId : `${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
                     <td>{t(`run_${row.status}`)}</td>
                     <td>
                       {row.status === 'waiting' ? (
-                        t('runHeld', { tool: toolWords(tools, row.tool ?? '') })
+                        t('runHeld', { tool: toolWords(tools, row.tool) })
                       ) : row.refusalCode ? (
                         <Refusal code={row.refusalCode} task={row.task ?? ''} inline />
                       ) : null}

@@ -328,6 +328,18 @@ export class OwnApprovalRequestStore {
     return rows.map((row) => ({ ...requestView(row), agentId: row.agent_id, agentName: row.agent_name }));
   }
 
+  /** The requests of one agent still waiting for the person, newest first: the held calls its Live runs list. */
+  async waiting(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
+    const rows = await this.sql<RequestRow[]>`
+      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
+        FROM agents.own_agent_approval_requests
+       WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND status = 'waiting'
+       ORDER BY created_at DESC, id
+       LIMIT ${limit}
+    `;
+    return rows.map(requestView);
+  }
+
   async list(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
     const rows = await this.sql<RequestRow[]>`
       SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at

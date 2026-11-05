@@ -102,18 +102,30 @@ export type OwnAgentRunResult = z.infer<typeof ownAgentRunResultSchema>;
  * under it); null only on a row logged without one, and on a held tool call. A held tool call (`waiting`, AG-approvals-01)
  * is the approval request `requestId` for `tool`: the tool has not run, it has no action `sequence` and it cost 0.
  */
-export const ownAgentRunRowSchema = z.object({
+const ownAgentRunRowBase = {
   sessionId: z.string().uuid(),
-  sequence: z.number().int().nullable(),
-  status: z.enum(['executed', 'refused', 'failed', 'waiting']),
   task: z.string().nullable(),
-  tool: z.string().nullable(),
-  requestId: z.string().uuid().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
   assetId: z.string(),
   occurredAt: z.string(),
-});
+};
+export const ownAgentRunRowSchema = z.union([
+  z.object({
+    ...ownAgentRunRowBase,
+    sequence: z.number().int(),
+    status: z.enum(['executed', 'refused', 'failed']),
+    tool: z.null(),
+    requestId: z.null(),
+  }),
+  z.object({
+    ...ownAgentRunRowBase,
+    sequence: z.null(),
+    status: z.literal('waiting'),
+    tool: z.string(),
+    requestId: z.string().uuid(),
+  }),
+]);
 export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;
 
 /** `own.session.close`: the session closed once every window of it is paid. An unpaid one refuses `agents.window_unpaid`. */
