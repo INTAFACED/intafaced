@@ -64,7 +64,7 @@ import {
 import { assertNotSecurityLocked } from './security-lock.js';
 import { assertLeavesAWayIn, lockedSigninMethods, startWalletChallenge, walletSigninAccount, type WalletConfig } from './signin-methods.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
-import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
+import { confirmEmail, confirmEmailCode, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
   confirmSignUp,
   resendSignUp,
@@ -229,6 +229,12 @@ export class AuthError extends Error {
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
+      | 'auth.email_confirm_resend_too_soon'
+      | 'auth.email_confirm_expired'
+      | 'auth.email_confirm_used'
+      | 'auth.email_confirm_code_invalid'
+      | 'auth.email_confirm_code_locked'
+      | 'vendor.email'
       | 'auth.too_many_attempts'
       | 'auth.invite_invalid'
       | 'auth.invite_used'
@@ -618,6 +624,9 @@ export class AuthService {
   private emailConfirmTtlSeconds: number | undefined;
   private emailConfirmRateMax: number | undefined;
   private emailConfirmRateWindowSeconds: number | undefined;
+  private emailConfirmResendSeconds: number | undefined;
+  private emailConfirmCodeMaxAttempts: number | undefined;
+  private emailConfirmSubjectKey: string | undefined;
   private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
   private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
@@ -761,11 +770,20 @@ export class AuthService {
     ttlSeconds: number | undefined;
     rateMax: number | undefined;
     rateWindowSeconds: number | undefined;
+    /** Seconds before another confirmation mail; blank refuses. */
+    resendSeconds: number | undefined;
+    /** Wrong codes allowed per account inside the rate window; blank refuses. */
+    codeMaxAttempts: number | undefined;
+    /** The flow key the six-digit code is keyed with; blank refuses. */
+    subjectKey: string | undefined;
   }): void {
     this.emailConfirmMail = input.mail;
     this.emailConfirmTtlSeconds = input.ttlSeconds;
     this.emailConfirmRateMax = input.rateMax;
     this.emailConfirmRateWindowSeconds = input.rateWindowSeconds;
+    this.emailConfirmResendSeconds = input.resendSeconds;
+    this.emailConfirmCodeMaxAttempts = input.codeMaxAttempts;
+    this.emailConfirmSubjectKey = input.subjectKey;
   }
 
   /** Test clock for confirmation expiry. Production uses the real clock. */
@@ -1056,6 +1074,9 @@ export class AuthService {
       ttlSeconds: this.emailConfirmTtlSeconds,
       rateMax: this.emailConfirmRateMax,
       rateWindowSeconds: this.emailConfirmRateWindowSeconds,
+      resendSeconds: this.emailConfirmResendSeconds,
+      codeMaxAttempts: this.emailConfirmCodeMaxAttempts,
+      subjectKey: this.emailConfirmSubjectKey,
       now: this.emailConfirmNow,
       log: this.log,
     };
@@ -2136,6 +2157,13 @@ export class AuthService {
   /** Public link. Sets `email_verified_at` once for the account the token was issued to. */
   async confirmEmail(input: { token: string }): Promise<{ userId: string }> {
     const confirmed = await confirmEmail(this.emailConfirmDeps(), input);
+    await this.claimConfirmedEmailInvites(confirmed.userId);
+    return confirmed;
+  }
+
+  /** Signed-in. The six-digit code from the newest confirmation mail sets `email_verified_at`, as the link does. */
+  async confirmEmailCode(input: { userId: string; code: string }): Promise<{ userId: string }> {
+    const confirmed = await confirmEmailCode(this.emailConfirmDeps(), input);
     await this.claimConfirmedEmailInvites(confirmed.userId);
     return confirmed;
   }

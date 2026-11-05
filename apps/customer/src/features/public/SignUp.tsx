@@ -8,6 +8,7 @@ import { publicAuthContext, publicAuthHref } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
 import {
   countryOptions,
+  passwordScreeningSchema,
   secondsLeft,
   signUpAcceptedSchema,
   signUpCode,
@@ -40,6 +41,7 @@ export function SignUp() {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [resent, setResent] = useState(false);
+  const [screening, setScreening] = useState<'on' | 'unset' | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const flight = useRef(singleFlight()).current;
   const form = useRef<HTMLFormElement | null>(null);
@@ -56,6 +58,16 @@ export function SignUp() {
   useEffect(() => {
     form.current?.querySelector<HTMLInputElement>('input:not([type=radio])')?.focus();
   }, [pending?.flowId]);
+  // Whether the owner's breached-password list is set: when it is not, the page says so beside the password rule.
+  useEffect(() => {
+    const controller = new AbortController();
+    void api
+      .query('identity', 'auth.signUpPasswordScreening', undefined, passwordScreeningSchema, { signal: controller.signal })
+      .then((answer) => {
+        if (!controller.signal.aborted && answer.ok) setScreening(answer.data.breachedList);
+      });
+    return () => controller.abort();
+  }, [api]);
   // The resend clock: one tick a second while a code step is open and the wait is not over.
   useEffect(() => {
     if (!pending || secondsLeft(pending.resendAt, now) === 0) return;
@@ -231,6 +243,11 @@ export function SignUp() {
                 required
                 disabled={busy}
               />
+              {screening === 'unset' && (
+                <p className="pub-notice" role="status">
+                  {t('screeningUnset')}
+                </p>
+              )}
               <label className="field">
                 <span>{t('country')}</span>
                 <select name="country" required disabled={busy} defaultValue="">
@@ -307,6 +324,20 @@ export function SignUp() {
         <div id={problemId} className="pub-notice" role="alert">
           <p>{problem}</p>
           {refusal?.code && refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
+          {/* A channel that cannot send is never swapped for another by itself: the person picks the other one. Email is
+              offered when phone fails; phone is not offered when email fails, since this build connects no text-message
+              provider, but its choice above stays open. */}
+          {code === 'vendor.sms' && !pending && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setChannel('email');
+                setRefusal(null);
+              }}
+            >
+              {t('useEmail')}
+            </Button>
+          )}
           {(code === 'identity.signup_code_used' || code === 'auth.email_taken') && (
             <a className="text-link" href={publicAuthHref(context, '/login')}>
               {t('signIn')}

@@ -435,6 +435,9 @@ auth.useEmailConfirmation({
   ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
+  resendSeconds: env.IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS,
+  codeMaxAttempts: env.IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS,
+  subjectKey: env.IDENTITY_FLOW_SUBJECT_KEY,
 });
 // Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
 auth.useSignUpPolicy({

@@ -709,6 +709,25 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Owner-published seconds before another confirmation mail to the same account (J-identity-01 #7). Blank / unset
+       * refuses every request (`auth.email_confirm_unwired`). The ceiling is technical, not a default.
+       */
+      IDENTITY_EMAIL_CONFIRM_RESEND_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3_600).optional()),
+      /**
+       * Owner-published wrong confirmation codes allowed per account inside the rate window, across its mails; at the
+       * limit codes are held until guesses leave the window (the mail's link keeps working).
+       * Blank / unset refuses every request. The ceiling (10) is technical, not a default.
+       */
+      IDENTITY_EMAIL_CONFIRM_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(10).optional()),
+      /**
        * Owner-published minimum age to open an account (I-kyc-compliance-06). NO DEFAULT: blank / unset refuses
        * every sign-up (`identity.age_rule_unset`). Never invent 18.
        */
