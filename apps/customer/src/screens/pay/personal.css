@@ -213,6 +213,42 @@
     min-width: 0;
   }
   /* Receive: ways to receive by email or phone, one row each. */
+  /* Payments from people not in your contacts (J-pay-03 #5): the rule on Receive, and Pay's "Waiting for you". */
+  .pay-stranger {
+    margin: 0;
+    min-inline-size: 0;
+    padding-inline: 0;
+    padding-bottom: 0;
+    border-inline: 0;
+    border-bottom: 0;
+  }
+
+  .pay-stranger__option {
+    display: flex;
+    align-items: center;
+    gap: var(--if-space-2);
+  }
+
+  .pay-waiting__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .pay-waiting__item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-1);
+  }
+
+  .pay-waiting__head {
+    margin: 0;
+    font-weight: 600;
+  }
+
   .pay-receive-contacts {
     display: flex;
     flex-direction: column;

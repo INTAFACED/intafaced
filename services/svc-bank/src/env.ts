@@ -302,6 +302,21 @@ const schema = serviceEnvSchema
       BANK_PERSONAL_SEND_REVIEW_JSON: z.string().optional(),
 
       /**
+       * HOLDS ON RECEIVED FUNDS (PP-money-balance-05): whole days (1 to 365) a payment from someone not in the recipient's
+       * contacts, held for them to accept, waits before it goes back to the sender. Blank means the class cannot place
+       * holds (RH-3): choosing "hold" refuses `bank.stranger_hold_period_unset`. Anything else refuses boot.
+       */
+      BANK_STRANGER_HOLD_DAYS: z
+        .string()
+        .optional()
+        .refine(
+          (raw) => raw === undefined || raw.trim() === '' || /^(?:[1-9]|[1-9][0-9]|[12][0-9][0-9]|3[0-5][0-9]|36[0-5])$/.test(raw.trim()),
+          {
+            message: 'BANK_STRANGER_HOLD_DAYS must be a whole number of days from 1 to 365, or blank',
+          },
+        ),
+
+      /**
        * Owner-set offramp cooling window in hours (PTX-M17-R03).
        *
        * No default. Blank / unset / non-integer / negative → offramp refuses

@@ -24,6 +24,7 @@ import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
+import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
@@ -144,6 +145,7 @@ const onrampPartner = onrampPartnerFor(
 
 const bank = createBankServices(sql, ledger, history, {
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
+  strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
   onrampPartner,
   nativeAssetId: env.TOKEN_ASSET_ID,
   // Recovery claims (RC-identity-08): identity says which accounts a heir may claim and whether a claim's signatures
@@ -796,6 +798,7 @@ const recoveryJobs = startBankRecoveryJobs({
   earn: bank.earn,
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
   cashOuts: bank.cashOut,
+  receivedHolds: bank.receivedHolds,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

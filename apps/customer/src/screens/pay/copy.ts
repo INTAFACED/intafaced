@@ -182,6 +182,29 @@ const messages = {
   'Receive contact failed': 'We couldn’t do that. Nothing changed. Try again.',
   'Receive contact wait': 'We’ve sent a lot of codes just now. Wait a few minutes, then add it again.',
   'Receive contact send failed': 'We couldn’t send the code. Nothing reached that address. Try again in a moment.',
+  // Receive: payments from people not in your contacts (J-pay-03 #5)
+  'Payments from people not in your contacts': 'Payments from people not in your contacts',
+  'Stranger rule hint': 'Someone not in your contacts is anyone you haven’t paid before. Choose what happens when they pay you.',
+  'Pay them into my balance': 'Pay them into my balance',
+  'Hold for me to accept': 'Hold for me to accept',
+  'Stranger hold days {n}': 'A held payment waits {n} days for you to accept or deny it. If you don’t, it goes back to the sender.',
+  'Stranger hold unset': 'Holding payments is off: how long a held payment waits isn’t set. Payments go into your balance.',
+  'Stranger rule failed': 'We couldn’t change that. Nothing changed. Try again.',
+  'Stranger rule load failed': 'We couldn’t load this setting.',
+  // Pay: payments waiting for an answer (J-pay-03 #5)
+  'Waiting for you': 'Waiting for you',
+  'Someone not in your contacts': 'Someone not in your contacts',
+  '{who} sent you {amount}': '{who} sent you {amount}',
+  'Waiting reason stranger': 'Held because they’re not in your contacts. It’s set aside for you, not in your balance yet.',
+  'Waiting goes back {date}': 'If you don’t answer, it goes back to the sender on {date}.',
+  Accept: 'Accept',
+  Deny: 'Deny',
+  'Accept {amount} from {who}': 'Accept {amount} from {who}',
+  'Deny {amount} from {who}': 'Deny {amount} from {who}',
+  'Waiting not ready': 'This payment is still being set aside. Try again in a moment.',
+  'Waiting already answered': 'This payment was already answered.',
+  'Waiting answer failed': 'We couldn’t do that. Nothing moved. Try again.',
+  'Waiting load failed': 'We couldn’t load the payments waiting for you.',
 } as const;
 
 export const payCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.payScreen', messages);
