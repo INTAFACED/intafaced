@@ -89,6 +89,31 @@ export class OwnAgentStore {
     });
   }
 
+  /**
+   * A draft the person accepted from the assistant (AG-builder-03; J-agents-03 #6), checked by the same validator a save
+   * meets and created blank-templated with its fields. One draft per accept key: a retried accept returns the first.
+   */
+  async createDrafted(ownerId: string, input: DraftInput, createKey: string): Promise<OwnAgentView> {
+    const fields = validateDraft(input);
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'agents.own:' + ownerId}))`;
+      const existing = await tx<Row[]>`
+        SELECT ${tx.unsafe(COLUMNS)} FROM agents.own_agents WHERE owner_id = ${ownerId} AND create_key = ${createKey}
+      `;
+      if (existing[0]) return view(existing[0]);
+      const counted = await tx<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM agents.own_agents WHERE owner_id = ${ownerId}
+      `;
+      if (counted[0]!.count >= OWN_AGENTS_MAX) throw new OwnAgentRefusal('agents.own.too_many', { limit: String(OWN_AGENTS_MAX) });
+      const inserted = await tx<Row[]>`
+        INSERT INTO agents.own_agents (owner_id, template, name, instructions, tools, per_session_cap, create_key)
+        VALUES (${ownerId}, ${'blank'}, ${fields.name}, ${fields.instructions}, ${tx.json(fields.tools)}, ${fields.perSessionCap}, ${createKey})
+        RETURNING ${tx.unsafe(COLUMNS)}
+      `;
+      return view(inserted[0]!);
+    });
+  }
+
   async save(ownerId: string, id: string, input: DraftInput): Promise<OwnAgentView> {
     const fields = validateDraft(input);
     if (!UUID_RE.test(id)) throw new OwnAgentRefusal('agents.own.not_found');

@@ -34,6 +34,7 @@ import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, TryTool } from './AgentGuardrails';
 import { EvaluationsPage } from './AgentEvaluations';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
+import { AssistantPanel, IdentityPage } from './AgentIdentity';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
@@ -159,8 +160,6 @@ export function NewAgent() {
   const [busy, setBusy] = useState(false);
   // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
   const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
-  // Kept on the page only: nothing drafts from it or saves it until the owner chooses the model.
-  const [description, setDescription] = useState('');
   // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
   // press made, rather than a second one. Each visit to the picker is a new draft.
   const visit = useRef(`picker:${crypto.randomUUID()}`);
@@ -195,13 +194,7 @@ export function NewAgent() {
         ) : null}
         {refused ? <Answer failed={refused} /> : null}
       </Panel>
-      <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>
-        <p role="note">
-          {t('assistantBlocked')} <code lang="zxx">owner.decision</code>
-        </p>
-        <TextArea label={t('describeAgent')} value={description} maxLength={4000} onChange={setDescription} />
-        <Button disabled>{t('draftIt')}</Button>
-      </Panel>
+      <AssistantPanel />
     </div>
   );
 }
@@ -520,11 +513,13 @@ export function OwnAgentPage({ id }: { id: string }) {
               <EvaluationsPage agent={agent} />
             ) : page === 'Sharing' ? (
               <SharingPage agent={agent} />
+            ) : page === 'Identity' ? (
+              <IdentityPage key={agent.id} agent={agent} />
             ) : (
               <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
                 <p role="note">
                   {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing'>}`,
+                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity'>}`,
                   )}
                 </p>
               </Panel>

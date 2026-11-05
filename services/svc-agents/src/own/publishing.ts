@@ -37,6 +37,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Every table that holds rows of one own agent, in the order a delete removes them (children first). */
 export const OWN_AGENT_CHILD_TABLES = [
+  'own_agent_tokens',
   'own_agent_session_versions',
   'own_agent_surfaces',
   'own_agent_versions',

@@ -55,6 +55,16 @@
       "service": "agents",
       "value": "1",
       "note": "LOCAL TEST days an engine call's prompt text is kept for a transcript read. Not an owner decision (blank keeps none and refuses agents.transcript_retention_unset)."
+    },
+    "AGENTS_OWN_TOKEN_LIFETIME_MINUTES": {
+      "service": "agents",
+      "value": "60",
+      "note": "LOCAL TEST lifetime of an own agent's token (AG-identity-01; J-agents-03 #5). Not an owner decision; production stays blank and issuing refuses agents.identity.lifetime_unset. LOCAL_STACK_AGENTS_TOKEN_LIFETIME=off leaves it blank."
+    },
+    "AGENTS_OWN_ASSISTANT_MODEL": {
+      "service": "agents",
+      "value": "test-engine",
+      "note": "LOCAL TEST: the drafting assistant on the TEST engine, which drafts by rule and calls no model (AG-builder-03; J-agents-03 #6). Not the owner's model choice; production stays blank and drafting refuses owner.decision. LOCAL_STACK_AGENTS_ASSISTANT_MODEL=off leaves it blank."
     }
   }
 }

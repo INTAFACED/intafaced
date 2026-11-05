@@ -85,6 +85,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION === 'off'
       ? {}
       : { AGENTS_TRANSCRIPT_RETENTION_DAYS: testValue('AGENTS_TRANSCRIPT_RETENTION_DAYS') }),
+    // LOCAL TEST own-agent token lifetime (J-agents-03 #5) and drafting assistant on the TEST engine (J-agents-03 #6).
+    // `LOCAL_STACK_AGENTS_TOKEN_LIFETIME=off` or `LOCAL_STACK_AGENTS_ASSISTANT_MODEL=off` on a start or restart leaves that
+    // value blank, so a journey sees agents.identity.lifetime_unset or the owner.decision notice, and its restore.
+    ...(process.env.LOCAL_STACK_AGENTS_TOKEN_LIFETIME === 'off'
+      ? {}
+      : { AGENTS_OWN_TOKEN_LIFETIME_MINUTES: testValue('AGENTS_OWN_TOKEN_LIFETIME_MINUTES') }),
+    ...(process.env.LOCAL_STACK_AGENTS_ASSISTANT_MODEL === 'off'
+      ? {}
+      : { AGENTS_OWN_ASSISTANT_MODEL: testValue('AGENTS_OWN_ASSISTANT_MODEL') }),
     ...engine(STATE),
   }),
 });
