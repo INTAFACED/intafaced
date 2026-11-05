@@ -553,11 +553,14 @@ export const merchantAnalyticsDeclinesSchema = z
       return;
     }
     if (value.rate === null || value.rateStatus === 'no_payments') return issue('a finished count carries a rate');
-    const hundredths = BigInt(value.declinedCount) * 10_000n;
-    const finished = BigInt(value.finishedCount);
-    const [whole = '0', frac = ''] = value.rate.split('.');
-    if (BigInt(whole) * 100n + BigInt(frac.padEnd(2, '0')) !== hundredths / finished) issue('the rate is not the rounded-down quotient');
-    if ((value.rateStatus === 'exact') !== (hundredths % finished === 0n)) issue('exact means nothing was rounded off');
+    const hundredths = (BigInt(value.declinedCount) * 10_000n) / BigInt(value.finishedCount);
+    const frac = String(hundredths % 100n)
+      .padStart(2, '0')
+      .replace(/0+$/, '');
+    const expected = frac ? `${hundredths / 100n}.${frac}` : `${hundredths / 100n}`;
+    if (value.rate !== expected) issue('the rate is not the rounded-down quotient');
+    const exact = (BigInt(value.declinedCount) * 10_000n) % BigInt(value.finishedCount) === 0n;
+    if ((value.rateStatus === 'exact') !== exact) issue('exact means nothing was rounded off');
   });
 export type MerchantAnalyticsDeclines = z.infer<typeof merchantAnalyticsDeclinesSchema>;
 

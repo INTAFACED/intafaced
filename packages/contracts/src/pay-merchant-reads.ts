@@ -106,12 +106,6 @@ export const payMerchantFailureSchema = z
   .strict();
 export type PayMerchantFailure = z.infer<typeof payMerchantFailureSchema>;
 
-/** An unsigned decimal string at 18 places, as a bigint. The schema has already checked its shape. */
-function scaled18(raw: string): bigint {
-  const [whole = '0', frac = ''] = raw.split('.');
-  return BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0'));
-}
-
 /** One part of a stored fee. A `maximum` part is what a maximum fee took off; every other part is added. */
 export const payFeePartSchema = z
   .object({ kind: z.enum(['percent', 'flat', 'minimum', 'maximum']), amount: payAmountStringSchema })
@@ -139,20 +133,13 @@ export const payRecordedPricingSnapshotSchema = z
     recordedAt: payTimestampSchema,
     /**
      * The stored fee in its parts (M-adv-payments-core-02): the percentage part, the flat part, and what a minimum added
-     * or a maximum took off. They add up to `fee` exactly (a `maximum` part is taken off). Null when the stored row does
-     * not split exactly, and the page then says the split is not recorded.
+     * or a maximum took off. svc-pay builds them from the stored row so they add up to `fee` exactly (a `maximum` part is
+     * taken off; control/snapshots.ts feeParts), and the page checks the sum again. Null when the row does not split
+     * exactly, and the page then says the split is not recorded.
      */
     parts: z.array(payFeePartSchema).min(1).max(4).nullable(),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (value.parts === null) return;
-    const sum = value.parts.reduce((total, part) => {
-      const amount = scaled18(part.amount);
-      return part.kind === 'maximum' ? total - amount : total + amount;
-    }, 0n);
-    if (sum !== scaled18(value.fee)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'the fee parts do not add up to the fee' });
-  });
+  .strict();
 export type PayRecordedPricingSnapshot = z.infer<typeof payRecordedPricingSnapshotSchema>;
 
 /**

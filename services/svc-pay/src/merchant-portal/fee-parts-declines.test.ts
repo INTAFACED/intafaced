@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { merchantAnalyticsDeclinesSchema, payRecordedPricingSnapshotSchema } from '@intafaced/contracts';
+import { merchantAnalyticsDeclinesSchema } from '@intafaced/contracts';
 import { feeParts } from '../control/snapshots.js';
 import { safeFailure } from '../merchant-failure.js';
 import { declineSummary } from './analytics.js';
@@ -33,30 +33,6 @@ describe('fee parts from the stored snapshot row', () => {
     expect(feeParts({ fee: '1.5', bpsFee: null, flatFee: '0.5', feeBeforeClamp: '1.5' })).toBeNull();
     expect(feeParts({ fee: '1.5', bpsFee: '1', flatFee: '0.5', feeBeforeClamp: null })).toBeNull();
     expect(feeParts({ fee: 'x', bpsFee: '1', flatFee: '0.5', feeBeforeClamp: '1.5' })).toBeNull();
-  });
-
-  it('the wire refuses parts that do not add up to the fee', () => {
-    const base = {
-      fee: '1.5',
-      assetCode: 'USDT',
-      appliedLayer: 'merchant',
-      ruleId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e11',
-      feeBps: 100,
-      flatFee: '0.5',
-      spreadBps: null,
-      roundingBeneficiary: 'platform',
-      roundingMode: 'ceil',
-      bookedFee: null,
-      reserveAmount: null,
-      recordedAt: '2026-11-05T00:00:00.000Z',
-    } as const;
-    const parts = [
-      { kind: 'percent', amount: '1' },
-      { kind: 'flat', amount: '0.5' },
-    ] as const;
-    expect(payRecordedPricingSnapshotSchema.safeParse({ ...base, parts }).success).toBe(true);
-    expect(payRecordedPricingSnapshotSchema.safeParse({ ...base, parts: null }).success).toBe(true);
-    expect(payRecordedPricingSnapshotSchema.safeParse({ ...base, parts: [{ kind: 'percent', amount: '1' }] }).success).toBe(false);
   });
 });
 
