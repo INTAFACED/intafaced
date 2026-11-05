@@ -69,10 +69,18 @@ export class OwnIdentityStore {
 
   /**
    * Issues the agent a new token for `lifetimeMinutes`, scoped to `scopes`, revoking any live one before it. The secret
-   * is returned this once and never kept.
+   * is returned this once and never kept. A frozen, closed or unread owner refuses first, and nothing changes. The owner
+   * is read before the write, so a freeze landing in between still leaves a token; its every call reads the owner again.
    */
-  async issue(ownerId: string, agentId: string, scopes: readonly string[], lifetimeMinutes: number): Promise<OwnAgentIssuedToken> {
+  async issue(
+    ownerId: string,
+    agentId: string,
+    scopes: readonly string[],
+    lifetimeMinutes: number,
+    accounts: OwnAccountDirectory | null,
+  ): Promise<OwnAgentIssuedToken> {
     const minutes = tokenLifetime(lifetimeMinutes);
+    await assertOwnerActive(ownerId, accounts);
     const secret = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
     const issuedAt = this.now();
     const expiresAt = new Date(issuedAt.getTime() + minutes * 60_000);
@@ -119,10 +127,18 @@ export class OwnIdentityStore {
     const token = view(row, this.now());
     if (token.state === 'revoked') throw new OwnAgentRefusal('agents.identity.token_revoked');
     if (token.state === 'expired') throw new OwnAgentRefusal('agents.identity.token_expired');
-    const read = accounts ? await accounts.readAccount(token.ownerId) : ({ status: 'unread' } as const);
-    if (read.status !== 'ok') throw new OwnAgentRefusal('agents.identity.owner_unread');
-    if (read.account.status === 'frozen') throw new OwnAgentRefusal('agents.identity.owner_frozen');
-    if (read.account.status !== 'active') throw new OwnAgentRefusal('agents.identity.owner_inactive');
+    await assertOwnerActive(token.ownerId, accounts);
     return { agentId: token.agentId, ownerId: token.ownerId, scopes: token.scopes, expiresAt: token.expiresAt };
   }
+}
+
+/**
+ * The owner's account read from identity: a frozen, closed or unread owner refuses by name. A call checks it on every
+ * use, and issuing checks it too, so a frozen or closed owner cannot mint a token for later.
+ */
+export async function assertOwnerActive(ownerId: string, accounts: OwnAccountDirectory | null): Promise<void> {
+  const read = accounts ? await accounts.readAccount(ownerId) : ({ status: 'unread' } as const);
+  if (read.status !== 'ok') throw new OwnAgentRefusal('agents.identity.owner_unread');
+  if (read.account.status === 'frozen') throw new OwnAgentRefusal('agents.identity.owner_frozen');
+  if (read.account.status !== 'active') throw new OwnAgentRefusal('agents.identity.owner_inactive');
 }

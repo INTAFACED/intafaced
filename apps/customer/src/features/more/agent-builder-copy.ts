@@ -257,6 +257,9 @@ const en = {
   tokenRevoked: 'Revoked. The agent’s next call will fail.',
   code_identity_lifetime_unset: 'A token cannot be issued: the owner has not set how long an agent’s token lasts. Nothing was issued.',
   code_identity_no_live_token: 'This agent has no live token to revoke.',
+  code_identity_owner_frozen: 'A token cannot be issued while your account is frozen. Nothing was issued.',
+  code_identity_owner_inactive: 'A token cannot be issued: your account is closed. Nothing was issued.',
+  code_identity_owner_unread: 'A token cannot be issued: your account could not be read. Nothing was issued.',
 } as const;
 const es = {
   newAgent: 'Nuevo agente',
@@ -525,6 +528,9 @@ const es = {
   code_identity_lifetime_unset:
     'No se puede emitir un token: el propietario no ha fijado cuánto dura el token de un agente. No se emitió nada.',
   code_identity_no_live_token: 'Este agente no tiene ningún token vigente que revocar.',
+  code_identity_owner_frozen: 'No se puede emitir un token mientras tu cuenta está congelada. No se emitió nada.',
+  code_identity_owner_inactive: 'No se puede emitir un token: tu cuenta está cerrada. No se emitió nada.',
+  code_identity_owner_unread: 'No se puede emitir un token: no se pudo leer tu cuenta. No se emitió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   newAgent: 'Nouvel agent',
@@ -799,5 +805,8 @@ const fr = {
   code_identity_lifetime_unset:
     'Impossible d’émettre un jeton : le propriétaire n’a pas fixé la durée du jeton d’un agent. Rien n’a été émis.',
   code_identity_no_live_token: 'Cet agent n’a aucun jeton actif à révoquer.',
+  code_identity_owner_frozen: 'Impossible d’émettre un jeton tant que votre compte est gelé. Rien n’a été émis.',
+  code_identity_owner_inactive: 'Impossible d’émettre un jeton : votre compte est clôturé. Rien n’a été émis.',
+  code_identity_owner_unread: 'Impossible d’émettre un jeton : votre compte n’a pas pu être lu. Rien n’a été émis.',
 } satisfies Record<keyof typeof en, string>;
 export const agentBuilderCopy = defineCopy('more.agents.builder', en, { es, fr });

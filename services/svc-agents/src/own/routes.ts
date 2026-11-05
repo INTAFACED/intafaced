@@ -145,13 +145,19 @@ export interface OwnRunDeps {
 }
 
 /** A refusal reaches the person as its code, which the Agents room words; anything else is a fault. */
-async function guard<T>(fn: () => Promise<T>): Promise<T> {
+async function guard<T>(fn: () => Promise<T>, codeOf: (code: string) => TRPCError['code'] | null = () => null): Promise<T> {
   try {
     return await fn();
   } catch (err) {
     if (!(err instanceof OwnAgentRefusal)) throw err;
-    throw new TRPCError({ code: err.code === 'agents.own.not_found' ? 'NOT_FOUND' : 'BAD_REQUEST', message: err.code, cause: err });
+    const code = codeOf(err.code) ?? (err.code === 'agents.own.not_found' ? 'NOT_FOUND' : 'BAD_REQUEST');
+    throw new TRPCError({ code, message: err.code, cause: err });
   }
+}
+
+/** An owner's account refusing (frozen, closed or unread) is FORBIDDEN wherever an agent's token meets it. */
+function ownerForbidden(code: string): TRPCError['code'] | null {
+  return code.startsWith('agents.identity.owner_') ? 'FORBIDDEN' : null;
 }
 
 function storeOf(sql: Sql | undefined): OwnAgentStore {
@@ -463,8 +469,9 @@ export function ownRouter(
 
     /**
      * The agent's own identity (AG-identity-01; J-agents-03 #5): its token's owner, scopes and expiry. Issuing needs the
-     * owner's token lifetime (blank refuses agents.identity.lifetime_unset, and nothing is issued); the token is shown
-     * once. Revoking makes the next call made with it fail.
+     * owner's token lifetime (blank refuses agents.identity.lifetime_unset, and nothing is issued) and an active owner (a
+     * frozen, closed or unread one refuses FORBIDDEN agents.identity.owner_frozen, owner_inactive or owner_unread); the
+     * token is shown once. Revoking makes the next call made with it fail.
      */
     identity: router({
       get: scopedProcedure('agents:read', { module: 'agents', person: true })
@@ -485,8 +492,8 @@ export function ownRouter(
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             const lifetime = tokenLifetime(tooling.tokenLifetimeMinutes);
-            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime);
-          });
+            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime, tooling.accounts ?? null);
+          }, ownerForbidden);
         }),
       revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
         .input(idInput)
@@ -510,8 +517,7 @@ export function ownRouter(
             return await new OwnIdentityStore(sqlOf(sql)).call(input.token, tooling.accounts ?? null);
           } catch (err) {
             if (!(err instanceof OwnAgentRefusal)) throw err;
-            const owner = err.code.startsWith('agents.identity.owner_');
-            throw new TRPCError({ code: owner ? 'FORBIDDEN' : 'UNAUTHORIZED', message: err.code, cause: err });
+            throw new TRPCError({ code: ownerForbidden(err.code) ?? 'UNAUTHORIZED', message: err.code, cause: err });
           }
         }),
     }),
