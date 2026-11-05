@@ -60,8 +60,8 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
   let ledger: MemoryLedger;
   let bank: BankServices;
   let router: ReturnType<typeof createBankRouter>;
-  /** When set, the next hold post fails before it reaches the ledger (a lost step the recovery timer must finish). */
-  let failNextHold: boolean;
+  /** When set, the next post under a key with this prefix fails before it reaches the ledger (a lost step). */
+  let failNext: string | null;
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'bank', url: adminUrl(), migrations });
@@ -73,15 +73,15 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
 
   async function build(holdDays: number | null) {
     ledger = new MemoryLedger();
-    failNextHold = false;
+    failNext = null;
     // The bank's own client, with a switch that loses one hold post before it is sent.
     const client = new Proxy(ledger, {
       get(target, prop, receiver) {
         if (prop === 'post')
           return async (request: PostRequest) => {
-            if (failNextHold && request.idempotencyKey.startsWith('pay.recv.hold:')) {
-              failNextHold = false;
-              throw new Error('connection reset before the hold was sent');
+            if (failNext && request.idempotencyKey.startsWith(failNext)) {
+              failNext = null;
+              throw new Error('connection reset before the post was sent');
             }
             return target.post(request);
           };
@@ -278,7 +278,7 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
   it('a hold post lost after the send posted is finished by the recovery timer; the send’s answer stands and nothing is lost', async () => {
     const bob = await caller(BOB);
     await bob.holds.setRule({ strangers: 'hold' });
-    failNextHold = true;
+    failNext = 'pay.recv.hold:';
     await pay(CY, BOB, 'recv-lost-1', '5');
     // The send posted; the hold did not yet. The money is Bob's, and the hold row is the decision still owed.
     expect(await available(CY)).toBe('95');
@@ -293,6 +293,56 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
     expect(await available(BOB)).toBe('0');
     expect((await bob.holds.waiting()).map((h) => h.state)).toEqual(['held']);
     expect(posts('pay.recv.hold:')).toHaveLength(1);
+  });
+
+  it('a send left reserved after its post landed is still set aside by the recovery timer, from the ledger', async () => {
+    const bob = await caller(BOB);
+    await bob.holds.setRule({ strangers: 'hold' });
+    failNext = 'pay.recv.hold:';
+    await pay(CY, BOB, 'recv-stuck-1', '5');
+    // The send's answer was lost: its row stays reserved, though the ledger booked it.
+    await db.sql`UPDATE bank.personal_transfers SET status = 'reserved', ledger_tx_id = NULL, posted_at = NULL WHERE transfer_id = 'recv-stuck-1'`;
+    expect(await bank.receivedHolds.sweep(10)).toEqual([{ outcome: 'completed' }]);
+    expect(await held(BOB, 'recv-stuck-1')).toBe('5');
+    expect(await available(BOB)).toBe('0');
+    expect((await bob.holds.waiting()).map((h) => [h.transferId, h.state])).toEqual([['recv-stuck-1', 'held']]);
+  });
+
+  it('a payment spent before it could be set aside lapses only after the refusal stood for the in-flight bound', async () => {
+    const bob = await caller(BOB);
+    await bob.holds.setRule({ strangers: 'hold' });
+    failNext = 'pay.recv.hold:';
+    await pay(CY, BOB, 'recv-spent-1', '5');
+    // In the instant before the hold, Bob spends it.
+    await pay(BOB, ADA, 'recv-spent-out', '5');
+    expect(await available(BOB)).toBe('0');
+    expect(await bank.receivedHolds.sweep(10)).toEqual([{ outcome: 'failed', reason: expect.any(String) }]);
+    // Retried inside the bound, it is still owed: an earlier attempt could yet land.
+    expect(await bank.receivedHolds.sweep(10, new Date(Date.now() + 60_000))).toHaveLength(1);
+    const [owed] = await db.sql<Array<{ state: string }>>`SELECT state FROM bank.received_holds WHERE transfer_id = 'recv-spent-1'`;
+    expect(owed?.state).toBe('placing');
+    expect(await bank.receivedHolds.sweep(10, new Date(Date.now() + 8 * 60_000))).toEqual([{ outcome: 'completed' }]);
+    const [row] = await db.sql<Array<{ state: string; lapse_reason: string }>>`
+      SELECT state, lapse_reason FROM bank.received_holds WHERE transfer_id = 'recv-spent-1'
+    `;
+    expect(row).toEqual({ state: 'lapsed', lapse_reason: 'the payment was spent before it could be set aside' });
+    expect(await bob.holds.waiting()).toEqual([]);
+    expect(posts('pay.recv.hold:')).toHaveLength(0);
+    expect(await bank.receivedHolds.sweep(10, new Date(Date.now() + 9 * 60_000))).toEqual([]);
+  });
+
+  it('an Accept whose ledger post fails is still recorded, answers as accepted, and the recovery timer finishes it once', async () => {
+    const bob = await caller(BOB);
+    await bob.holds.setRule({ strangers: 'hold' });
+    await pay(CY, BOB, 'recv-slow-1', '3');
+    failNext = 'pay.recv.release:';
+    expect(await bob.holds.accept({ transferId: 'recv-slow-1' })).toMatchObject({ state: 'releasing' });
+    await expect(bob.holds.deny({ transferId: 'recv-slow-1' })).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect((await bob.holds.waiting()).map((h) => h.state)).toEqual(['releasing']);
+    expect(await bank.receivedHolds.sweep(10)).toEqual([{ outcome: 'completed' }]);
+    expect(await available(BOB)).toBe('3');
+    expect(await bob.holds.waiting()).toEqual([]);
+    expect(posts('pay.recv.release:')).toHaveLength(1);
   });
 
   it('invariant: across every outcome the recipient’s available plus held equals what they were paid, and the senders’ books balance', async () => {

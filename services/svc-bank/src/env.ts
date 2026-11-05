@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
+import { readStrangerHoldDays } from './holds/received-holds.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
@@ -309,12 +310,9 @@ const schema = serviceEnvSchema
       BANK_STRANGER_HOLD_DAYS: z
         .string()
         .optional()
-        .refine(
-          (raw) => raw === undefined || raw.trim() === '' || /^(?:[1-9]|[1-9][0-9]|[12][0-9][0-9]|3[0-5][0-9]|36[0-5])$/.test(raw.trim()),
-          {
-            message: 'BANK_STRANGER_HOLD_DAYS must be a whole number of days from 1 to 365, or blank',
-          },
-        ),
+        .refine((raw) => raw === undefined || raw.trim() === '' || readStrangerHoldDays(raw) !== null, {
+          message: 'BANK_STRANGER_HOLD_DAYS must be a whole number of days from 1 to 365, or blank',
+        }),
 
       /**
        * Owner-set offramp cooling window in hours (PTX-M17-R03).

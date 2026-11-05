@@ -84,6 +84,17 @@ export function WaitingForYou() {
             const who = hold.fromHandle ? `@${hold.fromHandle}` : payCopy.t('Someone not in your contacts');
             const amount = hidden ? HIDDEN_MASK : `${fmtAmount(hold.amount)} ${hold.assetId}`;
             const date = new Date(hold.releaseAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+            // Only a held payment before its date can be answered; every other state says where it stands.
+            const expired = Date.parse(hold.releaseAt) <= Date.now();
+            const open = hold.state === 'held' && !expired;
+            const where =
+              hold.state === 'placing'
+                ? payCopy.t('Waiting not ready')
+                : hold.state === 'releasing'
+                  ? payCopy.t('Waiting accepted')
+                  : hold.state === 'returning' || expired
+                    ? payCopy.t('Waiting going back')
+                    : null;
             return (
               <li key={hold.transferId} className="pay-waiting__item" data-testid="pay-waiting-item" data-state={hold.state}>
                 <p className="pay-waiting__head">
@@ -96,7 +107,7 @@ export function WaitingForYou() {
                   <Button
                     variant="primary"
                     size={40}
-                    disabled={busy !== null || hold.state !== 'held'}
+                    disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'accept')}
                     aria-label={payCopy.t('Accept {amount} from {who}', { amount, who })}
                   >
@@ -105,14 +116,14 @@ export function WaitingForYou() {
                   <Button
                     variant="secondary"
                     size={40}
-                    disabled={busy !== null || hold.state !== 'held'}
+                    disabled={busy !== null || !open}
                     onClick={() => void answer(hold, 'deny')}
                     aria-label={payCopy.t('Deny {amount} from {who}', { amount, who })}
                   >
                     {payCopy.t('Deny')}
                   </Button>
                 </div>
-                {hold.state !== 'held' ? <p className="pay-hint">{payCopy.t('Waiting not ready')}</p> : null}
+                {where ? <p className="pay-hint">{where}</p> : null}
                 {problem?.transferId === hold.transferId ? (
                   <p className="pay-problem" role="alert">
                     {problem.text}

@@ -354,16 +354,15 @@ export class PersonalPayService {
         RETURNING ${tx.unsafe(TRANSFER_COLS)}
       `;
       // The recipient's rule for strangers is decided here, once, with the reservation: a retry never asks again.
-      if (toUserId !== input.actorUserId)
-        await this.options.receivedHolds?.decide(tx, {
-          transferId: input.transferId,
-          payerUserId: input.actorUserId,
-          recipientUserId: toUserId,
-          assetId: from.assetId,
-          amount: input.amount,
-          requestId,
-          now,
-        });
+      await this.options.receivedHolds?.decide(tx, {
+        transferId: input.transferId,
+        payerUserId: input.actorUserId,
+        recipientUserId: toUserId,
+        assetId: from.assetId,
+        amount: input.amount,
+        requestId,
+        now,
+      });
       return inserted[0]!;
     });
 

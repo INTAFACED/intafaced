@@ -25,7 +25,15 @@
  * then simply the recipient's, as if no rule applied.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { formatAmount, parseAmount, POST_IN_FLIGHT_BOUND_SECONDS, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  bankTransferKey,
+  formatAmount,
+  parseAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
+  recipes,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 
@@ -79,6 +87,8 @@ interface HoldRow {
   outcome_tx_id: string | null;
   decided_by: string | null;
   attempted_at: Date | null;
+  /** When the ledger first refused this hold for want of funds, with no unknown attempt since. */
+  refused_at: Date | null;
   created_at: Date;
   decided_at: Date | null;
 }
@@ -96,6 +106,7 @@ const HOLD_COLUMNS = [
   'outcome_tx_id',
   'decided_by',
   'attempted_at',
+  'refused_at',
   'created_at',
   'decided_at',
 ] as const;
@@ -205,19 +216,11 @@ export class ReceivedHoldService {
     return true;
   }
 
-  /** The recipient's payments waiting for an answer, newest first. Anyone else's are never listed. */
-  async waiting(userId: string, at?: Date): Promise<ReceivedHoldView[]> {
-    const now = this.now(at);
-    // The recipient's own unfinished holds are finished first, so the list is what the ledger holds.
-    const unfinished = await this.sql<HoldRow[]>`
-      SELECT ${this.sql.unsafe(HOLD_COLS)} FROM bank.received_holds
-       WHERE recipient_user_id = ${userId}
-         AND (state IN ('placing', 'releasing', 'returning') OR (state = 'held' AND release_at <= ${now}))
-       ORDER BY created_at LIMIT 20
-    `;
-    for (const row of unfinished) {
-      await this.advance(row, now).catch((err: unknown) => logHoldFailure('bank.received_hold_advance_failed', row.transfer_id, err));
-    }
+  /**
+   * The recipient's payments waiting for an answer, newest first, with the state each is in. Anyone else's are never
+   * listed. A read only: the recovery timer finishes unfinished steps, never a page view.
+   */
+  async waiting(userId: string): Promise<ReceivedHoldView[]> {
     const rows = await this.sql<Array<HoldRow & { from_handle: string | null; note: string | null }>>`
       SELECT ${this.sql.unsafe(holdCols('h.'))}, t.from_handle, t.note
         FROM bank.received_holds h
@@ -263,7 +266,12 @@ export class ReceivedHoldService {
       `;
       return next!;
     });
-    const done = await this.finish(claimed, now);
+    // The answer is recorded once claimed. A ledger failure now leaves it `releasing` or `returning`, which the recovery
+    // timer finishes; the person is told their answer stands, never that nothing happened.
+    const done = await this.finish(claimed, now).catch((err: unknown) => {
+      logHoldFailure('bank.received_hold_finish_failed', transferId, err);
+      return claimed;
+    });
     const [extra] = await this.sql<Array<{ from_handle: string | null; note: string | null }>>`
       SELECT from_handle, note FROM bank.personal_transfers WHERE transfer_id = ${transferId}
     `;
@@ -316,39 +324,52 @@ export class ReceivedHoldService {
     }
   }
 
-  /** Place a `placing` row's hold once its send has posted. */
+  /**
+   * Place a `placing` row's hold once its send's money has arrived. The ledger is asked, not only the send's row: a send
+   * whose answer was lost stays `reserved` until its payer sends again, but its money may already be the recipient's.
+   */
   private async place(row: HoldRow, now: Date): Promise<void> {
-    const [send] = await this.sql<Array<{ status: string }>>`
-      SELECT status FROM bank.personal_transfers WHERE transfer_id = ${row.transfer_id}
+    const [send] = await this.sql<Array<{ status: string; created_at: Date }>>`
+      SELECT status, created_at FROM bank.personal_transfers WHERE transfer_id = ${row.transfer_id}
     `;
-    // A send that never posted holds nothing: its reservation was abandoned, or it is still on its way.
-    // (An abandoned reservation is deleted, and its hold row with it: `received_holds` cascades from the send.)
-    if (!send || send.status !== 'posted') return;
+    // An abandoned reservation is deleted, and its hold row with it (`received_holds` cascades from the send).
+    if (!send) return;
+    if (send.status !== 'posted' && !(await this.ledger.getTxByKey(bankTransferKey('p2p', row.transfer_id, 0)))) {
+      // Not arrived. Past the in-flight bound it never will: nothing is held, and the payer's own retry or sweep closes
+      // the send itself.
+      if (now.getTime() - send.created_at.getTime() > POST_IN_FLIGHT_BOUND_SECONDS * 1000)
+        await this.markLapsed(row.transfer_id, now, 'the payment never arrived');
+      return;
+    }
     const request = recipes.payReceivedHold({
       holdId: row.transfer_id,
       userId: row.recipient_user_id,
       assetId: row.asset_id,
       amount: parseAmount(row.amount),
     });
-    const attemptedBefore = row.attempted_at;
     await this.sql`UPDATE bank.received_holds SET attempted_at = ${now} WHERE transfer_id = ${row.transfer_id} AND state = 'placing'`;
     let txId: string;
     try {
       txId = (await this.ledger.post(request)).id;
     } catch (err) {
       const booked = await this.ledger.getTxByKey(request.idempotencyKey);
-      if (booked) {
-        txId = booked.id;
-      } else {
-        // Refused for want of funds, with every earlier attempt past the in-flight bound: the hold can never land, and
-        // the payment is simply the recipient's.
-        const settled = !attemptedBefore || now.getTime() - attemptedBefore.getTime() > POST_IN_FLIGHT_BOUND_SECONDS * 1000;
-        if (isDefiniteLedgerRefusal(err) && settled && (err as { code?: string }).code === 'ledger.insufficient_funds') {
+      if (!booked) {
+        const short = isDefiniteLedgerRefusal(err) && (err as { code?: string }).code === 'ledger.insufficient_funds';
+        // The recipient spent the payment before it could be set aside. That refusal proves this attempt posted
+        // nothing; once a refusal has stood for the in-flight bound with no attempt of unknown outcome since, no earlier
+        // attempt can land either, and the payment is simply the recipient's. Any other failure may still land, so the
+        // clock starts again.
+        if (short && row.refused_at && now.getTime() - row.refused_at.getTime() > POST_IN_FLIGHT_BOUND_SECONDS * 1000) {
           await this.markLapsed(row.transfer_id, now, 'the payment was spent before it could be set aside');
           return;
         }
+        await this.sql`
+          UPDATE bank.received_holds SET refused_at = ${short ? (row.refused_at ?? now) : null}
+           WHERE transfer_id = ${row.transfer_id} AND state = 'placing'
+        `;
         throw err;
       }
+      txId = booked.id;
     }
     await this.sql`
       UPDATE bank.received_holds SET state = 'held', hold_tx_id = ${txId}, placed_at = ${now}

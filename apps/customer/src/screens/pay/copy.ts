@@ -203,6 +203,8 @@ const messages = {
   'Deny {amount} from {who}': 'Deny {amount} from {who}',
   'Waiting not ready': 'This payment is still being set aside. Try again in a moment.',
   'Waiting already answered': 'This payment was already answered.',
+  'Waiting accepted': 'Accepted. It’s on its way into your balance.',
+  'Waiting going back': 'It’s on its way back to the sender.',
   'Waiting answer failed': 'We couldn’t do that. Nothing moved. Try again.',
   'Waiting load failed': 'We couldn’t load the payments waiting for you.',
 } as const;

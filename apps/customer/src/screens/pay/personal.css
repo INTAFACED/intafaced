@@ -212,7 +212,6 @@
     gap: var(--if-space-1);
     min-width: 0;
   }
-  /* Receive: ways to receive by email or phone, one row each. */
   /* Payments from people not in your contacts (J-pay-03 #5): the rule on Receive, and Pay's "Waiting for you". */
   .pay-stranger {
     margin: 0;
@@ -249,6 +248,7 @@
     font-weight: 600;
   }
 
+  /* Receive: ways to receive by email or phone, one row each. */
   .pay-receive-contacts {
     display: flex;
     flex-direction: column;

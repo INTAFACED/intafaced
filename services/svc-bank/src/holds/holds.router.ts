@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
-import type { ReceivedHoldView } from './received-holds.js';
 
 /**
  * `bank.holds.*` (PP-money-balance-05, J-pay-03 #5): how the caller treats payments from people not in their contacts,
@@ -32,8 +31,6 @@ const holdView = z.object({
   decidedAt: z.string().nullable(),
 });
 
-const viewOf = (hold: ReceivedHoldView) => ({ ...hold });
-
 const transferIdInput = z.object({ transferId: z.string().min(8).max(64) }).strict();
 
 export function createHoldsRouter(bank: BankServices, guard: Guard) {
@@ -52,22 +49,18 @@ export function createHoldsRouter(bank: BankServices, guard: Guard) {
     /** The caller's payments waiting for an answer, newest first. */
     waiting: scopedProcedure('bank:read', { module: 'bank' })
       .output(z.array(holdView))
-      .query(({ ctx }) => guard(async () => (await bank.receivedHolds.waiting(ctx.principal.userId)).map(viewOf))),
+      .query(({ ctx }) => guard(() => bank.receivedHolds.waiting(ctx.principal.userId))),
 
     /** Accept: the whole held payment goes into the caller's balance, once. */
     accept: scopedProcedure('bank:write', { module: 'bank' })
       .input(transferIdInput)
       .output(holdView)
-      .mutation(({ ctx, input }) =>
-        guard(async () => viewOf(await bank.receivedHolds.decideHold(ctx.principal.userId, input.transferId, 'release'))),
-      ),
+      .mutation(({ ctx, input }) => guard(() => bank.receivedHolds.decideHold(ctx.principal.userId, input.transferId, 'release'))),
 
     /** Deny: the whole held payment goes back to the person who sent it, once. */
     deny: scopedProcedure('bank:write', { module: 'bank' })
       .input(transferIdInput)
       .output(holdView)
-      .mutation(({ ctx, input }) =>
-        guard(async () => viewOf(await bank.receivedHolds.decideHold(ctx.principal.userId, input.transferId, 'return'))),
-      ),
+      .mutation(({ ctx, input }) => guard(() => bank.receivedHolds.decideHold(ctx.principal.userId, input.transferId, 'return'))),
   });
 }

@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS "bank"."received_holds" (
   "decided_by" text,
   "lapse_reason" text,
   "attempted_at" timestamptz,
+  -- When the ledger first refused the hold for want of funds, with no attempt of unknown outcome since.
+  "refused_at" timestamptz,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "placed_at" timestamptz,
   "decided_at" timestamptz,
