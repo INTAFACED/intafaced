@@ -92,6 +92,8 @@ import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createHandleRouter } from './profile/handle-router.js';
+import { createReceiveContactsRouter } from './account/receive-contacts-router.js';
+import { ReceiveContactService, receiveContactSettings } from './account/receive-contacts.js';
 import { createPayQrRouter } from './profile/pay-qr-router.js';
 import { PayQrService, payQrKeyFromEnv } from './profile/pay-qr.js';
 import { HandleSettingsService } from './profile/handle-settings.js';
@@ -771,6 +773,20 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
+  createReceiveContactsRouter(
+    new ReceiveContactService({
+      sql,
+      mail,
+      // No text provider is built in: adding a phone refuses `identity.receive_contact_sms_off` until one is installed.
+      text: undefined,
+      settings: receiveContactSettings({
+        max: env.IDENTITY_RECEIVE_CONTACT_MAX,
+        codeTtlSeconds: env.IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS,
+        codeMaxAttempts: env.IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS,
+      }),
+      log: { warn: (obj, msg) => app.log.warn(obj, msg) },
+    }),
+  ),
   createPayQrRouter(new PayQrService(sql, payQrKeyFromEnv(env.IDENTITY_PAY_QR_KEY, process.env.APP_ENV))),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(

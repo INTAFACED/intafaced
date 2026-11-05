@@ -54,6 +54,18 @@ export {
   type SavedRecipientsOutcome,
 } from '../../data/identity';
 export {
+  addReceiveContact,
+  contactKind,
+  fetchReceiveContacts,
+  removeReceiveContact,
+  resolveContact,
+  verifyReceiveContact,
+  type ReceiveChannel,
+  type ReceiveContact,
+  type ReceiveContactCode,
+  type ReceiveContactList,
+} from '../../data/receive-contacts';
+export {
   changeHandle,
   fetchHandleSettings,
   setHandleDiscoverable,

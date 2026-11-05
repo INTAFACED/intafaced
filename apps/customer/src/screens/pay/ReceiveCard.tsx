@@ -6,6 +6,7 @@ import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
 import { HandleSettings } from './HandleSettings';
+import { ReceiveContacts } from './ReceiveContacts';
 import { usePayQr, type IdentityState, type PayQrState } from './identity-state';
 
 /** Receive (UI-SPEC 5.10): the customer's @handle to share, or their Account ID until handles are live, with a QR code and a link. */
@@ -70,6 +71,7 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
       </Button>
 
       {identity.status === 'handles' ? <HandleSettings handle={identity.handle} onRenamed={(next) => identity.renamed?.(next)} /> : null}
+      {identity.status === 'handles' ? <ReceiveContacts /> : null}
 
       <div className="pay-block" data-testid="receive-link">
         <h3 className="pay-section-title">{t('scanToPay')}</h3>

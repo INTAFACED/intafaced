@@ -88,7 +88,13 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'signup-existing') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
   }
-  if (purpose === 'signup-code' || purpose === 'login-code' || purpose === 'new-device-code' || purpose === 'mfa-reset-code') {
+  if (
+    purpose === 'signup-code' ||
+    purpose === 'login-code' ||
+    purpose === 'new-device-code' ||
+    purpose === 'mfa-reset-code' ||
+    purpose === 'receive-contact-code'
+  ) {
     // A six-digit code the person types, not a link.
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
   }

@@ -1,5 +1,5 @@
 import { test, expect } from './journey.mjs';
-import { api, fund, journeyState, signOutBrowser, toUnits } from './stack.mjs';
+import { api, fund, journeyState, mailedCodes, nextMailedCode, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { scanQr } from './qr-read.mjs';
 
@@ -9,7 +9,7 @@ import { scanQr } from './qr-read.mjs';
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5, #6: no stranger rule and no receive-by email or phone (PP-money-balance-05).
+// - #5: no stranger rule (PP-money-balance-05).
 // A refusal is matched by the typed code identity sent the page (`answer`), and after it the record and balances are
 // read again unchanged.
 const J = 'J-pay-03';
@@ -48,6 +48,16 @@ async function lookUp(who, handle) {
   return res.body.result.data;
 }
 
+/** Identity's answer when `who` looks up a payee by exact `email`, through their own API (what Send asks). */
+async function payeeByEmail(who, email) {
+  const input = encodeURIComponent(JSON.stringify({ email }));
+  const res = await (await api(who)).get(`/api/identity/trpc/users.searchPayees?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+const stranger = () => people().stranger;
+
 /** Both people's TEST USDT, read through their own API. */
 async function balances(me, stranger) {
   return { me: (await usdt(me)).free, stranger: (await usdt(stranger)).free };
@@ -64,13 +74,15 @@ async function answer(page, procedure, go) {
 }
 
 /** B sends A `amount` USDT by A's handle, through Pay's own Send, and returns the outcome text. */
-async function strangerPays(page, handle, amount) {
+async function strangerPays(page, handle, amount, payee) {
   const { stranger } = people();
   await signOutBrowser(page.context());
   await signIn(page, stranger);
   await page.goto('/pay/send');
   await page.getByRole('textbox', { name: 'Handle' }).fill(handle);
   await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
+  // Paid by an email or phone, Send names the person it found before anything moves.
+  if (payee) await expect(page.getByTestId('recipient-found')).toContainText(`@${payee}`);
   await page.getByLabel(/Amount/).fill(amount);
   await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: /^Send/ }).click();
@@ -362,17 +374,63 @@ test(`${J} #5 sets how to treat payments from people not in contacts: a stranger
   await expect.poll(async () => toUnits((await usdt(me)).free)).toBe(toUnits(before.free) + toUnits('5'));
 });
 
-test(`${J} #6 adds an email or phone to receive by: a payment sent to it lands in the balance`, async ({ page }) => {
+test(`${J} #6 adds an email or phone to receive by: a payment sent to that contact lands in the balance; with the sender off the code step shows the notice`, async ({
+  page,
+}) => {
   test.setTimeout(180_000);
   const { me } = people();
+  // A second address of this person's own, apart from the one they signed up with, read from the stack's LOCAL-TEST
+  // outbox as they would read its inbox.
+  const extra = `receive-${me.handle}@local-test.invalid`;
   await signIn(page, me);
   await page.goto('/pay/receive');
-  await page.getByRole('button', { name: 'Add an email or phone to receive by' }).click(UNBUILT);
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('textbox', { name: 'Email or phone' }).fill(me.email);
+  const ways = page.getByRole('list', { name: 'Ways to receive' });
+  await expect(ways).toBeVisible();
+  // Not yet added: a payment to that address finds no one.
+  expect(await payeeByEmail(stranger(), extra)).toEqual({ found: false });
+
+  // Add it: the code goes to it, and until it is typed back no one can pay by it.
+  const seen = mailedCodes(extra, 'receive-contact-code').length;
+  await page.getByRole('button', { name: 'Add an email or phone to receive by' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Email or phone' }).fill(extra);
   await dialog.getByRole('button', { name: 'Add' }).click();
-  await expect(page.getByRole('list', { name: 'Ways to receive' })).toContainText(me.email);
-  const before = await usdt(me);
-  await strangerPays(page, me.email, '1');
-  await expect.poll(async () => toUnits((await usdt(me)).free)).toBe(toUnits(before.free) + toUnits('1'));
+  await expect(dialog.getByRole('heading', { name: 'Enter the code' })).toBeVisible();
+  await expect(dialog).toContainText(`We sent a six-digit code to ${extra}`);
+  const code = await nextMailedCode(extra, seen, 20_000, 'receive-contact-code');
+  expect(await payeeByEmail(stranger(), extra)).toEqual({ found: false });
+  // Closed before the code is typed, the row says it is not confirmed and offers the code step again (the open dialog
+  // hides the page behind it, so the row is read with it closed).
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const row = ways.getByRole('listitem').filter({ hasText: extra });
+  await expect(row).toContainText('Not confirmed yet');
+  await row.getByRole('button', { name: 'Enter the code' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(`We sent a six-digit code to ${extra}`);
+  await dialog.getByRole('textbox', { name: 'Code' }).fill(code);
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(ways.getByRole('listitem').filter({ hasText: extra })).toContainText('Confirmed. People can pay you by this.');
+  expect(await payeeByEmail(stranger(), extra)).toEqual({ found: true, userId: (await record(me)).userId, handle: me.handle, self: false });
+
+  // A stranger pays that address: Send finds this person by it, and the payment lands in the available balance once.
+  const before = await balances(me, stranger());
+  await strangerPays(page, extra, '1', me.handle);
+  await expect.poll(async () => toUnits((await usdt(me)).free)).toBe(toUnits(before.me) + toUnits('1'));
+
+  // No text sender runs on any stack: adding a phone, the code step names that the code cannot be sent, and nothing is added.
+  await signOutBrowser(page.context());
+  await signIn(page, me);
+  await page.goto('/pay/receive');
+  await page.getByRole('button', { name: 'Add an email or phone to receive by' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Email or phone' }).fill('+4915100000006');
+  const refused = await answer(page, 'receiveContacts.add', () => dialog.getByRole('button', { name: 'Add' }).click());
+  expect(refused).toEqual({ status: 412, data: undefined, code: 'identity.receive_contact_sms_off' });
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Text messages are switched off, so we can’t send the code to confirm this number. Nothing was added.',
+  );
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ways.getByRole('listitem')).toHaveCount(1);
+  await expect(ways).not.toContainText('+4915100000006');
 });
