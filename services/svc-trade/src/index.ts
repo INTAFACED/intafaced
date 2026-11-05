@@ -1392,7 +1392,7 @@ registerPrivateRest(app, {
       clientCloseId: input.clientCloseId,
     }),
   closeAllPositions: (principal, input) => positions.closeAll(principal.userId, input),
-  marginSummary: (principal) => positions.marginSummary(principal.userId),
+  marginSummary: (principal, asset) => positions.marginSummary(principal.userId, asset),
   readAccountMode: (principal) => positions.readAccountMode(principal.userId),
   writeAccountMode: (principal, input) => positions.writeAccountMode(principal.userId, input),
   setLeverage: (principal, input) =>

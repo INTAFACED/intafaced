@@ -28,6 +28,7 @@ import {
   type FuturesOrder,
   type GatedList,
   type MarginCall,
+  type MarginSummary,
   type OrderTypeCatalogue,
   type RiskTiers,
   type TickerStrip,
@@ -49,6 +50,8 @@ export const FUTURES_INTERVALS = {
   access: 60_000,
   tiers: 60_000,
   collateral: 30_000,
+  /** Account metrics move with the mark, so they are read as often as positions. */
+  summary: 5_000,
 } as const;
 
 /** How old a read may be before the room calls it stale and disables actions that need a fresh mark. */
@@ -131,6 +134,24 @@ export function useCollateral(enabled: boolean): Loadable<Collateral> {
     useMemo(
       () => privateSource<Collateral>(env, 'futures-collateral', (signal) => api.collateral(signal), FUTURES_INTERVALS.collateral, enabled),
       [env, api, enabled],
+    ),
+  );
+}
+
+/** The account metrics in one margin asset, worked out by the service. Private: keyed by the signed-in user. */
+export function useMarginSummary(asset: string): Loadable<MarginSummary> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<MarginSummary>(
+          env,
+          `futures-margin-summary:${asset}`,
+          (signal) => api.marginSummary(asset, signal),
+          FUTURES_INTERVALS.summary,
+        ),
+      [env, api, asset],
     ),
   );
 }

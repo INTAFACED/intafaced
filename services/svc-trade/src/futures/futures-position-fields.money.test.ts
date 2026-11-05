@@ -289,6 +289,54 @@ describe('futures position fields', () => {
     expect((await positions.get(ALICE, long.id!)).contractSize).toBe('0.01');
   });
 
+  it('the margin summary reads the same marked rows: equity, available, used margin and margin ratio as exact decimals', async () => {
+    const long = await openSide('summary-long', 'long');
+    await positions.addIsolatedMargin({
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      amount: amt('125.000000000000000001'),
+      positionId: long.id!,
+      clientAdjustmentId: 'summary-add',
+    });
+    feed('51000');
+    const row = await positions.get(ALICE, long.id!);
+    const summary = await positions.marginSummary(ALICE);
+    expect(row.collateral).toBe('5125.000000000000000001');
+    expect(summary.asset).toBe('USDT');
+    expect(summary.usedMargin).toBe(row.collateral);
+    expect(summary.totalInitialMargin).toBe('5000');
+    expect(summary.available).toBe(await available());
+    expect(summary.totalMaintenanceMargin).toBe(row.maintenanceMargin);
+    const equity = amt(row.collateral!) + amt(row.unrealizedPnl!);
+    expect(summary.equity).toBe(formatAmount(equity as Amount));
+    expect(summary.equity).toBe('6125.000000000000000001');
+    expect(summary.marginRatio).toBe(formatAmount(((amt(row.maintenanceMargin!) * 10n ** 18n) / equity) as Amount));
+    expect(summary.missing.map((m) => m.field)).not.toContain('maintenanceMargin');
+    expect(summary.missing.map((m) => m.field)).not.toContain('unrealizedPnl');
+
+    // No mark: the figures that need it are null and named, never zero.
+    marks.clear(MARKET);
+    const dark = await positions.marginSummary(ALICE);
+    expect(dark.totalMaintenanceMargin).toBeNull();
+    expect(dark.equity).toBeNull();
+    expect(dark.marginRatio).toBeNull();
+    expect(dark.usedMargin).toBe('5125.000000000000000001');
+    expect(dark.missing).toContainEqual({ field: 'maintenanceMargin', code: 'missing_input' });
+  });
+
+  it('with no position, the summary reads the free balance of a futures margin asset it is asked for, and nothing else', async () => {
+    const flat = await positions.marginSummary(ALICE, 'USDT');
+    expect(flat.asset).toBe('USDT');
+    expect(flat.available).toBe('100000');
+    expect(flat.usedMargin).toBe('0');
+    const other = await positions.marginSummary(ALICE, 'EUR');
+    expect(other.asset).toBeNull();
+    expect(other.available).toBeNull();
+    expect(other.missing).toContainEqual({ field: 'available', code: 'missing_input' });
+    const bob = await positions.marginSummary(BOB, 'USDT');
+    expect(bob.available).toBe('0');
+  });
+
   it('percentage is CCXT percent points, half-up when unrealised over initial margin does not terminate', () => {
     expect(formatAmount(positionPercentage(amt('1'), amt('3')))).toBe('33.333333333333333333');
   });

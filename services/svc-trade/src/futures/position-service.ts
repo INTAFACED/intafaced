@@ -3017,7 +3017,13 @@ export class PositionService {
     return written[0]?.result ?? body;
   }
 
-  async marginSummary(userId: string): Promise<MarginSummary> {
+  /**
+   * The account metrics (D-margin-04): every figure from the same marked rows the positions list shows (mark, maintenance
+   * from the ladder, unrealised PnL), so the summary and the rows can't disagree. `asset` names the free balance to read
+   * when no position says which; with positions in one asset that asset wins, and with more than one the free balance is
+   * unknown (null, named). An asset that is not a futures margin asset reads nothing.
+   */
+  async marginSummary(userId: string, asset?: string): Promise<MarginSummary> {
     const rows = await this.sql<PositionRow[]>`
       SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
@@ -3031,21 +3037,30 @@ export class PositionService {
       haircutBps = null;
     }
     const assets = new Set(rows.map((row) => row.margin_asset));
-    let available: string | null = null;
-    if (assets.size === 1) {
-      const asset = [...assets][0]!;
-      available = formatAmount((await this.ledger.balance(userAvailable(userId, asset))).amount);
-    }
+    let marginAsset: string | null = null;
+    if (assets.size === 1) marginAsset = [...assets][0]!;
+    else if (assets.size === 0 && asset !== undefined && (await this.isFuturesMarginAsset(asset))) marginAsset = asset;
+    const available = marginAsset === null ? null : formatAmount((await this.ledger.balance(userAvailable(userId, marginAsset))).amount);
+    const listed = await Promise.all(rows.map((row) => this.presentListed(row)));
     return summarizeMargin({
-      positions: rows.map((row) => ({
-        initialMargin: row.margin_initial,
-        maintenanceMargin: null,
-        collateral: row.margin_current ?? row.margin_initial,
-        unrealizedPnl: null,
+      positions: listed.map((p) => ({
+        initialMargin: p.initialMargin,
+        maintenanceMargin: p.maintenanceMargin,
+        collateral: p.collateral,
+        unrealizedPnl: p.unrealizedPnl,
       })),
       available,
       haircutBps,
+      asset: marginAsset,
     });
+  }
+
+  /** A futures market settles in this asset (the quote of a futures market is its margin asset on this build). */
+  private async isFuturesMarginAsset(asset: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM trade.markets WHERE kind = 'futures' AND quote_asset = ${asset} LIMIT 1
+    `;
+    return rows.length > 0;
   }
 
   async readAccountMode(userId: string): Promise<AccountModeRead> {

@@ -19,7 +19,35 @@ describe('summarizeMargin', () => {
     const ratio = ((parseAmount('325.25') * SCALE) / parseAmount('6580.5')) as Amount;
     expect(summary.marginRatio).toBe(formatAmount(ratio));
     expect(summary.buyingPower).toBe('3499.5');
+    expect(summary.available).toBe('10000');
+    expect(summary.usedMargin).toBe('6500.5');
     expect(summary.missing).toEqual([]);
+  });
+
+  it('used margin is the margin held now, not the opening stake, and names the asset it is in', () => {
+    const summary = summarizeMargin({
+      positions: [{ initialMargin: '5000', maintenanceMargin: '250', collateral: '5125.000000000000000001', unrealizedPnl: '0' }],
+      available: '94874.999999999999999999',
+      haircutBps: null,
+      asset: 'USDT',
+    });
+    expect(summary.asset).toBe('USDT');
+    expect(summary.usedMargin).toBe('5125.000000000000000001');
+    expect(summary.totalInitialMargin).toBe('5000');
+    expect(summary.available).toBe('94874.999999999999999999');
+  });
+
+  it('an unknown free balance or margin held stays null and is named, whatever the haircut', () => {
+    const summary = summarizeMargin({
+      positions: [{ initialMargin: '1', maintenanceMargin: '1', collateral: null, unrealizedPnl: '0' }],
+      available: null,
+      haircutBps: null,
+    });
+    expect(summary.available).toBeNull();
+    expect(summary.usedMargin).toBeNull();
+    expect(summary.asset).toBeNull();
+    expect(summary.missing).toContainEqual({ field: 'available', code: 'missing_input' });
+    expect(summary.missing).toContainEqual({ field: 'usedMargin', code: 'missing_input' });
   });
 
   it('a null maintenance margin nulls the ratio and names the field', () => {

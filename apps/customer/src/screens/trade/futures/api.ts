@@ -79,6 +79,25 @@ export const collateralSchema = z.object({
 });
 export type Collateral = z.infer<typeof collateralSchema>;
 
+/**
+ * The account metrics (`GET /futures/margin-summary`), worked out by the service from the same marked rows the positions
+ * list shows. Every figure is an exact decimal or null; `missing` names the input a null figure is waiting for.
+ */
+export const marginSummarySchema = z.object({
+  asset: z.string().nullable(),
+  available: decimalSchema.nullable(),
+  usedMargin: decimalSchema.nullable(),
+  totalInitialMargin: decimalSchema.nullable(),
+  totalMaintenanceMargin: decimalSchema.nullable(),
+  equity: decimalSchema.nullable(),
+  excess: decimalSchema.nullable(),
+  deficit: decimalSchema.nullable(),
+  marginRatio: decimalSchema.nullable(),
+  buyingPower: decimalSchema.nullable(),
+  missing: z.array(z.object({ field: z.string(), code: z.string() })),
+});
+export type MarginSummary = z.infer<typeof marginSummarySchema>;
+
 /** The owner's maintenance tiers (`GET /futures/tiers`): the bound as a share of depth, and the notional it takes today. */
 export const riskTiersSchema = z.object({
   symbol: z.string(),
@@ -404,6 +423,8 @@ export function createFuturesApi(api: ApiClient) {
     preview: (input: PreviewInput, signal?: AbortSignal) =>
       api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
     collateral: (signal?: AbortSignal) => api.rest('/futures/collateral', collateralSchema, { signal }),
+    marginSummary: (asset: string, signal?: AbortSignal) =>
+      api.rest('/futures/margin-summary', marginSummarySchema, { query: { asset }, signal }),
     tiers: (symbol: string, signal?: AbortSignal) => api.rest('/futures/tiers', riskTiersSchema, { query: { symbol }, signal }),
     calculate: (input: CalculatorInput) =>
       api.rest('/futures/calculator', calculatorSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),

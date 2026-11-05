@@ -22,6 +22,12 @@ export interface MarginSummaryMissing {
 }
 
 export interface MarginSummary {
+  /** The margin asset every figure is in; null when the positions hold more than one. */
+  readonly asset: string | null;
+  /** Free balance of `asset` in the ledger, which a new position or a margin top-up draws on. */
+  readonly available: string | null;
+  /** Margin held on the open positions now (each position's collateral: its initial margin plus top-ups, less removals and funding). */
+  readonly usedMargin: string | null;
   readonly totalInitialMargin: string | null;
   readonly totalMaintenanceMargin: string | null;
   readonly equity: string | null;
@@ -60,12 +66,23 @@ function equityOf(positions: readonly MarginSummaryPosition[]): {
   return { value: total, field: null };
 }
 
+function usedOf(positions: readonly MarginSummaryPosition[]): Amount | null {
+  let total = 0n;
+  for (const row of positions) {
+    if (row.collateral == null) return null;
+    total += parseAmount(row.collateral);
+  }
+  return total as Amount;
+}
+
 export function summarizeMargin(input: {
   readonly positions: readonly MarginSummaryPosition[];
   readonly available: string | null;
   readonly haircutBps: number | null;
+  readonly asset?: string | null;
 }): MarginSummary {
   const missing: MarginSummaryMissing[] = [];
+  const used = usedOf(input.positions);
   const initial = sumField(input.positions, 'initialMargin');
   const maintenance = sumField(input.positions, 'maintenanceMargin');
   const equity = equityOf(input.positions);
@@ -100,19 +117,21 @@ export function summarizeMargin(input: {
     }
   }
 
+  if (input.available == null) missing.push({ field: 'available', code: MISSING_INPUT });
+  if (used == null) missing.push({ field: 'usedMargin', code: MISSING_INPUT });
+
   let buyingPower: string | null = null;
   if (input.haircutBps == null) {
     missing.push({ field: 'TRADE_COLLATERAL_HAIRCUT_BPS', code: HAIRCUT_UNSET_SUMMARY });
-  } else if (input.available == null) {
-    missing.push({ field: 'available', code: MISSING_INPUT });
-  } else if (initial.value == null) {
-    buyingPower = null;
-  } else {
+  } else if (input.available != null && initial.value != null) {
     const credit = collateralCredit(parseAmount(input.available), input.haircutBps);
     buyingPower = formatAmount((credit - initial.value) as Amount);
   }
 
   return {
+    asset: input.asset ?? null,
+    available: input.available,
+    usedMargin: used == null ? null : formatAmount(used),
     totalInitialMargin,
     totalMaintenanceMargin,
     equity: equityText,

@@ -7,6 +7,7 @@ import { useSession } from '../../../features/session/session';
 import { useBalances } from '../desk/data';
 import { useNow } from '../desk/hooks';
 import { AccessPanel } from './AccessPanel';
+import { AccountMetrics } from './AccountMetrics';
 import { AdlTab } from './AdlTab';
 import { CalculatorTab } from './CalculatorTab';
 import { CollateralTab } from './CollateralTab';
@@ -107,6 +108,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
       <>
         <FuturesChart market={market} positions={positions} />
         <RiskSummary asset={quote} positions={positions} balances={balances} calls={calls} now={now} />
+        {userId ? <AccountMetrics asset={quote} /> : null}
       </>
     );
     side = (

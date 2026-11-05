@@ -332,7 +332,7 @@ export interface PrivateRestDeps {
     principal: Principal,
     input: { clientBatchId: string; market?: string },
   ): Promise<{ results: readonly { positionId: string; status: 'closed' | 'refused'; code?: string; reason?: string }[] }>;
-  marginSummary?(principal: Principal): Promise<unknown>;
+  marginSummary?(principal: Principal, asset?: string): Promise<unknown>;
   readAccountMode?(principal: Principal): Promise<{ mode: 'one_way' | 'hedge' | null; source: string; code?: string }>;
   writeAccountMode?(
     principal: Principal,
@@ -2186,7 +2186,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
     try {
       requireScope(principal, 'trade:read');
-      return reply.code(200).send(await deps.marginSummary(principal));
+      const raw = (req.query as Record<string, unknown> | undefined)?.asset;
+      if (raw !== undefined && (typeof raw !== 'string' || !/^[A-Z0-9]{2,12}$/.test(raw))) {
+        return reply.code(400).send({ ...badRequest('asset must be an asset code such as USDT', 'trade.bad_request').body });
+      }
+      return reply.code(200).send(await deps.marginSummary(principal, raw));
     } catch (err) {
       if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
