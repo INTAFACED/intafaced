@@ -12,7 +12,7 @@ const en = {
   edit: 'Edit',
   reject: 'Reject',
   decideParked:
-    'Deciding here is not built yet: Approve, Edit and Reject are off. Every request below keeps waiting, and none of its tools has run.',
+    'Deciding a request is not built (AG-approvals-01), so Approve, Edit and Reject are off. Every request below keeps waiting, and none of its tools has run.',
   empty: 'No request is waiting for you.',
   more: 'Showing the newest {shown} waiting requests. Older ones are still waiting.',
 } as const;
@@ -28,7 +28,7 @@ const es = {
   edit: 'Editar',
   reject: 'Rechazar',
   decideParked:
-    'Decidir aquí aún no está construido: Aprobar, Editar y Rechazar están desactivados. Cada solicitud sigue esperando y ninguna de sus herramientas se ha ejecutado.',
+    'Decidir una solicitud no está construido (AG-approvals-01), así que Aprobar, Editar y Rechazar están desactivados. Cada solicitud sigue esperando y ninguna de sus herramientas se ha ejecutado.',
   empty: 'No hay ninguna solicitud esperándote.',
   more: 'Se muestran las {shown} solicitudes en espera más recientes. Las anteriores siguen esperando.',
 } satisfies Record<keyof typeof en, string>;
@@ -44,7 +44,7 @@ const fr = {
   edit: 'Modifier',
   reject: 'Rejeter',
   decideParked:
-    'Décider ici n’est pas encore construit : Approuver, Modifier et Rejeter sont désactivés. Chaque demande reste en attente et aucun de ses outils n’a tourné.',
+    'Décider d’une demande n’est pas construit (AG-approvals-01) : Approuver, Modifier et Rejeter sont donc désactivés. Chaque demande reste en attente et aucun de ses outils n’a tourné.',
   empty: 'Aucune demande ne vous attend.',
   more: 'Les {shown} demandes en attente les plus récentes sont affichées. Les plus anciennes attendent toujours.',
 } satisfies Record<keyof typeof en, string>;
