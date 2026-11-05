@@ -46,7 +46,8 @@ export async function signInWithCode(page, who, destination) {
 }
 
 /** Step 1 of setup, as the owner fills it: a TEST business with the stack's TEST starter fee. Stays on onboarding and
- * returns the new merchant's id. */
+ * returns the new merchant's id. The journey stack runs without merchant controls for now (local-stack-services/pay.mjs),
+ * so a new business needs no TEST tier yet; the founders' tier step and its check come back with them in #7184. */
 export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.goto('/pay/onboarding/business');

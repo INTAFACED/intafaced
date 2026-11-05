@@ -75,6 +75,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
     // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
     PAY_WITHDRAWAL_LIMITS: 'required',
+    // PAY_MERCHANT_CONTROLS stays unset (off) on this local journey stack only; every real deployment still enforces it.
+    // It was turned on by #7176 and withdrawn with it (#7183: Real-app journeys run 1247 on #7176's merge failed
+    // J-portfolio-04 #1-#7, money steps, in both attempts; runs 1255 and 1260 too). It comes back, with the TEST tier, caps
+    // and fee every journey business needs and their tests, in the re-land tracked by #7184.
     // LOCAL-TEST: a TEST custody signer for TEST Ethereum only (J-wallet-05 #6), so a send out to a saved TEST wallet goes
     // through this stack's crypto-native rail, which is the in-memory MemoryChain: no chain, no key, nothing leaves. TEST Base
     // has none, so a send there is refused before anything is held (J-wallet-05 #7). svc-pay refuses this outside APP_ENV dev

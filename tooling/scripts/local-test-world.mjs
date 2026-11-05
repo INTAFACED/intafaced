@@ -1369,6 +1369,10 @@ export function describeMoneyRefusal(refusal) {
 // of the change they were shown (`founderChangeHash`). On this stack the two founders are the two TEST operators.
 
 export const MERCHANT_TIER_ARCHETYPE = 'standard';
+// populate's LOCAL TEST tier has no intake caps or TEST fee and is not assigned before the TEST payments, because the journey
+// stack runs without merchant controls (local-stack-services/pay.mjs). #7176's caps, fee, ordering and redefine path were
+// withdrawn with it (#7183: Real-app journeys run 1247 on #7176's merge failed J-portfolio-04 #1-#7, money steps, in both
+// attempts) and come back, with their tests, in the re-land tracked by #7184.
 const localTestTier = ({ id, name, approve, founder, payout, beneficiaries }) => ({
   id,
   name,
