@@ -29,11 +29,15 @@ export function StrangerRule() {
 
   async function choose(next: Rule) {
     if (busy || loaded.status !== 'ready' || loaded.rule.strangers === next) return;
+    const before = loaded.rule;
+    // The choice shows at once while the bank stores it; a refusal puts the stored one back and says why.
+    setLoaded({ status: 'ready', rule: { ...before, strangers: next } });
     setBusy(true);
     setProblem(null);
     const outcome = await setReceiveRule(api, next);
     setBusy(false);
     if (outcome.kind === 'ok') return setLoaded({ status: 'ready', rule: outcome.data });
+    setLoaded({ status: 'ready', rule: before });
     setProblem(
       outcome.kind === 'refused' && outcome.code === 'bank.stranger_hold_period_unset'
         ? payCopy.t('Stranger hold unset')

@@ -226,6 +226,17 @@
     display: flex;
     align-items: center;
     gap: var(--if-space-2);
+    cursor: pointer;
+  }
+
+  /* The app resets native inputs to appearance: none, which leaves a radio with no size: keep the browser's own. */
+  .pay-stranger__option input {
+    appearance: auto;
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+    accent-color: var(--if-lime);
   }
 
   .pay-waiting__list {
