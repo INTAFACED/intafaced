@@ -101,6 +101,7 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
+import { SESSION_KEY_PATTERN, SHARE_SURFACES } from './affiliates/share-tag.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
 import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
 import type { ReferralLapse, ReferralLapseService } from './affiliates/referral-lapse.js';
@@ -342,7 +343,13 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'share.revoked':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'share.invalid':
+      case 'share.tag_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      case 'share.key_unset':
+      case 'share.rate_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'share.rate_limited':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
     }
   }
 
@@ -3536,6 +3543,62 @@ export function createIdentityRouter(
               hits: rec.hits,
               revokedAt: rec.revokedAt ? rec.revokedAt.toISOString() : new Date().toISOString(),
             };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * One-tap share (RC-campaigns-06, J-campaigns-05 #2): a signed tag for the caller's live link on one surface,
+       * `<token>.<surface>.<signature>`. It never makes a link (no live link: `share.not_found`). A blank signing key
+       * refuses `share.key_unset`; the key is never returned.
+       */
+      shareTag: scopedProcedure('identity:write')
+        .input(z.object({ surface: z.enum(SHARE_SURFACES) }))
+        .output(z.object({ tag: z.string(), token: z.string().guid(), surface: z.enum(SHARE_SURFACES) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireShare().createTag(ctx.principal.userId, input.surface);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Visits per surface on the caller's live link, every surface listed (zero when none). No live link: share.not_found. */
+      shareStats: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            token: z.string().guid(),
+            surfaces: z.array(z.object({ surface: z.enum(SHARE_SURFACES), visits: z.number().int().nonnegative() })),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            return await requireShare().surfaceStats(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Public visit of a signed share tag. An edited tag is refused `share.tag_invalid` and counts nothing; a revoked
+       * link `share.revoked`; one browser session counts once per surface (`counted: false` after). Returns the link's
+       * token for the invitation page and the surface's visits, never the referrer's id or email. Limited per IP by the
+       * owner's value; a blank one keeps this door shut (`share.rate_unset`). Attribution stays with shareHits.
+       */
+      shareTagHit: publicProcedure
+        .input(z.object({ tag: z.string().min(1).max(200), sessionKey: z.string().regex(SESSION_KEY_PATTERN) }))
+        .output(
+          z.object({
+            token: z.string().guid(),
+            surface: z.enum(SHARE_SURFACES),
+            counted: z.boolean(),
+            visits: z.number().int().nonnegative(),
+          }),
+        )
+        .mutation(async ({ input }) => {
+          try {
+            return await requireShare().tagHit(input.tag, input.sessionKey, requestIpAls.getStore());
           } catch (err) {
             throw toTrpcError(err);
           }

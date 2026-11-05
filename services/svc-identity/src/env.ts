@@ -385,6 +385,16 @@ const schema = serviceEnvSchema
        */
       IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: z.string().optional(),
       /**
+       * The key that signs one-tap share tags (RC-campaigns-06, J-campaigns-05 #2), at least 32 characters. NO DEFAULT.
+       * Blank refuses making or reading a tag (`share.key_unset`); the plain invitation link still works.
+       */
+      IDENTITY_SHARE_TAG_KEY: z.string().optional(),
+      /**
+       * Owner setting: how many share-tag visits one IP may make per minute (RC-campaigns-06). NO DEFAULT. Blank keeps the
+       * public tag door shut (`share.rate_unset`). Parsed at start by `parseShareTagHitsPerIpMinute`.
+       */
+      IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE: z.string().optional(),
+      /**
        * Owner setting: how many characters a short referral code has, 4 to 16 (CM-referral-01, J-campaigns-05 #1).
        * NO DEFAULT. Blank refuses making a code (`referral.code_length_unset`); the share link still works.
        */
