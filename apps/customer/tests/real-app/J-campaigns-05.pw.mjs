@@ -13,7 +13,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // since the stack runs one owner value.
 // #7 runs on the stack's TEST inactivity period (IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS, one hour) and sweep cadence (five
 // seconds); `age` moves the friend's relationship back past the period instead of waiting an hour.
-// Not here yet: #2 (a signed, tracked share tag per surface); its slice comes next.
+// #2 signs share tags with the stack's own TEST key (derived from its secrets.json) under the profile's TEST visit limit
+// (IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE). The sharer's page has the Web Share menu removed, so "Share" takes its clipboard
+// path the same way on every runner instead of opening an OS dialog the test cannot close.
 const J = 'J-campaigns-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -107,6 +109,108 @@ test(`${J} #1 my referral code and link, with copy`, async ({ page, context }) =
   await expect(page.getByRole('region', { name: 'Your referral code' }).getByTestId('referral-code')).toHaveText(code);
   expect((await identity(referrer, 'affiliates.createCode')).data.code).toBe(code);
   run.write({ token, code });
+});
+
+/** A visitor's browser opens a share tag on the invitation page; returns the page's visit line or refusal card. */
+async function openTag(page, tag) {
+  await page.goto(`/invite?tag=${encodeURIComponent(tag)}`);
+  return page;
+}
+
+/** The referrer's visit count on one surface, as their page shows it after a refresh. */
+async function shownVisits(sheet, surface) {
+  await sheet.getByRole('button', { name: 'Refresh counts' }).click();
+  return sheet.getByTestId(`share-visits-${surface}`).locator('strong');
+}
+
+test(`${J} #2 one-tap share gives a signed, tracked tag per surface; a tampered tag is refused and a session counts once`, async ({
+  browser,
+  page,
+  context,
+}) => {
+  const { referrer, token } = state('referrer', 'token');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN });
+  await page.addInitScript(() => {
+    delete Navigator.prototype.share;
+  });
+  await signIn(page, referrer);
+  await page.goto('/uc/promotion/mycards');
+
+  // One tap on the promotion page: a tag of the live link, this surface and a signature, copied.
+  const sheet = page.getByRole('region', { name: 'One-tap share' });
+  await expect(sheet.getByTestId('share-visits-promotion').locator('strong')).toHaveText('0');
+  await sheet.getByRole('button', { name: 'Share' }).click();
+  await expect(sheet.getByText('Share link ready and copied.')).toBeVisible();
+  const href = await sheet.getByLabel('Share link · promotion page').inputValue();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(href);
+  expect(href.startsWith(`${ORIGIN}/invite?tag=`)).toBe(true);
+  const tag = new URL(href).searchParams.get('tag');
+  const [tagToken, surface, signature] = tag.split('.');
+  expect(tagToken).toBe(token);
+  expect(surface).toBe('promotion');
+  expect(signature).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  // Pressing again gives the same tag: one link and one surface sign one way.
+  await sheet.getByRole('button', { name: 'Share' }).click();
+  await expect(sheet.getByLabel('Share link · promotion page')).toHaveValue(href);
+
+  // Another surface gets its own tag of the same link, signed apart.
+  const card = await identity(referrer, 'affiliates.shareTag', { surface: 'card' });
+  expect(card.status).toBe(200);
+  expect(card.data.tag.startsWith(`${token}.card.`)).toBe(true);
+  expect(card.data.tag.split('.')[2]).not.toBe(signature);
+
+  // A visitor opens the tag signed out: the visit counts once, and the invitation works on the tag's link.
+  const visitorContext = await browser.newContext();
+  const visitor = await openTag(await visitorContext.newPage(), tag);
+  await expect(visitor.getByTestId('invitation__share-visit')).toHaveText('This share link is genuine. Your visit was counted once.');
+  await expect(visitor.getByRole('link', { name: 'Create account' })).toHaveAttribute('href', `/register?invite=${token}`);
+  // The same session opening it again counts nothing more.
+  await visitor.reload();
+  await expect(visitor.getByTestId('invitation__share-visit')).toHaveText(
+    'This share link is genuine. This session’s visit was already counted.',
+  );
+  await expect(await shownVisits(sheet, 'promotion')).toHaveText('1');
+
+  // The surface edited to "card" under the promotion signature: refused by name, nothing counted on either surface.
+  await openTag(visitor, `${token}.card.${signature}`);
+  await expect(visitor.getByRole('heading', { name: 'This share link was changed and cannot be used' })).toBeVisible();
+  await expect(visitor.getByText('share.tag_invalid', { exact: true })).toBeVisible();
+  await expect(visitor.getByRole('link', { name: 'Create account' })).toHaveCount(0);
+  const tampered = await fetch(`${EDGE}/api/identity/trpc/affiliates.shareTagHit`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ tag: `${token}.card.${signature}`, sessionKey: 'jc5tamperedsession01' }),
+  }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  expect(tampered.status).toBe(400);
+  expect(tampered.body.error.message).toContain('share.tag_invalid');
+  await expect(await shownVisits(sheet, 'promotion')).toHaveText('1');
+  await expect(sheet.getByTestId('share-visits-card').locator('strong')).toHaveText('0');
+
+  // The real card tag counts on its own surface; a second visitor session counts on the promotion page.
+  await openTag(visitor, card.data.tag);
+  await expect(visitor.getByTestId('invitation__share-visit')).toHaveText('This share link is genuine. Your visit was counted once.');
+  const secondContext = await browser.newContext();
+  const second = await openTag(await secondContext.newPage(), tag);
+  await expect(second.getByTestId('invitation__share-visit')).toHaveText('This share link is genuine. Your visit was counted once.');
+  await expect(await shownVisits(sheet, 'promotion')).toHaveText('2');
+  await expect(sheet.getByTestId('share-visits-card').locator('strong')).toHaveText('1');
+  for (const other of ['token', 'strategy', 'receipt']) {
+    await expect(sheet.getByTestId(`share-visits-${other}`).locator('strong')).toHaveText('0');
+  }
+  // The person's own API reads the same counts as the page.
+  const stats = (await (await api(referrer)).get('/api/identity/trpc/affiliates.shareStats')).body.result;
+  expect(stats.data).toEqual({
+    token,
+    surfaces: [
+      { surface: 'promotion', visits: 2 },
+      { surface: 'card', visits: 1 },
+      { surface: 'token', visits: 0 },
+      { surface: 'strategy', visits: 0 },
+      { surface: 'receipt', visits: 0 },
+    ],
+  });
+  await visitorContext.close();
+  await secondContext.close();
 });
 
 test(`${J} #3 revoking the link refuses its later opens; creating again gives a new token`, async ({ page }) => {

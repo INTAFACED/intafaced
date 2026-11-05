@@ -7,6 +7,7 @@ import { useLocation } from '../../app/location';
 import { useSession } from '../session/session';
 import { invitationCopy as copy } from './invitation-copy';
 import { ReferrerChange } from './ReferrerChange';
+import { useShareVisit } from './share-visit';
 import {
   attachWindowSchema,
   currentReferrerFor,
@@ -48,6 +49,16 @@ const REFUSAL_COPY = {
   'referral.attach_window_closed': 'refusalWindowClosed',
   'referral.attach_window_unset': 'refusalWindowNotSet',
 } as const satisfies Record<ReferralRefusal, string>;
+/** A share tag's named refusals (RC-campaigns-06); anything else reads as a plain refusal with its code. */
+const SHARE_REFUSAL_TITLE: Record<string, 'tagInvalid' | 'tagRevoked' | 'tagUnknown' | 'tagOff' | 'tagBusy'> = {
+  'share.tag_invalid': 'tagInvalid',
+  'share.revoked': 'tagRevoked',
+  'share.unknown': 'tagUnknown',
+  'share.profile_gone': 'tagUnknown',
+  'share.key_unset': 'tagOff',
+  'share.rate_unset': 'tagOff',
+  'share.rate_limited': 'tagBusy',
+};
 /** A link that could not attach for these reasons can still be asked for through a reviewed change (J-campaigns-05 #5). */
 const REVIEWABLE = new Set<string>(['referral.attach_window_closed', 'referral.attach_window_unset', 'referral.already_set']);
 
@@ -55,7 +66,11 @@ export function Invitation() {
   useLocation();
   const { api, userId, session } = useSession();
   const { t, languageFor } = copy.useCopy();
-  const capability = new URLSearchParams(location.search).get('token');
+  const search = new URLSearchParams(location.search);
+  const tag = search.get('token') ? null : search.get('tag');
+  // A signed share tag counts its visit first; its link then works as a `?token=` link does (J-campaigns-05 #2).
+  const visit = useShareVisit(api, tag);
+  const capability = search.get('token') ?? (visit.status === 'ready' ? visit.data.token : null);
   const parsed = z.string().guid().safeParse(capability);
   const token = session?.accessToken ?? null,
     url = location.href;
@@ -377,7 +392,24 @@ export function Invitation() {
         </div>
       </section>
       <div className="invitation__content">
-        {!parsed.success && (
+        {tag && visit.status === 'loading' && (
+          <section data-testid="invitation__card" className="invitation__card" aria-busy="true">
+            <h2>{t('tagChecking')}</h2>
+          </section>
+        )}
+        {tag && visit.status === 'failed' && (
+          <section data-testid="invitation__card" className="invitation__card" role="alert">
+            <h2>{t(SHARE_REFUSAL_TITLE[visit.failure.code ?? ''] ?? 'tagRefused')}</h2>
+            <p className="muted">{t('tagRefusedBody')}</p>
+            {visit.failure.code && <p lang="zxx">{visit.failure.code}</p>}
+          </section>
+        )}
+        {tag && visit.status === 'ready' && (
+          <p role="status" data-testid="invitation__share-visit">
+            {t(visit.data.counted ? 'tagCounted' : 'tagSeen')}
+          </p>
+        )}
+        {!parsed.success && !tag && (
           <section data-testid="invitation__card" className="invitation__card">
             <h2>{t(capability ? 'invalid' : 'missing')}</h2>
             <p className="muted">{t(capability ? 'invalidBody' : 'missingBody')}</p>

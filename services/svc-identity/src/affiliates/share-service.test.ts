@@ -134,4 +134,85 @@ if (!available) {
       await expect(share.shareHits(next.token)).rejects.toMatchObject({ code: 'share.profile_gone' });
     });
   });
+
+  describe('signed share tags (RC-campaigns-06, J-campaigns-05 #2)', () => {
+    const KEY = 'TEST-share-tag-key-0123456789abcdef';
+    const SESSION_A = 'sessionAAAAAAAAAAAAAAAA';
+    const SESSION_B = 'sessionBBBBBBBBBBBBBBBB';
+    const tagged = new ShareService(db.sql, { tagKey: KEY, hitsPerIpMinute: 100 });
+
+    it('one session counts once per surface; another session and another surface count apart', async () => {
+      await seedUser(REF, 'sharer');
+      // A tag never makes a link: the link comes from its own reviewed request.
+      await expect(tagged.createTag(REF, 'promotion')).rejects.toMatchObject({ code: 'share.not_found' });
+      await tagged.createShare(REF);
+      const promo = await tagged.createTag(REF, 'promotion');
+      const card = await tagged.createTag(REF, 'card');
+      expect(card.token).toBe(promo.token);
+      expect(card.tag).not.toBe(promo.tag);
+
+      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, surface: 'promotion' });
+      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: false });
+      expect(await tagged.tagHit(promo.tag, SESSION_B, '10.0.0.1')).toMatchObject({ counted: true });
+      expect(await tagged.tagHit(card.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, surface: 'card' });
+
+      const stats = await tagged.surfaceStats(REF);
+      expect(stats.token).toBe(promo.token);
+      expect(stats.surfaces).toEqual([
+        { surface: 'promotion', visits: 2 },
+        { surface: 'card', visits: 1 },
+        { surface: 'token', visits: 0 },
+        { surface: 'strategy', visits: 0 },
+        { surface: 'receipt', visits: 0 },
+      ]);
+    });
+
+    it('a tag whose surface is edited is share.tag_invalid and counts nothing', async () => {
+      await seedUser(REF, 'sharer');
+      await tagged.createShare(REF);
+      const promo = await tagged.createTag(REF, 'promotion');
+      const [token, , sig] = promo.tag.split('.');
+      await expect(tagged.tagHit(`${token}.card.${sig}`, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.tag_invalid' });
+      const rows = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM affiliate_share_hits`;
+      expect(rows[0]?.n).toBe(0);
+    });
+
+    it('a revoked link is share.revoked; a tag for an unknown token is share.unknown', async () => {
+      await seedUser(REF, 'sharer');
+      await tagged.createShare(REF);
+      const promo = await tagged.createTag(REF, 'promotion');
+      await tagged.revokeShare(REF);
+      await expect(tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.revoked' });
+      await expect(tagged.surfaceStats(REF)).rejects.toMatchObject({ code: 'share.not_found' });
+    });
+
+    it('no signing key refuses creation share.key_unset; no visit limit keeps the door shut share.rate_unset', async () => {
+      await seedUser(REF, 'sharer');
+      await tagged.createShare(REF);
+      await expect(share.createTag(REF, 'promotion')).rejects.toMatchObject({ code: 'share.key_unset' });
+      const promo = await tagged.createTag(REF, 'promotion');
+      await expect(share.tagHit(promo.tag, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.rate_unset' });
+      const keyless = new ShareService(db.sql, { hitsPerIpMinute: 100 });
+      await expect(keyless.tagHit(promo.tag, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.key_unset' });
+    });
+
+    it('past the per-IP limit a visit is share.rate_limited and counts nothing', async () => {
+      await seedUser(REF, 'sharer');
+      const limited = new ShareService(db.sql, { tagKey: KEY, hitsPerIpMinute: 1, now: () => 0 });
+      await limited.createShare(REF);
+      const promo = await limited.createTag(REF, 'promotion');
+      await limited.tagHit(promo.tag, SESSION_A, '10.0.0.9');
+      await expect(limited.tagHit(promo.tag, SESSION_B, '10.0.0.9')).rejects.toMatchObject({ code: 'share.rate_limited' });
+      expect((await limited.surfaceStats(REF)).surfaces[0]).toEqual({ surface: 'promotion', visits: 1 });
+    });
+
+    it('a closed profile reads no counts (share.profile_gone), as its tags count no visits', async () => {
+      await seedUser(REF, 'sharer');
+      await tagged.createShare(REF);
+      const promo = await tagged.createTag(REF, 'promotion');
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${REF}`;
+      await expect(tagged.surfaceStats(REF)).rejects.toMatchObject({ code: 'share.profile_gone' });
+      await expect(tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.profile_gone' });
+    });
+  });
 }

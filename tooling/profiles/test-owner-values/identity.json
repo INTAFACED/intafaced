@@ -166,6 +166,11 @@
       "value": "8",
       "note": "Eight characters per short referral code."
     },
+    "IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE": {
+      "service": "identity",
+      "value": "600",
+      "note": "A TEST limit: one address may count 600 share-tag visits a minute, so every journey on the one stack address fits (J-campaigns-05 #2)."
+    },
     "IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS": {
       "service": "identity",
       "value": "3600",

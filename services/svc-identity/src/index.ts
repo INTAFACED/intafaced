@@ -35,6 +35,7 @@ import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './au
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
+import { parseShareTagHitsPerIpMinute, parseShareTagKey } from './affiliates/share-tag.js';
 import { ReferralRebindService } from './affiliates/referral-rebind.js';
 import {
   ReferralLapseService,
@@ -486,7 +487,11 @@ auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveF
 auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
-const share = new ShareService(sql);
+/** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
+const share = new ShareService(sql, {
+  tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
+  hitsPerIpMinute: parseShareTagHitsPerIpMinute(env.IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE),
+});
 /** The owner's sign-in challenge settings (I-signin-sessions-30); blank ones stay blank and refuse or require. */
 const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePolicy(env));
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));

@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { loadProfile } from '../owner-settings.mjs';
 import path from 'node:path';
 import { confirmFounderEmails } from '../local-test-founders.mjs';
@@ -245,6 +246,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
     IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
     IDENTITY_SIGNIN_CHALLENGE_KEY: secrets.identitySigninChallenge,
+    // LOCAL TEST one-tap share tags (RC-campaigns-06, J-campaigns-05 #2): the visit limit is labelled TEST in the same
+    // profile; the signing key is derived from this stack's own sign-in challenge secret (secrets.json), so it is valid
+    // nowhere else and needs no new secret name. `LOCAL_STACK_IDENTITY_SHARE_TAG_KEY=off` leaves it blank, as production is
+    // until the owner sets it, so the share.key_unset refusal can be seen; a plain restart puts it back. With no such secret
+    // (a caller that builds this env from a partial secrets object) the key stays blank too, never derived from nothing.
+    ...(process.env.LOCAL_STACK_IDENTITY_SHARE_TAG_KEY === 'off' || !secrets.identitySigninChallenge
+      ? {}
+      : { IDENTITY_SHARE_TAG_KEY: createHmac('sha256', secrets.identitySigninChallenge).update('local-test:share-tag').digest('hex') }),
+    IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE: testValue('IDENTITY_SHARE_TAG_HITS_PER_IP_MINUTE'),
     // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
     IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
