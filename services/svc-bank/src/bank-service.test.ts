@@ -3007,6 +3007,8 @@ describe('svc-bank money PG-hard', () => {
         'transfer_executions.amount': 'a RECORD of one completed firing; written once',
         'dd_collections.amount': 'a RECORD of what a creditor presented for one direct debit collection; written once',
         'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
+        'received_holds.amount':
+          'the INSTRUCTION one hold on received funds was placed for; written once, never summed: the held money is the ledger pot pay:recv:<transferId>',
         'personal_send_reviews.amount':
           'the INSTRUCTION of one send held for review; written once, never summed, and nothing is reserved against it',
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',

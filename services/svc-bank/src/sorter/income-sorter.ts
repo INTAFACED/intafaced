@@ -444,6 +444,9 @@ export class IncomeSorterService {
        WHERE s.status = 'active'
          AND t.from_user_id <> t.to_user_id
          AND NOT EXISTS (SELECT 1 FROM bank.income_sorter_runs r WHERE r.credit_transfer_id = t.transfer_id)
+         -- A payment held for the recipient to accept (PP-money-balance-05) is not sorted: it is set aside, and an
+         -- accepted one stays in the account.
+         AND NOT EXISTS (SELECT 1 FROM bank.received_holds h WHERE h.transfer_id = t.transfer_id AND h.state <> 'lapsed')
        ORDER BY t.posted_at
        LIMIT ${limit}
     `;

@@ -17,7 +17,8 @@
  * sends whose "money sent / money received" notice the bus never took (the
  * posted row is that notice's outbox record). A fifth, when the cash-out port
  * is given, drives on cash-outs left before their hold or the partner's
- * acceptance, so a crash there never leaves a cash-out waiting for a caller.
+ * acceptance, so a crash there never leaves a cash-out waiting for a caller. A sixth, when the received-holds port is
+ * given, finishes holds on received funds whose step was lost and returns unanswered ones at their release date.
  */
 import type { Sql } from 'postgres';
 import { assertEarnResumePendingLimit, assertLoanResumePendingLimit } from './job-batch-limit.js';
@@ -105,6 +106,10 @@ interface RecoveryCashOuts {
   redrive(limit: number): Promise<readonly RecoveryJobResult[]>;
 }
 
+interface RecoveryReceivedHolds {
+  sweep(limit: number): Promise<readonly RecoveryJobResult[]>;
+}
+
 export interface BankRecoveryJobsConfig {
   /** `null` or omitted = blank interval, timer disabled. */
   intervalMs: number | null | undefined;
@@ -122,6 +127,8 @@ export interface BankRecoveryJobsDeps {
   transferNotices?: RecoveryTransferNotices;
   /** Cash-outs left before their hold or the partner's acceptance. Omitted = not scheduled. */
   cashOuts?: RecoveryCashOuts;
+  /** Holds on received funds whose step was lost or whose release date has come. Omitted = not scheduled. */
+  receivedHolds?: RecoveryReceivedHolds;
   /** Dedicated lock connection. Not the pool the job bodies borrow from. */
   lock?: Sql;
   /** Test double. Production uses `trySessionAdvisoryLock` on `lock`. */
@@ -154,6 +161,7 @@ const JOB_NAMES = [
   'bank.recovery.resume_pending_earn',
   'bank.recovery.announce_posted_transfers',
   'bank.recovery.redrive_cash_outs',
+  'bank.recovery.sweep_received_holds',
 ] as const;
 
 function unrefTimer(id: ReturnType<typeof setTimeout>): void {
@@ -199,6 +207,8 @@ export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJ
   if (transferNotices) jobs.push({ name: JOB_NAMES[3], run: () => transferNotices.announceUnannounced(noticeBatch) });
   const cashOuts = deps.cashOuts;
   if (cashOuts) jobs.push({ name: JOB_NAMES[4], run: () => cashOuts.redrive(noticeBatch) });
+  const receivedHolds = deps.receivedHolds;
+  if (receivedHolds) jobs.push({ name: JOB_NAMES[5], run: () => receivedHolds.sweep(noticeBatch) });
 
   let stoppedFlag = false;
   let running = false;

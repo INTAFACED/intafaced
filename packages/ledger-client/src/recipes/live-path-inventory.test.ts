@@ -78,9 +78,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHold', fingerprint: '30408fba090e' },
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
-  { name: 'payReceivedHold', fingerprint: 'd38b34fa6dff' },
-  { name: 'payReceivedRelease', fingerprint: '7d6896cf46f5' },
-  { name: 'payReceivedReturn', fingerprint: '8ccf8023ca20' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
 ];
 
@@ -111,9 +108,6 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['buybackOrderHold', [RECIPE_GATE_CATALOG, BUYBACK_PLACE]],
   ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
   ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
-  ['payReceivedHold', [RECIPE_GATE_CATALOG]],
-  ['payReceivedRelease', [RECIPE_GATE_CATALOG]],
-  ['payReceivedReturn', [RECIPE_GATE_CATALOG]],
   ['bankTransferReversal', [RECIPE_GATE_CATALOG]],
 ]);
 
@@ -127,11 +121,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (88 = 76 live + 12 socket)', () => {
+  it('pins live vs §13 socket counts on tip (88 = 79 live + 9 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 76, socket: 12 });
+    expect(counts).toEqual({ live: 79, socket: 9 });
     expect(inventory.recipes).toHaveLength(88);
-    expect(liveRecipeKeys(inventory)).toHaveLength(76);
+    expect(liveRecipeKeys(inventory)).toHaveLength(79);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

@@ -107,6 +107,10 @@ export async function mock(page, overrides = {}) {
         withinPerTransfer: true,
         withinDaily: true,
       }),
+    // The bank's rule for payments from people not in your contacts, and nothing waiting (J-pay-03 #5).
+    receiveRule: () => trpc({ strangers: 'pay_in', holdDays: 30 }),
+    setReceiveRule: ({ body }) => trpc({ strangers: body.strangers, holdDays: 30 }),
+    waiting: () => trpc([]),
     toUser: ({ body }) => {
       // The service is idempotent on transferId: the same id answers with the same transaction and moves money once.
       const known = world.sent.get(body.transferId);
@@ -144,6 +148,9 @@ export async function mock(page, overrides = {}) {
       'spaces.list': 'spaces',
       'transfers.quote': 'quote',
       'transfers.toUser': 'toUser',
+      'holds.rule': 'receiveRule',
+      'holds.setRule': 'setReceiveRule',
+      'holds.waiting': 'waiting',
     }[procedure];
     const input = url.searchParams.get('input') ? JSON.parse(url.searchParams.get('input')) : undefined;
     const body = request.method() === 'POST' ? request.postDataJSON() : undefined;
