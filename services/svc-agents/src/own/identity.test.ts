@@ -263,23 +263,29 @@ if (!available) {
         code: 'FORBIDDEN',
         message: 'agents.identity.owner_unread',
       });
-      // Nor can a frozen, closed or unread owner issue a new one; the token already issued stays the latest.
+      // Nor can a frozen, closed or unread owner issue a new one; the token already issued stays the latest, unrevoked.
+      const before = await issuer.person.own.identity.get({ id: agent.id });
       for (const [accounts, code] of [
         [[{ userId: USER, status: 'frozen', kycTier: 'full' }], 'agents.identity.owner_frozen'],
         [[{ userId: USER, status: 'closed', kycTier: 'full' }], 'agents.identity.owner_inactive'],
         [[], 'agents.identity.owner_unread'],
       ] as const) {
         const { person } = build({ accounts: [...accounts] });
-        await expect(person.own.identity.issue({ id: agent.id })).rejects.toMatchObject({ message: code });
+        await expect(person.own.identity.issue({ id: agent.id })).rejects.toMatchObject({ code: 'FORBIDDEN', message: code });
       }
-      expect(await sql`SELECT 1 FROM agents.own_agent_tokens`).toHaveLength(1);
+      expect(await sql`SELECT 1 FROM agents.own_agent_tokens WHERE agent_id = ${agent.id}`).toHaveLength(1);
+      expect(await issuer.person.own.identity.get({ id: agent.id })).toEqual(before);
+      expect(before.token).toMatchObject({ state: 'active', revokedAt: null });
+      expect((await issuer.agent.own.identity.agentCall({ token: secret })).agentId).toBe(agent.id);
     });
+
+    const activeOwner = { readAccount: async () => ({ status: 'ok' as const, account: { status: 'active' } }) };
 
     it('an expired token fails its next call', async () => {
       const { person } = build();
       const agent = await starterAgent(person);
       const issuedAt = new Date('2026-11-04T10:00:00.000Z');
-      const { secret } = await new OwnIdentityStore(sql, () => issuedAt).issue(USER, agent.id, agent.tools, 1);
+      const { secret } = await new OwnIdentityStore(sql, () => issuedAt).issue(USER, agent.id, agent.tools, 1, activeOwner);
       const later = new OwnIdentityStore(sql, () => new Date(issuedAt.getTime() + 60_000));
       await expect(later.call(secret, null)).rejects.toMatchObject({ code: 'agents.identity.token_expired' });
       expect(await later.latest(USER, agent.id)).toMatchObject({ state: 'expired' });

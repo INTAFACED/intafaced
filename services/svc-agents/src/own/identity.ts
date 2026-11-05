@@ -69,10 +69,18 @@ export class OwnIdentityStore {
 
   /**
    * Issues the agent a new token for `lifetimeMinutes`, scoped to `scopes`, revoking any live one before it. The secret
-   * is returned this once and never kept.
+   * is returned this once and never kept. A frozen, closed or unread owner refuses first, and nothing changes. The owner
+   * is read before the write, so a freeze landing in between still leaves a token; its every call reads the owner again.
    */
-  async issue(ownerId: string, agentId: string, scopes: readonly string[], lifetimeMinutes: number): Promise<OwnAgentIssuedToken> {
+  async issue(
+    ownerId: string,
+    agentId: string,
+    scopes: readonly string[],
+    lifetimeMinutes: number,
+    accounts: OwnAccountDirectory | null,
+  ): Promise<OwnAgentIssuedToken> {
     const minutes = tokenLifetime(lifetimeMinutes);
+    await assertOwnerActive(ownerId, accounts);
     const secret = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
     const issuedAt = this.now();
     const expiresAt = new Date(issuedAt.getTime() + minutes * 60_000);
