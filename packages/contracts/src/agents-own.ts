@@ -529,7 +529,11 @@ export type OwnAgentToken = z.infer<typeof ownAgentTokenSchema>;
 export const ownAgentIdentitySchema = z.object({ token: ownAgentTokenSchema.nullable() });
 export type OwnAgentIdentity = z.infer<typeof ownAgentIdentitySchema>;
 
-/** `own.identity.issue`: the new token, and its secret, shown this once. Any earlier token of the agent is revoked. */
+/**
+ * `own.identity.issue`: the new token, and its secret, shown this once. Any earlier token of the agent is revoked.
+ * Refused, with nothing changed, by `agents.identity.lifetime_unset` and, for a frozen, closed or unread owner, by
+ * `agents.identity.owner_frozen`, `owner_inactive` or `owner_unread`.
+ */
 export const ownAgentIssuedTokenSchema = z.object({ token: ownAgentTokenSchema, secret: z.string() });
 export type OwnAgentIssuedToken = z.infer<typeof ownAgentIssuedTokenSchema>;
 
