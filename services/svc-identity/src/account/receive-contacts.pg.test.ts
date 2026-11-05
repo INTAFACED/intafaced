@@ -141,7 +141,7 @@ if (!available) {
       });
       const audit = await db.sql<Array<{ event: string }>>`
         SELECT event FROM receive_contact_audit WHERE user_id = ${me.userId} ORDER BY created_at, event`;
-      expect(audit.map((row) => row.event).sort()).toEqual(['added', 'verified']);
+      expect(audit.map((row) => row.event).sort()).toEqual(['added', 'code_sent', 'verified']);
 
       expect((await mine.receiveContacts.remove({ id })).contacts).toEqual([]);
       expect(await theirs.users.searchPayees({ email: address })).toEqual({ found: false });
@@ -255,6 +255,73 @@ if (!available) {
         trpc: 'FORBIDDEN',
         code: 'identity.delegated_refused',
       });
+    });
+
+    it('removing and adding again cannot send more codes inside one code life than the cap', async () => {
+      const me = await signUp('rc_budget');
+      const mine = await as(me);
+      const first = await mine.receiveContacts.add({ channel: 'email', target: 'budget@example.org' });
+      await mine.receiveContacts.remove({ id: first.contacts[0]!.id });
+      const second = await mine.receiveContacts.add({ channel: 'email', target: 'budget@example.org' });
+      await mine.receiveContacts.remove({ id: second.contacts[0]!.id });
+      expect(await refusal(mine.receiveContacts.add({ channel: 'email', target: 'budget@example.org' }))).toMatchObject({
+        trpc: 'TOO_MANY_REQUESTS',
+        code: 'identity.receive_contact_wait',
+      });
+      expect(sentTo('budget@example.org')).toBe(2);
+      expect((await mine.receiveContacts.list()).contacts).toEqual([]);
+    });
+
+    it('a code the sender would not take is taken back and named, and adding again sends a new one', async () => {
+      const me = await signUp('rc_sendfail');
+      let fail = true;
+      const flaky: PasswordResetMail = {
+        async send(message) {
+          if (fail) throw new Error(`smtp down ${message.code}`);
+          sent.push({ email: message.email, code: message.code, purpose: message.purpose });
+        },
+      };
+      const api = createReceiveContactsRouter(service({ mail: flaky })).createCaller(await ctxOf(me));
+      expect(await refusal(api.receiveContacts.add({ channel: 'email', target: 'flaky@example.org' }))).toMatchObject({
+        trpc: 'PRECONDITION_FAILED',
+        code: 'identity.receive_contact_send_failed',
+      });
+      const rows = await db.sql<Array<{ code_hash: string | null }>>`SELECT code_hash FROM receive_contacts WHERE user_id = ${me.userId}`;
+      expect(rows).toEqual([{ code_hash: null }]);
+      fail = false;
+      const again = await api.receiveContacts.add({ channel: 'email', target: 'flaky@example.org' });
+      await api.receiveContacts.verify({ id: again.contacts[0]!.id, code: lastCode('flaky@example.org') });
+      expect((await api.receiveContacts.list()).contacts[0]).toMatchObject({ verified: true });
+    });
+
+    it('wrong codes sent at the same time are each counted: no more than the allowed tries are ever checked', async () => {
+      const me = await signUp('rc_race');
+      const mine = await as(me);
+      const { contacts } = await mine.receiveContacts.add({ channel: 'email', target: 'race@example.org' });
+      const id = contacts[0]!.id;
+      const right = lastCode('race@example.org');
+      const wrong = right === '000000' ? '111111' : '000000';
+      const answers = await Promise.allSettled(Array.from({ length: 12 }, () => mine.receiveContacts.verify({ id, code: wrong })));
+      expect(answers.every((a) => a.status === 'rejected')).toBe(true);
+      const row = await db.sql<Array<{ attempts: number }>>`SELECT attempts FROM receive_contacts WHERE id = ${id}`;
+      expect(row[0]!.attempts).toBe(3);
+      expect(await refusal(mine.receiveContacts.verify({ id, code: right }))).toMatchObject({ code: 'identity.contact_code_invalid' });
+    });
+
+    it('an address that names two accounts pays no one', async () => {
+      const holder = await signUp('rc_twice_a');
+      const later = await signUp('rc_twice_b');
+      const payer = await signUp('rc_twice_payer');
+      const a = await as(holder);
+      const added = await a.receiveContacts.add({ channel: 'email', target: 'twice@example.org' });
+      await a.receiveContacts.verify({ id: added.contacts[0]!.id, code: lastCode('twice@example.org') });
+      const theirs = await as(payer);
+      expect(await theirs.users.searchPayees({ email: 'twice@example.org' })).toMatchObject({ found: true, userId: holder.userId });
+      // Another account later signs in with that address and lets people find it by email.
+      // Two statements: changing the address clears its verified stamp (a trigger), as an email change does.
+      await db.sql`UPDATE users SET email = 'twice@example.org' WHERE id = ${later.userId}`;
+      await db.sql`UPDATE users SET email_verified_at = now(), payee_email_consent = true WHERE id = ${later.userId}`;
+      expect(await theirs.users.searchPayees({ email: 'twice@example.org' })).toEqual({ found: false });
     });
   });
 }

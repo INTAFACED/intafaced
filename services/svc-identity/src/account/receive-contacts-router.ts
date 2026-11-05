@@ -35,9 +35,12 @@ function toTrpc(err: unknown): never {
             : err.code === 'identity.receive_contact_unset' ||
                 err.code === 'identity.receive_contact_cap_reached' ||
                 err.code === 'identity.receive_contact_mail_off' ||
-                err.code === 'identity.receive_contact_sms_off'
+                err.code === 'identity.receive_contact_sms_off' ||
+                err.code === 'identity.receive_contact_send_failed'
               ? 'PRECONDITION_FAILED'
-              : 'BAD_REQUEST';
+              : err.code === 'identity.receive_contact_wait'
+                ? 'TOO_MANY_REQUESTS'
+                : 'BAD_REQUEST';
     throw new TRPCError({ code, message: err.message, cause: err });
   }
   throw err;

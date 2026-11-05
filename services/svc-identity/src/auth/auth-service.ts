@@ -2893,7 +2893,8 @@ export class AuthService {
    * Exact email or phone, and only when that person opted in and the address
    * is verified, or when they added it as a way to receive and proved it with
    * its code (PP-send-request-03; adding it is the consent). Frozen, closed,
-   * unknown, unverified and "did not consent" are the same null. The row's
+   * unknown, unverified, "did not consent" and an address that names two
+   * accounts are the same null. The row's
    * email and phone are not returned.
    */
   async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
@@ -2910,7 +2911,7 @@ export class AuthService {
              WHERE c.channel = 'email' AND c.target = ${query.email}
                AND c.verified_at IS NOT NULL
                AND u.status = 'active'
-             LIMIT 1`
+             LIMIT 3`
         : await this.sql<Array<{ id: string; handle: string }>>`
             SELECT id, handle FROM users
              WHERE phone = ${query.phone}
@@ -2922,9 +2923,13 @@ export class AuthService {
              WHERE c.channel = 'phone' AND c.target = ${query.phone}
                AND c.verified_at IS NOT NULL
                AND u.status = 'active'
-             LIMIT 1`;
-    const row = rows[0];
-    return row ? { userId: row.id, handle: row.handle } : null;
+             LIMIT 3`;
+    // One address that names two accounts (a sign-in address taken after another account proved it to receive by)
+    // pays no one: a payment never goes to whichever row the database happened to return first.
+    const ids = new Set(rows.map((row) => row.id));
+    if (ids.size !== 1) return null;
+    const row = rows[0]!;
+    return { userId: row.id, handle: row.handle };
   }
 
   /**

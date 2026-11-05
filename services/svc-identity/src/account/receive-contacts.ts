@@ -9,10 +9,16 @@
  * - The sender: with no mail transport an email cannot be proved, and with no text sender a phone cannot. Adding then
  *   refuses `identity.receive_contact_mail_off` or `identity.receive_contact_sms_off` and stores nothing, so the screen
  *   can say the code cannot be sent.
- * - One mail per code life: adding an address again while its code still works sends nothing new, so the add button
- *   cannot flood someone else's inbox. An expired code is replaced by a new one on the next add.
+ * - Sending is budgeted: adding an address again while its code still works sends nothing new, and one account sends
+ *   no more codes inside one code life than the address cap (`identity.receive_contact_wait`), whatever it added,
+ *   removed or re-added, so the add button can neither flood someone else's inbox nor work through the code space. A
+ *   handoff the sender refuses takes the code back and says so (`identity.receive_contact_send_failed`).
+ * - Wrong codes are counted under the row lock in the same transaction, so tries made at the same time cannot all
+ *   read the same count.
  * - A proved address names one account. Proving an address another account already proved, or that is another
- *   account's own sign-in address, answers exactly like a wrong code, so the screen never says who holds it.
+ *   account's own sign-in address, answers exactly like a wrong code, so the screen never says who holds it. Should
+ *   another account later take it as its sign-in address, a payee search by it names no one rather than guess
+ *   (`AuthService.searchPayee`).
  * - The signed-in owner only, on a live session, never an API key or a sub-account, never while a security lock holds
  *   or the account is not active. Every add, proof and removal writes an audit row in the same transaction.
  */
@@ -22,7 +28,7 @@ import { transaction } from '@intafaced/db';
 import { assertNotSecurityLocked } from '../auth/security-lock.js';
 import type { PasswordResetMail } from '../auth/password-reset.js';
 import { hashToken } from '../auth/passwords.js';
-import { normaliseContactEmail, normaliseContactPhone } from './contact-common.js';
+import { normaliseContactEmail, normaliseContactPhone, postgresCode } from './contact-common.js';
 
 export type ReceiveContactCode =
   | 'identity.receive_contact_invalid'
@@ -30,6 +36,8 @@ export type ReceiveContactCode =
   | 'identity.receive_contact_cap_reached'
   | 'identity.receive_contact_mail_off'
   | 'identity.receive_contact_sms_off'
+  | 'identity.receive_contact_wait'
+  | 'identity.receive_contact_send_failed'
   | 'identity.contact_code_invalid'
   | 'identity.delegated_refused'
   | 'identity.session_not_live'
@@ -106,14 +114,10 @@ type Row = {
   verified_at: Date | string | null;
 };
 
-const MAX_TTL_SECONDS = 86_400;
-const MAX_ATTEMPTS = 10;
-const MAX_CONTACTS = 20;
-
-/** An owner number inside its ceiling, or null. Blank, zero, fractions and anything past the ceiling stay unpublished. */
-export function publishedWithin(value: number | undefined | null, ceiling: number): number | null {
+/** An owner number, or null. Blank, zero and fractions stay unpublished; env.ts holds the ceilings and refuses past them at start. */
+export function published(value: number | undefined | null): number | null {
   if (value === undefined || value === null) return null;
-  return Number.isInteger(value) && value >= 1 && value <= ceiling ? value : null;
+  return Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 export function receiveContactSettings(env: {
@@ -121,11 +125,7 @@ export function receiveContactSettings(env: {
   codeTtlSeconds?: number | undefined;
   codeMaxAttempts?: number | undefined;
 }): ReceiveContactSettings {
-  return {
-    max: publishedWithin(env.max, MAX_CONTACTS),
-    codeTtlSeconds: publishedWithin(env.codeTtlSeconds, MAX_TTL_SECONDS),
-    codeMaxAttempts: publishedWithin(env.codeMaxAttempts, MAX_ATTEMPTS),
-  };
+  return { max: published(env.max), codeTtlSeconds: published(env.codeTtlSeconds), codeMaxAttempts: published(env.codeMaxAttempts) };
 }
 
 function sameHash(storedHex: string, presentedHex: string): boolean {
@@ -148,12 +148,13 @@ export class ReceiveContactService {
   async list(actor: ReceiveActor): Promise<ReceiveContactList> {
     this.assertOwner(actor);
     await this.requireLive(this.deps.sql, actor);
-    return { contacts: await this.rows(this.deps.sql, actor.userId), max: this.deps.settings.max };
+    return this.view(this.deps.sql, actor.userId);
   }
 
   /**
    * Add an address and send its code. Adding one already proved answers the list unchanged; adding one whose code
-   * still works sends nothing new.
+   * still works sends nothing new. Codes sent by one account are budgeted: no more than the address cap inside one code
+   * life, whatever was added, removed or re-added, so neither an inbox nor the code space can be worked by repetition.
    */
   async add(actor: ReceiveActor, input: { readonly channel: ReceiveChannel; readonly target: string }): Promise<ReceiveContactList> {
     this.assertOwner(actor);
@@ -175,8 +176,10 @@ export class ReceiveContactService {
       throw new ReceiveContactError('identity.receive_contact_sms_off', 'Text messages are switched off, so we cannot send the code');
     }
     const code = this.newCode();
-    const expiresAt = new Date(this.now().getTime() + codeTtlSeconds * 1000);
-    const send = await transaction(this.deps.sql, async (tx) => {
+    const codeHash = hashToken(code);
+    const now = this.now();
+    const expiresAt = new Date(now.getTime() + codeTtlSeconds * 1000);
+    const outcome = await transaction(this.deps.sql, async (tx) => {
       await this.requireActive(tx, actor);
       const existing = await tx<Row[]>`
         SELECT id, channel, target::text AS target, code_hash, code_expires_at, attempts, verified_at
@@ -185,44 +188,51 @@ export class ReceiveContactService {
          FOR UPDATE
       `;
       const row = existing[0];
-      if (row?.verified_at) return false;
-      if (row && row.code_expires_at && new Date(row.code_expires_at) > this.now() && row.attempts < codeMaxAttempts) return false;
+      if (row?.verified_at) return { send: false as const, list: await this.view(tx, actor.userId) };
+      if (row && row.code_expires_at && new Date(row.code_expires_at) > now && row.attempts < codeMaxAttempts) {
+        return { send: false as const, list: await this.view(tx, actor.userId) };
+      }
+      let id: string;
       if (!row) {
         const count = await tx<Array<{ n: number }>>`SELECT count(*)::int AS n FROM receive_contacts WHERE user_id = ${actor.userId}`;
         if ((count[0]?.n ?? 0) >= max) {
           throw new ReceiveContactError('identity.receive_contact_cap_reached', `You can add up to ${max} ways to receive`, { cap: max });
         }
-        await tx`
+        await this.assertSendBudget(tx, actor.userId, max, codeTtlSeconds, now);
+        const inserted = await tx<Array<{ id: string }>>`
           INSERT INTO receive_contacts (user_id, channel, target, code_hash, code_expires_at)
-          VALUES (${actor.userId}, ${input.channel}, ${target}, ${hashToken(code)}, ${expiresAt})
+          VALUES (${actor.userId}, ${input.channel}, ${target}, ${codeHash}, ${expiresAt})
+          RETURNING id
         `;
-        await tx`
-          INSERT INTO receive_contact_audit (user_id, session_id, channel, event, target)
-          VALUES (${actor.userId}, ${actor.sessionId}, ${input.channel}, 'added', ${target})
-        `;
+        id = inserted[0]!.id;
+        await this.audit(tx, actor, input.channel, 'added', target, now);
       } else {
+        await this.assertSendBudget(tx, actor.userId, max, codeTtlSeconds, now);
+        id = row.id;
         await tx`
           UPDATE receive_contacts
-             SET code_hash = ${hashToken(code)}, code_expires_at = ${expiresAt}, attempts = 0, updated_at = now()
+             SET code_hash = ${codeHash}, code_expires_at = ${expiresAt}, attempts = 0, updated_at = now()
            WHERE id = ${row.id}
         `;
       }
-      return true;
+      await this.audit(tx, actor, input.channel, 'code_sent', target, now);
+      return { send: true as const, id, list: await this.view(tx, actor.userId) };
     });
-    if (send) await this.deliver(actor.userId, input.channel, target, code, expiresAt);
-    return this.list(actor);
+    if (outcome.send) await this.deliver(actor.userId, outcome.id, codeHash, input.channel, target, code, expiresAt);
+    return outcome.list;
   }
 
   /** Prove an address with the code sent to it. A miss, an expiry, a lock and an address someone else holds all read the same. */
   async verify(actor: ReceiveActor, input: { readonly id: string; readonly code: string }): Promise<ReceiveContactList> {
     this.assertOwner(actor);
     const maxAttempts = this.deps.settings.codeMaxAttempts;
-    if (maxAttempts === null)
+    if (maxAttempts === null) {
       throw new ReceiveContactError('identity.receive_contact_unset', 'Adding a way to receive is not available yet');
+    }
     const presented = hashToken(input.code.trim());
-    let wrong = false;
+    let outcome: { wrong: true } | { wrong: false; list: ReceiveContactList };
     try {
-      await transaction(this.deps.sql, async (tx) => {
+      outcome = await transaction(this.deps.sql, async (tx) => {
         await this.requireActive(tx, actor);
         const rows = await tx<Row[]>`
           SELECT id, channel, target::text AS target, code_hash, code_expires_at, attempts, verified_at
@@ -231,12 +241,14 @@ export class ReceiveContactService {
         `;
         const row = rows[0];
         if (!row) throw new ReceiveContactError('auth.not_found', 'No such way to receive');
-        if (row.verified_at) return;
+        if (row.verified_at) return { wrong: false as const, list: await this.view(tx, actor.userId) };
         const live = row.code_hash !== null && row.code_expires_at !== null && new Date(row.code_expires_at) > this.now();
         if (!live || row.attempts >= maxAttempts) throw invalid();
         if (!sameHash(row.code_hash!, presented)) {
-          wrong = true;
-          return;
+          // Counted under the row lock and committed with this transaction, so tries made at the same time queue
+          // behind each other and each one sees the count the one before it left.
+          await tx`UPDATE receive_contacts SET attempts = attempts + 1, updated_at = now() WHERE id = ${row.id}`;
+          return { wrong: true as const };
         }
         // Someone else's own sign-in address is theirs to be paid by: it is never proved for a second account.
         const column = row.channel === 'email' ? 'email' : 'phone';
@@ -249,31 +261,22 @@ export class ReceiveContactService {
              SET verified_at = ${this.now()}, code_hash = NULL, code_expires_at = NULL, updated_at = now()
            WHERE id = ${row.id}
         `;
-        await tx`
-          INSERT INTO receive_contact_audit (user_id, session_id, channel, event, target)
-          VALUES (${actor.userId}, ${actor.sessionId}, ${row.channel}, 'verified', ${row.target})
-        `;
+        await this.audit(tx, actor, row.channel, 'verified', row.target, this.now());
+        return { wrong: false as const, list: await this.view(tx, actor.userId) };
       });
     } catch (err) {
       // Another account proved the same address first: the unique index decides, and the loser hears a wrong code.
-      if ((err as { code?: string }).code === '23505') throw invalid();
+      if (postgresCode(err) === '23505') throw invalid();
       throw err;
     }
-    if (wrong) {
-      // Counted outside the proving transaction, so the wrong try sticks even though the answer is a refusal.
-      await this.deps.sql`
-        UPDATE receive_contacts SET attempts = attempts + 1, updated_at = now()
-         WHERE id = ${input.id} AND user_id = ${actor.userId} AND verified_at IS NULL
-      `;
-      throw invalid();
-    }
-    return this.list(actor);
+    if (outcome.wrong) throw invalid();
+    return outcome.list;
   }
 
   /** Stop receiving by an address. Payments already received stay. */
   async remove(actor: ReceiveActor, input: { readonly id: string }): Promise<ReceiveContactList> {
     this.assertOwner(actor);
-    await transaction(this.deps.sql, async (tx) => {
+    return transaction(this.deps.sql, async (tx) => {
       await this.requireActive(tx, actor);
       const rows = await tx<Array<{ channel: ReceiveChannel; target: string }>>`
         DELETE FROM receive_contacts WHERE id = ${input.id} AND user_id = ${actor.userId}
@@ -281,31 +284,73 @@ export class ReceiveContactService {
       `;
       const row = rows[0];
       if (!row) throw new ReceiveContactError('auth.not_found', 'No such way to receive');
-      await tx`
-        INSERT INTO receive_contact_audit (user_id, session_id, channel, event, target)
-        VALUES (${actor.userId}, ${actor.sessionId}, ${row.channel}, 'removed', ${row.target})
-      `;
+      await this.audit(tx, actor, row.channel, 'removed', row.target, this.now());
+      return this.view(tx, actor.userId);
     });
-    return this.list(actor);
   }
 
-  private async deliver(userId: string, channel: ReceiveChannel, target: string, code: string, expiresAt: Date): Promise<void> {
+  /**
+   * Hand the code to the sender. A failed handoff takes that code back (the row stays, unproved, with no live code), so
+   * the person is told now and can ask for a new one, instead of waiting out a code that never arrived.
+   */
+  private async deliver(
+    userId: string,
+    id: string,
+    codeHash: string,
+    channel: ReceiveChannel,
+    target: string,
+    code: string,
+    expiresAt: Date,
+  ): Promise<void> {
     try {
       if (channel === 'email') await this.deps.mail!.send({ email: target, code, expiresAt, purpose: 'receive-contact-code' });
       else await this.deps.text!.send({ phone: target, code, expiresAt });
     } catch {
-      // The code is a secret: the error's text may hold it, so only the fact is logged. The person can add again
-      // once the code's life is over.
+      // The code is a secret: the error's text may hold it, so only the fact is logged.
       this.deps.log.warn({ userId, channel, reason: 'delivery' }, 'identity.receive_contact_delivery_failed');
+      await this.deps.sql`
+        UPDATE receive_contacts SET code_hash = NULL, code_expires_at = NULL, updated_at = now()
+         WHERE id = ${id} AND code_hash = ${codeHash}
+      `;
+      throw new ReceiveContactError('identity.receive_contact_send_failed', 'We could not send the code. Try again in a moment');
     }
   }
 
-  private async rows(q: Sql, userId: string): Promise<ReceiveContact[]> {
+  /** No more codes inside one code life than the address cap, counted over every address the account touched. */
+  private async assertSendBudget(tx: Sql, userId: string, max: number, codeTtlSeconds: number, now: Date): Promise<void> {
+    const since = new Date(now.getTime() - codeTtlSeconds * 1000);
+    const sent = await tx<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM receive_contact_audit
+       WHERE user_id = ${userId} AND event = 'code_sent' AND created_at > ${since}
+    `;
+    if ((sent[0]?.n ?? 0) >= max) {
+      throw new ReceiveContactError('identity.receive_contact_wait', 'Too many codes sent. Wait a few minutes, then add it again');
+    }
+  }
+
+  private async audit(
+    tx: Sql,
+    actor: ReceiveActor,
+    channel: ReceiveChannel,
+    event: 'added' | 'code_sent' | 'verified' | 'removed',
+    target: string,
+    at: Date,
+  ): Promise<void> {
+    await tx`
+      INSERT INTO receive_contact_audit (user_id, session_id, channel, event, target, created_at)
+      VALUES (${actor.userId}, ${actor.sessionId}, ${channel}, ${event}, ${target}, ${at})
+    `;
+  }
+
+  private async view(q: Sql, userId: string): Promise<ReceiveContactList> {
     const rows = await q<Array<{ id: string; channel: ReceiveChannel; target: string; verified: boolean }>>`
       SELECT id, channel, target::text AS target, verified_at IS NOT NULL AS verified
         FROM receive_contacts WHERE user_id = ${userId} ORDER BY created_at, id
     `;
-    return rows.map((row) => ({ id: row.id, channel: row.channel, target: row.target, verified: row.verified }));
+    return {
+      contacts: rows.map((row) => ({ id: row.id, channel: row.channel, target: row.target, verified: row.verified })),
+      max: this.deps.settings.max,
+    };
   }
 
   private assertOwner(actor: ReceiveActor): void {

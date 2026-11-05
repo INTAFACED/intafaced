@@ -39,6 +39,10 @@ export function receiveRefusalText(code: ReceiveContactCode | 'failed', max: num
       return payCopy.t('Receive contact mail off');
     case 'identity.receive_contact_sms_off':
       return payCopy.t('Receive contact sms off');
+    case 'identity.receive_contact_wait':
+      return payCopy.t('Receive contact wait');
+    case 'identity.receive_contact_send_failed':
+      return payCopy.t('Receive contact send failed');
     case 'identity.contact_code_invalid':
       return payCopy.t('Receive contact code invalid');
     case 'identity.security_locked':
@@ -69,6 +73,7 @@ export function ReceiveContacts() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<ReceiveContactCode | 'failed' | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [rowRefusal, setRowRefusal] = useState<ReceiveContactCode | 'failed' | null>(null);
   const addressId = useId();
   const codeId = useId();
@@ -137,8 +142,12 @@ export function ReceiveContacts() {
   }
 
   async function remove(contact: ReceiveContact) {
+    // One removal at a time: a second click on a row already going would only come back "not found".
+    if (removing !== null) return;
+    setRemoving(contact.id);
     setRowRefusal(null);
     const outcome = await removeReceiveContact(api, { id: contact.id });
+    setRemoving(null);
     if (outcome.kind === 'ok') setLoaded({ status: 'ready', list: outcome.list });
     else setRowRefusal(outcome.kind === 'refused' ? outcome.code : 'failed');
   }
@@ -185,6 +194,8 @@ export function ReceiveContacts() {
                 variant="ghost"
                 size={40}
                 aria-label={payCopy.t('Remove {target}', { target: contact.target })}
+                disabled={removing !== null}
+                loading={removing === contact.id}
                 onClick={() => void remove(contact)}
               >
                 {payCopy.t('Remove')}

@@ -25,6 +25,8 @@ export const RECEIVE_CONTACT_CODES = [
   'identity.receive_contact_cap_reached',
   'identity.receive_contact_mail_off',
   'identity.receive_contact_sms_off',
+  'identity.receive_contact_wait',
+  'identity.receive_contact_send_failed',
   'identity.contact_code_invalid',
   'identity.security_locked',
   'identity.delegated_refused',

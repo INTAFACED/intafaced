@@ -5,7 +5,8 @@
 -- and how many wrong tries it has taken; proving it clears the code and stamps verified_at. A proved address belongs to
 -- one account only (the partial unique index), so a payment to it can name exactly one person. The cap on addresses per
 -- account, the code's life and the wrong tries allowed are owner settings (IDENTITY_RECEIVE_CONTACT_*), never stored
--- here. receive_contact_audit keeps one row per add, proof and removal.
+-- here. receive_contact_audit keeps one row per add, code sent, proof and removal; its code_sent rows are the
+-- per-account budget on codes sent inside one code life.
 --
 -- Reversal: 20261105161154_receive_contacts.down.sql
 
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS "identity"."receive_contact_audit" (
   "event"       text NOT NULL,
   "target"      citext NOT NULL,
   "created_at"  timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "receive_contact_audit_event_ck" CHECK ("event" IN ('added', 'verified', 'removed'))
+  CONSTRAINT "receive_contact_audit_event_ck" CHECK ("event" IN ('added', 'code_sent', 'verified', 'removed'))
 );
 
 CREATE INDEX IF NOT EXISTS "receive_contact_audit_user_idx" ON "identity"."receive_contact_audit" ("user_id", "created_at");

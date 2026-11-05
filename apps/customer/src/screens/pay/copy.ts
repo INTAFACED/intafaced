@@ -180,6 +180,8 @@ const messages = {
   'Receive contact sms off': 'Text messages are switched off, so we can’t send the code to confirm this number. Nothing was added.',
   'Receive contact code invalid': 'That code isn’t right, or it has stopped working. Check it, or add the address again for a new code.',
   'Receive contact failed': 'We couldn’t do that. Nothing changed. Try again.',
+  'Receive contact wait': 'We’ve sent a lot of codes just now. Wait a few minutes, then add it again.',
+  'Receive contact send failed': 'We couldn’t send the code. Nothing reached that address. Try again in a moment.',
 } as const;
 
 export const payCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.payScreen', messages);
