@@ -352,6 +352,10 @@ export interface AgentsRouterDeps {
   readonly ownTemplates?: readonly OwnTemplate[];
   /** The owner's managed baseline for own agents' tools (AG-guardrails-02); absent is blank and refuses. */
   readonly policyBaseline?: PolicyBaseline;
+  /** AGENTS_OWN_TOKEN_LIFETIME_MINUTES: an own agent's token lifetime (AG-identity-01); blank refuses issuing. */
+  readonly ownTokenLifetimeMinutes?: number | null;
+  /** AGENTS_OWN_ASSISTANT_MODEL: the drafting assistant's model (AG-builder-03); blank refuses owner.decision. */
+  readonly ownAssistantModel?: string | null;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -4034,6 +4038,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       supportTierLaw: tierLaws.support,
       // A co-owner is read from identity's account projection, the same S2S read the support desk port makes.
       accounts: supportDesk ?? null,
+      tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
+      assistantModel: deps.ownAssistantModel ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

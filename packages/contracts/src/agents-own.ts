@@ -505,3 +505,73 @@ export type OwnAgentShared = z.infer<typeof ownAgentSharedSchema>;
 export const OWN_AGENT_DELETE_CONFIRMATION = 'delete for good' as const;
 export const ownAgentDeleteSchema = z.object({ id: z.string().min(1).max(64), confirm: z.string().max(64) });
 export const ownAgentDeletedSchema = z.object({ id: z.string().uuid(), deleted: z.literal(true) });
+
+/**
+ * THE AGENT'S OWN IDENTITY (AG-identity-01; J-agents-03 #5). Each agent acts under a token of its own: issued to one
+ * owner, scoped to the agent's saved tools, and expiring after the owner's set lifetime (blank refuses
+ * `agents.identity.lifetime_unset`; none is invented). Only a hash of the token is kept; the token itself is shown once,
+ * when it is issued. A call made with it fails once it is revoked, expired, or while its owner's account is frozen.
+ */
+export const OWN_AGENT_TOKEN_STATES = ['active', 'revoked', 'expired'] as const;
+export const ownAgentTokenSchema = z.object({
+  agentId: z.string().uuid(),
+  ownerId: z.string(),
+  /** The calls the token may make: the agent's tools as they were saved when it was issued. */
+  scopes: z.array(z.string()),
+  issuedAt: z.string(),
+  expiresAt: z.string(),
+  revokedAt: z.string().nullable(),
+  state: z.enum(OWN_AGENT_TOKEN_STATES),
+});
+export type OwnAgentToken = z.infer<typeof ownAgentTokenSchema>;
+
+/** `own.identity.get`: the agent's latest token (null: none issued yet). */
+export const ownAgentIdentitySchema = z.object({ token: ownAgentTokenSchema.nullable() });
+export type OwnAgentIdentity = z.infer<typeof ownAgentIdentitySchema>;
+
+/** `own.identity.issue`: the new token, and its secret, shown this once. Any earlier token of the agent is revoked. */
+export const ownAgentIssuedTokenSchema = z.object({ token: ownAgentTokenSchema, secret: z.string() });
+export type OwnAgentIssuedToken = z.infer<typeof ownAgentIssuedTokenSchema>;
+
+/** `own.identity.agentCall`: a call the agent makes with its own token, and who it acts as. */
+export const ownAgentTokenCallSchema = z.object({ token: z.string().min(1).max(200) });
+export const ownAgentTokenCallerSchema = z.object({
+  agentId: z.string().uuid(),
+  ownerId: z.string(),
+  scopes: z.array(z.string()),
+  expiresAt: z.string(),
+});
+export type OwnAgentTokenCaller = z.infer<typeof ownAgentTokenCallerSchema>;
+
+/**
+ * DRAFTING WITH THE ASSISTANT (AG-builder-03; J-agents-03 #6). The assistant drafts on the model the owner chose; while
+ * that choice is blank it refuses `owner.decision` and the rest of the builder works without it. A draft's tools have
+ * passed the same validator a save meets; a tool it left out is listed with its code. Nothing is saved until the person
+ * accepts it. On a test deployment the TEST engine drafts, by rule, with no model called.
+ */
+export const OWN_AGENT_ASSISTANT_ENGINES = ['test', 'live'] as const;
+export const ownAgentAssistantSchema = z.object({
+  /** null: the owner has not chosen the model, and drafting refuses `owner.decision`. */
+  engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
+});
+export type OwnAgentAssistant = z.infer<typeof ownAgentAssistantSchema>;
+
+export const ownAgentDraftRequestSchema = z.object({ description: z.string().min(1).max(4000) });
+export const ownAgentProposalSchema = z.object({
+  name: z.string(),
+  instructions: z.string(),
+  /** Every tool here passed the validator. */
+  tools: z.array(z.string()),
+  /** A tool the assistant considered and the validator refused, with the code it refused. */
+  leftOut: z.array(z.object({ tool: z.string(), code: z.string() })),
+  engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES),
+});
+export type OwnAgentProposal = z.infer<typeof ownAgentProposalSchema>;
+
+/** `own.assistant.accept`: the draft as shown, and a key so a retried accept is the same draft. */
+export const ownAgentAcceptSchema = z.object({
+  name: z.string().max(200),
+  instructions: z.string().max(20_000),
+  tools: z.array(z.string().max(120)).max(50),
+  acceptKey: z.string().min(8).max(128),
+});

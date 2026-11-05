@@ -270,6 +270,16 @@ const schema = serviceEnvSchema
        * would loosen it with agents.baseline_value_unset. A malformed value stops the boot.
        */
       AGENTS_POLICY_BASELINE: blankAsAbsent(z.string().optional()),
+      /**
+       * Owner value: the lifetime of an own agent's token, in whole minutes, 1 to 525600 (AG-identity-01). Blank refuses
+       * issuing a token with agents.identity.lifetime_unset; none is invented.
+       */
+      AGENTS_OWN_TOKEN_LIFETIME_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(525_600).optional()),
+      /**
+       * Owner decision: the model the builder's drafting assistant uses (AG-builder-03). Blank refuses owner.decision and
+       * the rest of the builder works. `test-engine` is the TEST engine of a test deployment, which calls no model.
+       */
+      AGENTS_OWN_ASSISTANT_MODEL: blankAsAbsent(z.string().max(200).optional()),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

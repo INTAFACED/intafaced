@@ -33,6 +33,16 @@ import {
   ownAgentSharedSchema,
   ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
+  ownAgentAcceptSchema,
+  ownAgentAssistantSchema,
+  ownAgentDraftRequestSchema,
+  ownAgentIdentitySchema,
+  ownAgentIssuedTokenSchema,
+  ownAgentProposalSchema,
+  ownAgentTokenCallerSchema,
+  ownAgentTokenCallSchema,
+  ownAgentTokenSchema,
+  publicProcedure,
   router,
   scopedProcedure,
   TRPCError,
@@ -59,6 +69,8 @@ import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirecto
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
 import { dryRunToolCall, ownAgentAnalytics, ownAgentHolds, OwnTestRunStore } from './dry-run.js';
 import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
+import { OwnIdentityStore, tokenLifetime } from './identity.js';
+import { assistantEngine, draftAgent, OwnerDecisionPending } from './assistant.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
 import type { SupportTierLaw } from '../support-agent/tier-gate.js';
@@ -174,6 +186,10 @@ export interface OwnToolDeps {
   readonly supportTierLaw?: SupportTierLaw | null;
   /** Identity's account read, which a co-owner must pass as one active person (AG-builder-03); absent refuses. */
   readonly accounts?: OwnAccountDirectory | null;
+  /** The owner's lifetime of an agent's token, in minutes (AG-identity-01); blank refuses agents.identity.lifetime_unset. */
+  readonly tokenLifetimeMinutes?: number | null;
+  /** The owner's model for the drafting assistant (AG-builder-03); blank refuses owner.decision. */
+  readonly assistantModel?: string | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -440,6 +456,93 @@ export function ownRouter(
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             return new OwnConsentStore(sqlOf(sql)).revoke(ctx.principal.userId, agent.id, input.dataClass);
           });
+        }),
+    }),
+
+    /**
+     * The agent's own identity (AG-identity-01; J-agents-03 #5): its token's owner, scopes and expiry. Issuing needs the
+     * owner's token lifetime (blank refuses agents.identity.lifetime_unset, and nothing is issued); the token is shown
+     * once. Revoking makes the next call made with it fail.
+     */
+    identity: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentIdentitySchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return { token: await new OwnIdentityStore(sqlOf(sql)).latest(ctx.principal.userId, agent.id) };
+          });
+        }),
+      issue: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentIssuedTokenSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const lifetime = tokenLifetime(tooling.tokenLifetimeMinutes);
+            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime);
+          });
+        }),
+      revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentTokenSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnIdentityStore(sqlOf(sql)).revoke(ctx.principal.userId, agent.id);
+          });
+        }),
+      /**
+       * A call the agent makes with its own token, not the person's session: who it acts as. Refused by name when the
+       * token is unknown, revoked or expired, and while its owner's account is frozen, closed or cannot be read.
+       */
+      agentCall: publicProcedure
+        .input(ownAgentTokenCallSchema)
+        .output(ownAgentTokenCallerSchema)
+        .mutation(async ({ input }) => {
+          try {
+            return await new OwnIdentityStore(sqlOf(sql)).call(input.token, tooling.accounts ?? null);
+          } catch (err) {
+            if (!(err instanceof OwnAgentRefusal)) throw err;
+            const owner = err.code.startsWith('agents.identity.owner_');
+            throw new TRPCError({ code: owner ? 'FORBIDDEN' : 'UNAUTHORIZED', message: err.code, cause: err });
+          }
+        }),
+    }),
+
+    /**
+     * Drafting with the assistant (AG-builder-03; J-agents-03 #6). While the owner has not chosen the model a draft
+     * refuses owner.decision; the rest of the builder works without it. A draft's tools passed the validator, and
+     * nothing is saved until the person accepts it.
+     */
+    assistant: router({
+      state: scopedProcedure('agents:read', { module: 'agents' })
+        .output(ownAgentAssistantSchema)
+        .query(() => ({ engine: assistantEngine(tooling.assistantModel) })),
+      draft: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentDraftRequestSchema)
+        .output(ownAgentProposalSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          try {
+            return draftAgent(assistantEngine(tooling.assistantModel), input.description);
+          } catch (err) {
+            if (err instanceof OwnerDecisionPending) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.code });
+            if (err instanceof OwnAgentRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: err.code, cause: err });
+            throw err;
+          }
+        }),
+      accept: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentAcceptSchema)
+        .output(ownAgentSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          const { acceptKey, ...draft } = input;
+          return guard(() => storeOf(sql).createDrafted(ctx.principal.userId, { ...draft, perSessionCap: null }, `assistant:${acceptKey}`));
         }),
     }),
 
