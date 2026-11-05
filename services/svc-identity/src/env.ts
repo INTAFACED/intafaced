@@ -444,6 +444,27 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(100).optional()),
       /**
+       * Receive by email or phone (PP-send-request-03): how many extra addresses an account may add (1 to 20), how long
+       * the code sent to one works in seconds (up to a day), and how many wrong codes it takes (1 to 10). Blank / unset →
+       * unpublished; adding refuses (`identity.receive_contact_unset`). Never invent a default: the stack sets labelled
+       * TEST values only.
+       */
+      IDENTITY_RECEIVE_CONTACT_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(20).optional()),
+      IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(10).optional()),
+      /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
        */

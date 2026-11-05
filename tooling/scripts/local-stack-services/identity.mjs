@@ -108,6 +108,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
     // Handle change cap (J-pay-03 #2): a TEST value from the profile file, not an owner decision.
     IDENTITY_HANDLE_CHANGE_MAX: testValue('IDENTITY_HANDLE_CHANGE_MAX'),
+    // Receive by email or phone (J-pay-03 #6): TEST values from the profile file, not owner decisions. No text sender is
+    // built in, so adding a phone shows the "texts are switched off" notice on every stack.
+    IDENTITY_RECEIVE_CONTACT_MAX: testValue('IDENTITY_RECEIVE_CONTACT_MAX'),
+    IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_TTL_SECONDS'),
+    IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS: testValue('IDENTITY_RECEIVE_CONTACT_CODE_MAX_ATTEMPTS'),
     // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
     IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
     // `LOCAL_STACK_IDENTITY_BREACH_LIST=off` on a start or restart leaves the breached-password list unset, as a build

@@ -90,7 +90,8 @@ export type MailPurpose =
   | 'factor-changed'
   | 'support-recovery'
   | 'support-recovery-used'
-  | 'appeal-decided';
+  | 'appeal-decided'
+  | 'receive-contact-code';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

@@ -6,6 +6,7 @@
 //  - /api/identity/trpc/handle.get            (GET)   own handle settings        [PP-send-request-03]
 //  - /api/identity/trpc/handle.change         (POST)  change own handle (TEST cap below)
 //  - /api/identity/trpc/handle.setDiscoverable (POST) findable by handle or not
+//  - /api/identity/trpc/receiveContacts.list  (GET)   own ways to receive (none here; TEST cap 3) [J-pay-03 #6]
 //  - /api/bank/trpc/spaces.list               (GET)   the customer's own balances
 //  - /api/bank/trpc/transfers.quote           (GET)   published limits and fee (TEST figures below)
 //  - /api/bank/trpc/transfers.toUser          (POST)  the payment
@@ -77,6 +78,7 @@ export async function mock(page, overrides = {}) {
     savedRecipients: () => trpc([]),
     payeeCard: () => trpc({ found: false }),
     handleGet: () => trpc(handleView()),
+    receiveContacts: () => trpc({ contacts: [], max: 3 }),
     handleChange: ({ body }) => {
       const next = String(body.handle).trim().replace(/^@/, '');
       if (!/^[a-zA-Z0-9_]*$/.test(next))
@@ -136,6 +138,7 @@ export async function mock(page, overrides = {}) {
       'recipients.list': 'savedRecipients',
       'users.payeeCard': 'payeeCard',
       'handle.get': 'handleGet',
+      'receiveContacts.list': 'receiveContacts',
       'handle.change': 'handleChange',
       'handle.setDiscoverable': 'handleDiscoverable',
       'spaces.list': 'spaces',

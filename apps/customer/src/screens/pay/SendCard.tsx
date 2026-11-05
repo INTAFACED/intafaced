@@ -31,6 +31,8 @@ import {
   recordSent,
   refusalCopy,
   resolveHandle,
+  resolveContact,
+  contactKind,
   resolvePayQr,
   cleanHandle,
   confirmWithStepUp,
@@ -263,14 +265,17 @@ function SendForm({
       if (id === userId.toLowerCase()) return setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
       return setRecipient({ kind: 'found', ...payee(id, null) });
     }
-    const handle = cleanHandle(raw);
-    if (handle === null) return setRecipient({ kind: 'problem', text: payCopy.t('Bad handle') });
+    // An email or a phone the person added as a way to receive (PP-send-request-03) finds them like a handle does.
+    const contact = contactKind(raw) !== null;
+    const handle = contact ? null : cleanHandle(raw);
+    if (!contact && handle === null) return setRecipient({ kind: 'problem', text: payCopy.t('Bad handle') });
     const mine = ++lookup.current.id;
     lookup.current.controller?.abort();
     const controller = new AbortController();
     lookup.current.controller = controller;
     setRecipient({ kind: 'checking' });
-    const outcome = await resolveHandle(api, handle, controller.signal);
+    const outcome =
+      handle === null ? await resolveContact(api, raw, controller.signal) : await resolveHandle(api, handle, controller.signal);
     if (lookup.current.id !== mine || controller.signal.aborted) return;
     switch (outcome.kind) {
       case 'found':
@@ -282,7 +287,10 @@ function SendForm({
           return setRecipient({ kind: 'found', ...who });
         }
       case 'notFound':
-        return setRecipient({ kind: 'problem', text: payCopy.t('Handle not found', { handle }) });
+        return setRecipient({
+          kind: 'problem',
+          text: handle === null ? payCopy.t('Contact not found') : payCopy.t('Handle not found', { handle }),
+        });
       case 'rateLimited':
         return setRecipient({ kind: 'problem', text: payCopy.t('Lookup rate limited'), retry: true });
       case 'unavailable':
@@ -830,7 +838,7 @@ function SendForm({
           {byHandle ? payCopy.t('To') : payCopy.t('Account ID')}
         </label>
         <div className="pay-to">
-          {byHandle ? (
+          {byHandle && contactKind(to) === null ? (
             <span data-testid="pay-to__at" className="pay-to__at" aria-hidden="true">
               @
             </span>
@@ -844,7 +852,7 @@ function SendForm({
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            maxLength={byHandle ? 33 : 64}
+            maxLength={byHandle ? 320 : 64}
             placeholder={byHandle ? payCopy.t('Handle placeholder') : payCopy.t('Account ID placeholder')}
             aria-label={byHandle ? payCopy.t('Handle') : payCopy.t('Account ID')}
             aria-invalid={recipient.kind === 'problem' || undefined}
