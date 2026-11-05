@@ -149,7 +149,14 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
     expect(await held(BOB, 'recv-held-1')).toBe('7');
     const [waiting, ...rest] = await bob.holds.waiting();
     expect(rest).toHaveLength(0);
-    expect(waiting).toMatchObject({ transferId: 'recv-held-1', state: 'held', reasonClass: 'stranger', amount: '7', assetId: 'USDT', fromHandle: 'cy' });
+    expect(waiting).toMatchObject({
+      transferId: 'recv-held-1',
+      state: 'held',
+      reasonClass: 'stranger',
+      amount: '7',
+      assetId: 'USDT',
+      fromHandle: 'cy',
+    });
     const releaseAt = Date.parse(waiting!.releaseAt);
     expect(releaseAt).toBeGreaterThanOrEqual(before + 30 * DAY_MS);
     expect(releaseAt).toBeLessThanOrEqual(Date.now() + 30 * DAY_MS);
@@ -203,7 +210,9 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
       idempotencyKey: 'recv-request-ask-1',
     });
     const cySpace = await bank.spaces.ensurePrimary(CY, 'USDT');
-    await (await caller(CY)).transfers.toUser({
+    await (
+      await caller(CY)
+    ).transfers.toUser({
       transferId: 'recv-request-1',
       fromSpaceId: cySpace.id,
       toUserId: BOB,
@@ -227,7 +236,9 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
         });
     }
     await expect((await caller(BOB)).holds.accept({ transferId: 'no-such-hold' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
-    await expect((await caller(BOB, ['bank:read'])).holds.accept({ transferId: 'recv-own-1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect((await caller(BOB, ['bank:read'])).holds.accept({ transferId: 'recv-own-1' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     expect(await held(BOB, 'recv-own-1')).toBe('2');
   });
 
