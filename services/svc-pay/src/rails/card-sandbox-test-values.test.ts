@@ -1,5 +1,6 @@
 import { SANDBOX_CARD_TEST_VALUES } from '@intafaced/contracts/developer-sandboxes';
 import { describe, expect, it } from 'vitest';
+import { safeFailure } from '../merchant-failure.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN, SANDBOX_ERROR_TOKEN, SANDBOX_FUNDS_HELD_TOKEN } from './card-sandbox.js';
 
 /**
@@ -29,6 +30,8 @@ describe('sandbox card test values match the card-sandbox rail', () => {
         instrument: { kind: 'card', token },
       });
       expect(result).toMatchObject({ ok: false, status: 'failed', failureCode });
+      // The code the page names is the one the payment then carries on every read: the catalogue's (merchant-failure.ts).
+      expect(safeFailure(result.ok ? null : result.failureCode)?.code).toBe(failureCode);
     },
   );
 

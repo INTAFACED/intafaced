@@ -10,6 +10,7 @@
 import {
   accountStateSchema,
   serviceCallSigner,
+  supportCommentSchema,
   supportKbArticleSchema,
   supportTicketSchema,
   type ServiceAuthMode,
@@ -35,6 +36,13 @@ export type DeskAccountResult =
   | { readonly status: 'unread' }
   | { readonly status: 'unreachable' };
 
+/** A comment the desk stored on the person's own request, or why it stored none. */
+export type DeskCommentResult =
+  | { readonly status: 'ok'; readonly comment: { readonly id: string; readonly ticketId: string; readonly createdAt: string } }
+  | { readonly status: 'missing' }
+  | { readonly status: 'refused'; readonly code: string }
+  | { readonly status: 'unreachable' };
+
 export type SupportDeskPort = {
   /**
    * Search published KB. `limit` is owner-published page size — omit refuses
@@ -44,6 +52,14 @@ export type SupportDeskPort = {
   getKb(id: string): Promise<DeskSearchResult>;
   readTicket(ticketId: string, headers?: Readonly<Record<string, string>>): Promise<DeskTicketResult>;
   readAccount(userId: string): Promise<DeskAccountResult>;
+  /**
+   * A comment on the person's own request, as the person (forwarded principal), on `clientRequestId`: sent again it
+   * answers with the first comment and the desk writes no second one. Absent, the comment's door is not wired.
+   */
+  commentTicket?(
+    input: { readonly ticketId: string; readonly body: string; readonly clientRequestId: string },
+    headers: Readonly<Record<string, string>>,
+  ): Promise<DeskCommentResult>;
 };
 
 function articleFromContract(id: string, titleKey: string, bodyKey: string): KbArticleFixture {
@@ -97,6 +113,7 @@ export function createFixtureSupportDesk(rows: {
   const tickets = rows.tickets ?? [];
   const accounts = rows.accounts ?? [];
   const unread = rows.unreadAccounts === true;
+  const comments = new Map<string, { id: string; ticketId: string; createdAt: string }>();
 
   return {
     async searchKb(query, limit) {
@@ -128,6 +145,14 @@ export function createFixtureSupportDesk(rows: {
     async readTicket(ticketId) {
       const hit = tickets.find((t) => t.ticketId === ticketId);
       return hit ? { status: 'ok', ticket: hit } : { status: 'missing' };
+    },
+    async commentTicket(input) {
+      if (!tickets.some((t) => t.ticketId === input.ticketId)) return { status: 'missing' };
+      const stored = comments.get(input.clientRequestId);
+      if (stored) return { status: 'ok', comment: stored };
+      const comment = { id: `fixture-comment-${comments.size + 1}`, ticketId: input.ticketId, createdAt: new Date(0).toISOString() };
+      comments.set(input.clientRequestId, comment);
+      return { status: 'ok', comment };
     },
     async readAccount(userId) {
       if (unread) return { status: 'unread' };
@@ -221,6 +246,27 @@ export function createHttpSupportDeskPort(options: HttpSupportDeskOptions): Supp
       if (!parsed.success) return { status: 'unreachable' };
       if (parsed.data.id.trim() !== ticketId) return { status: 'missing' };
       return { status: 'ok', ticket: ticketFromContract(parsed.data) };
+    },
+    async commentTicket(input, headers) {
+      let response: Response;
+      try {
+        response = await fetchImpl(`${supportUrl}/trpc/comment`, {
+          method: 'POST',
+          headers: { accept: 'application/json', 'content-type': 'application/json', ...headers },
+          body: JSON.stringify(input),
+        });
+      } catch {
+        return { status: 'unreachable' };
+      }
+      if (response.status === 404) return { status: 'missing' };
+      if (!response.ok) {
+        // The desk refused it (for example a closed request; its message is words, not a code); anything else is the
+        // desk unreachable.
+        return response.status >= 400 && response.status < 500 ? { status: 'refused', code: 'desk_refused' } : { status: 'unreachable' };
+      }
+      const parsed = supportCommentSchema.safeParse(unwrapTrpc(await response.json().catch(() => null)));
+      if (!parsed.success || parsed.data.ticketId !== input.ticketId) return { status: 'unreachable' };
+      return { status: 'ok', comment: { id: parsed.data.id, ticketId: parsed.data.ticketId, createdAt: parsed.data.createdAt } };
     },
     async readAccount(userId) {
       if (!identityUrl) return { status: 'unread' };

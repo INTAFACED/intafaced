@@ -289,6 +289,89 @@ describe('futures position fields', () => {
     expect((await positions.get(ALICE, long.id!)).contractSize).toBe('0.01');
   });
 
+  it('the margin summary reads the same marked rows: equity, available, used margin and margin ratio as exact decimals', async () => {
+    const long = await openSide('summary-long', 'long');
+    await positions.addIsolatedMargin({
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      amount: amt('125.000000000000000001'),
+      positionId: long.id!,
+      clientAdjustmentId: 'summary-add',
+    });
+    feed('51000');
+    const row = await positions.get(ALICE, long.id!);
+    const summary = await positions.marginSummary(ALICE);
+    expect(row.collateral).toBe('5125.000000000000000001');
+    expect(summary.asset).toBe('USDT');
+    expect(summary.positions).toBe(1);
+    expect(summary.usedMargin).toBe(row.collateral);
+    expect(summary.totalInitialMargin).toBe('5000');
+    expect(summary.available).toBe(await available());
+    expect(summary.totalMaintenanceMargin).toBe(row.maintenanceMargin);
+    const equity = amt(row.collateral!) + amt(row.unrealizedPnl!);
+    expect(summary.equity).toBe(formatAmount(equity as Amount));
+    expect(summary.equity).toBe('6125.000000000000000001');
+    expect(summary.marginRatio).toBe(formatAmount(((amt(row.maintenanceMargin!) * 10n ** 18n) / equity) as Amount));
+    expect(summary.missing.map((m) => m.field)).not.toContain('maintenanceMargin');
+    expect(summary.missing.map((m) => m.field)).not.toContain('unrealizedPnl');
+
+    // No mark: the figures that need it are null and named, never zero.
+    marks.clear(MARKET);
+    const dark = await positions.marginSummary(ALICE);
+    expect(dark.totalMaintenanceMargin).toBeNull();
+    expect(dark.equity).toBeNull();
+    expect(dark.marginRatio).toBeNull();
+    expect(dark.usedMargin).toBe('5125.000000000000000001');
+    expect(dark.missing).toContainEqual({ field: 'maintenanceMargin', code: 'missing_input' });
+  });
+
+  it('positions in two margin assets: the summary adds nothing up across them and names why', async () => {
+    await openSide('summary-usdt', 'long');
+    const usdc = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    await sql`
+      INSERT INTO trade.markets (
+        id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at
+      ) VALUES (
+        ${usdc}, 'BTC/USDC-PERP', 'BTC', 'USDC', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC/USDC-PERP', now()
+      )
+    `;
+    marks.set({ marketId: usdc, price: '50000', quality: 'mid', asOfMs: NOW.getTime() });
+    await ledger.post(
+      recipes.deposit({ userId: ALICE, assetId: 'USDC', amount: amt('100000'), rail: 'test', railRef: 'fund-usdc-summary' }),
+    );
+    await positions.open({
+      clientOpenId: 'summary-usdc',
+      userId: ALICE,
+      symbol: 'BTC/USDC-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+      positionMode: 'one_way',
+    });
+    const summary = await positions.marginSummary(ALICE, 'USDT');
+    expect(summary.positions).toBe(2);
+    expect(summary.asset).toBeNull();
+    expect(summary.usedMargin).toBeNull();
+    expect(summary.equity).toBeNull();
+    expect(summary.marginRatio).toBeNull();
+    expect(summary.available).toBeNull();
+    expect(summary.missing).toEqual([{ field: 'asset', code: 'margin_assets_mixed' }]);
+  });
+
+  it('with no position, the summary reads the free balance of a futures margin asset it is asked for, and nothing else', async () => {
+    const flat = await positions.marginSummary(ALICE, 'USDT');
+    expect(flat.asset).toBe('USDT');
+    expect(flat.available).toBe('100000');
+    expect(flat.usedMargin).toBe('0');
+    const other = await positions.marginSummary(ALICE, 'EUR');
+    expect(other.asset).toBeNull();
+    expect(other.available).toBeNull();
+    expect(other.missing).toContainEqual({ field: 'available', code: 'missing_input' });
+    const bob = await positions.marginSummary(BOB, 'USDT');
+    expect(bob.available).toBe('0');
+  });
+
   it('percentage is CCXT percent points, half-up when unrealised over initial margin does not terminate', () => {
     expect(formatAmount(positionPercentage(amt('1'), amt('3')))).toBe('33.333333333333333333');
   });

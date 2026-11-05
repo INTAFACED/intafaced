@@ -182,21 +182,42 @@ export const ownAgentConsentSchema = z.object({
 });
 export type OwnAgentConsent = z.infer<typeof ownAgentConsentSchema>;
 
-/** A tool call a rule held for the person: the tool has not run (the request AG-approvals-01 decides). */
+/**
+ * The states of an approval request (AG-approvals-01). `waiting` until its `expiresAt`, then `expired`; `approved` once
+ * the person approves it (the tool runs once and `result` is its first answer, null until it has run); `failed` when the
+ * tool's door refused the approved call for good (`failureCode`), so it did not run; `rejected`; `replaced` by the
+ * person's edit, which is a new request (`replacedBy`) whose approval is its own.
+ */
+export const OWN_AGENT_APPROVAL_STATUSES = ['waiting', 'approved', 'rejected', 'expired', 'replaced', 'failed'] as const;
+export type OwnAgentApprovalStatus = (typeof OWN_AGENT_APPROVAL_STATUSES)[number];
+
+/** A tool call a rule held for the person, and the person's decision on it. The tool runs only once it is approved. */
 export const ownAgentApprovalRequestSchema = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid(),
   tool: z.string(),
   input: z.record(z.string(), z.string()),
-  status: z.literal('waiting'),
+  status: z.enum(OWN_AGENT_APPROVAL_STATUSES),
+  /** The typed refusal the agent's call reads once the request is rejected, expired, replaced or failed; null otherwise. */
+  refusalCode: z
+    .enum(['agents.approval.rejected', 'agents.approval.expired', 'agents.approval.replaced', 'agents.approval.failed'])
+    .nullable(),
+  /** Why the door refused a failed request (`agents.tool_refused.<reason>`); null otherwise. */
+  failureCode: z.string().nullable(),
   ruleId: z.string().uuid().nullable(),
   createdAt: z.string(),
+  expiresAt: z.string(),
+  decidedAt: z.string().nullable(),
+  replacedBy: z.string().uuid().nullable(),
+  /** The tool's first answer once an approved request has run; null before. A repeated approve returns this. */
+  result: z.unknown().nullable(),
+  ranAt: z.string().nullable(),
 });
 export type OwnAgentApprovalRequest = z.infer<typeof ownAgentApprovalRequestSchema>;
 
 /**
- * `own.inbox`: the Approvals inbox (AG-approvals-01). Every request a rule holds for the person, across every agent of
- * their own, newest first, each with the agent it belongs to. None of them has run.
+ * `own.inbox`: the Approvals inbox (AG-approvals-01). Every request a rule held for the person, across every agent of
+ * their own, newest first, each with the agent it belongs to and its state.
  */
 export const ownAgentInboxRowSchema = ownAgentApprovalRequestSchema.extend({
   agentId: z.string().uuid(),
@@ -218,6 +239,17 @@ export const ownAgentToolCallSchema = z.discriminatedUnion('outcome', [
   }),
 ]);
 export type OwnAgentToolCall = z.infer<typeof ownAgentToolCallSchema>;
+
+/**
+ * `own.approval.approve`: the request, approved, with the tool's first answer. `repeated` is true when it had already
+ * run, so this answer is the first one and the tool did not run again.
+ */
+export const ownAgentApprovalApprovedSchema = z.object({ request: ownAgentApprovalRequestSchema, repeated: z.boolean() });
+export type OwnAgentApprovalApproved = z.infer<typeof ownAgentApprovalApprovedSchema>;
+
+/** `own.approval.edit`: the replaced request and the new one for the new input, which waits for its own approval. */
+export const ownAgentApprovalEditedSchema = z.object({ replaced: ownAgentApprovalRequestSchema, request: ownAgentApprovalRequestSchema });
+export type OwnAgentApprovalEdited = z.infer<typeof ownAgentApprovalEditedSchema>;
 
 /**
  * EVALUATIONS (AG-testing-02). A person's own agent's test set is its cases: an input and the answer expected. An

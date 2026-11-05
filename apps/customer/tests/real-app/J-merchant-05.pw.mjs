@@ -684,3 +684,8 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
     await expect(page.locator('body')).not.toContainText('5.00 USDT');
   }
 });
+
+// #5 (a stored fee shows its parts, the unlisted decline code, the decline rate: M-adv-payments-core-02) has no test here
+// for now. #7175 added it, and it was withdrawn with #7176, whose merchant controls its fee needs (#7183: Real-app journeys
+// run 1247 on #7176's merge failed J-portfolio-04 #1-#7, money steps, in both attempts). It never passed on a main journeys
+// run before #7175, is not in docs/runbooks/journey-baseline.json, and has no regression issue. It comes back in #7184.
