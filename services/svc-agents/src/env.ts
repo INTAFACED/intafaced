@@ -280,6 +280,12 @@ const schema = serviceEnvSchema
        * the rest of the builder works. `test-engine` is the TEST engine of a test deployment, which calls no model.
        */
       AGENTS_OWN_ASSISTANT_MODEL: blankAsAbsent(z.string().max(200).optional()),
+      /**
+       * Owner value: how long a call of a person's own agent that a rule holds waits for the person's decision, in whole
+       * seconds, 1 to 604800 (AG-approvals-01). After it the request reads expired and can never be approved. Blank
+       * refuses holding any call with agents.approval.ttl_unset: nothing is stored and the tool does not run.
+       */
+      AGENTS_APPROVAL_TTL_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
       // ── Operator agent log (AG-audit-01, AG-audit-02) ───────────────────────
       // Owner values. Each one blank stays unset, and the read that needs it refuses with its own code (never invented).
       /** Comma-separated reasons an operator picks from to read a customer's agent log. Blank refuses agents.log_read_reason_unset. */

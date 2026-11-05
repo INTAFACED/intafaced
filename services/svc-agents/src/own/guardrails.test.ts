@@ -36,6 +36,8 @@ const migrations = readdirSync(drizzleDir)
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 const USER = '11111111-1111-4111-8111-111111111111';
+/** A support request the desk does not hold: a comment on it is refused for good. */
+const MISSING_TICKET = '44444444-4444-4444-8444-444444444444';
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const SECRET = 'an-agents-own-guardrails-test-secret-of-32-plus!';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
@@ -52,12 +54,12 @@ const TIER_LAWS = parseTierLaws(
   }),
 );
 
-function callerFor(userId: string) {
+function callerFor(userId: string, scopes: readonly string[] = PERSON) {
   const principal = {
     sub: userId,
     userId,
     sid: '55555555-5555-4555-8555-555555555555',
-    scopes: PERSON,
+    scopes,
     tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
@@ -119,6 +121,9 @@ if (!available) {
   await assertTestDatabase(sql, 'svc-agents');
   let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
   let searches: string[];
+  /** Every comment the desk was asked for, by its key, and what identity answers for the owner's account. */
+  let comments: Array<{ ticketId: string; body: string; clientRequestId: string }>;
+  let account: 'active' | 'frozen' | 'unreachable';
 
   const desk: SupportDeskPort = {
     async searchKb(query) {
@@ -131,12 +136,19 @@ if (!available) {
     async readTicket() {
       return { status: 'unreachable' };
     },
-    async readAccount() {
-      return { status: 'unreachable' };
+    async readAccount(userId) {
+      if (account === 'unreachable') return { status: 'unreachable' };
+      return { status: 'ok', account: { userId, status: account, kycTier: 1 } } as never;
+    },
+    async commentTicket(input) {
+      if (input.ticketId === MISSING_TICKET) return { status: 'missing' };
+      comments.push(input);
+      const first = comments.findIndex((c) => c.clientRequestId === input.clientRequestId);
+      return { status: 'ok', comment: { id: `TEST-comment-${first + 1}`, ticketId: input.ticketId, createdAt: new Date(0).toISOString() } };
     },
   };
 
-  function people(baseline: PolicyBaseline = TEST_BASELINE) {
+  function people(baseline: PolicyBaseline = TEST_BASELINE, approvalTtlSeconds: number | null = 3600) {
     const table = parseRoutingTable({
       routes: [
         {
@@ -165,8 +177,14 @@ if (!available) {
       supportDesk: desk,
       tierLaws: TIER_LAWS,
       policyBaseline: baseline,
+      ownApprovalTtlSeconds: approvalTtlSeconds,
     });
-    return { person: router.createCaller(callerFor(USER)), other: router.createCaller(callerFor(OTHER)) };
+    return {
+      person: router.createCaller(callerFor(USER)),
+      other: router.createCaller(callerFor(OTHER)),
+      /** The same person with execute but without identity:write: not their own signed-in session. */
+      notSession: router.createCaller(callerFor(USER, ['agents:read', 'agents:execute'])),
+    };
   }
   type Person = ReturnType<typeof people>['person'];
 
@@ -212,6 +230,8 @@ if (!available) {
       RESTART IDENTITY CASCADE
     `;
     searches = [];
+    comments = [];
+    account = 'unreachable';
   });
 
   afterEach(async () => {
@@ -321,6 +341,236 @@ if (!available) {
       expect(await person.own.inbox({ limit: 10 })).toEqual([{ ...held.request, agentId: id, agentName: 'TEST helper' }]);
       // Another person's inbox never shows it.
       expect(await other.own.inbox({ limit: 10 })).toEqual([]);
+    });
+  });
+
+  describe('deciding a held call (J-agents-05 #5 #6)', () => {
+    const TICKET = '33333333-3333-4333-8333-333333333333';
+    const args = { ticketId: TICKET, body: 'TEST comment' };
+
+    /** An agent whose comment the rule holds, and one held comment of it. */
+    async function held(person: Person, requestId = 'try:comment:1', input: Record<string, string> = args) {
+      const agent = await agentWithSession(person);
+      await person.own.consents.grant({ id: agent.id, dataClass: 'live_write' });
+      await person.own.rules.save({ id: agent.id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      const call = await person.own.tool.try({ ...agent, requestId, tool: 'support.ticket.comment', input });
+      if (call.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      return { ...agent, request: call.request };
+    }
+
+    it('a blank wait refuses holding the call: nothing is stored and the tool does not run', async () => {
+      const { person } = people(TEST_BASELINE, null);
+      const { id, sessionId } = await agentWithSession(person);
+      await person.own.consents.grant({ id, dataClass: 'live_write' });
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      await expect(
+        person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'agents.approval.ttl_unset' });
+      expect(await requests()).toBe(0);
+    });
+
+    it('edit replaces the request with a new one; the old one can never be approved; approve runs once and a repeat returns the first result', async () => {
+      const { person } = people();
+      account = 'active';
+      const { id, sessionId, request } = await held(person);
+      expect(request).toMatchObject({ status: 'waiting', refusalCode: null, decidedAt: null, result: null, ranAt: null });
+      const edited = { ...args, body: 'TEST comment, edited' };
+      const { replaced, request: fresh } = await person.own.approval.edit({ requestId: request.id, input: edited });
+      expect(replaced).toMatchObject({ id: request.id, status: 'replaced', replacedBy: fresh.id, refusalCode: 'agents.approval.replaced' });
+      expect(fresh).toMatchObject({ sessionId, tool: 'support.ticket.comment', input: edited, status: 'waiting', ruleId: request.ruleId });
+      // The same edit again is the same new request; another edit of the replaced one refuses.
+      expect((await person.own.approval.edit({ requestId: request.id, input: edited })).request.id).toBe(fresh.id);
+      await expect(person.own.approval.edit({ requestId: request.id, input: { ...args, body: 'TEST other' } })).rejects.toMatchObject({
+        message: 'agents.approval.replaced',
+      });
+      // The old approval does not carry over: the replaced request refuses, and nothing ran.
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.approval.replaced',
+      });
+      expect(comments).toEqual([]);
+      expect(await executed('support.ticket.comment')).toBe(0);
+
+      const approved = await person.own.approval.approve({ requestId: fresh.id });
+      expect(approved.repeated).toBe(false);
+      expect(approved.request).toMatchObject({ id: fresh.id, status: 'approved', refusalCode: null });
+      expect(approved.request.result).toEqual({
+        tool: 'support.ticket.comment',
+        ticketId: TICKET,
+        commentId: 'TEST-comment-1',
+        commented: 'yes',
+      });
+      expect(comments).toEqual([{ ticketId: TICKET, body: 'TEST comment, edited', clientRequestId: `agents:approve:${fresh.id}` }]);
+      expect(await executed('support.ticket.comment')).toBe(1);
+      const again = await person.own.approval.approve({ requestId: fresh.id });
+      expect(again).toEqual({ request: approved.request, repeated: true });
+      expect(comments).toHaveLength(1);
+      expect(await executed('support.ticket.comment')).toBe(1);
+      // The agent's own call of the original id follows the edit and reads what ran; rejecting the approved one refuses.
+      expect(await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args })).toEqual(
+        { outcome: 'ran', tool: 'support.ticket.comment', dataClass: 'live_write', result: approved.request.result },
+      );
+      await expect(person.own.approval.reject({ requestId: fresh.id })).rejects.toMatchObject({ message: 'agents.approval.decided' });
+      // An edit names only the tool's declared fields, none blank.
+      const other = await held(person, 'try:comment:2');
+      const badEdits: Array<Record<string, string>> = [
+        { ...args, amount: '1' },
+        { ...args, body: '  ' },
+        {},
+        { ticketId: TICKET },
+        { ...args, ticketId: 'x'.repeat(121) },
+      ];
+      for (const input of badEdits) {
+        await expect(person.own.approval.edit({ requestId: other.request.id, input })).rejects.toMatchObject({
+          message: 'agents.approval.input_invalid',
+        });
+      }
+    });
+
+    it('reject ends the step with a typed refusal the call reads; an expired request refuses and never runs', async () => {
+      const { person } = people();
+      account = 'active';
+      const { id, sessionId, request } = await held(person);
+      const rejected = await person.own.approval.reject({ requestId: request.id });
+      expect(rejected).toMatchObject({ status: 'rejected', refusalCode: 'agents.approval.rejected', decidedAt: expect.any(String) });
+      expect(await person.own.approval.reject({ requestId: request.id })).toEqual(rejected);
+      await expect(
+        person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.approval.rejected' });
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ message: 'agents.approval.rejected' });
+
+      const late = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:3', tool: 'support.ticket.comment', input: args });
+      if (late.outcome !== 'waiting') throw new Error('held');
+      await sql`UPDATE agents.own_agent_approval_requests SET expires_at = now() - interval '1 second' WHERE id = ${late.request.id}`;
+      const [row] = (await person.own.inbox({ limit: 10 })).filter((r) => r.id === late.request.id);
+      expect(row).toMatchObject({ status: 'expired', refusalCode: 'agents.approval.expired' });
+      expect((await person.own.runs({ id, limit: 10 })).filter((r) => r.requestId === late.request.id)).toEqual([]);
+      await expect(person.own.approval.approve({ requestId: late.request.id })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.approval.expired',
+      });
+      await expect(person.own.approval.edit({ requestId: late.request.id, input: args })).rejects.toMatchObject({
+        message: 'agents.approval.expired',
+      });
+      await expect(
+        person.own.tool.try({ id, sessionId, requestId: 'try:comment:3', tool: 'support.ticket.comment', input: args }),
+      ).rejects.toMatchObject({ message: 'agents.approval.expired' });
+      expect(comments).toEqual([]);
+      expect(await executed('support.ticket.comment')).toBe(0);
+    });
+
+    it('only the person’s own signed-in session approves: a principal without identity:write is refused and nothing runs', async () => {
+      const { person, notSession } = people();
+      account = 'active';
+      const { request } = await held(person);
+      await expect(notSession.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect((await person.own.inbox({ limit: 10 }))[0]).toMatchObject({ id: request.id, status: 'waiting' });
+      expect(comments).toEqual([]);
+    });
+
+    it('runs the gates again at approve: a withdrawn consent or a hand-off rule refuses, still waiting, nothing ran', async () => {
+      const { person } = people();
+      account = 'active';
+      const { id, request } = await held(person);
+      await person.own.consents.revoke({ id, dataClass: 'live_write' });
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ message: 'agents.consent_required' });
+      await person.own.consents.grant({ id, dataClass: 'live_write' });
+      await person.own.rules.save({ id, tool: 'support.ticket.comment', choice: 'hand_off' });
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ message: 'agents.rule_hand_off' });
+      expect((await person.own.inbox({ limit: 10 }))[0]).toMatchObject({ id: request.id, status: 'waiting' });
+      expect(comments).toEqual([]);
+      expect(await executed('support.ticket.comment')).toBe(0);
+    });
+
+    it('two approves at once run the tool once: one runs, the other is refused as running or returns the first result', async () => {
+      const { person } = people();
+      account = 'active';
+      const { request } = await held(person);
+      const answers = await Promise.allSettled([
+        person.own.approval.approve({ requestId: request.id }),
+        person.own.approval.approve({ requestId: request.id }),
+      ]);
+      const ran = answers.filter((a) => a.status === 'fulfilled' && !a.value.repeated);
+      expect(ran).toHaveLength(1);
+      for (const answer of answers) {
+        if (answer.status === 'rejected') expect(answer.reason).toMatchObject({ code: 'CONFLICT', message: 'agents.approval.running' });
+      }
+      expect(comments).toHaveLength(1);
+      expect(await executed('support.ticket.comment')).toBe(1);
+      expect((await person.own.approval.approve({ requestId: request.id })).repeated).toBe(true);
+      expect(await executed('support.ticket.comment')).toBe(1);
+    });
+
+    it('a door that refuses for good ends the request failed with its code, which the call reads; no retry runs it', async () => {
+      const { person } = people();
+      account = 'active';
+      const { id, sessionId, request } = await held(person, 'try:comment:missing', { ticketId: MISSING_TICKET, body: 'TEST comment' });
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({
+        message: 'agents.tool_refused.ticket_missing',
+      });
+      const [row] = await person.own.inbox({ limit: 10 });
+      expect(row).toMatchObject({
+        status: 'failed',
+        refusalCode: 'agents.approval.failed',
+        failureCode: 'agents.tool_refused.ticket_missing',
+      });
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({ message: 'agents.approval.failed' });
+      await expect(person.own.approval.reject({ requestId: request.id })).rejects.toMatchObject({ message: 'agents.approval.failed' });
+      await expect(
+        person.own.tool.try({
+          id,
+          sessionId,
+          requestId: 'try:comment:missing',
+          tool: 'support.ticket.comment',
+          input: { ticketId: MISSING_TICKET, body: 'TEST comment' },
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.approval.failed' });
+    });
+
+    it('a held call with no approval door refuses at approve before anything is decided, so it can still be rejected', async () => {
+      const strict = people({ ...TEST_BASELINE, own_data: 'ask_before' }).person;
+      account = 'active';
+      const { id, sessionId } = await agentWithSession(strict);
+      await strict.own.consents.grant({ id, dataClass: 'own_data' });
+      const asked = await strict.own.tool.try({
+        id,
+        sessionId,
+        requestId: 'try:kb:1',
+        tool: 'support.kb.search',
+        input: { kbQuery: 'a', limit: '5' },
+      });
+      if (asked.outcome !== 'waiting') throw new Error('held');
+      await expect(strict.own.approval.approve({ requestId: asked.request.id })).rejects.toMatchObject({
+        message: 'agents.tool_not_wired',
+      });
+      expect((await strict.own.approval.reject({ requestId: asked.request.id })).status).toBe('rejected');
+      expect(searches).toEqual([]);
+    });
+
+    it('fails closed when identity cannot be read or the owner is frozen: refused, still waiting, nothing ran; another person cannot decide', async () => {
+      const { person, other } = people();
+      const { request } = await held(person);
+      account = 'unreachable';
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.identity.owner_unread',
+      });
+      account = 'frozen';
+      await expect(person.own.approval.approve({ requestId: request.id })).rejects.toMatchObject({
+        message: 'agents.identity.owner_frozen',
+      });
+      expect((await person.own.inbox({ limit: 10 }))[0]).toMatchObject({ id: request.id, status: 'waiting' });
+      expect(comments).toEqual([]);
+      expect(await executed('support.ticket.comment')).toBe(0);
+      account = 'active';
+      for (const decide of [
+        () => other.own.approval.approve({ requestId: request.id }),
+        () => other.own.approval.reject({ requestId: request.id }),
+        () => other.own.approval.edit({ requestId: request.id, input: args }),
+      ]) {
+        await expect(decide()).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'agents.approval.not_found' });
+      }
+      expect((await person.own.approval.approve({ requestId: request.id })).request.status).toBe('approved');
     });
   });
 

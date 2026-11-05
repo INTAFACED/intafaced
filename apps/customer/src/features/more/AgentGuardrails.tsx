@@ -15,6 +15,7 @@ import {
   ownAgentSessionSchema,
   ownAgentToolCallSchema,
   type OwnAgent,
+  type OwnAgentApprovalRequest,
   type OwnAgentCatalogue,
   type OwnAgentConsent,
   type OwnAgentDataClass,
@@ -30,7 +31,7 @@ import {
  * request and the tool has not run. Nothing here moves money.
  */
 
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+export type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Words = ReturnType<typeof agentGuardrailsCopy.useCopy>['t'];
 const REFUSAL_REASONS: ReadonlySet<Failed['reason']> = new Set(['error', 'forbidden', 'not_mounted']);
 /** The service's own refusal code, or null for a timeout or anything else the app must word itself. */
@@ -50,10 +51,22 @@ const CODES = [
   'agents.own.not_found',
   'agents.spend.cap_unset',
   'agents.session_closed',
+  'agents.approval.rejected',
+  'agents.approval.expired',
+  'agents.approval.replaced',
+  'agents.approval.decided',
+  'agents.approval.not_found',
+  'agents.approval.ttl_unset',
+  'agents.approval.input_invalid',
+  'agents.approval.running',
+  'agents.approval.failed',
+  'agents.identity.owner_unread',
+  'agents.identity.owner_frozen',
+  'agents.identity.owner_inactive',
 ] as const;
 
 /** A refusal as words with its code beside them, or the app's own account of a failure that is not one. */
-function Answer({ failed }: { failed: Failed }) {
+export function Answer({ failed }: { failed: Failed }) {
   const { t } = agentGuardrailsCopy.useCopy();
   const code = refusalCode(failed);
   if (!code) return <Failure result={failed} />;
@@ -68,6 +81,12 @@ function Answer({ failed }: { failed: Failed }) {
       {words} <code lang="zxx">{code}</code>
     </p>
   );
+}
+
+/** A request's state in words: an approved one says whether its tool has run yet. */
+export function requestStateWords(t: Words, row: Pick<OwnAgentApprovalRequest, 'status' | 'ranAt'>): string {
+  if (row.status === 'approved') return t(row.ranAt ? 'request_ran' : 'request_approved');
+  return t(`request_${row.status}`);
 }
 
 const slug = (tool: string) => tool.replaceAll('.', '_');
@@ -431,7 +450,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
                       .map(([field, value]) => `${field}: ${value}`)
                       .join('; ')}
                   </td>
-                  <td>{t(`request_${row.status}`)}</td>
+                  <td>{requestStateWords(t, row)}</td>
                 </tr>
               ))}
             </DataTable>

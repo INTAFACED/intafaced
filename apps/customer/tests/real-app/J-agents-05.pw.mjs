@@ -1,7 +1,7 @@
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, journeyState, tool } from './stack.mjs';
 
 // J-agents-05, in the running app (docs/roadmap/journeys.json): approve, edit or reject what my agent wants to do. One
 // test per step, titled "J-agents-05 #<n>", run in order on one verified TEST account with an agent of its own that has a
@@ -11,10 +11,15 @@ import { api } from './stack.mjs';
 // #1 and #2 are built (AG-guardrails-02, AG-guardrails-01): the agent's Rules page, the managed baseline (a labelled TEST
 // value on the stack), the consent card for each kind of tool and the Permissions page, with every answer read back
 // from svc-agents. #3 is built (AG-approvals-01): a held call reads waiting for approval on Live runs and is a row of the
-// Approvals inbox, and the tool has not run. The rest fail at their first missing part, quickly (UNBUILT): there is no
-// notice, no approve, edit or reject (the inbox shows them off), no expiry, and no automatic reviewer (AG-approvals-01, -02).
+// Approvals inbox, and the tool has not run. #5 and #6 are built (AG-approvals-01): edit, approve and reject in the inbox,
+// with the comment sent once to the person's own support request (svc-support), a wait after which a request expires
+// (a short TEST wait on a restart), and identity unavailable to svc-agents on a restart (LOCAL_STACK_AGENTS_IDENTITY=off).
+// #4 and #7 fail at their first missing part, quickly (UNBUILT): there is no notice and no automatic reviewer
+// (AG-approvals-01, -02).
 const J = 'J-agents-05';
 const agents = agentsRun(J);
+/** The run's own state file (the one agentsRun keeps): the support request the comments go to. */
+const state = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 
@@ -64,7 +69,52 @@ async function saveRule(page, action, when) {
 }
 
 const COMMENT = { ticketId: 'TEST-ticket', body: 'TEST comment' };
-const RUN_COMMENT = { ticketId: 'TEST-ticket', body: 'TEST comment, run' };
+/** The person's own support request, which the start opened: the comment the agent runs to (#3) goes there. */
+function ticketId() {
+  const { ticketId: id } = state.read();
+  if (!id) throw new Error(`${J} opened no support request, so this step has nowhere to comment`);
+  return id;
+}
+const runComment = () => ({ ticketId: ticketId(), body: 'TEST comment, run' });
+
+/** A call of the person's own agent's service through Edge, as the person: status and body, refusals included. */
+async function ownCall(procedure, input) {
+  const res = await (await api(agents.account())).post(`/api/agents/trpc/own.${procedure}`, input);
+  return { status: res.status, body: res.body };
+}
+/** The comments svc-support holds on the person's request, as the person reads them. */
+async function ticketComments() {
+  const query = `?input=${encodeURIComponent(JSON.stringify({ ticketId: ticketId(), limit: 200 }))}`;
+  const res = await (await api(agents.account())).get(`/api/support/trpc/listComments${query}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+/** The agent's comment call, made as the agent would make it, on a request id the step knows. */
+async function agentComment(requestId, body) {
+  const agent = await ownAgent();
+  const opened = await ownCall('session.open', { id: agent.id });
+  expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
+  const call = {
+    id: agent.id,
+    sessionId: opened.body.result.data.sessionId,
+    requestId,
+    tool: 'support.ticket.comment',
+    input: { ticketId: ticketId(), body },
+  };
+  return { call, answer: await ownCall('tool.try', call) };
+}
+/** Restarts svc-agents with one TEST switch set, then as it was (restartWith sets only `off`; the wait needs `short`). */
+function restartAgents(envKey, value) {
+  const before = process.env[envKey];
+  if (value === undefined) delete process.env[envKey];
+  else process.env[envKey] = value;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'agents');
+  } finally {
+    if (before === undefined) delete process.env[envKey];
+    else process.env[envKey] = before;
+  }
+}
 
 async function openInbox(page) {
   await signIn(page, agents.account());
@@ -95,6 +145,17 @@ test(`${J} starts: a verified TEST account with an agent of its own that has a t
   await limits.getByRole('textbox', { name: /^Per month/ }).fill('5');
   await limits.getByRole('button', { name: 'Save limits' }).click();
   await expect(limits.getByRole('status')).toHaveText('Limits saved.');
+  // The person's own support request, which the agent's comment goes to once it is approved.
+  const opened = await (
+    await api(agents.account())
+  ).post('/api/support/trpc/create', {
+    category: 'account',
+    subject: `TEST ${J} request`,
+    body: `TEST ${J} request the agent comments on`,
+    clientRequestId: `${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:ticket`,
+  });
+  expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
+  state.write({ ticketId: opened.body.result.data.id });
 });
 
 test(`${J} #1 writes "ask before sending a comment", then a rule that acts without asking on a live-write tool: the first saves, the second and any loosening are refused`, async ({
@@ -212,12 +273,12 @@ test(`${J} #3 runs the agent to the gated tool: the tool has not run, the run re
   const before = await ownRead('approvals', { id: agent.id, limit: 50 });
   // The agent runs to its comment tool; the rule "ask before sending a comment" (#1) holds the call for the person.
   await openOwnAgent(page, agents, 'Test');
-  await runTest(page, 'Send a comment', RUN_COMMENT);
+  await runTest(page, 'Send a comment', runComment());
   await expect(tryTool(page).getByRole('status')).toHaveText('Waiting for your approval: sending a comment. The tool has not run.');
   const held = await ownRead('approvals', { id: agent.id, limit: 50 });
   expect(held).toHaveLength(before.length + 1);
   const request = held[0];
-  expect(request).toMatchObject({ tool: 'support.ticket.comment', status: 'waiting', input: RUN_COMMENT });
+  expect(request).toMatchObject({ tool: 'support.ticket.comment', status: 'waiting', input: runComment() });
 
   // The tool has not run: the session's own log holds no call of the comment tool, and svc-agents lists the run as this
   // held call, with no action of its own and nothing billed.
@@ -262,32 +323,131 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
 test(`${J} #5 edits the payload then approves: a new request for the new payload, the old approval does not carry over; approve runs once, a repeat returns the first result`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   await openInbox(page);
-  const request = inbox(page).getByRole('row').filter({ hasText: 'Send a comment' }).first();
-  await request.getByRole('button', { name: 'Edit' }).click(UNBUILT);
-  await page
-    .getByRole('dialog', { name: 'Edit the request' })
-    .getByRole('textbox', { name: /^Comment/ })
-    .fill('TEST comment, edited');
-  await page.getByRole('dialog', { name: 'Edit the request' }).getByRole('button', { name: 'Save as a new request' }).click();
+  // The comment the agent ran to in #3, still waiting: the person edits its text.
+  const [original] = (await ownRead('inbox', { limit: 100 })).filter((row) => row.input.body === 'TEST comment, run');
+  expect(original).toMatchObject({ status: 'waiting', input: runComment() });
+  const row = inbox(page).locator(`[data-request-id="${original.id}"]`);
+  await row.getByRole('button', { name: 'Edit' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit the request' });
+  await dialog.getByRole('textbox', { name: /^Comment/ }).fill('TEST comment, edited');
+  await dialog.getByRole('button', { name: 'Save as a new request' }).click();
+  await expect(main(page).getByRole('status')).toContainText('Saved as a new request.');
+
+  // A new request exists for the new payload; the old one reads replaced and is no longer approvable.
   await expect(inbox(page).getByRole('row').filter({ hasText: 'Replaced by your edit' })).toHaveCount(1);
-  const edited = inbox(page).getByRole('row').filter({ hasText: 'TEST comment, edited' });
-  await edited.getByRole('button', { name: 'Approve' }).click();
-  await expect(edited).toContainText('Approved · ran once');
-  await edited.getByRole('button', { name: 'Approve again' }).click();
-  await expect(main(page).getByRole('status')).toContainText('Already approved: the first result is shown.');
+  await expect(row).toContainText('Replaced by your edit');
+  await expect(row.getByRole('button', { name: /^Approve/ })).toHaveCount(0);
+  const [edited] = (await ownRead('inbox', { limit: 100 })).filter((r) => r.input.body === 'TEST comment, edited');
+  expect(edited).toMatchObject({
+    status: 'waiting',
+    tool: 'support.ticket.comment',
+    input: { ticketId: ticketId(), body: 'TEST comment, edited' },
+  });
+  expect(edited.id).not.toBe(original.id);
+  expect((await ownRead('inbox', { limit: 100 })).find((r) => r.id === original.id)).toMatchObject({
+    status: 'replaced',
+    replacedBy: edited.id,
+    refusalCode: 'agents.approval.replaced',
+  });
+  const editedRow = inbox(page).locator(`[data-request-id="${edited.id}"]`);
+  await expect(editedRow).toContainText('body: TEST comment, edited');
+  await expect(editedRow).toContainText('Waiting for approval');
+  // The old approval does not carry over: approving the replaced request is refused, and nothing was sent.
+  const old = await ownCall('approval.approve', { requestId: original.id });
+  expect(old.status).toBe(403);
+  expect(JSON.stringify(old.body)).toContain('agents.approval.replaced');
+  expect(await ticketComments()).toEqual([]);
+
+  // Approving runs the tool once: one comment on the person's request with the edited text, one call in the session log.
+  await editedRow.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(main(page).getByRole('status')).toHaveText('Approved: the tool ran once.');
+  await expect(editedRow).toContainText('Approved · ran once');
+  const comments = await ticketComments();
+  expect(comments).toHaveLength(1);
+  expect(comments[0]).toMatchObject({ ticketId: ticketId(), body: 'TEST comment, edited', authorRole: 'user' });
+  const approved = (await ownRead('inbox', { limit: 100 })).find((r) => r.id === edited.id);
+  expect(approved).toMatchObject({ status: 'approved', result: { commentId: comments[0].id, commented: 'yes' } });
+  const ran = (await ownSessionLog(edited.sessionId)).filter((a) => a.tool === 'support.ticket.comment');
+  expect(ran).toHaveLength(1);
+
+  // A repeated approve returns the first result: the same comment, and the tool does not run again.
+  await editedRow.getByRole('button', { name: 'Approve again' }).click();
+  await expect(main(page).getByRole('status')).toHaveText('Already approved: the first result is shown.');
+  await expect(main(page).getByTestId('first-result')).toContainText(comments[0].id);
+  const repeat = await ownCall('approval.approve', { requestId: edited.id });
+  expect(repeat.status).toBe(200);
+  expect(repeat.body.result.data).toMatchObject({ repeated: true, request: { result: approved.result } });
+  expect(await ticketComments()).toHaveLength(1);
+  expect((await ownSessionLog(edited.sessionId)).filter((a) => a.tool === 'support.ticket.comment')).toHaveLength(1);
 });
 
 test(`${J} #6 rejects another request and lets a third expire: the step ends with a typed refusal; an expired request or a down identity service fails closed`, async ({
   page,
 }) => {
+  test.setTimeout(300_000);
+  const sent = (await ticketComments()).length;
+  // Another request: the agent's comment, held by the rule. The person rejects it in the inbox.
+  const rejected = await agentComment(`${J}:reject`, 'TEST comment, to reject');
+  expect(rejected.answer.status, JSON.stringify(rejected.answer.body).slice(0, 300)).toBe(200);
+  const toReject = rejected.answer.body.result.data.request;
   await openInbox(page);
-  const pending = inbox(page).getByRole('row').filter({ hasText: 'Waiting' });
-  await pending.first().getByRole('button', { name: 'Reject' }).click(UNBUILT);
-  await expect(inbox(page).getByRole('row').filter({ hasText: 'Rejected' }).first()).toContainText('agents.approval.rejected');
-  await expect(inbox(page).getByRole('row').filter({ hasText: 'Expired' }).first()).toContainText('agents.approval.expired', {
-    timeout: 120_000,
-  });
+  const rejectRow = inbox(page).locator(`[data-request-id="${toReject.id}"]`);
+  await rejectRow.getByRole('button', { name: 'Reject' }).click();
+  await expect(main(page).getByRole('status')).toContainText('Rejected.');
+  await expect(rejectRow).toContainText('Rejected');
+  await expect(rejectRow.locator('code')).toHaveText('agents.approval.rejected');
+  // The step ends with a typed refusal the run can read: the agent's same call now answers with it, and nothing ran.
+  const readBack = await ownCall('tool.try', rejected.call);
+  expect(readBack.status).toBe(403);
+  expect(JSON.stringify(readBack.body)).toContain('agents.approval.rejected');
+
+  // A third request, held under a short TEST wait, expires: it reads expired with its code, and approving it fails closed.
+  restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', 'short');
+  let toExpire;
+  try {
+    const expiring = await agentComment(`${J}:expire`, 'TEST comment, to expire');
+    expect(expiring.answer.status, JSON.stringify(expiring.answer.body).slice(0, 300)).toBe(200);
+    toExpire = { ...expiring, request: expiring.answer.body.result.data.request };
+  } finally {
+    restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', undefined);
+  }
+  await expect
+    .poll(async () => (await ownRead('inbox', { limit: 100 })).find((r) => r.id === toExpire.request.id)?.status, { timeout: 120_000 })
+    .toBe('expired');
+  await page.reload();
+  const expiredRow = inbox(page).locator(`[data-request-id="${toExpire.request.id}"]`);
+  await expect(expiredRow).toContainText('Expired');
+  await expect(expiredRow.locator('code')).toHaveText('agents.approval.expired');
+  await expect(expiredRow.getByRole('button', { name: /^Approve/ })).toHaveCount(0);
+  const lateApprove = await ownCall('approval.approve', { requestId: toExpire.request.id });
+  expect(lateApprove.status).toBe(403);
+  expect(JSON.stringify(lateApprove.body)).toContain('agents.approval.expired');
+  const lateRead = await ownCall('tool.try', toExpire.call);
+  expect(lateRead.status).toBe(403);
+  expect(JSON.stringify(lateRead.body)).toContain('agents.approval.expired');
+
+  // With identity unavailable to svc-agents, approving a waiting request fails closed: refused, still waiting, not run.
+  const waiting = await agentComment(`${J}:identity`, 'TEST comment, identity down');
+  expect(waiting.answer.status, JSON.stringify(waiting.answer.body).slice(0, 300)).toBe(200);
+  const held = waiting.answer.body.result.data.request;
+  restartAgents('LOCAL_STACK_AGENTS_IDENTITY', 'off');
+  try {
+    await page.reload();
+    const heldRow = inbox(page).locator(`[data-request-id="${held.id}"]`);
+    await heldRow.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(main(page).getByRole('alert').locator('code')).toHaveText('agents.identity.owner_unread');
+    await expect(heldRow).toContainText('Waiting for approval');
+    expect((await ownRead('inbox', { limit: 100 })).find((r) => r.id === held.id)).toMatchObject({ status: 'waiting', ranAt: null });
+  } finally {
+    restartAgents('LOCAL_STACK_AGENTS_IDENTITY', undefined);
+  }
+  // Nothing of #6 reached the person's request, and no comment call of these requests ran.
+  expect(await ticketComments()).toHaveLength(sent);
+  for (const sessionId of new Set([toReject.sessionId, toExpire.request.sessionId, held.sessionId])) {
+    expect((await ownSessionLog(sessionId)).filter((a) => a.tool === 'support.ticket.comment')).toEqual([]);
+  }
 });
 
 test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs a no-value call; a value tool always asks; with the model unset the owner-decision notice`, async ({

@@ -50,6 +50,14 @@ function engine(STATE) {
   };
 }
 
+function approvalTtl() {
+  const choice = process.env.LOCAL_STACK_AGENTS_APPROVAL_TTL;
+  if (choice === 'off') return {};
+  return {
+    AGENTS_APPROVAL_TTL_SECONDS: testValue(choice === 'short' ? 'AGENTS_APPROVAL_TTL_SECONDS_SHORT' : 'AGENTS_APPROVAL_TTL_SECONDS'),
+  };
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'agents',
   env: () => ({
@@ -94,6 +102,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_ASSISTANT_MODEL === 'off'
       ? {}
       : { AGENTS_OWN_ASSISTANT_MODEL: testValue('AGENTS_OWN_ASSISTANT_MODEL') }),
+    // LOCAL TEST wait of a held own-agent call (J-agents-05 #5 #6). `LOCAL_STACK_AGENTS_APPROVAL_TTL=off` on a start or
+    // restart leaves it blank (holding refuses agents.approval.ttl_unset); `=short` uses the short TEST wait, so a journey
+    // can watch a request expire.
+    ...approvalTtl(),
     ...engine(STATE),
+    // `LOCAL_STACK_AGENTS_IDENTITY=off` on a restart points this service's identity reads at a TEST address nothing
+    // answers at, so identity is unavailable to it and a decision that needs the owner's account fails closed
+    // (J-agents-05 #6). Sign-in and every other service keep the real identity service.
+    ...(process.env.LOCAL_STACK_AGENTS_IDENTITY === 'off' ? { IDENTITY_URL: 'http://127.0.0.1:9' } : {}),
   }),
 });

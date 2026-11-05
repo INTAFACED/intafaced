@@ -211,6 +211,7 @@ const appRouter = createAgentsRouter({
   policyBaseline: parsePolicyBaseline(env.AGENTS_POLICY_BASELINE),
   ownTokenLifetimeMinutes: env.AGENTS_OWN_TOKEN_LIFETIME_MINUTES ?? null,
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
+  ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
   gateway,
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
