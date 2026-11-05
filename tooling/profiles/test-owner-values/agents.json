@@ -65,6 +65,16 @@
       "service": "agents",
       "value": "test-engine",
       "note": "LOCAL TEST: the drafting assistant on the TEST engine, which drafts by rule and calls no model (AG-builder-03; J-agents-03 #6). Not the owner's model choice; production stays blank and drafting refuses owner.decision. LOCAL_STACK_AGENTS_ASSISTANT_MODEL=off leaves it blank."
+    },
+    "AGENTS_APPROVAL_TTL_SECONDS": {
+      "service": "agents",
+      "value": "3600",
+      "note": "LOCAL TEST seconds a held own-agent call waits for the person's decision before it reads expired (AG-approvals-01; J-agents-05 #5 #6). Not an owner decision; production stays blank and holding a call refuses agents.approval.ttl_unset. LOCAL_STACK_AGENTS_APPROVAL_TTL=off leaves it blank; =short uses AGENTS_APPROVAL_TTL_SECONDS_SHORT."
+    },
+    "AGENTS_APPROVAL_TTL_SECONDS_SHORT": {
+      "service": "agents",
+      "value": "15",
+      "note": "LOCAL TEST short wait, so a journey can watch a held call expire (J-agents-05 #6) on a restart with LOCAL_STACK_AGENTS_APPROVAL_TTL=short. Never an owner value."
     }
   }
 }

@@ -4,6 +4,8 @@ import {
   forwardedPrincipalHeaders,
   OWN_AGENT_DATA_CLASSES,
   OWN_AGENT_RULE_CHOICES,
+  ownAgentApprovalApprovedSchema,
+  ownAgentApprovalEditedSchema,
   ownAgentApprovalRequestSchema,
   ownAgentConsentSchema,
   ownAgentEvalRunSchema,
@@ -70,8 +72,18 @@ import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirectory } from './publishing.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
 import { dryRunToolCall, ownAgentAnalytics, ownAgentHolds, OwnTestRunStore } from './dry-run.js';
-import { checkRule, gateToolCall, OwnApprovalRequestStore, OwnConsentStore, OwnRuleStore, type PolicyBaseline } from './guardrails.js';
-import { OwnIdentityStore, tokenLifetime } from './identity.js';
+import {
+  approvalTtl,
+  checkRule,
+  gateToolCall,
+  OwnApprovalRequestStore,
+  OwnConsentStore,
+  OwnRuleStore,
+  type OwnApprovalRequestView,
+  type PolicyBaseline,
+} from './guardrails.js';
+import { assertOwnerActive, OwnIdentityStore, tokenLifetime } from './identity.js';
+import { draftTicketComment } from '../support-agent/comment-draft.js';
 import { assistantEngine, draftAgent, OwnerDecisionPending } from './assistant.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
@@ -160,6 +172,31 @@ function ownerForbidden(code: string): TRPCError['code'] | null {
   return code.startsWith('agents.identity.owner_') ? 'FORBIDDEN' : null;
 }
 
+/** A decision the request's state or the owner's account refuses is FORBIDDEN; one not the person's is NOT_FOUND. */
+function approvalRefused(code: string): TRPCError['code'] | null {
+  if (code === 'agents.approval.not_found') return 'NOT_FOUND';
+  if (code === 'agents.approval.ttl_unset') return 'PRECONDITION_FAILED';
+  if (code.startsWith('agents.approval.') && code !== 'agents.approval.input_invalid') return 'FORBIDDEN';
+  return ownerForbidden(code);
+}
+
+/** A closed request's typed refusal, as the agent's call reads it: the step ends there and the tool does not run. */
+function closedRequest(request: OwnApprovalRequestView): never {
+  throw new TRPCError({ code: 'FORBIDDEN', message: request.refusalCode ?? 'agents.approval.decided' });
+}
+
+/**
+ * An edited input is the tool's declared input and nothing else: every field one the tool declares, none blank.
+ * Anything else refuses `agents.approval.input_invalid` and replaces nothing.
+ */
+function checkEditedInput(tool: string, args: Readonly<Record<string, string>>): void {
+  const declared = Object.keys(OWN_TOOLS.find((entry) => entry.name === tool)?.shape?.input ?? {});
+  const fields = Object.keys(args);
+  if (!fields.length || fields.some((field) => !declared.includes(field) || !args[field]!.trim())) {
+    throw new OwnAgentRefusal('agents.approval.input_invalid');
+  }
+}
+
 function storeOf(sql: Sql | undefined): OwnAgentStore {
   if (!sql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'agents.capability_unavailable' });
   return new OwnAgentStore(sql);
@@ -198,6 +235,8 @@ export interface OwnToolDeps {
   readonly tokenLifetimeMinutes?: number | null;
   /** The owner's model for the drafting assistant (AG-builder-03); blank refuses owner.decision. */
   readonly assistantModel?: string | null;
+  /** How long a held call waits for the person, in seconds (AG-approvals-01); blank refuses agents.approval.ttl_unset. */
+  readonly approvalTtlSeconds?: number | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -579,6 +618,89 @@ export function ownRouter(
       }),
 
     /**
+     * The person's decisions on the requests a rule held for them (AG-approvals-01). Approve runs the held call once, as
+     * the person, on the request's own key, after reading the owner's account from identity: an unreadable identity, a
+     * frozen or closed owner, or a request that is not waiting (rejected, expired or replaced) refuses and runs nothing.
+     * Approving again returns the first result. Edit replaces a waiting request with a new one for the new input, which
+     * needs its own approval; reject ends it with `agents.approval.rejected`, which the agent's call then reads.
+     */
+    approval: router({
+      approve: executeProcedure()
+        .input(z.object({ requestId: z.string().uuid() }))
+        .output(ownAgentApprovalApprovedSchema)
+        .mutation(async ({ ctx, input }) => {
+          const { runtime } = runDepsOf(run);
+          const owner = ctx.principal.userId;
+          const requests = new OwnApprovalRequestStore(sqlOf(sql));
+          const stored = await guard(() => requests.get(owner, input.requestId), approvalRefused);
+          if (stored.status === 'approved' && stored.ranAt !== null) return { request: stored, repeated: true };
+          if (stored.refusalCode) closedRequest(stored);
+          // Fails closed: the owner's account must read active from identity before anything is approved or run.
+          await guard(() => assertOwnerActive(owner, tooling.accounts ?? null), approvalRefused);
+          const { session } = await ownedOwnSession(sql, runtime, owner, stored.agentId, stored.sessionId);
+          // The session's own guardrail, as for any call: open, inside its action limit, the tool declared in it.
+          const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: stored.tool, approved: true });
+          if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
+          const { call, alreadyApproved } = await guard(() => requests.approve(owner, stored.id), approvalRefused);
+          if (alreadyApproved && call.request.ranAt !== null) return { request: call.request, repeated: true };
+          const desk = tooling.supportDesk ?? null;
+          try {
+            const acted = await runtime.act({
+              sessionId: session.id,
+              tool: call.request.tool,
+              approved: true,
+              execute: async () => {
+                if (call.request.tool !== 'support.ticket.comment' || !desk?.commentTicket) throw new DoorRefusal('door_unwired');
+                const draft = draftTicketComment({ ticketId: call.request.input.ticketId, body: call.request.input.body });
+                if (draft.status === 'refuse') throw new DoorRefusal(draft.reason);
+                // The request's own key: a second run after a lost answer is the desk's first comment, never another.
+                const sent = await desk.commentTicket(
+                  { ticketId: draft.ticketId, body: draft.body, clientRequestId: `agents:approve:${call.request.id}` },
+                  forwardedPrincipalHeaders(ctx),
+                );
+                if (sent.status === 'missing') throw new DoorRefusal('ticket_missing');
+                if (sent.status === 'refused') throw new DoorRefusal(sent.code);
+                if (sent.status === 'unreachable') throw new DoorRefusal('desk_unreachable');
+                return { tool: call.request.tool, ticketId: sent.comment.ticketId, commentId: sent.comment.id, commented: 'yes' };
+              },
+            });
+            const request = await requests.recordResult(owner, call.request.id, acted.result);
+            return { request, repeated: false };
+          } catch (err) {
+            // Approved but not run: the request keeps its approval, and approving again runs it on the same key.
+            if (err instanceof DoorRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${err.reason}` });
+            return runError(err);
+          }
+        }),
+
+      edit: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(
+          z.object({
+            requestId: z.string().uuid(),
+            input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+          }),
+        )
+        .output(ownAgentApprovalEditedSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const requests = new OwnApprovalRequestStore(sqlOf(sql));
+            const stored = await requests.get(ctx.principal.userId, input.requestId);
+            checkEditedInput(stored.tool, input.input);
+            return requests.edit(ctx.principal.userId, stored.id, input.input, approvalTtl(tooling.approvalTtlSeconds));
+          }, approvalRefused);
+        }),
+
+      reject: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(z.object({ requestId: z.string().uuid() }))
+        .output(ownAgentApprovalRequestSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(() => new OwnApprovalRequestStore(sqlOf(sql)).reject(ctx.principal.userId, input.requestId), approvalRefused);
+        }),
+    }),
+
+    /**
      * The agent's test set and evaluations (AG-testing-02). A start runs every case `repeats` times on the test engine:
      * no model is called, nothing is billed and nothing reaches the ledger; every result is labelled TEST. A blank
      * threshold refuses `agents.eval.threshold_unset` and a blank repeats count `agents.eval.repeats_unset`, and nothing
@@ -738,7 +860,15 @@ export function ownRouter(
           const requests = new OwnApprovalRequestStore(sqlOf(sql));
           // A request id already held for the person is that request, whatever the rules say now: never a second call.
           const held = await guard(() => requests.find(ctx.principal.userId, session.id, input.requestId, input.tool, input.input));
-          if (held) return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: held.request };
+          if (held) {
+            // The call reads the person's decision: a rejected, expired or replaced request is its typed refusal, and an
+            // approved one that ran is the tool's first answer. Nothing runs here.
+            if (held.request.refusalCode) closedRequest(held.request);
+            if (held.request.status === 'approved' && held.request.ranAt !== null) {
+              return { outcome: 'ran' as const, tool: input.tool, dataClass: held.dataClass, result: held.request.result };
+            }
+            return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: held.request };
+          }
           const gate = await guard(() =>
             gateToolCall(sqlOf(sql), tooling.baseline, {
               ownerId: ctx.principal.userId,
@@ -752,8 +882,10 @@ export function ownRouter(
             // declared when the session opened. Only the approval itself is left out: that is what this request asks.
             const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: input.tool, approved: true });
             if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
+            const ttlSeconds = await guard(async () => approvalTtl(tooling.approvalTtlSeconds), approvalRefused);
             const request = await guard(() =>
               requests.hold({
+                ttlSeconds,
                 ownerId: ctx.principal.userId,
                 agentId: agent.id,
                 sessionId: session.id,

@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { OWN_AGENT_DATA_CLASSES, OWN_AGENT_RULE_CHOICES } from '@intafaced/contracts/agents-own';
+import { OWN_AGENT_DATA_CLASSES, OWN_AGENT_RULE_CHOICES, type OwnAgentApprovalStatus } from '@intafaced/contracts/agents-own';
 import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
 
 /**
@@ -218,14 +218,23 @@ export class OwnConsentStore {
   }
 }
 
+export type OwnApprovalStatus = OwnAgentApprovalStatus;
+export type OwnApprovalRefusal = 'agents.approval.rejected' | 'agents.approval.expired' | 'agents.approval.replaced';
+
 export type OwnApprovalRequestView = {
   readonly id: string;
   readonly sessionId: string;
   readonly tool: string;
   readonly input: Readonly<Record<string, string>>;
-  readonly status: 'waiting';
+  readonly status: OwnApprovalStatus;
+  readonly refusalCode: OwnApprovalRefusal | null;
   readonly ruleId: string | null;
   readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly decidedAt: string | null;
+  readonly replacedBy: string | null;
+  readonly result: unknown;
+  readonly ranAt: string | null;
 };
 
 interface RequestRow {
@@ -233,32 +242,75 @@ interface RequestRow {
   session_id: string;
   tool: string;
   input_json: Record<string, string>;
-  status: 'waiting';
+  /** As read: a waiting request past its expiry reads `expired` (`STATUS` below). */
+  status: OwnApprovalStatus;
   rule_id: string | null;
   created_at: Date;
+  expires_at: Date;
+  decided_at: Date | null;
+  replaced_by: string | null;
+  result_json: unknown;
+  ran_at: Date | null;
 }
+
+/** The typed refusal each closed state answers the agent's call with. */
+const REFUSAL_OF: Readonly<Partial<Record<OwnApprovalStatus, OwnApprovalRefusal>>> = {
+  rejected: 'agents.approval.rejected',
+  expired: 'agents.approval.expired',
+  replaced: 'agents.approval.replaced',
+};
+
 /** The stored call is this one: the same tool and exactly the same input. */
-function sameCall(row: RequestRow, tool: string, args: Readonly<Record<string, string>>): boolean {
-  const stored = Object.entries(row.input_json).sort(([a], [b]) => a.localeCompare(b));
-  const asked = Object.entries(args).sort(([a], [b]) => a.localeCompare(b));
-  return row.tool === tool && JSON.stringify(stored) === JSON.stringify(asked);
+function sameInput(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
+  const sorted = (args: Readonly<Record<string, string>>) => JSON.stringify(Object.entries(args).sort(([x], [y]) => x.localeCompare(y)));
+  return sorted(a) === sorted(b);
 }
+const sameCall = (row: RequestRow, tool: string, args: Readonly<Record<string, string>>): boolean =>
+  row.tool === tool && sameInput(row.input_json, args);
+
 const requestView = (row: RequestRow): OwnApprovalRequestView => ({
   id: row.id,
   sessionId: row.session_id,
   tool: row.tool,
   input: row.input_json,
   status: row.status,
+  refusalCode: REFUSAL_OF[row.status] ?? null,
   ruleId: row.rule_id,
   createdAt: row.created_at.toISOString(),
+  expiresAt: row.expires_at.toISOString(),
+  decidedAt: row.decided_at?.toISOString() ?? null,
+  replacedBy: row.replaced_by,
+  result: row.result_json ?? null,
+  ranAt: row.ran_at?.toISOString() ?? null,
 });
 
 /**
- * Tool calls a rule held for the person: the tool has not run. One per `agents:approve:<session>:<request id>`, so a
- * retried call is the same request, never a second one.
+ * How long a held request waits for the person, in whole seconds (`AGENTS_APPROVAL_TTL_SECONDS`, an owner value).
+ * Blank refuses holding any call with `agents.approval.ttl_unset`: nothing is stored and the tool does not run.
+ */
+export function approvalTtl(seconds: number | null | undefined): number {
+  if (!seconds) throw new OwnAgentRefusal('agents.approval.ttl_unset');
+  return seconds;
+}
+
+/** A tool call the person approved: what it runs, once. `requestId` is the key its door dedupes on. */
+export type ApprovedCall = { readonly request: OwnApprovalRequestView; readonly dataClass: OwnDataClass };
+
+/**
+ * Tool calls a rule held for the person, and the person's decisions on them (AG-approvals-01). One request per
+ * `agents:approve:<session>:<request id>`, so a retried call is the same request, never a second one. A request waits
+ * until its expiry and then reads expired; a decision on a request that is not waiting refuses with its state's code,
+ * so nothing decided is decided again, and an expired request can never be approved (it fails closed).
  */
 export class OwnApprovalRequestStore {
   constructor(private readonly sql: Sql) {}
+
+  /** Every column as read, with a waiting request past its expiry read as `expired`. */
+  private readonly columns = () => this.sql`
+    id, session_id::text AS session_id, tool, input_json,
+    CASE WHEN status = 'waiting' AND expires_at <= now() THEN 'expired' ELSE status END AS status,
+    rule_id::text AS rule_id, created_at, expires_at, decided_at, replaced_by::text AS replaced_by, result_json, ran_at
+  `;
 
   async hold(input: {
     ownerId: string;
@@ -268,24 +320,39 @@ export class OwnApprovalRequestStore {
     tool: string;
     args: Readonly<Record<string, string>>;
     ruleId: string | null;
+    ttlSeconds: number;
   }): Promise<OwnApprovalRequestView> {
     const key = `agents:approve:${input.sessionId}:${input.requestId}`;
     const inserted = await this.sql<RequestRow[]>`
-      INSERT INTO agents.own_agent_approval_requests (agent_id, owner_id, session_id, tool, input_json, rule_id, request_key)
+      INSERT INTO agents.own_agent_approval_requests
+        (agent_id, owner_id, session_id, tool, input_json, rule_id, request_key, expires_at)
       VALUES (${input.agentId}, ${input.ownerId}, ${input.sessionId}, ${input.tool}, ${this.sql.json({ ...input.args })},
-              ${input.ruleId}, ${key})
+              ${input.ruleId}, ${key}, now() + make_interval(secs => ${input.ttlSeconds}))
       ON CONFLICT (owner_id, request_key) DO NOTHING
-      RETURNING id, session_id::text, tool, input_json, status, rule_id::text, created_at
+      RETURNING ${this.columns()}
     `;
     if (inserted[0]) return requestView(inserted[0]);
-    const stored = await this.sql<RequestRow[]>`
-      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
-        FROM agents.own_agent_approval_requests WHERE owner_id = ${input.ownerId} AND request_key = ${key}
-    `;
-    const row = stored[0]!;
+    const row = await this.byKey(input.ownerId, key);
     // The same key for another tool or other input is not a retry of this call.
-    if (!sameCall(row, input.tool, input.args)) throw new OwnAgentRefusal('agents.request_id_replay');
+    if (!row || !sameCall(row, input.tool, input.args)) throw new OwnAgentRefusal('agents.request_id_replay');
     return requestView(row);
+  }
+
+  private async byKey(ownerId: string, key: string): Promise<RequestRow | null> {
+    const rows = await this.sql<RequestRow[]>`
+      SELECT ${this.columns()} FROM agents.own_agent_approval_requests WHERE owner_id = ${ownerId} AND request_key = ${key}
+    `;
+    return rows[0] ?? null;
+  }
+
+  /** One request of the person's, as it reads now; another person's, or none, refuses as not found. */
+  async get(ownerId: string, id: string): Promise<OwnApprovalRequestView & { agentId: string }> {
+    const rows = await this.sql<Array<RequestRow & { agent_id: string }>>`
+      SELECT ${this.columns()}, agent_id::text AS agent_id FROM agents.own_agent_approval_requests
+       WHERE owner_id = ${ownerId} AND id = ${id}
+    `;
+    if (!rows[0]) throw new OwnAgentRefusal('agents.approval.not_found');
+    return { ...requestView(rows[0]), agentId: rows[0].agent_id };
   }
 
   /**
@@ -299,41 +366,130 @@ export class OwnApprovalRequestStore {
     tool: string,
     args: Readonly<Record<string, string>>,
   ): Promise<{ request: OwnApprovalRequestView; dataClass: OwnDataClass } | null> {
-    const rows = await this.sql<RequestRow[]>`
-      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
-        FROM agents.own_agent_approval_requests WHERE owner_id = ${ownerId} AND request_key = ${`agents:approve:${sessionId}:${requestId}`}
-    `;
-    const row = rows[0];
+    const row = await this.byKey(ownerId, `agents:approve:${sessionId}:${requestId}`);
     if (!row) return null;
     if (!sameCall(row, tool, args)) throw new OwnAgentRefusal('agents.request_id_replay');
-    const dataClass = OWN_TOOLS.find((entry) => entry.name === row.tool)?.dataClass;
-    if (!dataClass) throw new OwnAgentRefusal('agents.tool_not_declared', { tool: row.tool });
-    return { request: requestView(row), dataClass };
+    return { request: requestView(row), dataClass: dataClassOf(row.tool) };
   }
 
   /**
-   * The Approvals inbox (AG-approvals-01): every request still waiting for the person, across all their own agents,
-   * newest first, with the agent each belongs to. Only the person's own rows: the owner is in every condition.
+   * Approves a waiting request: it becomes the one call that may run. A request already approved is returned as it is
+   * (its first result, or none yet if its run did not finish, so the caller runs it again on the same key). One that
+   * is rejected, expired or replaced refuses with that state's code and is never approved.
+   */
+  async approve(ownerId: string, id: string): Promise<{ call: ApprovedCall; alreadyApproved: boolean }> {
+    const claimed = await this.sql<RequestRow[]>`
+      UPDATE agents.own_agent_approval_requests SET status = 'approved', decided_at = now(), updated_at = now()
+       WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting' AND expires_at > now()
+      RETURNING ${this.columns()}
+    `;
+    if (claimed[0]) return { call: { request: requestView(claimed[0]), dataClass: dataClassOf(claimed[0].tool) }, alreadyApproved: false };
+    const stored = await this.settle(ownerId, id);
+    if (stored.status !== 'approved') throw new OwnAgentRefusal(REFUSAL_OF[stored.status] ?? 'agents.approval.not_found');
+    return { call: { request: stored, dataClass: dataClassOf(stored.tool) }, alreadyApproved: true };
+  }
+
+  /** Keeps an approved request's first result; a later result for the same request never replaces it. */
+  async recordResult(ownerId: string, id: string, result: unknown): Promise<OwnApprovalRequestView> {
+    await this.sql`
+      UPDATE agents.own_agent_approval_requests
+         SET result_json = ${this.sql.json(result as never)}, ran_at = now(), updated_at = now()
+       WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'approved' AND result_json IS NULL
+    `;
+    return this.get(ownerId, id);
+  }
+
+  /** Rejects a waiting request; rejecting it again returns it. Any other state refuses with its code. */
+  async reject(ownerId: string, id: string): Promise<OwnApprovalRequestView> {
+    const rejected = await this.sql<RequestRow[]>`
+      UPDATE agents.own_agent_approval_requests SET status = 'rejected', decided_at = now(), updated_at = now()
+       WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting' AND expires_at > now()
+      RETURNING ${this.columns()}
+    `;
+    if (rejected[0]) return requestView(rejected[0]);
+    const stored = await this.settle(ownerId, id);
+    if (stored.status === 'rejected') return stored;
+    throw new OwnAgentRefusal(
+      stored.status === 'approved' ? 'agents.approval.decided' : (REFUSAL_OF[stored.status] ?? 'agents.approval.not_found'),
+    );
+  }
+
+  /**
+   * Replaces a waiting request with a new one for the edited input, in one transaction: the old one reads replaced and
+   * can never be approved, and the new one waits for its own approval, with its own expiry. Editing the same request
+   * again with the same input returns the same new request; with other input it refuses as already replaced.
+   */
+  async edit(
+    ownerId: string,
+    id: string,
+    args: Readonly<Record<string, string>>,
+    ttlSeconds: number,
+  ): Promise<{ replaced: OwnApprovalRequestView; request: OwnApprovalRequestView }> {
+    return this.sql.begin(async (tx) => {
+      const store = new OwnApprovalRequestStore(tx as unknown as Sql);
+      const locked = await tx<Array<RequestRow & { agent_id: string; owner_id: string }>>`
+        SELECT ${store.columns()}, agent_id::text AS agent_id FROM agents.own_agent_approval_requests
+         WHERE owner_id = ${ownerId} AND id = ${id} FOR UPDATE
+      `;
+      const old = locked[0];
+      if (!old) throw new OwnAgentRefusal('agents.approval.not_found');
+      if (old.status === 'replaced' && old.replaced_by) {
+        const next = await store.get(ownerId, old.replaced_by);
+        if (sameInput(next.input, args)) return { replaced: requestView(old), request: next };
+      }
+      if (old.status !== 'waiting') {
+        throw new OwnAgentRefusal(
+          old.status === 'approved' ? 'agents.approval.decided' : (REFUSAL_OF[old.status] ?? 'agents.approval.not_found'),
+        );
+      }
+      const fresh = await tx<RequestRow[]>`
+        INSERT INTO agents.own_agent_approval_requests
+          (agent_id, owner_id, session_id, tool, input_json, rule_id, request_key, expires_at)
+        VALUES (${old.agent_id}, ${ownerId}, ${old.session_id}, ${old.tool}, ${tx.json({ ...args })}, ${old.rule_id},
+                ${`agents:approve:${old.session_id}:edit:${old.id}`}, now() + make_interval(secs => ${ttlSeconds}))
+        RETURNING ${store.columns()}
+      `;
+      const request = fresh[0]!;
+      const replaced = await tx<RequestRow[]>`
+        UPDATE agents.own_agent_approval_requests
+           SET status = 'replaced', replaced_by = ${request.id}, decided_at = now(), updated_at = now()
+         WHERE owner_id = ${ownerId} AND id = ${id}
+        RETURNING ${store.columns()}
+      `;
+      return { replaced: requestView(replaced[0]!), request: requestView(request) };
+    });
+  }
+
+  /** A request as it reads now; one past its expiry is stored as expired, so it reads the same however it is read. */
+  private async settle(ownerId: string, id: string): Promise<OwnApprovalRequestView> {
+    await this.sql`
+      UPDATE agents.own_agent_approval_requests SET status = 'expired', decided_at = expires_at, updated_at = now()
+       WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting' AND expires_at <= now()
+    `;
+    return this.get(ownerId, id);
+  }
+
+  /**
+   * The Approvals inbox (AG-approvals-01): every request a rule held for the person, across all their own agents,
+   * newest first, with the agent each belongs to and its state. Only the person's own rows: the owner is in every
+   * condition.
    */
   async inbox(ownerId: string, limit: number): Promise<Array<OwnApprovalRequestView & { agentId: string; agentName: string }>> {
     const rows = await this.sql<Array<RequestRow & { agent_id: string; agent_name: string }>>`
-      SELECT r.id, r.session_id::text, r.tool, r.input_json, r.status, r.rule_id::text, r.created_at,
-             r.agent_id::text, a.name AS agent_name
-        FROM agents.own_agent_approval_requests r
-        JOIN agents.own_agents a ON a.id = r.agent_id AND a.owner_id = r.owner_id
-       WHERE r.owner_id = ${ownerId} AND r.status = 'waiting'
+      SELECT r.*, a.name AS agent_name
+        FROM (SELECT ${this.columns()}, agent_id FROM agents.own_agent_approval_requests WHERE owner_id = ${ownerId}) r
+        JOIN agents.own_agents a ON a.id = r.agent_id AND a.owner_id = ${ownerId}
        ORDER BY r.created_at DESC, r.id
        LIMIT ${limit}
     `;
-    return rows.map((row) => ({ ...requestView(row), agentId: row.agent_id, agentName: row.agent_name }));
+    return rows.map((row) => ({ ...requestView(row), agentId: String(row.agent_id), agentName: row.agent_name }));
   }
 
-  /** The requests of one agent still waiting for the person, newest first: the held calls its Live runs list. */
+  /** The requests of one agent still waiting for the person (not expired), newest first: the held calls its Live runs list. */
   async waiting(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
     const rows = await this.sql<RequestRow[]>`
-      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
-        FROM agents.own_agent_approval_requests
-       WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND status = 'waiting'
+      SELECT ${this.columns()} FROM agents.own_agent_approval_requests
+       WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND status = 'waiting' AND expires_at > now()
        ORDER BY created_at DESC, id
        LIMIT ${limit}
     `;
@@ -342,12 +498,17 @@ export class OwnApprovalRequestStore {
 
   async list(ownerId: string, agentId: string, limit: number): Promise<OwnApprovalRequestView[]> {
     const rows = await this.sql<RequestRow[]>`
-      SELECT id, session_id::text, tool, input_json, status, rule_id::text, created_at
-        FROM agents.own_agent_approval_requests
+      SELECT ${this.columns()} FROM agents.own_agent_approval_requests
        WHERE owner_id = ${ownerId} AND agent_id = ${agentId}
        ORDER BY created_at DESC, id
        LIMIT ${limit}
     `;
     return rows.map(requestView);
   }
+}
+
+function dataClassOf(tool: string): OwnDataClass {
+  const dataClass = OWN_TOOLS.find((entry) => entry.name === tool)?.dataClass;
+  if (!dataClass) throw new OwnAgentRefusal('agents.tool_not_declared', { tool });
+  return dataClass;
 }
