@@ -5,6 +5,7 @@ import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
+import { ShareSheet } from './ShareSheet';
 import { WelcomeChecklist } from './WelcomeChecklist';
 import { promotionsCopy as copy } from './promotions-copy';
 import {
@@ -560,6 +561,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
             </section>
           )}
           {view !== 'records' && <ReferralCode />}
+          {view !== 'records' && <ShareSheet />}
           {view !== 'link' && (
             <div id="promotion-referrals">
               <ReferralRecords />
