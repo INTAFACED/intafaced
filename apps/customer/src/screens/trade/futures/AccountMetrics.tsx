@@ -6,18 +6,39 @@ import { metricsCopy } from './metrics-copy';
 
 type T = ReturnType<typeof metricsCopy.useCopy>['t'];
 
+/** The input names a blank figure waits for, as the service names them (`missing_input`). */
+const KNOWN_INPUTS = ['available', 'usedMargin', 'maintenanceMargin', 'initialMargin', 'collateral', 'unrealizedPnl'] as const;
+type KnownInput = (typeof KNOWN_INPUTS)[number];
+
+/** Why figures are blank, as the service says it: one reason per kind, inputs in the order named, unknown inputs once. */
+export function blankReasons(summary: MarginSummary): { mixed: boolean; equityNotPositive: boolean; inputs: (KnownInput | 'other')[] } {
+  const codes = new Set(summary.missing.map((m) => m.code));
+  const inputs = [
+    ...new Set(
+      summary.missing
+        .filter((m) => m.code === 'missing_input')
+        .map((m) => ((KNOWN_INPUTS as readonly string[]).includes(m.field) ? (m.field as KnownInput) : ('other' as const))),
+    ),
+  ];
+  return { mixed: codes.has('margin_assets_mixed'), equityNotPositive: codes.has('equity_not_positive'), inputs };
+}
+
 /** Why a figure is blank, in words. The haircut belongs to buying power, which this panel doesn't show. */
 export function waitingFor(summary: MarginSummary, t: T): string | null {
-  const known: Record<string, string> = {
+  const reasons = blankReasons(summary);
+  if (reasons.mixed) return t('Metrics mixed');
+  const words: Record<KnownInput | 'other', string> = {
     available: t('Missing available'),
     usedMargin: t('Missing usedMargin'),
     maintenanceMargin: t('Missing maintenanceMargin'),
     initialMargin: t('Missing initialMargin'),
     collateral: t('Missing collateral'),
     unrealizedPnl: t('Missing unrealizedPnl'),
+    other: t('Missing other'),
   };
-  const words = [...new Set(summary.missing.filter((m) => m.code === 'missing_input').map((m) => known[m.field] ?? t('Missing other')))];
-  return words.length ? t('Metrics waiting', { fields: words.join('; ') }) : null;
+  const notes = reasons.equityNotPositive ? [t('Metrics equity not positive')] : [];
+  if (reasons.inputs.length) notes.push(t('Metrics waiting', { fields: reasons.inputs.map((k) => words[k]).join('; ') }));
+  return notes.length ? notes.join(' ') : null;
 }
 
 /**
@@ -58,7 +79,7 @@ export function AccountMetrics({ asset }: { asset: string }) {
                   </div>
                 ))}
               </dl>
-              <p className="text-xs text-fg-2">{flat ? t('Metrics no positions') : t('Metrics exact')}</p>
+              <p className="text-xs text-fg-2">{flat ? t('Metrics no positions') : waiting === null ? t('Metrics exact') : null}</p>
               {waiting ? (
                 <p role="status" className="text-xs text-warn">
                   {waiting}

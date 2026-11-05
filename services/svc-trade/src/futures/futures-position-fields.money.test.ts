@@ -338,7 +338,7 @@ describe('futures position fields', () => {
     `;
     marks.set({ marketId: usdc, price: '50000', quality: 'mid', asOfMs: NOW.getTime() });
     await ledger.post(
-      recipes.deposit({ userId: ALICE, assetId: 'USDC', amount: amt('100000'), rail: 'test', railRef: `fund-usdc-${randomUUID()}` }),
+      recipes.deposit({ userId: ALICE, assetId: 'USDC', amount: amt('100000'), rail: 'test', railRef: 'fund-usdc-summary' }),
     );
     await positions.open({
       clientOpenId: 'summary-usdc',
