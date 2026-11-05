@@ -69,6 +69,7 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 }
 
 /** Frozen 12-hex digests. Editing a socket reason must change reasonFingerprint(row.reason) and fail the pin. */
+// Reverted with #7182 (PP-money-balance-05): Real-app journeys run 1270 on main at 5cb13b0a failed J-derivatives-02 #5 and #6 again on re-run; rebuild after the cause is found. The three payReceived* recipes are sockets again.
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
   { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
@@ -78,6 +79,9 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHold', fingerprint: '30408fba090e' },
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
+  { name: 'payReceivedHold', fingerprint: 'd38b34fa6dff' },
+  { name: 'payReceivedRelease', fingerprint: '7d6896cf46f5' },
+  { name: 'payReceivedReturn', fingerprint: '8ccf8023ca20' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
 ];
 
@@ -108,6 +112,9 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['buybackOrderHold', [RECIPE_GATE_CATALOG, BUYBACK_PLACE]],
   ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
   ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
+  ['payReceivedHold', [RECIPE_GATE_CATALOG]],
+  ['payReceivedRelease', [RECIPE_GATE_CATALOG]],
+  ['payReceivedReturn', [RECIPE_GATE_CATALOG]],
   ['bankTransferReversal', [RECIPE_GATE_CATALOG]],
 ]);
 
@@ -121,11 +128,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (88 = 79 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (88 = 76 live + 12 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 79, socket: 9 });
+    expect(counts).toEqual({ live: 76, socket: 12 });
     expect(inventory.recipes).toHaveLength(88);
-    expect(liveRecipeKeys(inventory)).toHaveLength(79);
+    expect(liveRecipeKeys(inventory)).toHaveLength(76);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

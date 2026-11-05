@@ -110,8 +110,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
     // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
     BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
-    // TEST release period for a stranger's held payment (J-pay-03 #5); nothing is held unless a person chooses to.
-    BANK_STRANGER_HOLD_DAYS: testValue('BANK_STRANGER_HOLD_DAYS'),
     // LOCAL TEST value from the bank profile (BK-pots-03): the smallest payment from another person the income sorter
     // splits. Unset, making a sorter refuses bank.sorter_terms_unset and no payment is sorted.
     BANK_INCOME_SORTER_MIN_CREDIT: testValue('BANK_INCOME_SORTER_MIN_CREDIT'),

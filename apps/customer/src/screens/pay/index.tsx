@@ -24,7 +24,6 @@ import { RequestCard } from './RequestCard';
 import { BillsCard } from './BillsCard';
 import { GlobalCard } from './GlobalCard';
 import { RecentPanel } from './RecentPanel';
-import { WaitingForYou } from './WaitingForYou';
 import { rooms, roomTitle } from '../../app/navigation';
 
 /**
@@ -92,7 +91,6 @@ function PayTabs({ path, search }: ScreenProps) {
         </header>
         {session ? (
           <div className="pay-side">
-            <WaitingForYou />
             <RecentPanel />
           </div>
         ) : null}

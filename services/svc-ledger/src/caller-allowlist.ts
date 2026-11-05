@@ -52,12 +52,10 @@ export const LEDGER_POST_ALLOWLIST = {
     loanCollateralLock: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
     loanCollateralRelease: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
     loanDraw: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
+    // Reverted with #7182 (PP-money-balance-05): Real-app journeys run 1270 on main at 5cb13b0a failed J-derivatives-02 #5 and #6 again on re-run; rebuild after the cause is found. svc-bank's payReceived* grant goes with it.
     loanLiquidate: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
     loanRepay: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
     loanReserveFund: g('bank', 'services/svc-bank/src/loans/loan-service.ts'),
-    payReceivedHold: g('bank', 'services/svc-bank/src/holds/received-holds.ts'),
-    payReceivedRelease: g('bank', 'services/svc-bank/src/holds/received-holds.ts'),
-    payReceivedReturn: g('bank', 'services/svc-bank/src/holds/received-holds.ts'),
     rewardPay: g('token', 'services/svc-bank/src/cards/card-service.ts'),
     sweepFeesToRewards: g('token', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawHold: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
