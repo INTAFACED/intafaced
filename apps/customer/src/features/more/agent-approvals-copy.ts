@@ -25,7 +25,7 @@ const en = {
   saveEdit: 'Save as a new request',
   cancel: 'Cancel',
   empty: 'No request yet.',
-  more: 'Showing the newest {shown} requests.',
+  more: 'Showing {shown} requests: waiting ones first, then the newest. Older decided ones are left out.',
 } as const;
 
 const es = {
@@ -52,7 +52,7 @@ const es = {
   saveEdit: 'Guardar como solicitud nueva',
   cancel: 'Cancelar',
   empty: 'Aún no hay solicitudes.',
-  more: 'Se muestran las {shown} solicitudes más recientes.',
+  more: 'Se muestran {shown} solicitudes: primero las que esperan, luego las más recientes. Se omiten las decididas más antiguas.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -79,7 +79,7 @@ const fr = {
   saveEdit: 'Enregistrer comme nouvelle demande',
   cancel: 'Annuler',
   empty: 'Aucune demande pour l’instant.',
-  more: 'Les {shown} demandes les plus récentes sont affichées.',
+  more: '{shown} demandes affichées : d’abord celles en attente, puis les plus récentes. Les plus anciennes déjà décidées sont omises.',
 } satisfies Record<keyof typeof en, string>;
 
 export const agentApprovalsCopy = defineCopy('more.agents.approvals', en, { es, fr });

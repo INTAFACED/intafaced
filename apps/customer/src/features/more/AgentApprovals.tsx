@@ -109,6 +109,12 @@ export function AgentApprovals() {
                       <>
                         {' '}
                         <code lang="zxx">{row.refusalCode}</code>
+                        {row.failureCode ? (
+                          <>
+                            {' '}
+                            <code lang="zxx">{row.failureCode}</code>
+                          </>
+                        ) : null}
                       </>
                     ) : null}
                   </td>

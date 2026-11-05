@@ -9,6 +9,8 @@ UPDATE "agents"."own_agent_approval_requests" SET "replaced_by" = NULL;
 DELETE FROM "agents"."own_agent_approval_requests" WHERE "status" <> 'waiting';
 ALTER TABLE "agents"."own_agent_approval_requests" ADD CONSTRAINT "own_agent_approval_requests_status_ck" CHECK ("status" IN ('waiting'));
 ALTER TABLE "agents"."own_agent_approval_requests"
+  DROP COLUMN IF EXISTS "failure_code",
+  DROP COLUMN IF EXISTS "running_since",
   DROP COLUMN IF EXISTS "ran_at",
   DROP COLUMN IF EXISTS "result_json",
   DROP COLUMN IF EXISTS "replaced_by",

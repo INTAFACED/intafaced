@@ -162,7 +162,8 @@ const READ_TOOLS: readonly OwnTool[] = [
 /**
  * Tools that act in the person's name without moving value. Sending a comment on the person's own support ticket is a
  * live write: no rule may let it act without asking (ENGINE AP-7). Its door to the support desk is the approval flow's
- * (AG-approvals-01): until that is built, an admitted call refuses `agents.tool_not_wired` and sends nothing.
+ * (AG-approvals-01, `OWN_APPROVAL_DOORS`): it runs only once the person approves it; a call that reaches it unasked
+ * refuses `agents.tool_not_wired` and sends nothing.
  */
 const WRITE_TOOLS: readonly OwnTool[] = [
   {
@@ -194,6 +195,11 @@ const MONEY_TOOLS: readonly OwnTool[] = [
 
 /** The tools whose door a person's own agent can reach today; every other attachable tool refuses `agents.tool_not_wired`. */
 export const OWN_TOOL_DOORS: ReadonlySet<string> = new Set(['support.kb.search']);
+/**
+ * The tools whose door only an approval reaches (AG-approvals-01): the person approves the held call in the Approvals
+ * inbox and it runs once, as them. A direct call of one still refuses `agents.tool_not_wired`, as it never runs unasked.
+ */
+export const OWN_APPROVAL_DOORS: ReadonlySet<string> = new Set(['support.ticket.comment']);
 
 /** What any call of an attachable tool may meet before its door (AG-guardrails-01, -02): consent, the baseline, a rule. */
 const GATE_REFUSALS = ['agents.consent_required', 'agents.baseline_value_unset', 'agents.rule_hand_off'];
@@ -302,6 +308,8 @@ export type OwnRefusalCode =
   | 'agents.approval.expired'
   | 'agents.approval.replaced'
   | 'agents.approval.input_invalid'
+  | 'agents.approval.running'
+  | 'agents.approval.failed'
   | 'agents.eval.cases_empty'
   | 'agents.eval.too_many_cases'
   | 'agents.eval.case_blank'

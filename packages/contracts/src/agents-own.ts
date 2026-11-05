@@ -184,10 +184,11 @@ export type OwnAgentConsent = z.infer<typeof ownAgentConsentSchema>;
 
 /**
  * The states of an approval request (AG-approvals-01). `waiting` until its `expiresAt`, then `expired`; `approved` once
- * the person approves it (the tool runs once and `result` is its first answer, null until it has run); `rejected`;
- * `replaced` by the person's edit, which is a new request (`replacedBy`) whose approval is its own.
+ * the person approves it (the tool runs once and `result` is its first answer, null until it has run); `failed` when the
+ * tool's door refused the approved call for good (`failureCode`), so it did not run; `rejected`; `replaced` by the
+ * person's edit, which is a new request (`replacedBy`) whose approval is its own.
  */
-export const OWN_AGENT_APPROVAL_STATUSES = ['waiting', 'approved', 'rejected', 'expired', 'replaced'] as const;
+export const OWN_AGENT_APPROVAL_STATUSES = ['waiting', 'approved', 'rejected', 'expired', 'replaced', 'failed'] as const;
 export type OwnAgentApprovalStatus = (typeof OWN_AGENT_APPROVAL_STATUSES)[number];
 
 /** A tool call a rule held for the person, and the person's decision on it. The tool runs only once it is approved. */
@@ -197,8 +198,12 @@ export const ownAgentApprovalRequestSchema = z.object({
   tool: z.string(),
   input: z.record(z.string(), z.string()),
   status: z.enum(OWN_AGENT_APPROVAL_STATUSES),
-  /** The typed refusal the agent's call reads once the request is rejected, expired or replaced; null otherwise. */
-  refusalCode: z.enum(['agents.approval.rejected', 'agents.approval.expired', 'agents.approval.replaced']).nullable(),
+  /** The typed refusal the agent's call reads once the request is rejected, expired, replaced or failed; null otherwise. */
+  refusalCode: z
+    .enum(['agents.approval.rejected', 'agents.approval.expired', 'agents.approval.replaced', 'agents.approval.failed'])
+    .nullable(),
+  /** Why the door refused a failed request (`agents.tool_refused.<reason>`); null otherwise. */
+  failureCode: z.string().nullable(),
   ruleId: z.string().uuid().nullable(),
   createdAt: z.string(),
   expiresAt: z.string(),

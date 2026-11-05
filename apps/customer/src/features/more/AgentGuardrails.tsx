@@ -58,6 +58,8 @@ const CODES = [
   'agents.approval.not_found',
   'agents.approval.ttl_unset',
   'agents.approval.input_invalid',
+  'agents.approval.running',
+  'agents.approval.failed',
   'agents.identity.owner_unread',
   'agents.identity.owner_frozen',
   'agents.identity.owner_inactive',
