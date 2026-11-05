@@ -48,8 +48,11 @@ export type ShareHitResult = {
 /** One signed tag for the caller's live token and a surface (RC-campaigns-06). */
 export type ShareTag = { readonly tag: string; readonly token: string; readonly surface: ShareSurface };
 
-/** A tag's counted visit: `counted` is false when this session already counted on this surface. */
-export type ShareTagHit = { readonly token: string; readonly surface: ShareSurface; readonly counted: boolean; readonly visits: number };
+/**
+ * A tag's visit: `counted` is false when this session already counted on this surface. The public answer carries no
+ * counts and no referrer id: the referrer reads their counts through surfaceStats.
+ */
+export type ShareTagHit = { readonly token: string; readonly surface: ShareSurface; readonly counted: boolean };
 
 /** Visits per surface for the caller's live token; every surface is listed, zero when none. */
 export type ShareSurfaceStats = { readonly token: string; readonly surfaces: Array<{ surface: ShareSurface; visits: number }> };
@@ -217,15 +220,13 @@ export class ShareService {
       ON CONFLICT (token, surface, session_key) DO NOTHING
       RETURNING id
     `;
-    const counted = await this.sql<Array<{ visits: number }>>`
-      SELECT count(*)::int AS visits FROM affiliate_share_hits WHERE token = ${verified.token} AND surface = ${verified.surface}
-    `;
-    return { token: verified.token, surface: verified.surface, counted: inserted.length > 0, visits: Number(counted[0]?.visits ?? 0) };
+    return { token: verified.token, surface: verified.surface, counted: inserted.length > 0 };
   }
 
   /** Visits per surface on the referrer's live token. No live token: `share.not_found`. */
   async surfaceStats(referrerId: string): Promise<ShareSurfaceStats> {
     const id = requireId(referrerId, 'referrerId');
+    await this.assertReferrerAlive(id);
     const live = await this.sql<Array<{ token: string }>>`
       SELECT token FROM affiliate_share_tokens WHERE referrer_id = ${id} AND revoked_at IS NULL LIMIT 1
     `;

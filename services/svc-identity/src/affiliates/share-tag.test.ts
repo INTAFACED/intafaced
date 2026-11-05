@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IpMinuteWindow,
+  WINDOW_MAX_ADDRESSES,
   SHARE_SURFACES,
   parseShareTagHitsPerIpMinute,
   parseShareTagKey,
@@ -60,5 +61,15 @@ describe('signed share tags (RC-campaigns-06)', () => {
     expect(window.take('2.2.2.2')).toBe(true);
     now = 60_000;
     expect(window.take('1.1.1.1')).toBe(true);
+  });
+
+  it('the window holds at most its cap of addresses in one minute, and starts empty the next', () => {
+    let now = 0;
+    const window = new IpMinuteWindow(5, () => now);
+    for (let i = 0; i < WINDOW_MAX_ADDRESSES; i++) expect(window.take(`a${i}`)).toBe(true);
+    expect(window.take('one-too-many')).toBe(false);
+    expect(window.take('a0')).toBe(true);
+    now = 60_000;
+    expect(window.take('one-too-many')).toBe(true);
   });
 });

@@ -151,10 +151,10 @@ if (!available) {
       expect(card.token).toBe(promo.token);
       expect(card.tag).not.toBe(promo.tag);
 
-      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, visits: 1, surface: 'promotion' });
-      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: false, visits: 1 });
-      expect(await tagged.tagHit(promo.tag, SESSION_B, '10.0.0.1')).toMatchObject({ counted: true, visits: 2 });
-      expect(await tagged.tagHit(card.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, visits: 1, surface: 'card' });
+      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, surface: 'promotion' });
+      expect(await tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: false });
+      expect(await tagged.tagHit(promo.tag, SESSION_B, '10.0.0.1')).toMatchObject({ counted: true });
+      expect(await tagged.tagHit(card.tag, SESSION_A, '10.0.0.1')).toMatchObject({ counted: true, surface: 'card' });
 
       const stats = await tagged.surfaceStats(REF);
       expect(stats.token).toBe(promo.token);
@@ -204,6 +204,15 @@ if (!available) {
       await limited.tagHit(promo.tag, SESSION_A, '10.0.0.9');
       await expect(limited.tagHit(promo.tag, SESSION_B, '10.0.0.9')).rejects.toMatchObject({ code: 'share.rate_limited' });
       expect((await limited.surfaceStats(REF)).surfaces[0]).toEqual({ surface: 'promotion', visits: 1 });
+    });
+
+    it('a closed profile reads no counts (share.profile_gone), as its tags count no visits', async () => {
+      await seedUser(REF, 'sharer');
+      await tagged.createShare(REF);
+      const promo = await tagged.createTag(REF, 'promotion');
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${REF}`;
+      await expect(tagged.surfaceStats(REF)).rejects.toMatchObject({ code: 'share.profile_gone' });
+      await expect(tagged.tagHit(promo.tag, SESSION_A, '10.0.0.1')).rejects.toMatchObject({ code: 'share.profile_gone' });
     });
   });
 }

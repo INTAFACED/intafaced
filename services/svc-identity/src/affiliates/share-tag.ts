@@ -70,9 +70,17 @@ export function verifyShareTag(key: string, tag: string): { token: string; surfa
   return { token, surface };
 }
 
-/** A fixed one-minute window per IP. `take` answers whether this visit is inside the owner's limit. */
+/** Most distinct addresses one window tracks; a new address past it is refused until the next minute. */
+export const WINDOW_MAX_ADDRESSES = 50_000;
+
+/**
+ * A fixed one-minute window per IP. `take` answers whether this visit is inside the owner's limit. The whole map is
+ * dropped when the minute turns, and it never holds more than WINDOW_MAX_ADDRESSES, so a flood of addresses costs
+ * bounded memory and constant time per visit.
+ */
 export class IpMinuteWindow {
-  private readonly counts = new Map<string, { minute: number; count: number }>();
+  private minute = Number.NaN;
+  private readonly counts = new Map<string, number>();
 
   constructor(
     private readonly limit: number,
@@ -81,10 +89,14 @@ export class IpMinuteWindow {
 
   take(ip: string): boolean {
     const minute = Math.floor(this.now() / 60_000);
+    if (minute !== this.minute) {
+      this.minute = minute;
+      this.counts.clear();
+    }
     const seen = this.counts.get(ip);
-    const count = seen && seen.minute === minute ? seen.count + 1 : 1;
-    if (this.counts.size > 10_000) for (const [k, v] of this.counts) if (v.minute !== minute) this.counts.delete(k);
-    this.counts.set(ip, { minute, count });
+    if (seen === undefined && this.counts.size >= WINDOW_MAX_ADDRESSES) return false;
+    const count = (seen ?? 0) + 1;
+    this.counts.set(ip, count);
     return count <= this.limit;
   }
 }

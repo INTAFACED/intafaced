@@ -3583,7 +3583,7 @@ export function createIdentityRouter(
       /**
        * Public visit of a signed share tag. An edited tag is refused `share.tag_invalid` and counts nothing; a revoked
        * link `share.revoked`; one browser session counts once per surface (`counted: false` after). Returns the link's
-       * token for the invitation page and the surface's visits, never the referrer's id or email. Limited per IP by the
+       * token for the invitation page, never a count, the referrer's id or an email (counts are the referrer's own read). Limited per IP by the
        * owner's value; a blank one keeps this door shut (`share.rate_unset`). Attribution stays with shareHits.
        */
       shareTagHit: publicProcedure
@@ -3593,7 +3593,6 @@ export function createIdentityRouter(
             token: z.string().guid(),
             surface: z.enum(SHARE_SURFACES),
             counted: z.boolean(),
-            visits: z.number().int().nonnegative(),
           }),
         )
         .mutation(async ({ input }) => {

@@ -4,17 +4,16 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
+import { SHARE_SURFACES, type ShareSurface as Surface } from '../public/share-visit';
 import { shareSheetCopy as copy } from './share-sheet-copy';
 
 // One-tap share (RC-campaigns-06, J-campaigns-05 #2): a signed share tag for the person's live invitation link, one per
 // surface, and the visits each surface counted. The tag never makes a link; the link has its own reviewed request above.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-const SURFACES = ['promotion', 'card', 'token', 'strategy', 'receipt'] as const;
-type Surface = (typeof SURFACES)[number];
-const tagSchema = z.object({ tag: z.string().min(1), token: z.string().guid(), surface: z.enum(SURFACES) });
+const tagSchema = z.object({ tag: z.string().min(1), token: z.string().guid(), surface: z.enum(SHARE_SURFACES) });
 const statsSchema = z.object({
   token: z.string().guid(),
-  surfaces: z.array(z.object({ surface: z.enum(SURFACES), visits: z.number().int().nonnegative() })),
+  surfaces: z.array(z.object({ surface: z.enum(SHARE_SURFACES), visits: z.number().int().nonnegative() })),
 });
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -59,8 +58,10 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
         await navigator.share({ url: next, text: t('shareText') });
         setDone('sharedNative');
         return;
-      } catch {
-        // A closed share menu falls back to the clipboard below.
+      } catch (err) {
+        // The person closed the menu: nothing was shared, and nothing is copied behind their back. The link stays shown.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        // Any other failure of the menu falls back to the clipboard below.
       }
     }
     try {
@@ -92,7 +93,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
       )}
       {href && (
         <label className="field">
-          <span>{t('link')}</span>
+          <span>{t(`link_${surface}`)}</span>
           <input readOnly value={href} lang="zxx" />
         </label>
       )}
