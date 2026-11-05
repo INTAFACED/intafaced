@@ -31,7 +31,8 @@ import {
 } from '@intafaced/contracts/agents-own';
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { PermissionsPage, RulesPage, TryTool } from './AgentGuardrails';
+import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
+import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
 import { AssistantPanel, IdentityPage } from './AgentIdentity';
@@ -40,7 +41,7 @@ type ToolEntry = OwnAgentCatalogue['tools'][number];
 
 const OWN_AGENT_PATH = /^\/agents\/([^/]{1,64})$/;
 /** The agent pages of their own under /agents/, which never name an agent. */
-const AGENT_ROOMS = new Set(['new', 'team']);
+const AGENT_ROOMS = new Set(['new', 'team', 'approvals']);
 /**
  * The id an address names under /agents/, or null. Any id opens the agent's page, so one that is not the person's,
  * or not an id at all, shows the service's own "not one of yours" refusal there, never a missing route.
@@ -865,10 +866,14 @@ function Sessions({
   );
 }
 
-/** Every run asked of this agent, newest first: admitted with its exact cost, or refused with its reason and 0. */
+/**
+ * Every run asked of this agent, newest first: admitted with its exact cost, refused with its reason and 0, or a tool call
+ * a rule holds for the person, waiting for approval, which has not run and cost 0 (AG-approvals-01).
+ */
 function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
+  const tools = agentGuardrailsCopy.useCopy().t;
   const runs = useResource(
     (signal) => api.query('agents', 'own.runs', { id: agent.id, limit: 50 }, z.array(ownAgentRunRowSchema), { signal }),
     `own-runs:${agent.id}:${version}`,
@@ -889,10 +894,16 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={`${row.sessionId}:${row.sequence}`}>
+                  <tr key={row.requestId ?? `${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
                     <td>{t(`run_${row.status}`)}</td>
-                    <td>{row.refusalCode ? <Refusal code={row.refusalCode} task={row.task ?? ''} inline /> : null}</td>
+                    <td>
+                      {row.status === 'waiting' ? (
+                        t('runHeld', { tool: toolWords(tools, row.tool ?? '') })
+                      ) : row.refusalCode ? (
+                        <Refusal code={row.refusalCode} task={row.task ?? ''} inline />
+                      ) : null}
+                    </td>
                     <td data-testid="run-cost">{money(row.cost, row.assetId)}</td>
                   </tr>
                 ))}

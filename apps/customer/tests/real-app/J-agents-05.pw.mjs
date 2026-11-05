@@ -10,8 +10,9 @@ import { api } from './stack.mjs';
 // automatic reviewer waits on the owner's model choice (owner.decision).
 // #1 and #2 are built (AG-guardrails-02, AG-guardrails-01): the agent's Rules page, the managed baseline (a labelled TEST
 // value on the stack), the consent card for each kind of tool and the Permissions page, with every answer read back
-// from svc-agents. The rest fail at their first missing part, quickly (UNBUILT): there is no Approvals inbox, approve,
-// edit, reject or expiry, and no automatic reviewer (AG-approvals-01, -02).
+// from svc-agents. #3 is built (AG-approvals-01): a held call reads waiting for approval on Live runs and is a row of the
+// Approvals inbox, and the tool has not run. The rest fail at their first missing part, quickly (UNBUILT): there is no
+// notice, no approve, edit or reject (the inbox shows them off), no expiry, and no automatic reviewer (AG-approvals-01, -02).
 const J = 'J-agents-05';
 const agents = agentsRun(J);
 
@@ -28,6 +29,13 @@ const inbox = (page) => tableIn(main(page), 'Approvals');
 async function ownRead(procedure, input) {
   const query = `?input=${encodeURIComponent(JSON.stringify(input))}`;
   const res = await (await api(agents.account())).get(`/api/agents/trpc/own.${procedure}${query}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+/** One session's action log, as svc-agents keeps it for the person. */
+async function ownSessionLog(sessionId) {
+  const query = `?input=${encodeURIComponent(JSON.stringify({ sessionId, limit: 500 }))}`;
+  const res = await (await api(agents.account())).get(`/api/agents/trpc/session.log${query}`);
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -56,6 +64,7 @@ async function saveRule(page, action, when) {
 }
 
 const COMMENT = { ticketId: 'TEST-ticket', body: 'TEST comment' };
+const RUN_COMMENT = { ticketId: 'TEST-ticket', body: 'TEST comment, run' };
 
 async function openInbox(page) {
   await signIn(page, agents.account());
@@ -198,11 +207,43 @@ test(`${J} #2 uses a connector class for the first time: the consent card appear
 test(`${J} #3 runs the agent to the gated tool: the tool has not run, the run reads waiting for approval and a request row exists`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents, 'Runs');
+  test.setTimeout(120_000);
+  const agent = await ownAgent();
+  const before = await ownRead('approvals', { id: agent.id, limit: 50 });
+  // The agent runs to its comment tool; the rule "ask before sending a comment" (#1) holds the call for the person.
+  await openOwnAgent(page, agents, 'Test');
+  await runTest(page, 'Send a comment', RUN_COMMENT);
+  await expect(tryTool(page).getByRole('status')).toHaveText('Waiting for your approval: sending a comment. The tool has not run.');
+  const held = await ownRead('approvals', { id: agent.id, limit: 50 });
+  expect(held).toHaveLength(before.length + 1);
+  const request = held[0];
+  expect(request).toMatchObject({ tool: 'support.ticket.comment', status: 'waiting', input: RUN_COMMENT });
+
+  // The tool has not run: the session's own log holds no call of the comment tool, and svc-agents lists the run as this
+  // held call, with no action of its own and nothing billed.
+  const log = await ownSessionLog(request.sessionId);
+  expect(log.filter((action) => action.tool === 'support.ticket.comment')).toEqual([]);
+  const [newest] = await ownRead('runs', { id: agent.id, limit: 50 });
+  expect(newest).toMatchObject({ status: 'waiting', tool: 'support.ticket.comment', requestId: request.id, sequence: null });
+  expect(Number(newest.cost)).toBe(0);
+
+  // The run reads waiting for approval on the agent's Live runs.
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click();
   const run = tableIn(main(page), 'Live runs').getByRole('row').nth(1);
   await expect(run).toContainText('Waiting for approval', UNBUILT);
+  await expect(run).toContainText('Send a comment: the tool has not run.');
+
+  // A request row exists in the Approvals inbox: one row for each request svc-agents holds, this one among them.
   await openInbox(page);
-  await expect(inbox(page).getByRole('row').filter({ hasText: 'Send a comment' })).toHaveCount(1);
+  const rows = inbox(page).getByRole('row').filter({ hasText: 'Send a comment' });
+  await expect(rows).toHaveCount(held.length);
+  const row = inbox(page).locator(`[data-request-id="${request.id}"]`);
+  await expect(row).toContainText(OWN_AGENT);
+  await expect(row).toContainText('body: TEST comment, run');
+  await expect(row).toContainText('Waiting for approval');
+  expect(await ownRead('inbox', { limit: 100 })).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: request.id, agentId: agent.id, agentName: OWN_AGENT, status: 'waiting' })]),
+  );
 });
 
 test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names the action and links to the inbox; the push notice shows the vendor text`, async ({
@@ -223,7 +264,7 @@ test(`${J} #5 edits the payload then approves: a new request for the new payload
 }) => {
   await openInbox(page);
   const request = inbox(page).getByRole('row').filter({ hasText: 'Send a comment' }).first();
-  await request.getByRole('button', { name: 'Edit' }).click();
+  await request.getByRole('button', { name: 'Edit' }).click(UNBUILT);
   await page
     .getByRole('dialog', { name: 'Edit the request' })
     .getByRole('textbox', { name: /^Comment/ })

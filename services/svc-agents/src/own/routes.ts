@@ -21,6 +21,7 @@ import {
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
   ownAgentRunResultSchema,
+  ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
   ownAgentSchema,
   ownAgentSessionClosedSchema,
@@ -546,6 +547,18 @@ export function ownRouter(
         }),
     }),
 
+    /**
+     * The Approvals inbox (AG-approvals-01): the calls a rule held for the person across all their own agents, newest
+     * first, each with its agent. None of them has run.
+     */
+    inbox: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentInboxRowSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => new OwnApprovalRequestStore(sqlOf(sql)).inbox(ctx.principal.userId, input.limit));
+      }),
+
     /** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
     approvals: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
@@ -894,7 +907,10 @@ export function ownRouter(
         }
       }),
 
-    /** Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed. */
+    /**
+     * Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed; and each
+     * tool call a rule holds for the person, waiting for approval, which has not run.
+     */
     runs: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
       .output(z.array(ownAgentRunRowSchema))
@@ -903,23 +919,36 @@ export function ownRouter(
         return guard(async () => {
           const { feeAssetId } = runDepsOf(run);
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          // The engine calls, and the tool calls a rule holds for the person (AG-approvals-01): a held call has not run,
+          // so it has no action of its own and cost nothing.
           const rows = await sqlOf(sql)<
             Array<{
               session_id: string;
-              sequence: number;
-              status: 'executed' | 'refused' | 'failed';
+              sequence: number | null;
+              status: 'executed' | 'refused' | 'failed' | 'waiting';
               task: string | null;
+              tool: string | null;
+              request_id: string | null;
               refusal_code: string | null;
               cost: string;
               occurred_at: Date;
             }>
           >`
-            SELECT a.session_id::text, a.sequence, a.status, a.task, a.refusal_code, a.cost::text, a.occurred_at
-              FROM agents.agent_actions a
-             WHERE a.user_id = ${ctx.principal.userId}
-               AND a.agent_id = ${ownSessionAgentId(agent.id)}
-               AND a.kind = 'completion'
-             ORDER BY a.occurred_at DESC, a.sequence DESC
+            SELECT * FROM (
+              SELECT a.session_id::text AS session_id, a.sequence, a.status::text AS status, a.task, NULL::text AS tool,
+                     NULL::text AS request_id, a.refusal_code, a.cost::text AS cost, a.occurred_at
+                FROM agents.agent_actions a
+               WHERE a.user_id = ${ctx.principal.userId}
+                 AND a.agent_id = ${ownSessionAgentId(agent.id)}
+                 AND a.kind = 'completion'
+              UNION ALL
+              SELECT r.session_id::text, NULL::int, r.status, NULL::text, r.tool, r.id::text, NULL::text, '0', r.created_at
+                FROM agents.own_agent_approval_requests r
+               WHERE r.owner_id = ${ctx.principal.userId}
+                 AND r.agent_id = ${agent.id}
+                 AND r.status = 'waiting'
+            ) runs
+             ORDER BY occurred_at DESC, sequence DESC NULLS FIRST
              LIMIT ${input.limit}
           `;
           return rows.map((row) => ({
@@ -927,6 +956,8 @@ export function ownRouter(
             sequence: row.sequence,
             status: row.status,
             task: row.task,
+            tool: row.tool,
+            requestId: row.request_id,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,

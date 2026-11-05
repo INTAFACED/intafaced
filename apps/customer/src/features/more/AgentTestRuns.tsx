@@ -401,7 +401,13 @@ export function RunsPage({ agent, live }: { agent: OwnAgent; live: ReactNode }) 
       value={list}
       onChange={setList}
     >
-      {list === 'live' ? live : <TestRuns agent={agent} />}
+      {list === 'live' ? (
+        <div role="region" aria-label={t('liveTab')}>
+          {live}
+        </div>
+      ) : (
+        <TestRuns agent={agent} />
+      )}
     </TabList>
   );
 }
