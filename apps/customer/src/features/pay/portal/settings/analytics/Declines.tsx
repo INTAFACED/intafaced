@@ -17,18 +17,38 @@ import type { Declines as DeclinesData } from './schemas';
  * Declines for the chosen period (M-adv-payments-core-02): the rate, the counts behind it and the reasons, all as
  * svc-pay worked them out (merchantAnalytics.declines). The page divides nothing: a rate it was not sent is not shown.
  */
-export function Declines({ api, merchantId, state }: { api: SettingsBApi; merchantId: string; state: AnalyticsState }) {
+export function Declines({
+  api,
+  merchantId,
+  state,
+  test = false,
+}: {
+  api: SettingsBApi;
+  merchantId: string;
+  state: AnalyticsState;
+  test?: boolean;
+}) {
   const w = state.window;
-  const key = `analytics:declines:${merchantId}:${w?.from}:${w?.to}`;
+  const key = `analytics:declines:${merchantId}:${w?.from}:${w?.to}:${state.asset}`;
   const data = useResource<DeclinesData>(async (signal) => {
     if (!w) return { ok: false, reason: 'error', message: '', code: 'portal.local' } as ApiResult<DeclinesData>;
-    return api.analyticsDeclines({ merchantId, from: w.from, to: w.to }, signal);
+    return api.analyticsDeclines({ merchantId, from: w.from, to: w.to, ...(state.asset ? { assetId: state.asset } : {}) }, signal);
   }, key);
   if (!w) return null;
-  return <DeclinesView resource={data.resource} reload={data.reload} state={state} />;
+  return <DeclinesView resource={data.resource} reload={data.reload} state={state} test={test} />;
 }
 
-export function DeclinesView({ resource, reload, state }: { resource: Resource<DeclinesData>; reload: () => void; state: AnalyticsState }) {
+export function DeclinesView({
+  resource,
+  reload,
+  state,
+  test = false,
+}: {
+  resource: Resource<DeclinesData>;
+  reload: () => void;
+  state: AnalyticsState;
+  test?: boolean;
+}) {
   const { t } = c.useCopy();
   return (
     <PaySection title={t('declinesTitle')} description={t('declinesBody')}>
@@ -43,13 +63,13 @@ export function DeclinesView({ resource, reload, state }: { resource: Resource<D
           <PortalFailure result={resource.failure} retry={reload} />
         )
       ) : (
-        <DeclinesBody data={resource.data} state={state} />
+        <DeclinesBody data={resource.data} state={state} test={test} />
       )}
     </PaySection>
   );
 }
 
-function DeclinesBody({ data, state }: { data: DeclinesData; state: AnalyticsState }) {
+function DeclinesBody({ data, state, test }: { data: DeclinesData; state: AnalyticsState; test: boolean }) {
   const { t } = c.useCopy();
   const freshness = <Freshness asOf={data.asOf} lagSeconds={0} />;
   if (data.rateStatus === 'no_payments' || data.rate === null)
@@ -63,8 +83,9 @@ function DeclinesBody({ data, state }: { data: DeclinesData; state: AnalyticsSta
   const window = state.window
     ? `date=custom&from=${state.window.from.slice(0, 10)}&to=${new Date(Date.parse(state.window.to) - 1).toISOString().slice(0, 10)}`
     : '';
-  const failed = `/pay/payments?status=failed&${window}`;
-  const all = `/pay/payments?${window}`;
+  const asset = state.asset ? `&asset=${encodeURIComponent(state.asset)}` : '';
+  const failed = `/pay/payments?status=failed&${window}${asset}`;
+  const all = `/pay/payments?${window}${asset}`;
   return (
     <>
       {freshness}
@@ -75,7 +96,8 @@ function DeclinesBody({ data, state }: { data: DeclinesData; state: AnalyticsSta
             label: t('tileDeclineRate'),
             period,
             href: failed,
-            value: t('declineRateIs', { rate: data.rate }),
+            // A business that is not live yet carries the TEST tag on its figures, as its money does.
+            value: test ? t('declineRateTest', { rate: data.rate }) : t('declineRateIs', { rate: data.rate }),
             note: data.rateStatus === 'rounded' ? t('declineRateRounded') : t('declineRateNote'),
           },
           { label: t('tileDeclined'), period, href: failed, value: data.declinedCount },

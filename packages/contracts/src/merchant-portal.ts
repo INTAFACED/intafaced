@@ -509,7 +509,7 @@ export const merchantAnalyticsFeesSchema = z
   .strict();
 
 export const merchantAnalyticsDeclinesInputSchema = z
-  .object({ merchantId: payMerchantIdSchema, from: payTimestampSchema, to: payTimestampSchema })
+  .object({ merchantId: payMerchantIdSchema, from: payTimestampSchema, to: payTimestampSchema, assetId: payAssetCodeSchema.optional() })
   .strict();
 
 /** One decline reason: its catalogue code and sentence (an unknown code is already `pay.failed`), and how many. */
@@ -524,7 +524,7 @@ export const merchantDeclineReasonSchema = z
 /**
  * Declines over a window of UTC days, worked out by svc-pay (M-adv-payments-core-02). Payments counted are those made in
  * the window that have finished: succeeded (captured, settled, refunded or disputed) or declined (failed); a payment
- * still open counts in neither. `rate` is declined ÷ finished as a percentage, rounded down to 2 decimal places:
+ * still open counts in neither; with `assetId`, payments in that asset only. `rate` is declined ÷ finished as a percentage, rounded down to 2 decimal places:
  * `exact` lost nothing, `rounded` did, and `no_payments` (nothing finished) carries no rate, never 0.
  */
 export const merchantAnalyticsDeclinesSchema = z

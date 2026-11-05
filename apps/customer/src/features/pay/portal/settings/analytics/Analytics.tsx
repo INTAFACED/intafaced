@@ -59,7 +59,7 @@ export function Analytics({
   return (
     <div className="stack">
       <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />
-      <Declines api={api} merchantId={merchantId} state={state} />
+      <Declines api={api} merchantId={merchantId} state={state} test={test} />
     </div>
   );
 }

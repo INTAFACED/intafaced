@@ -53,7 +53,7 @@ export function createAnalyticsMock(ctx) {
     const reasons = new Map();
     for (const p of ctx.world.payments) {
       const d = dayOf(Date.parse(p.createdAt));
-      if (d < from || d >= to) continue;
+      if (d < from || d >= to || (input?.assetId && p.assetId !== input.assetId)) continue;
       if (p.status === 'failed') {
         const code = p.failure?.code ?? 'pay.failed';
         const had = reasons.get(code) ?? { code, message: p.failure?.message ?? 'The payment could not be completed.', count: 0 };

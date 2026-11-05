@@ -213,9 +213,9 @@ describe('addresses', () => {
   });
 });
 
-function DeclinesPage({ resource }: { resource: Parameters<typeof DeclinesView>[0]['resource'] }) {
+function DeclinesPage({ resource, test = false }: { resource: Parameters<typeof DeclinesView>[0]['resource']; test?: boolean }) {
   const state = useAnalyticsState(NOW);
-  return <DeclinesView state={state} resource={resource} reload={() => {}} />;
+  return <DeclinesView state={state} resource={resource} reload={() => {}} test={test} />;
 }
 
 describe('declines', () => {
@@ -265,6 +265,7 @@ describe('declines', () => {
       />,
     );
     expect(rounded).toContain('33.33%');
+    expect(rounded).not.toContain('33.33% TEST');
     expect(rounded).toContain('Rounded down to two decimal places.');
     const none = renderToString(
       <DeclinesPage
@@ -276,5 +277,25 @@ describe('declines', () => {
     );
     expect(none).toContain('No finished payments in this period');
     expect(none).not.toContain('%');
+  });
+  it('carries the TEST tag while the business is not live', () => {
+    const html = renderToString(
+      <DeclinesPage
+        test
+        resource={{
+          status: 'ready',
+          data: {
+            ...base,
+            finishedCount: 4,
+            succeededCount: 3,
+            declinedCount: 1,
+            rate: '25',
+            rateStatus: 'exact',
+            reasons: [{ code: 'card.declined', message: 'The card was declined.', count: 1 }],
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('25% TEST');
   });
 });

@@ -73,6 +73,7 @@ const en = {
   tileSucceeded: 'Succeeded',
   tileFinished: 'Finished',
   declineRateIs: '{rate}%',
+  declineRateTest: '{rate}% TEST',
   declineRateRounded: 'Rounded down to two decimal places.',
   declineRateNote: 'Declined ÷ finished. A payment still open counts in neither.',
   declinesNone: 'No finished payments in this period',

@@ -1464,6 +1464,11 @@ describe('merchant portal procedures', () => {
     });
     expect(JSON.stringify(read)).not.toContain('TEST issuer words');
     expect(JSON.stringify(read)).not.toContain('test_unlisted');
+    // One asset only: every payment here is USDT, so USDT reads the same and USDC has nothing finished.
+    expect((await as(stranger).merchantAnalytics.declines({ merchantId: merchantB, ...WINDOW, assetId: 'USDT' })).rate).toBe('57.14');
+    expect((await as(stranger).merchantAnalytics.declines({ merchantId: merchantB, ...WINDOW, assetId: 'USDC' })).rateStatus).toBe(
+      'no_payments',
+    );
     // A window with nothing finished carries no rate, never 0.
     const empty = await as(stranger).merchantAnalytics.declines({
       merchantId: merchantB,

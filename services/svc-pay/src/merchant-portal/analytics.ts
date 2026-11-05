@@ -109,9 +109,10 @@ export class MerchantAnalyticsService {
    * how many were declined, the rate, and the reasons. Read straight from the payments and their last `failed` event in
    * one read-only snapshot; a reason is the catalogue's (`safeFailure`), so an unknown code counts as `pay.failed`.
    */
-  async declines(userId: string | undefined, input: { merchantId: string; from: string; to: string }) {
+  async declines(userId: string | undefined, input: { merchantId: string; from: string; to: string; assetId?: string }) {
     await this.fence(userId, input.merchantId, 'payment', 'payments.read');
     const range = resolveRange(input.from, input.to);
+    const asset = assetOf(input.assetId);
     const read = await this.snapshot(input.merchantId, async (tx) => {
       const rows = await tx<Array<{ status: string; failure_code: string | null; n: number }>>`
         SELECT p.status, f.failure_code, count(*)::int AS n
@@ -127,6 +128,7 @@ export class MerchantAnalyticsService {
            AND p.created_at >= ${`${range.from}T00:00:00.000Z`}::timestamptz
            AND p.created_at < ${`${range.to}T00:00:00.000Z`}::timestamptz
            AND p.status IN ('captured', 'settled', 'refunded', 'disputed', 'failed')
+           ${asset ? tx`AND p.currency = ${asset}` : tx``}
          GROUP BY p.status, f.failure_code`;
       const [now] = await tx<Array<{ at: Date }>>`SELECT now() AS at`;
       return { rows, asOf: (now?.at ?? new Date()).toISOString() };

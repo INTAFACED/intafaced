@@ -791,12 +791,14 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
     if (!pageOf.nextCursor) break;
     cursor = pageOf.nextCursor;
   }
-  const from = Date.parse(asked.from ?? asked['0']?.from);
-  const to = Date.parse(asked.to ?? asked['0']?.to);
+  const from = Date.parse(asked.from);
+  const to = Date.parse(asked.to);
+  expect([Number.isFinite(from), Number.isFinite(to)], `the page asked for a window: ${JSON.stringify(asked)}`).toEqual([true, true]);
   const inWindow = all.filter((p) => Date.parse(p.createdAt) >= from && Date.parse(p.createdAt) < to);
   const succeeded = inWindow.filter((p) => ['captured', 'settled', 'refunded', 'disputed'].includes(p.status)).length;
   const declined = inWindow.filter((p) => p.status === 'failed');
   const finished = succeeded + declined.length;
+  expect(declined.length, 'the TEST declines this journey made').toBeGreaterThanOrEqual(2);
   const hundredths = (BigInt(declined.length) * 10_000n) / BigInt(finished);
   const rate = `${hundredths / 100n}${
     hundredths % 100n === 0n
@@ -806,8 +808,11 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
           .replace(/0+$/, '')}`
   }`;
   const reasons = {};
-  for (const p of declined) reasons[p.failure.code] = (reasons[p.failure.code] ?? 0) + 1;
-  expect(declined.length, 'the TEST declines this journey made').toBeGreaterThanOrEqual(2);
+  // A failed payment with no stored reason counts under the generic one, as the service counts it.
+  for (const p of declined) {
+    const code = p.failure?.code ?? 'pay.failed';
+    reasons[code] = (reasons[code] ?? 0) + 1;
+  }
   expect(server).toMatchObject({ finishedCount: finished, succeededCount: succeeded, declinedCount: declined.length, rate });
   expect(Object.fromEntries(server.reasons.map((r) => [r.code, r.count]))).toEqual(reasons);
   expect(reasons['pay.failed'], 'the unlisted decline counts under the generic reason').toBeGreaterThanOrEqual(1);

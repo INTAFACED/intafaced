@@ -102,7 +102,7 @@ const en = {
   resultOutage: 'Ends failed: the acquirer could not be reached.',
   resultFundsHeld: 'Is authorized; once captured, its funds stay held until the acquirer releases them.',
   resultUnlisted:
-    'Ends failed with a reason code no catalogue lists, so the business reads the general sentence, never the issuer’s words.',
+    'Ends failed with a reason no catalogue lists, so the payment carries the general code and sentence, never the issuer’s words:',
   resultApprove: 'Is authorized.',
   anyOtherToken: 'Any other token',
   newKey: 'Create a sandbox key',

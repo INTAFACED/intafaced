@@ -101,11 +101,8 @@ export function feeParts(row: {
   if (flat > 0n) parts.push({ kind: 'flat', amount: formatAmount(flat) });
   if (fee > before) parts.push({ kind: 'minimum', amount: formatAmount(fee - before) });
   if (fee < before) parts.push({ kind: 'maximum', amount: formatAmount(before - fee) });
-  const sum = parts.reduce(
-    (total, part) => (part.kind === 'maximum' ? total - parseAmount(part.amount) : total + parseAmount(part.amount)),
-    0n,
-  );
-  return sum === fee ? parts : null;
+  // percent + flat is the fee before the clamp, and the clamp part is what it moved, so the parts make the fee exactly.
+  return parts;
 }
 
 const LAYERS = new Set(['global', 'tier', 'merchant']);

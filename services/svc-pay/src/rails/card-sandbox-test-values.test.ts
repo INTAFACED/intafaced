@@ -1,5 +1,6 @@
 import { SANDBOX_CARD_TEST_VALUES } from '@intafaced/contracts/developer-sandboxes';
 import { describe, expect, it } from 'vitest';
+import { safeFailure } from '../merchant-failure.js';
 import {
   CardSandboxAdapter,
   SANDBOX_DECLINE_TOKEN,
@@ -14,6 +15,20 @@ import {
  * token does something it does not.
  */
 describe('sandbox card test values match the card-sandbox rail', () => {
+  it('the unlisted reason is a code the rail sends that no catalogue lists', async () => {
+    const rail = new CardSandboxAdapter({ secret: 'sandbox-test-values-rail-secret-32-chars', toleranceSeconds: 300 });
+    const result = await rail.authorize({
+      paymentId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e14',
+      merchantId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e12',
+      amount: 10n * 10n ** 18n,
+      assetId: 'USD',
+      method: 'card',
+      instrument: { kind: 'card', token: SANDBOX_UNLISTED_DECLINE_TOKEN },
+    });
+    expect(result).toMatchObject({ ok: false, status: 'failed', failureCode: 'card.test_unlisted_reason' });
+    expect(safeFailure('card.test_unlisted_reason')).toEqual({ code: 'pay.failed', message: 'The payment could not be completed.' });
+  });
+
   it('names exactly the tokens the rail steers by', () => {
     expect(Object.fromEntries(SANDBOX_CARD_TEST_VALUES.map((value) => [value.id, value.token]))).toEqual({
       decline: SANDBOX_DECLINE_TOKEN,
@@ -35,7 +50,9 @@ describe('sandbox card test values match the card-sandbox rail', () => {
         method: 'card',
         instrument: { kind: 'card', token },
       });
-      expect(result).toMatchObject({ ok: false, status: 'failed', failureCode });
+      expect(result).toMatchObject({ ok: false, status: 'failed' });
+      // The code the page names is the one the payment then carries on every read: the catalogue's (merchant-failure.ts).
+      expect(safeFailure(result.ok ? null : result.failureCode)?.code).toBe(failureCode);
     },
   );
 
