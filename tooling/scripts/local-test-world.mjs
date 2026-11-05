@@ -1431,9 +1431,15 @@ export const tierDefineRequestId = (tierId, expectedVersion) => populateUuid(`me
 export const tierAssignRequestId = (merchantId, tierId, expectedVersion) =>
   populateUuid(`merchant-tier-assign-${merchantId}-${tierId}-v${expectedVersion}`);
 
+/** A cap limit as a normalised decimal string ("500.000" and "500" are one value), never a JS number (AGENTS.md Money 2). */
+const capLimit = (limit) => {
+  const [whole, frac = ''] = String(limit).split('.');
+  const f = frac.replace(/0+$/, '');
+  return f ? `${BigInt(whole)}.${f}` : `${BigInt(whole)}`;
+};
 const sameCaps = (a, b) => {
   const key = (c) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
-  const val = (c) => Number(c.kind === 'beneficiaries_per_day' ? c.limit : c.limit);
+  const val = (c) => capLimit(c.limit);
   const ma = new Map((a ?? []).map((c) => [key(c), val(c)]));
   const mb = new Map((b ?? []).map((c) => [key(c), val(c)]));
   return ma.size === mb.size && [...ma].every(([k, v]) => mb.get(k) === v);
