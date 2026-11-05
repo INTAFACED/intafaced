@@ -182,9 +182,12 @@ test(`${J} #2 adds margin to a position: the margin and liquidation price after,
   await expect(dialog).toBeHidden();
 
   // The row now shows the service's margin and its recomputed liquidation price: lower for a long with more margin.
-  const table = page.getByRole('table', { name: 'Open futures positions' });
+  // The positions table is a grid (its rows open a position's detail), so its cells are grid cells.
+  const table = page.getByRole('grid', { name: 'Open futures positions' });
   const row = table.getByRole('row').filter({ hasText: SYMBOL }).first();
-  const headers = (await table.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  await expect(table.getByRole('columnheader', { name: 'Margin', exact: true })).toBeVisible();
+  // The headers may be drawn in capitals by the style, so their text is read as written, not as shown.
+  const headers = (await table.getByRole('columnheader').allTextContents()).map((h) => h.trim());
   const marginAt = headers.indexOf('Margin');
   const liqAt = headers.indexOf('Liquidation price');
   expect(marginAt, headers.join(' | ')).toBeGreaterThanOrEqual(0);
@@ -198,8 +201,8 @@ test(`${J} #2 adds margin to a position: the margin and liquidation price after,
     async () => {
       const [list, margin, liq] = await Promise.all([
         me.get('/api/v1/positions'),
-        row.getByRole('cell').nth(marginAt).innerText(),
-        row.getByRole('cell').nth(liqAt).innerText(),
+        row.getByRole('gridcell').nth(marginAt).innerText(),
+        row.getByRole('gridcell').nth(liqAt).innerText(),
       ]);
       return { p: list.body.find((x) => x.id === positionId), margin, liq };
     },
