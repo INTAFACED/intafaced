@@ -155,8 +155,6 @@ export const SANDBOX_CARD_TEST_VALUES = [
   { id: 'decline', token: 'tok_decline', status: 'failed', failureCode: 'card.declined' },
   { id: 'acquirer_outage', token: 'tok_rail_error', status: 'failed', failureCode: 'acquirer.unavailable' },
   { id: 'funds_held', token: 'tok_funds_held', status: 'authorized', failureCode: null },
-  // The issuer's code is one no catalogue lists, so the payment reads the generic code, as every API answer gives it.
-  { id: 'unlisted_reason', token: 'tok_decline_unlisted', status: 'failed', failureCode: 'pay.failed' },
 ] as const;
 export type SandboxCardTestValue = (typeof SANDBOX_CARD_TEST_VALUES)[number];
 

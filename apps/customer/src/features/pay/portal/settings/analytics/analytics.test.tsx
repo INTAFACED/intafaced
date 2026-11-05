@@ -9,7 +9,6 @@ vi.mock('../../../../../shared/preferences', async (original) => {
 import { parsePortalRoute } from '../../routes';
 import { AnalyticsView } from './Analytics';
 import { useAnalyticsState } from './Controls';
-import { DeclinesView } from './Declines';
 import { FeesView } from './Fees';
 import {
   assetsOf,
@@ -210,92 +209,5 @@ describe('addresses', () => {
   it('routes volume and fees', () => {
     expect(parsePortalRoute('/pay/analytics')?.room).toBe('analytics');
     expect(parsePortalRoute('/pay/analytics/fees')?.room).toBe('analytics-fees');
-  });
-});
-
-function DeclinesPage({ resource, test = false }: { resource: Parameters<typeof DeclinesView>[0]['resource']; test?: boolean }) {
-  const state = useAnalyticsState(NOW);
-  return <DeclinesView state={state} resource={resource} reload={() => {}} test={test} />;
-}
-
-describe('declines', () => {
-  const base = { from: '2026-09-18', to: '2026-10-18', asOf: '2026-10-17T03:58:30.000Z' };
-  it('shows the service’s rate, counts and reasons, and works nothing out itself', () => {
-    const html = renderToString(
-      <DeclinesPage
-        resource={{
-          status: 'ready',
-          data: {
-            ...base,
-            finishedCount: 10,
-            succeededCount: 7,
-            declinedCount: 3,
-            rate: '30',
-            rateStatus: 'exact',
-            reasons: [
-              { code: 'card.declined', message: 'The card was declined.', count: 2 },
-              { code: 'pay.failed', message: 'The payment could not be completed.', count: 1 },
-            ],
-          },
-        }}
-      />,
-    );
-    expect(html).toContain('aria-label="Declines"');
-    expect(html).toContain('30%');
-    expect(html).toContain('The card was declined.');
-    expect(html).toContain('The payment could not be completed.');
-    expect(html).toContain('status=failed');
-    expect(html).not.toContain('Rounded down');
-  });
-  it('says when the rate was rounded, and shows no rate when nothing finished', () => {
-    const rounded = renderToString(
-      <DeclinesPage
-        resource={{
-          status: 'ready',
-          data: {
-            ...base,
-            finishedCount: 3,
-            succeededCount: 2,
-            declinedCount: 1,
-            rate: '33.33',
-            rateStatus: 'rounded',
-            reasons: [{ code: 'pay.failed', message: 'The payment could not be completed.', count: 1 }],
-          },
-        }}
-      />,
-    );
-    expect(rounded).toContain('33.33%');
-    expect(rounded).not.toContain('33.33% TEST');
-    expect(rounded).toContain('Rounded down to two decimal places.');
-    const none = renderToString(
-      <DeclinesPage
-        resource={{
-          status: 'ready',
-          data: { ...base, finishedCount: 0, succeededCount: 0, declinedCount: 0, rate: null, rateStatus: 'no_payments', reasons: [] },
-        }}
-      />,
-    );
-    expect(none).toContain('No finished payments in this period');
-    expect(none).not.toContain('%');
-  });
-  it('carries the TEST tag while the business is not live', () => {
-    const html = renderToString(
-      <DeclinesPage
-        test
-        resource={{
-          status: 'ready',
-          data: {
-            ...base,
-            finishedCount: 4,
-            succeededCount: 3,
-            declinedCount: 1,
-            rate: '25',
-            rateStatus: 'exact',
-            reasons: [{ code: 'card.declined', message: 'The card was declined.', count: 1 }],
-          },
-        }}
-      />,
-    );
-    expect(html).toContain('25% TEST');
   });
 });

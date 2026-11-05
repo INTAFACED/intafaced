@@ -27,18 +27,7 @@ export type FeeSummary =
       layer: RuleWords;
       percent: string;
       flatFee: string | null;
-      /** The stored parts, checked here to add up to the fee; null when the service recorded no exact split. */
-      parts: FeePart[] | null;
     };
-
-export type FeePart = { kind: 'percent' | 'flat' | 'minimum' | 'maximum'; amount: string };
-
-/** The parts only when they add up to the fee exactly (a `maximum` part is taken off); otherwise the split is unknown. */
-export function checkedParts(fee: string, parts: readonly FeePart[] | null | undefined): FeePart[] | null {
-  if (!parts || parts.length === 0) return null;
-  const sum = parts.reduce((total, p) => (p.kind === 'maximum' ? total - parseAmount(p.amount) : total + parseAmount(p.amount)), 0n);
-  return sum === parseAmount(fee) ? [...parts] : null;
-}
 
 /** Basis points as a percentage, exactly: 150 is "1.5". */
 export function percentOf(bps: number): string {
@@ -69,7 +58,6 @@ export function feeSummary(payment: Pick<Payment, 'assetId' | 'capturedAmount' |
       layer: LAYER[snap.appliedLayer] ?? 'standard',
       percent: percentOf(snap.feeBps),
       flatFee: snap.flatFee && parseAmount(snap.flatFee) > 0n ? snap.flatFee : null,
-      parts: checkedParts(snap.fee, snap.parts),
     };
   }
   return { kind: 'fee', fee: snap.fee, net, assetId: payment.assetId };
