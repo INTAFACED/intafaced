@@ -398,8 +398,15 @@ test(`${J} #6 adds an email or phone to receive by: a payment sent to that conta
   await expect(dialog.getByRole('heading', { name: 'Enter the code' })).toBeVisible();
   await expect(dialog).toContainText(`We sent a six-digit code to ${extra}`);
   const code = await nextMailedCode(extra, seen, 20_000, 'receive-contact-code');
-  await expect(ways.getByRole('listitem').filter({ hasText: extra })).toContainText('Not confirmed yet');
   expect(await payeeByEmail(stranger(), extra)).toEqual({ found: false });
+  // Closed before the code is typed, the row says it is not confirmed and offers the code step again (the open dialog
+  // hides the page behind it, so the row is read with it closed).
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const row = ways.getByRole('listitem').filter({ hasText: extra });
+  await expect(row).toContainText('Not confirmed yet');
+  await row.getByRole('button', { name: 'Enter the code' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(`We sent a six-digit code to ${extra}`);
   await dialog.getByRole('textbox', { name: 'Code' }).fill(code);
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   await expect(dialog).toHaveCount(0);

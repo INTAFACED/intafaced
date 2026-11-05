@@ -174,7 +174,7 @@ const messages = {
   Remove: 'Remove',
   'Remove {target}': 'Remove {target}',
   'Receive contact invalid': 'That isn’t an email address or a phone number. A phone starts with + and the country code.',
-  'Receive contacts not open': 'Adding an email or phone to receive by isn’t available yet: its settings aren’t set. Nothing was added.',
+  'Receive contacts not open': 'Adding an email or phone to receive by is off: its settings aren’t set. Nothing was added.',
   'Receive contacts used up {n}': 'You’ve added the most allowed, {n}. Remove one to add another.',
   'Receive contact mail off': 'Email is switched off, so we can’t send the code to confirm this address. Nothing was added.',
   'Receive contact sms off': 'Text messages are switched off, so we can’t send the code to confirm this number. Nothing was added.',
