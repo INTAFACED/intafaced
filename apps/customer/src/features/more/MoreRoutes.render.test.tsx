@@ -82,6 +82,7 @@ describe('More room sections and records (MC-order-01)', () => {
       expect(html, path).toContain('Your agent');
     }
     expect(page('/agents/team')).not.toContain('Your agent');
+    expect(page('/agents/approvals')).not.toContain('Your agent');
     expect(page('/agents/new')).not.toContain('Your agent');
     expect(page('/agents/a/b')).toContain('This destination has no customer route');
   });

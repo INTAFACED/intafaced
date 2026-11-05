@@ -97,19 +97,35 @@ export const ownAgentRunResultSchema = z.object({
 export type OwnAgentRunResult = z.infer<typeof ownAgentRunResultSchema>;
 
 /**
- * `own.runs`: every engine call asked of the agent, newest first. A refused one carries its code and costs 0. `task` is
- * the routing task the call was priced as (a blank rate refuses under it); null only on a row logged without one.
+ * `own.runs`: every engine call asked of the agent, and every tool call of it a rule holds for the person, newest first.
+ * A refused one carries its code and costs 0. `task` is the routing task the call was priced as (a blank rate refuses
+ * under it); null only on a row logged without one, and on a held tool call. A held tool call (`waiting`, AG-approvals-01)
+ * is the approval request `requestId` for `tool`: the tool has not run, it has no action `sequence` and it cost 0.
  */
-export const ownAgentRunRowSchema = z.object({
+const ownAgentRunRowBase = {
   sessionId: z.string().uuid(),
-  sequence: z.number().int(),
-  status: z.enum(['executed', 'refused', 'failed']),
   task: z.string().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
   assetId: z.string(),
   occurredAt: z.string(),
-});
+};
+export const ownAgentRunRowSchema = z.union([
+  z.object({
+    ...ownAgentRunRowBase,
+    sequence: z.number().int(),
+    status: z.enum(['executed', 'refused', 'failed']),
+    tool: z.null(),
+    requestId: z.null(),
+  }),
+  z.object({
+    ...ownAgentRunRowBase,
+    sequence: z.null(),
+    status: z.literal('waiting'),
+    tool: z.string(),
+    requestId: z.string().uuid(),
+  }),
+]);
 export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;
 
 /** `own.session.close`: the session closed once every window of it is paid. An unpaid one refuses `agents.window_unpaid`. */
@@ -177,6 +193,16 @@ export const ownAgentApprovalRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type OwnAgentApprovalRequest = z.infer<typeof ownAgentApprovalRequestSchema>;
+
+/**
+ * `own.inbox`: the Approvals inbox (AG-approvals-01). Every request a rule holds for the person, across every agent of
+ * their own, newest first, each with the agent it belongs to. None of them has run.
+ */
+export const ownAgentInboxRowSchema = ownAgentApprovalRequestSchema.extend({
+  agentId: z.string().uuid(),
+  agentName: z.string(),
+});
+export type OwnAgentInboxRow = z.infer<typeof ownAgentInboxRowSchema>;
 
 /**
  * `own.tool.try`: one tool call of the person's own agent in its session. `ran` is the tool's answer as its door gave
