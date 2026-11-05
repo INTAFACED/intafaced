@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { bodyRows, tableIn } from './tables.mjs';
 
 // J-merchant-05, in the running app (docs/roadmap/journeys.json): see a payment arrive and read everything about it.
 // One test per step, titled "J-merchant-05 #<n>", run in order on one verified TEST business. #1 makes the owner and the
@@ -106,8 +108,11 @@ async function ownerApi(state, as = 'owner') {
   };
 }
 
-/** A TEST card payment on the stack's sandbox card rail, taken as far as `want`. `tok_decline` is its published decline. */
-async function cardPayment(owner, merchantId, { amount, reference, customerRef, want }) {
+/**
+ * A TEST card payment on the stack's sandbox card rail, taken as far as `want`. `tok_decline` is its published decline;
+ * `token` names another of its test values (/developers/sandbox/test-values) for a decline of another kind.
+ */
+async function cardPayment(owner, merchantId, { amount, reference, customerRef, want, token }) {
   const created = await owner.mutate('payment.create', {
     requestId: uuidOf(`${J}:payment:${reference}`),
     merchantId,
@@ -117,7 +122,7 @@ async function cardPayment(owner, merchantId, { amount, reference, customerRef, 
     railAdapter: 'card-sandbox',
     customerRef,
     metadata: { reference },
-    instrument: { kind: 'card', token: want === 'failed' ? 'tok_decline' : 'tok_ok' },
+    instrument: { kind: 'card', token: token ?? (want === 'failed' ? 'tok_decline' : 'tok_ok') },
   });
   // A retried step finds its payment where the first run left it (paid, refunded in part, or disputed since).
   if (want === 'created' || !['created', 'authorized'].includes(created.status)) return created;
@@ -683,4 +688,139 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
     await expect(page.locator('body')).not.toContainText('TEST Other Shop Ltd');
     await expect(page.locator('body')).not.toContainText('5.00 USDT');
   }
+});
+
+/**
+ * Gives the business a TEST merchant-layer fee of 1.00% + 0.50 USDT through the two-founder door and returns what the
+ * founders read back (`tooling/scripts/local-test-merchant-fee-parts.mjs`). Signing the two founders in can wait out
+ * TOTP steps, so it gets longer than `tool`'s two minutes.
+ */
+function feeInTwoParts(merchantId) {
+  const out = execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-merchant-fee-parts.mjs'), merchantId], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 300_000,
+  });
+  return JSON.parse(out.trim().split('\n').pop());
+}
+
+/** A decimal string as a whole number of 10^-18 units, so parts and totals are compared exactly. */
+function units(value) {
+  const figure = /^\s*(\d+(?:\.\d+)?)/.exec(String(value))?.[1];
+  if (!figure) throw new Error(`not a decimal figure: ${value}`);
+  const [whole, frac = ''] = figure.split('.');
+  return BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0').slice(0, 18));
+}
+
+test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its two parts and they add up, an unknown failure code shows the generic sentence, and the decline rate is the service's`, async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const state = journey();
+  expect(state.payments?.declined, `${J} #2 made the TEST payments this step reads`).toBeTruthy();
+  const { merchantId } = state;
+  const owner = await ownerApi(state);
+
+  // The business's own TEST fee: 1.00% + 0.50 USDT, set by one founder and confirmed by another; the founders read it back.
+  const fee = feeInTwoParts(merchantId);
+  expect(fee, JSON.stringify(fee)).toMatchObject({ merchantId, holds: true, rules: 1 });
+
+  // A 100 USDT TEST payment, paid: its stored fee is 1.50, in a 1.00 percentage part and a 0.50 flat part that add up.
+  const paid = await cardPayment(owner, merchantId, {
+    amount: '100.00',
+    reference: `TEST-${state.stamp}-fee-parts`,
+    customerRef: 'TEST-cust-dee',
+    want: 'captured',
+  });
+  const read = await owner.query('payment.get', { paymentId: paid.id });
+  expect(read.status).toBe('captured');
+  expect(units(read.pricingSnapshot.fee)).toBe(units('1.5'));
+  expect(read.pricingSnapshot).toMatchObject({ appliedLayer: 'merchant', feeBps: 100, assetCode: 'USDT' });
+  expect(read.pricingSnapshot.parts.map((p) => [p.kind, units(p.amount)])).toEqual([
+    ['percent', units('1')],
+    ['flat', units('0.5')],
+  ]);
+
+  await signInOwner(page, journey(), `/pay/payments/${paid.id}`);
+  const refused = refusedPayCalls(page);
+  const summary = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Summary', level: 2 }) });
+  await expect(summary).toBeVisible();
+  const shown = {
+    fee: await fact(summary, 'Fee').textContent(),
+    percent: await fact(summary, 'Percentage part (1%)').textContent(),
+    flat: await fact(summary, 'Flat part').textContent(),
+  };
+  expect(shown.fee).toMatch(/^1\.50\s*USDT$/);
+  expect(shown.percent).toMatch(/^1\.00\s*USDT$/);
+  expect(shown.flat).toMatch(/^0\.50\s*USDT$/);
+  // The two parts on the page add up to the fee on the page.
+  expect(units(shown.percent) + units(shown.flat)).toBe(units(shown.fee));
+  await expect(page.getByText('The split of this fee was not recorded')).toHaveCount(0);
+
+  // A TEST card the issuer declines with a code no catalogue lists (the sandbox's "Unlisted reason" test value): the
+  // service keeps only the generic sentence, and the page shows it, never the issuer's own words or code.
+  const odd = await cardPayment(owner, merchantId, {
+    amount: '4.00',
+    reference: `TEST-${state.stamp}-unlisted`,
+    customerRef: 'TEST-cust-dee',
+    want: 'failed',
+    token: 'tok_decline_unlisted',
+  });
+  expect(odd.status).toBe('failed');
+  expect(odd.failure).toEqual({ code: 'pay.failed', message: 'The payment could not be completed.' });
+  await page.goto(`/pay/payments/${odd.id}`);
+  await expect(page.getByText('Why it failed: The payment could not be completed.')).toBeVisible();
+  for (const leaked of ['7Q', 'test_unlisted', 'Issuer declined', 'tok_decline_unlisted']) {
+    await expect(page.locator('body')).not.toContainText(leaked);
+  }
+
+  // The decline rate is the service's: the page asks merchantAnalytics.declines and shows its answer, and that answer is
+  // what this business's own payments, read one by one, make it.
+  const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/merchantAnalytics.declines') && r.ok());
+  await page.goto('/pay/analytics');
+  const response = await answered;
+  const asked = JSON.parse(new URL(response.url()).searchParams.get('input') ?? '{}');
+  const body = await response.json();
+  const server = (Array.isArray(body) ? body[0] : body).result.data;
+
+  const all = [];
+  for (let cursor; ;) {
+    const pageOf = await owner.query('payment.list', { merchantId, limit: 100, ...(cursor ? { cursor } : {}) });
+    all.push(...pageOf.items);
+    if (!pageOf.nextCursor) break;
+    cursor = pageOf.nextCursor;
+  }
+  const from = Date.parse(asked.from ?? asked['0']?.from);
+  const to = Date.parse(asked.to ?? asked['0']?.to);
+  const inWindow = all.filter((p) => Date.parse(p.createdAt) >= from && Date.parse(p.createdAt) < to);
+  const succeeded = inWindow.filter((p) => ['captured', 'settled', 'refunded', 'disputed'].includes(p.status)).length;
+  const declined = inWindow.filter((p) => p.status === 'failed');
+  const finished = succeeded + declined.length;
+  const hundredths = (BigInt(declined.length) * 10_000n) / BigInt(finished);
+  const rate = `${hundredths / 100n}${
+    hundredths % 100n === 0n
+      ? ''
+      : `.${String(hundredths % 100n)
+          .padStart(2, '0')
+          .replace(/0+$/, '')}`
+  }`;
+  const reasons = {};
+  for (const p of declined) reasons[p.failure.code] = (reasons[p.failure.code] ?? 0) + 1;
+  expect(declined.length, 'the TEST declines this journey made').toBeGreaterThanOrEqual(2);
+  expect(server).toMatchObject({ finishedCount: finished, succeededCount: succeeded, declinedCount: declined.length, rate });
+  expect(Object.fromEntries(server.reasons.map((r) => [r.code, r.count]))).toEqual(reasons);
+  expect(reasons['pay.failed'], 'the unlisted decline counts under the generic reason').toBeGreaterThanOrEqual(1);
+
+  const declines = page.getByRole('group', { name: 'Declines' });
+  await expect(declines.getByRole('link', { name: /^Decline rate/ }).locator('.pp-kpi-value')).toHaveText(`${rate}%`);
+  await expect(declines.getByRole('link', { name: /^Declined/ }).locator('.pp-kpi-value')).toHaveText(String(declined.length));
+  await expect(declines.getByRole('link', { name: /^Finished/ }).locator('.pp-kpi-value')).toHaveText(String(finished));
+  const reasonRows = bodyRows(tableIn(page, 'Decline reasons'));
+  await expect(reasonRows).toHaveCount(Object.keys(reasons).length);
+  for (const r of server.reasons) {
+    await expect(reasonRows.filter({ hasText: r.code })).toContainText(r.message);
+    await expect(reasonRows.filter({ hasText: r.code }).locator('td').last()).toHaveText(String(r.count));
+  }
+  expect(refused).toEqual([]);
 });

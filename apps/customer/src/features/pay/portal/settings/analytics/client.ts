@@ -18,6 +18,8 @@ export const analyticsApi = ({ query }: SettingsBTools) => ({
     query('merchantAnalytics.volume', input(q, cursor), s.volumeSchema, signal),
   analyticsFees: (q: AnalyticsQuery, cursor?: string, signal?: AbortSignal) =>
     query('merchantAnalytics.fees', input(q, cursor), s.feesSchema, signal),
+  analyticsDeclines: (q: { merchantId: string; from: string; to: string }, signal?: AbortSignal) =>
+    query('merchantAnalytics.declines', { merchantId: q.merchantId, from: q.from, to: q.to }, s.declinesSchema, signal),
   /** Used only where merchantAnalytics.volume is not available: the daily capture totals the account already reads. */
   analyticsDailySeries: (merchantId: string, from: string, to: string, signal?: AbortSignal) =>
     query('merchantMetrics.series', { merchantId, from, to, bucket: 'day' }, seriesSchema, signal),

@@ -1419,6 +1419,64 @@ describe('merchant portal procedures', () => {
     expect(foreign.code).toBe('NOT_FOUND');
   });
 
+  it('works out declines on the server: finished payments in the window, the rate rounded down, reasons from the catalogue', async () => {
+    // Business B, made in WINDOW unless dated: 3 succeeded, 4 declined (2 card.declined, 1 with a code no catalogue lists,
+    // 1 with no failed event), 1 still open. A decline after the window and one of business A count for neither.
+    const pay = async (merchantId: string, status: string, at: string, failureCode?: string | null) => {
+      const payment = (
+        await sql<Array<{ id: string }>>`
+          INSERT INTO pay.payments (merchant_id, amount, currency, method, rail_adapter, rail_ref, status, created_at)
+          VALUES (${merchantId}, 5, 'USDT', 'card', 'card-sandbox', ${'rail-' + id()}, ${status}::pay.payment_status, ${at})
+          RETURNING id`
+      )[0]!.id;
+      if (failureCode !== undefined && failureCode !== null) {
+        await sql`
+          INSERT INTO pay.payment_events (payment_id, event, payload, ts)
+          VALUES (${payment}, 'failed', ${sql.json({ failureCode, failureReason: 'TEST issuer words that must not show' })}, ${at})`;
+      }
+    };
+    const inWindow = '2026-10-08T10:00:00.000Z';
+    await pay(merchantB, 'captured', inWindow);
+    await pay(merchantB, 'settled', inWindow);
+    await pay(merchantB, 'refunded', inWindow);
+    await pay(merchantB, 'failed', inWindow, 'card.declined');
+    await pay(merchantB, 'failed', '2026-10-18T23:59:59.000Z', 'card.declined');
+    await pay(merchantB, 'failed', inWindow, 'card.test_unlisted_reason');
+    await pay(merchantB, 'failed', inWindow, null);
+    await pay(merchantB, 'created', inWindow);
+    await pay(merchantB, 'failed', WINDOW.to, 'card.declined');
+    await pay(merchantA, 'failed', inWindow, 'card.declined');
+
+    const read = await as(stranger).merchantAnalytics.declines({ merchantId: merchantB, ...WINDOW });
+    expect(read).toMatchObject({
+      merchantId: merchantB,
+      from: '2026-10-05',
+      to: '2026-10-19',
+      finishedCount: 7,
+      succeededCount: 3,
+      declinedCount: 4,
+      rate: '57.14',
+      rateStatus: 'rounded',
+      reasons: [
+        { code: 'card.declined', message: 'The card was declined.', count: 2 },
+        { code: 'pay.failed', message: 'The payment could not be completed.', count: 2 },
+      ],
+    });
+    expect(JSON.stringify(read)).not.toContain('TEST issuer words');
+    expect(JSON.stringify(read)).not.toContain('test_unlisted');
+    // A window with nothing finished carries no rate, never 0.
+    const empty = await as(stranger).merchantAnalytics.declines({
+      merchantId: merchantB,
+      from: '2026-09-01T00:00:00.000Z',
+      to: '2026-09-08T00:00:00.000Z',
+    });
+    expect(empty).toMatchObject({ finishedCount: 0, declinedCount: 0, rate: null, rateStatus: 'no_payments', reasons: [] });
+    const foreign = await refusal(() => as(owner).merchantAnalytics.declines({ merchantId: merchantB, ...WINDOW }));
+    const missing = await refusal(() => as(owner).merchantAnalytics.declines({ merchantId: id(), ...WINDOW }));
+    expect(norm(foreign.message)).toBe(norm(missing.message));
+    expect(foreign.code).toBe('NOT_FOUND');
+  });
+
   it('aggregates one customer per asset and refuses another merchant’s ref like a missing ref', async () => {
     const series = await ops(owner).merchantOps.customers.series({
       customerRef: 'cust-a',

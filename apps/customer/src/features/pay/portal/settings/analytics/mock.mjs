@@ -45,8 +45,42 @@ export function createAnalyticsMock(ctx) {
       a.period === b.period ? b.assetCode.localeCompare(a.assetCode) : b.period.localeCompare(a.period),
     );
   };
+  /** Declines worked out the way svc-pay does: finished payments made in the window, the rate rounded down to 2 places. */
+  const declines = (input) => {
+    const from = String(input?.from ?? '').slice(0, 10);
+    const to = String(input?.to ?? '').slice(0, 10);
+    let succeeded = 0;
+    const reasons = new Map();
+    for (const p of ctx.world.payments) {
+      const d = dayOf(Date.parse(p.createdAt));
+      if (d < from || d >= to) continue;
+      if (p.status === 'failed') {
+        const code = p.failure?.code ?? 'pay.failed';
+        const had = reasons.get(code) ?? { code, message: p.failure?.message ?? 'The payment could not be completed.', count: 0 };
+        had.count += 1;
+        reasons.set(code, had);
+      } else if (isTaken(p.status)) succeeded += 1;
+    }
+    const declined = [...reasons.values()].reduce((n, r) => n + r.count, 0);
+    const finished = succeeded + declined;
+    const hundredths = finished === 0 ? null : Math.floor((declined * 10000) / finished);
+    const rate = hundredths === null ? null : String(hundredths / 100);
+    return {
+      merchantId: input?.merchantId,
+      from,
+      to,
+      asOf: iso(Date.now() - 90_000),
+      finishedCount: finished,
+      succeededCount: succeeded,
+      declinedCount: declined,
+      rate,
+      rateStatus: finished === 0 ? 'no_payments' : (declined * 10000) % finished === 0 ? 'exact' : 'rounded',
+      reasons: [...reasons.values()].sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
+    };
+  };
   return {
     async handle(procedure, input, route) {
+      if (procedure === 'merchantAnalytics.declines') return ok(route, declines(input));
       if (procedure !== 'merchantAnalytics.volume' && procedure !== 'merchantAnalytics.fees') return NOT_MINE;
       const from = input.from.slice(0, 10);
       const to = input.to.slice(0, 10);

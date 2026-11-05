@@ -1,6 +1,12 @@
 import { SANDBOX_CARD_TEST_VALUES } from '@intafaced/contracts/developer-sandboxes';
 import { describe, expect, it } from 'vitest';
-import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN, SANDBOX_ERROR_TOKEN, SANDBOX_FUNDS_HELD_TOKEN } from './card-sandbox.js';
+import {
+  CardSandboxAdapter,
+  SANDBOX_DECLINE_TOKEN,
+  SANDBOX_ERROR_TOKEN,
+  SANDBOX_FUNDS_HELD_TOKEN,
+  SANDBOX_UNLISTED_DECLINE_TOKEN,
+} from './card-sandbox.js';
 
 /**
  * The developer portal's test values page (`/developers/sandbox/test-values`, J-developer-02 #8) lists the contract's
@@ -13,6 +19,7 @@ describe('sandbox card test values match the card-sandbox rail', () => {
       decline: SANDBOX_DECLINE_TOKEN,
       acquirer_outage: SANDBOX_ERROR_TOKEN,
       funds_held: SANDBOX_FUNDS_HELD_TOKEN,
+      unlisted_reason: SANDBOX_UNLISTED_DECLINE_TOKEN,
     });
   });
 

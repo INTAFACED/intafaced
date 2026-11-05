@@ -50,6 +50,11 @@ export interface CardSandboxOptions {
 export const SANDBOX_DECLINE_TOKEN = 'tok_decline';
 export const SANDBOX_ERROR_TOKEN = 'tok_rail_error';
 /**
+ * The issuer declines with a code no catalogue lists (TEST): what a real acquirer does when it adds a reason. The
+ * merchant must read the generic sentence for it, never the rail's own words (merchant-failure.ts, J-merchant-05 #5).
+ */
+export const SANDBOX_UNLISTED_DECLINE_TOKEN = 'tok_decline_unlisted';
+/**
  * The acquirer captures the charge and holds the funds (RC-merchant-10): the capture result says `funds: pending`, and
  * the funds stay held until a signed `funds.available` delivery names the charge.
  */
@@ -171,6 +176,18 @@ export class CardSandboxAdapter implements RailAdapter {
         failureCode: 'acquirer.unavailable',
         failureReason: 'Simulated acquirer outage',
         at: this.now(),
+      });
+    }
+
+    if (p.instrument?.token === SANDBOX_UNLISTED_DECLINE_TOKEN) {
+      return railFailure({
+        railRef: chargeRef(p.paymentId),
+        amount: p.amount,
+        assetId: p.assetId,
+        failureCode: 'card.test_unlisted_reason',
+        failureReason: 'Issuer declined the authorization with TEST reason 7Q (not in any catalogue)',
+        at: this.now(),
+        raw: { declineCode: '7Q' },
       });
     }
 

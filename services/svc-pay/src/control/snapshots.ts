@@ -60,6 +60,52 @@ export interface StoredPricingSnapshot {
   readonly bookedFee: string | null;
   readonly reserveAmount: string | null;
   readonly recordedAt: string;
+  /**
+   * The stored fee in its parts, as the snapshot row recorded them when the fee was decided: the percentage part, the
+   * flat part, and what a minimum added or a maximum took off. Null when the row's parts do not add up to its fee
+   * exactly (or a part is not stored), so the page says the split is not recorded instead of showing parts that lie.
+   */
+  readonly parts: readonly FeePart[] | null;
+}
+
+/** One part of a stored fee. A `maximum` part is taken off; every other part is added. Amounts are unsigned decimals. */
+export interface FeePart {
+  readonly kind: 'percent' | 'flat' | 'minimum' | 'maximum';
+  readonly amount: string;
+}
+
+/**
+ * The parts of a stored fee, or null when they do not add up to it exactly. `bpsFee` and `feeBeforeClamp` are the row's
+ * stored figures (bps_fee and fee_before_clamp); the clamp is the difference between what the band gave and the fee.
+ * Nothing is recomputed from a rule: a part that was not stored makes the whole split unknown.
+ */
+export function feeParts(row: {
+  fee: string;
+  bpsFee: string | null;
+  flatFee: string | null;
+  feeBeforeClamp: string | null;
+}): FeePart[] | null {
+  if (row.bpsFee === null || row.feeBeforeClamp === null) return null;
+  let fee: bigint, bps: bigint, flat: bigint, before: bigint;
+  try {
+    fee = parseAmount(row.fee);
+    bps = parseAmount(row.bpsFee);
+    flat = row.flatFee === null ? 0n : parseAmount(row.flatFee);
+    before = parseAmount(row.feeBeforeClamp);
+  } catch {
+    return null;
+  }
+  if (fee < 0n || bps < 0n || flat < 0n || before < 0n) return null;
+  if (bps + flat !== before) return null;
+  const parts: FeePart[] = [{ kind: 'percent', amount: formatAmount(bps) }];
+  if (flat > 0n) parts.push({ kind: 'flat', amount: formatAmount(flat) });
+  if (fee > before) parts.push({ kind: 'minimum', amount: formatAmount(fee - before) });
+  if (fee < before) parts.push({ kind: 'maximum', amount: formatAmount(before - fee) });
+  const sum = parts.reduce(
+    (total, part) => (part.kind === 'maximum' ? total - parseAmount(part.amount) : total + parseAmount(part.amount)),
+    0n,
+  );
+  return sum === fee ? parts : null;
 }
 
 const LAYERS = new Set(['global', 'tier', 'merchant']);
@@ -85,13 +131,16 @@ export async function readPricingSnapshots(
       rounding_beneficiary: string;
       rounding_mode: string;
       fee: string;
+      bps_fee: string | null;
+      fee_before_clamp: string | null;
       booked_fee: string | null;
       reserve_amount: string | null;
       created_at: Date;
     }>
   >`
     SELECT subject_id, asset_code, applied_layer, rule_id, fee_bps, flat_fee::text, spread_bps,
-           rounding_beneficiary, rounding_mode, fee::text, booked_fee::text, reserve_amount::text, created_at
+           rounding_beneficiary, rounding_mode, fee::text, bps_fee::text, fee_before_clamp::text,
+           booked_fee::text, reserve_amount::text, created_at
       FROM pay.control_pricing_snapshots
      WHERE subject_kind = ${kind} AND subject_id = ANY(${q.array([...subjectIds])}::uuid[])
   `;
@@ -112,6 +161,8 @@ function presentSnapshot(row: {
   rounding_beneficiary: string;
   rounding_mode: string;
   fee: string;
+  bps_fee: string | null;
+  fee_before_clamp: string | null;
   booked_fee: string | null;
   reserve_amount: string | null;
   created_at: Date;
@@ -146,6 +197,7 @@ function presentSnapshot(row: {
     bookedFee,
     reserveAmount,
     recordedAt: row.created_at.toISOString(),
+    parts: feeParts({ fee, bpsFee: row.bps_fee, flatFee, feeBeforeClamp: row.fee_before_clamp }),
   };
 }
 
