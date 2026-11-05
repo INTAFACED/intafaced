@@ -263,6 +263,16 @@ if (!available) {
         code: 'FORBIDDEN',
         message: 'agents.identity.owner_unread',
       });
+      // Nor can a frozen, closed or unread owner issue a new one; the token already issued stays the latest.
+      for (const [accounts, code] of [
+        [[{ userId: USER, status: 'frozen', kycTier: 'full' }], 'agents.identity.owner_frozen'],
+        [[{ userId: USER, status: 'closed', kycTier: 'full' }], 'agents.identity.owner_inactive'],
+        [[], 'agents.identity.owner_unread'],
+      ] as const) {
+        const { person } = build({ accounts: [...accounts] });
+        await expect(person.own.identity.issue({ id: agent.id })).rejects.toMatchObject({ message: code });
+      }
+      expect(await sql`SELECT 1 FROM agents.own_agent_tokens`).toHaveLength(1);
     });
 
     it('an expired token fails its next call', async () => {
