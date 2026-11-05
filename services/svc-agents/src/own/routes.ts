@@ -21,7 +21,9 @@ import {
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
   ownAgentRunResultSchema,
+  ownAgentInboxRowSchema,
   ownAgentRunRowSchema,
+  type OwnAgentRunRow,
   ownAgentSchema,
   ownAgentSessionClosedSchema,
   ownAgentSessionSchema,
@@ -143,13 +145,19 @@ export interface OwnRunDeps {
 }
 
 /** A refusal reaches the person as its code, which the Agents room words; anything else is a fault. */
-async function guard<T>(fn: () => Promise<T>): Promise<T> {
+async function guard<T>(fn: () => Promise<T>, codeOf: (code: string) => TRPCError['code'] | null = () => null): Promise<T> {
   try {
     return await fn();
   } catch (err) {
     if (!(err instanceof OwnAgentRefusal)) throw err;
-    throw new TRPCError({ code: err.code === 'agents.own.not_found' ? 'NOT_FOUND' : 'BAD_REQUEST', message: err.code, cause: err });
+    const code = codeOf(err.code) ?? (err.code === 'agents.own.not_found' ? 'NOT_FOUND' : 'BAD_REQUEST');
+    throw new TRPCError({ code, message: err.code, cause: err });
   }
+}
+
+/** An owner's account refusing (frozen, closed or unread) is FORBIDDEN wherever an agent's token meets it. */
+function ownerForbidden(code: string): TRPCError['code'] | null {
+  return code.startsWith('agents.identity.owner_') ? 'FORBIDDEN' : null;
 }
 
 function storeOf(sql: Sql | undefined): OwnAgentStore {
@@ -461,8 +469,9 @@ export function ownRouter(
 
     /**
      * The agent's own identity (AG-identity-01; J-agents-03 #5): its token's owner, scopes and expiry. Issuing needs the
-     * owner's token lifetime (blank refuses agents.identity.lifetime_unset, and nothing is issued); the token is shown
-     * once. Revoking makes the next call made with it fail.
+     * owner's token lifetime (blank refuses agents.identity.lifetime_unset, and nothing is issued) and an active owner (a
+     * frozen, closed or unread one refuses FORBIDDEN agents.identity.owner_frozen, owner_inactive or owner_unread); the
+     * token is shown once. Revoking makes the next call made with it fail.
      */
     identity: router({
       get: scopedProcedure('agents:read', { module: 'agents', person: true })
@@ -483,8 +492,8 @@ export function ownRouter(
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             const lifetime = tokenLifetime(tooling.tokenLifetimeMinutes);
-            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime);
-          });
+            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime, tooling.accounts ?? null);
+          }, ownerForbidden);
         }),
       revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
         .input(idInput)
@@ -508,8 +517,7 @@ export function ownRouter(
             return await new OwnIdentityStore(sqlOf(sql)).call(input.token, tooling.accounts ?? null);
           } catch (err) {
             if (!(err instanceof OwnAgentRefusal)) throw err;
-            const owner = err.code.startsWith('agents.identity.owner_');
-            throw new TRPCError({ code: owner ? 'FORBIDDEN' : 'UNAUTHORIZED', message: err.code, cause: err });
+            throw new TRPCError({ code: ownerForbidden(err.code) ?? 'UNAUTHORIZED', message: err.code, cause: err });
           }
         }),
     }),
@@ -545,6 +553,18 @@ export function ownRouter(
           return guard(() => storeOf(sql).createDrafted(ctx.principal.userId, { ...draft, perSessionCap: null }, `assistant:${acceptKey}`));
         }),
     }),
+
+    /**
+     * The Approvals inbox (AG-approvals-01): the calls a rule held for the person across all their own agents, newest
+     * first, each with its agent. None of them has run.
+     */
+    inbox: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownAgentInboxRowSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(() => new OwnApprovalRequestStore(sqlOf(sql)).inbox(ctx.principal.userId, input.limit));
+      }),
 
     /** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
     approvals: scopedProcedure('agents:read', { module: 'agents', person: true })
@@ -894,7 +914,10 @@ export function ownRouter(
         }
       }),
 
-    /** Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed. */
+    /**
+     * Every run asked of this agent by the person, newest first: admitted, refused with its code, or failed; and each
+     * tool call a rule holds for the person, waiting for approval, which has not run.
+     */
     runs: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
       .output(z.array(ownAgentRunRowSchema))
@@ -922,16 +945,41 @@ export function ownRouter(
              ORDER BY a.occurred_at DESC, a.sequence DESC
              LIMIT ${input.limit}
           `;
-          return rows.map((row) => ({
+          const completions: OwnAgentRunRow[] = rows.map((row) => ({
             sessionId: row.session_id,
             sequence: row.sequence,
             status: row.status,
             task: row.task,
+            tool: null,
+            requestId: null,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
             assetId: feeAssetId,
             occurredAt: row.occurred_at.toISOString(),
           }));
+          // The tool calls a rule holds for the person (AG-approvals-01): a held call has not run, so it has no action of
+          // its own and cost nothing.
+          const held: OwnAgentRunRow[] = (
+            await new OwnApprovalRequestStore(sqlOf(sql)).waiting(ctx.principal.userId, agent.id, input.limit)
+          ).map((request) => ({
+            sessionId: request.sessionId,
+            sequence: null,
+            status: 'waiting',
+            task: null,
+            tool: request.tool,
+            requestId: request.id,
+            refusalCode: null,
+            cost: '0',
+            assetId: feeAssetId,
+            occurredAt: request.createdAt,
+          }));
+          // Newest first; at one instant a held call (made after the engine call it followed) comes first.
+          return [...completions, ...held]
+            .sort(
+              (a, b) =>
+                b.occurredAt.localeCompare(a.occurredAt) || (a.sequence === null ? -1 : b.sequence === null ? 1 : b.sequence - a.sequence),
+            )
+            .slice(0, input.limit);
         });
       }),
 
