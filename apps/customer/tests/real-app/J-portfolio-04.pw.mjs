@@ -12,6 +12,25 @@ const ONE = toUnits('1');
 
 test.describe.configure({ mode: 'default' });
 
+// DIAGNOSTIC ONLY (branch lane/B-diag-portfolio-04, never merged): on a failure, print the TEST maker's log tail and the book.
+test.afterEach(async ({}, info) => {
+  if (info.status === info.expectedStatus) return;
+  const fs = await import('node:fs');
+  const { stackFile } = await import('./stack.mjs');
+  try {
+    const log = fs.readFileSync(stackFile('logs/market.log'), 'utf8').split('\n');
+    console.log('DIAG market.log tail:\n' + log.slice(-120).join('\n'));
+  } catch (e) {
+    console.log('DIAG no market.log: ' + e.message);
+  }
+  try {
+    const r = await fetch(`${EDGE}/api/v1/orderbook/BTC%2FUSDT?limit=10`);
+    console.log('DIAG book: ' + (await r.text()).slice(0, 3000));
+  } catch (e) {
+    console.log('DIAG book read failed: ' + e.message);
+  }
+});
+
 function account() {
   const who = run.read().account;
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
