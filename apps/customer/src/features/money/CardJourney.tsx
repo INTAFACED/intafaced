@@ -158,9 +158,14 @@ function Delivery({ card }: { card: CardRecord }) {
       <p>{t('deliverySpeed', { speed })}</p>
       <p>{t('deliveryState', { state })}</p>
       <p data-testid="card-delivery-estimate">{t('expectedBy', { date: dateOf(d.expectedBy) })}</p>
-      <div data-testid="card-tracking" data-code={d.trackingRef ? '' : 'hardware'}>
+      <div data-testid="card-tracking" data-code={d.notConnected ?? undefined}>
         <strong>{t('tracking')}</strong>{' '}
-        {d.trackingRef ? t('trackingRef', { carrier: d.carrier ?? '', ref: d.trackingRef }) : t('hardware')}
+        {d.trackingRef ? (
+          <span data-testid="card-tracking-ref">{t('trackingRef', { carrier: d.carrier ?? '', ref: d.trackingRef })}</span>
+        ) : (
+          t('trackingNone')
+        )}
+        {d.notConnected === 'hardware' && <p>{t('hardware')}</p>}
       </div>
       <p data-testid="card-delivery-address">
         {t('deliverTo')}: {addressLine(d.address)}

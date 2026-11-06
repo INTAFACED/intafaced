@@ -140,9 +140,9 @@ const capture = (cardId, authorizationRef, amount) =>
   cardEvent('bank.card_capture', 'ops.cardCapture', { cardId, authorizationRef, amount });
 
 /** The stand-in printer's signed call (no printer or courier on this stack), as a printer would make it. */
-async function printer(cardId, state) {
+async function printer(cardId, state, carried = {}) {
   const { ctx } = await founders();
-  const raw = JSON.stringify({ cardId, state });
+  const raw = JSON.stringify({ cardId, state, ...carried });
   const res = await fetch(`${ctx.url('bank')}/internal/jobs/card-sim/shipment`, {
     method: 'POST',
     redirect: 'error',
@@ -347,11 +347,23 @@ test(`${J} #3 orders a physical card with a design and a speed: design choice, d
   const estimate = new Date(ordered + 2 * 86_400_000);
   const expected = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(estimate);
   await expect(delivery.getByTestId('card-delivery-estimate')).toContainText(expected);
-  const tracking = delivery.getByTestId('card-tracking');
-  await expect(tracking).toContainText('Printing and delivery need hardware. It is switched off in this build.');
-  await expect(tracking).toHaveAttribute('data-code', 'hardware');
+  // Tracking: the bank itself names what delivery cannot do here (no printer or courier: `hardware`), and the page
+  // shows the bank's code, with no tracking number until a carrier gives one.
   const read = await (await bank()).query('cards.delivery', { cardId: physicalId });
-  expect(read.data).toMatchObject({ state: 'ordered', speed: 'express', designId: 'night', carrier: null, trackingRef: null });
+  expect(read.ok, JSON.stringify(read.body ?? {}).slice(0, 300)).toBe(true);
+  expect(read.data).toMatchObject({
+    state: 'ordered',
+    speed: 'express',
+    designId: 'night',
+    carrier: null,
+    trackingRef: null,
+    notConnected: 'hardware',
+  });
+  const tracking = delivery.getByTestId('card-tracking');
+  await expect(tracking).toHaveAttribute('data-code', read.data.notConnected);
+  await expect(tracking).toContainText('Tracking no tracking number yet.');
+  await expect(tracking).toContainText('Printing and delivery need hardware. It is switched off in this build.');
+  await expect(tracking.getByTestId('card-tracking-ref')).toHaveCount(0);
   run.write({ physicalId });
 });
 
@@ -393,8 +405,15 @@ test(`${J} #4 changes the delivery address: allowed before print with the old ad
   expect(after.data.history).toHaveLength(1);
   const retry = await (await bank()).mutate('cards.updateShipping', { cardId: physicalId, requestId: randomUUID(), address: ADDRESS });
   expect(retry).toMatchObject({ ok: false, code: 'bank.card_address_locked' });
-  // It ships and arrives.
-  await printer(physicalId, 'shipped');
+  // It ships with a TEST carrier and tracking number (the stand-in printer's call, as a courier would make it), and the
+  // card's tracking shows them from the bank; then it arrives.
+  const trackingRef = `TEST-${J}-${physicalId.slice(0, 8)}`;
+  await printer(physicalId, 'shipped', { carrier: 'TEST Post', trackingRef });
+  await page.reload();
+  await expect(delivery).toContainText('Shipped');
+  await expect(delivery.getByTestId('card-tracking-ref')).toHaveText(`TEST Post: ${trackingRef}`);
+  const shipped = await (await bank()).query('cards.delivery', { cardId: physicalId });
+  expect(shipped.data).toMatchObject({ state: 'shipped', carrier: 'TEST Post', trackingRef, notConnected: 'hardware' });
   await printer(physicalId, 'delivered');
 });
 
@@ -495,38 +514,111 @@ async function fundRewardPot(reference, asset, amount) {
   expect(funded.json.result.data.state).toBe('posted');
 }
 
-test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async ({ page }) => {
-  test.setTimeout(300_000);
-  const who = person();
-  const api = await bank();
-  // The person's tier, its rate and every tier's rate, from the bank (the stack publishes TEST rates in IFC).
-  const before = await api.query('cards.cashback');
-  expect(before.ok, JSON.stringify(before.body ?? {}).slice(0, 300)).toBe(true);
-  expect(before.data).toMatchObject({ assetId: 'IFC', paying: true, simulated: true });
-  const { tier, rateBps } = before.data;
-  expect(rateBps, `a TEST rate for tier ${tier}`).not.toBeNull();
-
-  // The reward pot is funded from trade fees the platform earned in IFC: the person buys TEST IFC on the stack's
-  // IFC/USDT book, paying the taker fee in IFC, and the two TEST founders sweep that much into the pot.
-  expect(fund(who.email, 'USDT', '60').tx).toBeTruthy();
+/** A fresh access token for the person (with an authenticator code once #5 set one up). */
+async function accessToken(who = person()) {
   const totpCode = await code();
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
   }).then(json);
-  const token = login.body.result.data.accessToken;
+  const token = login.body?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  return token;
+}
+
+/** The person's own rank, from svc-identity (the one rank book), never from the bank. */
+async function rankOf(token) {
+  const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
+  const state = await fetch(`${EDGE}/api/identity/trpc/rank.get`, { headers }).then(json);
+  const perks = await fetch(`${EDGE}/api/identity/trpc/rank.perks`, { headers }).then(json);
+  expect(state.status, JSON.stringify(state.body).slice(0, 300)).toBe(200);
+  expect(perks.status, JSON.stringify(perks.body).slice(0, 300)).toBe(200);
+  return { ...state.body.result.data, cardTier: perks.body.result.data.cardTier };
+}
+
+/**
+ * XP awarded through svc-identity's one award door (`rank.awardXp`, service-signed), as the modules that earn XP
+ * (trading, P2P, the academy) call it. A TEST stand-in for a season of activity: one key per person, so a retry awards
+ * nothing more.
+ */
+async function awardXp(userId, xpDelta) {
+  const { ctx } = await founders();
+  const raw = JSON.stringify({
+    userId,
+    sourceModule: 'local-test-stack',
+    action: 'test.rank_up',
+    xpDelta,
+    idempotencyKey: `${J}:rank-up:${userId}`,
+  });
+  const res = await fetch(`${ctx.url('identity')}/trpc/rank.awardXp`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/**
+ * The reward pot is funded from trade fees the platform earned in IFC: the person buys TEST IFC on the stack's IFC/USDT
+ * book, paying the taker fee in IFC, and the two TEST founders sweep `amount` of it into the pot.
+ */
+async function earnFeesIntoPot(who, token, amount) {
+  expect(fund(who.email, 'USDT', '60').tx).toBeTruthy();
   const order = await fetch(`${EDGE}/api/v1/orders`, {
     method: 'POST',
     headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ symbol: 'IFC/USDT', type: 'market', side: 'buy', amount: '50', clientOrderId: `${J}-ifc-${Date.now()}` }),
+    body: JSON.stringify({ symbol: 'IFC/USDT', type: 'market', side: 'buy', amount: '50', clientOrderId: `${J}-ifc-${randomUUID()}` }),
   }).then(json);
   expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBeLessThan(300);
+  await fundRewardPot(`TEST-${J}-${randomUUID().slice(0, 8)}`, 'IFC', fromUnits(amount));
+}
+
+/** One TEST spend on the card, authorised then captured; returns the capture's cashback and the authorisation. */
+async function spendOn(api, cardId, spend) {
+  const held = await authorize(cardId, spend);
+  expect(held).toMatchObject({ decision: 'approved' });
+  const rows = await api.query('cards.authorizations', { cardId, limit: 50 });
+  const ref = rows.data.find((row) => row.id === held.authorizationId).authorizationRef;
+  const captured = await capture(cardId, ref, spend);
+  return { held, cashback: captured.cashback };
+}
+
+test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async ({ page }) => {
+  test.setTimeout(360_000);
+  const who = person();
+  const api = await bank();
   const spend = '4';
-  const earned = (toUnits(spend) * BigInt(rateBps)) / 10_000n;
-  await fundRewardPot(`TEST-${J}-${Date.now().toString(36)}`, 'IFC', fromUnits(earned));
+  const earnedAt = (bps) => (toUnits(spend) * BigInt(bps)) / 10_000n;
+
+  // The tier the bank pays at is the one the person's rank gives in svc-identity, read there, not from the bank.
+  const token = await accessToken(who);
+  const start = await rankOf(token);
+  const before = await api.query('cards.cashback');
+  expect(before.ok, JSON.stringify(before.body ?? {}).slice(0, 300)).toBe(true);
+  expect(before.data).toMatchObject({ assetId: 'IFC', paying: true, simulated: true, tier: start.cardTier });
+  const rateOf = (tier) => before.data.rates.find((r) => r.tier === tier)?.bps ?? null;
+  const firstBps = before.data.rateBps;
+  expect(firstBps, `a TEST rate for tier ${start.cardTier}`).not.toBeNull();
+  expect(firstBps).toBe(rateOf(start.cardTier));
+  // The rank that comes next on the ladder gives a card tier whose TEST rate differs, so a bank that ignored rank fails.
+  expect(start.cardTier, 'a new account starts below the standard card tier').toBe('none');
+  const secondBps = rateOf('standard');
+  expect(secondBps, 'a TEST rate for tier standard').not.toBeNull();
+  expect(secondBps).not.toBe(firstBps);
+  const first = earnedAt(firstBps);
+  const second = earnedAt(secondBps);
+  expect(second).not.toBe(first);
 
   // A virtual card that draws on IFC, ordered in the card room.
+  await earnFeesIntoPot(who, token, first);
   await signInPerson(page);
   await page.goto('/bank/cards/new');
   await page.getByLabel('Country you live in').selectOption('DE');
@@ -539,28 +631,43 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   const cardId = await result.getAttribute('data-card-id');
   expect(await cardOf(cardId)).toMatchObject({ assetId: 'IFC', status: 'active' });
 
-  // A TEST spend of 4 IFC: authorised, then captured. Cashback is paid once, in IFC, at the tier's rate.
+  // A TEST spend of 4 IFC at the starting tier: cashback is paid once, in IFC, at that tier's rate.
   const ifcBefore = toUnits((await api.holding('IFC')).free);
-  const held = await authorize(cardId, spend);
-  expect(held).toMatchObject({ decision: 'approved' });
-  const rows = await api.query('cards.authorizations', { cardId, limit: 50 });
-  const ref = rows.data.find((row) => row.id === held.authorizationId).authorizationRef;
-  const captured = await capture(cardId, ref, spend);
-  expect(captured.cashback).toMatchObject({ status: 'paid', amount: fromUnits(earned) });
-  const ifcAfter = toUnits((await api.holding('IFC')).free);
-  expect(ifcBefore - ifcAfter).toBe(toUnits(spend) - earned);
-  const after = await api.query('cards.cashback');
-  expect(toUnits(after.data.paid) - toUnits(before.data.paid)).toBe(earned);
-  expect(after.data.payments.filter((p) => p.authorizationId === held.authorizationId)).toEqual([
-    expect.objectContaining({ status: 'settled', amount: fromUnits(earned) }),
-  ]);
+  const one = await spendOn(api, cardId, spend);
+  expect(one.cashback).toMatchObject({ status: 'paid', amount: fromUnits(first) });
+  expect(ifcBefore - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - first);
 
-  // The card page shows it: the tier, its rate in IFC, the tier table, and the cashback paid.
+  // The person's rank rises to the one whose perk is the standard card tier (identity's ladder: rank 3 at 4,000 XP).
+  await awardXp(start.userId, 4_000 - Number(start.xp));
+  const risen = await rankOf(token);
+  expect(risen).toMatchObject({ cardTier: 'standard' });
+  expect(risen.rank).toBeGreaterThan(start.rank);
+  const mid = await api.query('cards.cashback');
+  expect(mid.data).toMatchObject({ tier: 'standard', rateBps: secondBps });
+
+  // The same spend now pays at the new tier's rate, once.
+  await earnFeesIntoPot(who, token, second);
+  const ifcMid = toUnits((await api.holding('IFC')).free);
+  const two = await spendOn(api, cardId, spend);
+  expect(two.cashback).toMatchObject({ status: 'paid', amount: fromUnits(second) });
+  expect(ifcMid - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - second);
+
+  const after = await api.query('cards.cashback');
+  expect(toUnits(after.data.paid) - toUnits(before.data.paid)).toBe(first + second);
+  for (const [spent, amount] of [
+    [one, first],
+    [two, second],
+  ]) {
+    expect(after.data.payments.filter((p) => p.authorizationId === spent.held.authorizationId)).toEqual([
+      expect.objectContaining({ status: 'settled', amount: fromUnits(amount) }),
+    ]);
+  }
+
+  // The card page shows it: the tier the rank now gives, its rate in IFC, the tier table, and the cashback paid.
   await page.goto('/bank/cards');
   const panelCashback = page.getByTestId('card-cashback');
-  const tierName = { none: 'None', standard: 'Standard', metal: 'Metal', obsidian: 'Obsidian' }[tier];
-  await expect(panelCashback).toContainText(`Your rank’s card tier: ${tierName}`);
-  const percent = rateBps % 100 === 0 ? String(rateBps / 100) : (rateBps / 100).toString();
+  await expect(panelCashback).toContainText('Your rank’s card tier: Standard');
+  const percent = (secondBps / 100).toString();
   await expect(panelCashback).toContainText(`${percent}% cashback in IFC on spend from your IFC card`);
   const table = panelCashback.getByRole('table', { name: 'Cashback by card tier' });
   await expect(table.getByRole('row')).toHaveCount(after.data.rates.length + 1);
