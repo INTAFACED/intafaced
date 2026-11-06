@@ -63,7 +63,12 @@ import {
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import { sqlAcceptedMarkStore } from './accepted-mark.js';
 import { durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
-import { DEFAULT_FUTURES_MARK_POLICY, acceptableForMarking, type FuturesMarkProvenance } from './mark-policy.js';
+import {
+  DEFAULT_FUTURES_MARK_POLICY,
+  acceptableForMarking,
+  type FuturesMarkProvenance,
+  type PublishedLiquidationLimits,
+} from './mark-policy.js';
 import { liquidationJobAlerts } from './futures-jobs-health.js';
 import { runPayoutTick } from './futures-payouts.js';
 export { runDatedFuturesExpiryTick } from './dated-futures.js';
@@ -75,6 +80,8 @@ export interface FuturesJobsConfig {
   liqIntervalMs: number;
   /** D-margin-07: owner liquidation fee fraction (scaled) or null when unset. Recorded on rungs, never charged. */
   liquidationFeeFraction?: Amount | null;
+  /** The owner's liquidation mark limits (`liquidation-limits.ts`); null or absent = unpublished, every liquidation refuses. */
+  liquidationLimits?: PublishedLiquidationLimits | null;
   /**
    * Funding tick interval per market. Null = do not schedule funding
    * (D2: never invent an 8h period).
@@ -470,9 +477,9 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       ...(deps.config.liquidationFeeFraction !== undefined ? { liquidationFeeFraction: deps.config.liquidationFeeFraction } : {}),
       now: deps.now,
       notifyMarginCall,
-      // No owner publication of the liquidation age or deviation limit.
-      // Compiled 300 / 60 / 2000 are not that publication (MKT-0057).
-      publishedLiquidationLimits: null,
+      // Only an owner publication of the liquidation age and deviation limits (MKT-0057); unpublished refuses.
+      // Compiled 300 / 60 / 2000 are not that publication.
+      publishedLiquidationLimits: deps.config.liquidationLimits ?? null,
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
       // The matched-order book also pulls a position's resting increasing orders before any rung (both paths).

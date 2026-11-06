@@ -251,7 +251,8 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   expect(body.executions.every((e) => e.kind === 'close' && e.origin === 'stop' && e.realizedPnl !== null)).toBe(true);
 
   // A liquidation's order: a new TEST long at the listing's 5x cap, then the TEST price moved just past its liquidation
-  // price (still above bankruptcy, so the book can take the close). The liquidation tick places the order itself.
+  // price (still above bankruptcy, so the book can take the close). The liquidation tick places the order itself; the
+  // stack publishes LOCAL TEST liquidation mark limits for it (TRADE_FUTURES_LIQUIDATION_LIMITS, blank in production).
   const doomed = await openLong(me, 'liq');
   expect(doomed.liquidationPrice, 'the long has a liquidation price').toMatch(/^\d+(\.\d+)?$/);
   const liq = toUnits(doomed.liquidationPrice);
@@ -259,7 +260,12 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   const mid = (toUnits(now.bid) + toUnits(now.ask)) / 2n;
   let fromLiq;
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, (liq * (10_000n - 30n)) / 10_000n));
+    // Two steps, each well inside the 2000 bps the mark may jump between two accepted marks (the stack's LOCAL TEST
+    // liquidation limits): halfway, a liquidation tick (15 s) to accept it, then just past the liquidation price.
+    const target = (liq * (10_000n - 30n)) / 10_000n;
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, (mid + target) / 2n));
+    await page.waitForTimeout(20_000);
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
     const listed = await until(
       async () => (await orders(me, 'scope=all&limit=50&origin=liquidation')).filter((o) => o.positionId === doomed.id),
       (list) => list.length > 0,
