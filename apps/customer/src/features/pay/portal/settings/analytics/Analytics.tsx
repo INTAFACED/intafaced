@@ -12,6 +12,7 @@ import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
 import type { SettingsBApi } from '../b-client';
 import { analyticsCopy as c } from './copy';
+import { Declines } from './Declines';
 import { AnalyticsControls, useAnalyticsState, type AnalyticsState } from './Controls';
 import { assetsOf, barsFor, busiest, periodsWithSales, readAll, sumByAsset, totalCount, type Point } from './model';
 
@@ -55,7 +56,12 @@ export function Analytics({
       .map((p) => ({ period: p.day, assetCode: p.assetCode, volume: p.volume, count: null }));
     return { ok: true, data: { points, complete: true, freshness: daily.data.freshness, source: 'daily' } };
   }, key);
-  return <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />;
+  return (
+    <div className="stack">
+      <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />
+      <Declines api={api} merchantId={merchantId} state={state} test={test} />
+    </div>
+  );
 }
 
 export function AnalyticsView({
