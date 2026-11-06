@@ -81,18 +81,20 @@ export function stepsIn(text) {
 
 /**
  * A title GitHub's Revert button makes, `Revert "<old title>"`: it undoes those steps and names none of its own, so it
- * is judged as naming none and seals without a run (the floor: a break is fixed or undone fast). Only a title that starts
- * with it; one that merely contains it is read as usual.
+ * is judged as naming none and seals without a run (the floor: a break is fixed or undone fast). Only the whole title in
+ * that form: `Revert "` at the start, the quote closed as its last character, nothing after it. A title with more after
+ * the closing quote, or an unclosed one, is read as usual, so one that reverts and also builds a step needs its run.
  */
-const REVERT_TITLE = /^Revert "/;
+const REVERT_TITLE = /^Revert ".+"$/s;
+const isRevert = (title) => REVERT_TITLE.test(String(title ?? '').trim());
 
 /** The steps a pull request title names. */
-export const titleSteps = (title) => (REVERT_TITLE.test(String(title ?? '')) ? [] : stepsIn(title));
+export const titleSteps = (title) => (isRevert(title) ? [] : stepsIn(title));
 
 /** Step ranges in a title that can't be read as steps (an end past STEP_MAX): each fails the seal closed. */
 export function titleProblems(title) {
   const out = [];
-  if (REVERT_TITLE.test(String(title ?? ''))) return out;
+  if (isRevert(title)) return out;
   for (const m of String(title ?? '').matchAll(STEP_RUN))
     for (const n of m[2].matchAll(NUMBER))
       if (n[2] !== undefined && (Number(n[1]) > STEP_MAX || Number(n[2]) > STEP_MAX)) out.push(`${m[1]} ${n[0]}`.replace(/\s+/g, ' '));
@@ -351,19 +353,24 @@ export const CI_WORKFLOW = 'ci.yml';
  * `runs` are CI_WORKFLOW's pull_request runs on the head, and `jobs` the newest run's latest-attempt jobs, once read.
  * Pure, so the table is testable.
  */
-export function recheckStep(runs, jobs) {
-  const run = (runs ?? []).filter((r) => r?.event === 'pull_request').sort((a, b) => b.id - a.id)[0];
-  if (!run) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
-  const runId = String(run.id);
-  if (jobs === undefined) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
-  const seal = (jobs ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
-  if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
-    if (run.status === 'completed') return { act: 'fail', msg: `run ${runId} finished with no ${SEAL} job` };
-    return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
+export function recheckStep(runs, jobsByRun = new Map()) {
+  const prs = (runs ?? []).filter((r) => r?.event === 'pull_request').sort((a, b) => b.id - a.id);
+  if (!prs.length) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
+  // The newest run that has a seal job decides; a run that finished with none (cancelled before its jobs) is passed over.
+  for (const run of prs) {
+    const runId = String(run.id);
+    if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
+    const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+    if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
+      if (run.status === 'completed') continue;
+      return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
+    }
+    if (seal.status !== 'completed')
+      return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
+    if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
+    return { act: 'rerun', runId, jobId: String(seal.id) };
   }
-  if (seal.status !== 'completed') return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
-  if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
-  return { act: 'rerun', runId, jobId: String(seal.id) };
+  return { act: 'fail', msg: `no CI run on this head has a ${SEAL} job (${prs.map((r) => r.id).join(', ')} finished with none)` };
 }
 
 /** Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). */
@@ -372,11 +379,13 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
     const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
       ?.workflow_runs;
     if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${sha}: not a list`);
-    let step = recheckStep(runs);
-    if (step.act === 'jobs') {
+    const jobsByRun = new Map();
+    let step = recheckStep(runs, jobsByRun);
+    while (step.act === 'jobs') {
       const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
-      step = recheckStep(runs, jobs);
+      jobsByRun.set(step.runId, jobs);
+      step = recheckStep(runs, jobsByRun);
     }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);

@@ -280,17 +280,18 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     ...over,
   });
   const ci = (over) => ({ id: 77, event: 'pull_request', status: 'completed', ...over });
+  const J = (entries) => new Map(Object.entries(entries));
   assert.equal(recheckStep([]).act, 'done', 'no CI run yet');
   assert.equal(recheckStep([ci({ event: 'merge_group' })]).act, 'done', 'only pull_request runs');
   assert.deepEqual(recheckStep([ci()]), { act: 'jobs', runId: '77', msg: "reading run 77's jobs" });
-  assert.equal(recheckStep([ci({ status: 'in_progress' })], []).act, 'done', 'the seal job has not started');
-  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal({ status: 'queued' })]).act, 'done');
-  assert.equal(recheckStep([ci()], []).act, 'fail', 'a finished run with no seal job');
-  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal({ status: 'in_progress' })]).act, 'wait');
-  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal()]).act, 'wait', 'the run must finish before a job re-runs');
-  assert.deepEqual(recheckStep([ci()], [seal()]), { act: 'rerun', runId: '77', jobId: '9' }, 'a green seal is re-run too');
-  assert.equal(recheckStep([ci()], [seal({ conclusion: 'failure' })]).act, 'rerun');
-  assert.equal(recheckStep([ci({ id: 76 }), ci({ id: 78 })], [seal()]).runId, '78', 'the newest CI run decides');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], J({ 77: [] })).act, 'done', 'the seal job has not started');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], J({ 77: [seal({ status: 'queued' })] })).act, 'done');
+  assert.equal(recheckStep([ci()], J({ 77: [] })).act, 'fail', 'a finished run with no seal job, and no other run');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], J({ 77: [seal({ status: 'in_progress' })] })).act, 'wait');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], J({ 77: [seal()] })).act, 'wait', 'the run must finish before a job re-runs');
+  assert.deepEqual(recheckStep([ci()], J({ 77: [seal()] })), { act: 'rerun', runId: '77', jobId: '9' }, 'a green seal is re-run too');
+  assert.equal(recheckStep([ci()], J({ 77: [seal({ conclusion: 'failure' })] })).act, 'rerun');
+  assert.equal(recheckStep([ci({ id: 76 }), ci({ id: 78 })], J({ 78: [seal()] })).runId, '78', 'the newest CI run decides');
 
   const calls = [];
   let polls = 0;
@@ -444,5 +445,57 @@ test('a failing seal prints the exact Left-or-replaced line for its steps that a
     sealedGreen.lines.some((l) => l.includes('Left-or-replaced:')),
     false,
     'a green seal prints none',
+  );
+});
+
+// Second-model read at f30df036: a Revert title is only the whole of GitHub's form, `Revert "<anything>"`, quote closed and
+// nothing after it. Anything else is read as usual, so a title that reverts and also implements a step needs its run.
+test('a Revert title is only the exact form; extra text or an unclosed quote is read as usual', async () => {
+  assert.deepEqual(titleSteps('Revert "old" and implement J-bank-13 #2'), ['J-bank-13#2']);
+  assert.deepEqual(titleSteps('Revert "svc-bank: J-bank-13 #1 #2 (#7202)'), ['J-bank-13#1', 'J-bank-13#2'], 'an unclosed quote');
+  assert.deepEqual(titleSteps('Revert "x (J-bank-13 #1)" (J-bank-13 #3)'), ['J-bank-13#1', 'J-bank-13#3']);
+  assert.deepEqual(titleProblems('Revert "old" then J-bank-13 #1-#100'), ['J-bank-13 #1-#100']);
+  const v = await judge({ title: 'Revert "old" and implement J-bank-13 #2', reportOf: async () => assert.fail('no run') });
+  assert.equal(v.ok, false);
+  assert.deepEqual(titleSteps('Revert "svc-bank: J-bank-13 "cards" (J-bank-13 #1) (#7202)"'), [], 'the exact form, quotes inside');
+});
+
+// Second-model read at f30df036: the recheck re-runs the newest pull_request run that has a seal job. A newer run that
+// finished with none (cancelled before its jobs) does not hide an older run's seal.
+test('the recheck skips a finished CI run with no seal job and re-runs the newest seal there is', async () => {
+  const sealJob = (id, over) => ({ id, name: SEAL, status: 'completed', conclusion: 'failure', ...over });
+  const ci = (id, over) => ({ id, event: 'pull_request', status: 'completed', ...over });
+  const runs = [ci(78, { conclusion: 'cancelled' }), ci(77)];
+  const jobs = { 78: [], 77: [sealJob(9)] };
+  const calls = [];
+  const get = async (path) => {
+    calls.push(path);
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: runs };
+    return { jobs: jobs[/\/runs\/(\d+)\/jobs/.exec(path)[1]] };
+  };
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async () => ({ status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+  });
+  assert.equal(msg, 're-ran the seal job 9 of run 77');
+  // A newer run still going with its seal not started: that seal reads for itself.
+  const going = { 79: [], 77: [sealJob(9)] };
+  const get2 = async (path) =>
+    path.includes('/workflows/ci.yml/runs')
+      ? { workflow_runs: [ci(79, { status: 'in_progress' }), ci(77)] }
+      : { jobs: going[/\/runs\/(\d+)\/jobs/.exec(path)[1]] };
+  assert.match(
+    await rerunSealJob({ repo: 'o/r', sha: HEAD, get: get2, post: async () => assert.fail('no re-run'), sleep: async () => {} }),
+    /has not started/,
+  );
+  // No run on the head has a seal job: that is said, never passed.
+  const get3 = async (path) => (path.includes('/workflows/ci.yml/runs') ? { workflow_runs: [ci(78)] } : { jobs: [] });
+  await assert.rejects(
+    rerunSealJob({ repo: 'o/r', sha: HEAD, get: get3, post: async () => ({ status: 201 }), sleep: async () => {} }),
+    /no CI run on this head has a CI merge seal job/,
   );
 });
