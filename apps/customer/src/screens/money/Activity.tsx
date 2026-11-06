@@ -76,6 +76,7 @@ import { useNamedAccounts } from './portfolio-source';
 import { activityCsv, csvFileName } from './activity-csv';
 import { StatementPanel } from './StatementPanel';
 import { PeriodTotals } from './PeriodTotals';
+import { DormancyNotice } from './DormancyNotice';
 import { TaxEffects } from './TaxEffects';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
@@ -700,6 +701,7 @@ export default function Activity({ search }: { search: string }) {
   return (
     <div data-testid="if-money" className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
+      <DormancyNotice />
       <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
         <TabsList ref={tabList} divider aria-label={t('Activity filters')} data-testid="money-tabs" className="money-tabs">
           {TABS.map((id) => (

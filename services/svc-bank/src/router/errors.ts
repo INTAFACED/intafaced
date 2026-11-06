@@ -479,6 +479,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.budget_invalid': 'BAD_REQUEST',
   'bank.compare_months': 'BAD_REQUEST',
   'bank.plans_unset': 'PRECONDITION_FAILED',
+  'bank.dormancy_rule_unset': 'PRECONDITION_FAILED',
   'bank.plan_fee_unwired': 'PRECONDITION_FAILED',
   'bank.personal_transfer_terms_unset': 'PRECONDITION_FAILED',
   'bank.personal_transfer_fee_unwired': 'PRECONDITION_FAILED',

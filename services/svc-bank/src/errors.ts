@@ -872,6 +872,8 @@ export type BankErrorCode =
   | 'bank.compare_months'
   /** No plan table is published (BANK_PLANS_JSON), so plans cannot be shown (BK-acct-04). */
   | 'bank.plans_unset'
+  /** No dormancy rule is published (BANK_DORMANCY_RULES_JSON), so no notice is given and no fee taken (RC-bank-01). */
+  | 'bank.dormancy_rule_unset'
   /** A paid plan is a fee posting, and no plan-fee recipe exists in ledger-client yet (BK-acct-04). */
   | 'bank.plan_fee_unwired'
   /** No service secret, or activity could not be read, so no file was built. */

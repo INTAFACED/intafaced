@@ -15,7 +15,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // letter refused `rail.bank` (no banking partner); tax statements refused `vendor.tax` (no tax provider).
 // Steps 4 and 5 (BK-acct-08): after a TEST payment of 80 USDT to a second TEST person, a budget of 100 on transfers with
 // an alert at 80 percent reads 80 percent with the alert once per month, deposits count as money in, and two months
-// compare side by side with left to spend. Steps 6 (BK-acct-04) and 7 (RC-bank-01) are not built yet: each fails fast.
+// compare side by side with left to spend. Step 6 (BK-acct-04): Limits, fees and plan from the
+// bank's quote, its (blank) account fee table and the owner's TEST plan table. Step 7 (RC-bank-01): the bank's dormancy run,
+// as its scheduler would call it on a quiet day, notices a second TEST account; it withdraws everything and no fee is taken.
 const J = 'J-bank-16';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -363,11 +365,11 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   // The bank's dormancy run, as its scheduler would call it on a day this account has been quiet for the rule's days. It
   // is run for this one account, so no other account on the stack is touched.
   const asOf = new Date(Date.now() + (rule.inactiveDays + 1) * DAY);
-  const first = await job('jobs.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
+  const first = await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
   const debitDate = new Date(asOf.getTime() + rule.noticeLeadDays * DAY).toISOString().slice(0, 10);
   expect(first.noticed).toEqual([{ userId, assetId: 'USDT', fee: '5', debitDate }]);
   // Run again: the same notice, not a second one.
-  expect((await job('jobs.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);
+  expect((await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);
 
   // The pre-debit notice, on Activity: the amount and the date, read from the bank.
   await signIn(page, who);
@@ -393,7 +395,7 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
 
   // The debit date comes: nothing is there, so no fee is taken, and the notice says why.
   const linesBefore = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());
-  const debit = await job('jobs.runDormancy', { at: `${debitDate}T00:01:00.000Z`, userIds: [userId] });
+  const debit = await job('ops.runDormancy', { at: `${debitDate}T00:01:00.000Z`, userIds: [userId] });
   expect(debit.settled).toEqual([{ userId, assetId: 'USDT', debitDate, outcome: 'skipped_zero' }]);
   expect((await bankRead(client, 'spaces.list', { limit: 50 })).data.find((s) => s.id === main.id).balance).toBe('0');
   const linesAfter = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());

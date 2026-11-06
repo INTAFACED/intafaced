@@ -466,6 +466,12 @@ const schema = serviceEnvSchema
        */
       BANK_PLANS_JSON: z.string().optional(),
       /**
+       * The owner's dormancy fee rules as JSON (RC-bank-01, J-bank-16 #7): `[{ "assetId", "fee", "inactiveDays",
+       * "noticeLeadDays", "version" }]`. NO DEFAULT. Blank / unset / not in shape → `ops.runDormancy` and the rule read
+       * refuse `bank.dormancy_rule_unset`, and no notice is given and no fee taken.
+       */
+      BANK_DORMANCY_RULES_JSON: z.string().optional(),
+      /**
        * The owner's account fee table as JSON (BK-acct-04, J-bank-16 #6): `{ "lines": [{ "id", "label", "fee", "assetId" }] }`.
        * Blank means none is published: the fee schedule says "not set" and nothing is charged from it.
        */

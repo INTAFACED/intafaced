@@ -402,6 +402,7 @@ describe('personal send and request (Postgres)', () => {
       perTransferLimit: '25.5',
       dailyLimit: '100',
       spentToday: '0',
+      remainingToday: '100',
       fee: '0',
       feeBlocker: null,
       withinPerTransfer: true,
@@ -417,6 +418,7 @@ describe('personal send and request (Postgres)', () => {
     await ada.transfers.toUser({ transferId: 'send-under-cap', fromSpaceId: from.id, toUserId: BOB, amount: '20' });
     expect(await ada.transfers.quote({ assetId: 'USDT', amount: '10' })).toMatchObject({
       spentToday: '20',
+      remainingToday: '80',
       withinDaily: true,
     });
 
@@ -428,6 +430,7 @@ describe('personal send and request (Postgres)', () => {
     `;
     expect(await ada.transfers.quote({ assetId: 'USDT', amount: '10' })).toMatchObject({
       spentToday: '25',
+      remainingToday: '75',
       withinDaily: true,
     });
     await db.sql`DELETE FROM bank.personal_transfers WHERE transfer_id IN ('send-in-flight', 'send-stale')`;

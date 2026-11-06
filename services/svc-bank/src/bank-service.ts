@@ -7,6 +7,7 @@ import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { BudgetService } from './analytics/budgets.js';
 import { parseFeeTable, parsePlans, type FeeLine, type PlanTable } from './plans/plans.js';
+import { DormancyService, parseDormancyRules } from './dormancy/dormancy.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
@@ -105,6 +106,8 @@ export interface BankServices {
   readonly accountTerms: () => AccountTerms;
   /** BK-acct-04: the owner's plan table (null is blank) and account fee table (null is none published). */
   readonly accountTables: { readonly plans: PlanTable | null; readonly fees: FeeLine[] | null };
+  /** RC-bank-01: the dormancy notice and fee. */
+  readonly dormancy: DormancyService;
   /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
   readonly currencies: CurrencyService;
   /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
@@ -225,6 +228,8 @@ export interface BankServiceOptions {
   /** BK-acct-04: the owner's plan table and account fee table (raw JSON; blank refuses or says not set). */
   plans?: string | undefined;
   feeTable?: string | undefined;
+  /** RC-bank-01: the owner's dormancy fee rules (raw JSON; blank refuses). */
+  dormancyRules?: string | undefined;
   /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
   earnRiskWording?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
@@ -471,6 +476,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     accountDetails,
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
+    dormancy: new DormancyService(sql, ledger, history, parseDormancyRules(options.dormancyRules)),
     currencies,
     profiles,
     assetPauses,

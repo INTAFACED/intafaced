@@ -62,6 +62,7 @@ export const LEDGER_POST_ALLOWLIST = {
     sweepFeesToRewards: g('token', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawHold: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawReverse: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
+    feeCharge: g('bank.dormancy', 'services/svc-bank/src/dormancy/dormancy.ts'),
     withdrawSettle: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
   },
   'svc-campaigns': {

@@ -330,6 +330,7 @@ const bank = createBankServices(sql, ledger, history, {
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
   plans: env.BANK_PLANS_JSON,
   feeTable: env.BANK_FEE_SCHEDULE_JSON,
+  dormancyRules: env.BANK_DORMANCY_RULES_JSON,
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,

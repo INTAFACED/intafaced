@@ -35,5 +35,45 @@ export function createLimitsRouters(c: BankRouterContext) {
       }),
     )
     .query(() => guard(async () => ({ set: bank.accountTables.fees !== null, lines: bank.accountTables.fees ?? [] })));
-  return { plans, accountFees };
+  /** RC-bank-01 (J-bank-16 #7): the owner's dormancy rules, and the person's own notices with how each was settled. */
+  const dormancy = router({
+    rules: scopedProcedure('bank:read', { module: 'bank' })
+      .output(
+        z.array(
+          z.object({
+            assetId: z.string(),
+            fee: z.string(),
+            inactiveDays: z.number().int(),
+            noticeLeadDays: z.number().int(),
+            version: z.string(),
+          }),
+        ),
+      )
+      .query(() => guard(async () => bank.dormancy.published())),
+    notices: scopedProcedure('bank:read', { module: 'bank' })
+      .output(
+        z.array(
+          z.object({
+            assetId: z.string(),
+            fee: z.string(),
+            debitDate: z.string(),
+            inactiveDays: z.number().int(),
+            state: z.enum(['noticed', 'cancelled', 'skipped_zero', 'skipped_insufficient', 'charged']),
+            ledgerTxId: z.string().nullable(),
+            noticedAt: z.string(),
+            settledAt: z.string().nullable(),
+          }),
+        ),
+      )
+      .query(({ ctx }) =>
+        guard(async () =>
+          (await bank.dormancy.notices(ctx.principal.userId)).map((n) => ({
+            ...n,
+            noticedAt: n.noticedAt.toISOString(),
+            settledAt: n.settledAt?.toISOString() ?? null,
+          })),
+        ),
+      ),
+  });
+  return { plans, accountFees, dormancy };
 }
