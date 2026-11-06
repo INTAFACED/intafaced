@@ -6,6 +6,7 @@ import { useFlash, useTickDirection } from './hooks';
 import { tradingMode, type DeskMarket } from './market';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, turnoverText } from './text';
 import { clockMinutes } from './time';
+import { maintenanceWhen } from '../../../shared/market-maintenance';
 import type { Preferences } from '../../../shared/preferences';
 import type { ReactNode } from 'react';
 
@@ -26,6 +27,28 @@ function Stat({ label, value, loading }: { label: string; value: string; loading
     <div className="dk-stat">
       <span className="dk-stat-label">{label}</span>
       {loading ? <Skeleton width={64} height={16} className="bg-field" /> : <span className="dk-stat-value if-num">{value}</span>}
+    </div>
+  );
+}
+
+/** The market's maintenance window on the ticket (J-cex-spot-14 #5): how far away it is, and its end or "End time not set". */
+function MaintenanceStat({ window, zone }: { window: NonNullable<DeskMarket['maintenance']>; zone: Preferences['timeZone'] }) {
+  const { t } = deskCopy.useCopy();
+  const when = maintenanceWhen(window, Date.now());
+  const text =
+    when.kind === 'now'
+      ? t('Maintenance now')
+      : when.kind === 'hours'
+        ? when.n === 1
+          ? t('Maintenance in one hour')
+          : t('Maintenance in hours', { n: when.n })
+        : t('Maintenance in minutes', { n: when.n });
+  return (
+    <div className="dk-stat" data-testid="dk-maintenance">
+      <span className="dk-stat-label">{text}</span>
+      <span className="dk-stat-value">
+        {window.endsAt === null ? t('Maintenance end not set') : t('Maintenance until', { time: clockMinutes(window.endsAt, zone) })}
+      </span>
     </div>
   );
 }
@@ -92,6 +115,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
       <div data-testid="dk-stats" className="dk-stats">
         {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
         <Stat label={t('Trading mode')} value={modeText} loading={false} />
+        {market.maintenance ? <MaintenanceStat window={market.maintenance} zone={zone} /> : null}
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}

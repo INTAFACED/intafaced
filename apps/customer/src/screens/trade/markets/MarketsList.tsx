@@ -26,6 +26,7 @@ import {
 } from './deps';
 import { isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
 import { opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
+import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 import { partialWindowStart, sinceLabel } from './window';
 import { usePreferences } from '../../../shared/preferences';
 import type { Density } from './view-state';
@@ -87,6 +88,25 @@ function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteCo
 /** Hourly closes by symbol, read once for the rows drawn and handed to the chart cells. */
 const EMPTY: Record<string, Decimal[]> = {};
 const SparkContext = createContext<Record<string, Decimal[]>>(EMPTY);
+
+/** The upcoming-maintenance flag on a market's row (J-cex-spot-14 #5). */
+function MaintenanceFlag({ window }: { window: MaintenanceWindowSoon }) {
+  const { t } = marketsCopy.useCopy();
+  const when = maintenanceWhen(window, Date.now());
+  const text =
+    when.kind === 'now'
+      ? t('Maintenance now')
+      : when.kind === 'hours'
+        ? when.n === 1
+          ? t('Maintenance in one hour')
+          : t('Maintenance in hours', { n: when.n })
+        : t('Maintenance in minutes', { n: when.n });
+  return (
+    <span data-testid="mkt-maintenance" className="mkt-since">
+      {text}
+    </span>
+  );
+}
 
 function SparkCell({ symbol, height, trend }: { symbol: string; height: number; trend: 'up' | 'down' | 'flat' }) {
   return <Sparkline values={useContext(SparkContext)[symbol] ?? []} width={96} height={height} direction={trend} />;
@@ -260,6 +280,8 @@ export function MarketsList({
       width: STATUS_WIDTH,
       cell: (entry) => {
         const state = rowStatus(!isPaused(entry), statuses?.[entry.market.symbol]);
+        const maintenance = statuses?.[entry.market.symbol]?.maintenance ?? null;
+        const flag = maintenance ? <MaintenanceFlag window={maintenance} /> : null;
         if (state.kind === 'closed')
           return (
             <span className="mkt-stack" data-start="">
@@ -271,16 +293,26 @@ export function MarketsList({
                   {t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}
                 </span>
               ) : null}
+              {flag}
             </span>
           );
-        return state.kind === 'paused' ? (
-          <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-            {t('Paused')}
-          </Badge>
+        const badge =
+          state.kind === 'paused' ? (
+            <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
+              {t('Paused')}
+            </Badge>
+          ) : (
+            <Badge tone="lime" density={dense ? 'dense' : 'comfortable'}>
+              {t('Open')}
+            </Badge>
+          );
+        return flag ? (
+          <span className="mkt-stack" data-start="">
+            {badge}
+            {flag}
+          </span>
         ) : (
-          <Badge tone="lime" density={dense ? 'dense' : 'comfortable'}>
-            {t('Open')}
-          </Badge>
+          badge
         );
       },
     };

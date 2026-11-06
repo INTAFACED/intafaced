@@ -14,6 +14,7 @@ import {
   STATUS_COMPONENTS_MAX,
   NOTICE_CATEGORY_ID,
   noticeCategorySchema,
+  marketMaintenanceReadSchema,
 } from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
@@ -1295,6 +1296,13 @@ export function createNotifyRouter(
           const status = await notify.notices.noticeStatus();
           return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
         }),
+
+      /** Maintenance windows that name a market and have not ended, for svc-trade's lifecycle read (J-cex-spot-14 #5). Signed-out. */
+      marketMaintenance: publicProcedure.output(marketMaintenanceReadSchema).query(async () => {
+        // No board wired: refuse, so the lifecycle read says unavailable rather than claiming no maintenance.
+        if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+        return notify.notices.marketMaintenance();
+      }),
 
       /**
        * Open funding incidents and maintenance for one asset on one network, for

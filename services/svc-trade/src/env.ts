@@ -32,6 +32,12 @@ const schema = serviceEnvSchema
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
+      /**
+       * svc-notify's address, for the market maintenance windows on the lifecycle read (J-cex-spot-14 #5). Blank: the
+       * read says maintenance is unavailable, never that there is none.
+       */
+      NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+
       /** svc-matching — the book. This service never runs one of its own. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),
 

@@ -16,10 +16,17 @@ const rows = [
 describe('toStatusMap', () => {
   const map = toStatusMap(rows);
   it('reads the group, the session and when it opens', () => {
-    expect(map['EUR/USD']).toEqual({ separateFromSpot: true, sessionOpen: false, opensAt: 1_700_000_000_000 });
-    expect(map['BTC/USDT']).toEqual({ separateFromSpot: false, sessionOpen: true, opensAt: null });
+    expect(map['EUR/USD']).toEqual({ separateFromSpot: true, sessionOpen: false, opensAt: 1_700_000_000_000, maintenance: null });
+    expect(map['BTC/USDT']).toEqual({ separateFromSpot: false, sessionOpen: true, opensAt: null, maintenance: null });
     expect(map['XAU/USD']?.opensAt).toBeNull();
-    expect(map['ETH/USDT']).toEqual({ separateFromSpot: false, sessionOpen: null, opensAt: null });
+    expect(map['ETH/USDT']).toEqual({ separateFromSpot: false, sessionOpen: null, opensAt: null, maintenance: null });
+    // A market with a published maintenance window carries it (J-cex-spot-14 #5); none and unavailable carry nothing.
+    const flagged = toStatusMap([
+      { symbol: 'BTC/USDC', upcomingMaintenance: { status: 'scheduled', startsAt: '2026-11-06T10:00:00.000Z', endsAt: null } },
+      { symbol: 'SOL/USDC', upcomingMaintenance: { status: 'unavailable' } },
+    ]);
+    expect(flagged['BTC/USDC']?.maintenance).toEqual({ status: 'scheduled', startsAt: Date.parse('2026-11-06T10:00:00.000Z'), endsAt: null });
+    expect(flagged['SOL/USDC']?.maintenance).toBeNull();
   });
   it('keeps FX pairs out of Spot, and everything in when the read failed', () => {
     expect(isSeparateFromSpot(map, 'EUR/USD')).toBe(true);

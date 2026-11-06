@@ -1,5 +1,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES, type TradingSchedule } from '@intafaced/contracts';
+import {
+  isScheduleKey,
+  isScheduleOpen,
+  nextScheduleTransition,
+  TRADING_SCHEDULES,
+  upcomingMaintenanceFor,
+  type TradingSchedule,
+  type UpcomingMaintenance,
+} from '@intafaced/contracts';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -15,6 +23,7 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
@@ -64,6 +73,11 @@ export interface PublicRestDeps {
   chartOwnerValues?: ChartOwnerValuesPublicReader;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /**
+   * svc-notify's market maintenance windows (J-cex-spot-14 #5). Absent, or answering null, the lifecycle read and the
+   * markets list say `upcomingMaintenance: { status: 'unavailable' }`, never "no maintenance".
+   */
+  maintenanceBoard?: MarketMaintenanceBoard;
   /**
    * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
    * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open. It also passes on when
@@ -379,6 +393,7 @@ export function presentCcxtMarket(
     readonly lifecycle?: MarketStateSnapshot | null;
     readonly pairRules?: PairRules | null;
     readonly pairHalt?: PairHalt | null;
+    readonly maintenance?: UpcomingMaintenance;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -476,6 +491,8 @@ export function presentCcxtMarket(
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
     lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
+    /** The nearest maintenance window svc-notify publishes for this market (J-cex-spot-14 #5). */
+    upcomingMaintenance: flags.maintenance ?? ({ status: 'unavailable' } as const),
     /** SP-order-entry-03 pair rules in words; null when this mount has no risk reader. */
     pairRules: flags.pairRules ?? null,
     /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
@@ -805,9 +822,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
         return null;
       }
     };
+    const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
+          maintenance: upcomingMaintenanceFor(m.symbol, board, new Date(ts)),
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
@@ -861,7 +880,8 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
         recovery: { required: true, evidenceRefs: [] },
       });
     }
-    return reply.code(200).send(snapshot);
+    const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
+    return reply.code(200).send({ ...snapshot, upcomingMaintenance: upcomingMaintenanceFor(market.symbol, board, new Date(now())) });
   });
 
   app.get<{ Params: { symbol: string }; Querystring: { limit?: string } }>('/api/v1/orderbook/:symbol', publicRead, async (req, reply) => {

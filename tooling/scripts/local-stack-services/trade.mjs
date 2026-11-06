@@ -52,6 +52,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     MATCHING_URL: urlOf('matching'),
+    NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
     // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner

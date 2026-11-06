@@ -67,6 +67,7 @@ export * from './outreach-interests.js';
 export * from './ops-enquiry-intake.js';
 export * from './guest-notifications.js';
 export * from './guest-verification.js';
+export * from './market-maintenance.js';
 export * from './support-record-ownership.js';
 export * from './support-verification-checks.js';
 export * from './crm-privacy.js';
