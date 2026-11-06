@@ -21,8 +21,9 @@
  *     Every unreadable input is red (fail closed), never green.
  * A parked step (OWNER 183, 6 Nov 2026: a journey with `parked`, or a step with `parked`, in docs/roadmap/journeys.json)
  * is not judged: it stays in the plan and its test may keep running, but its red or its missing pass doesn't turn the
- * run red. The one exception is money: a parked money step that passed on main and now fails is still judged, since
- * built money code may be shared with live journeys. Unparking a step puts it back under every rule above at once.
+ * run red. The one exception is money: a parked money step stays judged unless the baseline shows it was never built
+ * (listed once as `unbuilt`, no pass on record, none in the named run or since), since built money code may be shared
+ * with live journeys. Unparking a step puts it back under every rule above at once.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
  * (setup, the stack, the time limit, the Content-Security-Policy check), are red too.
  *
@@ -183,15 +184,29 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
   for (const [step, s] of Object.entries(named.states))
     if (s === 'passed' && newest.states[step] !== 'passed' && newest.states[step] !== 'failed' && inScope(step, named.files))
       failing.add(step);
-  // A parked money step that passed on main (in the named run or since) and now fails is a regression in built money
-  // code, which other journeys may share: it stays judged. Every other parked step is left out.
-  const builtMoney = (step) => (money[step] ?? true) && (named.states[step] === 'passed' || passedSince[step] !== undefined);
-  const parkedFailing = [...failing].filter((step) => parked.has(step) && !builtMoney(step)).sort(byStep);
-  for (const step of parkedFailing) failing.delete(step);
   const entries = new Map();
   const dupes = new Set();
   for (const e of baseline?.steps ?? []) entries.has(e.step) ? dupes.add(e.step) : entries.set(e.step, e);
   const notBaselined = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
+  // A parked money step is left out only while it is known never to have been built: the baseline lists it, once, as
+  // `unbuilt` with no recorded pass (`lastPassedRun`), and it passed neither in the named run nor on main since. Any
+  // other parked money step (a pass on record, `notBaselined`, a regression entry, missing from the baseline) stays
+  // judged, fail closed: built money code may be shared with live journeys (Codex read of #7198). A parked step that
+  // isn't money is left out.
+  const neverBuilt = (step) => {
+    const e = entries.get(step);
+    return (
+      e?.state === 'unbuilt' &&
+      e.lastPassedRun === undefined &&
+      !dupes.has(step) &&
+      !notBaselined.has(step) &&
+      named.states[step] !== 'passed' &&
+      passedSince[step] === undefined
+    );
+  };
+  const leaveOut = (step) => parked.has(step) && (!(money[step] ?? true) || neverBuilt(step));
+  const parkedFailing = [...failing].filter(leaveOut).sort(byStep);
+  for (const step of parkedFailing) failing.delete(step);
   const runNo = baseline?.run?.number;
   const red = [];
   for (const step of [...failing].sort(byStep)) {

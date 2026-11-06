@@ -75,39 +75,44 @@ test('a parked journey or step: its red never turns the verdict red, and unparke
   );
 });
 
-test('a parked money step that passed on main and now fails is still red (built money code may be shared)', () => {
+test('a parked money step stays judged unless the baseline shows it was never built (fail closed; Codex read of #7198)', () => {
   const journeys = [{ id: 'J-a-01', parked: true, steps: [{ n: 1 }, { n: 2 }] }];
-  const moneyToo = { ...money, 'J-a-01#1': true };
-  // J-a-01 #1 passed in the named run: as money it stays judged though parked.
-  const v = run(report(bad('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')), {
-    money: moneyToo,
-    parked: parkedSteps(journeys),
-  });
+  const parked = parkedSteps(journeys);
+  const moneyToo = { ...money, 'J-a-01#1': true, 'J-a-01#2': true };
+  const unbuiltMoney = { ...baseline, steps: baseline.steps.map((e) => (e.step === 'J-a-01#2' ? { ...e, money: true } : e)) };
+  const rep = (one) => report(one, bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1'));
+  // Passed in the named run, fails now: judged though parked.
   assert.deepEqual(
-    v.red.map((r) => [r.step, r.money]),
+    run(rep(bad('J-a-01 #1')), { money: moneyToo, baseline: unbuiltMoney, parked }).red.map((r) => [r.step, r.money]),
     [['J-a-01#1', true]],
   );
-  // A parked money step that never passed (unbuilt) is left out like any parked step.
-  const unbuilt = { ...money, 'J-a-01#2': true };
-  const base2 = { ...baseline, steps: baseline.steps.filter((e) => e.step !== 'J-a-01#2') };
-  const w = run(report(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')), {
-    money: unbuilt,
-    baseline: base2,
-    parked: parkedSteps(journeys),
-  });
+  // Listed unbuilt, no pass on record: left out like any parked step.
+  const w = run(rep(ok('J-a-01 #1')), { money: moneyToo, baseline: unbuiltMoney, parked });
   assert.deepEqual(w.red, []);
   assert.deepEqual(w.parked, ['J-a-01#2']);
-  // The same step passed on main after the named run: built, so judged.
-  const since = run(report(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')), {
-    money: unbuilt,
-    baseline: base2,
-    parked: parkedSteps(journeys),
-    passedSince: { 'J-a-01#2': 101 },
-  });
+  // Passed on main after the named run: judged.
   assert.deepEqual(
-    since.red.map((r) => r.step),
+    run(rep(ok('J-a-01 #1')), { money: moneyToo, baseline: unbuiltMoney, parked, passedSince: { 'J-a-01#2': 101 } }).red.map((r) => r.step),
     ['J-a-01#2'],
   );
+  // Listed unbuilt but with a pass on record (lastPassedRun): judged.
+  const withPass = { ...unbuiltMoney, steps: unbuiltMoney.steps.map((e) => (e.step === 'J-a-01#2' ? { ...e, lastPassedRun: 99 } : e)) };
+  assert.equal(run(rep(ok('J-a-01 #1')), { money: moneyToo, baseline: withPass, parked }).parked.length, 0);
+  // Codex's case: passed in run 99, failing since, in notBaselined with lastPassedRun 99, no pass since: still red.
+  const known = {
+    ...unbuiltMoney,
+    steps: unbuiltMoney.steps.filter((e) => e.step !== 'J-a-01#2'),
+    notBaselined: [...unbuiltMoney.notBaselined, { step: 'J-a-01#2', lastPassedRun: 99 }],
+  };
+  assert.match(
+    run(rep(ok('J-a-01 #1')), { money: moneyToo, baseline: known, parked }).red.find((r) => r.step === 'J-a-01#2').why,
+    /notBaselined/,
+  );
+  // Missing from the baseline: no proof it was never built, so judged.
+  const missing = { ...unbuiltMoney, steps: unbuiltMoney.steps.filter((e) => e.step !== 'J-a-01#2') };
+  assert.match(run(rep(ok('J-a-01 #1')), { money: moneyToo, baseline: missing, parked }).red[0].why, /failing, not in the baseline/);
+  // A parked step that isn't money is left out whatever its history.
+  assert.deepEqual(run(rep(ok('J-a-01 #1')), { baseline: known, parked }).red, []);
 });
 
 test('red: a step that passed in the named run is skipped or missing now', () => {
