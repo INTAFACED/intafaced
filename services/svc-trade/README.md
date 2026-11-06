@@ -334,10 +334,13 @@ await trade.reconcileOrder(orderId);
 ### Operator reconcile sweep (J-cex-spot-18 #3)
 
 `admin.orders.startReconcileSweep({ clientRequestId, reason })` checks plain resting limit orders that hold funds (stop,
-OCO, bracket, iceberg and seeded orders are not looked at), listing each market's book once. An order the engine lists is
-left exactly as it is. An order the engine no longer has is released only on a later sweep's **second sighting** of that
-miss, at least the owner's age floor after the first (`trade.operator_sweep_sightings`): a fill the engine made reaches
-`trade.fills` late, on the bus, so one look at an empty book and empty fills is not proof. The release is then the
+OCO, bracket, iceberg and seeded orders are not looked at, nor is an order changed within the owner's age floor), listing
+each market's book once. A book list that comes back as a full page (svc-matching answers at most 500 and no cursor)
+cannot prove an order absent, so that market's orders are reported as not read. An order the engine lists is left exactly
+as it is, and any earlier sighting of a miss is dropped. An order the engine no longer has is released only on a later
+sweep's **second sighting** of that miss, at least the age floor after the first, with the book not listing it in between
+(`trade.operator_sweep_sightings`): a fill the engine made reaches `trade.fills` late, on the bus, so one look at an empty
+book and empty fills is not proof. The release is then the
 single-order reconcile's (`reconcileOrder(id, { leaveLive: true })`): once, through the order's cancel path, and only when
 `trade.fills` prove no fill. A fill that never reaches trade at all is not something either look can see.
 
@@ -349,7 +352,8 @@ failed after acting (logged with the order id).
 
 Switch and owner values, each refusing when off or blank: `TRADE_OPERATOR_SWEEP_ENABLED` (off by default;
 `reconcile_sweep_disabled`), `TRADE_OPERATOR_SWEEP_LIMIT` (orders per run, 1 to 10000) and
-`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (the wait between sightings, 1 s to 1 day; both `reconcile_sweep_unconfigured`).
+`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (1 s to 1 day, used twice: how long an order must have gone unchanged before a
+sweep looks at it, and how long its miss must last between sightings; both `reconcile_sweep_unconfigured`).
 The scheduled job below (`TRADE_RECONCILE_JOBS_ENABLED`) is separate and unchanged.
 
 ### Trade bust (J-cex-spot-18 #4)

@@ -94,9 +94,10 @@ export interface TradeOpsDeps {
    */
   readonly sweepLimit?: number | null;
   /**
-   * TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS, parsed: how long an order must have gone unchanged before a sweep looks at it,
-   * so a fill the book made but trade has not recorded yet is never read as "never filled". Absent or null: the sweep
-   * refuses `reconcile_sweep_unconfigured`.
+   * TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS, parsed. Two waits, the same length: an order must have gone unchanged that long
+   * before a sweep looks at it, and its engine miss must have lasted that long, without the book listing it in between,
+   * before a sweep releases its hold. Either way, a fill the book made but trade has not recorded yet is never read as
+   * "never filled". Absent or null: the sweep refuses `reconcile_sweep_unconfigured`.
    */
   readonly sweepMinAgeSeconds?: number | null;
   readonly ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
@@ -1095,9 +1096,11 @@ export class TradeOpsAdmin {
    * `reconcile_sweep_disabled`), and refuses `reconcile_sweep_unconfigured` while the owner's size or age floor is blank.
    *
    * It looks at plain resting limit orders that hold funds, oldest first, up to the owner's size: stop, OCO, bracket and
-   * iceberg orders (their funds wait off the book) and seeded orders are not looked at. Each market's book is listed once.
-   * An order the book lists is left exactly as it is. An order the book no longer has is released only on a later sweep's
-   * SECOND sighting of that miss, at least the owner's age floor after the first: a fill the engine made reaches
+   * iceberg orders (their funds wait off the book), seeded orders and orders changed within the age floor are not looked
+   * at. Each market's book is listed once; a full page is not read (absence cannot be proven from it). An order the book
+   * lists is left exactly as it is and loses any earlier sighting. An order the book no longer has is released only on a
+   * later sweep's SECOND sighting of that miss, at least the age floor after the first with no listing in between: a fill
+   * the engine made reaches
    * trade.fills late (on the bus), so one look at an empty book and an empty trade.fills is not proof it never filled.
    * Even then the release is the single-order reconcile's: once, through the order's own cancel path, and only when
    * trade.fills prove no fill (otherwise the hold is kept).
@@ -1155,6 +1158,7 @@ export class TradeOpsAdmin {
          AND o.type = 'limit'
          AND o.hold_amount > 0
          AND NOT o.seeded
+         AND o.updated_at <= now() - make_interval(secs => ${run.minAge})
          AND NOT EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = o.id)
          AND NOT EXISTS (SELECT 1 FROM trade.order_oco_intent t WHERE t.order_id = o.id)
          AND NOT EXISTS (SELECT 1 FROM trade.order_bracket_intent t WHERE t.order_id = o.id)
@@ -1186,8 +1190,12 @@ export class TradeOpsAdmin {
         out.unreadable.push(orderId);
         continue;
       }
-      if (live.has(orderId)) continue;
-      // Missing from the book. Released only on a later sighting, a floor after the first.
+      if (live.has(orderId)) {
+        // Listed again: whatever miss was seen before was not continuous. The next miss starts its wait from zero.
+        await this.deps.sql`DELETE FROM trade.operator_sweep_sightings WHERE order_id = ${orderId}`;
+        continue;
+      }
+      // Missing from the book. Released only on a later sighting, a floor after the first, with no listing in between.
       const [sighting] = await this.deps.sql<Array<{ due: boolean; mine: boolean }>>`
         INSERT INTO trade.operator_sweep_sightings (order_id, first_seen_at, sweep_request_id)
         VALUES (${orderId}, now(), ${run.clientRequestId})
@@ -1212,6 +1220,10 @@ export class TradeOpsAdmin {
         sweepLog(acted ? 'errored_after_acting' : 'not_read', { orderId, status: row?.status ?? null, sweep: run.clientRequestId, error });
         (acted ? out.erroredAfterActing : out.unreadable).push(orderId);
         continue;
+      }
+      if (verdict.case === 'open_engine_live_left') {
+        // The reconcile's own list found it live: not a continuous miss either.
+        await this.deps.sql`DELETE FROM trade.operator_sweep_sightings WHERE order_id = ${orderId}`;
       }
       if (verdict.action === 'released') out.released.push(orderId);
       else if (verdict.case === 'open_hold_no_engine_unknown') out.keptUnprovenFills.push(orderId);

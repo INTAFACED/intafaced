@@ -1081,6 +1081,80 @@ describe('trade operator procedures', () => {
       expect(errors.some((line) => line.includes('not_read') && line.includes(untouched.id))).toBe(true);
     });
 
+    it('starts the wait again when the book lists the order between two misses (CI review run 42229413718, finding 1)', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-flicker', '90');
+      await age(order.id);
+      const hold = await held(ALICE, order.id);
+      // A transient miss (an engine restart, a list taken mid-replay): first sighted, and the floor passes.
+      matching.scriptCancelMiss(order.id);
+      expect(await sweep(sweeper(), 'sweep-flicker-1')).toMatchObject({ firstSightedOrderIds: [order.id] });
+      await ageSighting(order.id);
+      // The book lists it again: the miss was not continuous, and the sighting goes.
+      matching.scriptLive(order.id, marketId);
+      expect(await sweep(sweeper(), 'sweep-flicker-2')).toMatchObject({ released: 0, firstSightedOrderIds: [], waitingOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+      // Then it really leaves the book (its fill may still be on the bus): a first sighting again, nothing released.
+      matching.scriptCancelMiss(order.id);
+      expect(await sweep(sweeper(), 'sweep-flicker-3')).toMatchObject({ released: 0, firstSightedOrderIds: [order.id] });
+      expect(await held(ALICE, order.id)).toBe(hold);
+    });
+
+    it('drops the sighting when the reconcile’s own list finds the order live', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-left-live', '90');
+      await age(order.id);
+      matching.scriptCancelMiss(order.id);
+      await sweep(sweeper(), 'sweep-left-1');
+      await ageSighting(order.id);
+      const leftLive = sweeper({
+        reconcile: async (orderId) => ({
+          orderId,
+          case: 'open_engine_live_left',
+          action: 'none',
+          holdBefore: '90',
+          engineLive: true,
+          detail: 'TEST listed again by the reconcile',
+        }),
+      });
+      expect(await sweep(leftLive, 'sweep-left-2')).toMatchObject({ released: 0 });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+    });
+
+    it('counts a market whose book list is a full page as not read, and records no sighting there (finding 2)', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-full-page', '90');
+      await age(order.id);
+      const full = Array.from({ length: 500 }, (_, i) => ({
+        marketId,
+        orderId: randomUUID(),
+        accountId: '',
+        kind: 'book' as const,
+        side: 'buy' as const,
+        price: '1',
+        remaining: '1',
+        sequence: i + 1,
+        version: 1,
+      }));
+      const spy = vi.spyOn(matching, 'listOrders').mockResolvedValue({ marketId, orders: full });
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const result = await sweep(sweeper(), 'sweep-full');
+      spy.mockRestore();
+      quiet.mockRestore();
+      expect(result).toMatchObject({ checked: 1, released: 0, unreadableOrderIds: [order.id], firstSightedOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+    });
+
+    it('does not look at an order changed within the floor, even when the book no longer lists it (finding 3)', async () => {
+      await fund(ALICE, '1000');
+      const fresh = await restingBuy('sweep-fresh', '90');
+      const hold = await held(ALICE, fresh.id);
+      matching.scriptCancelMiss(fresh.id);
+      expect(await sweep(sweeper(), 'sweep-fresh-1')).toMatchObject({ checked: 0, firstSightedOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${fresh.id}`).toHaveLength(0);
+      expect(await held(ALICE, fresh.id)).toBe(hold);
+    });
+
     it('lists each market’s book once per sweep, not once per order', async () => {
       await fund(ALICE, '1000');
       for (const id of ['sweep-one-1', 'sweep-one-2', 'sweep-one-3']) await age((await restingBuy(id, '80')).id);

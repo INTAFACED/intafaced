@@ -33,9 +33,10 @@ const schema = serviceEnvSchema
       TRADE_OPERATOR_SWEEP_ENABLED: z.string().default(''),
       TRADE_OPERATOR_SWEEP_LIMIT: z.string().default(''),
       /**
-       * J-cex-spot-18 #3: how long (whole seconds, 1 to 86400) an order must have gone unchanged before a sweep looks at
-       * it, so a fill the book made but trade has not yet recorded is never read as "never filled". Owner value: blank
-       * refuses `reconcile_sweep_unconfigured`.
+       * J-cex-spot-18 #3: whole seconds, 1 to 86400, used twice. An order must have gone unchanged this long before a
+       * sweep looks at it, and its engine miss must have lasted this long (two sightings this far apart, the book not
+       * listing it in between) before a sweep releases its hold, so a fill the book made but trade has not yet recorded is
+       * never read as "never filled". Owner value: blank refuses `reconcile_sweep_unconfigured`.
        */
       TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS: z.string().default(''),
       HTTP_PORT: z.coerce.number().int().default(4004),

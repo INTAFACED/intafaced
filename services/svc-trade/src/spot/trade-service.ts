@@ -62,6 +62,8 @@ import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, ty
 import { NoSubAccounts, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import { type EmailProofSource } from './email-proof.js';
 import {
+  MATCHING_RESTING_ORDERS_PAGE,
+  MatchingUnavailableError,
   type EngineCancellation,
   type EngineFill,
   type EngineSubmitRequest,
@@ -1757,10 +1759,19 @@ export class TradeService {
    */
   /**
    * The order ids the engine lists as resting on one market (OCO legs read as their parent), from one non-destructive
-   * list. The operator sweep reads each market once with it. A full page throws: absence cannot be proven from it.
+   * list. The operator sweep reads each market once with it. A full page throws (checked below): absence cannot be proven
+   * from it, so the sweep counts that market as not read.
    */
   async engineLiveOrderIds(marketId: string): Promise<ReadonlySet<string>> {
     const listed = await this.matching.listOrders(marketId);
+    // svc-matching answers at most MATCHING_RESTING_ORDERS_PAGE orders and no cursor: a page that full may be cut short,
+    // so an order missing from it is not proven missing from the book. The HTTP client refuses such a page too; this
+    // check holds for any MatchingClient.
+    if (listed.orders.length >= MATCHING_RESTING_ORDERS_PAGE) {
+      throw new MatchingUnavailableError(
+        `svc-matching listed ${listed.orders.length} resting orders on ${marketId}, a full page; absence cannot be proven`,
+      );
+    }
     return new Set(listed.orders.map((o) => settlementOrderId(o.orderId)));
   }
 
