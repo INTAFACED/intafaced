@@ -79,9 +79,20 @@ test(`${J}, part of #2: the refused passkey add goes ahead after the authenticat
   await expect(page.getByTestId('failure')).toHaveCount(0);
 });
 
-/** Everything this page keeps in local and session storage, as one string, to show a secret is not in it. */
-async function stored(page) {
-  return page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+/**
+ * What this page could keep across a refresh, as one string, to show a secret is not in it: local and session storage,
+ * the browser's cookies and the names of its IndexedDB databases.
+ */
+async function pageKeeps(page) {
+  const inPage = await page.evaluate(async () =>
+    JSON.stringify([
+      Object.entries(localStorage),
+      Object.entries(sessionStorage),
+      document.cookie,
+      (await indexedDB.databases?.())?.map((db) => db.name) ?? [],
+    ]),
+  );
+  return inPage + JSON.stringify(await page.context().cookies());
 }
 
 test(`${J} #2 a security change opens the step-up sheet; its approval is single use and bound to this one action, and a refresh does not carry it`, async ({
@@ -93,49 +104,57 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   await signUpInBrowser(page, who);
   await addPasskey(page);
 
-  // Count the step-ups this page asks for, and hold back the first rename call it sends: that call carries a fresh,
-  // unspent approval, which the steps below replay against the service exactly as the page sent it.
+  // Count the step-ups this page asks for and keep every rename it sends. While `holding`, a rename is held back
+  // before it reaches the service, so the approval it carries stays fresh and unspent.
   const asked = { begin: 0, complete: 0 };
+  const renames = [];
   page.on('request', (request) => {
     if (request.method() !== 'POST') return;
     if (/\/api\/identity\/trpc\/stepUp\.begin$/.test(request.url())) asked.begin += 1;
     if (/\/api\/identity\/trpc\/stepUp\.complete$/.test(request.url())) asked.complete += 1;
+    if (/\/api\/identity\/trpc\/renamePasskey$/.test(request.url())) renames.push(JSON.parse(request.postData() ?? '{}'));
   });
-  let held = null;
+  let holding = true;
+  const held = [];
   await page.route('**/api/identity/trpc/renamePasskey', async (route) => {
-    if (held) return route.continue();
+    if (!holding) return route.continue();
     const request = route.request();
+    // The page's own headers (its bearer and content type); the context adds its cookies.
+    const all = await request.allHeaders();
     const headers = Object.fromEntries(
-      Object.entries(await request.allHeaders()).filter(([name]) => !['host', 'content-length', 'cookie'].includes(name.toLowerCase())),
+      ['authorization', 'content-type', 'origin'].filter((name) => all[name]).map((name) => [name, all[name]]),
     );
-    held = { url: request.url(), headers, body: JSON.parse(request.postData() ?? '{}') };
+    held.push({ url: request.url(), headers, body: JSON.parse(request.postData() ?? '{}') });
     await route.abort('connectionreset');
   });
-  const send = (url, body) => page.request.post(url, { headers: held.headers, data: JSON.stringify(body) });
+  const send = (url, body) => page.request.post(url, { headers: held[0].headers, data: JSON.stringify(body) });
   const answer = async (res) => ({ status: res.status(), text: await res.text() });
+  const names = page.getByTestId('security__passkey-names');
+  const nameField = names.getByLabel('Name (1 to 64 characters)');
+  const renameTo = async (label) => {
+    if (!(await nameField.isVisible())) await names.getByRole('button', { name: /^Rename passkey/ }).click();
+    await nameField.fill(label);
+    await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  };
 
   // Renaming is a security change: the page asks for a fresh factor first (the passkey answers), and only then sends.
-  const names = page.getByTestId('security__passkey-names');
-  await names.getByRole('button', { name: /^Rename passkey/ }).click();
-  await names.getByLabel('Name (1 to 64 characters)').fill('Work laptop');
-  await names.getByRole('button', { name: 'Save with a passkey' }).click();
-  await expect.poll(() => held, { timeout: 30_000 }).not.toBeNull();
+  await renameTo('Work laptop');
+  await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
   expect(asked).toEqual({ begin: 1, complete: 1 });
-  const approval = held.body.stepUpApprovalId;
+  const approval = held[0].body.stepUpApprovalId;
   expect(typeof approval === 'string' && approval.length > 0, 'the rename carries the approval the step-up minted').toBe(true);
-  expect(held.body.label).toBe('Work laptop');
-  expect(await stored(page), 'the approval is never stored in the page').not.toContain(approval);
+  expect(held[0].body.label).toBe('Work laptop');
+  expect(await pageKeeps(page), 'the approval is never stored in the page').not.toContain(approval);
 
   // Bound to this action: the same unspent approval with another name, or for another change, is refused.
-  const otherName = await answer(await send(held.url, { ...held.body, label: 'Not this name' }));
+  const otherName = await answer(await send(held[0].url, { ...held[0].body, label: 'Not this name' }));
   expect(otherName.status, otherName.text).toBe(412);
   expect(otherName.text).toContain('identity.step_up_target');
-  const purposesUrl = held.url.replace(/renamePasskey$/, 'setPasskeyPurposes');
   const otherAction = await answer(
-    await send(purposesUrl, {
-      credentialId: held.body.credentialId,
+    await send(held[0].url.replace(/renamePasskey$/, 'setPasskeyPurposes'), {
+      credentialId: held[0].body.credentialId,
       purposes: '',
-      clientRequestId: held.body.clientRequestId,
+      clientRequestId: held[0].body.clientRequestId,
       stepUpApprovalId: approval,
     }),
   );
@@ -143,23 +162,36 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   expect(otherAction.text).toContain('identity.step_up_target');
 
   // Single use: the change it was minted for runs once; sending the same approval again is refused as used.
-  const first = await answer(await send(held.url, held.body));
+  const first = await answer(await send(held[0].url, held[0].body));
   expect(first.status, first.text).toBe(200);
   expect(first.text).toContain('Work laptop');
-  const again = await answer(await send(held.url, held.body));
+  const again = await answer(await send(held[0].url, held[0].body));
   expect(again.status, again.text).toBe(412);
   expect(again.text).toContain('identity.step_up_used');
 
-  // A refresh carries nothing: the page holds no approval, and the next change asks for a fresh factor again.
+  // A refresh carries nothing. The page is reloaded while it holds a second approval that was never spent: after the
+  // reload that approval is nowhere in the page, and the next change asks for a fresh factor and sends a new one.
+  await renameTo('Desk laptop');
+  await expect.poll(() => held.length, { timeout: 30_000 }).toBe(2);
+  expect(asked).toEqual({ begin: 2, complete: 2 });
+  const unspent = held[1].body.stepUpApprovalId;
+  expect(unspent).toBeTruthy();
+  expect(unspent).not.toBe(approval);
+  holding = false;
   await page.reload();
   await expect(names).toContainText('Work laptop');
-  expect(await stored(page)).not.toContain(approval);
-  await names.getByRole('button', { name: /^Rename passkey/ }).click();
-  await names.getByLabel('Name (1 to 64 characters)').fill('Home laptop');
-  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  const kept = await pageKeeps(page);
+  expect(kept).not.toContain(approval);
+  expect(kept).not.toContain(unspent);
+  const sentBefore = renames.length;
+  await renameTo('Home laptop');
   await expect(names).toContainText('Name saved.');
   await expect(names).toContainText('Home laptop');
-  expect(asked).toEqual({ begin: 2, complete: 2 });
+  expect(asked).toEqual({ begin: 3, complete: 3 });
+  const after = renames.slice(sentBefore);
+  expect(after).toHaveLength(1);
+  expect(after[0].label).toBe('Home laptop');
+  expect([approval, unspent]).not.toContain(after[0].stepUpApprovalId);
   await page.unroute('**/api/identity/trpc/renamePasskey');
 
   // The step-up sheet: adding a second passkey on this password sign-in is a security change, so the page opens
