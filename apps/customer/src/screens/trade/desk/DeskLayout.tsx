@@ -17,9 +17,6 @@ import {
 const DRAG_TYPE = 'text/x-intafaced-desk-widget';
 const KEY_PREFIX = 'intafaced.desk.layout.v1';
 
-/** One rem in CSS pixels, read from the page so a person's own font size scales the drag. */
-const remPixels = () => Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-
 /**
  * The desk layout of this person on this device. A stored value that is not a layout the desk can draw is replaced by
  * the Classic preset, and `recovered` says so once (C-workspace-01 recovery state).
@@ -158,7 +155,7 @@ export function dropTarget(desk: DeskLayoutState, id: WidgetId) {
 /** The move handle and, for widgets with a width, the resize edge. Drawn only while arranging. */
 export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: WidgetId; name: string }) {
   const { t } = deskCopy.useCopy();
-  const drag = useRef<{ x: number; applied: number } | null>(null);
+  const drag = useRef<{ x: number; applied: number; perRem: number } | null>(null);
   if (!desk.arranging) return null;
   const order = desk.layout.order;
   const at = order.indexOf(id);
@@ -171,13 +168,16 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
     desk.swap(id, neighbour);
   };
   const onEdgeDown = (event: PointerEvent<HTMLDivElement>) => {
+    // Pixels per rem from the widget's own drawn width, so a person's own font size scales the drag.
+    const drawn = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0;
+    if (!width || drawn <= 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, applied: 0 };
+    drag.current = { x: event.clientX, applied: 0, perRem: drawn / width };
   };
   const onEdgeMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!drag.current || id === 'chart') return;
     // Whole quarter-rems only, so the stored width matches what was drawn.
-    const total = Math.round(((event.clientX - drag.current.x) / remPixels()) * 4) / 4;
+    const total = Math.round(((event.clientX - drag.current.x) / drag.current.perRem) * 4) / 4;
     const delta = total - drag.current.applied;
     if (delta === 0) return;
     drag.current.applied = total;
