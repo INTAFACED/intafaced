@@ -9,12 +9,16 @@ import {
   buildJourneys,
   dependsOn,
   journeyOrder,
+  keepParkedNeeds,
   laneFor,
+  liveJourneys,
+  parkedJourneys,
   parseJourneys,
   parseSpec,
   passedSteps,
   progress,
   queue,
+  render,
   untangle,
 } from './roadmap.mjs';
 
@@ -250,6 +254,133 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   const page = progress([], [], '2026-10-20T09:00:00Z', journeys, passed);
   assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\. Order 1: 1 of 1\./);
   assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 1 journey and 2 steps\./);
+});
+
+test('a parked journey or step stays in the map, leaves the count and the slice order, and comes back unparked (OWNER 183)', () => {
+  const text = JOURNEY.replace('- Order: 2', '- Order: 2\n- Parked: until after launch (OWNER 183 (2): the mining pool)').replace(
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',
+    '| 2 | Places a limit buy | It rests | PARKED until after launch (OWNER 183; was SP-order-entry-01, SP-lifecycle-history-01) | none |',
+  );
+  const journeys = parseJourneys(text, 'cex-spot');
+  assert.equal(journeys.length, 2, 'parked journeys stay in the map');
+  assert.equal(journeys[1].parked, true);
+  assert.equal(journeys[1].parkedUntil, 'after launch (OWNER 183 (2): the mining pool)');
+  assert.equal(journeys[0].steps[1].parked, true);
+  assert.equal(journeys[0].steps[1].parkedUntil, 'after launch (OWNER 183)');
+  assert.deepEqual(
+    journeys[0].steps[1].slices,
+    ['SP-order-entry-01', 'SP-lifecycle-history-01'],
+    'a parked step keeps its slices (money rule)',
+  );
+  assert.deepEqual(
+    liveJourneys(journeys).map((j) => [j.id, j.steps.map((st) => st.n)]),
+    [['J-cex-spot-01', [1, 3]]],
+  );
+  const order = journeyOrder(journeys);
+  assert.equal(order.has('SP-lifecycle-history-01'), false, 'a slice only a parked step names leaves the order');
+  assert.equal(order.has('SP-order-entry-01'), false);
+  const parked = parkedJourneys(journeys);
+  assert.deepEqual(
+    parked.whole.map((j) => j.id),
+    ['J-cex-spot-02'],
+  );
+  assert.deepEqual(
+    parked.steps.map(({ j, st }) => `${j.id}#${st.n}`),
+    ['J-cex-spot-01#2'],
+  );
+  const page = progress([], [], '2026-10-20T09:00:00Z', journeys, new Set(['J-cex-spot-01#1', 'J-cex-spot-01#3']));
+  assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\./);
+  assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 2 steps\./);
+  assert.doesNotMatch(page, /Deferred/);
+  const map = render([], journeys);
+  assert.match(map, /### Parked/);
+  assert.match(map, /J-cex-spot-02 I retry safely \| whole journey \| after launch/);
+  assert.match(map, /J-cex-spot-01 I sign up and trade \| steps #2 \| after launch \(OWNER 183\)/);
+  // Unparked: the same map without the marks is all live again.
+  assert.deepEqual(
+    liveJourneys(parseJourneys(JOURNEY, 'cex-spot')).map((j) => j.steps.length),
+    [3, 1],
+  );
+  assert.doesNotMatch(render([], parseJourneys(JOURNEY, 'cex-spot')), /### Parked/);
+  // A live step that still names the slice keeps it in the order: a capability another journey needs is never parked.
+  const keep = journeys.map((j) => (j.id === 'J-cex-spot-02' ? { ...j, parked: undefined } : j));
+  assert.equal(journeyOrder(keep).get('SP-order-entry-01'), 2);
+  assert.throws(() => parseJourneys(JOURNEY.replace('- Order: 2', '- Order: 2\n- Parked: maybe'), 'cex-spot'), /Parked: until <when>/);
+  assert.throws(
+    () =>
+      parseJourneys(
+        JOURNEY.replace('| 3 | Shares the order | A link | NO-SLICE |', '| 3 | Shares the order | A link | PARKED |'),
+        'cex-spot',
+      ),
+    /PARKED with no "until <when>"/,
+  );
+});
+
+test('a slice only parked steps name keeps the order of a live slice that needs it (OWNER 183: needed capabilities stay)', () => {
+  const journeys = [
+    { id: 'J-a-01', order: 1, steps: [{ n: 1, slices: ['A-live-01'] }] },
+    { id: 'J-a-02', order: 3, parked: true, steps: [{ n: 1, slices: ['A-parked-01', 'A-parked-02', 'A-parked-03'] }] },
+  ];
+  const slices = [
+    { id: 'A-live-01', order: 1, depends: ['A-parked-01'] },
+    { id: 'A-parked-01', order: 0, depends: ['A-parked-02'] },
+    { id: 'A-parked-02', order: 0, depends: [] },
+    { id: 'A-parked-03', order: 0, depends: [] },
+  ];
+  const kept = new Map(keepParkedNeeds(slices, journeys).map((s) => [s.id, s]));
+  assert.equal(kept.get('A-parked-01').order, 1);
+  assert.deepEqual(kept.get('A-parked-01').keptFor, ['A-live-01']);
+  assert.equal(kept.get('A-parked-02').order, 1, 'through another parked slice');
+  assert.deepEqual(kept.get('A-parked-02').keptFor, ['A-parked-01']);
+  assert.equal(kept.get('A-parked-03').order, 0, 'a parked slice no live slice needs stays parked');
+  assert.equal(kept.get('A-parked-03').keptFor, undefined);
+  // Unparked, the journey's own order applies and nothing is marked kept.
+  assert.equal(keepParkedNeeds(slices, [journeys[0], { ...journeys[1], parked: undefined }]), slices);
+});
+
+test('needed slices are kept through a slice no journey names, and for a live journey with no Order (review of #7197)', () => {
+  const journeys = [
+    { id: 'J-a-01', order: 1, steps: [{ n: 1, slices: ['A-live-01'] }] },
+    { id: 'J-a-03', order: 0, steps: [{ n: 1, slices: ['A-live-02'] }] },
+    { id: 'J-a-02', order: 3, parked: true, steps: [{ n: 1, slices: ['A-parked-01', 'A-parked-02'] }] },
+  ];
+  const slices = [
+    { id: 'A-live-01', order: 1, depends: ['A-free-01'] },
+    { id: 'A-free-01', order: 0, depends: ['A-parked-01'] },
+    { id: 'A-live-02', order: 0, depends: ['A-parked-02'] },
+    { id: 'A-parked-01', order: 0, depends: [] },
+    { id: 'A-parked-02', order: 0, depends: [] },
+  ];
+  const kept = new Map(keepParkedNeeds(slices, journeys).map((s) => [s.id, s]));
+  assert.equal(kept.get('A-parked-01').order, 1, 'through A-free-01, which no journey names');
+  assert.deepEqual(kept.get('A-parked-01').keptFor, ['A-free-01']);
+  assert.equal(kept.get('A-free-01').keptFor, undefined, 'only parked-only slices are marked');
+  assert.deepEqual(kept.get('A-parked-02').keptFor, ['A-live-02'], 'kept for a live journey with no Order');
+  assert.equal(kept.get('A-parked-02').order, 0, 'no order to give, but marked kept');
+});
+
+test('a journey whose every step is parked one by one counts as parked, and the counts add up', () => {
+  const journeys = parseJourneys(
+    JOURNEY.replace(
+      '| 1 | Presses twice | One order | SP-order-entry-01 | none |',
+      '| 1 | Presses twice | One order | PARKED until after launch (OWNER 183; was SP-order-entry-01) | none |',
+    ).replace(
+      '| 3 | Shares the order | A link | NO-SLICE | none |',
+      '| 3 | Shares the order | A link | DEFERRED until launch prep (was SP-share-01) | none |',
+    ),
+    'cex-spot',
+  );
+  const parked = parkedJourneys(journeys);
+  assert.deepEqual(
+    parked.whole.map((j) => j.id),
+    ['J-cex-spot-02'],
+  );
+  assert.equal(parked.stepCount, 1);
+  const page = progress([], [], '2026-10-20T09:00:00Z', journeys, null);
+  assert.match(page, /1 journeys, 2 steps\./);
+  assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 0 journeys and 1 step\./);
+  assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 1 step\./);
+  assert.match(render([], journeys), /J-cex-spot-02 I retry safely \| whole journey \| after launch \(OWNER 183\)/);
 });
 
 test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {

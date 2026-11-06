@@ -64,7 +64,8 @@ export const isProductCode = (f) => PRODUCT_ROOTS.test(f) && !TEST_PATH.some((re
 const byStep = (list) => new Map((list ?? []).map((e) => [e.step, e]));
 const sortSteps = (keys) => [...keys].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 
-/** The live step keys in a journeys.json (`J-<module>-NN#<n>`): not deferred, as roadmap.mjs liveJourneys reads it. */
+/** The step keys a journeys.json still holds (`J-<module>-NN#<n>`): not deferred. A parked step (OWNER 183) stays in
+ * the set: it is kept in the plan, not retired, so rule 3 still needs a pass on main to take it off the baseline. */
 export function liveSteps(journeys) {
   const list = Array.isArray(journeys) ? journeys : [];
   return new Set(list.filter((j) => !j.deferred).flatMap((j) => (j.steps ?? []).filter((s) => !s.deferred).map((s) => `${j.id}#${s.n}`)));
