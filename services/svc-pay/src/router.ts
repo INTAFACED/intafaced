@@ -1473,7 +1473,7 @@ export function createPayRouter(
               return { used: 'void' as const, amount: formatAmount(0n), payment: await paymentOut(voided, 'owner', true) };
             }
             const refundId = `reverse:${input.paymentId}`;
-            const history = await pay.history(input.paymentId);
+            const history = await pay.history(input.paymentId, 200);
             const done = history.find((e) => e.event === 'refunded' && e.payload.refundId === refundId);
             const amount = done ? parseAmount(String(done.payload.amount)) : payment.capturedAmount - payment.refundedAmount;
             if (amount <= 0n) throw new PayError(`Payment ${input.paymentId} has nothing left to reverse`, 'pay.nothing_captured');

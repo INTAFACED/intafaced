@@ -35,7 +35,7 @@ import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
 import { disputeReason } from './dispute-model';
 import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
-import { BulkRefund, ReverseAction, VoidAction, VoidedNote } from './PaymentActions';
+import { BulkRefund, ReversedNote, ReverseAction, VoidAction, VoidedNote } from './PaymentActions';
 import { countOf, paymentSteps, refundable, successRate } from './model';
 import type { ActivityItem, PaymentRefundRow } from './schemas';
 
@@ -415,6 +415,7 @@ export function PaymentDetailView({
                 }
               />
               {p.status === 'voided' && <VoidedNote />}
+              <ReversedNote paymentId={p.id} assetId={p.assetId} />
               <PaySection title={t('pay_summary')}>
                 <Facts
                   items={[

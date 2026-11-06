@@ -72,6 +72,13 @@ const bulkOut = z.object({
 });
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
+
+/**
+ * Receipts kept for this page's life: the room re-reads the payment (or the list) after an action, which remounts the
+ * action, and the receipt must still be there. Memory only, never storage: a new page reads the payment itself.
+ */
+const reversed = new Map<string, z.infer<typeof reverseOut>>();
+const bulkReports = new Map<string, { batchId: string; ids: string[]; out: z.infer<typeof bulkOut> }>();
 const why = (f: Failure) => f.message || f.code || 'error';
 
 /** Void: only for an authorised, uncaptured payment. */
@@ -123,6 +130,18 @@ export function VoidedNote() {
   );
 }
 
+/** What a reverse on this page did, under the payment's status, once the room has read the payment again. */
+export function ReversedNote({ paymentId, assetId }: { paymentId: string; assetId: string }) {
+  const { t } = copy.useCopy();
+  const done = reversed.get(paymentId);
+  if (!done) return null;
+  return (
+    <p className="pp-callout" role="status">
+      {done.used === 'refund' ? t('reverseDone', { amount: `${formatMoney(done.amount, assetId)} ${assetId}` }) : t('reverseVoided')}
+    </p>
+  );
+}
+
 /** Reverse a captured payment: the confirmation first, then the review, then the service decides how. */
 export function ReverseAction({
   paymentId,
@@ -140,7 +159,7 @@ export function ReverseAction({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [done, setDone] = useState<z.infer<typeof reverseOut> | null>(null);
+  const [done, setDone] = useState<z.infer<typeof reverseOut> | null>(reversed.get(paymentId) ?? null);
   const money = (v: string) => `${formatMoney(v, assetId)} ${assetId}`;
   async function start() {
     if (!(await payStepUp.ensure('refund'))) return setFailure(t('stepUp'));
@@ -158,15 +177,11 @@ export function ReverseAction({
     setBusy(false);
     setOpen(false);
     if (!result.ok) return setFailure(t('refused', { reason: why(result) }));
+    reversed.set(paymentId, result.data);
     setDone(result.data);
     onDone();
   }
-  if (done)
-    return (
-      <p className="pp-callout" role="status">
-        {done.used === 'refund' ? t('reverseDone', { amount: money(done.amount) }) : t('reverseVoided')}
-      </p>
-    );
+  if (done) return null;
   return (
     <>
       <Button variant="secondary" onClick={() => void start()} disabled={busy}>
@@ -204,8 +219,10 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [report, setReport] = useState<{ batchId: string; ids: string[]; out: z.infer<typeof bulkOut> } | null>(null);
-  if (candidates.length === 0) return null;
+  const [report, setReport] = useState<{ batchId: string; ids: string[]; out: z.infer<typeof bulkOut> } | null>(
+    bulkReports.get(merchantId) ?? null,
+  );
+  if (candidates.length === 0 && !report) return null;
   async function run(batch: { batchId: string; ids: string[] }) {
     setBusy(true);
     if (!(await payStepUp.ensure('refund'))) {
@@ -229,7 +246,9 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
     setOpen(false);
     if (!result.ok) return setFailure(t('refused', { reason: why(result) }));
     setFailure(null);
-    setReport({ ...batch, out: result.data });
+    const next = { ...batch, out: result.data };
+    bulkReports.set(merchantId, next);
+    setReport(next);
     onDone();
   }
   const reason = (code: string | null) =>

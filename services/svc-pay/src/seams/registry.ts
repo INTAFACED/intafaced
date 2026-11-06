@@ -14,6 +14,7 @@ import { createW9ScreeningGuards } from './slots/w9-screening.js';
 import type { ScreeningGuardDeps } from '../screening/guard.js';
 import { createW10B2bRampGuards } from './slots/w10-b2b-ramp.js';
 import { createRcMerchant08CategoryGuards } from './slots/rc-merchant-08-category.js';
+import { createRefundApprovalGuardSlot } from './slots/j-merchant-06-refund-approval.js';
 
 /**
  * The one place the guard slots are composed (W0 owns this file; streams edit
@@ -56,6 +57,8 @@ export function buildPayGuards(deps: {
     createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, overrideOf: deps.limitOverrideOf, source: deps.limitSource }),
     createCustodyPolicyGuards({ sql: deps.sql, mode: deps.custodyPolicyMode ?? 'off' }),
     createW1ControlGuards(deps),
+    // The owner's refund approval rule (J-merchant-06): a read inside the refund's first transaction, refunds only.
+    createRefundApprovalGuardSlot(),
     createW6ConversionGuards(deps),
     createW10B2bRampGuards(deps),
   );
