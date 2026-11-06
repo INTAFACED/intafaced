@@ -35,6 +35,7 @@ const businessPaySlugs = [
   'refunds',
   'refunds/new',
   'refunds/:refundId',
+  'refunds/requests/:requestId',
   'merchant',
   'money',
   'money/activity',

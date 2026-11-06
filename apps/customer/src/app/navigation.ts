@@ -732,6 +732,15 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/pay/refunds/requests/:requestId',
+    title: 'Refund request',
+    description: 'One refund waiting for approval',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
     path: '/pay/refunds/:refundId',
     title: 'Refund detail',
     description: 'One recorded refund',

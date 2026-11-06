@@ -58,6 +58,14 @@ const en = {
   failed: 'The original refund has not been confirmed.',
   stepRequired: "Confirm it's you with a passkey or authenticator code.",
   stepExpired: 'That confirmation expired. Confirm again.',
+  nothingLeft: 'Nothing is left to refund on this payment.',
+  disputed: 'This payment has an open dispute. It can’t be refunded until the dispute is closed.',
+  approvalNeeded: 'A teammate must approve refunds above {threshold} {asset}.',
+  askApproval: 'Ask for approval',
+  waiting: 'Waiting for approval',
+  waitingBody: 'Nothing has been refunded yet. A teammate who can approve refunds will see it in Approvals.',
+  nothingYet: 'Nothing has been refunded yet.',
+  openRequest: 'Open the request',
 } as const;
 const es: Record<keyof typeof en, string> = {
   title: 'Reembolsar pago',
@@ -121,6 +129,14 @@ const es: Record<keyof typeof en, string> = {
   failed: 'El reembolso original no se ha confirmado.',
   stepRequired: 'Confirma que eres tú con una clave de acceso o un código del autenticador.',
   stepExpired: 'Esa confirmación caducó. Vuelve a confirmar.',
+  nothingLeft: 'No queda nada por reembolsar en este pago.',
+  disputed: 'Este pago tiene una disputa abierta. No se puede reembolsar hasta que se cierre.',
+  approvalNeeded: 'Un compañero debe aprobar los reembolsos de más de {threshold} {asset}.',
+  askApproval: 'Pedir aprobación',
+  waiting: 'Esperando aprobación',
+  waitingBody: 'Aún no se ha reembolsado nada. Quien pueda aprobar reembolsos lo verá en Aprobaciones.',
+  nothingYet: 'Aún no se ha reembolsado nada.',
+  openRequest: 'Abrir la solicitud',
 };
 const fr: Record<keyof typeof en, string> = {
   title: 'Rembourser le paiement',
@@ -187,6 +203,14 @@ const fr: Record<keyof typeof en, string> = {
   failed: 'Le remboursement original n’a pas été confirmé.',
   stepRequired: 'Confirmez que c’est vous avec une clé d’accès ou un code d’authentificateur.',
   stepExpired: 'Cette confirmation a expiré. Confirmez à nouveau.',
+  nothingLeft: 'Il ne reste rien à rembourser sur ce paiement.',
+  disputed: 'Ce paiement fait l’objet d’un litige ouvert. Il ne peut pas être remboursé avant sa clôture.',
+  approvalNeeded: 'Un coéquipier doit approuver les remboursements de plus de {threshold} {asset}.',
+  askApproval: 'Demander l’approbation',
+  waiting: 'En attente d’approbation',
+  waitingBody: 'Rien n’a encore été remboursé. Une personne pouvant approuver les remboursements le verra dans Approbations.',
+  nothingYet: 'Rien n’a encore été remboursé.',
+  openRequest: 'Ouvrir la demande',
 };
 /** Window the history read can see: `payment.history` has no cursor, oldest first, 200 rows. */
 export const HISTORY_WINDOW = 200;

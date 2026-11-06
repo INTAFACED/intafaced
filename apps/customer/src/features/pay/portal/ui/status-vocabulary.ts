@@ -36,6 +36,7 @@ export const chips = {
     refunded: ['chipPayment_refunded', 'tipPayment_refunded', 'neutral'],
     disputed: ['chipPayment_disputed', 'tipPayment_disputed', 'attention'],
     failed: ['chipPayment_failed', 'tipPayment_failed', 'bad'],
+    voided: ['chipPayment_voided', 'tipPayment_voided', 'neutral'],
   },
   merchant: {
     pending: ['chipMerchant_pending', 'tipMerchant_pending', 'attention'],

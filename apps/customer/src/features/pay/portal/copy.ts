@@ -166,6 +166,8 @@ const en = {
   tipPayment_disputed: 'The customer challenged this payment.',
   chipPayment_failed: 'Failed',
   tipPayment_failed: 'The payment did not go through.',
+  chipPayment_voided: 'Voided',
+  tipPayment_voided: 'The authorisation was released before capture. Nothing was taken.',
   chipMerchant_pending: 'Pending',
   tipMerchant_pending: 'Your account is being set up.',
   chipMerchant_active: 'Active',

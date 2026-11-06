@@ -7,12 +7,34 @@ import { Field } from './ui-kit';
 import { useSession } from '../session/session';
 import { PayAmount } from './components';
 import { DateTime } from './portal/ui/DateTime';
+import { formatMoney } from './portal/ui/format';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
 import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
 import { moneyReason } from './portal/access/money-step';
 import { payStepUp } from './portal/access/step-up-store';
+import { z } from 'zod';
+
+/** What a refund of this payment would do now (`payment.refundCheck`): what blocks it and the owner's approval rule. */
+const refundCheckSchema = z.object({
+  paymentId: z.string(),
+  assetId: z.string(),
+  maxRefundable: z.string(),
+  source: z.enum(['clearing', 'settled']),
+  fundingBalance: z.string(),
+  blockedBy: z.enum(['pay.refund_open_dispute', 'pay.nothing_captured', 'pay.refund_nothing_left']).nullable(),
+  approvalThreshold: z.string().nullable(),
+});
+type RefundCheck = z.infer<typeof refundCheckSchema>;
+const refundRequestSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  amount: z.string(),
+  refundId: z.string(),
+  paymentId: z.string(),
+});
+type QueuedRequest = z.infer<typeof refundRequestSchema>;
 import './merchant-refund.css';
 
 type Context = {
@@ -25,12 +47,20 @@ type Context = {
   epoch: number;
 };
 type Draft = { context: Context; amount: string };
-type Review = { context: Context; input: { paymentId: string; amount: string; refundId: string }; assetId: string };
+type Review = {
+  context: Context;
+  input: { paymentId: string; amount: string; refundId: string };
+  assetId: string;
+  /** The owner's approval threshold this amount is above, when it is: the review asks for approval instead of sending. */
+  approvalAbove: string | null;
+};
 type OriginalContext = { context: Context; status: RefundSnapshot['status']; reference: string | null };
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 type View = {
   context: Context;
   payment: s.Payment | null;
+  check: RefundCheck | null;
+  queued: QueuedRequest | null;
   draft: Draft | null;
   review: Review | null;
   receipt: RefundReceipt | null;
@@ -109,6 +139,8 @@ export function MerchantRefund({
     return {
       context,
       payment: null,
+      check: null,
+      queued: null,
       draft: null,
       review: null,
       receipt: null,
@@ -144,11 +176,20 @@ export function MerchantRefund({
       invalidate();
       return;
     }
-    const result = await pay.refund.readPayment(paymentId, current);
+    const [result, check] = await Promise.all([
+      pay.refund.readPayment(paymentId, current),
+      api.query('pay', 'payment.refundCheck', { paymentId }, refundCheckSchema),
+    ]);
     if (!current()) return;
     const next = { context, amount: '' };
     draft.current = next;
-    update({ loading: false, payment: result.ok ? result.data : null, draft: next, failure: result.ok ? null : result });
+    update({
+      loading: false,
+      payment: result.ok ? result.data : null,
+      check: check.ok ? check.data : null,
+      draft: next,
+      failure: result.ok ? null : result,
+    });
   }
   useLayoutEffect(() => {
     lifetime.current.mounted = true;
@@ -229,10 +270,12 @@ export function MerchantRefund({
       return;
     }
     if (!live() || draft.current !== started || admitted.current || pay.refund.inspect(paymentId, live).status !== 'empty') return;
+    const threshold = shown.check?.approvalThreshold ?? null;
     const review = {
       context,
       input: Object.freeze({ paymentId, amount, refundId: `refund:${paymentId}:${crypto.randomUUID()}` }),
       assetId: payment.assetId,
+      approvalAbove: threshold !== null && parseAmount(amount) > parseAmount(threshold) ? threshold : null,
     };
     operation.current = null;
     admitted.current = review;
@@ -292,6 +335,26 @@ export function MerchantRefund({
       if (!result.ok && result.code === 'pay.refund_step_up_expired') return stopped('pay.refund_step_up_expired');
     }
     publish(result, action);
+  }
+  /** Above the owner's rule: queue the refund for a teammate's approval. Nothing is posted until they approve. */
+  async function askApproval(review: Review) {
+    if (!live() || admitted.current !== review || operation.current) return;
+    const action = {};
+    operation.current = action;
+    update({ busy: true });
+    if (!(await payStepUp.ensure('refund'))) {
+      operation.current = null;
+      dismiss(review, true);
+      update({ failure: stepFailure('pay.refund_step_up_required') });
+      return;
+    }
+    const result = await api.mutate('pay', 'payment.refundRequests.request', review.input, refundRequestSchema);
+    if (!live() || operation.current !== action) return;
+    operation.current = null;
+    admitted.current = null;
+    draft.current = null;
+    update({ review: null, draft: null, busy: false, queued: result.ok ? result.data : null, failure: result.ok ? null : result });
+    invalidate();
   }
   async function check() {
     const originalCurrent = () => {
@@ -379,12 +442,26 @@ export function MerchantRefund({
     <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
       <header>
         <h3 id={titleId}>
-          {receipt
-            ? t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')
-            : recovery
-              ? t(snapshot.status === 'unreadable' ? 'unreadable' : 'unknown')
-              : t('title')}
+          {shown?.queued
+            ? t('waiting')
+            : receipt
+              ? t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')
+              : recovery
+                ? t(snapshot.status === 'unreadable' ? 'unreadable' : 'unknown')
+                : t('title')}
         </h3>
+        {shown?.queued && !receipt && !recovery && (
+          <>
+            <p className="muted">
+              <Copy k="waitingBody" />
+            </p>
+            <p>
+              <a className="text-link" href={`/pay/refunds/requests/${encodeURIComponent(shown.queued.id)}`}>
+                <Copy k="openRequest" />
+              </a>
+            </p>
+          </>
+        )}
         {(receipt || recovery) && (
           <p className="muted">
             {receipt
@@ -486,13 +563,18 @@ export function MerchantRefund({
       )}
       {!receipt &&
         !recovery &&
+        !shown?.queued &&
         (shown?.loading ? (
           <p role="status">
             <Copy k="loading" />
           </p>
         ) : shown?.payment ? (
-          parseAmount(shown.payment.capturedAmount) > parseAmount(shown.payment.refundedAmount) &&
-          ['captured', 'settled', 'refunded'].includes(shown.payment.status) ? (
+          shown.check?.blockedBy === 'pay.refund_open_dispute' ? (
+            <p role="note">
+              <Copy k="disputed" />
+            </p>
+          ) : parseAmount(shown.payment.capturedAmount) > parseAmount(shown.payment.refundedAmount) &&
+            ['captured', 'settled', 'refunded'].includes(shown.payment.status) ? (
             <>
               <Field
                 label={t('amount', { asset: shown.payment.assetId })}
@@ -519,8 +601,10 @@ export function MerchantRefund({
               </Button>
             </>
           ) : (
-            <p>
-              <Copy k="noCaptured" />
+            <p role="note">
+              <Copy
+                k={parseAmount(shown.payment.capturedAmount) > 0n && shown.payment.status !== 'disputed' ? 'nothingLeft' : 'noCaptured'}
+              />
             </p>
           )
         ) : (
@@ -551,6 +635,14 @@ export function MerchantRefund({
               <Copy k="reviewAmount" />
             </p>
             <PayAmount value={currentReview.input.amount} unit={currentReview.assetId} label={t('reviewAmount')} />
+            {currentReview.approvalAbove && (
+              <p role="note">
+                {t('approvalNeeded', {
+                  threshold: formatMoney(currentReview.approvalAbove, currentReview.assetId),
+                  asset: currentReview.assetId,
+                })}
+              </p>
+            )}
             {references(currentReview.input.refundId)}
             <div className="merchant-refund-note">
               <h4>
@@ -561,9 +653,15 @@ export function MerchantRefund({
               </p>
             </div>
             <div className="merchant-refund-actions">
-              <Button onClick={() => void confirm(currentReview)} disabled={shown?.busy}>
-                <Copy k="confirm" />
-              </Button>
+              {currentReview.approvalAbove ? (
+                <Button onClick={() => void askApproval(currentReview)} disabled={shown?.busy}>
+                  <Copy k="askApproval" />
+                </Button>
+              ) : (
+                <Button onClick={() => void confirm(currentReview)} disabled={shown?.busy}>
+                  <Copy k="confirm" />
+                </Button>
+              )}
               <Button variant="secondary" onClick={() => dismiss(currentReview, true)}>
                 <Copy k="edit" />
               </Button>

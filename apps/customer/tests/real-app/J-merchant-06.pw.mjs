@@ -72,6 +72,13 @@ async function confirmItsYou(page, key) {
   await expect(dialog).toHaveCount(0);
 }
 
+/** A decimal string the service answers, at any scale ("70", "70.00"): compared as the exact decimal, never as a float. */
+const dec = (whole) => expect.stringMatching(new RegExp(`^${whole.replace('.', '\\.')}(\\.0+)?$`));
+/** How the portal writes a TEST USDC amount: two places (ui/format.ts formatMoney). The amounts here are under 1,000. */
+const twoPlaces = (v) => {
+  const [w, f = ''] = v.split('.');
+  return `${w}.${(f + '00').slice(0, 2)}`;
+};
 const money = (amount) => new RegExp(`^${amount.replace('.', '\\.')}\\s*${ASSET}$`);
 const fact = (scope, label) =>
   scope
@@ -187,8 +194,8 @@ test(`${J} #1 opens a captured payment and presses Refund: maximum refundable TE
   // The funding balance is the service's own figure for the balance the refund is taken from: the payment is still
   // clearing, so clearing funds it, and it holds the 70 left of this payment and nothing the page made up.
   const pre = await api.query('payment.refundCheck', { paymentId: main.id });
-  expect(pre).toMatchObject({ maxRefundable: '70.00', source: 'clearing', blockedBy: null });
-  await expect(fact(facts, 'Funding balance')).toHaveText(new RegExp(`^Clearing · ${pre.fundingBalance.replace('.', '\\.')}\\s*${ASSET}$`));
+  expect(pre).toMatchObject({ maxRefundable: expect.stringMatching(/^70(\.0+)?$/), source: 'clearing', blockedBy: null });
+  await expect(fact(facts, 'Funding balance')).toHaveText(`Clearing · ${twoPlaces(pre.fundingBalance)} ${ASSET}`);
 
   // TEST 80 is more than is left: refused in a sentence, and nothing is asked of the service.
   await page.getByLabel(`Refund amount (${ASSET})`).fill('80');
@@ -284,12 +291,9 @@ test(`${J} #2 confirms it's them, reviews and sends: a fresh confirmation before
 
   // Posted once, under that reference: the payment's refunds are the first TEST 30 and this TEST 70, nothing more.
   const refunds = await refundsOf(payments.main);
-  expect(refunds.map((r) => [r.refundId, r.amount].join(' ')).sort()).toEqual(
-    [
-      refunds.find((r) => r.refundId === ids[0]) && `${ids[0]} 70.00`,
-      refunds.find((r) => r.refundId !== ids[0]) && `${refunds.find((r) => r.refundId !== ids[0]).refundId} 30.00`,
-    ].sort(),
-  );
+  expect(refunds).toHaveLength(2);
+  expect(refunds.find((r) => r.refundId === ids[0])?.amount).toEqual(dec('70'));
+  expect(refunds.find((r) => r.refundId !== ids[0])?.amount).toEqual(dec('30'));
 });
 
 test(`${J} #3 the send reply is lost: the page says the outcome is unknown, reuses the stored request id on retry and shows exactly one refund; a reload keeps it`, async ({
@@ -322,7 +326,7 @@ test(`${J} #3 the send reply is lost: the page says the outcome is unknown, reus
   expect(ids.size).toBe(1);
   const refunds = await refundsOf(payments.lost);
   expect(refunds).toHaveLength(1);
-  expect(refunds[0]).toMatchObject({ refundId: [...ids][0], amount: '20.00' });
+  expect(refunds[0]).toMatchObject({ refundId: [...ids][0], amount: dec('20') });
   await page.reload();
   await expect(page.getByText('Refund recorded')).toBeVisible();
 });
@@ -344,7 +348,7 @@ test(`${J} #4 opens the refund: status in plain words, the reason when the rail 
   const [reversed] = await refundsOf(payments.refused);
   expect(reversed.status).toBe('reversed');
   await signIn(page, 'owner', `/pay/refunds/${reversed.id}`);
-  await expect(page.getByTestId('status-chip').first()).toHaveText('Did not go through');
+  await expect(page.getByTestId('pp-chip').first()).toHaveText('Reversed');
   await expect(page.getByText('The customer’s card issuer refused the refund.')).toBeVisible();
   await expect(page.getByText('The money is back in your balance. Nothing was sent to the customer.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel refund' })).toHaveCount(0);
@@ -352,7 +356,7 @@ test(`${J} #4 opens the refund: status in plain words, the reason when the rail 
   // A sent refund (#3's) says so in plain words and cannot be cancelled.
   const [done] = await refundsOf(payments.lost);
   await page.goto(`/pay/refunds/${done.id}`);
-  await expect(page.getByTestId('status-chip').first()).toHaveText(/^(Sent|Completed)$/);
+  await expect(page.getByTestId('pp-chip').first()).toHaveText(/^(In progress|Refunded)$/);
   await expect(page.getByText('It has already been sent and cannot be cancelled.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel refund' })).toHaveCount(0);
 
@@ -364,10 +368,10 @@ test(`${J} #4 opens the refund: status in plain words, the reason when the rail 
   });
   expect(queued.status).toBe('queued');
   await page.goto(`/pay/refunds/requests/${queued.id}`);
-  await expect(page.getByTestId('status-chip').first()).toHaveText('Waiting for approval');
+  await expect(page.getByTestId('pp-chip').first()).toHaveText('Waiting for approval');
   await page.getByRole('button', { name: 'Cancel refund' }).click();
   await page.getByRole('dialog', { name: 'Cancel this refund?' }).getByRole('button', { name: 'Cancel refund' }).click();
-  await expect(page.getByTestId('status-chip').first()).toHaveText('Cancelled');
+  await expect(page.getByTestId('pp-chip').first()).toHaveText('Cancelled');
   await expect(page.getByRole('button', { name: 'Cancel refund' })).toHaveCount(0);
   const api = await apiOf('owner');
   await expect(api.mutate('payment.refundRequests.cancel', { requestId: queued.id })).rejects.toThrow(/pay\.refund_request_closed/);
@@ -392,7 +396,7 @@ test(`${J} #5 asks for a refund above the approval threshold: pending with no le
   const api = await apiOf('owner');
   expect((await api.query('payment.get', { paymentId: payments.large })).refundedAmount).toMatch(/^0(\.0+)?$/);
   const [first] = (await api.query('payment.refundRequests.list', { merchantId, paymentId: payments.large, status: 'queued' })).items;
-  expect(first).toMatchObject({ amount: '150.00', status: 'queued' });
+  expect(first).toMatchObject({ amount: dec('150'), status: 'queued' });
 
   // The maker cannot approve their own.
   const maker = await refunder('owner', merchantId);
@@ -408,7 +412,7 @@ test(`${J} #5 asks for a refund above the approval threshold: pending with no le
   });
   const all = (await api.query('payment.refundRequests.list', { merchantId, paymentId: payments.large })).items;
   expect(all.find((r) => r.id === first.id)).toMatchObject({ status: 'voided' });
-  expect(second).toMatchObject({ status: 'queued', amount: '140.00' });
+  expect(second).toMatchObject({ status: 'queued', amount: dec('140') });
 
   // The checker, the finance teammate, approves it with their own confirmation, and it runs once.
   await forgetSession(page);
@@ -424,7 +428,7 @@ test(`${J} #5 asks for a refund above the approval threshold: pending with no le
     /pay\.refund_request_closed/,
   );
   const refunds = await refundsOf(payments.large);
-  expect(refunds.map((r) => [r.refundId, r.amount])).toEqual([[second.refundId, '140.00']]);
+  expect(refunds.map((r) => [r.refundId, r.amount])).toEqual([[second.refundId, dec('140')]]);
   expect((await api.query('payment.get', { paymentId: payments.large })).refundedAmount).toMatch(/^140(\.0+)?$/);
 });
 
@@ -442,7 +446,7 @@ test(`${J} #6 voids an authorised payment, and reverses a captured one: void end
   await expect(page.getByRole('link', { name: 'Refund', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Void payment' }).click();
   await page.getByRole('dialog', { name: 'Void this payment?' }).getByRole('button', { name: 'Void payment' }).click();
-  await expect(page.getByTestId('status-chip').first()).toHaveText('Voided');
+  await expect(page.getByTestId('pp-chip').first()).toHaveText('Voided');
   await expect(page.getByText('Nothing was taken from the customer, and your balance did not change.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Void payment' })).toHaveCount(0);
   const voided = await api.query('payment.get', { paymentId: payments.authorised });
@@ -462,11 +466,11 @@ test(`${J} #6 voids an authorised payment, and reverses a captured one: void end
   await expect(page.getByText('Reversed with a refund of 25.00 USDC.')).toBeVisible({ timeout: 30_000 });
   const refunds = await refundsOf(payments.reverse);
   expect(refunds).toHaveLength(1);
-  expect(refunds[0]).toMatchObject({ amount: '25.00', refundId: `reverse:${payments.reverse}` });
+  expect(refunds[0]).toMatchObject({ amount: dec('25'), refundId: `reverse:${payments.reverse}` });
   expect((await api.query('payment.get', { paymentId: payments.reverse })).status).toBe('refunded');
   // Reversing again reports the same refund and sends nothing more.
   const again = await (await refunder('owner', merchantId)).mutate('payment.reverse', { paymentId: payments.reverse });
-  expect(again).toMatchObject({ used: 'refund', payment: { refundedAmount: '25.00' } });
+  expect(again).toMatchObject({ used: 'refund', payment: { refundedAmount: dec('25') } });
   expect(await refundsOf(payments.reverse)).toHaveLength(1);
 });
 
@@ -486,11 +490,10 @@ test(`${J} #7 selects several payments and refunds in bulk: each runs once and t
   await expect(report.getByRole('row').filter({ hasText: 'Refused' })).toContainText('Nothing is left to refund on this payment.');
   // Each ran once: running the same batch again refunds nothing more.
   await report.getByRole('button', { name: 'Run again' }).click();
-  await confirmItsYou(page, 'owner');
   await expect(report).toContainText('3 refunded, 1 refused', { timeout: 60_000 });
   for (const id of payments.bulk) {
     const refunds = await refundsOf(id);
     expect(refunds, id).toHaveLength(1);
-    expect(refunds[0].amount).toBe('8.00');
+    expect(refunds[0].amount).toEqual(dec('8'));
   }
 });

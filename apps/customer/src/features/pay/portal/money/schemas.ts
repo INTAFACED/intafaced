@@ -97,6 +97,7 @@ export const refundItemSchema = z.object({
   reason: z.string().nullable().optional(),
   actor: z.string().nullable().optional(),
   status: z.enum(refundStatuses),
+  failureCode: z.string().nullable().optional(),
   createdAt: timestamp,
   settledAt: timestamp.nullable().optional(),
   source: z.enum(['clearing', 'settled']).nullable().optional(),
@@ -111,6 +112,28 @@ export const refundItemSchema = z.object({
   payment: z.object({ paymentId: z.string(), status: z.string() }).optional(),
 });
 export type RefundItem = z.infer<typeof refundItemSchema>;
+
+/** J-merchant-06: a refund that waits for a second person (svc-pay `payment.refundRequests`). Nothing is posted while it waits. */
+export const refundRequestStatuses = ['queued', 'approved', 'refunded', 'failed', 'rejected', 'cancelled', 'voided'] as const;
+export const refundRequestSchema = z.object({
+  id: z.string(),
+  merchantId: z.string(),
+  paymentId: z.string(),
+  assetId: asset,
+  amount,
+  refundId: z.string(),
+  status: z.enum(refundRequestStatuses),
+  makerUserId: z.string(),
+  checkerUserId: z.string().nullable(),
+  checkerReason: z.string().nullable(),
+  failureCode: z.string().nullable(),
+  voidReason: z.string().nullable(),
+  createdAt: timestamp,
+  decidedAt: timestamp.nullable(),
+  closedAt: timestamp.nullable(),
+});
+export type RefundRequest = z.infer<typeof refundRequestSchema>;
+export const refundRequestPageSchema = z.object({ items: z.array(refundRequestSchema) });
 
 // mirrors feat/pay-portal-be-reads-money:packages/contracts/src/pay-portal-reads.ts; import from @intafaced/contracts after merge
 export const statementLineSchema = z.object({

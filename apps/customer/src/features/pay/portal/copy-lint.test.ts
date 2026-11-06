@@ -22,6 +22,7 @@ import { w3cMessages } from './w3c-copy';
 import { catalogMessages } from './catalog/copy';
 import { lookMessages } from './payments/look-copy';
 import { methodsMessages } from './payments/methods-copy';
+import { refundRequestsMessages } from './money/refund-requests-copy';
 
 /**
  * Every visible word in the merchant portal is plain business English: what happened, why, what to do next. This
@@ -48,6 +49,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.catalog': catalogMessages,
   'pay.portal.checkoutLook': lookMessages,
   'pay.portal.checkoutMethods': methodsMessages,
+  'pay.portal.money.refundRequests': refundRequestsMessages,
 };
 
 const banned: Array<[name: string, pattern: RegExp]> = [
