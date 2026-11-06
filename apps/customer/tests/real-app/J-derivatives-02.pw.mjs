@@ -290,6 +290,38 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   expect((await me.get('/api/v1/positions')).body).toEqual([]);
 });
 
+// DIAG #7215 (never merged): on any failed step, what the maker, trade and the books looked like.
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const { readFileSync } = await import('node:fs');
+  const { stackFile, EDGE, ORIGIN } = await import('./stack.mjs');
+  console.log('DIAG7215 failed', testInfo.title.slice(0, 60), 'at', new Date().toISOString());
+  for (const sym of ['BTC/USDT', SYMBOL]) {
+    const b = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(sym)}?limit=6`, { headers: { origin: ORIGIN } }).then((r) =>
+      r.text(),
+    );
+    console.log('DIAG7215 book', sym, b.slice(0, 1200));
+  }
+  try {
+    console.log('DIAG7215 market.log tail\n' + readFileSync(stackFile('logs/market.log'), 'utf8').split('\n').slice(-80).join('\n'));
+  } catch (err) {
+    console.log('DIAG7215 no market.log', err.message);
+  }
+  try {
+    const lines = readFileSync(stackFile('logs/trade.log'), 'utf8').split('\n');
+    console.log(
+      'DIAG7215 trade.log mark lines\n' +
+        lines
+          .filter((l) => /mark|depth|index|restart|listening|stale/i.test(l))
+          .slice(-60)
+          .join('\n')
+          .slice(-12000),
+    );
+  } catch (err) {
+    console.log('DIAG7215 no trade.log', err.message);
+  }
+});
+
 test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
   page,
 }) => {
