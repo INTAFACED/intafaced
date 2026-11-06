@@ -1,72 +1,64 @@
-# Instructions for AI agents
+# Rules for agents
 
-INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. Build it, check it yourself, and merge only through the rules below. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) says what is where.
+INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins; where the original spec disagrees with the code, the code wins.
 
-## The product
+## The floor
 
-1. The front end is React: `apps/customer` (Vite and React) and `apps/admin` (Next.js). The old Vue front end was deleted; never reintroduce it.
-2. Find code with `rg` and `rg --files`. Read the target service's `README.md` before you edit it. Start any product path whose dependencies are met without waiting for a tracker claim, an audit seal or a person.
-3. Product law:
-   - "Parked" means visible with the real blocker named. Never hide a room, route or control.
-   - No "coming soon" screens. Every room gets its full layout and every control, with an honest empty or refuse state where its data or rail is not wired.
-   - No fake balances, books, metrics or sample numbers. Label any illustrative figure TEST.
-   - A blank price, limit, fee, sanctions list or provider setting stays blank: refuse with a typed error. Never invent live magnitudes.
-   - INTACHAIN P1 is approved (owner decision 2026-10-17; #4640 replaces the "implement parked" lines of `docs/adr/2026-09-03-protocol-rails-until-intachain.md`). `svc-chain`, INTACORE and Predict are open to agents (owner decision 2026-10-22). `/chain`, `/dex` and `/protocol` must be visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
-   - A new look is the owner's call at every step: measure the references first (they are the bar; `docs/refs/`), then show rendered options built from those measurements; the owner chooses at each step and decides when it ships (owner decisions 2026-10-24, 2026-10-25 and 2026-10-27).
-   - Customer rooms take their look only from `packages/ui` role tokens, never raw colours, pixel sizes or left/right sides (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs` refuses them on changed lines; owner decision 2026-10-26).
+1. **Money moves only through `packages/ledger-client` recipes.** Never assemble entries inline. There is one custodial ledger (`svc-ledger`): no module holds its own balance, and there is no second money book (no outside system as source of truth, no second order book, no npm `ccxt`; FIX, SBE and Greeks stay adapters).
+2. **Never store money in a `number`.** Decimal strings on the wire, scaled bigint in memory.
+3. **Idempotency keys are business keys** (`deposit:crypto-native:0xabc`), never `randomUUID()`. Every money path tests its failure branches and has an invariant test. Ask: if this crashes exactly here, whose funds are stranded?
+4. **Protocol Plane services never import ledger write recipes** (`pnpm scan:custody`). Freezing one account belongs to `svc-identity`; the platform-wide posting freeze belongs to `svc-ledger`.
+5. **`main` stays protected and green.** Never push `main`. Never bypass a required check or change the `main` ruleset (`CI merge seal`, Gitleaks, Dependency audit; no force-push, no delete). A breaking commit is fixed or reverted before anything else merges into the packages it touches.
+6. **Never skip, disable, quarantine or weaken a test or safeguard** to get green. A test that is wrong is fixed, with the evidence in the PR body.
+7. **The owner alone:** deploys, real funds, live credentials, secrets and keys, purchases, and contact with anyone outside. A merge is not a launch.
+8. **Honest product and honest claims.** No fake balances, books, prices, limits or metrics; an illustrative figure says TEST. A blank owner value (a price, limit, fee, sanctions list or provider setting) stays blank and refuses with a typed error; a labelled TEST value may stand in on test stacks only. A claim in a PR body comes with its output.
 
-## Money
+## The owner's decisions
 
-1. Move value only through `packages/ledger-client` recipes (`packages/ledger-client/src/recipes`). Never assemble entries inline. There is one custodial ledger (`svc-ledger`) and no module holds its own balance.
-2. Never store money in a `number`. Use decimal strings on the wire and scaled bigint in memory.
-3. A second money book is out: no service-held balances, no outside system as source of truth, no second order book, no npm `ccxt`. Leave FIX, SBE and Greeks as adapters.
-4. Idempotency keys are business keys (`deposit:crypto-native:0xabc`), never `randomUUID()`. Every money path tests its failure branches and has an invariant test. Ask: if this crashes exactly here, whose funds are stranded?
-5. Protocol Plane services never import ledger write recipes (`pnpm scan:custody`).
-6. Freezing one account belongs to `svc-identity`. The platform-wide posting freeze belongs to `svc-ledger`. Do not mix them up.
+Within the floor, these win over any agent's or reviewer's preference.
 
-## Services and events
+- **Standing green light** (2026-10-19): push branches, open PRs, delete files through a PR, and merge once the checks allow it. Nothing waits for a person.
+- **One PR may carry one whole journey across services** (2026-11-06). Ledger-client money recipes, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR, reviewed like every other PR.
+- **Money, security and supply-chain code are reviewed like every other PR** (supply chain: `.github/`, the lockfile, `.npmrc`, `pnpm-workspace.yaml`, Dockerfiles, `.dockerignore`, compose files, `tsconfig.base.json`, `tooling/infra/`) until Launch hardening, the phase that must pass before any real money moves (2026-11-06). Gate files and look baselines keep their extra review.
+- **The front end is React** (`apps/customer` with Vite, `apps/admin` with Next.js). Never reintroduce Vue.
+- **Nothing is hidden.** Parked means visible with its real blocker named. No "coming soon": every room gets its full layout and every control, with an honest empty or refusal state. `/chain`, `/dex` and `/protocol` stay visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
+- **A journey marked parked** in `docs/roadmap/journeys.json` isn't built until it is unparked.
+- **A new look is the owner's call at every step** (2026-10-24, 2026-10-25, 2026-10-27): measure the references first (`docs/refs/`), show rendered options built from them, and the owner chooses and decides when it ships. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`; 2026-10-26).
 
-1. One pull request may carry one whole journey: it may touch every service, `packages/contracts` and `packages/events` that the journey needs, in one PR, instead of one service per PR in order (owner decision 2026-11-06). Two open PRs may touch one service when their files do not overlap. If another open PR touches the same files, take a different part. `Main trust` stays the safety net: a breaking commit is reverted first.
-2. Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR, reviewed as "Check, then merge" says.
-3. Services never read each other's tables. Use tRPC through `packages/contracts` or an event. Publish only subjects declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
-4. User-facing copy names no partner or model vendor (`pnpm scan:brand`).
+## How work flows
 
-## Check, then merge
+1. **Own one outcome,** usually one whole journey in `docs/roadmap/journeys.json`, the most valuable unblocked one first. Start any path whose dependencies are met. If another open PR touches your files, take a different part.
+2. **Work on your own branch** in your own worktree or clone (`pnpm wt <branch>`), never a shared checkout.
+3. **Test first.** Write the journey's test (`apps/customer/tests/real-app/<journey>.pw.mjs`, one test per step, checking what the step's words say), see it fail, then build until it passes. Never change a step's words to fit the code. How: [`docs/agents/build-slice.md`](docs/agents/build-slice.md).
+4. **Before you open a PR,** merge current `origin/main`, and run what CI will run for your change: affected tests, typecheck, `pnpm exec prettier --check` on changed files, and `node tooling/ci/gates.mjs`. Prove the steps in the running app (`pnpm local:stack`, or a Real-app journeys run on the branch's exact head). A change to the journey stack's shared setup proves with the full journeys run. If you can't prove it, say exactly why: that is a gap, not a pass.
+5. **Review your diff** with an automated code review (for example `/code-review`), and answer each finding in the PR body: fixed, or why not.
+6. **Open the PR ready, with auto-merge on** from your own account. The body says what changed, why, the proof (commands and what you saw), which of the journey's steps are left or replaced, and how to revert. One PR per concern, merged in pieces that are safe to undo.
+7. **The required checks decide the merge** on the exact head: the `CI merge seal`, Gitleaks and Dependency audit. Nothing is run by hand to override a red.
+8. **A red:** read it with `node tooling/ci/why-red.mjs <PR>`; its `REVIEW` verdict only means the seal waits for the CI review, which is nothing to fix. A plain error or failed assertion in your change: fix it. If it looks intermittent, re-run the failed jobs once: a test that then passes is flaky and gets an issue with an owner, naming the test file; a test that fails again is real: fix it. A red in a package your PR doesn't touch, and that depends on nothing your PR touches, isn't yours: say so once in a PR comment and re-run once. The required checks still decide the merge. For money code (`packages/ledger-client` and every package that depends on it directly) and `svc-edge`, `svc-ops`, `svc-protocol` and `svc-fix`, a red in a package your PR changes always blocks the merge, even when `main` shares it.
+9. **Done is on `main`:** the journey's steps pass in the Real-app journeys run on `main`. `Main trust` re-runs a red `main` once and opens an issue when it stays red.
 
-1. Run the checks on your machine before you push: affected tests, typecheck, and `pnpm exec prettier --check` on every file you changed. A slice PR also proves its journey step in the running app before it opens (`pnpm local:stack`, Playwright on the machine's Chromium), and its body says what you did and saw, with the journey test's output (owner decision 2026-10-22). If the stack cannot start, say exactly why in the PR body: that is a gap to fix, not a pass. Once the PR is open, CI is the test run for its head: don't re-run locally the tests and typecheck it is already running there; read its result. Do not add to or weaken the live GitHub ruleset on `main` (`CI merge seal`, Gitleaks, Dependency audit; no force-push, no delete; no bypass).
-2. Merge only when the required checks are green on the exact head. Every PR gets an automated code review (for example `/code-review`) before it is opened, and the PR body answers each finding: fixed, or why not; a gate-file PR also gets `/security-review`, answered the same way. A PR that changes a gate file also needs an independent review of that same head (item 8), and so does a change to a look baseline (`<package>/look-baselines/<room>/`, named on a `Baseline-change: <room> — <why>` line; owner decision 2026-10-26); for every other PR, money and security code included, the seal does not wait for item 8 (owner decisions 2026-10-22 and 2026-11-06). The seal decides this with the default branch's `tooling/ci/review-marker.mjs`. The seal needs the fast checks (Doctrine gates, format, typecheck and build) and the test job the changed paths call for; a skipped test job fails it unless the PR is docs-only. Before merge, tests run for the changed packages, their dependents and the readers in `tooling/ci/test-read-edges.json` (owner decision 2026-10-19); shared packages (contracts, events, ledger-client, config, auth), the lockfile, turbo or tsconfig files, `tooling/`, `.github/`, agent rule files and any path outside `apps/`, `services/` and `packages/` run everything, as does every run on `main`. Cloud threads read a red with `node tooling/ci/why-red.mjs <PR>`, which names the failing checks and their error lines, and open a job log only when it names nothing; its REVIEW verdict means the seal only waits for the independent review, which is nothing to fix. Nothing is run by hand to override a red.
-3. A red is confirmed by one re-run of the failed jobs on the same head, never by a skip. A test that fails and then passes is flaky: it gets an issue with an owner (the `Main trust` workflow opens it for a run on `main`; on a PR, open it yourself and name the test file). A test that fails again is real: fix it. Never skip, disable, quarantine or weaken a test to get green. A red in a package the PR does not touch and that does not depend on a package the PR touches is not this PR's to fix: say so once in a PR comment and re-run once. For money code (ledger-client and its direct dependents) and `svc-edge`, `svc-ops`, `svc-protocol` and `svc-fix`, a red in a package the PR changes always blocks the merge, even when `main` shares it. `CX-8 assembled smoke` (not a required check) failing only on "Sanctions screening list is unset" is known. A PR that changes a gate file (`GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`; for example CI and workflows, agent rule files and protocol, root build files, secret-scan lists, CODEOWNERS) needs a `ci:` or `gate:` title and runs everything. Agent-rule files are never docs-only.
-4. GitHub itself requires the `CI merge seal` (which includes Doctrine gates), Gitleaks and Dependency audit to pass. A gate PASS does not override them. Never bypass them.
-5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
-6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response; the one exception is `403 This workflow is already running` on a re-run, which only means wait for that run to finish, then re-run. Do not retry in a loop, switch accounts or create a token. Keep working locally.
-7. Never push `main`.
-8. The independent review is the `CI review` job (`.github/workflows/ci-review.yml`). It runs on every push to an in-repo pull request from the default branch's copy (`pull_request_target`), reads the head's diff through the API without running its code, and judges it against `tooling/ci/ci-review/REVIEW.md`. The seal accepts only that job's `Verdict` step passing on the exact head sha; a comment, a commit status or a session line counts for nothing (owner decision 2026-11-04, the factory's option B; this replaces the PASS-comment and `Claude-Session:` rules of 2026-10-30). A FAIL stands for its head and for any later head with the same code (the same tree): re-running the job, reopening the pull request or pushing an empty commit doesn't undo it, so fix the findings and push. Answer its findings in the PR body as for item 2. Turn auto-merge on from your own account when you open an in-repo PR, so a green, sealed head merges without a check-in and runs main's CI; a gate-file PR may too, with its review and full run (owner decision 2026-10-20).
-9. `main` must stay green: the `Main trust` workflow re-runs a red `main` once and, if it stays red, opens a `Main is red` issue naming the failing test files. Fix or revert the breaking commit before merging anything else that touches the same packages.
+## Where a mistake costs more
 
-## Git
+- **Gate files** (`GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`: CI and workflows, agent rule files, root build files, secret-scan lists, CODEOWNERS and the like) need a `ci:` or `gate:` title, `/security-review` answered in the PR body, and the `CI review` job's PASS on the exact head. A new or changed check shows it passes on a known-good state and fails on a planted fault. Agent rule files are never docs-only.
+- **Look baselines** (`<package>/look-baselines/<room>/`) need a `Baseline-change: <room> — <why>` line and the `CI review` job's PASS.
+- **The `CI review` job** judges the diff against [`tooling/ci/ci-review/REVIEW.md`](tooling/ci/ci-review/REVIEW.md), read from `main`. A FAIL stands for that code: fix it and push. After three FAILs on one PR, rethink the approach. A change to `REVIEW.md` or to the review job can't pass its own review, so it goes to the owner for an admin merge.
 
-1. Work on a branch in a worktree or your own clone, not a shared checkout; one PR per concern. Never delete a branch. Never force-push someone else's branch.
-2. When your task is merged or handed off, stop any service you started. If you used a git worktree, remove only your own with `git worktree remove <path>`, never `--force`. Leave other agents' work alone.
+## Services
 
-## Standing scope for agents
+- Services never read each other's tables. Use tRPC through `packages/contracts`, or an event declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
+- User-facing copy names no partner or model vendor (`pnpm scan:brand`).
 
-The owner's standing green light (2026-10-19): agents need no one's go-ahead for the work below, and should not stop to ask for it.
+## GitHub and git
 
-1. Allowed: push branches (`claude/*` or your task's branch) and open PRs; delete files and folders through a reviewed PR; merge a PR once "Check, then merge" items 2, 3 and 8 allow it for its exact head.
-2. Never, with or without a green light: force-push or delete `main`, touch secrets or keys, move real money, deploy money paths to production, or weaken a test or safeguard. These stay with the owner.
-
-## Skills and status files
-
-1. Before you build or review a slice, read `docs/agents/build-slice.md`: how to build and review one. This file wins over it and over any skill that says to wait for a person.
-2. Write no status boards and no tracker recooks; spend the session on the product.
+- **On a 403 or 429 from GitHub,** stop GitHub calls and report the exact response. Don't retry in a loop, switch accounts or create a token; keep working locally. The one exception, `403 This workflow is already running` on a re-run, means wait for that run, then re-run.
+- **Never delete a branch** or force-push someone else's. Remove only your own worktree (`git worktree remove <path>`, never `--force`), and stop the services you started.
+- **No status boards or tracker recooks.**
 
 ## Where things are
 
-1. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): apps, services, packages, money flow, how to run.
-2. [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations procedures.
-3. [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape and money-path rules. [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md) is the original product spec.
-4. Current truth is this file, `docs/ARCHITECTURE.md` and the generated `docs/SERVICES.md`, plus `docs/adr/`, `docs/runbooks/`, `docs/refs/` (measured front-end references) and `docs/agents/`. Material removed from the tree lives in git history. Where any other doc disagrees with this file, this file wins; where the original spec disagrees with the code, the code wins.
-5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`. Active work and owners: open GitHub PRs and issues.
-6. Services, ports and required env: the generated `docs/SERVICES.md`. Most services and apps, and some packages, also have a short `CLAUDE.md` that points back here.
-7. Customer front end: a top-level screen whose id is in `apps/customer/src/app/screens.ts` goes in `apps/customer/src/screens/<id>/index.tsx`. Every other room goes in `apps/customer/src/features/<area>/`, routed from that area's routes file (`rooms.tsx` in money, `<Area>Routes.tsx` elsewhere); feature-registry status is proof state (blocked = reachable, not yet proven live), never visibility. The merchant portal is `apps/customer/src/features/pay/portal/`. Add a new screen id to `ScreenId` in `apps/customer/src/app/screen-types.ts` first.
-8. Why the agent files look like this (checked 2026-10-19, as the pages show no publish date; recheck before changing the layout): keep each CLAUDE.md under 200 lines, since longer files cost context and adherence and `@AGENTS.md` imports do not reduce that cost; subdirectory CLAUDE.md files load only when a file in that folder is read or edited, and only in local and Mac sessions: cloud project threads load the root `CLAUDE.md`, `.claude/CLAUDE.md` and `.claude/rules/` without `paths`, never a subfolder file ([Claude Code memory](https://code.claude.com/docs/en/memory); [Claude Code projects](https://code.claude.com/docs/en/claude-projects), checked 2026-10-26). The nearest AGENTS.md to the edited file wins ([agents.md](https://agents.md)); Codex layers root-down and stops at 32 KiB by default ([OpenAI Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md)).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the generated `docs/SERVICES.md`: apps, services, packages, ports, env, the money flow and how to run.
+- [`docs/agents/build-slice.md`](docs/agents/build-slice.md): how to build a journey and prove it. [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, worktrees, commits and the CI check names.
+- [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
+- [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
+- Each service's `README.md`: read it before you edit that service. Find code with `rg`.
+- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec is `INTAFACED_DEFINITIVE_BUILD.md`.
