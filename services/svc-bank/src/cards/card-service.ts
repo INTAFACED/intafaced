@@ -431,6 +431,16 @@ export class CardService {
     return this.programmeTerms;
   }
 
+  private async assertUnderCount(sql: Sql, userId: string, cardType: 'virtual' | 'physical', limit: number): Promise<void> {
+    const held = await this.heldCount(userId, cardType, sql);
+    if (held >= limit) {
+      throw new BankError(
+        `You already hold ${held} ${cardType} card${held === 1 ? '' : 's'}; the limit is ${limit}.`,
+        'bank.card_count_limit',
+      );
+    }
+  }
+
   /** Active or frozen cards of one kind this person holds: what the count limit counts. A closed card is not held. */
   async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Sql = this.sql): Promise<number> {
     const [row] = await sql<Array<{ n: number }>>`
@@ -557,26 +567,20 @@ export class CardService {
     const cardType = input.cardType ?? 'virtual';
     const shipping = cardType === 'physical' ? requireShippingAddress(input.shippingAddress) : null;
     const settlementAssetId = input.settlementAssetId ?? input.assetId;
+    const limits = this.programmeTerms?.limits ?? null;
+    // The count limit is read before the issuer is asked, so a refused order makes no card at the issuer; it is read
+    // again under the person's lock below, where two orders at once are decided.
+    if (limits && !(await this.cardOrNull(input.cardId))) await this.assertUnderCount(this.sql, input.userId, cardType, limits[cardType]);
     const handle = await this.issuer.issue({ cardId: input.cardId, userId: input.userId, assetId: input.assetId });
     const programme = this.issuer.programme;
 
-    const limits = this.programmeTerms?.limits ?? null;
     const rows = await transaction(this.sql, async (tx) => {
       // The count limit and the insert under one per-person lock, so two orders at once cannot both take the last place.
       // A retried order of a card that already exists is that card, whatever the count says now.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${input.userId}`}))`;
       if (limits) {
         const already = await tx<Array<{ id: string }>>`SELECT id FROM bank.cards WHERE id = ${input.cardId}`;
-        if (already.length === 0) {
-          const held = await this.heldCount(input.userId, cardType, tx);
-          const limit = limits[cardType];
-          if (held >= limit) {
-            throw new BankError(
-              `You already hold ${held} ${cardType} card${held === 1 ? '' : 's'}; the limit is ${limit}.`,
-              'bank.card_count_limit',
-            );
-          }
-        }
+        if (already.length === 0) await this.assertUnderCount(tx, input.userId, cardType, limits[cardType]);
       }
       return tx<CardRow[]>`
         INSERT INTO bank.cards (
@@ -993,7 +997,7 @@ export class CardService {
         ${card.cashLimit === null ? null : formatAmount(card.cashLimit)}::numeric,
         ${card.online}, ${card.contactless}, ${card.atm}, ${card.abroad},
         ${card.cardType}, ${card.shippingAddress === null ? null : JSON.stringify(card.shippingAddress)}::jsonb,
-        ${card.id}, NULL, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
+        ${card.id}, ${card.cardType === 'physical' ? null : this.clock()}, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
         ${card.residenceCountry ?? null}
       )
       ON CONFLICT (id) DO NOTHING
@@ -2250,13 +2254,7 @@ export class CardService {
    */
   private async closeWhenUsedUp(card: CardRecord): Promise<void> {
     if (card.usesAllowed == null) return;
-    const [row] = await this.sql<Array<{ n: number }>>`
-      SELECT count(*)::int AS n
-        FROM bank.card_settlements s
-        JOIN bank.card_authorizations a ON a.id = s.authorization_id
-       WHERE a.card_id = ${card.id} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
-    `;
-    if (Number(row?.n ?? 0) < card.usesAllowed) return;
+    if ((await this.usesMade(card.id)) < card.usesAllowed) return;
     const current = await this.card(card.id);
     if (current.status === 'closed') return;
     await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
@@ -2296,7 +2294,9 @@ export class CardService {
        WHERE a.card_id = ${card.id}
          AND a.decision = 'approved'
          AND a.hold_ledger_tx_id IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0 AND s.status = 'settled')
+         -- Any sequence-0 row means a capture or reversal already claimed this hold: a capture in flight finishes on its
+         -- own key (or the recovery job re-drives it) and is never raced here.
+         AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0)
        ORDER BY a.decided_at
     `;
     for (const row of open) await this.reverse({ cardId: card.id, authorizationRef: row.authorization_ref });
@@ -2326,10 +2326,7 @@ export class CardService {
     }
     if (reason === 'lost' || reason === 'stolen') {
       // Frozen first, so nothing new is approved on it, then every open hold back to the person, then closed.
-      if (current.status === 'active') {
-        await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'frozen' });
-        await this.sql`UPDATE bank.cards SET status = 'frozen', updated_at = now() WHERE id = ${current.id} AND status = 'active'`;
-      }
+      if (current.status === 'active') await this.setStatus(current.id, 'frozen', current.userId);
       await this.reverseOpenHolds(current);
     }
     await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });

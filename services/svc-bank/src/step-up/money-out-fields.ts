@@ -321,3 +321,36 @@ export function activateCardBinding(i: { actor: string; cardId: string }): DoorB
     fields: { actor: i.actor, cardId: i.cardId },
   };
 }
+
+/** Ordering a card from the card room (BK-cissue-02/-03): the approval binds every term of the order. */
+export function orderCardBinding(i: {
+  actor: string;
+  cardId: string;
+  assetId: string;
+  perAuthorizationLimit: string;
+  cardType: 'virtual' | 'physical';
+  country: string;
+  termsVersion: string;
+  usesAllowed: number | null | undefined;
+  designId: string | undefined;
+  deliverySpeed: string | undefined;
+  shippingAddress: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.order',
+    operationKey: i.cardId,
+    fields: {
+      actor: i.actor,
+      cardId: i.cardId,
+      assetId: i.assetId,
+      perAuthorizationLimit: i.perAuthorizationLimit,
+      cardType: i.cardType,
+      country: i.country.toUpperCase(),
+      termsVersion: i.termsVersion,
+      usesAllowed: i.usesAllowed == null ? '' : String(i.usesAllowed),
+      designId: i.designId ?? '',
+      deliverySpeed: i.deliverySpeed ?? '',
+      shippingAddress: i.shippingAddress,
+    },
+  };
+}

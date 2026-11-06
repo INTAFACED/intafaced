@@ -11,6 +11,7 @@ import {
   setCardPinBinding,
   unfreezeCardBinding,
   activateCardBinding,
+  orderCardBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
 import { DELIVERY_SPEEDS } from '../cards/card-programme.js';
@@ -653,8 +654,8 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /**
      * Order a card: virtual (optionally single-use or n-use) or physical with a design, a delivery speed and an address.
-     * `cardId` is the request, so a retry is the same card. Step-up, when the owner's rule is on, binds the same terms as
-     * `cards.issue`.
+     * `cardId` is the request, so a retry is the same card. Step-up, when the owner's rule is on, binds every term of the
+     * order (`bank.step_up.cards.order`).
      */
     order: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -681,14 +682,17 @@ export function createCardsRouter(c: BankRouterContext) {
           if (stepUpEnforced) {
             await requireStepUp(
               ctx.principal,
-              issueCardBinding({
+              orderCardBinding({
                 actor: ctx.principal.userId,
                 cardId: input.cardId,
                 assetId: input.assetId,
-                settlementAssetId: undefined,
-                cashbackBps: undefined,
                 perAuthorizationLimit: input.perAuthorizationLimit,
                 cardType: input.cardType,
+                country: input.country,
+                termsVersion: input.termsVersion,
+                usesAllowed: input.usesAllowed,
+                designId: input.designId,
+                deliverySpeed: input.deliverySpeed,
                 shippingAddress: input.cardType === 'physical' ? shippingToken(input.shippingAddress) : '',
               }),
               input.stepUpApprovalId,

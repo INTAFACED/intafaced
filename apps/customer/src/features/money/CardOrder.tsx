@@ -36,7 +36,10 @@ export function CardOrderRoom() {
   const [limit, setLimit] = useState('');
   const [design, setDesign] = useState<string | null>(null);
   const [speed, setSpeed] = useState<string | null>(null);
-  const [address, setAddress] = useState({ name: '', line1: '', line2: '', city: '', postalCode: '', country: 'DE' });
+  const [address, setAddress] = useState({ name: '', line1: '', line2: '', city: '', postalCode: '', country: '' });
+  // One id per order the person is making: a retry after a lost answer is the same card, never a second one. A new id
+  // is taken only once the bank has answered with the card.
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [result, setResult] = useState<{ id: string; text: string; simulated: boolean } | null>(null);
 
   if (catalogue.resource.status === 'loading') return <Loading />;
@@ -55,6 +58,7 @@ export function CardOrderRoom() {
   const product = (type: 'virtual' | 'physical') => c.products.find((p) => p.type === type);
   const chosenDesign = design ?? c.designs[0]?.id ?? null;
   const chosenSpeed = speed ?? c.speeds[0]?.speed ?? null;
+  const deliverTo = address.country || c.deliveryCountries[0] || '';
   const addressOk = !!(address.name.trim() && address.line1.trim() && address.city.trim() && address.postalCode.trim());
   const blocker = !c.eligible
     ? t('needEligible')
@@ -88,7 +92,7 @@ export function CardOrderRoom() {
     setFailure(null);
     const physical = cardType === 'physical';
     const input = {
-      cardId: crypto.randomUUID(),
+      cardId: requestId,
       country,
       termsVersion: c.terms.version,
       assetId: ASSET,
@@ -104,7 +108,7 @@ export function CardOrderRoom() {
               ...(address.line2.trim() ? { line2: address.line2.trim() } : {}),
               city: address.city.trim(),
               postalCode: address.postalCode.trim(),
-              country: address.country,
+              country: deliverTo,
             },
           }
         : singleUse
@@ -121,6 +125,7 @@ export function CardOrderRoom() {
         ? t('issuedSingle', { tail: card.panTail })
         : t('issuedVirtual', { tail: card.panTail });
     setResult({ id: card.id, text, simulated: card.simulated });
+    setRequestId(crypto.randomUUID());
     setLimit('');
     setSingleUse(false);
     catalogue.reload();
@@ -249,7 +254,7 @@ export function CardOrderRoom() {
               />
               <label className="field">
                 <span>{t('deliveryCountry')}</span>
-                <select value={address.country} onChange={(event) => setAddress({ ...address, country: event.target.value })}>
+                <select value={deliverTo} onChange={(event) => setAddress({ ...address, country: event.target.value })}>
                   {c.deliveryCountries.map((code) => (
                     <option key={code} value={code}>
                       {nameOf(code)}

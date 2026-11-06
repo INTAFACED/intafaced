@@ -193,11 +193,12 @@ export class CardOrderService {
 
   /** The delivery row of a physical card, written once from the card (a retried order or a replacement finds it). */
   private async ensureShipment(card: CardRecord): Promise<void> {
-    if (card.cardType !== 'physical' || !card.shippingAddress) return;
-    const speed = card.deliverySpeed ?? 'standard';
+    // Only a card ordered with a speed has a delivery: an older physical card from the direct issue door was never quoted
+    // one, and none is invented for it here. A speed the programme no longer offers writes nothing either.
+    if (card.cardType !== 'physical' || !card.shippingAddress || !card.deliverySpeed) return;
+    const speed = card.deliverySpeed;
     const days = this.terms?.speeds.find((s) => s.speed === speed)?.days;
-    if (!days)
-      throw new BankError('The delivery speed of this card is not one the programme offers now', 'bank.card_delivery_speed_unknown');
+    if (!days) return;
     await this.sql`
       INSERT INTO bank.card_shipments (card_id, user_id, speed, estimate_days, address)
       VALUES (${card.id}, ${card.userId}, ${speed}, ${days}, ${JSON.stringify(card.shippingAddress)}::jsonb)
@@ -232,7 +233,7 @@ export class CardOrderService {
         address: unknown;
       }>
     >`SELECT state, speed, estimate_days, ordered_at, carrier, tracking_ref, address FROM bank.card_shipments WHERE card_id = ${card.id}`;
-    if (!row) throw new BankError(`Card ${card.id} has no delivery record`, 'bank.card_not_found');
+    if (!row) throw new BankError(`Card ${card.id} was not ordered with a delivery, so there is none to show`, 'bank.card_not_physical');
     const history = await sql<Array<{ previous_address: unknown; changed_at: Date }>>`
       SELECT previous_address, changed_at FROM bank.card_address_changes WHERE card_id = ${card.id} ORDER BY changed_at, id
     `;
@@ -299,10 +300,11 @@ export class CardOrderService {
     await this.ensureShipment(card);
     await transaction(this.sql, async (tx) => {
       const [row] = await tx<Array<{ state: ShipmentState }>>`SELECT state FROM bank.card_shipments WHERE card_id = ${card.id} FOR UPDATE`;
-      const from = SHIPMENT_ORDER.indexOf(row!.state);
+      if (!row) throw new BankError('This card was not ordered with a delivery', 'bank.card_not_physical');
+      const from = SHIPMENT_ORDER.indexOf(row.state);
       const to = SHIPMENT_ORDER.indexOf(input.state);
       if (to === from) return;
-      if (to < from) throw new BankError(`A ${row!.state} card cannot go back to ${input.state}`, 'bank.card_shipment_order');
+      if (to < from) throw new BankError(`A ${row.state} card cannot go back to ${input.state}`, 'bank.card_shipment_order');
       await tx`
         UPDATE bank.card_shipments
            SET state = ${input.state},
@@ -320,6 +322,6 @@ export class CardOrderService {
 
   /** A replacement physical card gets its own delivery at the same address and speed (BK-cissue-04). */
   async afterReplace(replacement: CardRecord): Promise<void> {
-    if (replacement.cardType === 'physical' && this.terms) await this.ensureShipment(replacement);
+    await this.ensureShipment(replacement);
   }
 }

@@ -50,11 +50,14 @@ function statusWord(t: Copy, status: CardRecord['status']): string {
   return t('statusActive');
 }
 
+/** How many payments a single-use or n-use card has used; read only for a card that has a limit. */
 function Uses({ card }: { card: CardRecord }) {
+  return card.usesAllowed == null ? null : <UsesOf cardId={card.id} limit={card.usesAllowed} />;
+}
+
+function UsesOf({ cardId, limit }: { cardId: string; limit: number }) {
   const { t } = cardOrderCopy.useCopy();
-  const uses = useBankRead('cards.uses', { cardId: card.id });
-  const limit = card.usesAllowed ?? null;
-  if (limit === null) return null;
+  const uses = useBankRead('cards.uses', { cardId });
   const made = uses.resource.status === 'ready' ? uses.resource.data.usesMade : null;
   return (
     <p className="money-caption" data-testid="card-uses">

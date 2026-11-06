@@ -240,6 +240,30 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'bank.step_up.cards.order',
+    purpose: 'cards.order',
+    clientFields: [
+      'cardId',
+      'assetId',
+      'perAuthorizationLimit',
+      'cardType',
+      'country',
+      'termsVersion',
+      'usesAllowed',
+      'designId',
+      'deliverySpeed',
+      'shippingAddress',
+    ],
+    amountField: 'perAuthorizationLimit',
+    targetField: 'cardId',
+    targetRequired: true,
+    // A virtual card has no design, speed or address; a card with no use limit sends ''.
+    emptyOk: ['usesAllowed', 'designId', 'deliverySpeed', 'shippingAddress'],
+    decimalFields: ['perAuthorizationLimit'],
+    fixed: {},
+  },
+
+  {
     scope: 'bank.step_up.ramps.offramp',
     purpose: 'ramps.offramp',
     clientFields: ['offrampId', 'assetId', 'amount', 'kind', 'destinationRef', 'clientRef'],
