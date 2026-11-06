@@ -59,7 +59,10 @@ const SWEEP = {
   'more-rooms': { proof: 'its reason is that it is not a first-release customer path' },
   'promotions-dividends': { proof: 'its reason is that the room is not redesigned' },
   'strategy-subaccounts': { noRoute: true },
-  'public-extras': { at: '/notice', shows: 'No public notices are published' },
+  // The notice feed as itself: its empty statement, or the notices other journeys publish on the shared stack (each open up
+  // to NOTICE_DRAIN_MINUTES, notices.mjs), whichever is true when this row runs. Asking for empty alone failed whenever
+  // such a notice was still open (main runs 42178080178 and 42179200864).
+  'public-extras': { at: '/notice', shows: /No public notices are published|Published \d/ },
 };
 
 const run = journeyState(`registry-blockers-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
