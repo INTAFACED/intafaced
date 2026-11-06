@@ -16,6 +16,11 @@
       "value": "24",
       "note": "Hours the cancelled orders are counted over."
     },
+    "P2P_AD_REVIEW": {
+      "service": "p2p",
+      "value": "required",
+      "note": "TEST review switch: a draft submitted for listing waits for review, so J-p2p-05 #1 sees a pending ad. offers.create is not affected."
+    },
     "P2P_RANK_WEIGHTS": {
       "service": "p2p",
       "value": "{\"completionRate30d\":\"1\"}",

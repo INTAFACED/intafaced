@@ -9,7 +9,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { P2pError } from '../p2p-service.js';
 
-const OFFER_STATUSES = ['active', 'paused', 'closed'] as const;
+const OFFER_STATUSES = ['active', 'paused', 'closed', 'draft', 'pending'] as const;
 const TRADE_STATUSES = ['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed'] as const;
 
 export type OpsOfferStatus = (typeof OFFER_STATUSES)[number];

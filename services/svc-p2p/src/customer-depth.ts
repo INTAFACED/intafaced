@@ -28,7 +28,7 @@ export interface BoardOffer {
   makerTier: string | null;
   /** P-disputes-security-09: the seller consented at post to non-instant methods. */
   acceptsNonInstant: boolean;
-  status: 'active' | 'paused' | 'closed';
+  status: 'active' | 'paused' | 'closed' | 'draft' | 'pending';
   /** P-ads-merchant-18: the board lists active ads only, so this is null there unless a row says otherwise. */
   pauseReason: 'method_removed' | null;
   /** P-ads-merchant-06: null on the board, which lists active ads only. */
@@ -217,7 +217,7 @@ interface BoardRow {
   terms: string;
   maker_tier: string | null;
   accepts_non_instant?: boolean;
-  status: 'active' | 'paused' | 'closed';
+  status: 'active' | 'paused' | 'closed' | 'draft' | 'pending';
   pause_reason?: 'method_removed' | null;
   close_reason?: 'by_you' | 'sold_out' | null;
   visibility?: 'public' | 'private';

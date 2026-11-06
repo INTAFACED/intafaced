@@ -180,6 +180,8 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
   // P-ads-merchant-10: blank ranks the board by price alone (a ranking rule, so blank is rule off).
   ranking: parseRankWeights(env.P2P_RANK_WEIGHTS),
+  // P-ads-merchant-06 part 2: blank refuses every draft submit.
+  adReview: env.P2P_AD_REVIEW ?? null,
   // P-ads-merchant-06: blank refuses every ad edit; a positive whole number caps a person's edits per UTC day.
   offerEditsPerDay: parseActiveOrderCap(env.P2P_OFFER_EDITS_PER_DAY),
   // P-ads-merchant-07: blank refuses every new share link.

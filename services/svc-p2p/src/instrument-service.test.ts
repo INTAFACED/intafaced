@@ -1440,6 +1440,19 @@ describe('svc-p2p payment instruments', () => {
         'access.limits': undefined,
         // P-ads-merchant-10: the owner's ranking weights; reads env only.
         'offers.rankingPolicy': undefined,
+        // P-ads-merchant-06 part 2: the caller's own draft, and a submit of an ad the caller does not own (not_a_party).
+        'offers.saveDraft': {
+          side: 'sell',
+          asset: 'USDT',
+          fiatCurrency: 'EUR',
+          priceType: 'fixed',
+          price: '1',
+          minAmount: '10',
+          maxAmount: '20',
+          methods: ['sepa'],
+          idempotencyKey: `draft:${crypto.randomUUID()}`,
+        },
+        'offers.submitForListing': { offerId: crypto.randomUUID() },
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
       };
 

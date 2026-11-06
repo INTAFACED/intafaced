@@ -126,6 +126,15 @@ const schema = serviceEnvSchema
       P2P_RANK_WEIGHTS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
 
       /**
+       * P-ads-merchant-06 part 2. Whether a draft submitted for listing waits for review (`required`) or is listed at
+       * once (`none`). Empty is unset: every submit refuses `p2p.config_unset`. No default.
+       */
+      P2P_AD_REVIEW: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.enum(['required', 'none']).optional(),
+      ),
+
+      /**
        * P-ads-merchant-01. The advertiser terms version a person accepts before
        * posting an ad. Empty is unset: every post then refuses `p2p.config_unset`
        * naming this setting. Changing it asks every advertiser to accept again.
