@@ -12,7 +12,7 @@ export const FIX_TEST_SESSIONS = Object.freeze({
   compIdAccounts: { 'TEST-CLIENT': 'TEST-fix-account' },
 });
 
-export default ({ c, secrets, urlOf, PORTS }) => ({
+export default ({ c, secrets, urlOf, PORTS, FIX_SOCKET_PORTS }) => ({
   name: 'fix',
   java: { main: 'io.intafaced.fix.FixAcceptorMain' },
   env: () => {
@@ -24,12 +24,12 @@ export default ({ c, secrets, urlOf, PORTS }) => ({
       FIX_BEGIN_STRING: 'FIX.4.4',
       FIX_SENDER_COMP_ID: FIX_TEST_SESSIONS.orderEntry.sender,
       FIX_TARGET_COMP_ID: FIX_TEST_SESSIONS.orderEntry.target,
-      FIX_SOCKET_ACCEPT_PORT: String(PORTS.fixOrderEntry),
+      FIX_SOCKET_ACCEPT_PORT: String(FIX_SOCKET_PORTS.orderEntry),
       FIX_HEARTBTINT: '30',
       FIX_DROPCOPY_BEGIN_STRING: 'FIX.4.4',
       FIX_DROPCOPY_SENDER_COMP_ID: FIX_TEST_SESSIONS.dropCopy.sender,
       FIX_DROPCOPY_TARGET_COMP_ID: FIX_TEST_SESSIONS.dropCopy.target,
-      FIX_DROPCOPY_SOCKET_ACCEPT_PORT: String(PORTS.fixDropCopy),
+      FIX_DROPCOPY_SOCKET_ACCEPT_PORT: String(FIX_SOCKET_PORTS.dropCopy),
       FIX_DROPCOPY_HEARTBTINT: '30',
       // The ingest listener also serves /health and the adapter status (AdapterStatus.java).
       FIX_DROPCOPY_INGEST_PORT: String(PORTS.fix),

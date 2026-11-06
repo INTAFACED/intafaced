@@ -69,6 +69,9 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(defs.find((d) => d.name === 'ws').env.WS_STATUS_READ_SECRET, edgeEnv.WS_STATUS_READ_SECRET);
   assert.equal(fixEnv.FIX_DROPCOPY_INGEST_PORT, fixEnv.HTTP_PORT, 'the stack health-checks svc-fix on its HTTP listener');
   assert.notEqual(fixEnv.FIX_SENDER_COMP_ID, fixEnv.FIX_DROPCOPY_SENDER_COMP_ID);
+  // svc-fix's FIX sockets are its own ports, never another service's (J-home-ia-11 #1 reads each port key as a service).
+  const servicePorts = defs.map((d) => d.env.HTTP_PORT);
+  for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
   assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {

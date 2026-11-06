@@ -195,11 +195,9 @@ const PORTS = {
   // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
   // (local-test-rail-statements.mjs).
   'rail-statements': 14525,
-  // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status), then its
-  // order-entry and drop-copy FIX sockets (local-stack-services/fix.mjs).
+  // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
+  // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
   fix: 14526,
-  fixOrderEntry: 14527,
-  fixDropCopy: 14528,
   customer: 3210,
   invitation: 3220,
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
@@ -208,6 +206,8 @@ const PORTS = {
   // LOCAL TEST HTTPS front for the founder console (local-test-team-tls.mjs): the Customer build's Team link.
   'team-tls': 3143,
 };
+/** svc-fix's order-entry and drop-copy FIX sockets (local-stack-services/fix.mjs): ports of the fix service, not services. */
+const FIX_SOCKET_PORTS = { orderEntry: 14527, dropCopy: 14528 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
@@ -1404,6 +1404,7 @@ function serviceDefs(secrets) {
     dbUrl,
     urlOf,
     PORTS,
+    FIX_SOCKET_PORTS,
     STATE,
     P,
     UNUSED,
