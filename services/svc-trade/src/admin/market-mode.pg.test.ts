@@ -153,11 +153,68 @@ describe('market trading mode (two-person)', () => {
   });
 
   it('refuses a futures market: this door sets spot modes only', async () => {
-    await db.sql`UPDATE trade.markets SET kind = 'futures' WHERE symbol = 'ETH/USDT'`.catch(() => undefined);
-    const [row] = await db.sql<Array<{ kind: string }>>`SELECT kind::text AS kind FROM trade.markets WHERE symbol = 'ETH/USDT'`;
-    if (row!.kind !== 'futures') return; // the schema refuses a futures row without its terms; nothing to check here
-    approve('a1', 'LIMIT_ONLY', 'OPEN', 'none');
-    await expect(set('a1', 'LIMIT_ONLY', 'OPEN')).rejects.toMatchObject({ code: 'trade.market_mode_unsupported' });
+    await db.sql`
+      INSERT INTO trade.markets (
+        id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at
+      ) VALUES (
+        '55555555-5555-4555-8555-555555555555', 'SOL-PERP', 'SOL', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1',
+        10, 20, 'active', 'SOL perpetual', now()
+      )`;
+    await expect(
+      modes.set(writer(), {
+        symbol: 'SOL-PERP',
+        mode: 'LIMIT_ONLY',
+        expectedMode: 'OPEN',
+        reason: REASON,
+        approvalId: 'f1',
+        operationId: 'op-f1',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.market_mode_unsupported' });
+    expect(await transitions()).toHaveLength(0);
+  });
+
+  /** A transition another door wrote (matching's halt, a partial apply), stored as the lifecycle read stores it. */
+  async function foreign(state: string, outcome: Record<string, unknown>, resolvedState: string | null = state) {
+    const [market] = await db.sql<Array<{ id: string }>>`SELECT id FROM trade.markets WHERE symbol = 'ETH/USDT'`;
+    const record = {
+      transitionId: `foreign-${state}`,
+      idempotencyKey: `foreign:${state}`,
+      marketId: market!.id,
+      expectedState: 'OPEN',
+      expectedRuleVersion: '1',
+      requestedState: state,
+      resolvedState,
+      reasonCategory: 'OPERATOR',
+      reasonCode: 'trade.market_halted',
+      actorId: OP,
+      authorityRef: 'authority:matching',
+      approvalRefs: [],
+      requestedAt: '2026-11-06T07:00:00.000Z',
+      effectiveAt: '2026-11-06T07:00:00.000Z',
+      expiresAt: null,
+      recoveryEvidenceRefs: [],
+      outcome,
+    };
+    await db.sql`INSERT INTO trade.market_lifecycle_evidence (evidence_id, market_id, evidence_kind, transition, observed_at)
+      VALUES (${record.transitionId}, ${market!.id}, 'TRANSITION', ${JSON.stringify(record)}::text::jsonb, ${record.requestedAt}::timestamptz)`;
+    return record.transitionId;
+  }
+
+  it('never overwrites a partial or unknown transition: it needs recovery evidence first', async () => {
+    // The contract keeps a partial transition's resolved state null; before this door refused it, null read as OPEN.
+    const id = await foreign('LIMIT_ONLY', { outcome: 'PARTIAL', appliedTargets: ['market-1'], unresolvedTargets: ['engine-1'] }, null);
+    approve('a1', 'LIMIT_ONLY', 'OPEN', id);
+    await expect(set('a1', 'LIMIT_ONLY', 'OPEN')).rejects.toMatchObject({ code: 'trade.market_mode_recovery_required' });
+    await expect(modes.get(reader(), 'ETH/USDT')).rejects.toMatchObject({ code: 'trade.market_mode_recovery_required' });
+    expect(await transitions()).toHaveLength(1);
+  });
+
+  it('never lifts a state another door owns (a stored halt)', async () => {
+    const id = await foreign('HALTED', { outcome: 'APPLIED', appliedTargets: ['market-1'], unresolvedTargets: [] });
+    approve('a1', 'OPEN', 'HALTED', id);
+    await expect(set('a1', 'OPEN', 'HALTED')).rejects.toMatchObject({ code: 'trade.market_mode_not_settable' });
+    expect(await transitions()).toHaveLength(1);
   });
 
   it('a last transition that does not parse is not read as open', async () => {

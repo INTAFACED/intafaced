@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { registeredCopy } from '../../../shared/i18n';
 import './copy';
-import { NAMED_MODES, toDeskMarket, tradingMode, type DeskListing } from './market';
+import { NAMED_MODES, flattenOn, toDeskMarket, tradingMode, type DeskListing } from './market';
 
 const listing = (lifecycle: DeskListing['lifecycle'], over: Partial<DeskListing> = {}) =>
   ({
@@ -51,5 +51,16 @@ describe('trading mode', () => {
   it('every named mode has words', () => {
     const en = registeredCopy().find((entry) => entry.namespace === 'trade.desk')?.messages.en ?? {};
     for (const mode of NAMED_MODES) expect(en[`Mode ${mode}`], mode).toBeTruthy();
+  });
+});
+
+describe('flatten', () => {
+  it('is offered where the service admits a market close: open and limit-only, never post-only or cancel-only', () => {
+    expect(flattenOn({ open: true, state: 'OPEN' })).toBe(true);
+    expect(flattenOn({ open: true, state: null })).toBe(true);
+    expect(flattenOn({ open: true, state: 'LIMIT_ONLY' })).toBe(true);
+    expect(flattenOn({ open: true, state: 'POST_ONLY' })).toBe(false);
+    expect(flattenOn({ open: true, state: 'CANCEL_ONLY' })).toBe(false);
+    expect(flattenOn({ open: false, state: 'OPEN' })).toBe(false);
   });
 });
