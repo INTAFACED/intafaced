@@ -72,7 +72,9 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   await layoutsMenu().getByRole('button', { name: 'Arrange widgets' }).click();
   await expect(desk()).toHaveAttribute('data-arranging', 'true');
   // Drag the order book onto the markets list: the two swap places and the others stay in view.
-  await page.getByRole('button', { name: 'Move Order book' }).dragTo(widget('markets'));
+  // From the top of the desk, where both widgets' tops are on screen and clear of the sticky header.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole('button', { name: 'Move Order book' }).dragTo(widget('markets'), { targetPosition: { x: 40, y: 80 } });
   await expect.poll(widgetIds).toEqual(['book', 'chart', 'markets', 'trades']);
   for (const id of ['book', 'chart', 'markets', 'trades']) await expect(widget(id)).toBeInViewport();
   // Resize the markets list by its edge: it grows by about the distance dragged.

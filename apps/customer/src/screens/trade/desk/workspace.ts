@@ -27,7 +27,7 @@ export interface DeskLayout {
 export const WIDTH_MIN = 10;
 export const WIDTH_MAX = 32;
 /** The fixed-width widgets together never take more than this, so the chart and its ticket always keep room. */
-export const FIXED_TOTAL_MAX = 48;
+export const FIXED_TOTAL_MAX = 56;
 
 /** Classic is today's desk (markets | chart and ticket | book, 216 and 264 px at the 16 px root); Advanced adds the tape. */
 const PRESETS: Record<PresetId, DeskLayout> = {
