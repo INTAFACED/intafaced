@@ -278,11 +278,25 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({
   page,
 }) => {
+  const who = await account(page);
+  await signIn(page, who);
   await page.goto('/trade/analytics/BTC-USDT');
-  await expect(page.getByText(/Aggressor differential/)).toBeVisible({ timeout: UNBUILT_MS });
-  await expect(page.getByText(/Window/)).toBeVisible({ timeout: UNBUILT_MS });
+  // The figures are the service's own read of the public tape for the named window.
+  const read = await (await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}?window=1h`)).json();
+  expect(read).toMatchObject({ symbol: 'BTC/USDT', window: '1h' });
+  expect(toUnits(read.aggressorDifferential)).toBe(toUnits(read.buyVolume) - toUnits(read.sellVolume));
+  await expect(page.getByTestId('analytics-differential')).toContainText('Aggressor differential');
+  await expect(page.getByTestId('analytics-trades')).toContainText('Trades');
+  await expect(page.getByTestId('analytics-window')).toContainText(
+    /^Window: Last 1 hour, \d{4}-\d{2}-\d{2} \d{2}:\d{2} to \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/,
+  );
+  // Another named window is read again and named.
+  await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours' }).click();
+  await expect(page.getByTestId('analytics-window')).toContainText('Window: Last 24 hours');
+  // A blank window refuses with its typed code; it never falls back to a window of its own.
   const blank = await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`);
-  expect(blank.status).toBeGreaterThanOrEqual(400);
+  expect(blank.status).toBe(400);
+  expect(JSON.stringify(await blank.json())).toContain('trade.analytics_window_unset');
 });
 
 test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label reads USD`, async ({ page }) => {
