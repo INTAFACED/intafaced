@@ -61,14 +61,17 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
   };
 }
 
-/** The as-of time of the modes table: the latest time the service observed any listed mode, or null when none was. */
+/**
+ * The as-of time of the modes table: the oldest time the service observed a listed mode, so no row is shown fresher
+ * than it is; null when none was.
+ */
 export function modesAsOf(rows: readonly MarketMode[]): string | null {
-  let latest: string | null = null;
+  let oldest: string | null = null;
   for (const row of rows) {
-    if (row.observedAt && !Number.isNaN(Date.parse(row.observedAt)) && (latest === null || Date.parse(row.observedAt) > Date.parse(latest)))
-      latest = row.observedAt;
+    if (row.observedAt && !Number.isNaN(Date.parse(row.observedAt)) && (oldest === null || Date.parse(row.observedAt) < Date.parse(oldest)))
+      oldest = row.observedAt;
   }
-  return latest === null ? null : new Date(Date.parse(latest)).toISOString();
+  return oldest === null ? null : new Date(Date.parse(oldest)).toISOString();
 }
 
 export type ModeKey =
