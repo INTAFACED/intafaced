@@ -369,6 +369,73 @@ describe('matching health read', () => {
     expect(calls).toEqual([{ method: 'GET', path: '/health' }]);
   });
 
+  it('passes the engine figures and per-operation latency on as the engine gave them (J-cex-spot-20 #1)', async () => {
+    const reading = { count: 3, errors: 0, p50Ms: 5, p99Ms: 10, perMinute: '1.50' };
+    const { matching } = recording(async () => ({
+      kind: 'answered',
+      status: 200,
+      body: {
+        venueHalted: false,
+        restingOrders: 4,
+        journalRecords: 9,
+        markets: 2,
+        admissionOpen: false,
+        admissionReason: 'matching.hold_check_unreachable',
+        holdHalted: ['BTC-USDT'],
+        metrics: {
+          startedAt: '2026-11-06T10:00:00.000Z',
+          operations: { submit: reading, cancel: { ...reading, count: 0, p50Ms: null, p99Ms: null, perMinute: '0' }, depth: reading },
+        },
+      },
+    }));
+    const app = mount({ matching });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/trade-ops/matching/health',
+      headers: { authorization: await bearer(['admin:read'], false) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      markets: 2,
+      admissionOpen: false,
+      admissionReason: 'matching.hold_check_unreachable',
+      holdHalted: ['BTC-USDT'],
+      metrics: { startedAt: '2026-11-06T10:00:00.000Z', operations: { submit: reading, depth: reading } },
+    });
+    expect(res.json().metrics.operations.cancel).toEqual({ count: 0, errors: 0, p50Ms: null, p99Ms: null, perMinute: '0' });
+  });
+
+  it('leaves out one malformed figure on its own and keeps the rest; never a made-up value', async () => {
+    const { matching } = recording(async () => ({
+      kind: 'answered',
+      status: 200,
+      body: {
+        venueHalted: false,
+        restingOrders: 4,
+        journalRecords: 9,
+        markets: '2',
+        metrics: {
+          startedAt: '2026-11-06T10:00:00.000Z',
+          operations: {
+            submit: { count: -1, errors: 0, p50Ms: 5, p99Ms: 10, perMinute: '1' },
+            depth: { count: 1, errors: 0, p50Ms: 5, p99Ms: 5, perMinute: '1' },
+          },
+        },
+      },
+    }));
+    const app = mount({ matching });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/trade-ops/matching/health',
+      headers: { authorization: await bearer(['admin:read'], false) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty('markets');
+    expect(res.json().metrics.operations).not.toHaveProperty('submit');
+    expect(res.json().metrics.operations).not.toHaveProperty('cancel');
+    expect(res.json().metrics.operations.depth.count).toBe(1);
+  });
+
   it('returns a typed error when matching is down and does not invent zeros', async () => {
     const { matching } = recording(async () => ({ kind: 'unavailable', error: 'connect ECONNREFUSED' }));
     const app = mount({ matching });

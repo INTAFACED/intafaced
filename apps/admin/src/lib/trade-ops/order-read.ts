@@ -188,6 +188,17 @@ export function parseSweepResult(v: unknown): SweepResult | null {
 }
 
 /** "<n> orders checked · <m> holds released", the sweep's own counts. */
+/** admin.orders.reconcileStatus: the last sweep svc-trade ran, or none ever (J-cex-spot-20 #2). */
+export type ReconcileStatus = { readonly kind: 'none' } | { readonly kind: 'swept'; readonly at: string; readonly result: SweepResult };
+
+export function parseReconcileStatus(v: unknown): ReconcileStatus | null {
+  if (!rec(v)) return null;
+  if (v.lastSweepAt === null && v.result === null) return { kind: 'none' };
+  if (!str(v.lastSweepAt)) return null;
+  const result = parseSweepResult(v.result);
+  return result ? { kind: 'swept', at: v.lastSweepAt, result } : null;
+}
+
 export function sweepLine(r: SweepResult): string {
   return `${r.checked} orders checked · ${r.released} holds released`;
 }

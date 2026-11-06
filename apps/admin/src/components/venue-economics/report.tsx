@@ -41,11 +41,11 @@ function FeeRevenue({ fees }: { fees: OpsVenueEconomics['feeRevenue'] }) {
         </thead>
         <tbody>
           {fees.assets.map((a) => (
-            <tr key={a.assetId}>
+            <tr key={a.assetId} data-asset={a.assetId}>
               <td>{a.assetId}</td>
-              <td>{a.collected}</td>
-              <td>{a.returned}</td>
-              <td>{a.net}</td>
+              <td data-col="collected">{a.collected}</td>
+              <td data-col="returned">{a.returned}</td>
+              <td data-col="kept">{a.net}</td>
             </tr>
           ))}
         </tbody>

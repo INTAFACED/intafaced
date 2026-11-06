@@ -5,16 +5,20 @@ import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { HealthRooms } from '@/components/trade-ops/health-rooms';
 import { HealthTile } from '@/components/trade-ops/health-tile';
 import { DeskPage } from '@/components/trade-ops/desk-page';
-import { BLOCKERS } from '@/lib/trade-ops/blockers';
 import { countMarkets, clockUtc, oldestAsOf, sumTallies } from '@/lib/trade-ops/markets-model';
 import { loadMarkets, ORDER_READ_LIMIT } from '@/lib/trade-ops/markets-load';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import { readKillSwitchSnapshot } from '@/lib/trade-ops/reads';
 import { readMatchingHealth } from '@/lib/trade-ops/matching-edge';
+import { readReconcileStatus } from '@/lib/trade-ops/desk-reads';
+import { sweepLine } from '@/lib/trade-ops/order-read';
+import { venueLines } from '@/components/trade-ops/venue-metrics';
+import Link from 'next/link';
 
 /**
  * Health: is the book safe to trade right now, in one glance. Six tiles, each read on its own and each with its
- * own state. Venue health is read from svc-matching through svc-edge. Reconcile has no operator route, so that tile shows the real blocker.
+ * own state. Venue health is read from svc-matching through svc-edge, with each figure the engine gave; the reconcile tile reads
+ * svc-trade's last sweep (J-cex-spot-20 #1 #2).
  */
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +33,15 @@ export default async function HealthPage() {
   requireModulePage('tradeops');
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const [kill, bundle, venue] = await Promise.all([readKillSwitchSnapshot(), loadMarkets(ctx), readMatchingHealth(ctx)]);
+  const [kill, bundle, venue, recon] = await Promise.all([
+    readKillSwitchSnapshot(),
+    loadMarkets(ctx),
+    readMatchingHealth(ctx),
+    readReconcileStatus(ctx),
+  ]);
   const { markets, orders, views } = bundle;
 
-  const reads: Outcome<unknown>[] = [kill, markets, orders, venue];
+  const reads: Outcome<unknown>[] = [kill, markets, orders, venue, recon];
   const asOf = oldestAsOf(reads.map((r) => (r.kind === 'ok' ? r.asOf : null)));
   const anyRefused = reads.some((r) => r.kind === 'refused');
   const anyUnknown = reads.some((r) => r.kind === 'unknown');
@@ -41,7 +50,6 @@ export default async function HealthPage() {
 
   const counts = markets.kind === 'ok' ? countMarkets(views) : null;
   const orderTally = orders.kind === 'ok' ? sumTallies(orders.data) : null;
-  const recon = BLOCKERS.reconcile_route_missing;
 
   return (
     <DeskPage
@@ -51,7 +59,7 @@ export default async function HealthPage() {
       state={state}
       stateReason={
         failing.length
-          ? `${failing.length} of 4 reads did not come back: ${failing.map((f) => (f.kind === 'refused' ? f.code : 'no answer')).join(', ')}`
+          ? `${failing.length} of ${reads.length} reads did not come back: ${failing.map((f) => (f.kind === 'refused' ? f.code : 'no answer')).join(', ')}`
           : undefined
       }
       actions={<HealthRefresh />}
@@ -95,11 +103,7 @@ export default async function HealthPage() {
               state="live"
               asOf={venue.data.asOf}
               value={venue.data.venueHalted ? 'Halted' : 'Running'}
-              lines={[
-                venue.data.venueHalted ? 'Halt-all is on: no market accepts new orders.' : 'Halt-all is off.',
-                `${venue.data.restingOrders} resting orders · ${venue.data.journalRecords} journal records`,
-                `Read through svc-edge in ${venue.data.ageMs} ms.`,
-              ]}
+              lines={venueLines(venue.data)}
               href="/trade-ops/kill-switch"
               linkLabel="Open kill switch"
             />
@@ -178,16 +182,41 @@ export default async function HealthPage() {
             />
           )}
 
-          <HealthTile
-            title="Reconcile"
-            state="refused"
-            value={null}
-            reason={recon.text}
-            code={`${recon.owner} · ${recon.need}`}
-            lines={['The last sweep result and held-order resolution cannot be read.']}
-            href="/trade-ops/orders"
-            linkLabel="Open orders"
-          />
+          {recon.kind === 'ok' ? (
+            <HealthTile
+              title="Reconcile"
+              state="live"
+              asOf={recon.asOf}
+              value={recon.data.kind === 'swept' ? clockUtc(recon.data.at) : 'No sweep run'}
+              lines={
+                recon.data.kind === 'swept'
+                  ? [
+                      <span
+                        key="last"
+                        data-last-sweep=""
+                        data-checked={recon.data.result.checked}
+                        data-released={recon.data.result.released}
+                      >
+                        Last sweep: {sweepLine(recon.data.result)}
+                      </span>,
+                    ]
+                  : ['svc-trade has no record of any reconcile sweep. Start one from Orders.']
+              }
+              href="/trade-ops/orders"
+              linkLabel="Open orders"
+            />
+          ) : (
+            <HealthTile
+              title="Reconcile"
+              state={stateOf(recon)}
+              value={null}
+              reason={why(recon)}
+              code={codeOf(recon)}
+              lines={['The last reconcile sweep could not be read.']}
+              href="/trade-ops/orders"
+              linkLabel="Open orders"
+            />
+          )}
 
           <HealthTile
             title="Data freshness"
@@ -196,8 +225,8 @@ export default async function HealthPage() {
             value={asOf ? clockUtc(asOf) : null}
             reason={asOf ? undefined : 'No read came back, so there is no time to show.'}
             lines={[
-              'This is the oldest of the reads above (kill switch, markets, open orders, venue).',
-              `Kill switch ${at(kill)} · Markets ${at(markets)} · Orders ${at(orders)} · Venue ${at(venue)}`,
+              'This is the oldest of the reads above (kill switch, markets, open orders, venue, reconcile).',
+              `Kill switch ${at(kill)} · Markets ${at(markets)} · Orders ${at(orders)} · Venue ${at(venue)} · Reconcile ${at(recon)}`,
             ]}
             href="/trade-ops"
             linkLabel="Reload this page"
@@ -207,6 +236,12 @@ export default async function HealthPage() {
 
       <PageSection title="Rooms">
         <HealthRooms />
+        <p className="mt-2 text-sm">
+          <Link href="/more-ops/venue-economics" className="font-medium underline-offset-2 hover:underline">
+            Open venue unit economics
+          </Link>{' '}
+          <span className="text-xs text-fg-2">What the venue earns from the ledger’s fee postings against what it costs to run.</span>
+        </p>
       </PageSection>
     </DeskPage>
   );

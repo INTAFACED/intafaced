@@ -24,22 +24,71 @@ import { parseDetectors, parseSurveillanceCases, type DetectorsView, type Survei
  * timeout is `unknown`, never a success.
  */
 
+/** One order operation's latency since the engine started, as svc-matching measured it. */
+export interface OperationReading {
+  readonly count: number;
+  readonly errors: number;
+  /** Upper bound, in ms, of the bucket holding the percentile; null = slower than the last bound, or nothing timed. */
+  readonly p50Ms: number | null;
+  readonly p99Ms: number | null;
+  readonly perMinute: string;
+}
+
+export const MATCHING_OPERATIONS = ['submit', 'cancel', 'depth'] as const;
+export type MatchingOperation = (typeof MATCHING_OPERATIONS)[number];
+
 export interface MatchingHealth {
   readonly venueHalted: boolean;
   readonly restingOrders: number;
   readonly journalRecords: number;
+  /** The engine's other figures; null where the answer did not carry it (shown as `matching_metrics_unread`). */
+  readonly markets: number | null;
+  readonly admission: { readonly open: boolean; readonly reason: string | null } | null;
+  readonly holdHalted: readonly string[] | null;
+  readonly engineStartedAt: string | null;
+  readonly operations: Readonly<Record<MatchingOperation, OperationReading | null>>;
   /** When svc-edge received matching's answer. */
   readonly asOf: string;
   /** How long the read took at the edge. */
   readonly ageMs: number;
 }
 
-function parseHealth(raw: unknown): MatchingHealth | null {
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const bound = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
+
+function parseReading(v: unknown): OperationReading | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  if (!count(r.count) || !count(r.errors) || !bound(r.p50Ms) || !bound(r.p99Ms) || typeof r.perMinute !== 'string') return null;
+  return { count: r.count, errors: r.errors, p50Ms: r.p50Ms, p99Ms: r.p99Ms, perMinute: r.perMinute };
+}
+
+export function parseHealth(raw: unknown): MatchingHealth | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.venueHalted !== 'boolean' || typeof r.restingOrders !== 'number' || typeof r.journalRecords !== 'number') return null;
   if (typeof r.asOf !== 'string' || typeof r.ageMs !== 'number') return null;
-  return { venueHalted: r.venueHalted, restingOrders: r.restingOrders, journalRecords: r.journalRecords, asOf: r.asOf, ageMs: r.ageMs };
+  const metrics = r.metrics && typeof r.metrics === 'object' ? (r.metrics as Record<string, unknown>) : null;
+  const ops = metrics?.operations && typeof metrics.operations === 'object' ? (metrics.operations as Record<string, unknown>) : {};
+  return {
+    venueHalted: r.venueHalted,
+    restingOrders: r.restingOrders,
+    journalRecords: r.journalRecords,
+    markets: count(r.markets) ? r.markets : null,
+    admission:
+      typeof r.admissionOpen === 'boolean' && (r.admissionReason === null || typeof r.admissionReason === 'string')
+        ? { open: r.admissionOpen, reason: r.admissionReason }
+        : null,
+    holdHalted: Array.isArray(r.holdHalted) && r.holdHalted.every((m) => typeof m === 'string') ? (r.holdHalted as string[]) : null,
+    engineStartedAt: typeof metrics?.startedAt === 'string' ? metrics.startedAt : null,
+    operations: {
+      submit: parseReading(ops.submit),
+      cancel: parseReading(ops.cancel),
+      depth: parseReading(ops.depth),
+    },
+    asOf: r.asOf,
+    ageMs: r.ageMs,
+  };
 }
 
 export const readMatchingHealth = (ctx: TradeCtx): Promise<Outcome<MatchingHealth>> =>

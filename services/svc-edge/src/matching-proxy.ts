@@ -367,6 +367,9 @@ export function registerMatchingOperatorRoutes(app: FastifyInstance, deps: Match
       venueHalted,
       restingOrders,
       journalRecords,
+      // The engine's other figures go on as the engine gave them, each only when it is the right shape; one missing or
+      // malformed is left out, and the console shows that one as `matching_metrics_unread` (J-cex-spot-20 #1).
+      ...optionalHealthFields(rec),
       asOf: new Date(receivedAt).toISOString(),
       ageMs: Math.max(0, receivedAt - started),
     });
@@ -625,4 +628,40 @@ function approvalRefusal(
     };
   }
   return null;
+}
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const isBoundOrNull = (v: unknown): boolean => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
+
+/** One operation's reading, exactly as svc-matching `operation-latency.ts` writes it; null when it is not that shape. */
+function operationReading(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  if (!isCount(r.count) || !isCount(r.errors) || !isBoundOrNull(r.p50Ms) || !isBoundOrNull(r.p99Ms)) return null;
+  if (typeof r.perMinute !== 'string' || !/^\d+(\.\d+)?$/.test(r.perMinute)) return null;
+  return { count: r.count, errors: r.errors, p50Ms: r.p50Ms, p99Ms: r.p99Ms, perMinute: r.perMinute };
+}
+
+/**
+ * The engine's health fields beyond the three the halt check needs, each passed on only when it is the right shape. An
+ * operation's reading that is not the right shape is left out on its own, so the rest still show.
+ */
+export function optionalHealthFields(rec: Record<string, unknown> | null): Record<string, unknown> {
+  if (!rec) return {};
+  const out: Record<string, unknown> = {};
+  if (isCount(rec.markets)) out.markets = rec.markets;
+  if (typeof rec.admissionOpen === 'boolean') out.admissionOpen = rec.admissionOpen;
+  if (rec.admissionReason === null || typeof rec.admissionReason === 'string') out.admissionReason = rec.admissionReason;
+  if (Array.isArray(rec.holdHalted) && rec.holdHalted.every((m) => typeof m === 'string')) out.holdHalted = rec.holdHalted;
+  const metrics = rec.metrics && typeof rec.metrics === 'object' ? (rec.metrics as Record<string, unknown>) : null;
+  if (metrics && typeof metrics.startedAt === 'string' && !Number.isNaN(Date.parse(metrics.startedAt))) {
+    const ops = metrics.operations && typeof metrics.operations === 'object' ? (metrics.operations as Record<string, unknown>) : {};
+    const operations: Record<string, unknown> = {};
+    for (const op of ['submit', 'cancel', 'depth']) {
+      const reading = operationReading(ops[op]);
+      if (reading) operations[op] = reading;
+    }
+    out.metrics = { startedAt: metrics.startedAt, operations };
+  }
+  return out;
 }
