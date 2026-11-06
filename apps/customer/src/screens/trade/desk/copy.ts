@@ -639,4 +639,49 @@ const messages = {
   'Market price word': 'Market',
 } as const;
 
-export const deskCopy = defineCopy('trade.desk', messages);
+/**
+ * The chart's own words in the languages the app writes (packages/i18n: en, es and fr). Every other desk string falls
+ * back to English (C-embed-feed-ops-03, J-charts-desk-07 #7).
+ */
+export const deskCopy = defineCopy('trade.desk', messages, {
+  fr: {
+    Chart: 'Graphique',
+    'Chart intervals': 'Intervalles du graphique',
+    'More intervals': 'Autres intervalles',
+    Candles: 'Bougies',
+    Line: 'Ligne',
+    'Chart style': 'Style du graphique',
+    'Full screen': 'Plein écran',
+    'Exit full screen': 'Quitter le plein écran',
+    'Chart of {pair}': 'Graphique des prix de {pair}',
+    'No trades in this period': 'Aucune transaction sur cette période.',
+    'Couldn’t load the chart': 'Impossible de charger le graphique.',
+    O: 'Ouv.',
+    H: 'Haut',
+    L: 'Bas',
+    C: 'Clôt.',
+    Change: 'Variation',
+    'Side buy': 'Achat',
+    'Side sell': 'Vente',
+  },
+  es: {
+    Chart: 'Gráfico',
+    'Chart intervals': 'Intervalos del gráfico',
+    'More intervals': 'Más intervalos',
+    Candles: 'Velas',
+    Line: 'Línea',
+    'Chart style': 'Estilo del gráfico',
+    'Full screen': 'Pantalla completa',
+    'Exit full screen': 'Salir de pantalla completa',
+    'Chart of {pair}': 'Gráfico de precios de {pair}',
+    'No trades in this period': 'No hay operaciones en este periodo.',
+    'Couldn’t load the chart': 'No se pudo cargar el gráfico.',
+    O: 'Apert.',
+    H: 'Máx.',
+    L: 'Mín.',
+    C: 'Cierre',
+    Change: 'Variación',
+    'Side buy': 'Compra',
+    'Side sell': 'Venta',
+  },
+});
