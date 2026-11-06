@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { chosePro, fundedTrader, deskPath } from './desk.mjs';
+import { chosePro, deskPath, fundedTrader, signIn } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-charts-desk-14, in the running app (docs/roadmap/journeys.json): a funded pro trader reads the order flow and
@@ -18,7 +18,8 @@ test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ baseURL: ORIGIN });
   page = await context.newPage();
   await chosePro(page);
-  await fundedTrader(page, 'jcd14', '1000');
+  // Funded, verified and signed out by the helper; then signed in for the desk.
+  await signIn(page, await fundedTrader(page, 'jcd14', '1000'));
 });
 test.afterAll(async () => {
   await page?.context().close();
@@ -31,11 +32,16 @@ const review = () => page.getByRole('alertdialog').filter({ hasText: /Review you
 function watchOrderSends() {
   const sent = [];
   const listen = (request) => {
-    if (request.method() === 'POST' && /\/api\/v1\/orders?\b/.test(new URL(request.url()).pathname)) sent.push(request.url());
+    const path = new URL(request.url()).pathname;
+    // An order write. The advisory preview (`…/preview`) the review reads is not a send.
+    if (request.method() === 'POST' && /\/orders?(\/|$)/.test(path) && !/preview/.test(path)) sent.push(path);
   };
   page.on('request', listen);
   return { sent, stop: () => page.off('request', listen) };
 }
+
+/** A decimal string without trailing zeros, so 65151.80 and 65151.8 compare equal. */
+const trimmed = (text) => text.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
 async function openDesk() {
   await page.goto(DESK);
@@ -77,13 +83,22 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
     const askPrice = (await ask.getAttribute('data-price')) ?? '';
     expect(askPrice).toMatch(/^\d+(\.\d+)?$/);
     await ask.click();
-    await expect(buyForm().getByRole('textbox', { name: 'Price' })).toHaveValue(askPrice);
+    // The review opens on its own, a buy at the ask that was clicked.
     await expect(review()).toBeVisible();
     await expect(review()).toContainText('Review your buy');
+    const reviewed = (
+      await review()
+        .getByText(/ USDT$/)
+        .first()
+        .innerText()
+    ).replace(/[^\d.]/g, '');
+    expect(trimmed(reviewed), `the review's price ${reviewed}`).toBe(trimmed(askPrice));
     // The review is a draft: nothing went to the market.
     expect(sends.sent).toEqual([]);
     await review().getByRole('button', { name: 'Cancel' }).click();
     await expect(review()).toHaveCount(0);
+    // The ticket kept the clicked price, and still nothing was sent.
+    expect(trimmed(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue())).toBe(trimmed(askPrice));
     expect(sends.sent).toEqual([]);
   } finally {
     sends.stop();
