@@ -197,6 +197,8 @@ export class RefundControl {
     amount: Amount;
     refundId: string;
     makerUserId: string;
+    /** The maker's key environment, kept on the request: a sandbox maker's refund only ever runs as sandbox. */
+    keyEnv?: 'sandbox';
   }): Promise<RefundRequest> {
     const payment = await this.door.getPayment(input.paymentId);
     if (payment.merchantId !== input.merchantId) throw new PayError(`Payment ${input.paymentId} not found`, 'pay.payment_not_found');
@@ -242,8 +244,7 @@ export class RefundControl {
          WHERE payment_id = ${input.paymentId}::uuid AND status = 'queued'
       `;
       const rows = await tx<RequestRow[]>`
-        INSERT INTO pay.refund_requests (merchant_id, payment_id, asset_code, amount, refund_id, maker_user_id)
-        VALUES (${input.merchantId}::uuid, ${input.paymentId}::uuid, ${payment.assetId}, ${formatAmount(input.amount)}, ${input.refundId}, ${input.makerUserId})
+        INSERT INTO pay.refund_requests (merchant_id, payment_id, asset_code, amount, refund_id, maker_user_id, maker_key_env)VALUES (${input.merchantId}::uuid, ${input.paymentId}::uuid, ${payment.assetId}, ${formatAmount(input.amount)}, ${input.refundId}, ${input.makerUserId}, ${input.keyEnv ?? null})
         RETURNING ${tx.unsafe(REQUEST_COLUMNS)}
       `;
       return toRequest(rows[0]!);
@@ -330,7 +331,9 @@ export class RefundControl {
     if (request.status !== 'approved') throw closed(request);
     return this.execute(request, keyEnv);
   }
-  private async execute(request: RefundRequest, keyEnv?: 'sandbox'): Promise<RefundRequest> {
+  private async execute(request: RefundRequest, checkerKeyEnv?: 'sandbox'): Promise<RefundRequest> {
+    // Sandbox if either side was: a refund a sandbox key asked for, or approved with one, never runs on the live book.
+    const keyEnv = checkerKeyEnv ?? (await this.makerKeyEnv(request.id));
     let outcome: { status: 'refunded' } | { status: 'failed'; code: string };
     try {
       await this.door.refund(request.paymentId, parseAmount(request.amount), { refundId: request.refundId, ...(keyEnv ? { keyEnv } : {}) });
@@ -413,7 +416,14 @@ export class RefundControl {
           !(await this.alreadyRefunded(row.paymentId, refundId)) &&
           (await this.needsApproval(input.merchantId, payment.assetId, amount, row.paymentId))
         ) {
-          await this.request({ merchantId: input.merchantId, paymentId: row.paymentId, amount, refundId, makerUserId: input.makerUserId });
+          await this.request({
+            merchantId: input.merchantId,
+            paymentId: row.paymentId,
+            amount,
+            refundId,
+            makerUserId: input.makerUserId,
+            ...(input.keyEnv ? { keyEnv: input.keyEnv } : {}),
+          });
           throw new PayError('Above the approval rule: queued for approval', 'pay.refund_request_invalid');
         }
         await this.door.refund(row.paymentId, amount, { refundId, ...(input.keyEnv ? { keyEnv: input.keyEnv } : {}) });
@@ -443,6 +453,13 @@ export class RefundControl {
       });
     }
     return out;
+  }
+
+  private async makerKeyEnv(requestId: string): Promise<'sandbox' | undefined> {
+    const rows = await this.sql<Array<{ maker_key_env: string | null }>>`
+      SELECT maker_key_env FROM pay.refund_requests WHERE id = ${requestId}::uuid
+    `;
+    return rows[0]?.maker_key_env === 'sandbox' ? 'sandbox' : undefined;
   }
 
   /** The amount a completed refund under this key moved, if it ran. */

@@ -1364,6 +1364,7 @@ export function createPayRouter(
                   amount: parseAmount(input.amount),
                   refundId: input.refundId,
                   makerUserId: ctx.principal!.userId,
+                  ...sandboxKeyEnv(ctx.principal),
                 }),
               );
             }),

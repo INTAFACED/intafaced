@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS "pay"."refund_requests" (
   "status"           text NOT NULL DEFAULT 'queued'
     CONSTRAINT "refund_requests_status_known" CHECK ("status" IN ('queued', 'approved', 'refunded', 'failed', 'rejected', 'cancelled', 'voided')),
   "maker_user_id"    text NOT NULL,
+  -- The maker's key environment: a request a sandbox key asked for only ever runs as sandbox, so never on the live book.
+  "maker_key_env"    text CONSTRAINT "refund_requests_key_env_known" CHECK ("maker_key_env" IS NULL OR "maker_key_env" = 'sandbox'),
   "checker_user_id"  text,
   "checker_reason"   text,
   "failure_code"     text,

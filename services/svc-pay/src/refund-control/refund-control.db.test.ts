@@ -394,4 +394,22 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
     await expect(pay.refund(p.id, amt('10'), { refundId: `refund:${p.id}:k` })).rejects.toBeInstanceOf(PayGuardRefusal);
     expect(await clearing(m.id)).toBe(before);
   });
+
+  it('a refund a sandbox key asked for is refused on a live payment even when a live checker approves it', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('1'), OWNER);
+    const p = await captured(m.id, '6');
+    const before = await clearing(m.id);
+    const r = await control.request({
+      merchantId: m.id,
+      paymentId: p.id,
+      amount: amt('6'),
+      refundId: `refund:${p.id}:sbm`,
+      makerUserId: OWNER,
+      keyEnv: 'sandbox',
+    });
+    expect(await control.decide({ requestId: r.id, checkerUserId: FINANCE, decision: 'approve' })).toMatchObject({ status: 'failed' });
+    expect(await clearing(m.id)).toBe(before);
+    expect(await refundedEvents(p.id)).toBe(0);
+  });
 });
