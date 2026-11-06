@@ -270,6 +270,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-card-order',
+    label: 'Get a card',
+    paths: ['/bank/cards/new'],
+    status: 'blocked',
+    reason:
+      'Eligibility, card limits and cardholder terms are owner values (blank refuses bank.card_eligibility_unset); a real card needs rail.card and printing needs hardware, so cards here are simulation records',
+    unlock: 'J-bank-13 #1 to #7 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-ramps',
     label: 'Add money and cash out',
     paths: ['/bank/ramps', '/bank/ramps/new', '/bank/ramps/accounts', '/bank/ramps/cash-out'],

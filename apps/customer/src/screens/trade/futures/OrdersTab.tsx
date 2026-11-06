@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Amount, Badge, Button, ChoiceGroup, EmptyState, Price, StatusTag, Table, type StatusKind, type TableColumn } from '@intafaced/ui';
-import { isPositive } from '../../../data/decimal';
+import { Amount, Badge, Button, ChoiceGroup, EmptyState, Price, Table, type TableColumn } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';
@@ -8,21 +7,11 @@ import { dayTime } from '../desk/time';
 import type { FuturesOrder } from './api';
 import { useFuturesApi } from './data';
 import { LoadGate, TabHeader } from './HistoryTab';
+import { cancellable, FuturesOrderOrigin, FuturesOrderStatus } from './OrderStatus';
 import { futuresRefusal } from './refusals';
 import { tabsCopy } from './tabs-copy';
 
 type Scope = 'open' | 'all';
-
-/** States in which an order may still rest or fill, so a cancel is offered. `submit_unknown` is asked of the book first. */
-const LIVE = new Set(['pending', 'held', 'submitting', 'open', 'submit_unknown']);
-
-function statusOf(order: FuturesOrder): StatusKind {
-  if (order.status === 'filled') return 'filled';
-  if (order.status === 'submit_unknown') return 'pending';
-  if (LIVE.has(order.status)) return 'working';
-  if (order.status === 'cancelled') return isPositive(order.filledQty) ? 'filled' : 'cancelled';
-  return 'failed';
-}
 
 /** Futures orders through the book: what rests now (with cancel), and the recent record of every order. */
 export function OrdersTab({
@@ -52,22 +41,6 @@ export function OrdersTab({
     onChanged();
   };
 
-  const statusWord = (order: FuturesOrder) => {
-    if (order.status === 'cancelled' && isPositive(order.filledQty)) return t('Order part filled');
-    const words: Record<string, string> = {
-      pending: t('Order working'),
-      held: t('Order working'),
-      submitting: t('Order working'),
-      open: t('Order resting'),
-      submit_unknown: t('Order checking'),
-      filled: t('Order filled'),
-      cancelled: t('Order cancelled'),
-      rejected: t('Order rejected'),
-      refused: t('Order rejected'),
-    };
-    return words[order.status] ?? order.status;
-  };
-
   const columns: TableColumn<FuturesOrder>[] = [
     { id: 'time', header: t('Order time'), value: (o) => (o.createdAt ? dayTime(Date.parse(o.createdAt), timeZone) : '') },
     { id: 'contract', header: t('Contract'), value: (o) => o.symbol ?? o.marketId },
@@ -88,21 +61,13 @@ export function OrdersTab({
     { id: 'size', header: t('Size'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.qty, { places: 8 })} /> },
     { id: 'filled', header: t('Order filled qty'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.filledQty, { places: 8 })} /> },
     { id: 'held', header: t('Order margin held'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.holdAmount, { places: 4 })} /> },
-    {
-      id: 'status',
-      header: t('Status'),
-      cell: (o) => (
-        <span className="flex flex-col">
-          <StatusTag status={statusOf(o)} label={statusWord(o)} />
-          {o.refusalCode ? <span className="text-2xs text-fg-3">{futuresRefusal({ code: o.refusalCode }).title}</span> : null}
-        </span>
-      ),
-    },
+    { id: 'origin', header: t('Order origin'), cell: (o) => <FuturesOrderOrigin origin={o.origin} label={o.orderLabel} /> },
+    { id: 'status', header: t('Status'), cell: (o) => <FuturesOrderStatus order={o} /> },
     {
       id: 'action',
       header: t('Order action'),
       cell: (o) =>
-        LIVE.has(o.status) ? (
+        cancellable(o) ? (
           <Button variant="secondary" size={28} loading={cancelling === o.orderId} onClick={() => void cancel(o)}>
             {t('Cancel order')}
           </Button>

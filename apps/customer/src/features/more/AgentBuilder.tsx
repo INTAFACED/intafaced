@@ -32,6 +32,7 @@ import {
 import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/contracts/agents-usage-limits';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
+import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
@@ -501,7 +502,10 @@ export function OwnAgentPage({ id }: { id: string }) {
                 <TryTool agent={agent} session={session} />
               </>
             ) : page === 'Rules' ? (
-              <RulesPage agent={agent} />
+              <>
+                <RulesPage agent={agent} />
+                <ReviewerPanel agent={agent} />
+              </>
             ) : page === 'Permissions' ? (
               <PermissionsPage agent={agent} />
             ) : page === 'Runs' ? (

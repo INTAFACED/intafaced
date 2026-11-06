@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sessionIdFromToken, sessionMoreControl, splitSessions } from './identity-session-guards';
+import { sessionIdFromToken, sessionMoreControl, sessionsFor, splitSessions } from './identity-session-guards';
 
 const SID = '22222222-2222-4222-8222-222222222222';
 const b64 = (value: object) => btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -46,6 +46,19 @@ describe('splitSessions', () => {
   it('folds nothing when there are five or fewer', () => {
     expect(splitSessions(seats.slice(0, 5), null).older).toHaveLength(0);
   });
+  it('given the time, folds a session last used more than a day ago, keeping this device in view', () => {
+    const recentUse = [
+      { id: 'a', createdAt: at(30), lastUsedAt: at(1) },
+      { id: 'b', createdAt: at(26), lastUsedAt: at(25) },
+      { id: SID, createdAt: at(72), lastUsedAt: at(48) },
+      { id: 'c', createdAt: at(23) },
+      { id: 'd', createdAt: at(25) },
+    ];
+    const { recent, older } = splitSessions(recentUse, SID, 5, now);
+    expect(recent.map((seat) => seat.id)).toEqual(['a', SID, 'c']);
+    expect(older.map((seat) => seat.id)).toEqual(['b', 'd']);
+    expect(splitSessions(recentUse, SID).older).toHaveLength(0);
+  });
 });
 
 describe('sessionMoreControl', () => {
@@ -62,5 +75,39 @@ describe('sessionMoreControl', () => {
     expect(sessionMoreControl({ ...base, hidden: 7, expanded: true, returned: 12 })).toBe('fold');
     expect(sessionMoreControl({ ...base, limit: 200, returned: 200, hidden: 195, expanded: true })).toBe('fold');
     expect(sessionMoreControl({ ...base, limit: 200, returned: 200 })).toBe('none');
+  });
+});
+
+describe('sessionsFor', () => {
+  const owner = '11111111-1111-4111-8111-111111111111';
+  const seat = (n: number, createdAt: string, lastUsedAt?: string) => ({
+    id: `00000000-0000-4000-8000-00000000000${n}`,
+    createdAt,
+    ...(lastUsedAt ? { lastUsedAt } : {}),
+    revoked: false as const,
+  });
+  it('accepts the service order, newest use first, even when an older sign-in was used last', () => {
+    const reply = {
+      userId: owner,
+      sessions: [
+        seat(1, '2026-11-06T10:00:00.000Z', '2026-11-06T12:00:00.000Z'),
+        seat(2, '2026-11-06T11:00:00.000Z', '2026-11-06T11:30:00.000Z'),
+      ],
+    };
+    expect(sessionsFor(owner, 50).safeParse(reply).success).toBe(true);
+  });
+  it('refuses a reply out of last-use order', () => {
+    const reply = {
+      userId: owner,
+      sessions: [
+        seat(1, '2026-11-06T10:00:00.000Z', '2026-11-06T11:00:00.000Z'),
+        seat(2, '2026-11-06T09:00:00.000Z', '2026-11-06T12:00:00.000Z'),
+      ],
+    };
+    expect(sessionsFor(owner, 50).safeParse(reply).success).toBe(false);
+  });
+  it('without last use, keeps the sign-in order check', () => {
+    const reply = { userId: owner, sessions: [seat(1, '2026-11-06T09:00:00.000Z'), seat(2, '2026-11-06T10:00:00.000Z')] };
+    expect(sessionsFor(owner, 50).safeParse(reply).success).toBe(false);
   });
 });

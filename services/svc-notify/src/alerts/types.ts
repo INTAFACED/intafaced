@@ -117,6 +117,22 @@ export type AlertStopReason = 'burst';
 export const ALERT_STOP_REASONS = ['burst'] as const satisfies readonly AlertStopReason[];
 export const ALERT_FREQUENCIES = ['once', 'every_crossing'] as const satisfies readonly AlertFrequency[];
 
+/**
+ * Which price a price alert is evaluated against. `mark` is the original rule: mid of bid and ask when the book is two-sided,
+ * else last. `bid`, `ask` and `last` read that one field of the ticker; a ticker without it refuses
+ * `notify.price_source_unavailable` and never falls back to another side. Only kind `price` uses it.
+ */
+export type AlertPriceSource = 'mark' | 'bid' | 'ask' | 'last';
+export const ALERT_PRICE_SOURCES = ['mark', 'bid', 'ask', 'last'] as const satisfies readonly AlertPriceSource[];
+/** A source other than the mark: one field of the ticker, read on its own. */
+export type AlertPriceSide = Exclude<AlertPriceSource, 'mark'>;
+export function isAlertPriceSource(source: unknown): source is AlertPriceSource {
+  return typeof source === 'string' && (ALERT_PRICE_SOURCES as readonly string[]).includes(source);
+}
+
+/** The ticker has no usable value for the side an alert chose. Refuse; never fall back to another side. */
+export const NOTIFY_PRICE_SOURCE_UNAVAILABLE = 'notify.price_source_unavailable' as const;
+
 /** Which side of the target the mark was last seen on. At the target counts as `at_or_above`. */
 export type AlertSide = 'below' | 'at_or_above';
 
@@ -167,6 +183,8 @@ export type PriceAlert = {
   readonly extras: readonly AlertExtra[];
   /** When the person last changed the alert (edit, stop, resume, cancel). The creation time until then. */
   readonly updatedAt: Date;
+  /** Which price the alert is evaluated against. `mark` for every alert made before the person could choose. */
+  readonly source: AlertPriceSource;
 };
 
 /** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
@@ -182,12 +200,13 @@ export type AlertEdit = {
   readonly expiresAt?: Date | null;
   readonly extras?: readonly AlertExtra[];
   readonly frequency?: AlertFrequency;
+  readonly source?: AlertPriceSource;
 };
 
 /** The whole editable state, after an edit is merged and validated. */
 export type AlertEditState = Pick<
   PriceAlert,
-  'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency'
+  'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency' | 'source'
 >;
 
 export type CreatePriceAlertInput = {
@@ -203,6 +222,8 @@ export type CreatePriceAlertInput = {
   readonly extras?: readonly AlertExtra[];
   /** Omitted: `once`. */
   readonly frequency?: AlertFrequency;
+  /** Omitted: `mark`. */
+  readonly source?: AlertPriceSource;
   /**
    * The most open (active or paused) alerts of this kind the person may hold, counting this one. The store checks it in the
    * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
@@ -240,7 +261,14 @@ export type MarkQuote =
  */
 export type MarkSource = {
   readonly kind: 'dark' | 'live';
+  /** The mark: mid of bid and ask when the book is two-sided, else last. */
   quote(marketId: string, at?: Date): Promise<MarkQuote>;
+  /**
+   * The named sides of one market, from one read, so they share a snapshot. A port that cannot name a side leaves this out,
+   * and every alert on a side then refuses `notify.price_source_unavailable`: a port can never answer a side with the mark.
+   * A side missing from the returned map refuses the same way.
+   */
+  quoteSides?(marketId: string, sides: readonly AlertPriceSide[], at?: Date): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>>;
 };
 
 export type AlertRefuseCode =
