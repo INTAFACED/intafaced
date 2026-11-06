@@ -1,6 +1,7 @@
 import { test, expect } from './journey.mjs';
 import { EDGE, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
+import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
@@ -11,6 +12,8 @@ import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn 
 // World: book, gates
 // (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open.)
 const J = 'J-cex-spot-14';
+/** The status component a maintenance notice names one market by (`market-btc-usdc`), as svc-notify reads it. */
+const marketComponent = (symbol) => `market-${symbol.toLowerCase().replace('/', '-')}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** #3 holds this book limit-only for the step, #4 holds it cancel-only. */
 const LIMITED = 'BTC/USDC';
@@ -219,22 +222,57 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
 test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance in 1 hour" on the ticket and flags it on the list; no end time reads "End time not set"`, async ({
   page,
 }) => {
-  const who = await account(page);
-  await openDesk(page, who, LIMITED);
-  // The maintenance flag on the ticket comes from the lifecycle read's `upcomingMaintenance` (SP-developer-status-01).
-  const res = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`);
-  expect(Object.keys(await res.json())).toContain('upcomingMaintenance');
-  await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour', { timeout: UNBUILT_MS });
-  await page.goto('/trade');
-  await expect(
-    page
-      .getByRole('table')
-      .first()
-      .getByText(/Maintenance/)
-      .first(),
-  ).toBeVisible({ timeout: UNBUILT_MS });
-  await page.goto('/status');
-  await expect(page.getByText('End time not set').first()).toBeVisible({ timeout: UNBUILT_MS });
+  test.setTimeout(4 * 60_000);
+  // Two TEST operators publish a maintenance window on the limited market, starting an hour from now, with no end time
+  // (svc-notify's four-eyes publish). The window is cancelled at the end of the step, so it never opens on the stack.
+  const key = `${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}:maintenance`;
+  const startsAt = new Date(Date.now() + 61 * 60_000).toISOString();
+  const draft = await draftNotice({
+    kind: 'maintenance',
+    title: `TEST ${LIMITED} maintenance`,
+    body: 'TEST: a journey maintenance window on the local stack.',
+    startsAt,
+    noEnd: true,
+    components: [marketComponent(LIMITED)],
+    key,
+  });
+  const published = await publishNotice(draft, key);
+  try {
+    // The lifecycle read carries it, from the notice's own start time, with no end.
+    await expect
+      .poll(
+        async () => (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance,
+        {
+          timeout: 30_000,
+        },
+      )
+      .toMatchObject({ status: 'scheduled', noticeId: published.id, startsAt, endsAt: null });
+    // The ticket says it.
+    const who = await account(page);
+    await openDesk(page, who, LIMITED);
+    const ticket = page.getByTestId('dk-maintenance');
+    await expect(ticket).toContainText('Maintenance in 1 hour');
+    await expect(ticket).toContainText('End time not set');
+    // The markets list flags it on that market's row.
+    await page.goto('/trade');
+    const row = page.getByRole('table').first().getByRole('row').filter({ hasText: LIMITED });
+    await expect(row.getByTestId('mkt-maintenance')).toHaveText('Maintenance in 1 hour');
+    // /status lists it on the market's row, and its blank end reads "End time not set".
+    await page.goto('/status');
+    await expect(page.getByTestId(`status-maintenance-${LIMITED}`)).toContainText('End time not set');
+  } finally {
+    await cancelMaintenance(published, `${J}: TEST window cancelled at the end of the step`);
+  }
+  // Cancelled, it is gone from the market's read.
+  await expect
+    .poll(
+      async () =>
+        (await (await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(LIMITED)}`)).json()).upcomingMaintenance?.status,
+      {
+        timeout: 30_000,
+      },
+    )
+    .toBe('none');
 });
 
 test(`${J} #6 an order while the market session is closed: the closed-market rule is applied and explained`, async ({ page }) => {
@@ -273,10 +311,10 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
 });
 
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {
-  const tickers = await (await fetch(`${EDGE}/api/v1/tickers`)).json();
+  const tickers = await (await fetch(`${EDGE}/api/v1/tickers?limit=500`)).json();
   const btc = Object.values(tickers).find((t) => t?.symbol === 'BTC/USDT');
   expect(btc?.spread, 'the ticker carries a spread field').toBeTruthy();
-  const spreads = await fetch(`${EDGE}/api/v1/spreads`);
+  const spreads = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
   expect(spreads.status).toBe(200);
   const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
   expect(candles.status).toBe(200);
