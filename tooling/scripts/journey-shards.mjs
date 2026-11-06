@@ -10,10 +10,20 @@
 // timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
 // counts the same. A report that cannot be read is skipped.
 //
-// `--shards auto` picks as many shards as keep each one's journeys near TARGET_MINUTES, between MIN_SHARDS and
-// MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app tests
-// for about 2,364 more steps were on their way; a fixed 8 would have pushed shards past the limit, and a shard that hits
-// it loses its whole report.)
+// `--shards auto` picks as many shards as keep each one's journeys near the target (shardTarget), between MIN_SHARDS
+// and MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app
+// tests for about 2,364 more steps were on their way; a fixed 8 would have pushed shards past the limit, and a shard that
+// hits it loses its whole report.) The target follows the longest journey file: a file runs in one shard, one step at a
+// time, so the run never ends before setup plus that file. Shards shorter than the file less SETUP_SPREAD_MINUTES only add
+// setups and end no sooner, and longer ones become the run's long pole. (Measured 6 Nov 2026 on main's runs
+// 42159345632, 42162651623, 42163741447, 42164583521 and 42166558019: 20 to 21 shards near 25 minutes each, 43 to 48
+// minutes a run; J-wallet-05 alone took 25.9 minutes; a shard's setup took 7.6 minutes at the median and 18.4 at most,
+// the browser's system packages up to 11.7 of it. Replaying those runs, 32 shards of about 16 minutes bring the median
+// run to about 36 minutes, and 40 or 56 shards to the same 36.)
+//
+// Before it prints, the plan is checked to hold every journey file exactly once (planCovers), so a planning bug can
+// never drop or repeat a journey; a plan that fails the check prints nothing and the workflow falls back to Playwright's
+// own split of every file.
 //
 // `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
 // passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
@@ -25,11 +35,17 @@ export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
 // The shard hands the names to Playwright's testMatch as globs, so a name must match only itself.
 const GLOB_CHARS = /[*?[\]{}()!+@\s\\]/;
-// Each shard's journeys aim at this, so setup (about 10 minutes) plus the journeys stays well inside the job's limit.
-export const TARGET_MINUTES = 25;
-// At least the 8 shards the suite ran on before; at most what leaves pull-request CI runners while a run is going.
+// A shard's journeys aim at the longest file's time less this, the spread of a shard's setup (7.6 minutes at the median,
+// 18.4 at most in the runs above), so a shard with a slow setup still ends before the longest file's shard.
+export const SETUP_SPREAD_MINUTES = 10;
+// Never below this, so a shard's setup (about 8 minutes) stays under half of its job.
+export const MIN_TARGET_MINUTES = 10;
+// Never above this, so setup plus the journeys stays well inside the job's limit.
+export const MAX_TARGET_MINUTES = 25;
+// At least the 8 shards the suite ran on before. At most 48: a run on main takes 33 of the 500 runners today, runs on
+// main overlap (about four at once), and pull-request CI needs its own.
 export const MIN_SHARDS = 8;
-export const MAX_SHARDS = 24;
+export const MAX_SHARDS = 48;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
@@ -134,6 +150,33 @@ export function estimateDurations(files, past, timed, steps) {
   );
 }
 
+/** Each shard's journeys aim at the longest file less the setup spread, within MIN_ and MAX_TARGET_MINUTES. */
+export function shardTarget(durations) {
+  const longest = Math.max(0, ...durations.values());
+  const min = 60_000;
+  return Math.min(MAX_TARGET_MINUTES * min, Math.max(MIN_TARGET_MINUTES * min, longest - SETUP_SPREAD_MINUTES * min));
+}
+
+/**
+ * Problems with a plan against the journey files it must run: a file in no shard, a file in two shards or twice in one,
+ * a name that is not one of the files, or an empty shard. An empty list means every file runs exactly once.
+ */
+export function planCovers(plan, files) {
+  const problems = [];
+  const seen = new Map();
+  plan.forEach((bin, i) => {
+    if (!bin.files.length) problems.push(`shard ${i + 1} has no file`);
+    for (const f of bin.files) seen.set(f, [...(seen.get(f) ?? []), i + 1]);
+  });
+  const known = new Set(files);
+  for (const f of files) if (!seen.has(f)) problems.push(`${f} is in no shard`);
+  for (const [f, shards] of seen) {
+    if (!known.has(f)) problems.push(`${f} is not a journey file of this run`);
+    if (shards.length > 1) problems.push(`${f} is in shards ${shards.join(', ')}`);
+  }
+  return problems;
+}
+
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
 export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS) {
   return Math.min(max, Math.max(min, Math.ceil(totalMs / targetMs)));
@@ -195,9 +238,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Never more shards than files: a shard must have a file to run.
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor.
   const floor = only === null ? MIN_SHARDS : 1;
-  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, TARGET_MINUTES * 60_000, floor)) : Number(asked);
+  const target = shardTarget(durations);
+  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, target, floor)) : Number(asked);
   const plan = planShards(files, durations, shards);
-  console.error(`journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards`);
+  const problems = planCovers(plan, files);
+  if (problems.length) {
+    for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
+    process.exit(1);
+  }
+  console.error(
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each`,
+  );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
   );

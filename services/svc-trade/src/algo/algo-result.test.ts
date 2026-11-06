@@ -334,7 +334,6 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
     const store = new SqlTwapParentStore(sql);
     let clock = Date.parse('2026-10-18T00:00:00.000Z');
     let markPrice = parseAmount('50');
-    const writes: Promise<unknown>[] = [];
     const engineFor = (target: SqlTwapParentStore) =>
       new TwapEngine(
         {
@@ -349,15 +348,12 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
           recordArrivalMark: (id, mark) => target.recordArrivalMark(id, mark.price, mark.asOf),
         },
         {
-          onChange: (row, plan) => {
-            const write = target.save({ parent: row, plan });
-            writes.push(write);
-            return write;
-          },
+          onChange: (row, plan) => target.save({ parent: row, plan }),
         },
       );
     const engine = engineFor(store);
-    const created = engine.create(
+    // Created as svc-trade creates a parent (createTwap): planned, saved, and only then given to the engine.
+    const { parent: created, plan } = engine.prepare(
       ALICE,
       {
         marketId,
@@ -372,9 +368,11 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
       },
       parseAmount('0.001'),
     );
-    await Promise.all(writes.splice(0));
+    await store.save({ parent: created, plan });
+    engine.hydrate(created, plan);
     await engine.tick(created.id);
-    await Promise.all(writes.splice(0));
+    // The tick's saves reach onChange a microtask later, in order: wait on the engine's own queue (#7219).
+    await engine.whenSaved(created.id);
 
     clock += 1_000;
     markPrice = parseAmount('70');
@@ -383,7 +381,7 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
     const loaded = await restarted.load(created.id);
     again.hydrate(loaded!.parent, loaded!.plan);
     await again.tick(created.id);
-    await Promise.all(writes.splice(0));
+    await again.whenSaved(created.id);
 
     const arrival = await new SqlTwapParentStore(sql).loadArrivalMark(created.id);
     expect(formatAmount(arrival!.price)).toBe('50');

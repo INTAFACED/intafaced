@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { renderCoinArt } from './generate.js';
+import { renderCoinArt, withoutFullClip } from './generate.js';
 import { coinArt } from './coin-art.generated.js';
 
 const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, '');
@@ -36,6 +36,22 @@ describe('coin manifest', () => {
     for (const svg of Object.values(coinArt)) {
       expect(svg).toMatch(/^<svg /);
       expect(svg).not.toMatch(/<script|\son[a-z]+=|<foreignObject|xlink:href|href="http/i);
+      // Drawn inline once per icon: no id to repeat, and nothing pointing at one.
+      expect(svg).not.toMatch(/\sid\s*=|url\(|href\s*=/i);
     }
+  });
+
+  it('strips only a clip the size of the whole picture, and refuses any other id', () => {
+    const clipped =
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><g clip-path="url(#c)"><path d="M0 0"/></g><defs><clipPath id="c"><rect width="24" height="24" fill="white"/></clipPath></defs></svg>';
+    expect(withoutFullClip(clipped, 't.svg')).toBe(
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none">\n<path d="M0 0"/>\n</svg>',
+    );
+    expect(() =>
+      withoutFullClip(clipped.replace('width="24" height="24" fill="white"', 'width="12" height="24" fill="white"'), 't.svg'),
+    ).toThrow(/no id/);
+    expect(() => withoutFullClip('<svg viewBox="0 0 24 24"><linearGradient id="g"/><path fill="url(#g)"/></svg>', 'g.svg')).toThrow(
+      /no id/,
+    );
   });
 });

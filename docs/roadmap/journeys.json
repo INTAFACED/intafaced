@@ -5980,7 +5980,13 @@
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": ["RC-more-catalogue-05"], "noSlice": false },
-      { "n": 3, "slices": ["RC-more-catalogue-06"], "noSlice": false },
+      {
+        "n": 3,
+        "slices": ["RC-more-catalogue-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
+      },
       { "n": 4, "slices": ["RC-more-catalogue-07"], "noSlice": false },
       { "n": 5, "slices": ["RC-more-catalogue-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-04"], "noSlice": false },
@@ -6451,7 +6457,13 @@
       { "n": 1, "slices": ["RC-ops-console-06"], "noSlice": false },
       { "n": 2, "slices": ["RC-ops-console-06"], "noSlice": false },
       { "n": 3, "slices": ["RC-ops-console-14"], "noSlice": false },
-      { "n": 4, "slices": ["RC-ops-console-08"], "noSlice": false },
+      {
+        "n": 4,
+        "slices": ["RC-ops-console-08"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
+      },
       { "n": 5, "slices": ["RC-ops-console-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-ops-console-07"], "noSlice": false },
       { "n": 7, "slices": ["RC-ops-console-11"], "noSlice": false },
