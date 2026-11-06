@@ -421,7 +421,7 @@ test('a Revert-button title names no steps and seals without a run', async () =>
   assert.deepEqual(titleSteps('Reverted J-bank-13 #1 and rebuilt it'), ['J-bank-13#1']);
 });
 
-// The rule files still say "listed under" until the owner's yes, so the seal's own failure prints the exact line a
+// The seal's own failure prints the exact line a
 // builder adds to leave the steps that aren't green, and that line, pasted at column 0, exempts exactly those steps.
 test('a failing seal prints the exact Left-or-replaced line for its steps that are not green, and it round-trips', async () => {
   const title = 'x (J-bank-13 #1 #2 #3, J-bank-14 #2)';

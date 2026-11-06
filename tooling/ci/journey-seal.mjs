@@ -140,7 +140,7 @@ export function exemptions(body) {
 /**
  * The exact body line that exempts `keys` (`J-bank-13#2`, …): `Left-or-replaced: J-bank-13 #2 #3, J-bank-14 #2`, journeys
  * in order. A failing seal prints it for its steps that are not green, so a builder copies it rather than guessing the
- * format (the rule files still say "listed under" until the owner's yes); exemptions() reads it back to the same keys.
+ * format (AGENTS.md "How work flows" 6 and docs/agents/build-slice.md name it); exemptions() reads it back to the same keys.
  */
 export function exemptionLine(keys) {
   const by = new Map();
