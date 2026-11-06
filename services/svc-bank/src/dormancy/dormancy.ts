@@ -115,14 +115,17 @@ export class DormancyService {
   }
 
   /**
-   * The newest ledger line on the person's account in a coin, or null when the account never moved. A dormancy fee the
-   * bank took is not the person's activity, so it does not end the quiet.
+   * Whether the person's account in a coin moved in a window. Only the window is read, so a busy account's long history
+   * is never fetched. A dormancy fee the bank took is not the person's activity, so it does not end the quiet.
    */
-  private async lastActivity(userId: string, assetId: string, to: Date): Promise<Date | null> {
-    const entries = await this.history.entriesFor(userAvailable(userId, assetId), { from: new Date(0), to });
-    return entries
-      .filter((e) => e.module !== DORMANCY_MODULE)
-      .reduce<Date | null>((last, e) => (last === null || e.postedAt > last ? e.postedAt : last), null);
+  private async movedBetween(userId: string, assetId: string, from: Date, to: Date): Promise<boolean> {
+    if (to <= from) return false;
+    const entries = await this.history.entriesFor(userAvailable(userId, assetId), { from, to });
+    return entries.some((e) => e.module !== DORMANCY_MODULE);
+  }
+
+  private chargeKey(userId: string, assetId: string, debitDate: string): string {
+    return `fee:${DORMANCY_MODULE}:${userId}:${assetId}:${debitDate}`;
   }
 
   /** One run of the job as of `at`, for the accounts named (the scheduler names every account it sweeps). */
@@ -140,23 +143,25 @@ export class DormancyService {
            WHERE user_id = ${userId} AND asset_id = ${rule.assetId} AND state = 'noticed'`;
         if (open) {
           if (day(input.at) < open.debit_date) continue;
-          const outcome = await this.settle(userId, rule.assetId, open);
+          const outcome = await this.settle(userId, rule.assetId, open, input.at);
           settled.push({ userId, assetId: rule.assetId, debitDate: open.debit_date, outcome });
           continue;
         }
-        const last = await this.lastActivity(userId, rule.assetId, input.at);
-        if (last === null) continue;
-        // A new quiet period starts at the last notice's debit date too: one fee per period of the rule's days, not one
-        // every notice lead.
-        const [prior] = await this.sql<Array<{ debit_date: string }>>`
+        // Quiet means no activity in the rule's days before `at`. A new quiet period also starts at the last notice's debit
+        // date: one fee per period of the rule's days, not one every notice lead.
+        const windowStart = new Date(input.at.getTime() - rule.inactiveDays * DAY);
+        const [prior] = await this.sql<Array<{ debit_date: string | null }>>`
           SELECT max(debit_date) AS debit_date FROM bank.dormancy_notices
            WHERE user_id = ${userId} AND asset_id = ${rule.assetId} AND state <> 'noticed'`;
-        const since = Math.max(last.getTime(), prior?.debit_date ? Date.parse(`${prior.debit_date}T00:00:00Z`) : 0);
-        if (input.at.getTime() - since < rule.inactiveDays * DAY) continue;
+        if (prior?.debit_date && Date.parse(`${prior.debit_date}T00:00:00Z`) > windowStart.getTime()) continue;
+        if (await this.movedBetween(userId, rule.assetId, windowStart, input.at)) continue;
+        // A notice names a fee that can be taken: an account holding less than the fee (or nothing) is not told one will be.
+        const balance = (await this.ledger.balance(userAvailable(userId, rule.assetId))).amount;
+        if (balance < parseAmount(rule.fee)) continue;
         const debitDate = day(new Date(input.at.getTime() + rule.noticeLeadDays * DAY));
         const inserted = await this.sql`
           INSERT INTO bank.dormancy_notices (user_id, asset_id, debit_date, fee, inactive_days, rule_version, noticed_at)
-          VALUES (${userId}, ${rule.assetId}, ${debitDate}, ${rule.fee}, ${rule.inactiveDays}, ${rule.version}, now())
+          VALUES (${userId}, ${rule.assetId}, ${debitDate}, ${rule.fee}, ${rule.inactiveDays}, ${rule.version}, ${input.at})
           ON CONFLICT DO NOTHING
           RETURNING user_id`;
         if (inserted.length > 0) noticed.push({ userId, assetId: rule.assetId, fee: rule.fee, debitDate });
@@ -169,13 +174,20 @@ export class DormancyService {
     userId: string,
     assetId: string,
     open: { debit_date: string; fee: string; noticed_at: Date },
+    at: Date,
   ): Promise<Exclude<DormancyState, 'noticed'>> {
     const fee = parseAmount(open.fee);
-    const balance = (await this.ledger.balance(userAvailable(userId, assetId))).amount;
     let outcome: Exclude<DormancyState, 'noticed'>;
     let txId: string | null = null;
-    if (balance === 0n) outcome = 'skipped_zero';
-    else if (((await this.lastActivity(userId, assetId, new Date(8.64e15))) ?? new Date(0)) > open.noticed_at) outcome = 'cancelled';
+    // A fee already posted under this notice's key (a crash after the post, before the row was settled) is adopted,
+    // never re-judged from a balance it already lowered.
+    const posted = await this.ledger.getTxByKey(this.chargeKey(userId, assetId, open.debit_date));
+    const balance = posted ? 0n : (await this.ledger.balance(userAvailable(userId, assetId))).amount;
+    if (posted) {
+      outcome = 'charged';
+      txId = posted.id;
+    } else if (balance === 0n) outcome = 'skipped_zero';
+    else if (await this.movedBetween(userId, assetId, open.noticed_at, at)) outcome = 'cancelled';
     else if (balance < fee) outcome = 'skipped_insufficient';
     else {
       const posted = await this.ledger.post(

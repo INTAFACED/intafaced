@@ -88,8 +88,8 @@ test(`${J} #1 exports a month as PDF: every posted line, a hash proof and the sa
   const today = utcDay(new Date());
   await page.goto('/money/activity');
   const search = page.getByRole('search', { name: 'Search activity' });
-  await search.getByLabel('From date').fill(from);
-  await search.getByLabel('To date').fill(today);
+  await search.getByLabel('From', { exact: true }).fill(from);
+  await search.getByLabel('To', { exact: true }).fill(today);
   await expect(page.getByTestId('money-period-totals').locator('li[data-asset="USDT"]')).toHaveText(totalWords);
 
   // This month's statement, downloaded when the month is over.

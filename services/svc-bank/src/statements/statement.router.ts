@@ -95,10 +95,6 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements' | '
           throwBankProcedure(err);
         }
       }),
-    /**
-     * J-bank-16 #2 (BK-acct-07): an account ownership letter or a balance certificate. A letter is issued on a banking
-     * partner's paper, and none is wired, so the request refuses `rail.bank` and nothing is stored or sent.
-     */
     /** J-bank-16 #1: the net per asset of every posted line in a range, the same fold a statement prints. Self-only. */
     totals: scopedProcedure('bank:read', { module: 'bank' })
       .input(
@@ -119,7 +115,11 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements' | '
         }
       }),
     letters: router({
-      request: scopedProcedure('bank:read', { module: 'bank' })
+      /**
+       * J-bank-16 #2 (BK-acct-07): an account ownership letter or a balance certificate. A letter is issued on a banking
+       * partner's paper, and none is wired, so the request refuses `rail.bank` and nothing is stored or sent.
+       */
+      request: scopedProcedure('bank:write', { module: 'bank' })
         .input(z.object({ kind: z.enum(['ownership', 'balance']) }).strict())
         .output(z.object({ id: z.string() }))
         .mutation(async () => {

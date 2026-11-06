@@ -50,7 +50,8 @@ const periodOf = (at: Date) => at.toISOString().slice(0, 7);
 function monthRange(period: string): { from: Date; to: Date } {
   const [, y, m] = MONTH.exec(period)!;
   const from = new Date(Date.UTC(Number(y), Number(m) - 1, 1));
-  const to = new Date(Date.UTC(Number(y), Number(m), 1) - 1);
+  // Exclusive, as every ledger history range is: the next month's first instant.
+  const to = new Date(Date.UTC(Number(y), Number(m), 1));
   return { from, to };
 }
 

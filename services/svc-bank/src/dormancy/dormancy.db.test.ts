@@ -11,7 +11,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, houseFees, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { memoryLedgerHistory } from '../analytics/ledger-history.js';
+import { memoryLedgerHistory, type LedgerHistory } from '../analytics/ledger-history.js';
 import { DORMANCY_MODULE, DormancyService, parseDormancyRules } from './dormancy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -94,17 +94,52 @@ describe('the dormancy fee (J-bank-16 #7, PG-hard)', () => {
   it('cancels the notice on activity after it, and skips a balance below the fee without part-charging', async () => {
     await fund('20');
     const at = quietUntil();
-    await dormancy.run({ at, userIds: [user] });
-    await fund('1');
-    const { settled } = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
+    // Activity after the notice: a line the ledger history reports between the notice and the debit date.
+    const real = memoryLedgerHistory(ledger);
+    const after: LedgerHistory = {
+      async entriesFor(account, range) {
+        const lines = await real.entriesFor(account, range);
+        const used = new Date(at.getTime() + DAY);
+        return used >= range.from && used < range.to
+          ? [...lines, { txId: 'later', module: 'bank', reason: 'bank.transfer', direction: 'credit', amount: amt('1'), postedAt: used }]
+          : lines;
+      },
+    };
+    const watched = new DormancyService(db.sql, ledger, after, RULES);
+    await watched.run({ at, userIds: [user] });
+    const { settled } = await watched.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
     expect(settled[0]!.outcome).toBe('cancelled');
+    expect(await balance()).toBe(amt('20'));
 
+    // Noticed with 6, then down to 3 (below the 5 fee) by the debit date: nothing is taken, and nothing part-charged.
     const poor = randomUUID();
-    await ledger.post(recipes.deposit({ userId: poor, assetId: 'USDT', amount: amt('3'), rail: 'local-test', railRef: randomUUID() }));
+    await ledger.post(recipes.deposit({ userId: poor, assetId: 'USDT', amount: amt('6'), rail: 'local-test', railRef: randomUUID() }));
     await dormancy.run({ at, userIds: [poor] });
+    await ledger.post(
+      recipes.feeCharge({ chargeId: randomUUID(), userId: poor, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('3') }),
+    );
     const later = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [poor] });
     expect(later.settled[0]!.outcome).toBe('skipped_insufficient');
     expect((await ledger.balance(userAvailable(poor, 'USDT'))).amount).toBe(amt('3'));
+  });
+
+  it('gives no notice to an account holding less than the fee', async () => {
+    await fund('4.99');
+    expect((await dormancy.run({ at: quietUntil(), userIds: [user] })).noticed).toEqual([]);
+  });
+
+  it('adopts a fee already posted under the notice key, so a crash before the row was settled never re-judges it', async () => {
+    await fund('7');
+    const at = quietUntil();
+    await dormancy.run({ at, userIds: [user] });
+    const key = `${user}:USDT:${debitDay(at)}`;
+    await ledger.post(
+      recipes.feeCharge({ chargeId: key, userId: user, module: DORMANCY_MODULE, mode: 'asset', assetId: 'USDT', amount: amt('5') }),
+    );
+    expect(await balance()).toBe(amt('2'));
+    const { settled } = await dormancy.run({ at: new Date(`${debitDay(at)}T00:01:00Z`), userIds: [user] });
+    expect(settled[0]!.outcome).toBe('charged');
+    expect(await balance()).toBe(amt('2'));
   });
 
   it('charges the noticed fee once through feeCharge, and a replay charges nothing more', async () => {

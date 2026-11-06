@@ -46,7 +46,7 @@ export function StatementLetters() {
     if (busy) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.mutate('bank', 'letters.request', { kind }, letterRequestSchema);
+    const result = await api.mutate('bank', 'statements.letters.request', { kind }, letterRequestSchema);
     setBusy(false);
     if (result.ok) return;
     const code = outside(result.code);
