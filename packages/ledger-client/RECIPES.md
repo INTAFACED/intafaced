@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**88 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**91 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -78,6 +78,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `payReceivedHold`               | `bank`      | `pay.recv.held`                                                  |
 | `payReceivedRelease`            | `bank`      | `pay.recv.released`                                              |
 | `payReceivedReturn`             | `bank`      | `pay.recv.returned`                                              |
+| `payUnclaimedHold`              | `bank`      | `pay.unclaimed.held`                                             |
+| `payUnclaimedClaim`             | `bank`      | `pay.unclaimed.claimed`                                          |
+| `payUnclaimedReturn`            | `bank`      | `pay.unclaimed.returned`                                         |
 | `bankTransferReversal`          | `bank`      | `bank.transfer.reversed`                                         |
 | `staffHoldPlace`                | `ops`       | `ops.hold.placed`                                                |
 | `staffHoldRelease`              | `ops`       | `ops.hold.released`                                              |
@@ -107,6 +110,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                |
 | `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                  |
 | `src/recipes/market-escrow.ts`    | held purchase: hold, numbered refunds, release after the window (wired by svc-market next)         |
+| `src/recipes/pay-unclaimed.ts`    | send to a non-member: sender pot, then claimed or returned whole (wired by svc-bank next)          |
 | `src/recipes/buyback.ts`          | token buyback IOC buy: hold from the rewards engine, taker fill against a customer ask, release    |
 | `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory |
 | `src/recipes/staff-hold.ts`       | ops staff holds: place, release in part (approver or expiry), confirm to the owner-named account   |
