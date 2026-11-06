@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
@@ -6,7 +6,9 @@ import { usePreferences } from '../../../shared/preferences';
 import { useTicker as useTickerRow } from './deps';
 import './desk.css';
 import '../chart/chart.css';
-import { BookPanel, STALE_BOOK_MS, type BookPick } from './OrderBook';
+import { BookPanel, STALE_BOOK_MS, Tape, type BookPick } from './OrderBook';
+import { ArrangeBar, ArrangeChrome, DeskLayoutMenu, dropTarget, useDeskLayout } from './DeskLayout';
+import { gridColumns, isUntouched, type WidgetId } from './workspace';
 import { BottomTabs, type BottomTab } from './BottomTabs';
 import { ChartPanel } from './ChartPanel';
 import { FeedStatus } from './FeedStatus';
@@ -79,7 +81,29 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     openOrders.status === 'ready' &&
     openOrders.data.some((order) => (order.type === 'stop' || order.type === 'stop_limit') && order.triggered === null);
   const lastPrice = waitingStop && ticker.status === 'ready' ? ticker.data.last : null;
-  const status = useMemo(() => <FeedStatus symbol={symbol} />, [symbol]);
+  const desk = useDeskLayout(userId);
+  const { layout, arranging } = desk;
+  const custom = !isUntouched(layout) || layout.preset !== 'classic';
+  // A widget's place: its order on the grid when the layout is not today's Classic, and the drop target while arranging.
+  const frame = (id: WidgetId) => ({
+    'data-widget': id,
+    ...(custom ? { style: { order: layout.order.indexOf(id) } } : {}),
+    ...dropTarget(desk, id),
+  });
+  const widgetName = (id: WidgetId) =>
+    id === 'markets' ? t('Markets') : id === 'chart' ? t('Chart') : id === 'book' ? t('Order book') : t('Market trades');
+  const chrome = (id: WidgetId) => <ArrangeChrome desk={desk} id={id} name={widgetName(id)} />;
+  const bookFrame = useMemo(() => frame('book'), [custom, layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bookChrome = useMemo(() => chrome('book'), [layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
+  const status = useMemo(
+    () => (
+      <>
+        <FeedStatus symbol={symbol} />
+        <DeskLayoutMenu desk={desk} />
+      </>
+    ),
+    [symbol, desk.layout, desk.arranging], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
   const onPlaced = useCallback(() => {
@@ -96,7 +120,13 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   );
 
   return (
-    <div data-testid="if-desk" className="if-desk" data-market={market.symbol}>
+    <div
+      data-testid="if-desk"
+      className="if-desk"
+      data-market={market.symbol}
+      data-preset={layout.preset}
+      data-arranging={arranging ? 'true' : undefined}
+    >
       <TickerStrip
         market={market}
         ticker={ticker}
@@ -107,8 +137,19 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         status={status}
       />
       <EmailProofNotice />
-      <div className="dk-grid">
-        <aside data-testid="dk-left" className="dk-panel dk-left" aria-label={t('Markets')}>
+      {desk.recovered ? (
+        <p className="dk-layout-note" role="status">
+          {t('Desk layout recovered')}
+        </p>
+      ) : null}
+      <ArrangeBar desk={desk} />
+      <div
+        className="dk-grid"
+        data-layout={custom ? 'custom' : undefined}
+        style={custom ? ({ '--dk-columns': gridColumns(layout) } as CSSProperties) : undefined}
+      >
+        <aside data-testid="dk-left" className="dk-panel dk-left" aria-label={t('Markets')} {...frame('markets')}>
+          {chrome('markets')}
           <div className="dk-fill">
             <div className="dk-tab-title">
               <span>{t('Markets')}</span>
@@ -116,7 +157,8 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
             <MarketsPanel selected={market.symbol} />
           </div>
         </aside>
-        <div data-testid="dk-centre" className="dk-centre">
+        <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
+          {chrome('chart')}
           <ChartPanel market={market} openOrders={openOrders} fills={fills} />
           <OrderPanel
             market={market}
@@ -128,7 +170,27 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
             onPlaced={onPlaced}
           />
         </div>
-        <BookPanel market={market} book={book} ticker={ticker} zone={timeZone} onPick={setSuggestion} onPickPrice={onPickPrice} />
+        <BookPanel
+          market={market}
+          book={book}
+          ticker={ticker}
+          zone={timeZone}
+          onPick={setSuggestion}
+          onPickPrice={onPickPrice}
+          frame={bookFrame}
+          chrome={bookChrome}
+        />
+        {layout.order.includes('trades') ? (
+          <section className="dk-panel dk-trades" aria-labelledby="dk-trades-title" {...frame('trades')}>
+            {chrome('trades')}
+            <h2 id="dk-trades-title" className="dk-tab-title">
+              {t('Market trades')}
+            </h2>
+            <div className="dk-panel-body">
+              <Tape market={market} zone={timeZone} onPickPrice={onPickPrice} active />
+            </div>
+          </section>
+        ) : null}
       </div>
       <BottomTabs
         market={market}
